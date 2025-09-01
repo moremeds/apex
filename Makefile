@@ -19,7 +19,7 @@ install-dev:
 	pre-commit install
 
 test:
-	pytest tests/ -v --cov=quantum_backtest
+	pytest tests/ -v --cov=apex
 
 lint:
 	ruff check src/
@@ -41,7 +41,7 @@ docs:
 	mkdocs build
 
 docker-build:
-	docker build -t quantum-backtest:latest -f docker/Dockerfile .
+	docker build -t apex:latest -f docker/Dockerfile .
 
 docker-run:
 	docker-compose -f docker/docker-compose.yml up

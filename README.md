@@ -1,8 +1,8 @@
-# Quantum Backtest - High-Performance Strategy Backtesting System
+# Apex - High-Performance Strategy Backtesting System
 
 ## Overview
 
-Quantum Backtest is a production-ready, high-performance backtesting system designed for quantitative trading research. Built with a focus on speed (vectorbt-first approach), data quality, and progressive enhancement from MVP to full ML capabilities.
+Apex is a production-ready, high-performance backtesting system designed for quantitative trading research. Built with a focus on speed (vectorbt-first approach), data quality, and progressive enhancement from MVP to full ML capabilities.
 
 ## Key Features
 
@@ -19,8 +19,8 @@ Quantum Backtest is a production-ready, high-performance backtesting system desi
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/quantum-backtest.git
-cd quantum-backtest
+git clone https://github.com/your-org/apex.git
+cd apex
 
 # Install Python 3.12+
 # Then install the package
@@ -36,9 +36,9 @@ python scripts/download_sample_data.py
 ### Run Your First Backtest
 
 ```python
-from quantum_backtest.engine import EngineHarness
-from quantum_backtest.strategies.vectorbt import MovingAverageCrossStrategy
-from quantum_backtest.data.providers import YahooDataProvider
+from apex.engine import EngineHarness
+from apex.strategies.vectorbt import MovingAverageCrossStrategy
+from apex.data.providers import YahooDataProvider
 import asyncio
 
 async def main():
@@ -62,8 +62,8 @@ asyncio.run(main())
 ## Project Structure
 
 ```
-quantum-backtest/
-├── src/quantum_backtest/     # Main package
+apex/
+├── src/apex/                 # Main package
 │   ├── core/                 # Core functionality
 │   ├── data/                 # Data management
 │   ├── strategies/           # Trading strategies

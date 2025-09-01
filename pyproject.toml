@@ -3,14 +3,14 @@ requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "quantum-backtest"
+name = "Apex"
 version = "0.1.0"
 description = "High-performance strategy backtesting system"
 readme = "README.md"
 requires-python = ">=3.12"
 license = {text = "MIT"}
 authors = [
-    {name = "Quantum Backtest Team", email = "team@quantumbacktest.com"}
+    {name = "Chenxi Li", email = "chenxi,li08@outlook.com"}
 ]
 dependencies = [
     "polars>=0.20.3",
@@ -51,7 +51,7 @@ ml = [
 ]
 
 [project.scripts]
-quantum-backtest = "quantum_backtest.cli.main:cli"
+apex = "apex.cli.main:cli"
 
 [tool.black]
 line-length = 88
@@ -71,4 +71,4 @@ disallow_untyped_defs = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
-addopts = "-v --cov=quantum_backtest --cov-report=html"
+addopts = "-v --cov=apex --cov-report=html"
