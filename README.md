@@ -22,15 +22,27 @@ Apex is a production-ready, high-performance backtesting system designed for qua
 git clone https://github.com/your-org/apex.git
 cd apex
 
-# Install Python 3.12+
-# Then install the package
-pip install -e ".[dev,ml]"
+# Install uv (if not already installed)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Create virtual environment with uv
+uv venv
+
+# Activate the virtual environment
+source .venv/bin/activate  # On Unix/macOS
+# Or: .venv\Scripts\activate  # On Windows
+
+# Install dependencies with uv
+uv pip install -e ".[dev,ml]"
+
+# Or simply sync with the lock file
+uv sync
 
 # Setup environment
-python scripts/setup_environment.py
+uv run python scripts/setup_environment.py
 
 # Download sample data
-python scripts/download_sample_data.py
+uv run python scripts/download_sample_data.py
 ```
 
 ### Run Your First Backtest
@@ -104,16 +116,37 @@ Quality scores below 0.7 trigger configurable handling (warn/block/fix).
 
 ## Development
 
+### Dependency Management
+
+This project uses [uv](https://github.com/astral-sh/uv) for fast, reliable Python dependency management.
+
+```bash
+# Add a new dependency
+uv add package-name
+
+# Add a development dependency
+uv add --dev package-name
+
+# Update dependencies
+uv lock --upgrade
+
+# Sync your environment with the lock file
+uv sync
+```
+
 ### Running Tests
 
 ```bash
 # Run all tests with coverage
 make test
 
+# Or directly with uv
+uv run pytest tests/ -v --cov=apex
+
 # Run specific test categories
-pytest tests/unit/ -v
-pytest tests/integration/ -v
-pytest tests/performance/ -v
+uv run pytest tests/unit/ -v
+uv run pytest tests/integration/ -v
+uv run pytest tests/performance/ -v
 ```
 
 ### Code Quality
@@ -125,8 +158,10 @@ make format
 # Run linting
 make lint
 
-# Type checking
-mypy src/ --strict
+# Or directly with uv
+uv run black src/ tests/
+uv run ruff check src/
+uv run mypy src/ --strict
 ```
 
 ### Building Documentation
