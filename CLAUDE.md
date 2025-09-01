@@ -37,50 +37,54 @@ Apex is a high-performance strategy backtesting system designed for quantitative
 
 ### Environment Setup
 ```bash
-# Install Python 3.12+ first, then:
-pip install -e ".[dev,ml]"         # Install all dependencies including dev and ML
-python scripts/setup_environment.py  # Complete environment setup
-python scripts/download_sample_data.py  # Download test data
+# Install Python 3.12+ and uv first, then:
+uv venv                              # Create virtual environment
+source .venv/bin/activate            # Activate it (Unix/macOS)
+uv sync                              # Sync dependencies with lock file
+uv run python scripts/setup_environment.py  # Complete environment setup
+uv run python scripts/download_sample_data.py  # Download test data
 ```
 
 ### Testing
 ```bash
 # Run all tests with coverage
-pytest tests/ -v --cov=quantum_backtest --cov-report=html
+uv run pytest tests/ -v --cov=apex --cov-report=html
 
 # Run specific test categories
-pytest tests/unit/ -v               # Unit tests only
-pytest tests/integration/ -v        # Integration tests
-pytest tests/performance/ -v        # Performance benchmarks
+uv run pytest tests/unit/ -v               # Unit tests only
+uv run pytest tests/integration/ -v        # Integration tests
+uv run pytest tests/performance/ -v        # Performance benchmarks
 
 # Run a single test file
-pytest tests/unit/test_data/test_quality.py -v
+uv run pytest tests/unit/test_data/test_quality.py -v
 
 # Run with specific markers
-pytest -m "not slow" -v            # Skip slow tests
+uv run pytest -m "not slow" -v            # Skip slow tests
 ```
 
 ### Code Quality
 ```bash
 # Format code
-black src/ tests/
-ruff check --fix src/
+uv run black src/ tests/
+uv run ruff check --fix src/
 
 # Type checking
-mypy src/ --strict
+uv run mypy src/ --strict
 
 # Linting
-ruff check src/
+uv run ruff check src/
 ```
 
 ### Development Workflow
 ```bash
-make install-dev    # Install development environment
-make test          # Run test suite
-make lint          # Run linting and type checking
-make format        # Format code
+make venv          # Create virtual environment with uv
+make sync          # Sync dependencies with uv.lock
+make install-dev   # Install development environment with uv
+make test          # Run test suite with uv
+make lint          # Run linting and type checking with uv
+make format        # Format code with uv
 make clean         # Clean build artifacts
-make run-backtest  # Run sample backtest
+make run-backtest  # Run sample backtest with uv
 ```
 
 ## Task Management (Task Master)
@@ -110,23 +114,23 @@ This project uses Task Master AI for task management. Key commands:
 
 ### Core Layers
 
-1. **Data Layer** (`src/quantum_backtest/data/`)
+1. **Data Layer** (`src/apex/data/`)
    - **Providers**: Yahoo Finance, CCXT (crypto), CSV loaders
    - **Quality Framework**: Comprehensive scoring system with 5 quality dimensions
    - **Caching**: Redis-backed caching with file fallback
    - **Feature Store**: Technical indicators and ML features
 
-2. **Strategy Layer** (`src/quantum_backtest/strategies/`)
+2. **Strategy Layer** (`src/apex/strategies/`)
    - **Engine-Specific**: Strategies are written for specific engines (vectorbt, backtrader)
    - **Validation**: Walk-forward analysis, overfitting prevention, parameter stability
    - **Optimization**: Grid search with Bayesian optimization planned
 
-3. **Engine Layer** (`src/quantum_backtest/engine/`)
+3. **Engine Layer** (`src/apex/engine/`)
    - **Harness Pattern**: Unified interface across different backtesting engines
    - **Vectorbt Engine**: Primary engine for speed and vectorized operations
    - **Portfolio Management**: Position sizing, risk management, execution simulation
 
-4. **Analysis Layer** (`src/quantum_backtest/analysis/`)
+4. **Analysis Layer** (`src/apex/analysis/`)
    - **Metrics**: Sharpe, Sortino, Calmar ratios, max drawdown, win rate
    - **Visualization**: Plotly-based interactive charts
    - **Reports**: Markdown and HTML report generation
@@ -217,7 +221,7 @@ The project has several MCP servers enabled:
 - **PRD**: `backtester-prd-final.md` - Complete product requirements
 - **Task Commands**: `.claude/TM_COMMANDS_GUIDE.md` - Task Master command reference
 - **Settings**: `.claude/settings.local.json` - Local Claude settings
-- **Data Cache**: `~/.quantum_backtest/cache/` (default)
+- **Data Cache**: `~/.apex/cache/` (default)
 - **Results**: `./results/` - Backtest results and reports
 - **Configs**: `configs/` - Strategy and environment configurations
 
@@ -237,7 +241,7 @@ The project has several MCP servers enabled:
 ## Common Development Tasks
 
 ### Adding a New Strategy
-1. Create strategy file in `src/quantum_backtest/strategies/vectorbt/`
+1. Create strategy file in `src/apex/strategies/vectorbt/`
 2. Inherit from `VectorbtStrategy`
 3. Implement `generate_signals()` method
 4. Add configuration in `configs/strategies/`
@@ -245,7 +249,7 @@ The project has several MCP servers enabled:
 6. Add to walk-forward validation suite
 
 ### Adding a Data Provider
-1. Create provider in `src/quantum_backtest/data/providers/`
+1. Create provider in `src/apex/data/providers/`
 2. Inherit from base provider class
 3. Implement data fetching and normalization
 4. Add quality scoring integration
@@ -254,9 +258,9 @@ The project has several MCP servers enabled:
 
 ### Running a Backtest
 ```python
-from quantum_backtest.engine import EngineHarness
-from quantum_backtest.strategies.vectorbt import MovingAverageCrossStrategy
-from quantum_backtest.data.providers import YahooDataProvider
+from apex.engine import EngineHarness
+from apex.strategies.vectorbt import MovingAverageCrossStrategy
+from apex.data.providers import YahooDataProvider
 
 # Load data
 provider = YahooDataProvider()
