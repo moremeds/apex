@@ -1,0 +1,592 @@
+{
+  "master": {
+    "tasks": [
+      {
+        "id": 1,
+        "title": "Setup Project Repository",
+        "description": "Initialize the git repository and set up the project structure according to the provided layout in the PRD.",
+        "details": "Create the directory structure as outlined in the PRD. Initialize a git repository and create a README.md file with a brief description of the project. Use the command `git init` to initialize the repository.",
+        "testStrategy": "Verify that the directory structure matches the expected layout and that the git repository is initialized.",
+        "priority": "high",
+        "dependencies": [],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create Directory Structure",
+            "description": "Set up the directory structure as outlined in the PRD.",
+            "dependencies": [],
+            "details": "Create the necessary directories for the project including src, tests, and docs as specified in the PRD.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Initialize Git Repository",
+            "description": "Initialize a new git repository for the project.",
+            "dependencies": [],
+            "details": "Run the command `git init` in the project root to create a new git repository.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Create README.md File",
+            "description": "Create a README.md file with a brief description of the project.",
+            "dependencies": [],
+            "details": "Add a brief overview of the project, its purpose, and how to get started in the README.md file.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Verify Directory Structure",
+            "description": "Ensure that the created directory structure matches the expected layout.",
+            "dependencies": [],
+            "details": "Check that all directories are created as per the PRD and that they are correctly named.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "Commit Initial Project Setup",
+            "description": "Make the initial commit to the git repository.",
+            "dependencies": [],
+            "details": "Stage the created files and directories and commit them with a message indicating the initial project setup.",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Install Core Dependencies",
+        "description": "Install the required Python packages as specified in the requirements.txt and pyproject.toml files.",
+        "details": "Use pip to install the core dependencies listed in requirements.txt and pyproject.toml. Ensure that the versions match those specified in the PRD. Run `pip install -e .` to install the package in editable mode.",
+        "testStrategy": "Run `pip list` to verify that all required packages are installed with the correct versions.",
+        "priority": "high",
+        "dependencies": [
+          1
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Verify requirements.txt and pyproject.toml",
+            "description": "Check the contents of requirements.txt and pyproject.toml to ensure all necessary packages are listed.",
+            "dependencies": [],
+            "details": "Open both files and confirm that they contain the required packages and versions as specified in the PRD.",
+            "status": "pending",
+            "testStrategy": "Review the files for completeness and accuracy."
+          },
+          {
+            "id": 2,
+            "title": "Install dependencies from requirements.txt",
+            "description": "Use pip to install the packages listed in requirements.txt.",
+            "dependencies": [
+              "2.1"
+            ],
+            "details": "Run the command 'pip install -r requirements.txt' to install the required packages.",
+            "status": "pending",
+            "testStrategy": "Run 'pip list' to verify that all packages from requirements.txt are installed."
+          },
+          {
+            "id": 3,
+            "title": "Install dependencies from pyproject.toml",
+            "description": "Use pip to install the packages listed in pyproject.toml.",
+            "dependencies": [
+              "2.1"
+            ],
+            "details": "Run the command 'pip install .', ensuring that the pyproject.toml is correctly configured.",
+            "status": "pending",
+            "testStrategy": "Run 'pip list' to verify that all packages from pyproject.toml are installed."
+          },
+          {
+            "id": 4,
+            "title": "Install package in editable mode",
+            "description": "Run pip to install the package in editable mode.",
+            "dependencies": [
+              "2.2",
+              "2.3"
+            ],
+            "details": "Execute 'pip install -e .' to install the package in editable mode.",
+            "status": "pending",
+            "testStrategy": "Run 'pip list' to confirm that the package is installed in editable mode."
+          },
+          {
+            "id": 5,
+            "title": "Verify installation",
+            "description": "Check that all required packages are installed with the correct versions.",
+            "dependencies": [
+              "2.2",
+              "2.3",
+              "2.4"
+            ],
+            "details": "Run 'pip list' and compare the installed versions with those specified in the PRD.",
+            "status": "pending",
+            "testStrategy": "Ensure that the output of 'pip list' matches the expected package versions."
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Implement Data Pipeline",
+        "description": "Develop the data pipeline to integrate Yahoo Finance and CSV data sources with quality scoring.",
+        "details": "Create the YahooDataProvider class to fetch data from Yahoo Finance using the yfinance library. Implement caching and data quality scoring using the DataQualityScorer class. Ensure that the data is stored in the appropriate format for further processing.",
+        "testStrategy": "Write unit tests to validate the data fetching and quality scoring functionality, ensuring that the data meets the quality thresholds.",
+        "priority": "high",
+        "dependencies": [
+          2
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create YahooDataProvider Class",
+            "description": "Develop the YahooDataProvider class to fetch data from Yahoo Finance using the yfinance library.",
+            "dependencies": [],
+            "details": "Implement methods to retrieve stock data, ensuring proper error handling and logging.",
+            "status": "pending",
+            "testStrategy": "Write unit tests to validate data fetching from Yahoo Finance."
+          },
+          {
+            "id": 2,
+            "title": "Implement Caching Mechanism",
+            "description": "Add caching functionality to the YahooDataProvider class to optimize data retrieval.",
+            "dependencies": [],
+            "details": "Use an in-memory cache to store fetched data temporarily and reduce API calls.",
+            "status": "pending",
+            "testStrategy": "Create tests to ensure that cached data is returned correctly and cache expiration works as intended."
+          },
+          {
+            "id": 3,
+            "title": "Develop DataQualityScorer Class",
+            "description": "Implement the DataQualityScorer class to evaluate the quality of the fetched data.",
+            "dependencies": [],
+            "details": "Define metrics for data quality scoring and implement methods to calculate these scores.",
+            "status": "pending",
+            "testStrategy": "Write unit tests to validate the scoring logic against known data quality thresholds."
+          },
+          {
+            "id": 4,
+            "title": "Store Data in Appropriate Format",
+            "description": "Ensure that the fetched and scored data is stored in the appropriate format for further processing.",
+            "dependencies": [],
+            "details": "Decide on a suitable data structure (e.g., DataFrame) and implement storage logic.",
+            "status": "pending",
+            "testStrategy": "Test the data storage functionality to verify that data is correctly formatted and accessible."
+          },
+          {
+            "id": 5,
+            "title": "Write Unit Tests for Data Pipeline",
+            "description": "Create comprehensive unit tests for the entire data pipeline including fetching, scoring, and storage.",
+            "dependencies": [],
+            "details": "Ensure that all components of the data pipeline are covered by tests to validate functionality.",
+            "status": "pending",
+            "testStrategy": "Run the test suite and ensure all tests pass, achieving at least 80% coverage."
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Develop Backtesting Engine",
+        "description": "Integrate the Vectorbt backtesting engine with basic portfolio management capabilities.",
+        "details": "Implement the VectorbtEngine class to handle backtesting using the vectorbt library. Ensure that it can process signals generated by strategies and manage portfolio performance metrics.",
+        "testStrategy": "Create integration tests to verify that the backtesting engine correctly processes trades and calculates performance metrics.",
+        "priority": "high",
+        "dependencies": [
+          3
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement VectorbtEngine Class",
+            "description": "Create the VectorbtEngine class to handle backtesting using the vectorbt library.",
+            "dependencies": [],
+            "details": "The class should encapsulate the functionality required to initialize and run backtests, including methods for setting up parameters and executing backtests.",
+            "status": "pending",
+            "testStrategy": "Write unit tests to ensure the VectorbtEngine initializes correctly and can execute a basic backtest."
+          },
+          {
+            "id": 2,
+            "title": "Process Strategy Signals",
+            "description": "Implement functionality in VectorbtEngine to process signals generated by trading strategies.",
+            "dependencies": [
+              "4.1"
+            ],
+            "details": "This should include methods to accept signals from various strategies and execute trades based on those signals.",
+            "status": "pending",
+            "testStrategy": "Create integration tests to verify that signals are processed correctly and trades are executed as expected."
+          },
+          {
+            "id": 3,
+            "title": "Manage Portfolio Performance Metrics",
+            "description": "Add methods to the VectorbtEngine for managing and calculating portfolio performance metrics.",
+            "dependencies": [
+              "4.1",
+              "4.2"
+            ],
+            "details": "Metrics should include total return, drawdown, and other relevant performance indicators.",
+            "status": "pending",
+            "testStrategy": "Write unit tests to validate the calculation of performance metrics based on sample backtest results."
+          },
+          {
+            "id": 4,
+            "title": "Integrate with Existing Data Pipeline",
+            "description": "Ensure the VectorbtEngine can utilize data from the existing data pipeline.",
+            "dependencies": [],
+            "details": "This involves modifying the VectorbtEngine to accept data inputs from the YahooDataProvider and ensure compatibility.",
+            "status": "pending",
+            "testStrategy": "Test the integration by running backtests with data fetched from the data pipeline and verifying the results."
+          },
+          {
+            "id": 5,
+            "title": "Documentation and Code Comments",
+            "description": "Document the VectorbtEngine class and its methods thoroughly.",
+            "dependencies": [],
+            "details": "Ensure that all public methods are well-documented and that the code is commented to explain complex logic.",
+            "status": "pending",
+            "testStrategy": "Review documentation and comments for clarity and completeness, ensuring they meet project standards."
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Implement Basic Trading Strategies",
+        "description": "Develop three basic trading strategies: MA Cross, RSI, and Breakout.",
+        "details": "Create strategy classes for MA Cross, RSI, and Breakout strategies. Each strategy should implement the generate_signals method to produce entry and exit signals based on historical data.",
+        "testStrategy": "Write unit tests for each strategy to ensure that they generate correct signals based on sample data.",
+        "priority": "high",
+        "dependencies": [
+          4
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create MA Cross Strategy Class",
+            "description": "Develop the MA Cross strategy class that implements the generate_signals method to produce entry and exit signals based on moving average crossovers.",
+            "dependencies": [],
+            "details": "The MA Cross strategy should take historical price data and calculate short-term and long-term moving averages to generate buy and sell signals.",
+            "status": "pending",
+            "testStrategy": "Write unit tests to validate the signal generation for various historical data inputs."
+          },
+          {
+            "id": 2,
+            "title": "Create RSI Strategy Class",
+            "description": "Develop the RSI strategy class that implements the generate_signals method to produce entry and exit signals based on the Relative Strength Index.",
+            "dependencies": [],
+            "details": "The RSI strategy should calculate the RSI from historical price data and generate signals based on overbought and oversold conditions.",
+            "status": "pending",
+            "testStrategy": "Write unit tests to ensure correct signal generation for different RSI thresholds."
+          },
+          {
+            "id": 3,
+            "title": "Create Breakout Strategy Class",
+            "description": "Develop the Breakout strategy class that implements the generate_signals method to produce entry and exit signals based on price breakouts.",
+            "dependencies": [],
+            "details": "The Breakout strategy should identify key support and resistance levels and generate signals when the price breaks these levels.",
+            "status": "pending",
+            "testStrategy": "Write unit tests to validate breakout signal generation under various market conditions."
+          },
+          {
+            "id": 4,
+            "title": "Integrate Strategy Classes",
+            "description": "Integrate the MA Cross, RSI, and Breakout strategy classes into the existing trading framework.",
+            "dependencies": [
+              "5.1",
+              "5.2",
+              "5.3"
+            ],
+            "details": "Ensure that the new strategy classes can be instantiated and used within the existing trading system, following the established patterns.",
+            "status": "pending",
+            "testStrategy": "Run integration tests to verify that all strategies work together without conflicts."
+          },
+          {
+            "id": 5,
+            "title": "Write Unit Tests for Strategies",
+            "description": "Develop unit tests for each of the trading strategies to ensure they generate correct signals based on sample data.",
+            "dependencies": [
+              "5.1",
+              "5.2",
+              "5.3"
+            ],
+            "details": "Create a comprehensive suite of unit tests that cover various scenarios for each strategy's signal generation.",
+            "status": "pending",
+            "testStrategy": "Ensure all unit tests pass and validate the correctness of the signal outputs."
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Create Validation Framework",
+        "description": "Implement a validation framework for strategies including walk-forward and parameter stability checks.",
+        "details": "Develop the WalkForwardValidator class to perform walk-forward analysis on strategies. Ensure that it can optimize parameters and validate performance across different data segments.",
+        "testStrategy": "Run validation tests on the implemented strategies to ensure that they meet the stability and performance criteria.",
+        "priority": "medium",
+        "dependencies": [
+          5
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Define WalkForwardValidator Class",
+            "description": "Create the WalkForwardValidator class to encapsulate the logic for walk-forward analysis.",
+            "dependencies": [],
+            "details": "Implement the basic structure of the WalkForwardValidator class, including necessary attributes and methods for initialization.",
+            "status": "pending",
+            "testStrategy": "Verify that the class can be instantiated without errors."
+          },
+          {
+            "id": 2,
+            "title": "Implement Parameter Optimization Method",
+            "description": "Develop a method within the WalkForwardValidator class to optimize parameters for strategies.",
+            "dependencies": [
+              "6.1"
+            ],
+            "details": "Create a method that takes strategy parameters and applies optimization techniques to find the best performing set.",
+            "status": "pending",
+            "testStrategy": "Write unit tests to ensure the optimization method returns expected results for given inputs."
+          },
+          {
+            "id": 3,
+            "title": "Add Performance Validation Method",
+            "description": "Implement a method to validate the performance of strategies across different data segments.",
+            "dependencies": [
+              "6.1"
+            ],
+            "details": "Create a method that evaluates the performance of a strategy based on historical data segments and returns validation results.",
+            "status": "pending",
+            "testStrategy": "Run tests with known data segments to ensure the validation method works correctly."
+          },
+          {
+            "id": 4,
+            "title": "Integrate Data Segmentation Logic",
+            "description": "Develop logic to segment data for walk-forward analysis within the WalkForwardValidator class.",
+            "dependencies": [
+              "6.1"
+            ],
+            "details": "Implement functionality to divide historical data into training and testing segments for the analysis process.",
+            "status": "pending",
+            "testStrategy": "Test the data segmentation logic with various datasets to ensure correct segmentation."
+          },
+          {
+            "id": 5,
+            "title": "Document WalkForwardValidator Class",
+            "description": "Create comprehensive documentation for the WalkForwardValidator class and its methods.",
+            "dependencies": [
+              "6.1",
+              "6.2",
+              "6.3",
+              "6.4"
+            ],
+            "details": "Write docstrings and external documentation to explain the purpose and usage of the WalkForwardValidator class and its methods.",
+            "status": "pending",
+            "testStrategy": "Review documentation for clarity and completeness, ensuring it meets project standards."
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Develop Reporting and Visualization",
+        "description": "Create a reporting system to generate markdown reports and basic visualizations of backtesting results.",
+        "details": "Implement the reporting module to generate markdown reports summarizing backtest results. Use Plotly for visualizations of equity curves and performance metrics.",
+        "testStrategy": "Test the reporting functionality by generating reports for sample backtest results and verifying the output format.",
+        "priority": "medium",
+        "dependencies": [
+          6
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Design Markdown Report Structure",
+            "description": "Define the structure and content of the markdown reports to summarize backtest results.",
+            "dependencies": [],
+            "details": "Create a template for the markdown report that includes sections for performance metrics, equity curves, and strategy details.",
+            "status": "pending",
+            "testStrategy": "Review the markdown template to ensure it meets reporting requirements."
+          },
+          {
+            "id": 2,
+            "title": "Implement Markdown Report Generation",
+            "description": "Develop the functionality to generate markdown reports based on backtest results.",
+            "dependencies": [
+              "7.1"
+            ],
+            "details": "Write a function that takes backtest results as input and outputs a formatted markdown report using the defined structure.",
+            "status": "pending",
+            "testStrategy": "Generate a report for sample backtest results and verify the output format against the template."
+          },
+          {
+            "id": 3,
+            "title": "Integrate Plotly for Visualizations",
+            "description": "Set up Plotly to create visualizations for equity curves and performance metrics.",
+            "dependencies": [],
+            "details": "Install Plotly and create functions to generate visualizations that can be embedded in the markdown reports.",
+            "status": "pending",
+            "testStrategy": "Create sample visualizations and ensure they render correctly in a standalone HTML file."
+          },
+          {
+            "id": 4,
+            "title": "Embed Visualizations in Markdown Reports",
+            "description": "Integrate the generated Plotly visualizations into the markdown reports.",
+            "dependencies": [
+              "7.2",
+              "7.3"
+            ],
+            "details": "Modify the markdown report generation function to include links or images of the visualizations created with Plotly.",
+            "status": "pending",
+            "testStrategy": "Generate a complete markdown report and verify that visualizations are correctly linked or embedded."
+          },
+          {
+            "id": 5,
+            "title": "Test Reporting Functionality",
+            "description": "Conduct tests to ensure the reporting system works as intended with various backtest results.",
+            "dependencies": [
+              "7.2",
+              "7.4"
+            ],
+            "details": "Create unit tests to validate the report generation and visualization embedding process, ensuring accuracy and format compliance.",
+            "status": "pending",
+            "testStrategy": "Run tests with different backtest scenarios and verify the correctness of the generated reports."
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Setup Testing Framework",
+        "description": "Establish a testing framework to ensure code quality and coverage.",
+        "details": "Configure pytest for unit and integration testing. Set up coverage reporting to ensure that at least 80% of the code is covered by tests.",
+        "testStrategy": "Run the test suite and check the coverage report to ensure that the coverage meets the specified threshold.",
+        "priority": "medium",
+        "dependencies": [
+          7
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Install pytest and coverage",
+            "description": "Install the pytest and pytest-cov packages to set up the testing framework.",
+            "dependencies": [],
+            "details": "Use pip to install pytest and pytest-cov in the project environment.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Configure pytest for unit testing",
+            "description": "Create a pytest configuration file to define test discovery and settings.",
+            "dependencies": [
+              "8.1"
+            ],
+            "details": "Add a pytest.ini file in the project root with necessary configurations for test discovery.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Set up coverage reporting",
+            "description": "Configure coverage.py to report test coverage and enforce the 80% coverage threshold.",
+            "dependencies": [
+              "8.1"
+            ],
+            "details": "Add coverage configuration in pytest.ini and ensure it runs with the test suite.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Write unit tests for existing modules",
+            "description": "Develop unit tests for key modules in the codebase to ensure functionality.",
+            "dependencies": [
+              "8.2"
+            ],
+            "details": "Identify critical functions and classes, and write corresponding unit tests using pytest.",
+            "status": "pending",
+            "testStrategy": "Run the test suite and check the coverage report to ensure that the coverage meets the specified threshold."
+          },
+          {
+            "id": 5,
+            "title": "Run tests and validate coverage",
+            "description": "Execute the test suite and validate that the coverage meets the 80% requirement.",
+            "dependencies": [
+              "8.3",
+              "8.4"
+            ],
+            "details": "Use the command line to run pytest and check the coverage report for compliance.",
+            "status": "pending",
+            "testStrategy": "Ensure that the coverage report indicates at least 80% coverage across the codebase."
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "Finalize Documentation",
+        "description": "Complete the project documentation including installation instructions and usage guides.",
+        "details": "Update the README.md and other documentation files to reflect the current state of the project. Include installation instructions, usage examples, and API references.",
+        "testStrategy": "Review the documentation for completeness and clarity, ensuring that it accurately describes the project and its components.",
+        "priority": "low",
+        "dependencies": [
+          8
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Update README.md",
+            "description": "Revise the README.md file to include current installation instructions and usage examples.",
+            "dependencies": [],
+            "details": "Ensure that the README.md reflects the latest project structure and provides clear guidance on how to install and use the project.",
+            "status": "pending",
+            "testStrategy": "Review the README.md for clarity and completeness."
+          },
+          {
+            "id": 2,
+            "title": "Document API References",
+            "description": "Create a section in the documentation for API references detailing the available endpoints and their usage.",
+            "dependencies": [],
+            "details": "Include examples of API calls and expected responses to help users understand how to interact with the API.",
+            "status": "pending",
+            "testStrategy": "Verify that all API endpoints are documented and examples are accurate."
+          },
+          {
+            "id": 3,
+            "title": "Add Usage Guides",
+            "description": "Write detailed usage guides for the main features of the project.",
+            "dependencies": [],
+            "details": "Provide step-by-step instructions on how to utilize the key functionalities of the project, including code snippets.",
+            "status": "pending",
+            "testStrategy": "Ensure that the usage guides are easy to follow and cover all major features."
+          },
+          {
+            "id": 4,
+            "title": "Review Existing Documentation",
+            "description": "Examine existing documentation files for consistency and completeness.",
+            "dependencies": [],
+            "details": "Check for outdated information and ensure that all documentation aligns with the current implementation of the project.",
+            "status": "pending",
+            "testStrategy": "Conduct a thorough review of all documentation files for accuracy."
+          },
+          {
+            "id": 5,
+            "title": "Finalize Documentation Formatting",
+            "description": "Ensure that all documentation files follow a consistent formatting style.",
+            "dependencies": [],
+            "details": "Apply consistent headings, bullet points, and code formatting across all documentation files to enhance readability.",
+            "status": "pending",
+            "testStrategy": "Perform a final review to confirm that formatting is uniform throughout the documentation."
+          }
+        ]
+      }
+    ],
+    "metadata": {
+      "created": "2025-08-31T15:21:20.526Z",
+      "updated": "2025-08-31T15:21:20.526Z",
+      "description": "Tasks for master context"
+    }
+  }
+}

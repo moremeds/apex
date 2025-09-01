@@ -1,0 +1,44 @@
+{
+	"mcpServers": {
+		"task-master-ai": {
+			"type": "stdio",
+			"command": "npx",
+			"args": [
+				"-y",
+				"--package=task-master-ai",
+				"task-master-ai"
+			],
+			"env": {
+				"ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY}",
+				"OPENAI_API_KEY": "${OPENAI_API_KEY}"
+			}
+		},
+		"sequential-thinking": {
+			"type": "stdio",
+			"command": "npx",
+			"args": [
+				"-y",
+				"@modelcontextprotocol/server-sequential-thinking"
+			]
+		},
+		"codacy": {
+			"type": "stdio",
+			"command": "npx",
+			"args": [
+				"-y",
+				"@codacy/codacy-mcp"
+			],
+			"env": {
+				"CODACY_ACCOUNT_TOKEN": "${CODACY_ACCOUNT_TOKEN}"
+			}
+		},
+		"mcp-deepwiki": {
+			"type": "stdio",
+			"command": "npx",
+			"args": [
+				"-y",
+				"mcp-deepwiki@latest"
+			]
+		}
+	}
+}
