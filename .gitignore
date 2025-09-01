@@ -144,6 +144,15 @@ cython_debug/
 .vscode/
 *.code-workspace
 
+# Cursor IDE
+.cursor/
+
+# Claude Code
+.claude/
+
+# GitHub workflows (use manually if needed)
+.github/
+
 # OS specific
 .DS_Store
 Thumbs.db
