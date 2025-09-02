@@ -150,9 +150,6 @@ cython_debug/
 # Claude Code
 .claude/
 
-# GitHub workflows (use manually if needed)
-.github/
-
 # OS specific
 .DS_Store
 Thumbs.db

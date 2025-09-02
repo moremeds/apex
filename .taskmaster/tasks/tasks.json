@@ -61,70 +61,65 @@
       {
         "id": 2,
         "title": "Install Core Dependencies",
-        "description": "Install the required Python packages as specified in the requirements.txt and pyproject.toml files.",
-        "details": "Use pip to install the core dependencies listed in requirements.txt and pyproject.toml. Ensure that the versions match those specified in the PRD. Run `pip install -e .` to install the package in editable mode.",
-        "testStrategy": "Run `pip list` to verify that all required packages are installed with the correct versions.",
-        "priority": "high",
+        "description": "Install the required Python packages as specified in the pyproject.toml file and manage dependencies using uv.",
+        "status": "done",
         "dependencies": [
           1
         ],
-        "status": "pending",
+        "priority": "high",
+        "details": "Use uv to manage the core dependencies listed in pyproject.toml and install them from the uv.lock file. The installation process should include creating a virtual environment with 'uv venv', activating the environment, syncing dependencies with 'uv sync', and running the setup script with 'uv run python scripts/setup_environment.py'.",
+        "testStrategy": "Run 'uv list' to verify that all required packages are installed with the correct versions.",
         "subtasks": [
           {
             "id": 1,
-            "title": "Verify requirements.txt and pyproject.toml",
-            "description": "Check the contents of requirements.txt and pyproject.toml to ensure all necessary packages are listed.",
+            "title": "Verify pyproject.toml",
+            "description": "Check the contents of pyproject.toml to ensure all necessary packages are listed.",
+            "status": "done",
             "dependencies": [],
-            "details": "Open both files and confirm that they contain the required packages and versions as specified in the PRD.",
-            "status": "pending",
-            "testStrategy": "Review the files for completeness and accuracy."
+            "details": "Open the file and confirm that it contains the required packages and versions as specified in the PRD.",
+            "testStrategy": "Review the file for completeness and accuracy."
           },
           {
             "id": 2,
-            "title": "Install dependencies from requirements.txt",
-            "description": "Use pip to install the packages listed in requirements.txt.",
-            "dependencies": [
-              "2.1"
-            ],
-            "details": "Run the command 'pip install -r requirements.txt' to install the required packages.",
-            "status": "pending",
-            "testStrategy": "Run 'pip list' to verify that all packages from requirements.txt are installed."
+            "title": "Create virtual environment",
+            "description": "Use uv to create a virtual environment for the project.",
+            "status": "done",
+            "dependencies": [],
+            "details": "Run the command 'uv venv' to create a new virtual environment.",
+            "testStrategy": "Ensure that the virtual environment is created successfully."
           },
           {
             "id": 3,
-            "title": "Install dependencies from pyproject.toml",
-            "description": "Use pip to install the packages listed in pyproject.toml.",
+            "title": "Activate virtual environment",
+            "description": "Activate the virtual environment created for the project.",
+            "status": "done",
             "dependencies": [
-              "2.1"
+              2
             ],
-            "details": "Run the command 'pip install .', ensuring that the pyproject.toml is correctly configured.",
-            "status": "pending",
-            "testStrategy": "Run 'pip list' to verify that all packages from pyproject.toml are installed."
+            "details": "Follow the appropriate command to activate the virtual environment based on the operating system.",
+            "testStrategy": "Verify that the virtual environment is activated."
           },
           {
             "id": 4,
-            "title": "Install package in editable mode",
-            "description": "Run pip to install the package in editable mode.",
+            "title": "Sync dependencies",
+            "description": "Use uv to sync the dependencies from the uv.lock file.",
+            "status": "done",
             "dependencies": [
-              "2.2",
-              "2.3"
+              3
             ],
-            "details": "Execute 'pip install -e .' to install the package in editable mode.",
-            "status": "pending",
-            "testStrategy": "Run 'pip list' to confirm that the package is installed in editable mode."
+            "details": "Run the command 'uv sync' to install the required packages.",
+            "testStrategy": "Run 'uv list' to verify that all packages from the uv.lock file are installed."
           },
           {
             "id": 5,
-            "title": "Verify installation",
-            "description": "Check that all required packages are installed with the correct versions.",
+            "title": "Run setup script",
+            "description": "Execute the setup script to finalize the environment setup.",
+            "status": "done",
             "dependencies": [
-              "2.2",
-              "2.3",
-              "2.4"
+              4
             ],
-            "details": "Run 'pip list' and compare the installed versions with those specified in the PRD.",
-            "status": "pending",
-            "testStrategy": "Ensure that the output of 'pip list' matches the expected package versions."
+            "details": "Run 'uv run python scripts/setup_environment.py' to complete the setup process.",
+            "testStrategy": "Ensure that the setup script runs without errors."
           }
         ]
       },
@@ -138,15 +133,15 @@
         "dependencies": [
           2
         ],
-        "status": "pending",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
             "title": "Create YahooDataProvider Class",
             "description": "Develop the YahooDataProvider class to fetch data from Yahoo Finance using the yfinance library.",
             "dependencies": [],
-            "details": "Implement methods to retrieve stock data, ensuring proper error handling and logging.",
-            "status": "pending",
+            "details": "Implement methods to retrieve stock data, ensuring proper error handling and logging.\n<info added on 2025-09-01T14:44:15.801Z>\nImplementation complete - YahooDataProvider class successfully created with async data fetching from yfinance library, proper error handling, and OHLC data validation. All unit tests passing.\n</info added on 2025-09-01T14:44:15.801Z>",
+            "status": "done",
             "testStrategy": "Write unit tests to validate data fetching from Yahoo Finance."
           },
           {
@@ -155,7 +150,7 @@
             "description": "Add caching functionality to the YahooDataProvider class to optimize data retrieval.",
             "dependencies": [],
             "details": "Use an in-memory cache to store fetched data temporarily and reduce API calls.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Create tests to ensure that cached data is returned correctly and cache expiration works as intended."
           },
           {
@@ -164,7 +159,7 @@
             "description": "Implement the DataQualityScorer class to evaluate the quality of the fetched data.",
             "dependencies": [],
             "details": "Define metrics for data quality scoring and implement methods to calculate these scores.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Write unit tests to validate the scoring logic against known data quality thresholds."
           },
           {
@@ -173,7 +168,7 @@
             "description": "Ensure that the fetched and scored data is stored in the appropriate format for further processing.",
             "dependencies": [],
             "details": "Decide on a suitable data structure (e.g., DataFrame) and implement storage logic.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Test the data storage functionality to verify that data is correctly formatted and accessible."
           },
           {
@@ -182,7 +177,7 @@
             "description": "Create comprehensive unit tests for the entire data pipeline including fetching, scoring, and storage.",
             "dependencies": [],
             "details": "Ensure that all components of the data pipeline are covered by tests to validate functionality.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Run the test suite and ensure all tests pass, achieving at least 80% coverage."
           }
         ]
@@ -197,7 +192,7 @@
         "dependencies": [
           3
         ],
-        "status": "pending",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
@@ -205,7 +200,7 @@
             "description": "Create the VectorbtEngine class to handle backtesting using the vectorbt library.",
             "dependencies": [],
             "details": "The class should encapsulate the functionality required to initialize and run backtests, including methods for setting up parameters and executing backtests.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Write unit tests to ensure the VectorbtEngine initializes correctly and can execute a basic backtest."
           },
           {
@@ -216,7 +211,7 @@
               "4.1"
             ],
             "details": "This should include methods to accept signals from various strategies and execute trades based on those signals.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Create integration tests to verify that signals are processed correctly and trades are executed as expected."
           },
           {
@@ -228,7 +223,7 @@
               "4.2"
             ],
             "details": "Metrics should include total return, drawdown, and other relevant performance indicators.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Write unit tests to validate the calculation of performance metrics based on sample backtest results."
           },
           {
@@ -237,7 +232,7 @@
             "description": "Ensure the VectorbtEngine can utilize data from the existing data pipeline.",
             "dependencies": [],
             "details": "This involves modifying the VectorbtEngine to accept data inputs from the YahooDataProvider and ensure compatibility.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Test the integration by running backtests with data fetched from the data pipeline and verifying the results."
           },
           {
@@ -246,7 +241,7 @@
             "description": "Document the VectorbtEngine class and its methods thoroughly.",
             "dependencies": [],
             "details": "Ensure that all public methods are well-documented and that the code is commented to explain complex logic.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Review documentation and comments for clarity and completeness, ensuring they meet project standards."
           }
         ]
@@ -585,7 +580,7 @@
     ],
     "metadata": {
       "created": "2025-08-31T15:21:20.526Z",
-      "updated": "2025-09-01T13:05:47.474Z",
+      "updated": "2025-09-02T13:30:08.309Z",
       "description": "Tasks for master context"
     }
   }

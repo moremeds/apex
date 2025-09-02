@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = {text = "MIT"}
 authors = [
-    {name = "Chenxi Li", email = "chenxi,li08@outlook.com"}
+    {name = "Chenxi Li", email = "chenxi.li08@outlook.com"}
 ]
 dependencies = [
     "polars>=0.20.3",
@@ -30,7 +30,8 @@ dependencies = [
     "asyncio>=3.4.3",
     "aiohttp>=3.9.1",
     "redis>=5.0.1",
-    "sqlalchemy>=2.0.25"
+    "sqlalchemy>=2.0.25",
+    "pyarrow>=21.0.0",
 ]
 
 [project.optional-dependencies]
