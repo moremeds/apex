@@ -1,0 +1,75 @@
+ibkr:
+  host: 127.0.0.1
+  port: 7497
+  client_id: 1
+
+manual_positions:
+  file: ./positions/manual.yaml
+  reload_interval_sec: 60
+
+risk_limits:
+  max_total_gross_notional: 5_000_000
+  max_per_underlying_notional:
+    default: 1_000_000
+    TSLA: 1_500_000
+    NVDA: 1_200_000
+    SPY: 2_000_000
+  portfolio_delta_range: [-50_000, 50_000]
+  portfolio_vega_range:  [-15_000, 15_000]
+  portfolio_theta_range: [-5_000, 5_000]
+  max_margin_utilization: 0.60
+  max_concentration_pct: 0.30
+  soft_breach_threshold: 0.80
+
+scenarios:
+  enabled: true
+  spot_shocks:
+    - -0.03
+    - -0.05
+    - -0.07
+    - 0.03
+    - 0.05
+  iv_shocks:
+    - 0.05
+    - 0.10
+  combined:
+    - name: "Crash_5pct_IV+20pct"
+      spot: -0.05
+      iv_rel: 0.20
+
+mdqc:
+  stale_seconds: 10
+  ignore_zero_quotes: true
+  enforce_bid_ask_sanity: true
+  max_abs_delta: 1.0
+  fallback_order: ["mid", "theoretical", "last"]
+
+dashboard:
+  refresh_interval_sec: 2
+  show_positions: true
+
+watchdog:
+  snapshot_stale_sec: 10
+  max_missing_md_ratio: 0.2
+  reconnect_backoff_sec:
+    initial: 1
+    max: 60
+    factor: 2
+
+logging:
+  level: INFO
+  json: true
+  file: ./logs/live_risk.log
+
+  # Rotation policy: "size" or "time"
+  rotation: time
+
+  # Size-based rotation settings (used when rotation=size)
+  max_bytes: 10485760  # 10MB = 10 * 1024 * 1024
+
+  # Retention policy (applies to both size and time rotation)
+  backup_count: 7  # Keep 7 backup files (e.g., 7 days of daily logs)
+
+  # Time-based rotation settings (used when rotation=time)
+  when: midnight  # Options: "midnight", "H" (hourly), "D" (daily), "W0"-"W6" (weekday)
+  interval: 1  # Rotate every 1 day (or 1 hour if when=H)
