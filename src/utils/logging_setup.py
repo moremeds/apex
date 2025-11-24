@@ -246,6 +246,9 @@ def setup_category_logging(env: str, log_dir: str = "./logs", level: str = "INFO
     - live_risk_{env}_sys_{date}_{number}.log - System events, errors, connections
     - live_risk_{env}_mkt_{date}_{number}.log - Market data, positions, trading
 
+    Note: Logs are written to files only (no console output) to avoid
+    interfering with the terminal dashboard UI.
+
     Args:
         env: Environment name (dev/prod).
         log_dir: Directory for log files.
@@ -280,11 +283,6 @@ def setup_category_logging(env: str, log_dir: str = "./logs", level: str = "INFO
 
         # JSON formatter
         formatter = JSONFormatter()
-
-        # Console handler
-        console_handler = logging.StreamHandler(sys.stdout)
-        console_handler.setFormatter(formatter)
-        logger.addHandler(console_handler)
 
         # File handler with rotation
         file_path = str(log_path / filename)

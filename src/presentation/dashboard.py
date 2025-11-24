@@ -247,6 +247,7 @@ class TerminalDashboard:
         table.add_column("Ticker", style="bold", no_wrap=True)
         table.add_column("Pos", justify="right", no_wrap=True)
         table.add_column("Mark", justify="right", no_wrap=True)
+        table.add_column("Daily P&L", justify="right", no_wrap=True)
         table.add_column("Unrealised P&L", justify="right", no_wrap=True)
         table.add_column("Delta $", justify="right", no_wrap=True)
         table.add_column("VAR", justify="right", no_wrap=True)
@@ -257,6 +258,9 @@ class TerminalDashboard:
         table.add_column("Hedge", justify="right", no_wrap=True)
 
         # Add portfolio total row
+        total_daily_pnl = sum(
+            self._calculate_daily_pnl(p, market_data.get(p.symbol)) for p in positions
+        )
         total_unrealized = sum(
             self._calculate_unrealized_pnl(p, market_data.get(p.symbol)) for p in positions
         )
@@ -274,6 +278,7 @@ class TerminalDashboard:
             "▼ All Tickers",
             "",
             "",
+            self._format_number(total_daily_pnl, color=True),
             self._format_number(total_unrealized, color=True),
             self._format_number(total_delta_dollars, color=False),
             "",
@@ -285,14 +290,8 @@ class TerminalDashboard:
             style="bold white on rgb(80,80,80)",
         )
 
-        # Add each underlying group (alternating colors)
-        color_idx = 0
-        colors = ["on rgb(70,130,180)", "on rgb(60,179,113)"]  # Blue, Green
-
         for underlying in sorted(by_underlying.keys()):
             underlying_positions = by_underlying[underlying]
-            bg_color = colors[color_idx % 2]
-            color_idx += 1
 
             # Group by expiry within underlying
             by_expiry = {}
@@ -306,6 +305,10 @@ class TerminalDashboard:
                     stock_positions.append(pos)
 
             # Calculate underlying-level totals
+            underlying_daily_pnl = sum(
+                self._calculate_daily_pnl(p, market_data.get(p.symbol))
+                for p in underlying_positions
+            )
             underlying_unrealized = sum(
                 self._calculate_unrealized_pnl(p, market_data.get(p.symbol))
                 for p in underlying_positions
@@ -332,6 +335,7 @@ class TerminalDashboard:
                 f"▼ {underlying} ",
                 "",
                 underlying_mark,
+                self._format_number(underlying_daily_pnl, color=True),
                 self._format_number(underlying_unrealized, color=True),
                 self._format_number(underlying_delta_dollars, color=False),
                 "",
@@ -340,7 +344,7 @@ class TerminalDashboard:
                 self._format_number(underlying_vega, color=False),
                 self._format_number(underlying_theta, color=False),
                 "",
-                style=f"bold white {bg_color}",
+                style=f"bold white ",
             )
 
             # Add stock positions (if any)
@@ -349,9 +353,10 @@ class TerminalDashboard:
                 mark = md.effective_mid() if md else None
 
                 table.add_row(
-                    f"  {pos.symbol} Stock ({pos.source.value})",
-                    self._format_number(pos.quantity, color=False),
+                    f" ({pos.source.value}) {pos.get_display_name()} ",
+                    self._format_quantity(pos.quantity),
                     f"{mark:.2f}" if mark else "",
+                    self._format_number(self._calculate_daily_pnl(pos, md), color=True),
                     self._format_number(self._calculate_unrealized_pnl(pos, md), color=True),
                     self._format_number(self._calculate_delta_dollars(pos, md), color=False),
                     "",
@@ -360,7 +365,7 @@ class TerminalDashboard:
                     "",
                     "",
                     "",
-                    style=f"white {bg_color}",
+                    style=f"white ",
                 )
 
             # Add expiry groups
@@ -368,6 +373,10 @@ class TerminalDashboard:
                 expiry_positions = by_expiry[expiry]
 
                 # Calculate expiry-level totals
+                expiry_daily_pnl = sum(
+                    self._calculate_daily_pnl(p, market_data.get(p.symbol))
+                    for p in expiry_positions
+                )
                 expiry_unrealized = sum(
                     self._calculate_unrealized_pnl(p, market_data.get(p.symbol))
                     for p in expiry_positions
@@ -387,6 +396,7 @@ class TerminalDashboard:
                     f"  ▼ {expiry}",
                     "",
                     "",
+                    self._format_number(expiry_daily_pnl, color=True),
                     self._format_number(expiry_unrealized, color=True),
                     self._format_number(expiry_delta_dollars, color=False),
                     "",
@@ -395,7 +405,7 @@ class TerminalDashboard:
                     self._format_number(expiry_vega, color=False),
                     self._format_number(expiry_theta, color=False),
                     "",
-                    style=f"bold white {bg_color}",
+                    style=f"bold white ",
                 )
 
                 # Add individual option positions
@@ -405,12 +415,13 @@ class TerminalDashboard:
 
                     option_desc = f"{pos.symbol}"
                     if pos.strike and pos.right:
-                        option_desc = f"{underlying} {expiry.strftime('%b %d \'%y')} {pos.strike} {pos.right}ut"
+                        option_desc = f"{pos.get_display_name()}"
 
                     table.add_row(
                         f"    {option_desc}",
-                        self._format_number(pos.quantity, color=False),
+                        self._format_quantity(pos.quantity),
                         f"{mark:.3f}" if mark else "",
+                        self._format_number(self._calculate_daily_pnl(pos, md), color=True),
                         self._format_number(self._calculate_unrealized_pnl(pos, md), color=True),
                         self._format_number(self._calculate_delta_dollars(pos, md), color=False),
                         "",
@@ -419,18 +430,46 @@ class TerminalDashboard:
                         self._format_number(self._get_greek(pos.symbol, market_data, "vega", 0) * pos.quantity * pos.multiplier, color=False),
                         self._format_number(self._get_greek(pos.symbol, market_data, "theta", 0) * pos.quantity * pos.multiplier, color=False),
                         "",
-                        style=f"white {bg_color}",
+                        style=f"white ",
                     )
 
         return Panel(table, title="Portfolio Positions", border_style="blue")
 
+    def _calculate_daily_pnl(
+        self, pos: Position, md: Optional[MarketData]
+    ) -> float:
+        """Calculate daily P&L for a position (current mark - yesterday close)."""
+        if not md or not md.effective_mid() or not md.yesterday_close:
+            return 0.0
+        current_mark = md.effective_mid()
+        return (current_mark - md.yesterday_close) * pos.quantity * pos.multiplier
+
     def _calculate_unrealized_pnl(
         self, pos: Position, md: Optional[MarketData]
     ) -> float:
-        """Calculate unrealized P&L for a position."""
+        """
+        Calculate unrealized P&L for a position.
+
+        For options:
+        - avg_price is cost per contract (e.g., $250 for contract bought at $2.50 premium)
+        - mark is premium per share (e.g., $2.50)
+        - P&L = (mark × multiplier - avg_price) × quantity
+
+        For stocks:
+        - avg_price is cost per share
+        - mark is price per share
+        - P&L = (mark - avg_price) × quantity × multiplier (multiplier=1)
+        """
         if not md or not md.effective_mid():
             return 0.0
         mark = md.effective_mid()
+
+        # Options: avg_price is per contract, mark is per share
+        if pos.asset_type.value == "OPTION":
+            current_value = mark * pos.multiplier  # Convert to per-contract value
+            return (current_value - pos.avg_price) * pos.quantity
+
+        # Stocks/others: both are per share
         return (mark - pos.avg_price) * pos.quantity * pos.multiplier
 
     def _calculate_delta_dollars(
@@ -462,6 +501,17 @@ class TerminalDashboard:
         if not md:
             return default
         return getattr(md, greek, default) or default
+
+    def _format_quantity(self, value: float) -> str:
+        """Format quantity with decimal places for fractional shares/contracts."""
+        if abs(value) < 0.001:
+            return ""
+
+        # Show decimals only if needed
+        if value == int(value):
+            return f"{int(value):,}"
+        else:
+            return f"{value:,.2f}"
 
     def _format_number(self, value: float, color: bool = False) -> str:
         """Format number with optional color coding for P&L."""

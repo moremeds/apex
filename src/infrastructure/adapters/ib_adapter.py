@@ -5,7 +5,7 @@ Implements PositionProvider and MarketDataProvider interfaces for IBKR TWS/Gatew
 """
 
 from __future__ import annotations
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Literal
 from datetime import datetime
 from math import isnan
 import logging
@@ -109,7 +109,6 @@ class IbAdapter(PositionProvider, MarketDataProvider):
             ib_positions = await self.ib.reqPositionsAsync()
 
             for ib_pos in ib_positions:
-                contract = ib_pos.contract
                 position = self._convert_ib_position(ib_pos)
                 positions.append(position)
 
@@ -142,26 +141,27 @@ class IbAdapter(PositionProvider, MarketDataProvider):
         else:
             asset_type = AssetType.CASH
 
-        # TODO: Parse contract details (expiry, strike, right) for options
-        # This is a skeleton - full implementation needed
-
         return Position(
-            symbol=contract.symbol,
+            symbol=contract.localSymbol,
             underlying=contract.symbol,  # Simplified - extract from contract
             asset_type=asset_type,
-            quantity=int(ib_pos.position),
-            avg_price=ib_pos.avgCost / abs(ib_pos.position) if ib_pos.position != 0 else 0,
+            quantity=float(ib_pos.position),
+            strike=float(contract.strike),
+            right=contract.right,
+            expiry=contract.lastTradeDateOrContractMonth,
+            avg_price=ib_pos.avgCost,
             multiplier=int(contract.multiplier or 1),
             source=PositionSource.IB,
             last_updated=datetime.now(),
+            account_id=ib_pos.account,
         )
 
-    async def fetch_market_data(self, symbols: List[str]) -> List[MarketData]:
+    async def fetch_market_data(self, positions: List[Position]) -> List[MarketData]:
         """
         Fetch market data for given symbols.
 
         Args:
-            symbols: List of symbols to fetch.
+            positions: List of positions.
 
         Returns:
             List of MarketData objects.
@@ -178,19 +178,26 @@ class IbAdapter(PositionProvider, MarketDataProvider):
             from ib_async import Stock, Option
 
             # Fetch market data for each symbol
-            for symbol in symbols:
+            for pos in positions:
+                symbol = pos.symbol
                 try:
                     # Create contract based on symbol
                     # This is simplified - proper parsing needed for options
-                    if " " in symbol:
+                    if pos.asset_type == AssetType.OPTION:
                         # Option symbol (contains spaces)
-                        # TODO: Parse option symbol properly
-                        # For now, skip options and just do stocks
-                        logger.debug(f"Skipping option symbol for now: {symbol}")
-                        continue
+                        contract = Option(
+                            symbol=pos.underlying,  # Use underlying ticker, not full option symbol
+                            lastTradeDateOrContractMonth=pos.expiry,
+                            strike=pos.strike,
+                            right=str(pos.right),
+                            exchange="SMART",
+                            multiplier=str(pos.multiplier),
+                            currency="USD",
+                        )
+
                     else:
                         # Stock symbol
-                        contract = Stock(symbol, 'SMART', 'USD')
+                        contract = Stock(pos.symbol, 'SMART', currency="USD")
 
                     # Qualify the contract
                     await self.ib.qualifyContractsAsync(contract)
@@ -209,6 +216,7 @@ class IbAdapter(PositionProvider, MarketDataProvider):
                             ask=float(t.ask) if t.ask and not isnan(t.ask) else None,
                             mid=float((t.bid + t.ask) / 2) if t.bid and t.ask and not isnan(t.bid) and not isnan(t.ask) else None,
                             volume=int(t.volume) if t.volume and not isnan(t.volume) else None,
+                            yesterday_close=float(t.close) if hasattr(t, 'close') and t.close and not isnan(t.close) else None,
                             timestamp=datetime.now(),
                         )
 
@@ -223,7 +231,7 @@ class IbAdapter(PositionProvider, MarketDataProvider):
                     logger.warning(f"Failed to fetch market data for {symbol}: {e}")
                     continue
 
-            logger.info(f"Fetched market data for {len(market_data_list)}/{len(symbols)} symbols")
+            logger.info(f"Fetched market data for {len(market_data_list)}/{len(positions)} symbols")
 
         except Exception as e:
             logger.error(f"Error fetching market data: {e}")

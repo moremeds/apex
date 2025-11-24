@@ -86,6 +86,10 @@ class MockMarketDataProvider:
         price_movement = random.uniform(-0.02, 0.02)
         current_price = base_price * (1 + price_movement)
 
+        # Generate previous close (yesterday's close, slight difference from today)
+        yesterday_movement = random.uniform(-0.015, 0.015)
+        yesterday_close = base_price * (1 + yesterday_movement)
+
         # Create bid/ask spread (0.01% - 0.1%)
         spread_pct = random.uniform(0.0001, 0.001)
         spread = current_price * spread_pct
@@ -103,6 +107,7 @@ class MockMarketDataProvider:
                 ask=ask,
                 mid=mid,
                 volume=random.randint(1000000, 10000000),
+                yesterday_close=yesterday_close,
                 delta=1.0,  # Stocks always have delta=1
                 timestamp=datetime.now(),
                 greeks_source=GreeksSource.MOCK,
@@ -113,6 +118,7 @@ class MockMarketDataProvider:
             # Option market data
             # Generate reasonable option prices (simplified)
             option_price = base_price * random.uniform(0.01, 0.10)
+            yesterday_option_price = option_price * random.uniform(0.95, 1.05)
 
             option_bid = option_price * 0.98
             option_ask = option_price * 1.02
@@ -131,6 +137,7 @@ class MockMarketDataProvider:
                 ask=option_ask,
                 mid=option_mid,
                 volume=random.randint(100, 10000),
+                yesterday_close=yesterday_option_price,
                 delta=delta,
                 gamma=gamma,
                 vega=vega,

@@ -215,10 +215,11 @@ class Orchestrator:
         symbols = [p.symbol for p in merged_positions]
         try:
             if self.ib_adapter.is_connected():
-                market_data_list = await self.ib_adapter.fetch_market_data(symbols)
+                market_data_list = await self.ib_adapter.fetch_market_data(merged_positions)
                 self.market_data_store.upsert(market_data_list)
             else:
                 # IB not connected - use mock data for testing
+                #todo add warning at ui
                 logger.warning("IB not connected - generating mock market data for testing")
                 from ..infrastructure.adapters.mock_market_data import MockMarketDataProvider
                 mock_provider = MockMarketDataProvider()
@@ -270,24 +271,50 @@ class Orchestrator:
         """
         Merge positions from multiple sources.
 
-        IB positions take precedence over manual positions (same key).
+        For positions with the same key:
+        - Aggregates quantities across accounts/sources
+        - Computes weighted average price
+        - IB source takes precedence over manual for metadata
 
         Args:
             ib_positions: Positions from IB.
             manual_positions: Positions from manual file.
 
         Returns:
-            Merged position list.
+            Merged position list with aggregated quantities.
         """
         merged = {}
 
-        # Add manual positions first
-        for p in manual_positions:
-            merged[p.key()] = p
+        # Process all positions (manual first, then IB)
+        for p in manual_positions + ib_positions:
+            key = p.key()
 
-        # IB positions override
-        for p in ib_positions:
-            merged[p.key()] = p
+            if key not in merged:
+                # First time seeing this position
+                merged[key] = p
+            else:
+                # Aggregate with existing position
+                existing = merged[key]
+
+                # Compute weighted average price
+                total_value = (existing.avg_price * existing.quantity * existing.multiplier +
+                              p.avg_price * p.quantity * p.multiplier)
+                total_quantity = existing.quantity + p.quantity
+
+                if total_quantity != 0:
+                    new_avg_price = total_value / (total_quantity * existing.multiplier)
+                else:
+                    new_avg_price = existing.avg_price
+
+                # Update existing position
+                existing.quantity = total_quantity
+                existing.avg_price = new_avg_price
+
+                # IB source takes precedence for metadata
+                if p.source.value == "IB":
+                    existing.source = p.source
+                    existing.last_updated = p.last_updated
+                    existing.account_id = p.account_id  # Keep last account_id for reference
 
         return list(merged.values())
 

@@ -29,7 +29,7 @@ async def test_health_registration():
     try:
         # Load configuration
         print("\n1. Loading configuration...")
-        config_manager = ConfigManager(config_dir=".", env="dev")
+        config_manager = ConfigManager(config_dir="../..", env="dev")
         config = config_manager.load()
         print(f"   ✓ Configuration loaded")
 

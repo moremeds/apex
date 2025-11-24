@@ -143,10 +143,17 @@ class RiskEngine:
                     snapshot.vega_notional_near_term += abs(vega_notional)
 
             # P&L calculation
-            cost_basis = pos.avg_price * pos.quantity * pos.multiplier
-            unrealized = (mark - pos.avg_price) * pos.quantity * pos.multiplier
+            # For options: avg_price is per contract, mark is per share
+            # For stocks: both are per share
+            if pos.asset_type.value == "OPTION":
+                current_value = mark * pos.multiplier  # Convert to per-contract value
+                unrealized = (current_value - pos.avg_price) * pos.quantity
+            else:
+                unrealized = (mark - pos.avg_price) * pos.quantity * pos.multiplier
+
             snapshot.total_unrealized_pnl += unrealized
 
+            # Daily P&L: both mark and yesterday_close are per share (same units)
             if md.yesterday_close:
                 daily_pnl = (mark - md.yesterday_close) * pos.quantity * pos.multiplier
                 snapshot.total_daily_pnl += daily_pnl

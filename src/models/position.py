@@ -30,12 +30,12 @@ class Position:
     symbol: str
     underlying: str
     asset_type: AssetType
-    quantity: int
+    quantity: float
     avg_price: float
     multiplier: int = 1
 
     # Option/Future specific
-    expiry: Optional[date] = None
+    expiry: Optional[str] = None
     strike: Optional[float] = None
     right: Optional[Literal["C", "P"]] = None
 
@@ -61,12 +61,20 @@ class Position:
             self.right,
         )
 
+    def get_display_name(self) -> str:
+        if self.asset_type == AssetType.STOCK:
+            return f"{self.symbol}"
+        if self.asset_type == AssetType.OPTION:
+            return f"{self.underlying} {self.expiry} {self.strike}{self.right}"
+        return "Err Name"
+
     def days_to_expiry(self, ref_date: Optional[date] = None) -> Optional[int]:
         """Calculate days to expiry from reference date (default: today)."""
-        if self.expiry is None:
+        if self.expiry is None or self.expiry=="":
             return None
+        expiry_date = datetime.strptime(self.expiry, "%Y%m%d").date()
         ref = ref_date or date.today()
-        return (self.expiry - ref).days
+        return (expiry_date - ref).days
 
     def expiry_bucket(self, ref_date: Optional[date] = None) -> str:
         """

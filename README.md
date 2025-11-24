@@ -20,6 +20,15 @@ APEX is a real-time risk management system for monitoring options and derivative
 
 ## Architecture
 
+The project follows a Hexagonal (Ports and Adapters) architecture, which separates the core business logic from external concerns like data sources and user interfaces. This makes the system modular and easier to maintain.
+
+*   **Domain (`src/domain`):** Contains the core business logic, including services for risk calculation (`RiskEngine`), data validation (`MDQC`), and rule checking (`RuleEngine`).
+*   **Application (`src/application`):** The `Orchestrator` acts as the central coordinator, managing the flow of data between the domain and infrastructure layers.
+*   **Infrastructure (`src/infrastructure`):** Handles all external interactions. This includes adapters for connecting to external systems (like Interactive Brokers) and in-memory stores for managing application state.
+*   **Presentation (`src/presentation`):** The `TerminalDashboard` provides a text-based UI to display risk information.
+
+### Directory Structure
+
 ```
 apex/
 ├── config/               # Configuration files
@@ -48,6 +57,15 @@ apex/
 ├── main.py               # Entry point
 └── pyproject.toml        # uv project config
 ```
+
+### Data Flow
+
+1.  The `Orchestrator` fetches position data from Interactive Brokers and local files.
+2.  The `Reconciler` service compares this data with the existing positions stored in memory.
+3.  Market data is fetched and stored.
+4.  The `RiskEngine` processes the data to produce a `RiskSnapshot`.
+5.  The `RuleEngine` checks the snapshot for any rule breaches.
+6.  The `TerminalDashboard` displays the final risk snapshot.
 
 ## Prerequisites
 
