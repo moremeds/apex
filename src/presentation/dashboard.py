@@ -61,7 +61,7 @@ class TerminalDashboard:
             Layout(name="header", size=3),
             Layout(name="profile"),  # Portfolio positions section
             Layout(name="body"),
-            Layout(name="footer", size=3),
+            Layout(name="footer", size=7),  # Increased to fit 4 health components + borders
         )
         layout["body"].split_row(
             Layout(name="left"),
@@ -244,16 +244,16 @@ class TerminalDashboard:
 
         # Create table
         table = Table(show_header=True, box=None, padding=(0, 1))
-        table.add_column("Underlying", style="bold", no_wrap=True)
-        table.add_column("Position", justify="right", no_wrap=True)
+        table.add_column("Ticker", style="bold", no_wrap=True)
+        table.add_column("Pos", justify="right", no_wrap=True)
         table.add_column("Mark", justify="right", no_wrap=True)
-        table.add_column("Unrealized\nP&L", justify="right", no_wrap=True)
-        table.add_column("Delta\nDollars", justify="right", no_wrap=True)
+        table.add_column("Unrealised P&L", justify="right", no_wrap=True)
+        table.add_column("Delta $", justify="right", no_wrap=True)
         table.add_column("VAR", justify="right", no_wrap=True)
-        table.add_column("Delta (Δ)", justify="right", no_wrap=True)
-        table.add_column("Gamma...", justify="right", no_wrap=True)
-        table.add_column("Vega (ν)", justify="right", no_wrap=True)
-        table.add_column("Theta (Θ)", justify="right", no_wrap=True)
+        table.add_column("D(Δ)", justify="right", no_wrap=True)
+        table.add_column("G(γ)", justify="right", no_wrap=True)
+        table.add_column("V(ν)", justify="right", no_wrap=True)
+        table.add_column("Th(Θ)", justify="right", no_wrap=True)
         table.add_column("Hedge", justify="right", no_wrap=True)
 
         # Add portfolio total row
@@ -271,7 +271,7 @@ class TerminalDashboard:
         portfolio_theta = sum(self._get_greek(p.symbol, market_data, "theta", 0) * p.quantity * p.multiplier for p in positions)
 
         table.add_row(
-            "▼ All Underlyings",
+            "▼ All Tickers",
             "",
             "",
             self._format_number(total_unrealized, color=True),
@@ -329,7 +329,7 @@ class TerminalDashboard:
 
             # Add underlying header row
             table.add_row(
-                f"▼ {underlying} <ARCA>",
+                f"▼ {underlying} ",
                 "",
                 underlying_mark,
                 self._format_number(underlying_unrealized, color=True),

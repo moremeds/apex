@@ -79,6 +79,7 @@ class HealthMonitor:
             metadata=metadata or {},
         )
         logger.debug(f"{component_name} health updated: {status.value} - {message}")
+        logger.debug(f"Total health components in monitor: {len(self._component_health)}")
 
     def get_component_health(self, component_name: str) -> ComponentHealth | None:
         """Get health status for a component."""

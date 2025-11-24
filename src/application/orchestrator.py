@@ -140,26 +140,32 @@ class Orchestrator:
 
     async def _connect_providers(self) -> None:
         """Connect to all data providers."""
+        # IB Adapter connection
         try:
+            logger.info("Attempting to connect to IB adapter...")
             await self.ib_adapter.connect()
             self.health_monitor.update_component_health(
                 "ib_adapter", HealthStatus.HEALTHY, "Connected"
             )
+            logger.info("IB adapter connected successfully")
         except Exception as e:
             logger.error(f"Failed to connect IB adapter: {e}")
             self.health_monitor.update_component_health(
-                "ib_adapter", HealthStatus.UNHEALTHY, f"Connection failed: {e}"
+                "ib_adapter", HealthStatus.UNHEALTHY, f"Connection failed: {str(e)[:50]}"
             )
 
+        # File loader connection
         try:
+            logger.info("Loading manual positions from file...")
             await self.file_loader.connect()
             self.health_monitor.update_component_health(
                 "file_loader", HealthStatus.HEALTHY, "Loaded"
             )
+            logger.info("Manual positions loaded successfully")
         except Exception as e:
             logger.error(f"Failed to load manual positions: {e}")
             self.health_monitor.update_component_health(
-                "file_loader", HealthStatus.UNHEALTHY, f"Load failed: {e}"
+                "file_loader", HealthStatus.UNHEALTHY, f"Load failed: {str(e)[:50]}"
             )
 
     async def _main_loop(self) -> None:

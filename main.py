@@ -71,7 +71,7 @@ Examples:
 async def main_async(args: argparse.Namespace) -> None:
     """Main async entry point."""
     # Set up category-based logging with environment prefix
-    category_loggers = setup_category_logging(env=args.env, log_dir="./logs", level="INFO")
+    category_loggers = setup_category_logging(env=args.env, log_dir="./logs", level="DEBUG")
     system_logger = category_loggers["system"]
     market_logger = category_loggers["market"]
 
@@ -160,6 +160,17 @@ async def main_async(args: argparse.Namespace) -> None:
         system_structured.info(LogCategory.SYSTEM, "Starting orchestrator")
         await orchestrator.start()
 
+        # Give orchestrator a moment to fully initialize
+        await asyncio.sleep(0.5)
+
+        # Debug: Check health components after orchestrator start
+        initial_health = health_monitor.get_all_health()
+        system_structured.info(
+            LogCategory.SYSTEM,
+            f"Health components after orchestrator start: {len(initial_health)}",
+            {"components": [h.component_name for h in initial_health]}
+        )
+
         # Start dashboard (blocking)
         if dashboard:
             dashboard.start()
@@ -169,6 +180,14 @@ async def main_async(args: argparse.Namespace) -> None:
                 while True:
                     snapshot = orchestrator.get_latest_snapshot()
                     health = health_monitor.get_all_health()
+
+                    # Debug: Log health component count
+                    if len(health) < 4:
+                        system_structured.warning(
+                            LogCategory.SYSTEM,
+                            f"Health components incomplete: {len(health)}/4",
+                            {"components": [h.component_name for h in health]}
+                        )
 
                     if snapshot:
                         breaches = rule_engine.evaluate(snapshot)

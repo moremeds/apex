@@ -63,17 +63,25 @@ class Watchdog:
 
     def _initialize_health_components(self) -> None:
         """Initialize health components with default states."""
+        logger.info("Watchdog: Initializing health components...")
         self.health_monitor.update_component_health(
             "market_data_coverage",
             HealthStatus.UNKNOWN,
             "Waiting for data...",
             {"missing_count": 0, "total": 0},
         )
+        logger.info("Watchdog: Registered market_data_coverage")
+
         self.health_monitor.update_component_health(
             "snapshot_freshness",
             HealthStatus.UNKNOWN,
             "Waiting for first snapshot...",
         )
+        logger.info("Watchdog: Registered snapshot_freshness")
+
+        # Log total components after initialization
+        all_health = self.health_monitor.get_all_health()
+        logger.info(f"Watchdog: Total health components after init: {len(all_health)}")
 
     async def start(self) -> None:
         """Start watchdog monitoring loop."""
