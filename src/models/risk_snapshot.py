@@ -3,7 +3,41 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
+
+
+@dataclass
+class PositionRisk:
+    """
+    Per-position risk view calculated by the RiskEngine.
+
+    Contains pricing, P&L, Greeks, and grouping metadata needed by the
+    presentation layer without re-computation.
+    """
+
+    symbol: str
+    underlying: str
+    expiry: Optional[str]
+    strike: Optional[float]
+    right: Optional[str]
+    quantity: float
+    avg_price: float
+    mark: Optional[float]
+    market_value: float
+    notional: float
+    unrealized_pnl: float
+    daily_pnl: float
+    delta_contribution: float
+    gamma_contribution: float
+    vega_contribution: float
+    theta_contribution: float
+    delta_dollars: float
+    expiry_bucket: str
+    days_to_expiry: int | None
+    gamma_notional_near_term: float
+    vega_notional_near_term: float
+    has_missing_md: bool
+    has_missing_greeks: bool
 
 
 @dataclass
@@ -53,6 +87,9 @@ class RiskSnapshot:
 
     # Risk limit breaches
     breached_limits: List[str] = field(default_factory=list)
+
+    # Per-position metrics for presentation (single source of truth)
+    positions: List[PositionRisk] = field(default_factory=list)
 
     # Data quality
     positions_with_missing_md: int = 0

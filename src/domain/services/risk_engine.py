@@ -13,35 +13,14 @@ Performance features:
 """
 
 from __future__ import annotations
-from typing import Dict, List, Any, Tuple
+from typing import Dict, List, Any
 from datetime import date
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
 from ...models.position import Position
 from ...models.market_data import MarketData
 from ...models.account import AccountInfo
-from ...models.risk_snapshot import RiskSnapshot
+from ...models.risk_snapshot import RiskSnapshot, PositionRisk
 from ...utils.market_hours import MarketHours
-
-
-@dataclass
-class PositionMetrics:
-    """Metrics calculated for a single position."""
-    symbol: str
-    underlying: str
-    notional: float
-    unrealized_pnl: float
-    daily_pnl: float
-    delta_contribution: float
-    gamma_contribution: float
-    vega_contribution: float
-    theta_contribution: float
-    expiry_bucket: str
-    days_to_expiry: int | None
-    gamma_notional_near_term: float
-    vega_notional_near_term: float
-    has_missing_md: bool
-    has_missing_greeks: bool
 
 
 class RiskEngine:
@@ -108,7 +87,7 @@ class RiskEngine:
 
     def _calculate_position_metrics(
         self, pos: Position, market_data: Dict[str, MarketData]
-    ) -> PositionMetrics | None:
+    ) -> PositionRisk | None:
         """
         Calculate metrics for a single position.
 
@@ -117,15 +96,22 @@ class RiskEngine:
             market_data: Market data dictionary.
 
         Returns:
-            PositionMetrics or None if missing data.
+            PositionRisk or None if missing data.
         """
         md = market_data.get(pos.symbol)
 
         # Track missing market data
         if md is None:
-            return PositionMetrics(
+            return PositionRisk(
                 symbol=pos.symbol,
                 underlying=pos.underlying,
+                expiry=pos.expiry,
+                strike=pos.strike,
+                right=pos.right,
+                quantity=pos.quantity,
+                avg_price=pos.avg_price,
+                mark=None,
+                market_value=0.0,
                 notional=0.0,
                 unrealized_pnl=0.0,
                 daily_pnl=0.0,
@@ -133,6 +119,7 @@ class RiskEngine:
                 gamma_contribution=0.0,
                 vega_contribution=0.0,
                 theta_contribution=0.0,
+                delta_dollars=0.0,
                 expiry_bucket=pos.expiry_bucket(),
                 days_to_expiry=pos.days_to_expiry(),
                 gamma_notional_near_term=0.0,
@@ -143,9 +130,16 @@ class RiskEngine:
 
         mark = md.effective_mid()
         if mark is None:
-            return PositionMetrics(
+            return PositionRisk(
                 symbol=pos.symbol,
                 underlying=pos.underlying,
+                expiry=pos.expiry,
+                strike=pos.strike,
+                right=pos.right,
+                quantity=pos.quantity,
+                avg_price=pos.avg_price,
+                mark=None,
+                market_value=0.0,
                 notional=0.0,
                 unrealized_pnl=0.0,
                 daily_pnl=0.0,
@@ -153,6 +147,7 @@ class RiskEngine:
                 gamma_contribution=0.0,
                 vega_contribution=0.0,
                 theta_contribution=0.0,
+                delta_dollars=0.0,
                 expiry_bucket=pos.expiry_bucket(),
                 days_to_expiry=pos.days_to_expiry(),
                 gamma_notional_near_term=0.0,
@@ -161,7 +156,7 @@ class RiskEngine:
                 has_missing_greeks=False,
             )
 
-        # Calculate position notional
+        # Calculate position notional using live mark (no market hours adjustments)
         notional = mark * pos.quantity * pos.multiplier
 
         # Aggregate Greeks (use IBKR only, skip if missing)
@@ -180,9 +175,16 @@ class RiskEngine:
                 theta_contribution = 0.0
                 has_missing_greeks = False
             else:
-                return PositionMetrics(
+                return PositionRisk(
                     symbol=pos.symbol,
                     underlying=pos.underlying,
+                    expiry=pos.expiry,
+                    strike=pos.strike,
+                    right=pos.right,
+                    quantity=pos.quantity,
+                    avg_price=pos.avg_price,
+                    mark=mark,
+                    market_value=0.0,
                     notional=notional,
                     unrealized_pnl=0.0,
                     daily_pnl=0.0,
@@ -190,6 +192,7 @@ class RiskEngine:
                     gamma_contribution=0.0,
                     vega_contribution=0.0,
                     theta_contribution=0.0,
+                    delta_dollars=0.0,
                     expiry_bucket=pos.expiry_bucket(),
                     days_to_expiry=pos.days_to_expiry(),
                     gamma_notional_near_term=0.0,
@@ -231,6 +234,9 @@ class RiskEngine:
             pnl_price = md.yesterday_close if md.yesterday_close else mark
             calculate_daily_pnl = False
 
+        # Calculate market value using market-hours-aware price
+        market_value = pnl_price * pos.quantity * pos.multiplier
+
         # Calculate unrealized P&L
         # For options: avg_price is per contract, pnl_price is per share
         # For stocks: both are per share
@@ -245,9 +251,18 @@ class RiskEngine:
         if calculate_daily_pnl and md.yesterday_close:
             daily_pnl = (mark - md.yesterday_close) * pos.quantity * pos.multiplier
 
-        return PositionMetrics(
+        delta_dollars = delta_contribution * (mark if mark is not None else 0.0)
+
+        return PositionRisk(
             symbol=pos.symbol,
             underlying=pos.underlying,
+            expiry=pos.expiry,
+            strike=pos.strike,
+            right=pos.right,
+            quantity=pos.quantity,
+            avg_price=pos.avg_price,
+            mark=mark,
+            market_value=market_value,
             notional=notional,
             unrealized_pnl=unrealized,
             daily_pnl=daily_pnl,
@@ -255,6 +270,7 @@ class RiskEngine:
             gamma_contribution=gamma_contribution,
             vega_contribution=vega_contribution,
             theta_contribution=theta_contribution,
+            delta_dollars=delta_dollars,
             expiry_bucket=pos.expiry_bucket(),
             days_to_expiry=dte,
             gamma_notional_near_term=gamma_notional_near_term,
@@ -265,7 +281,7 @@ class RiskEngine:
 
     def _calculate_metrics_parallel(
         self, positions: List[Position], market_data: Dict[str, MarketData]
-    ) -> List[PositionMetrics | None]:
+    ) -> List[PositionRisk | None]:
         """
         Calculate position metrics in parallel using ThreadPoolExecutor.
 
@@ -274,33 +290,32 @@ class RiskEngine:
             market_data: Market data dictionary.
 
         Returns:
-            List of PositionMetrics.
+            List of PositionRisk.
         """
-        metrics_list = []
+        metrics_list: List[PositionRisk | None] = [None] * len(positions)
 
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             # Submit all tasks
-            future_to_pos = {
-                executor.submit(self._calculate_position_metrics, pos, market_data): pos
-                for pos in positions
+            future_to_idx = {
+                executor.submit(self._calculate_position_metrics, pos, market_data): idx
+                for idx, pos in enumerate(positions)
             }
 
-            # Collect results as they complete
-            for future in as_completed(future_to_pos):
+            # Collect results as they complete, preserving input order
+            for future in as_completed(future_to_idx):
+                idx = future_to_idx[future]
                 try:
-                    metrics = future.result()
-                    metrics_list.append(metrics)
+                    metrics_list[idx] = future.result()
                 except Exception as e:
-                    pos = future_to_pos[future]
-                    # Log error and create null metrics
+                    pos = positions[idx]
                     import logging
                     logging.error(f"Error calculating metrics for {pos.symbol}: {e}")
-                    metrics_list.append(None)
+                    metrics_list[idx] = None
 
         return metrics_list
 
     def _aggregate_metrics(
-        self, snapshot: RiskSnapshot, metrics_list: List[PositionMetrics | None], account_info: AccountInfo
+        self, snapshot: RiskSnapshot, metrics_list: List[PositionRisk | None], account_info: AccountInfo
     ) -> None:
         """
         Aggregate position metrics into snapshot.
@@ -323,7 +338,10 @@ class RiskEngine:
         # Aggregate by underlying
         by_underlying: Dict[str, Dict[str, float]] = {}
 
-        for metrics in metrics_list:
+        # Persist per-position metrics for presentation
+        snapshot.positions = [m for m in metrics_list if m is not None]
+
+        for metrics in snapshot.positions:
             if metrics is None:
                 continue
 
