@@ -211,32 +211,38 @@ class Orchestrator:
         self.position_store.upsert_positions(merged_positions)
         self.event_bus.publish(EventType.POSITION_CHANGED, {"count": len(merged_positions)})
 
-        # 3. Fetch market data
-        symbols = [p.symbol for p in merged_positions]
-        try:
-            if self.ib_adapter.is_connected():
-                market_data_list = await self.ib_adapter.fetch_market_data(merged_positions)
-                self.market_data_store.upsert(market_data_list)
-            else:
-                # IB not connected - use mock data for testing
-                #todo add warning at ui
-                logger.warning("IB not connected - generating mock market data for testing")
-                from ..infrastructure.adapters.mock_market_data import MockMarketDataProvider
-                mock_provider = MockMarketDataProvider()
-                market_data_list = mock_provider.generate_market_data(merged_positions)
-                self.market_data_store.upsert(market_data_list)
-        except Exception as e:
-            logger.error(f"Failed to fetch market data: {e}")
-            # Try mock data as fallback
+        # 3. Fetch market data (optimized: only fetch stale data)
+        # Get positions that need fresh market data (prices always refresh, Greeks cached)
+        stale_symbols = self.market_data_store.get_stale_symbols()
+        positions_to_fetch = [p for p in merged_positions if p.symbol in stale_symbols or p.symbol not in self.market_data_store.get_symbols()]
+
+        if positions_to_fetch:
+            logger.debug(f"Fetching market data for {len(positions_to_fetch)}/{len(merged_positions)} positions (Greeks cache optimization)")
             try:
-                from ..infrastructure.adapters.mock_market_data import MockMarketDataProvider
-                mock_provider = MockMarketDataProvider()
-                market_data_list = mock_provider.generate_market_data(merged_positions)
-                self.market_data_store.upsert(market_data_list)
-                logger.info("Using mock market data as fallback")
-            except Exception as e2:
-                logger.error(f"Failed to generate mock market data: {e2}")
-                # Continue with cached market data
+                if self.ib_adapter.is_connected():
+                    market_data_list = await self.ib_adapter.fetch_market_data(positions_to_fetch)
+                    self.market_data_store.upsert(market_data_list)
+                else:
+                    # IB not connected - use mock data for testing
+                    logger.warning("IB not connected - generating mock market data for testing")
+                    from ..infrastructure.adapters.mock_market_data import MockMarketDataProvider
+                    mock_provider = MockMarketDataProvider()
+                    market_data_list = mock_provider.generate_market_data(positions_to_fetch)
+                    self.market_data_store.upsert(market_data_list)
+            except Exception as e:
+                logger.error(f"Failed to fetch market data: {e}")
+                # Try mock data as fallback
+                try:
+                    from ..infrastructure.adapters.mock_market_data import MockMarketDataProvider
+                    mock_provider = MockMarketDataProvider()
+                    market_data_list = mock_provider.generate_market_data(positions_to_fetch)
+                    self.market_data_store.upsert(market_data_list)
+                    logger.info("Using mock market data as fallback")
+                except Exception as e2:
+                    logger.error(f"Failed to generate mock market data: {e2}")
+                    # Continue with cached market data
+        else:
+            logger.debug(f"All market data fresh (Greeks cache hit: {len(merged_positions)} positions)")
 
         # 4. Validate market data quality
         market_data = self.market_data_store.get_all()

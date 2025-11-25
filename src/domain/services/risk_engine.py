@@ -1,20 +1,46 @@
 """
-Risk Engine - Core portfolio risk calculation.
+Risk Engine - Core portfolio risk calculation with performance optimizations.
 
 Aggregates positions with market data to compute:
 - Unrealized P&L and daily P&L
 - Portfolio Greeks (delta, gamma, vega, theta)
 - Notional exposure and concentration
 - Expiry bucket analysis
+
+Performance features:
+- Concurrent processing for large portfolios (>50 positions)
+- Works with Greeks caching in MarketDataStore
 """
 
 from __future__ import annotations
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Tuple
 from datetime import date
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from ...models.position import Position
 from ...models.market_data import MarketData
 from ...models.account import AccountInfo
 from ...models.risk_snapshot import RiskSnapshot
+
+
+@dataclass
+class PositionMetrics:
+    """Metrics calculated for a single position."""
+    symbol: str
+    underlying: str
+    notional: float
+    unrealized_pnl: float
+    daily_pnl: float
+    delta_contribution: float
+    gamma_contribution: float
+    vega_contribution: float
+    theta_contribution: float
+    expiry_bucket: str
+    days_to_expiry: int | None
+    gamma_notional_near_term: float
+    vega_notional_near_term: float
+    has_missing_md: bool
+    has_missing_greeks: bool
 
 
 class RiskEngine:
@@ -23,16 +49,24 @@ class RiskEngine:
 
     Builds RiskSnapshot from positions, market data, and account info.
     Uses IBKR Greeks exclusively (no BSM fallback in MVP).
+
+    Performance:
+    - Sequential processing for <50 positions (low overhead)
+    - Parallel processing for >=50 positions (ThreadPoolExecutor)
     """
 
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: Dict[str, Any], parallel_threshold: int = 50, max_workers: int = 4):
         """
         Initialize risk engine with configuration.
 
         Args:
             config: Risk configuration dict (from ConfigManager).
+            parallel_threshold: Number of positions to trigger parallel processing.
+            max_workers: Maximum worker threads for parallel processing.
         """
         self.config = config
+        self.parallel_threshold = parallel_threshold
+        self.max_workers = max_workers
 
     def build_snapshot(
         self,
@@ -43,6 +77,8 @@ class RiskEngine:
         """
         Build complete risk snapshot from current state.
 
+        Uses parallel processing for portfolios >= parallel_threshold positions.
+
         Args:
             positions: List of all positions.
             market_data: Dict mapping symbol -> MarketData.
@@ -51,11 +87,207 @@ class RiskEngine:
         Returns:
             RiskSnapshot with aggregated metrics.
 
-        Performance target: <100ms for <100 positions.
+        Performance target: <100ms for <100 positions, <250ms for 100-250, <500ms for 250-500.
         """
         snapshot = RiskSnapshot()
         snapshot.total_positions = len(positions)
 
+        # Choose processing strategy based on portfolio size
+        if len(positions) < self.parallel_threshold:
+            # Sequential processing for small portfolios (lower overhead)
+            metrics_list = [self._calculate_position_metrics(pos, market_data) for pos in positions]
+        else:
+            # Parallel processing for large portfolios
+            metrics_list = self._calculate_metrics_parallel(positions, market_data)
+
+        # Aggregate metrics into snapshot
+        self._aggregate_metrics(snapshot, metrics_list, account_info)
+
+        return snapshot
+
+    def _calculate_position_metrics(
+        self, pos: Position, market_data: Dict[str, MarketData]
+    ) -> PositionMetrics | None:
+        """
+        Calculate metrics for a single position.
+
+        Args:
+            pos: Position to calculate.
+            market_data: Market data dictionary.
+
+        Returns:
+            PositionMetrics or None if missing data.
+        """
+        md = market_data.get(pos.symbol)
+
+        # Track missing market data
+        if md is None:
+            return PositionMetrics(
+                symbol=pos.symbol,
+                underlying=pos.underlying,
+                notional=0.0,
+                unrealized_pnl=0.0,
+                daily_pnl=0.0,
+                delta_contribution=0.0,
+                gamma_contribution=0.0,
+                vega_contribution=0.0,
+                theta_contribution=0.0,
+                expiry_bucket=pos.expiry_bucket(),
+                days_to_expiry=pos.days_to_expiry(),
+                gamma_notional_near_term=0.0,
+                vega_notional_near_term=0.0,
+                has_missing_md=True,
+                has_missing_greeks=False,
+            )
+
+        mark = md.effective_mid()
+        if mark is None:
+            return PositionMetrics(
+                symbol=pos.symbol,
+                underlying=pos.underlying,
+                notional=0.0,
+                unrealized_pnl=0.0,
+                daily_pnl=0.0,
+                delta_contribution=0.0,
+                gamma_contribution=0.0,
+                vega_contribution=0.0,
+                theta_contribution=0.0,
+                expiry_bucket=pos.expiry_bucket(),
+                days_to_expiry=pos.days_to_expiry(),
+                gamma_notional_near_term=0.0,
+                vega_notional_near_term=0.0,
+                has_missing_md=True,
+                has_missing_greeks=False,
+            )
+
+        # Calculate position notional
+        notional = mark * pos.quantity * pos.multiplier
+
+        # Aggregate Greeks (use IBKR only, skip if missing)
+        if md.has_greeks():
+            delta_contribution = (md.delta or 0.0) * pos.quantity * pos.multiplier
+            gamma_contribution = (md.gamma or 0.0) * pos.quantity * pos.multiplier
+            vega_contribution = (md.vega or 0.0) * pos.quantity * pos.multiplier
+            theta_contribution = (md.theta or 0.0) * pos.quantity * pos.multiplier
+            has_missing_greeks = False
+        else:
+            # For stocks without Greeks, delta = 1.0
+            if pos.asset_type.value == "STOCK":
+                delta_contribution = 1.0 * pos.quantity * pos.multiplier
+                gamma_contribution = 0.0
+                vega_contribution = 0.0
+                theta_contribution = 0.0
+                has_missing_greeks = False
+            else:
+                return PositionMetrics(
+                    symbol=pos.symbol,
+                    underlying=pos.underlying,
+                    notional=notional,
+                    unrealized_pnl=0.0,
+                    daily_pnl=0.0,
+                    delta_contribution=0.0,
+                    gamma_contribution=0.0,
+                    vega_contribution=0.0,
+                    theta_contribution=0.0,
+                    expiry_bucket=pos.expiry_bucket(),
+                    days_to_expiry=pos.days_to_expiry(),
+                    gamma_notional_near_term=0.0,
+                    vega_notional_near_term=0.0,
+                    has_missing_md=False,
+                    has_missing_greeks=True,
+                )
+
+        # Near-term Greeks concentration
+        dte = pos.days_to_expiry()
+        gamma_notional_near_term = 0.0
+        vega_notional_near_term = 0.0
+
+        if dte is not None:
+            if dte <= 7:
+                # Gamma notional = gamma * mark^2 * 0.01 * qty * mult
+                gamma_notional_near_term = abs((md.gamma or 0.0) * (mark ** 2) * 0.01 * pos.quantity * pos.multiplier)
+            if dte <= 30:
+                vega_notional_near_term = abs((md.vega or 0.0) * pos.quantity * pos.multiplier)
+
+        # P&L calculation
+        # For options: avg_price is per contract, mark is per share
+        # For stocks: both are per share
+        if pos.asset_type.value == "OPTION":
+            current_value = mark * pos.multiplier  # Convert to per-contract value
+            unrealized = (current_value - pos.avg_price) * pos.quantity
+        else:
+            unrealized = (mark - pos.avg_price) * pos.quantity * pos.multiplier
+
+        # Daily P&L: both mark and yesterday_close are per share (same units)
+        daily_pnl = 0.0
+        if md.yesterday_close:
+            daily_pnl = (mark - md.yesterday_close) * pos.quantity * pos.multiplier
+
+        return PositionMetrics(
+            symbol=pos.symbol,
+            underlying=pos.underlying,
+            notional=notional,
+            unrealized_pnl=unrealized,
+            daily_pnl=daily_pnl,
+            delta_contribution=delta_contribution,
+            gamma_contribution=gamma_contribution,
+            vega_contribution=vega_contribution,
+            theta_contribution=theta_contribution,
+            expiry_bucket=pos.expiry_bucket(),
+            days_to_expiry=dte,
+            gamma_notional_near_term=gamma_notional_near_term,
+            vega_notional_near_term=vega_notional_near_term,
+            has_missing_md=False,
+            has_missing_greeks=has_missing_greeks,
+        )
+
+    def _calculate_metrics_parallel(
+        self, positions: List[Position], market_data: Dict[str, MarketData]
+    ) -> List[PositionMetrics | None]:
+        """
+        Calculate position metrics in parallel using ThreadPoolExecutor.
+
+        Args:
+            positions: List of positions to calculate.
+            market_data: Market data dictionary.
+
+        Returns:
+            List of PositionMetrics.
+        """
+        metrics_list = []
+
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            # Submit all tasks
+            future_to_pos = {
+                executor.submit(self._calculate_position_metrics, pos, market_data): pos
+                for pos in positions
+            }
+
+            # Collect results as they complete
+            for future in as_completed(future_to_pos):
+                try:
+                    metrics = future.result()
+                    metrics_list.append(metrics)
+                except Exception as e:
+                    pos = future_to_pos[future]
+                    # Log error and create null metrics
+                    import logging
+                    logging.error(f"Error calculating metrics for {pos.symbol}: {e}")
+                    metrics_list.append(None)
+
+        return metrics_list
+
+    def _aggregate_metrics(
+        self, snapshot: RiskSnapshot, metrics_list: List[PositionMetrics | None], account_info: AccountInfo
+    ) -> None:
+        """
+        Aggregate position metrics into snapshot.
+
+        Args:
+            snapshot: Snapshot to populate.
+            metrics_list: List of position metrics.
+            account_info: Account information.
+        """
         # Initialize expiry buckets
         expiry_buckets = {
             "0DTE": self._empty_bucket(),
@@ -69,94 +301,54 @@ class RiskEngine:
         # Aggregate by underlying
         by_underlying: Dict[str, Dict[str, float]] = {}
 
-        for pos in positions:
-            md = market_data.get(pos.symbol)
+        for metrics in metrics_list:
+            if metrics is None:
+                continue
 
-            # Track missing market data
-            if md is None:
+            # Track missing data
+            if metrics.has_missing_md:
                 snapshot.positions_with_missing_md += 1
                 continue
 
-            mark = md.effective_mid()
-            if mark is None:
-                snapshot.positions_with_missing_md += 1
+            if metrics.has_missing_greeks:
+                snapshot.missing_greeks_count += 1
                 continue
-
-            # Calculate position notional
-            notional = mark * pos.quantity * pos.multiplier
-
-            # Aggregate Greeks (use IBKR only, skip if missing)
-            if md.has_greeks():
-                delta_contribution = (md.delta or 0.0) * pos.quantity * pos.multiplier
-                gamma_contribution = (md.gamma or 0.0) * pos.quantity * pos.multiplier
-                vega_contribution = (md.vega or 0.0) * pos.quantity * pos.multiplier
-                theta_contribution = (md.theta or 0.0) * pos.quantity * pos.multiplier
-            else:
-                # For stocks without Greeks, delta = 1.0
-                if pos.asset_type.value == "STOCK":
-                    delta_contribution = 1.0 * pos.quantity * pos.multiplier
-                    gamma_contribution = 0.0
-                    vega_contribution = 0.0
-                    theta_contribution = 0.0
-                else:
-                    snapshot.missing_greeks_count += 1
-                    continue
 
             # Update portfolio Greeks
-            snapshot.portfolio_delta += delta_contribution
-            snapshot.portfolio_gamma += gamma_contribution
-            snapshot.portfolio_vega += vega_contribution
-            snapshot.portfolio_theta += theta_contribution
+            snapshot.portfolio_delta += metrics.delta_contribution
+            snapshot.portfolio_gamma += metrics.gamma_contribution
+            snapshot.portfolio_vega += metrics.vega_contribution
+            snapshot.portfolio_theta += metrics.theta_contribution
 
             # Update notional
-            snapshot.total_gross_notional += abs(notional)
-            snapshot.total_net_notional += notional
+            snapshot.total_gross_notional += abs(metrics.notional)
+            snapshot.total_net_notional += metrics.notional
 
             # Group by underlying
-            if pos.underlying not in by_underlying:
-                by_underlying[pos.underlying] = {
+            if metrics.underlying not in by_underlying:
+                by_underlying[metrics.underlying] = {
                     "notional": 0.0,
                     "delta": 0.0,
                 }
-            by_underlying[pos.underlying]["notional"] += notional
-            by_underlying[pos.underlying]["delta"] += delta_contribution
+            by_underlying[metrics.underlying]["notional"] += metrics.notional
+            by_underlying[metrics.underlying]["delta"] += metrics.delta_contribution
 
             # Expiry bucket classification
-            bucket_key = pos.expiry_bucket()
-            bucket = expiry_buckets[bucket_key]
+            bucket = expiry_buckets[metrics.expiry_bucket]
             bucket["count"] += 1
-            bucket["notional"] += notional
-            bucket["delta"] += delta_contribution
-            bucket["gamma"] += gamma_contribution
-            bucket["vega"] += vega_contribution
-            bucket["theta"] += theta_contribution
+            bucket["notional"] += metrics.notional
+            bucket["delta"] += metrics.delta_contribution
+            bucket["gamma"] += metrics.gamma_contribution
+            bucket["vega"] += metrics.vega_contribution
+            bucket["theta"] += metrics.theta_contribution
 
             # Near-term Greeks concentration
-            dte = pos.days_to_expiry()
-            if dte is not None:
-                if dte <= 7:
-                    # Gamma notional = gamma * mark^2 * 0.01 * qty * mult
-                    gamma_notional = (md.gamma or 0.0) * (mark ** 2) * 0.01 * pos.quantity * pos.multiplier
-                    snapshot.gamma_notional_near_term += abs(gamma_notional)
-                if dte <= 30:
-                    vega_notional = (md.vega or 0.0) * pos.quantity * pos.multiplier
-                    snapshot.vega_notional_near_term += abs(vega_notional)
+            snapshot.gamma_notional_near_term += metrics.gamma_notional_near_term
+            snapshot.vega_notional_near_term += metrics.vega_notional_near_term
 
-            # P&L calculation
-            # For options: avg_price is per contract, mark is per share
-            # For stocks: both are per share
-            if pos.asset_type.value == "OPTION":
-                current_value = mark * pos.multiplier  # Convert to per-contract value
-                unrealized = (current_value - pos.avg_price) * pos.quantity
-            else:
-                unrealized = (mark - pos.avg_price) * pos.quantity * pos.multiplier
-
-            snapshot.total_unrealized_pnl += unrealized
-
-            # Daily P&L: both mark and yesterday_close are per share (same units)
-            if md.yesterday_close:
-                daily_pnl = (mark - md.yesterday_close) * pos.quantity * pos.multiplier
-                snapshot.total_daily_pnl += daily_pnl
+            # P&L
+            snapshot.total_unrealized_pnl += metrics.unrealized_pnl
+            snapshot.total_daily_pnl += metrics.daily_pnl
 
         # Finalize expiry buckets
         snapshot.expiry_buckets = expiry_buckets
