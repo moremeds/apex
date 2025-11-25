@@ -326,10 +326,10 @@ class IbAdapter(PositionProvider, MarketDataProvider):
 
     async def fetch_account_info(self) -> AccountInfo:
         """
-        Fetch account information from IB.
+        Fetch account information from IB using accountSummary API.
 
         Returns:
-            AccountInfo object.
+            AccountInfo object with real account data from IBKR.
 
         Raises:
             ConnectionError: If not connected.
@@ -337,17 +337,78 @@ class IbAdapter(PositionProvider, MarketDataProvider):
         if not self.is_connected():
             raise ConnectionError("Not connected to IB")
 
-        # TODO: Implement account fetch using ib.accountSummary()
-        # This is a skeleton - full implementation needed
+        try:
+            # Request account summary from IBKR
+            # Use empty string for account to get default account
+            account_values = await self.ib.accountSummaryAsync()
 
-        return AccountInfo(
-            net_liquidation=0.0,
-            total_cash=0.0,
-            buying_power=0.0,
-            margin_used=0.0,
-            margin_available=0.0,
-            maintenance_margin=0.0,
-            init_margin_req=0.0,
-            excess_liquidity=0.0,
-            timestamp=datetime.now(),
-        )
+            # Parse account values into a dictionary
+            account_data = {}
+            account_id = None
+
+            for av in account_values:
+                account_data[av.tag] = av.value
+                if not account_id:
+                    account_id = av.account
+
+            # Helper function to safely parse float values
+            def safe_float(tag: str, default: float = 0.0) -> float:
+                try:
+                    value = account_data.get(tag, default)
+                    return float(value) if value else default
+                except (ValueError, TypeError):
+                    logger.warning(f"Failed to parse account tag '{tag}': {value}")
+                    return default
+
+            # Extract key account metrics
+            net_liquidation = safe_float('NetLiquidation')
+            total_cash = safe_float('TotalCashValue')
+            buying_power = safe_float('BuyingPower')
+            maintenance_margin = safe_float('MaintMarginReq')
+            init_margin_req = safe_float('InitMarginReq')
+            excess_liquidity = safe_float('ExcessLiquidity')
+            available_funds = safe_float('AvailableFunds')
+            realized_pnl = safe_float('RealizedPnL')
+            unrealized_pnl = safe_float('UnrealizedPnL')
+            gross_position_value = safe_float('GrossPositionValue')
+
+            # Calculate derived metrics
+            # Margin used = Initial margin requirement (what's currently used)
+            margin_used = init_margin_req
+            # Margin available = Excess liquidity or available funds
+            margin_available = max(excess_liquidity, available_funds)
+
+            logger.info(f"✓ Fetched account info: NetLiq=${net_liquidation:,.2f}, BuyingPower=${buying_power:,.2f}, Margin={margin_used:,.2f}/{net_liquidation:,.2f}")
+
+            return AccountInfo(
+                net_liquidation=net_liquidation,
+                total_cash=total_cash,
+                buying_power=buying_power,
+                margin_used=margin_used,
+                margin_available=margin_available,
+                maintenance_margin=maintenance_margin,
+                init_margin_req=init_margin_req,
+                excess_liquidity=excess_liquidity,
+                realized_pnl=realized_pnl,
+                unrealized_pnl=unrealized_pnl,
+                timestamp=datetime.now(),
+                account_id=account_id,
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to fetch account info from IB: {e}")
+            # Return default values on error instead of crashing
+            logger.warning("Returning zeroed account info due to fetch failure")
+            return AccountInfo(
+                net_liquidation=0.0,
+                total_cash=0.0,
+                buying_power=0.0,
+                margin_used=0.0,
+                margin_available=0.0,
+                maintenance_margin=0.0,
+                init_margin_req=0.0,
+                excess_liquidity=0.0,
+                realized_pnl=0.0,
+                unrealized_pnl=0.0,
+                timestamp=datetime.now(),
+            )
