@@ -21,6 +21,7 @@ from ...models.position import Position
 from ...models.market_data import MarketData
 from ...models.account import AccountInfo
 from ...models.risk_snapshot import RiskSnapshot
+from ...utils.market_hours import MarketHours
 
 
 @dataclass
@@ -209,18 +210,39 @@ class RiskEngine:
             if dte <= 30:
                 vega_notional_near_term = abs((md.vega or 0.0) * pos.quantity * pos.multiplier)
 
-        # P&L calculation
-        # For options: avg_price is per contract, mark is per share
+        # P&L calculation with market hours logic
+        # Market status determines which price to use
+        market_status = MarketHours.get_market_status()
+
+        # Determine price to use for unrealized P&L
+        if market_status == "OPEN":
+            # Regular hours: use current mark
+            pnl_price = mark
+            calculate_daily_pnl = True
+        elif market_status == "EXTENDED":
+            # Extended hours: stocks use current price, options use yesterday close
+            if pos.asset_type.value == "STOCK":
+                pnl_price = mark  # Stocks trade in extended hours
+            else:
+                pnl_price = md.yesterday_close if md.yesterday_close else mark  # Options don't trade extended hours
+            calculate_daily_pnl = False  # Skip daily P&L when market not in regular hours
+        else:
+            # Market closed: use yesterday close for all assets
+            pnl_price = md.yesterday_close if md.yesterday_close else mark
+            calculate_daily_pnl = False
+
+        # Calculate unrealized P&L
+        # For options: avg_price is per contract, pnl_price is per share
         # For stocks: both are per share
         if pos.asset_type.value == "OPTION":
-            current_value = mark * pos.multiplier  # Convert to per-contract value
+            current_value = pnl_price * pos.multiplier  # Convert to per-contract value
             unrealized = (current_value - pos.avg_price) * pos.quantity
         else:
-            unrealized = (mark - pos.avg_price) * pos.quantity * pos.multiplier
+            unrealized = (pnl_price - pos.avg_price) * pos.quantity * pos.multiplier
 
-        # Daily P&L: both mark and yesterday_close are per share (same units)
+        # Daily P&L: only calculated during regular market hours
         daily_pnl = 0.0
-        if md.yesterday_close:
+        if calculate_daily_pnl and md.yesterday_close:
             daily_pnl = (mark - md.yesterday_close) * pos.quantity * pos.multiplier
 
         return PositionMetrics(

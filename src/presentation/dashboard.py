@@ -25,6 +25,7 @@ from ..models.position import Position
 from ..models.market_data import MarketData
 from ..domain.services.rule_engine import LimitBreach, BreachSeverity
 from ..infrastructure.monitoring import ComponentHealth, HealthStatus
+from ..utils.market_hours import MarketHours
 
 
 logger = logging.getLogger(__name__)
@@ -108,9 +109,27 @@ class TerminalDashboard:
         self.layout["footer"].update(self._render_health(health))
 
     def _render_header(self) -> Panel:
-        """Render header panel."""
-        text = Text("Live Risk Management System", style="bold cyan", justify="center")
-        return Panel(text, style="bold")
+        """Render header panel with market status."""
+        # Get market status
+        market_status = MarketHours.get_market_status()
+
+        # Create header text
+        header = Text("Live Risk Management System", style="bold cyan")
+
+        # Add market status indicator
+        header.append("  |  ", style="dim")
+        if market_status == "OPEN":
+            header.append("Market: ", style="dim")
+            header.append("OPEN", style="bold green")
+        elif market_status == "EXTENDED":
+            header.append("Market: ", style="dim")
+            header.append("EXTENDED HOURS", style="bold yellow")
+        else:
+            header.append("Market: ", style="dim")
+            header.append("CLOSED", style="bold red")
+
+        header.justify = "center"
+        return Panel(header, style="bold")
 
     def _render_portfolio_summary(self, snapshot: RiskSnapshot) -> Panel:
         """Render portfolio summary panel."""
@@ -438,9 +457,19 @@ class TerminalDashboard:
     def _calculate_daily_pnl(
         self, pos: Position, md: Optional[MarketData]
     ) -> float:
-        """Calculate daily P&L for a position (current mark - yesterday close)."""
+        """
+        Calculate daily P&L for a position (current mark - yesterday close).
+
+        Only calculated during regular market hours. Returns 0 when market is closed or extended.
+        """
         if not md or not md.effective_mid() or not md.yesterday_close:
             return 0.0
+
+        # Only calculate daily P&L during regular market hours
+        market_status = MarketHours.get_market_status()
+        if market_status != "OPEN":
+            return 0.0
+
         current_mark = md.effective_mid()
         return (current_mark - md.yesterday_close) * pos.quantity * pos.multiplier
 
@@ -448,7 +477,12 @@ class TerminalDashboard:
         self, pos: Position, md: Optional[MarketData]
     ) -> float:
         """
-        Calculate unrealized P&L for a position.
+        Calculate unrealized P&L for a position with market hours logic.
+
+        Market hours logic:
+        - OPEN: Use current mark for all assets
+        - EXTENDED: Stocks use current mark, options use yesterday close
+        - CLOSED: All assets use yesterday close
 
         For options:
         - avg_price is cost per contract (e.g., $250 for contract bought at $2.50 premium)
@@ -462,15 +496,32 @@ class TerminalDashboard:
         """
         if not md or not md.effective_mid():
             return 0.0
-        mark = md.effective_mid()
 
-        # Options: avg_price is per contract, mark is per share
+        mark = md.effective_mid()
+        market_status = MarketHours.get_market_status()
+
+        # Determine price to use for unrealized P&L
+        if market_status == "OPEN":
+            # Regular hours: use current mark
+            pnl_price = mark
+        elif market_status == "EXTENDED":
+            # Extended hours: stocks use current price, options use yesterday close
+            if pos.asset_type.value == "STOCK":
+                pnl_price = mark  # Stocks trade in extended hours
+            else:
+                pnl_price = md.yesterday_close if md.yesterday_close else mark  # Options don't trade extended hours
+        else:
+            # Market closed: use yesterday close for all assets
+            pnl_price = md.yesterday_close if md.yesterday_close else mark
+
+        # Calculate unrealized P&L
+        # Options: avg_price is per contract, pnl_price is per share
         if pos.asset_type.value == "OPTION":
-            current_value = mark * pos.multiplier  # Convert to per-contract value
+            current_value = pnl_price * pos.multiplier  # Convert to per-contract value
             return (current_value - pos.avg_price) * pos.quantity
 
         # Stocks/others: both are per share
-        return (mark - pos.avg_price) * pos.quantity * pos.multiplier
+        return (pnl_price - pos.avg_price) * pos.quantity * pos.multiplier
 
     def _calculate_delta_dollars(
         self, pos: Position, md: Optional[MarketData]
