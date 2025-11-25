@@ -10,7 +10,7 @@ positions:
     underlying: NVDA
     asset_type: STOCK
     quantity: 250.0518
-    avg_price: 178.78
+    avg_price: -61.052
     multiplier: 1
     strategy_tag: long_stock
 
@@ -19,7 +19,7 @@ positions:
     underlying: AMZN
     asset_type: STOCK
     quantity: 9.4255
-    avg_price: 226.92
+    avg_price: 212.19
     multiplier: 1
     strategy_tag: long_stock
 
@@ -28,7 +28,7 @@ positions:
     underlying: NAK
     asset_type: STOCK
     quantity: 2000
-    avg_price: 1.57
+    avg_price: -0.165
     multiplier: 1
     strategy_tag: long_stock
 
@@ -37,7 +37,7 @@ positions:
     underlying: GOOGL
     asset_type: STOCK
     quantity: 5.0245
-    avg_price: 326.60
+    avg_price: 145.631
     multiplier: 1
     strategy_tag: long_stock
 
@@ -46,7 +46,7 @@ positions:
     underlying: AAPL
     asset_type: STOCK
     quantity: 5.0243
-    avg_price: 275.19
+    avg_price: 137.559
     multiplier: 1
     strategy_tag: long_stock
 
@@ -54,8 +54,8 @@ positions:
   - symbol: TSLA
     underlying: TSLA
     asset_type: STOCK
-    quantity: 100
-    avg_price: 417.20
+    quantity: 300
+    avg_price: 320.714
     multiplier: 1
     strategy_tag: long_stock
 
@@ -66,9 +66,9 @@ positions:
     underlying: QQQ
     asset_type: OPTION
     quantity: 4
-    avg_price: 2557.50
+    avg_price: 19.38
     multiplier: 100
-    expiry: "20260116"
+    expiry: "2026-01-16"
     strike: 600.0
     right: C
     strategy_tag: long_call
@@ -80,9 +80,9 @@ positions:
     underlying: AMZN
     asset_type: OPTION
     quantity: 4
-    avg_price: 1197.50
+    avg_price: 7.692
     multiplier: 100
-    expiry: "20251219"
+    expiry: "2025-12-19"
     strike: 220.0
     right: C
     strategy_tag: long_call
@@ -94,9 +94,9 @@ positions:
     underlying: TSLA
     asset_type: OPTION
     quantity: -1
-    avg_price: 4467.50
+    avg_price: 60.70
     multiplier: 100
-    expiry: "20270115"
+    expiry: "2027-01-15"
     strike: 700.0
     right: C
     strategy_tag: short_call
@@ -106,9 +106,9 @@ positions:
     underlying: TSLA
     asset_type: OPTION
     quantity: 4
-    avg_price: 4260.00
+    avg_price: 55.037
     multiplier: 100
-    expiry: "20260320"
+    expiry: "2026-03-20"
     strike: 450.0
     right: C
     strategy_tag: long_call
@@ -118,9 +118,9 @@ positions:
     underlying: TSLA
     asset_type: OPTION
     quantity: 1
-    avg_price: 6637.50
+    avg_price: 56.29
     multiplier: 100
-    expiry: "20251219"
+    expiry: "2025-12-19"
     strike: 360.0
     right: C
     strategy_tag: long_call
@@ -130,9 +130,9 @@ positions:
     underlying: TSLA
     asset_type: OPTION
     quantity: 2
-    avg_price: 2202.50
+    avg_price: 25.44
     multiplier: 100
-    expiry: "20251219"
+    expiry: "2025-12-19"
     strike: 425.0
     right: C
     strategy_tag: long_call
@@ -142,9 +142,9 @@ positions:
     underlying: TSLA
     asset_type: OPTION
     quantity: 4
-    avg_price: 1085.00
+    avg_price: 34.85
     multiplier: 100
-    expiry: "20260116"
+    expiry: "2026-01-16"
     strike: 500.0
     right: C
     strategy_tag: long_call
@@ -154,9 +154,9 @@ positions:
     underlying: TSLA
     asset_type: OPTION
     quantity: 2
-    avg_price: 1205.00
+    avg_price: -7.625
     multiplier: 100
-    expiry: "20251219"
+    expiry: "2025-12-19"
     strike: 450.0
     right: C
     strategy_tag: long_call
@@ -166,9 +166,9 @@ positions:
     underlying: TSLA
     asset_type: OPTION
     quantity: -10
-    avg_price: 249.50
+    avg_price: 8.69
     multiplier: 100
-    expiry: "20251128"
+    expiry: "2025-11-28"
     strike: 400.0
     right: P
     strategy_tag: short_put
@@ -178,9 +178,9 @@ positions:
     underlying: TSLA
     asset_type: OPTION
     quantity: 10
-    avg_price: 130.50
+    avg_price: 6
     multiplier: 100
-    expiry: "20251128"
+    expiry: "2025-11-28"
     strike: 390.0
     right: P
     strategy_tag: long_put
