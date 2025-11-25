@@ -189,9 +189,15 @@ class IbAdapter(PositionProvider, MarketDataProvider):
             for pos in positions:
                 try:
                     if pos.asset_type == AssetType.OPTION:
+                        # Convert expiry to YYYYMMDD string format for IBKR
+                        expiry_str = self._format_expiry_for_ib(pos.expiry)
+                        if not expiry_str:
+                            logger.warning(f"Invalid expiry for {pos.symbol}: {pos.expiry}")
+                            continue
+
                         contract = Option(
                             symbol=pos.underlying,
-                            lastTradeDateOrContractMonth=pos.expiry,
+                            lastTradeDateOrContractMonth=expiry_str,
                             strike=pos.strike,
                             right=str(pos.right),
                             exchange="SMART",
@@ -214,9 +220,15 @@ class IbAdapter(PositionProvider, MarketDataProvider):
                     qualified_raw = await self.ib.qualifyContractsAsync(*contracts)
                     # Filter out None values (failed qualifications)
                     qualified = [c for c in qualified_raw if c is not None]
+
+                    failed_count = len(contracts) - len(qualified)
+                    if failed_count > 0:
+                        logger.warning(f"Failed to qualify {failed_count}/{len(contracts)} contracts - skipping them")
+
                     logger.debug(f"Qualified {len(qualified)}/{len(contracts)} contracts")
                 except Exception as e:
                     logger.error(f"Error qualifying contracts: {e}")
+                    # Continue with empty list - will use mock data or cached data
 
             # Step 2: Fetch market data for all qualified contracts at once
             if qualified:
@@ -271,6 +283,43 @@ class IbAdapter(PositionProvider, MarketDataProvider):
             logger.error(f"Error in fetch_market_data: {e}")
 
         return market_data_list
+
+    def _format_expiry_for_ib(self, expiry) -> Optional[str]:
+        """
+        Convert expiry to YYYYMMDD string format required by IBKR.
+
+        Args:
+            expiry: Can be date object, "YYYY-MM-DD" string, or "YYYYMMDD" string.
+
+        Returns:
+            Expiry in "YYYYMMDD" format, or None if invalid.
+        """
+        from datetime import date, datetime
+
+        if expiry is None or expiry == "":
+            return None
+
+        # If already a date object, convert to string
+        if isinstance(expiry, date):
+            return expiry.strftime("%Y%m%d")
+
+        # If string, parse and convert
+        if isinstance(expiry, str):
+            # Already in YYYYMMDD format
+            if len(expiry) == 8 and expiry.isdigit():
+                return expiry
+
+            # Convert YYYY-MM-DD to YYYYMMDD
+            if "-" in expiry:
+                try:
+                    dt = datetime.strptime(expiry, "%Y-%m-%d")
+                    return dt.strftime("%Y%m%d")
+                except ValueError:
+                    logger.error(f"Invalid date format: {expiry}")
+                    return None
+
+        logger.error(f"Unexpected expiry type: {type(expiry)}, value: {expiry}")
+        return None
 
     async def subscribe(self, symbols: List[str]) -> None:
         """
