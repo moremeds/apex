@@ -211,7 +211,9 @@ class IbAdapter(PositionProvider, MarketDataProvider):
             qualified = []
             if contracts:
                 try:
-                    qualified = await self.ib.qualifyContractsAsync(*contracts)
+                    qualified_raw = await self.ib.qualifyContractsAsync(*contracts)
+                    # Filter out None values (failed qualifications)
+                    qualified = [c for c in qualified_raw if c is not None]
                     logger.debug(f"Qualified {len(qualified)}/{len(contracts)} contracts")
                 except Exception as e:
                     logger.error(f"Error qualifying contracts: {e}")

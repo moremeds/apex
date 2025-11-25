@@ -70,22 +70,32 @@ class Position:
 
     def days_to_expiry(self, ref_date: Optional[date] = None) -> Optional[int]:
         """Calculate days to expiry from reference date (default: today)."""
-        if self.expiry is None or self.expiry=="":
+        if self.expiry is None or self.expiry == "":
             return None
 
-        # Support both formats: YYYY-MM-DD and YYYYMMDD
-        try:
-            if "-" in self.expiry:
-                # Hyphenated format: 2025-12-19
-                expiry_date = datetime.strptime(self.expiry, "%Y-%m-%d").date()
-            else:
-                # Compact format: 20251219
-                expiry_date = datetime.strptime(self.expiry, "%Y%m%d").date()
-        except ValueError as e:
-            # Log error and return None
-            import logging
-            logging.error(f"Invalid expiry format: {self.expiry}, error: {e}")
-            return None
+        # If expiry is already a date object, use it directly
+        if isinstance(self.expiry, date):
+            expiry_date = self.expiry
+        else:
+            # Parse string formats: YYYY-MM-DD or YYYYMMDD
+            try:
+                if isinstance(self.expiry, str):
+                    if "-" in self.expiry:
+                        # Hyphenated format: 2025-12-19
+                        expiry_date = datetime.strptime(self.expiry, "%Y-%m-%d").date()
+                    else:
+                        # Compact format: 20251219
+                        expiry_date = datetime.strptime(self.expiry, "%Y%m%d").date()
+                else:
+                    # Unexpected type
+                    import logging
+                    logging.error(f"Invalid expiry type: {type(self.expiry)}, value: {self.expiry}")
+                    return None
+            except (ValueError, TypeError) as e:
+                # Log error and return None
+                import logging
+                logging.error(f"Invalid expiry format: {self.expiry}, error: {e}")
+                return None
 
         ref = ref_date or date.today()
         return (expiry_date - ref).days
