@@ -10,7 +10,7 @@ Real-time terminal UI for risk monitoring with:
 """
 
 from __future__ import annotations
-from typing import List, Optional
+from typing import List, Optional, Dict
 from datetime import date, datetime
 from rich.console import Console
 from rich.layout import Layout
@@ -20,7 +20,9 @@ from rich.table import Table
 from rich.text import Text
 import logging
 
-from ..models.risk_snapshot import RiskSnapshot, PositionRisk
+from ..models.risk_snapshot import RiskSnapshot
+from ..models.position import Position
+from ..models.market_data import MarketData
 from ..domain.services.rule_engine import LimitBreach, BreachSeverity
 from ..infrastructure.monitoring import ComponentHealth, HealthStatus
 from ..utils.market_hours import MarketHours
@@ -90,8 +92,8 @@ class TerminalDashboard:
         snapshot: RiskSnapshot,
         breaches: List[LimitBreach],
         health: List[ComponentHealth],
-        positions: Optional[List] = None,
-        market_data: Optional[Dict] = None,
+        positions: Optional[List[Position]] = None,
+        market_data: Optional[Dict[str, MarketData]] = None,
     ) -> None:
         """
         Update dashboard with latest data.
@@ -105,7 +107,7 @@ class TerminalDashboard:
         """
         self.layout["header"].update(self._render_header())
         self.layout["profile"].update(
-            self._render_positions_profile(snapshot)
+            self._render_positions_profile(positions or [], market_data or {})
         )
         self.layout["right"]["upper"].update(self._render_portfolio_summary(snapshot))
         self.layout["right"]["lower"].update(self._render_breaches(breaches))
@@ -262,11 +264,10 @@ class TerminalDashboard:
         return Panel(table, title="Component Health", border_style=border_style)
 
     def _render_positions_profile(
-        self, snapshot: RiskSnapshot
+        self, positions: List[Position], market_data: Dict[str, MarketData]
     ) -> Panel:
         """Render hierarchical positions table grouped by underlying -> expiry -> position."""
-        metrics: List[PositionRisk] = getattr(snapshot, "positions", [])
-        if not metrics:
+        if not positions:
             return Panel(
                 Text("No positions", style="dim"),
                 title="Portfolio Positions",
@@ -275,10 +276,10 @@ class TerminalDashboard:
 
         # Group positions by underlying
         by_underlying = {}
-        for m in metrics:
-            if m.underlying not in by_underlying:
-                by_underlying[m.underlying] = []
-            by_underlying[m.underlying].append(m)
+        for pos in positions:
+            if pos.underlying not in by_underlying:
+                by_underlying[pos.underlying] = []
+            by_underlying[pos.underlying].append(pos)
 
         # Create table
         table = Table(show_header=True, box=None, padding=(0, 1))
@@ -296,16 +297,24 @@ class TerminalDashboard:
         table.add_column("Th(Θ)", justify="right", no_wrap=True)
 
         # Add portfolio total row
-        total_market_value = sum(m.market_value for m in metrics)
-        total_daily_pnl = sum(m.daily_pnl for m in metrics)
-        total_unrealized = sum(m.unrealized_pnl for m in metrics)
-        total_delta_dollars = sum(m.delta_dollars for m in metrics)
+        total_market_value = sum(
+            self._calculate_market_value(p, market_data.get(p.symbol)) for p in positions
+        )
+        total_daily_pnl = sum(
+            self._calculate_daily_pnl(p, market_data.get(p.symbol)) for p in positions
+        )
+        total_unrealized = sum(
+            self._calculate_unrealized_pnl(p, market_data.get(p.symbol)) for p in positions
+        )
+        total_delta_dollars = sum(
+            self._calculate_delta_dollars(p, market_data.get(p.symbol)) for p in positions
+        )
 
         # Get portfolio-level aggregations
-        portfolio_delta = sum(m.delta_contribution for m in metrics)
-        portfolio_gamma = sum(m.gamma_contribution for m in metrics)
-        portfolio_vega = sum(m.vega_contribution for m in metrics)
-        portfolio_theta = sum(m.theta_contribution for m in metrics)
+        portfolio_delta = sum(self._get_position_delta(p, market_data.get(p.symbol)) for p in positions)
+        portfolio_gamma = sum(self._get_greek(p.symbol, market_data, "gamma", 0) * p.quantity * p.multiplier for p in positions)
+        portfolio_vega = sum(self._get_greek(p.symbol, market_data, "vega", 0) * p.quantity * p.multiplier for p in positions)
+        portfolio_theta = sum(self._get_greek(p.symbol, market_data, "theta", 0) * p.quantity * p.multiplier for p in positions)
 
         table.add_row(
             "▼ All Tickers",
@@ -326,7 +335,10 @@ class TerminalDashboard:
         # Calculate absolute market value for each underlying for sorting
         underlying_values = {}
         for underlying, underlying_positions in by_underlying.items():
-            total_value = sum(abs(p.market_value) for p in underlying_positions)
+            total_value = sum(
+                abs(self._calculate_market_value(p, market_data.get(p.symbol)))
+                for p in underlying_positions
+            )
             underlying_values[underlying] = total_value
 
         # Sort underlyings by absolute market value (descending)
@@ -347,20 +359,34 @@ class TerminalDashboard:
                     stock_positions.append(pos)
 
             # Calculate underlying-level totals
-            underlying_market_value = sum(p.market_value for p in underlying_positions)
-            underlying_daily_pnl = sum(p.daily_pnl for p in underlying_positions)
-            underlying_unrealized = sum(p.unrealized_pnl for p in underlying_positions)
-            underlying_delta_dollars = sum(p.delta_dollars for p in underlying_positions)
+            underlying_market_value = sum(
+                self._calculate_market_value(p, market_data.get(p.symbol))
+                for p in underlying_positions
+            )
+            underlying_daily_pnl = sum(
+                self._calculate_daily_pnl(p, market_data.get(p.symbol))
+                for p in underlying_positions
+            )
+            underlying_unrealized = sum(
+                self._calculate_unrealized_pnl(p, market_data.get(p.symbol))
+                for p in underlying_positions
+            )
+            underlying_delta_dollars = sum(
+                self._calculate_delta_dollars(p, market_data.get(p.symbol))
+                for p in underlying_positions
+            )
 
-            underlying_delta = sum(p.delta_contribution for p in underlying_positions)
-            underlying_gamma = sum(p.gamma_contribution for p in underlying_positions)
-            underlying_vega = sum(p.vega_contribution for p in underlying_positions)
-            underlying_theta = sum(p.theta_contribution for p in underlying_positions)
+            underlying_delta = sum(self._get_position_delta(p, market_data.get(p.symbol)) for p in underlying_positions)
+            underlying_gamma = sum(self._get_greek(p.symbol, market_data, "gamma", 0) * p.quantity * p.multiplier for p in underlying_positions)
+            underlying_vega = sum(self._get_greek(p.symbol, market_data, "vega", 0) * p.quantity * p.multiplier for p in underlying_positions)
+            underlying_theta = sum(self._get_greek(p.symbol, market_data, "theta", 0) * p.quantity * p.multiplier for p in underlying_positions)
 
             # Get mark price for underlying
             underlying_mark = ""
-            if stock_positions and stock_positions[0].mark is not None:
-                underlying_mark = f"{stock_positions[0].mark:.2f}"
+            if stock_positions:
+                md = market_data.get(stock_positions[0].symbol)
+                if md and md.effective_mid():
+                    underlying_mark = f"{md.effective_mid():.2f}"
 
             # Add underlying header row
             table.add_row(
@@ -381,18 +407,19 @@ class TerminalDashboard:
 
             # Add stock positions (if any)
             for pos in stock_positions:
-                mark = pos.mark
+                md = market_data.get(pos.symbol)
+                mark = md.effective_mid() if md else None
 
                 table.add_row(
                     f" {pos.get_display_name()} ",
                     self._format_quantity(pos.quantity),
                     f"{mark:.2f}" if mark else "",
-                    self._format_number(pos.market_value, color=False),
-                    self._format_number(pos.daily_pnl, color=True),
-                    self._format_number(pos.unrealized_pnl, color=True),
-                    self._format_number(pos.delta_dollars, color=False),
+                    self._format_number(self._calculate_market_value(pos, md), color=False),
+                    self._format_number(self._calculate_daily_pnl(pos, md), color=True),
+                    self._format_number(self._calculate_unrealized_pnl(pos, md), color=True),
+                    self._format_number(self._calculate_delta_dollars(pos, md), color=False),
                     "",
-                    self._format_number(pos.delta_contribution, color=False),
+                    self._format_number(self._get_position_delta(pos, md), color=False),
                     "",
                     "",
                     "",
@@ -414,15 +441,27 @@ class TerminalDashboard:
                 expiry_positions = by_expiry[expiry]
 
                 # Calculate expiry-level totals
-                expiry_market_value = sum(p.market_value for p in expiry_positions)
-                expiry_daily_pnl = sum(p.daily_pnl for p in expiry_positions)
-                expiry_unrealized = sum(p.unrealized_pnl for p in expiry_positions)
-                expiry_delta_dollars = sum(p.delta_dollars for p in expiry_positions)
+                expiry_market_value = sum(
+                    self._calculate_market_value(p, market_data.get(p.symbol))
+                    for p in expiry_positions
+                )
+                expiry_daily_pnl = sum(
+                    self._calculate_daily_pnl(p, market_data.get(p.symbol))
+                    for p in expiry_positions
+                )
+                expiry_unrealized = sum(
+                    self._calculate_unrealized_pnl(p, market_data.get(p.symbol))
+                    for p in expiry_positions
+                )
+                expiry_delta_dollars = sum(
+                    self._calculate_delta_dollars(p, market_data.get(p.symbol))
+                    for p in expiry_positions
+                )
 
-                expiry_delta = sum(p.delta_contribution for p in expiry_positions)
-                expiry_gamma = sum(p.gamma_contribution for p in expiry_positions)
-                expiry_vega = sum(p.vega_contribution for p in expiry_positions)
-                expiry_theta = sum(p.theta_contribution for p in expiry_positions)
+                expiry_delta = sum(self._get_position_delta(p, market_data.get(p.symbol)) for p in expiry_positions)
+                expiry_gamma = sum(self._get_greek(p.symbol, market_data, "gamma", 0) * p.quantity * p.multiplier for p in expiry_positions)
+                expiry_vega = sum(self._get_greek(p.symbol, market_data, "vega", 0) * p.quantity * p.multiplier for p in expiry_positions)
+                expiry_theta = sum(self._get_greek(p.symbol, market_data, "theta", 0) * p.quantity * p.multiplier for p in expiry_positions)
 
                 # Add expiry header row
                 table.add_row(
@@ -443,7 +482,8 @@ class TerminalDashboard:
 
                 # Add individual option positions
                 for pos in expiry_positions:
-                    mark = pos.mark
+                    md = market_data.get(pos.symbol)
+                    mark = md.effective_mid() if md else None
 
                     option_desc = f"{pos.symbol}"
                     if pos.strike and pos.right:
@@ -453,19 +493,147 @@ class TerminalDashboard:
                         f"    {option_desc}",
                         self._format_quantity(pos.quantity),
                         f"{mark:.3f}" if mark else "",
-                        self._format_number(pos.market_value, color=False),
-                        self._format_number(pos.daily_pnl, color=True),
-                        self._format_number(pos.unrealized_pnl, color=True),
-                        self._format_number(pos.delta_dollars, color=False),
+                        self._format_number(self._calculate_market_value(pos, md), color=False),
+                        self._format_number(self._calculate_daily_pnl(pos, md), color=True),
+                        self._format_number(self._calculate_unrealized_pnl(pos, md), color=True),
+                        self._format_number(self._calculate_delta_dollars(pos, md), color=False),
                         "",
-                        self._format_number(pos.delta_contribution, color=False),
-                        self._format_number(pos.gamma_contribution, color=False),
-                        self._format_number(pos.vega_contribution, color=False),
-                        self._format_number(pos.theta_contribution, color=False),
+                        self._format_number(self._get_position_delta(pos, md), color=False),
+                        self._format_number(self._get_greek(pos.symbol, market_data, "gamma", 0) * pos.quantity * pos.multiplier, color=False),
+                        self._format_number(self._get_greek(pos.symbol, market_data, "vega", 0) * pos.quantity * pos.multiplier, color=False),
+                        self._format_number(self._get_greek(pos.symbol, market_data, "theta", 0) * pos.quantity * pos.multiplier, color=False),
                         style=f"white ",
                     )
 
         return Panel(table, title="Portfolio Positions", border_style="blue")
+
+    def _calculate_daily_pnl(
+        self, pos: Position, md: Optional[MarketData]
+    ) -> float:
+        """
+        Calculate daily P&L for a position (current mark - yesterday close).
+
+        Only calculated during regular market hours. Returns 0 when market is closed or extended.
+        """
+        if not md or not md.effective_mid() or not md.yesterday_close:
+            return 0.0
+
+        # Only calculate daily P&L during regular market hours
+        market_status = MarketHours.get_market_status()
+        if market_status != "OPEN":
+            return 0.0
+
+        current_mark = md.effective_mid()
+        return (current_mark - md.yesterday_close) * pos.quantity * pos.multiplier
+
+    def _calculate_unrealized_pnl(
+        self, pos: Position, md: Optional[MarketData]
+    ) -> float:
+        """
+        Calculate unrealized P&L for a position with market hours logic.
+
+        Market hours logic:
+        - OPEN: Use current mark for all assets
+        - EXTENDED: Stocks use current mark, options use yesterday close
+        - CLOSED: All assets use yesterday close
+
+        For options:
+        - avg_price is cost per contract (e.g., $250 for contract bought at $2.50 premium)
+        - mark is premium per share (e.g., $2.50)
+        - P&L = (mark × multiplier - avg_price) × quantity
+
+        For stocks:
+        - avg_price is cost per share
+        - mark is price per share
+        - P&L = (mark - avg_price) × quantity × multiplier (multiplier=1)
+        """
+        if not md or not md.effective_mid():
+            return 0.0
+        pnl_price = self._calculate_effective_spot(pos, md)
+
+        # Calculate unrealized P&L
+        # Options: avg_price is per contract, pnl_price is per share
+        if pos.asset_type.value == "OPTION":
+            current_value = pnl_price * pos.multiplier  # Convert to per-contract value
+            return (current_value - pos.avg_price) * pos.quantity
+
+        # Stocks/others: both are per share
+        return (pnl_price - pos.avg_price) * pos.quantity * pos.multiplier
+
+
+    def _calculate_effective_spot(self, pos: Position, md: Optional[MarketData]) -> float:
+        if not md or not md.effective_mid():
+            return 0.0
+
+        mark = md.effective_mid()
+        market_status = MarketHours.get_market_status()
+
+        # Determine price to use for market value
+        if market_status == "OPEN":
+            # Regular hours: use current mark
+            value_price = mark
+        elif market_status == "EXTENDED":
+            # Extended hours: stocks use current price, options use yesterday close
+            if pos.asset_type.value == "STOCK":
+                value_price = mark  # Stocks trade in extended hours
+            else:
+                value_price = md.yesterday_close if md.yesterday_close else mark  # Options don't trade extended hours
+        else:
+            # Market closed: use yesterday close for all assets
+            value_price = md.yesterday_close if md.yesterday_close else mark
+
+        return value_price
+
+    def _calculate_market_value(
+        self, pos: Position, md: Optional[MarketData]
+    ) -> float:
+        """
+        Calculate market value for a position with market hours logic.
+
+        Market hours logic:
+        - OPEN: Use current mark for all assets
+        - EXTENDED: Stocks use current mark, options use yesterday close
+        - CLOSED: All assets use yesterday close
+        """
+        value_price = self._calculate_effective_spot(pos, md)
+
+        # Calculate market value
+        # For options: value_price is per share, multiply by multiplier to get per-contract value
+        if pos.asset_type.value == "OPTION":
+            return value_price * pos.multiplier * pos.quantity
+
+        # For stocks: value_price is per share
+        return value_price * pos.quantity * pos.multiplier
+
+    def _calculate_delta_dollars(
+        self, pos: Position, md: Optional[MarketData]
+    ) -> float:
+        """Calculate delta dollars (delta * mark * quantity * multiplier)."""
+        if not md:
+            return 0.0
+        mark = md.effective_mid() or 0
+        delta = md.delta if md.delta is not None else (1.0 if pos.asset_type.value == "STOCK" else 0.0)
+        return delta * mark * pos.quantity * pos.multiplier
+
+    def _get_position_delta(
+        self, pos: Position, md: Optional[MarketData]
+    ) -> float:
+        """Get position delta (delta * quantity * multiplier)."""
+        if not md:
+            delta = 1.0 if pos.asset_type.value == "STOCK" else 0.0
+            return delta * pos.quantity * pos.multiplier
+
+        delta = md.delta if md.delta is not None else (1.0 if pos.asset_type.value == "STOCK" else 0.0)
+        return delta * pos.quantity * pos.multiplier
+
+    def _get_greek(
+        self, symbol: str, market_data: Dict[str, MarketData], greek: str, default: float
+    ) -> float:
+        """Get Greek value from market data."""
+        md = market_data.get(symbol)
+        if not md:
+            return default
+        return getattr(md, greek, default) or default
 
     def _format_quantity(self, value: float) -> str:
         """Format quantity with decimal places for fractional shares/contracts."""
