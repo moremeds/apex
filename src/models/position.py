@@ -72,7 +72,21 @@ class Position:
         """Calculate days to expiry from reference date (default: today)."""
         if self.expiry is None or self.expiry=="":
             return None
-        expiry_date = datetime.strptime(self.expiry, "%Y%m%d").date()
+
+        # Support both formats: YYYY-MM-DD and YYYYMMDD
+        try:
+            if "-" in self.expiry:
+                # Hyphenated format: 2025-12-19
+                expiry_date = datetime.strptime(self.expiry, "%Y-%m-%d").date()
+            else:
+                # Compact format: 20251219
+                expiry_date = datetime.strptime(self.expiry, "%Y%m%d").date()
+        except ValueError as e:
+            # Log error and return None
+            import logging
+            logging.error(f"Invalid expiry format: {self.expiry}, error: {e}")
+            return None
+
         ref = ref_date or date.today()
         return (expiry_date - ref).days
 
