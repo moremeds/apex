@@ -10,6 +10,7 @@ from typing import List, Dict, Optional, Tuple
 from datetime import datetime
 from math import isnan
 import logging
+import asyncio
 
 from ...models.position import Position, AssetType
 from ...models.market_data import MarketData
@@ -28,15 +29,19 @@ class MarketDataFetcher:
     - Separate handling for stocks vs options
     """
 
-    def __init__(self, ib):
+    def __init__(self, ib, data_timeout: float = 3.0, poll_interval: float = 0.1):
         """
         Initialize market data fetcher.
 
         Args:
             ib: ib_async.IB instance
+            data_timeout: Maximum time to wait for data population (seconds)
+            poll_interval: Interval between data availability checks (seconds)
         """
         self.ib = ib
         self._active_tickers: Dict[str, object] = {}
+        self.data_timeout = data_timeout
+        self.poll_interval = poll_interval
 
     async def fetch_market_data(
         self,
@@ -179,6 +184,56 @@ class MarketDataFetcher:
         # Filter out None values
         return [md for md in market_data_list if md is not None]
 
+    async def _wait_for_data_population(
+        self,
+        tickers: List,
+        timeout: float
+    ) -> int:
+        """
+        Wait for ticker data to populate using polling with timeout.
+
+        Polls tickers at regular intervals to check if data has arrived.
+        Exits early if all tickers are populated or timeout is reached.
+
+        Args:
+            tickers: List of ticker objects to monitor
+            timeout: Maximum time to wait in seconds
+
+        Returns:
+            Number of tickers that successfully populated with data
+        """
+        start_time = asyncio.get_event_loop().time()
+        last_populated_count = 0
+
+        while True:
+            # Check how many tickers have data
+            populated_count = sum(
+                1 for t in tickers
+                if (t.bid and not isnan(t.bid)) or
+                   (t.ask and not isnan(t.ask)) or
+                   (t.last and not isnan(t.last))
+            )
+
+            # Log progress if count changed
+            if populated_count > last_populated_count:
+                logger.debug(f"Data population progress: {populated_count}/{len(tickers)} tickers")
+                last_populated_count = populated_count
+
+            # Exit early if all data populated
+            if populated_count == len(tickers):
+                elapsed = asyncio.get_event_loop().time() - start_time
+                logger.debug(f"All data populated in {elapsed:.2f}s")
+                return populated_count
+
+            # Check timeout
+            elapsed = asyncio.get_event_loop().time() - start_time
+            if elapsed >= timeout:
+                logger.warning(f"Data population timeout ({timeout}s): {populated_count}/{len(tickers)} populated")
+                return populated_count
+
+            # Wait before next poll
+            await asyncio.sleep(self.poll_interval)
+
     async def _fetch_option_streaming(
         self,
         contracts: List,
@@ -214,14 +269,18 @@ class MarketDataFetcher:
                 tickers.append(ticker)
                 logger.debug(f"Requested streaming data for option {i+1}/{len(contracts)}")
 
-            # Wait for data to populate
-            logger.debug(f"Waiting for option data to populate...")
-            await self.ib.sleep(1.5)
+            # Wait for data to populate using robust polling mechanism
+            logger.debug(f"Polling for option data population (timeout={self.data_timeout}s)...")
+            populated_count = await self._wait_for_data_population(tickers, timeout=self.data_timeout)
 
-            # Check how many tickers have data
-            empty_count = sum(1 for t in tickers if not (t.bid or t.ask or t.last))
-            if empty_count > 0:
-                logger.warning(f"{empty_count}/{len(tickers)} option tickers have no data")
+            # Log results
+            empty_count = len(tickers) - populated_count
+            if populated_count == len(tickers):
+                logger.debug(f"✓ All {len(tickers)} option tickers populated successfully")
+            elif populated_count > 0:
+                logger.warning(f"⚠ Partial data: {populated_count}/{len(tickers)} tickers populated, {empty_count} empty")
+            else:
+                logger.warning(f"✗ No data populated for {len(tickers)} option tickers")
 
             # Extract data from tickers
             for i, ticker in enumerate(tickers):
