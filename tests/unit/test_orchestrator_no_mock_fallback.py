@@ -6,7 +6,7 @@ instead of silently falling back to mock data.
 """
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 from src.application.orchestrator import Orchestrator
 from src.infrastructure.monitoring.health_monitor import HealthStatus
 
@@ -82,9 +82,8 @@ async def test_orchestrator_unhealthy_when_ib_disconnected():
     )
 
     # Mock merge positions to return our test position
-    with patch.object(orchestrator, '_merge_positions', return_value=[mock_position]):
-        # Run one cycle
-        await orchestrator._run_cycle()
+    reconciler.merge_positions = MagicMock(return_value=[mock_position])
+    await orchestrator._run_cycle()
 
     # Verify health monitor was updated with UNHEALTHY status
     health_monitor.update_component_health.assert_any_call(
@@ -166,9 +165,8 @@ async def test_orchestrator_unhealthy_when_fetch_fails():
     )
 
     # Mock merge positions to return our test position
-    with patch.object(orchestrator, '_merge_positions', return_value=[mock_position]):
-        # Run one cycle
-        await orchestrator._run_cycle()
+    reconciler.merge_positions = MagicMock(return_value=[mock_position])
+    await orchestrator._run_cycle()
 
     # Verify health monitor was updated with UNHEALTHY status
     health_monitor.update_component_health.assert_any_call(
@@ -251,9 +249,8 @@ async def test_orchestrator_no_mock_fallback():
     )
 
     # Mock merge positions to return our test position
-    with patch.object(orchestrator, '_merge_positions', return_value=[mock_position]):
-        # Run one cycle
-        await orchestrator._run_cycle()
+    reconciler.merge_positions = MagicMock(return_value=[mock_position])
+    await orchestrator._run_cycle()
 
     # Verify market data store upsert was NOT called with mock data
     # (it should only be called if real data was fetched successfully)

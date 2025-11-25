@@ -12,7 +12,7 @@ Coordinates:
 
 from __future__ import annotations
 import asyncio
-from typing import Dict, Any, List
+from typing import Dict, Any
 import logging
 
 from ..domain.interfaces.position_provider import PositionProvider
@@ -207,7 +207,8 @@ class Orchestrator:
                 self.event_bus.publish(EventType.RECONCILIATION_ISSUE, issue)
 
         # Merge positions (IB takes precedence, then manual)
-        merged_positions = self._merge_positions(ib_positions, manual_positions)
+        merged_positions = self.reconciler.merge_positions(ib_positions, manual_positions)
+        merged_positions = self.reconciler.remove_expired_options(merged_positions)
         self.position_store.upsert_positions(merged_positions)
         self.event_bus.publish(EventType.POSITION_CHANGED, {"count": len(merged_positions)})
 
@@ -292,57 +293,6 @@ class Orchestrator:
         )
 
         logger.debug("Orchestration cycle completed")
-
-    def _merge_positions(self, ib_positions: List, manual_positions: List) -> List:
-        """
-        Merge positions from multiple sources.
-
-        For positions with the same key:
-        - Aggregates quantities across accounts/sources
-        - Computes weighted average price
-        - IB source takes precedence over manual for metadata
-
-        Args:
-            ib_positions: Positions from IB.
-            manual_positions: Positions from manual file.
-
-        Returns:
-            Merged position list with aggregated quantities.
-        """
-        merged = {}
-
-        # Process all positions (manual first, then IB)
-        for p in manual_positions + ib_positions:
-            key = p.key()
-
-            if key not in merged:
-                # First time seeing this position
-                merged[key] = p
-            else:
-                # Aggregate with existing position
-                existing = merged[key]
-
-                # Compute weighted average price
-                total_value = (existing.avg_price * existing.quantity * existing.multiplier +
-                              p.avg_price * p.quantity * p.multiplier)
-                total_quantity = existing.quantity + p.quantity
-
-                if total_quantity != 0:
-                    new_avg_price = total_value / (total_quantity * existing.multiplier)
-                else:
-                    new_avg_price = existing.avg_price
-
-                # Update existing position
-                existing.quantity = total_quantity
-                existing.avg_price = new_avg_price
-
-                # IB source takes precedence for metadata
-                if p.source.value == "IB":
-                    existing.source = p.source
-                    existing.last_updated = p.last_updated
-                    existing.account_id = p.account_id  # Keep last account_id for reference
-
-        return list(merged.values())
 
     def get_latest_snapshot(self) -> RiskSnapshot | None:
         """Get the latest risk snapshot."""

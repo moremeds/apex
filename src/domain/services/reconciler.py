@@ -8,8 +8,11 @@ and identifies discrepancies.
 from __future__ import annotations
 from typing import Dict, List, Set
 from datetime import datetime
-from ...models.position import Position, PositionSource
+import logging
+from ...models.position import Position, PositionSource, AssetType
 from ...models.reconciliation import ReconciliationIssue, IssueType
+
+logger = logging.getLogger(__name__)
 
 
 class Reconciler:
@@ -108,6 +111,79 @@ class Reconciler:
                     break  # Only report once per position
 
         return issues
+
+    def remove_expired_options(
+        self,
+        positions: List[Position],
+        ref_date=None,
+    ) -> List[Position]:
+        """
+        Drop expired option positions so they do not linger in downstream views.
+
+        Args:
+            positions: Positions to evaluate.
+            ref_date: Optional reference date for expiry calculations (defaults to today).
+
+        Returns:
+            Filtered list with expired options removed.
+        """
+        filtered: List[Position] = []
+        for pos in positions:
+            if pos.asset_type != AssetType.OPTION:
+                filtered.append(pos)
+                continue
+
+            dte = pos.days_to_expiry(ref_date=ref_date)
+            if dte is None or dte >= 0:
+                filtered.append(pos)
+            else:
+                logger.info(f"Dropping expired option position {pos.symbol} (DTE={dte})")
+
+        return filtered
+
+    def merge_positions(
+        self,
+        ib_positions: List[Position],
+        manual_positions: List[Position],
+    ) -> List[Position]:
+        """
+        Merge positions across sources while preserving business rules.
+
+        For positions with the same key:
+        - Aggregates quantities across accounts/sources
+        - Computes weighted average price
+        - IB source takes precedence over manual for metadata
+        """
+        merged: Dict[tuple, Position] = {}
+
+        # Process all positions (manual first, then IB so IB metadata wins)
+        for position in manual_positions + ib_positions:
+            key = position.key()
+
+            if key not in merged:
+                merged[key] = position
+                continue
+
+            existing = merged[key]
+
+            total_value = (
+                existing.avg_price * existing.quantity * existing.multiplier
+                + position.avg_price * position.quantity * position.multiplier
+            )
+            total_quantity = existing.quantity + position.quantity
+
+            if total_quantity != 0:
+                existing.avg_price = total_value / (total_quantity * existing.multiplier)
+            # Preserve previous avg_price when net flat
+            existing.quantity = total_quantity
+
+            # IB source takes precedence for metadata
+            if position.source == PositionSource.IB:
+                existing.source = position.source
+                existing.last_updated = position.last_updated
+                existing.account_id = position.account_id
+
+        return list(merged.values())
 
     def _is_stale(self, position: Position) -> bool:
         """Check if position exceeds staleness threshold."""

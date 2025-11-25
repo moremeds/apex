@@ -333,6 +333,7 @@ class IbAdapter(PositionProvider, MarketDataProvider):
 
         Raises:
             ConnectionError: If not connected.
+            Exception: Any error encountered during IB fetch/parsing.
         """
         if not self.is_connected():
             raise ConnectionError("Not connected to IB")
@@ -397,18 +398,5 @@ class IbAdapter(PositionProvider, MarketDataProvider):
 
         except Exception as e:
             logger.error(f"Failed to fetch account info from IB: {e}")
-            # Return default values on error instead of crashing
-            logger.warning("Returning zeroed account info due to fetch failure")
-            return AccountInfo(
-                net_liquidation=0.0,
-                total_cash=0.0,
-                buying_power=0.0,
-                margin_used=0.0,
-                margin_available=0.0,
-                maintenance_margin=0.0,
-                init_margin_req=0.0,
-                excess_liquidity=0.0,
-                realized_pnl=0.0,
-                unrealized_pnl=0.0,
-                timestamp=datetime.now(),
-            )
+            # Propagate to caller to avoid silent risk calculations with zeroed balances
+            raise

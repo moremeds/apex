@@ -252,22 +252,32 @@ class MarketDataFetcher:
         market_data_list = []
 
         try:
-            # Cancel previous subscriptions
+            requested_symbols = {pos.symbol for _, pos in contract_pos_pairs}
+
+            # Cancel subscriptions that are no longer needed
             for symbol, old_ticker in list(self._active_tickers.items()):
-                try:
-                    self.ib.cancelMktData(old_ticker.contract)
-                except Exception as e:
-                    logger.debug(f"Error cancelling old subscription for {symbol}: {e}")
-            self._active_tickers.clear()
+                if symbol not in requested_symbols:
+                    try:
+                        self.ib.cancelMktData(old_ticker.contract)
+                    except Exception as e:
+                        logger.debug(f"Error cancelling old subscription for {symbol}: {e}")
+                    self._active_tickers.pop(symbol, None)
 
             # Request streaming data with Greeks (generic tick 106)
             tickers = []
             for i, contract in enumerate(contracts):
+                _, pos = contract_pos_pairs[i]
+
                 # Generic tick type 106 enables option computations (Greeks)
                 # Empty string '' means no generic ticks - just use delayed/snapshot data
-                ticker = self.ib.reqMktData(contract, '', False, False)
-                tickers.append(ticker)
-                logger.debug(f"Requested streaming data for option {i+1}/{len(contracts)}")
+                existing = self._active_tickers.get(pos.symbol)
+                if existing:
+                    tickers.append(existing)
+                else:
+                    ticker = self.ib.reqMktData(contract, '', False, False)
+                    tickers.append(ticker)
+                    self._active_tickers[pos.symbol] = ticker
+                    logger.debug(f"Requested streaming data for option {i+1}/{len(contracts)}")
 
             # Wait for data to populate using robust polling mechanism
             logger.debug(f"Polling for option data population (timeout={self.data_timeout}s)...")
@@ -290,9 +300,6 @@ class MarketDataFetcher:
 
                     # Try to extract Greeks for options
                     self._extract_greeks(ticker, md, pos)
-
-                    # Store active ticker
-                    self._active_tickers[pos.symbol] = ticker
 
                     market_data_list.append(md)
 
