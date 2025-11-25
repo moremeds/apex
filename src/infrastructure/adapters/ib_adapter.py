@@ -158,7 +158,7 @@ class IbAdapter(PositionProvider, MarketDataProvider):
 
     async def fetch_market_data(self, positions: List[Position]) -> List[MarketData]:
         """
-        Fetch market data for given symbols.
+        Fetch market data for given positions with batch requests for better performance.
 
         Args:
             positions: List of positions.
@@ -172,21 +172,25 @@ class IbAdapter(PositionProvider, MarketDataProvider):
         if not self.is_connected():
             raise ConnectionError("Not connected to IB")
 
+        if not positions:
+            return []
+
+        logger.info(f"Fetching market data for {len(positions)} positions...")
         market_data_list = []
 
         try:
             from ib_async import Stock, Option
 
-            # Fetch market data for each symbol
+            # Step 1: Create and qualify all contracts in batch
+            logger.debug("Qualifying contracts...")
+            contracts = []
+            pos_map = {}  # Map contract to position
+
             for pos in positions:
-                symbol = pos.symbol
                 try:
-                    # Create contract based on symbol
-                    # This is simplified - proper parsing needed for options
                     if pos.asset_type == AssetType.OPTION:
-                        # Option symbol (contains spaces)
                         contract = Option(
-                            symbol=pos.underlying,  # Use underlying ticker, not full option symbol
+                            symbol=pos.underlying,
                             lastTradeDateOrContractMonth=pos.expiry,
                             strike=pos.strike,
                             right=str(pos.right),
@@ -194,47 +198,75 @@ class IbAdapter(PositionProvider, MarketDataProvider):
                             multiplier=str(pos.multiplier),
                             currency="USD",
                         )
-
                     else:
-                        # Stock symbol
                         contract = Stock(pos.symbol, 'SMART', currency="USD")
 
-                    # Qualify the contract
-                    await self.ib.qualifyContractsAsync(contract)
-
-                    # Request market data snapshot
-                    ticker = await self.ib.reqTickersAsync(contract)
-
-                    if ticker and len(ticker) > 0:
-                        t = ticker[0]
-
-                        # Extract market data
-                        md = MarketData(
-                            symbol=symbol,
-                            last=float(t.last) if t.last and not isnan(t.last) else None,
-                            bid=float(t.bid) if t.bid and not isnan(t.bid) else None,
-                            ask=float(t.ask) if t.ask and not isnan(t.ask) else None,
-                            mid=float((t.bid + t.ask) / 2) if t.bid and t.ask and not isnan(t.bid) and not isnan(t.ask) else None,
-                            volume=int(t.volume) if t.volume and not isnan(t.volume) else None,
-                            yesterday_close=float(t.close) if hasattr(t, 'close') and t.close and not isnan(t.close) else None,
-                            timestamp=datetime.now(),
-                        )
-
-                        # For stocks, set delta to 1.0
-                        if " " not in symbol:
-                            md.delta = 1.0
-
-                        market_data_list.append(md)
-                        self._market_data_cache[symbol] = md
-
+                    contracts.append(contract)
+                    pos_map[id(contract)] = pos
                 except Exception as e:
-                    logger.warning(f"Failed to fetch market data for {symbol}: {e}")
+                    logger.warning(f"Failed to create contract for {pos.symbol}: {e}")
                     continue
 
-            logger.info(f"Fetched market data for {len(market_data_list)}/{len(positions)} symbols")
+            # Qualify all contracts at once (much faster than one-by-one)
+            qualified = []
+            if contracts:
+                try:
+                    qualified = await self.ib.qualifyContractsAsync(*contracts)
+                    logger.debug(f"Qualified {len(qualified)}/{len(contracts)} contracts")
+                except Exception as e:
+                    logger.error(f"Error qualifying contracts: {e}")
+
+            # Step 2: Fetch market data for all qualified contracts at once
+            if qualified:
+                logger.debug("Fetching market data...")
+                try:
+                    tickers = await self.ib.reqTickersAsync(*qualified)
+
+                    for i, ticker in enumerate(tickers):
+                        try:
+                            # Find corresponding position
+                            contract_id = id(qualified[i])
+                            if contract_id in pos_map:
+                                pos = pos_map[contract_id]
+                            else:
+                                # Fallback: try to match by index
+                                pos = list(pos_map.values())[i] if i < len(pos_map) else None
+
+                            if not pos:
+                                continue
+
+                            symbol = pos.symbol
+
+                            # Extract market data
+                            md = MarketData(
+                                symbol=symbol,
+                                last=float(ticker.last) if ticker.last and not isnan(ticker.last) else None,
+                                bid=float(ticker.bid) if ticker.bid and not isnan(ticker.bid) else None,
+                                ask=float(ticker.ask) if ticker.ask and not isnan(ticker.ask) else None,
+                                mid=float((ticker.bid + ticker.ask) / 2) if ticker.bid and ticker.ask and not isnan(ticker.bid) and not isnan(ticker.ask) else None,
+                                volume=int(ticker.volume) if ticker.volume and not isnan(ticker.volume) else None,
+                                yesterday_close=float(ticker.close) if hasattr(ticker, 'close') and ticker.close and not isnan(ticker.close) else None,
+                                timestamp=datetime.now(),
+                            )
+
+                            # For stocks, set delta to 1.0
+                            if pos.asset_type.value == "STOCK":
+                                md.delta = 1.0
+
+                            market_data_list.append(md)
+                            self._market_data_cache[symbol] = md
+
+                        except Exception as e:
+                            logger.warning(f"Failed to parse market data: {e}")
+                            continue
+
+                except Exception as e:
+                    logger.error(f"Error fetching tickers: {e}")
+
+            logger.info(f"✓ Fetched market data for {len(market_data_list)}/{len(positions)} positions")
 
         except Exception as e:
-            logger.error(f"Error fetching market data: {e}")
+            logger.error(f"Error in fetch_market_data: {e}")
 
         return market_data_list
 
