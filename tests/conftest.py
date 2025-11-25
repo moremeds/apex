@@ -33,7 +33,7 @@ def sample_option_position() -> Position:
         quantity=10,
         avg_price=5.5,
         multiplier=100,
-        expiry=date(2024, 3, 15),
+        expiry="20240315",
         strike=180.0,
         right="C",
         source=PositionSource.IB,

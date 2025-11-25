@@ -15,6 +15,7 @@ from ...domain.interfaces.market_data_provider import MarketDataProvider
 from ...models.position import Position, AssetType, PositionSource
 from ...models.market_data import MarketData
 from ...models.account import AccountInfo
+from .market_data_fetcher import MarketDataFetcher
 
 
 logger = logging.getLogger(__name__)
@@ -58,6 +59,7 @@ class IbAdapter(PositionProvider, MarketDataProvider):
         self._connected = False
         self._subscribed_symbols: List[str] = []
         self._market_data_cache: Dict[str, MarketData] = {}
+        self._market_data_fetcher: Optional[MarketDataFetcher] = None
 
     async def connect(self) -> None:
         """
@@ -71,6 +73,7 @@ class IbAdapter(PositionProvider, MarketDataProvider):
             self.ib = IB()
             await self.ib.connectAsync(self.host, self.port, clientId=self.client_id, timeout=5)
             self._connected = True
+            self._market_data_fetcher = MarketDataFetcher(self.ib)
             logger.info(f"Connected to IB at {self.host}:{self.port}")
         except ImportError:
             logger.error("ib_async library not installed. Install with: pip install ib_async")
@@ -83,6 +86,10 @@ class IbAdapter(PositionProvider, MarketDataProvider):
     async def disconnect(self) -> None:
         """Disconnect from Interactive Brokers."""
         if self.ib:
+            # Cleanup market data subscriptions
+            if self._market_data_fetcher:
+                self._market_data_fetcher.cleanup()
+
             self.ib.disconnect()
             self._connected = False
             logger.info("Disconnected from IB")
@@ -230,52 +237,19 @@ class IbAdapter(PositionProvider, MarketDataProvider):
                     logger.error(f"Error qualifying contracts: {e}")
                     # Continue with empty list - will use mock data or cached data
 
-            # Step 2: Fetch market data for all qualified contracts at once
-            if qualified:
-                logger.debug("Fetching market data...")
+            # Step 2: Fetch market data using the MarketDataFetcher
+            if qualified and self._market_data_fetcher:
                 try:
-                    tickers = await self.ib.reqTickersAsync(*qualified)
+                    market_data_list = await self._market_data_fetcher.fetch_market_data(
+                        positions, qualified, pos_map
+                    )
 
-                    for i, ticker in enumerate(tickers):
-                        try:
-                            # Find corresponding position
-                            contract_id = id(qualified[i])
-                            if contract_id in pos_map:
-                                pos = pos_map[contract_id]
-                            else:
-                                # Fallback: try to match by index
-                                pos = list(pos_map.values())[i] if i < len(pos_map) else None
-
-                            if not pos:
-                                continue
-
-                            symbol = pos.symbol
-
-                            # Extract market data
-                            md = MarketData(
-                                symbol=symbol,
-                                last=float(ticker.last) if ticker.last and not isnan(ticker.last) else None,
-                                bid=float(ticker.bid) if ticker.bid and not isnan(ticker.bid) else None,
-                                ask=float(ticker.ask) if ticker.ask and not isnan(ticker.ask) else None,
-                                mid=float((ticker.bid + ticker.ask) / 2) if ticker.bid and ticker.ask and not isnan(ticker.bid) and not isnan(ticker.ask) else None,
-                                volume=int(ticker.volume) if ticker.volume and not isnan(ticker.volume) else None,
-                                yesterday_close=float(ticker.close) if hasattr(ticker, 'close') and ticker.close and not isnan(ticker.close) else None,
-                                timestamp=datetime.now(),
-                            )
-
-                            # For stocks, set delta to 1.0
-                            if pos.asset_type.value == "STOCK":
-                                md.delta = 1.0
-
-                            market_data_list.append(md)
-                            self._market_data_cache[symbol] = md
-
-                        except Exception as e:
-                            logger.warning(f"Failed to parse market data: {e}")
-                            continue
+                    # Cache the market data
+                    for md in market_data_list:
+                        self._market_data_cache[md.symbol] = md
 
                 except Exception as e:
-                    logger.error(f"Error fetching tickers: {e}")
+                    logger.error(f"Error fetching market data: {e}")
 
             logger.info(f"✓ Fetched market data for {len(market_data_list)}/{len(positions)} positions")
 

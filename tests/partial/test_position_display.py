@@ -46,7 +46,7 @@ def test_position_display():
             quantity=-2,
             avg_price=5.50,
             multiplier=100,
-            expiry=date(2025, 12, 20),
+            expiry="20251220",
             strike=185.0,
             right="C",
             source=PositionSource.IB,

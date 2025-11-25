@@ -69,33 +69,32 @@ class Position:
         return "Err Name"
 
     def days_to_expiry(self, ref_date: Optional[date] = None) -> Optional[int]:
-        """Calculate days to expiry from reference date (default: today)."""
+        """
+        Calculate days to expiry from reference date (default: today).
+
+        Expected expiry format: YYYYMMDD string (e.g., "20251219")
+        """
         if self.expiry is None or self.expiry == "":
             return None
 
-        # If expiry is already a date object, use it directly
-        if isinstance(self.expiry, date):
-            expiry_date = self.expiry
-        else:
-            # Parse string formats: YYYY-MM-DD or YYYYMMDD
-            try:
-                if isinstance(self.expiry, str):
-                    if "-" in self.expiry:
-                        # Hyphenated format: 2025-12-19
-                        expiry_date = datetime.strptime(self.expiry, "%Y-%m-%d").date()
-                    else:
-                        # Compact format: 20251219
-                        expiry_date = datetime.strptime(self.expiry, "%Y%m%d").date()
-                else:
-                    # Unexpected type
-                    import logging
-                    logging.error(f"Invalid expiry type: {type(self.expiry)}, value: {self.expiry}")
-                    return None
-            except (ValueError, TypeError) as e:
-                # Log error and return None
+        # Parse expiry to date object
+        try:
+            if isinstance(self.expiry, date):
+                # Legacy: handle date objects
+                expiry_date = self.expiry
+            elif isinstance(self.expiry, str):
+                # Standard format: YYYYMMDD (e.g., "20251219")
+                expiry_date = datetime.strptime(self.expiry, "%Y%m%d").date()
+            else:
+                # Unexpected type
                 import logging
-                logging.error(f"Invalid expiry format: {self.expiry}, error: {e}")
+                logging.error(f"Invalid expiry type: {type(self.expiry)}, value: {self.expiry}")
                 return None
+        except (ValueError, TypeError) as e:
+            # Log error and return None
+            import logging
+            logging.error(f"Invalid expiry format: {self.expiry}, error: {e}")
+            return None
 
         ref = ref_date or date.today()
         return (expiry_date - ref).days

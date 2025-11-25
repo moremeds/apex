@@ -11,7 +11,7 @@ Real-time terminal UI for risk monitoring with:
 
 from __future__ import annotations
 from typing import List, Optional, Dict
-from datetime import date
+from datetime import date, datetime
 from rich.console import Console
 from rich.layout import Layout
 from rich.live import Live
@@ -60,13 +60,18 @@ class TerminalDashboard:
         layout = Layout()
         layout.split_column(
             Layout(name="header", size=3),
-            Layout(name="profile"),  # Portfolio positions section
-            Layout(name="body"),
-            Layout(name="footer", size=7),  # Increased to fit 4 health components + borders
+            Layout(name="body"),  # Main body - expands to fill available space
+            Layout(name="footer", size=5),  # Health status at bottom (horizontal layout)
         )
+        # Split body into left (positions) and right (summary + breaches)
         layout["body"].split_row(
-            Layout(name="left"),
-            Layout(name="right"),
+            Layout(name="profile", ratio=3),  # Left: Portfolio positions (60%)
+            Layout(name="right", ratio=2),  # Right: Summary + Breaches (40%)
+        )
+        # Split right side into upper (summary) and lower (breaches)
+        layout["right"].split_column(
+            Layout(name="upper", size=15),  # Upper: Portfolio summary
+            Layout(name="lower"),  # Lower: Limit breaches
         )
         return layout
 
@@ -104,8 +109,8 @@ class TerminalDashboard:
         self.layout["profile"].update(
             self._render_positions_profile(positions or [], market_data or {})
         )
-        self.layout["left"].update(self._render_portfolio_summary(snapshot))
-        self.layout["right"].update(self._render_breaches(breaches))
+        self.layout["right"]["upper"].update(self._render_portfolio_summary(snapshot))
+        self.layout["right"]["lower"].update(self._render_breaches(breaches))
         self.layout["footer"].update(self._render_health(health))
 
     def _render_header(self) -> Panel:
@@ -185,15 +190,20 @@ class TerminalDashboard:
         return Panel(table, title=f"⚠ Limit Breaches ({len(breaches)})", border_style=border_style)
 
     def _render_health(self, health: List[ComponentHealth]) -> Panel:
-        """Render health status panel."""
+        """Render health status panel horizontally."""
         if not health:
             return Panel(Text("No health data", style="dim"), title="Health", border_style="dim")
 
-        table = Table(show_header=False, box=None, padding=(0, 1))
-        table.add_column("Status", style="bold", no_wrap=True)
-        table.add_column("Component", style="cyan", no_wrap=True)
-        table.add_column("Details", no_wrap=False)
+        # Create table with horizontal layout - each component is a column
+        table = Table(show_header=False, box=None, padding=(0, 1), expand=True)
 
+        # Add columns for each health component
+        for h in health:
+            table.add_column(justify="center", no_wrap=True)
+
+        # First row: Status icons
+        icons = []
+        styles = []
         for h in health:
             if h.status == HealthStatus.HEALTHY:
                 style = "green"
@@ -207,8 +217,20 @@ class TerminalDashboard:
             else:  # UNKNOWN
                 style = "dim"
                 icon = "○"
+            icons.append(Text(icon, style=style))
+            styles.append(style)
 
-            # Show message if available
+        table.add_row(*icons)
+
+        # Second row: Component names
+        names = []
+        for h in health:
+            names.append(Text(h.component_name, style="cyan"))
+        table.add_row(*names)
+
+        # Third row: Details
+        details_list = []
+        for h in health:
             details = h.message if h.message else ""
 
             # Add metadata info for market data coverage (show for all statuses)
@@ -224,11 +246,9 @@ class TerminalDashboard:
             elif h.status != HealthStatus.HEALTHY and h.metadata and details == "":
                 details = str(h.metadata)
 
-            table.add_row(
-                Text(icon, style=style),
-                h.component_name,
-                details,
-            )
+            details_list.append(Text(details, style="dim"))
+
+        table.add_row(*details_list)
 
         # Set border color based on worst status
         has_unhealthy = any(h.status == HealthStatus.UNHEALTHY for h in health)
@@ -265,7 +285,8 @@ class TerminalDashboard:
         table = Table(show_header=True, box=None, padding=(0, 1))
         table.add_column("Ticker", style="bold", no_wrap=True)
         table.add_column("Pos", justify="right", no_wrap=True)
-        table.add_column("Mark", justify="right", no_wrap=True)
+        table.add_column("Spot", justify="right", no_wrap=True)
+        table.add_column("Mkt Value", justify="right", no_wrap=True)
         table.add_column("Daily P&L", justify="right", no_wrap=True)
         table.add_column("Unrealised P&L", justify="right", no_wrap=True)
         table.add_column("Delta $", justify="right", no_wrap=True)
@@ -274,9 +295,11 @@ class TerminalDashboard:
         table.add_column("G(γ)", justify="right", no_wrap=True)
         table.add_column("V(ν)", justify="right", no_wrap=True)
         table.add_column("Th(Θ)", justify="right", no_wrap=True)
-        table.add_column("Hedge", justify="right", no_wrap=True)
 
         # Add portfolio total row
+        total_market_value = sum(
+            self._calculate_market_value(p, market_data.get(p.symbol)) for p in positions
+        )
         total_daily_pnl = sum(
             self._calculate_daily_pnl(p, market_data.get(p.symbol)) for p in positions
         )
@@ -297,6 +320,7 @@ class TerminalDashboard:
             "▼ All Tickers",
             "",
             "",
+            self._format_number(total_market_value, color=False),
             self._format_number(total_daily_pnl, color=True),
             self._format_number(total_unrealized, color=True),
             self._format_number(total_delta_dollars, color=False),
@@ -305,11 +329,22 @@ class TerminalDashboard:
             self._format_number(portfolio_gamma, color=False),
             self._format_number(portfolio_vega, color=False),
             self._format_number(portfolio_theta, color=False),
-            "",
             style="bold white on rgb(80,80,80)",
         )
 
-        for underlying in sorted(by_underlying.keys()):
+        # Calculate absolute market value for each underlying for sorting
+        underlying_values = {}
+        for underlying, underlying_positions in by_underlying.items():
+            total_value = sum(
+                abs(self._calculate_market_value(p, market_data.get(p.symbol)))
+                for p in underlying_positions
+            )
+            underlying_values[underlying] = total_value
+
+        # Sort underlyings by absolute market value (descending)
+        sorted_underlyings = sorted(by_underlying.keys(), key=lambda u: underlying_values[u], reverse=True)
+
+        for underlying in sorted_underlyings:
             underlying_positions = by_underlying[underlying]
 
             # Group by expiry within underlying
@@ -324,6 +359,10 @@ class TerminalDashboard:
                     stock_positions.append(pos)
 
             # Calculate underlying-level totals
+            underlying_market_value = sum(
+                self._calculate_market_value(p, market_data.get(p.symbol))
+                for p in underlying_positions
+            )
             underlying_daily_pnl = sum(
                 self._calculate_daily_pnl(p, market_data.get(p.symbol))
                 for p in underlying_positions
@@ -354,6 +393,7 @@ class TerminalDashboard:
                 f"▼ {underlying} ",
                 "",
                 underlying_mark,
+                self._format_number(underlying_market_value, color=False),
                 self._format_number(underlying_daily_pnl, color=True),
                 self._format_number(underlying_unrealized, color=True),
                 self._format_number(underlying_delta_dollars, color=False),
@@ -362,7 +402,6 @@ class TerminalDashboard:
                 self._format_number(underlying_gamma, color=False),
                 self._format_number(underlying_vega, color=False),
                 self._format_number(underlying_theta, color=False),
-                "",
                 style=f"bold white ",
             )
 
@@ -372,9 +411,10 @@ class TerminalDashboard:
                 mark = md.effective_mid() if md else None
 
                 table.add_row(
-                    f" ({pos.source.value}) {pos.get_display_name()} ",
+                    f" {pos.get_display_name()} ",
                     self._format_quantity(pos.quantity),
                     f"{mark:.2f}" if mark else "",
+                    self._format_number(self._calculate_market_value(pos, md), color=False),
                     self._format_number(self._calculate_daily_pnl(pos, md), color=True),
                     self._format_number(self._calculate_unrealized_pnl(pos, md), color=True),
                     self._format_number(self._calculate_delta_dollars(pos, md), color=False),
@@ -383,15 +423,28 @@ class TerminalDashboard:
                     "",
                     "",
                     "",
-                    "",
                     style=f"white ",
                 )
 
             # Add expiry groups
-            for expiry in sorted(by_expiry.keys()):
+            # Normalize expiry keys to date objects for sorting
+            # All expiry values should be in YYYYMMDD format
+            def normalize_expiry(exp):
+                if isinstance(exp, date):
+                    return exp
+                elif isinstance(exp, str):
+                    # Standard format is YYYYMMDD
+                    return datetime.strptime(exp, "%Y%m%d").date()
+                return exp
+
+            for expiry in sorted(by_expiry.keys(), key=normalize_expiry):
                 expiry_positions = by_expiry[expiry]
 
                 # Calculate expiry-level totals
+                expiry_market_value = sum(
+                    self._calculate_market_value(p, market_data.get(p.symbol))
+                    for p in expiry_positions
+                )
                 expiry_daily_pnl = sum(
                     self._calculate_daily_pnl(p, market_data.get(p.symbol))
                     for p in expiry_positions
@@ -415,6 +468,7 @@ class TerminalDashboard:
                     f"  ▼ {expiry}",
                     "",
                     "",
+                    self._format_number(expiry_market_value, color=False),
                     self._format_number(expiry_daily_pnl, color=True),
                     self._format_number(expiry_unrealized, color=True),
                     self._format_number(expiry_delta_dollars, color=False),
@@ -423,7 +477,6 @@ class TerminalDashboard:
                     self._format_number(expiry_gamma, color=False),
                     self._format_number(expiry_vega, color=False),
                     self._format_number(expiry_theta, color=False),
-                    "",
                     style=f"bold white ",
                 )
 
@@ -440,6 +493,7 @@ class TerminalDashboard:
                         f"    {option_desc}",
                         self._format_quantity(pos.quantity),
                         f"{mark:.3f}" if mark else "",
+                        self._format_number(self._calculate_market_value(pos, md), color=False),
                         self._format_number(self._calculate_daily_pnl(pos, md), color=True),
                         self._format_number(self._calculate_unrealized_pnl(pos, md), color=True),
                         self._format_number(self._calculate_delta_dollars(pos, md), color=False),
@@ -448,7 +502,6 @@ class TerminalDashboard:
                         self._format_number(self._get_greek(pos.symbol, market_data, "gamma", 0) * pos.quantity * pos.multiplier, color=False),
                         self._format_number(self._get_greek(pos.symbol, market_data, "vega", 0) * pos.quantity * pos.multiplier, color=False),
                         self._format_number(self._get_greek(pos.symbol, market_data, "theta", 0) * pos.quantity * pos.multiplier, color=False),
-                        "",
                         style=f"white ",
                     )
 
@@ -496,23 +549,7 @@ class TerminalDashboard:
         """
         if not md or not md.effective_mid():
             return 0.0
-
-        mark = md.effective_mid()
-        market_status = MarketHours.get_market_status()
-
-        # Determine price to use for unrealized P&L
-        if market_status == "OPEN":
-            # Regular hours: use current mark
-            pnl_price = mark
-        elif market_status == "EXTENDED":
-            # Extended hours: stocks use current price, options use yesterday close
-            if pos.asset_type.value == "STOCK":
-                pnl_price = mark  # Stocks trade in extended hours
-            else:
-                pnl_price = md.yesterday_close if md.yesterday_close else mark  # Options don't trade extended hours
-        else:
-            # Market closed: use yesterday close for all assets
-            pnl_price = md.yesterday_close if md.yesterday_close else mark
+        pnl_price = self._calculate_effective_spot(pos, md)
 
         # Calculate unrealized P&L
         # Options: avg_price is per contract, pnl_price is per share
@@ -522,6 +559,51 @@ class TerminalDashboard:
 
         # Stocks/others: both are per share
         return (pnl_price - pos.avg_price) * pos.quantity * pos.multiplier
+
+
+    def _calculate_effective_spot(self, pos: Position, md: Optional[MarketData]) -> float:
+        if not md or not md.effective_mid():
+            return 0.0
+
+        mark = md.effective_mid()
+        market_status = MarketHours.get_market_status()
+
+        # Determine price to use for market value
+        if market_status == "OPEN":
+            # Regular hours: use current mark
+            value_price = mark
+        elif market_status == "EXTENDED":
+            # Extended hours: stocks use current price, options use yesterday close
+            if pos.asset_type.value == "STOCK":
+                value_price = mark  # Stocks trade in extended hours
+            else:
+                value_price = md.yesterday_close if md.yesterday_close else mark  # Options don't trade extended hours
+        else:
+            # Market closed: use yesterday close for all assets
+            value_price = md.yesterday_close if md.yesterday_close else mark
+
+        return value_price
+
+    def _calculate_market_value(
+        self, pos: Position, md: Optional[MarketData]
+    ) -> float:
+        """
+        Calculate market value for a position with market hours logic.
+
+        Market hours logic:
+        - OPEN: Use current mark for all assets
+        - EXTENDED: Stocks use current mark, options use yesterday close
+        - CLOSED: All assets use yesterday close
+        """
+        value_price = self._calculate_effective_spot(pos, md)
+
+        # Calculate market value
+        # For options: value_price is per share, multiply by multiplier to get per-contract value
+        if pos.asset_type.value == "OPTION":
+            return value_price * pos.multiplier * pos.quantity
+
+        # For stocks: value_price is per share
+        return value_price * pos.quantity * pos.multiplier
 
     def _calculate_delta_dollars(
         self, pos: Position, md: Optional[MarketData]
@@ -584,8 +666,8 @@ class TerminalDashboard:
     def _format_pnl(self, value: float) -> Text:
         """Format P&L with color."""
         if value > 0:
-            return Text(f"+${value:,.0f}", style="green")
+            return Text(f"+${value:,.2f}", style="green")
         elif value < 0:
-            return Text(f"-${abs(value):,.0f}", style="red")
+            return Text(f"-${abs(value):,.2f}", style="red")
         else:
-            return Text(f"${value:,.0f}", style="dim")
+            return Text(f"${value:,.2f}", style="dim")

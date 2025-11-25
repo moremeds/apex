@@ -170,13 +170,22 @@ class FileLoader(PositionProvider):
         strategy_tag = pos_dict.get("strategy_tag")
 
         # Option/Future fields
+        # Convert all expiry formats to YYYYMMDD string format
         expiry = None
         if "expiry" in pos_dict:
-            expiry_str = pos_dict["expiry"]
-            if isinstance(expiry_str, str):
-                expiry = datetime.strptime(expiry_str, "%Y-%m-%d").date()
-            elif isinstance(expiry_str, date):
-                expiry = expiry_str
+            expiry_input = pos_dict["expiry"]
+            if isinstance(expiry_input, str):
+                # Handle both YYYY-MM-DD and YYYYMMDD string formats
+                if "-" in expiry_input:
+                    # Convert YYYY-MM-DD to YYYYMMDD
+                    expiry_date = datetime.strptime(expiry_input, "%Y-%m-%d").date()
+                    expiry = expiry_date.strftime("%Y%m%d")
+                else:
+                    # Already in YYYYMMDD format
+                    expiry = expiry_input
+            elif isinstance(expiry_input, date):
+                # Convert date object to YYYYMMDD string
+                expiry = expiry_input.strftime("%Y%m%d")
 
         strike = pos_dict.get("strike")
         if strike is not None:
