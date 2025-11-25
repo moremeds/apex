@@ -10,7 +10,8 @@
       "Bash(python test_logging.py:*)",
       "Bash(python:*)",
       "Bash(timeout 12s python:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(git add:*)",
     ],
     "deny": [],
     "ask": []

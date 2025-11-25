@@ -85,6 +85,9 @@ async def main_async(args: argparse.Namespace) -> None:
         {"env": args.env}
     )
 
+    orchestrator = None
+    dashboard = None
+    
     try:
         # Load configuration
         config_manager = ConfigManager(config_dir="config", env=args.env)
@@ -152,7 +155,6 @@ async def main_async(args: argparse.Namespace) -> None:
         )
 
         # Initialize dashboard (if not disabled)
-        dashboard = None
         if not args.no_dashboard:
             dashboard = TerminalDashboard(config=config.raw.get("dashboard", {}))
 
@@ -210,8 +212,6 @@ async def main_async(args: argparse.Namespace) -> None:
                     await asyncio.sleep(config.dashboard.refresh_interval_sec)
             except KeyboardInterrupt:
                 system_structured.info(LogCategory.SYSTEM, "Received shutdown signal")
-            finally:
-                dashboard.stop()
         else:
             # Headless mode - just wait for interrupt
             try:
@@ -220,8 +220,6 @@ async def main_async(args: argparse.Namespace) -> None:
             except KeyboardInterrupt:
                 system_structured.info(LogCategory.SYSTEM, "Received shutdown signal")
 
-        # Shutdown
-        await orchestrator.stop()
         system_structured.info(LogCategory.SYSTEM, "System shutdown complete")
 
     except Exception as e:
@@ -231,7 +229,13 @@ async def main_async(args: argparse.Namespace) -> None:
             {"error": str(e)}
         )
         system_logger.exception("Fatal error:")
-        sys.exit(1)
+    finally:
+        # Always clean up resources
+        if dashboard:
+            dashboard.stop()
+        if orchestrator:
+            await orchestrator.stop()
+            system_structured.info(LogCategory.SYSTEM, "Orchestrator stopped")
 
 
 def main() -> None:
