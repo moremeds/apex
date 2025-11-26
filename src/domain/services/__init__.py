@@ -7,6 +7,7 @@ from .rule_engine import RuleEngine, BreachSeverity
 from .suggester import SimpleSuggester
 from .shock_engine import SimpleShockEngine
 from .market_alert_detector import MarketAlertDetector
+from .risk_signal_manager import RiskSignalManager
 
 __all__ = [
     "RiskEngine",
@@ -17,4 +18,5 @@ __all__ = [
     "SimpleSuggester",
     "SimpleShockEngine",
     "MarketAlertDetector",
+    "RiskSignalManager",
 ]
