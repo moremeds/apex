@@ -5,6 +5,7 @@ from .market_data import MarketData, GreeksSource, DataQuality
 from .account import AccountInfo
 from .risk_snapshot import RiskSnapshot
 from .reconciliation import ReconciliationIssue, IssueType
+from .position_risk import PositionRisk
 
 __all__ = [
     "Position",
@@ -17,4 +18,5 @@ __all__ = [
     "RiskSnapshot",
     "ReconciliationIssue",
     "IssueType",
+    "PositionRisk",
 ]

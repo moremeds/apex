@@ -193,26 +193,24 @@ async def main_async(args: argparse.Namespace) -> None:
 
                     if snapshot:
                         breaches = rule_engine.evaluate(snapshot)
-                        # Get positions and market data from stores
-                        positions = position_store.get_all()
-                        market_data = market_data_store.get_all()
 
                         # TODO: Implement market alert detection (VIX spikes, market drops, etc.)
                         # For now, pass empty list
                         market_alerts = []
 
-                        dashboard.update(snapshot, breaches, health, positions, market_data, market_alerts)
+                        # Dashboard now uses pre-calculated data from snapshot.position_risks
+                        dashboard.update(snapshot, breaches, health, market_alerts)
 
                         # Log market data fetch
                         market_structured.info(
                             LogCategory.DATA,
-                            "Market data refreshed",
-                            {"positions": len(positions), "market_data": len(market_data)}
+                            "Risk snapshot refreshed",
+                            {"positions": snapshot.total_positions, "position_risks": len(snapshot.position_risks)}
                         )
                     else:
                         # No snapshot yet - show empty snapshot with health status
                         empty_snapshot = RiskSnapshot()
-                        dashboard.update(empty_snapshot, [], health, [], {}, [])
+                        dashboard.update(empty_snapshot, [], health, [])
 
                     await asyncio.sleep(config.dashboard.refresh_interval_sec)
             except KeyboardInterrupt:

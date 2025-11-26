@@ -3,7 +3,10 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Any
+from typing import Dict, List, Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .position_risk import PositionRisk
 
 
 @dataclass
@@ -58,3 +61,7 @@ class RiskSnapshot:
     positions_with_missing_md: int = 0
     total_positions: int = 0
     missing_greeks_count: int = 0
+
+    # Per-position risk breakdown (calculated by RiskEngine)
+    # This is the single source of truth for all position-level calculations
+    position_risks: List["PositionRisk"] = field(default_factory=list)

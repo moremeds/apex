@@ -45,6 +45,9 @@ class MarketData:
     vega: Optional[float] = None
     theta: Optional[float] = None
 
+    # Underlying price (for options delta dollars calculation)
+    underlying_price: Optional[float] = None
+
     # Metadata
     yesterday_close: Optional[float] = None
     timestamp: Optional[datetime] = None
