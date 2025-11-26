@@ -22,6 +22,8 @@ from src.domain.services.risk_engine import RiskEngine
 from src.domain.services.pos_reconciler import Reconciler
 from src.domain.services.mdqc import MDQC
 from src.domain.services.rule_engine import RuleEngine
+from src.domain.services.risk_signal_manager import RiskSignalManager
+from src.domain.services.risk_signal_engine import RiskSignalEngine
 # from src.domain.services.suggester import SimpleSuggester
 # from src.domain.services.shock_engine import SimpleShockEngine
 from src.application import Orchestrator, SimpleEventBus
@@ -87,7 +89,7 @@ async def main_async(args: argparse.Namespace) -> None:
 
     orchestrator = None
     dashboard = None
-    
+
     try:
         # Load configuration
         config_manager = ConfigManager(config_dir="config", env=args.env)
@@ -141,6 +143,21 @@ async def main_async(args: argparse.Namespace) -> None:
             soft_threshold=config.risk_limits.soft_breach_threshold,
         )
         market_alert_detector = MarketAlertDetector(config.raw.get("market_alerts", {}))
+
+        # Initialize risk signal engine (Phase 1-4: Multi-layer risk detection)
+        signal_manager = RiskSignalManager(
+            debounce_seconds=config.raw.get("risk_signals", {}).get("debounce_seconds", 15),
+            cooldown_minutes=config.raw.get("risk_signals", {}).get("cooldown_minutes", 5),
+        )
+        risk_signal_engine = RiskSignalEngine(
+            config=config.raw,
+            rule_engine=rule_engine,
+            signal_manager=signal_manager,
+            position_store=position_store,
+            market_data_store=market_data_store,
+        )
+        system_structured.info(LogCategory.SYSTEM, "Risk signal engine initialized")
+
         # suggester = SimpleSuggester()  # TODO: Use for breach analysis in dashboard
         # shock_engine = SimpleShockEngine(risk_engine=risk_engine, config=config.raw)  # TODO: Add scenario analysis
 
@@ -169,6 +186,7 @@ async def main_async(args: argparse.Namespace) -> None:
             config=config.raw,
             market_alert_detector=market_alert_detector,
             futu_adapter=futu_adapter,
+            risk_signal_engine=risk_signal_engine,
         )
 
         # Initialize dashboard (if not disabled)
@@ -209,13 +227,15 @@ async def main_async(args: argparse.Namespace) -> None:
                         )
 
                     if snapshot:
-                        breaches = rule_engine.evaluate(snapshot)
+                        # Get risk signals from orchestrator (multi-layer risk detection)
+                        risk_signals = orchestrator.get_latest_risk_signals()
 
                         # Use market alert detector output from orchestrator
                         market_alerts = orchestrator.get_latest_market_alerts()
 
                         # Dashboard now uses pre-calculated data from snapshot.position_risks
-                        dashboard.update(snapshot, breaches, health, market_alerts)
+                        # and displays RiskSignals instead of legacy breaches
+                        dashboard.update(snapshot, risk_signals, health, market_alerts)
 
                         # Log market data fetch
                         market_structured.info(

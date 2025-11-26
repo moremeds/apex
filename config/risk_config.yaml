@@ -110,6 +110,58 @@ market_alerts:
   vix_critical_threshold: 35.0  # VIX level for critical alert
   vix_spike_pct: 15.0  # % change threshold for VIX spike alert
 
+# Risk Signal Engine - Multi-layer risk detection (Phase 1-4)
+risk_signals:
+  # Signal management (debounce/cooldown)
+  debounce_seconds: 15  # Require 15s persistence before firing
+  cooldown_minutes: 5   # Suppress duplicates for 5min
+
+  # Position-level rules (Phase 2)
+  position_rules:
+    stop_loss_pct: 0.60  # -60% stop loss
+    take_profit_pct: 1.00  # +100% take profit
+    trailing_stop_drawdown: 0.30  # 30% drawdown from peak
+    dte_exit_ratio: 0.20  # Exit when DTE < 20% of initial
+    short_r_multiple: 1.5  # Stop at 1.5x premium loss for short positions
+
+  # Strategy-specific rules (Phase 3)
+  strategy_rules:
+    credit_spread_r_multiple: 1.5  # Stop at 1.5x premium loss
+    diagonal_delta_flip_warning: true  # Alert on delta flip
+    calendar_iv_crush_threshold: 0.30  # 30% IV loss threshold
+
+  # Correlation risk (Phase 4a)
+  correlation_risk:
+    enabled: true
+    max_sector_concentration_pct: 0.60  # 60% max single sector
+    beta_reference: SPY  # Use SPY for beta-weighting
+    sectors:
+      Tech: [AAPL, MSFT, NVDA, TSLA, GOOGL, META, AMZN, NFLX, AMD, CRM]
+      Finance: [JPM, BAC, GS, MS, WFC, C, BLK, SCHW]
+      Healthcare: [JNJ, UNH, PFE, ABBV, TMO, LLY]
+      Energy: [XOM, CVX, COP, SLB, EOG]
+      Consumer: [WMT, HD, MCD, NKE, SBUX, TGT]
+      Industrial: [CAT, BA, GE, HON, UPS, LMT]
+      Communication: [DIS, CMCSA, VZ, T]
+
+  # Event risk - Earnings calendar (Phase 4b)
+  event_risk:
+    enabled: true
+    earnings_warning_days: 3  # Warn T-3 days before earnings
+    earnings_critical_days: 1  # Critical alert T-1 day
+
+    # Manual earnings calendar (update quarterly)
+    # Format: SYMBOL: "YYYY-MM-DD"
+    upcoming_earnings:
+      TSLA: "2025-01-24"
+      NVDA: "2025-02-21"
+      AAPL: "2025-01-30"
+      MSFT: "2025-01-28"
+      META: "2025-02-05"
+      AMZN: "2025-02-06"
+      GOOGL: "2025-02-04"
+      # Add more symbols as needed
+
 # Watchdog monitoring
 watchdog:
   snapshot_stale_sec: 10  # Alert if snapshot not updated

@@ -23,11 +23,13 @@ from ..domain.services.pos_reconciler import Reconciler
 from ..domain.services.mdqc import MDQC
 from ..domain.services.rule_engine import RuleEngine
 from ..domain.services.market_alert_detector import MarketAlertDetector
-from ..infrastructure.stores import PositionStore, MarketDataStore, AccountStore
-from ..infrastructure.monitoring import HealthMonitor, HealthStatus, Watchdog
+from ..domain.services.risk_signal_engine import RiskSignalEngine
 from ..models.risk_snapshot import RiskSnapshot
 from ..models.account import AccountInfo
 from ..models.position import Position
+from ..models.risk_signal import RiskSignal
+from ..infrastructure.stores import PositionStore, MarketDataStore, AccountStore
+from ..infrastructure.monitoring import HealthMonitor, HealthStatus, Watchdog
 
 
 logger = logging.getLogger(__name__)
@@ -63,6 +65,7 @@ class Orchestrator:
         config: Dict[str, Any],
         market_alert_detector: MarketAlertDetector | None = None,
         futu_adapter: Optional[PositionProvider] = None,
+        risk_signal_engine: RiskSignalEngine | None = None,
     ):
         """
         Initialize orchestrator with all dependencies.
@@ -76,13 +79,14 @@ class Orchestrator:
             risk_engine: Risk calculation engine.
             reconciler: Position reconciliation service.
             mdqc: Market data quality control.
-            rule_engine: Risk limit evaluation.
+            rule_engine: Risk limit evaluation (legacy).
             health_monitor: Health monitoring service.
             watchdog: Watchdog monitoring service.
             event_bus: Event bus for publish-subscribe.
             config: Application configuration.
             market_alert_detector: Optional market alert detector.
             futu_adapter: Optional Futu adapter (positions + account).
+            risk_signal_engine: Multi-layer risk signal engine (optional, replaces rule_engine).
         """
         self.ib_adapter = ib_adapter
         self.futu_adapter = futu_adapter
@@ -99,6 +103,7 @@ class Orchestrator:
         self.event_bus = event_bus
         self.config = config
         self.market_alert_detector = market_alert_detector
+        self.risk_signal_engine = risk_signal_engine
 
         self.refresh_interval_sec = config.get("dashboard", {}).get("refresh_interval_sec", 2)
         self._running = False
@@ -106,6 +111,7 @@ class Orchestrator:
 
         self._latest_snapshot: RiskSnapshot | None = None
         self._latest_market_alerts: list[dict[str, Any]] = []
+        self._latest_risk_signals: List[RiskSignal] = []
 
     async def start(self) -> None:
         """Start the orchestrator main loop."""
@@ -408,12 +414,22 @@ class Orchestrator:
         )
         self._latest_snapshot = snapshot
 
-        # 7. Evaluate risk limits
-        breaches = self.rule_engine.evaluate(snapshot)
-        if breaches:
-            logger.warning(f"Found {len(breaches)} limit breaches")
-            for breach in breaches:
-                self.event_bus.publish(EventType.LIMIT_BREACHED, breach)
+        # 7. Evaluate risk limits (use RiskSignalEngine if available, else legacy RuleEngine)
+        if self.risk_signal_engine:
+            # New: Multi-layer risk signal engine
+            risk_signals = self.risk_signal_engine.evaluate(snapshot)
+            self._latest_risk_signals = risk_signals
+            if risk_signals:
+                logger.warning(f"Found {len(risk_signals)} risk signals")
+                for signal in risk_signals:
+                    self.event_bus.publish(EventType.LIMIT_BREACHED, signal)
+        else:
+            # Legacy: Portfolio rule engine only
+            breaches = self.rule_engine.evaluate(snapshot)
+            if breaches:
+                logger.warning(f"Found {len(breaches)} limit breaches")
+                for breach in breaches:
+                    self.event_bus.publish(EventType.LIMIT_BREACHED, breach)
 
         # 8. Update watchdog
         self.watchdog.update_snapshot_time(snapshot.timestamp)
@@ -430,6 +446,10 @@ class Orchestrator:
     def get_latest_market_alerts(self) -> list[dict[str, Any]]:
         """Get the latest market alerts."""
         return self._latest_market_alerts
+
+    def get_latest_risk_signals(self) -> List[RiskSignal]:
+        """Get the latest risk signals."""
+        return self._latest_risk_signals
 
     async def _detect_market_alerts(self) -> None:
         """Fetch market indicators and detect alerts like VIX spikes."""

@@ -22,6 +22,7 @@ import logging
 
 from ..models.risk_snapshot import RiskSnapshot
 from ..models.position_risk import PositionRisk
+from ..models.risk_signal import RiskSignal, SignalSeverity
 from ..domain.services.rule_engine import LimitBreach, BreachSeverity
 from ..infrastructure.monitoring import ComponentHealth, HealthStatus
 from ..utils.market_hours import MarketHours
@@ -90,7 +91,7 @@ class TerminalDashboard:
     def update(
         self,
         snapshot: RiskSnapshot,
-        breaches: List[LimitBreach],
+        breaches: List[LimitBreach] | List[RiskSignal],
         health: List[ComponentHealth],
         market_alerts: Optional[List[Dict[str, any]]] = None,
     ) -> None:
@@ -99,7 +100,7 @@ class TerminalDashboard:
 
         Args:
             snapshot: Latest risk snapshot (contains pre-calculated position_risks).
-            breaches: List of limit breaches.
+            breaches: List of limit breaches (legacy) or risk signals (new).
             health: List of component health statuses.
             market_alerts: List of market-wide alerts (VIX spikes, etc).
                 Each alert is a dict with keys: 'type', 'message', 'severity'
@@ -233,12 +234,22 @@ class TerminalDashboard:
 
         return Panel(table, title=title, border_style=border_style)
 
-    def _render_breaches(self, breaches: List[LimitBreach]) -> Panel:
-        """Render portfolio risk alerts panel."""
+    def _render_breaches(self, breaches: List[LimitBreach] | List[RiskSignal]) -> Panel:
+        """Render portfolio risk alerts panel (supports both LimitBreach and RiskSignal)."""
         if not breaches:
             text = Text("✓ All risk limits OK", style="green")
             return Panel(text, title="Portfolio Risk Alert", border_style="green")
 
+        # Check if we're using RiskSignals or legacy LimitBreaches
+        is_risk_signals = breaches and isinstance(breaches[0], RiskSignal)
+
+        if is_risk_signals:
+            return self._render_risk_signals(breaches)
+        else:
+            return self._render_legacy_breaches(breaches)
+
+    def _render_legacy_breaches(self, breaches: List[LimitBreach]) -> Panel:
+        """Render legacy LimitBreach objects."""
         table = Table(show_header=True, box=None)
         table.add_column("Severity", style="bold")
         table.add_column("Risk Metric", style="cyan")
@@ -256,6 +267,61 @@ class TerminalDashboard:
 
         border_style = "red" if any(b.severity == BreachSeverity.HARD for b in breaches) else "yellow"
         return Panel(table, title=f"⚠ Portfolio Risk Alert ({len(breaches)})", border_style=border_style)
+
+    def _render_risk_signals(self, signals: List[RiskSignal]) -> Panel:
+        """Render RiskSignal objects with enhanced display."""
+        table = Table(show_header=True, box=None)
+        table.add_column("Severity", style="bold", no_wrap=True)
+        table.add_column("Symbol", style="cyan", no_wrap=True)
+        table.add_column("Rule", style="white")
+        table.add_column("Action", style="yellow", justify="right")
+
+        # Sort by severity (CRITICAL first)
+        sorted_signals = sorted(
+            signals,
+            key=lambda s: {"CRITICAL": 0, "WARNING": 1, "INFO": 2}[s.severity.value]
+        )
+
+        for signal in sorted_signals:
+            severity_style = {
+                "CRITICAL": "bold red",
+                "WARNING": "bold yellow",
+                "INFO": "cyan"
+            }[signal.severity.value]
+
+            icon = {
+                "CRITICAL": "🔴",
+                "WARNING": "⚠️",
+                "INFO": "ℹ️"
+            }[signal.severity.value]
+
+            # Format action
+            action_text = signal.suggested_action.value
+            if signal.breach_pct:
+                action_text += f" ({signal.breach_pct:.0f}%)"
+
+            table.add_row(
+                Text(f"{icon} {signal.severity.value}", style=severity_style),
+                signal.symbol or "PORTFOLIO",
+                signal.trigger_rule,
+                action_text
+            )
+
+        # Set border color based on highest severity
+        has_critical = any(s.severity == SignalSeverity.CRITICAL for s in signals)
+        has_warning = any(s.severity == SignalSeverity.WARNING for s in signals)
+
+        if has_critical:
+            border_style = "red"
+            title = f"🔴 Portfolio Risk Alert ({len(signals)})"
+        elif has_warning:
+            border_style = "yellow"
+            title = f"⚠️  Portfolio Risk Alert ({len(signals)})"
+        else:
+            border_style = "cyan"
+            title = f"Portfolio Risk Alert ({len(signals)})"
+
+        return Panel(table, title=title, border_style=border_style)
 
     def _render_health(self, health: List[ComponentHealth]) -> Panel:
         """Render health status panel horizontally."""
