@@ -68,9 +68,10 @@ class TerminalDashboard:
             Layout(name="profile", ratio=3),  # Left: Portfolio positions (60%)
             Layout(name="right", ratio=2),  # Right: Summary + Breaches (40%)
         )
-        # Split right side into upper (summary) and lower (breaches)
+        # Split right side into three sections: summary, market alerts, and breaches
         layout["right"].split_column(
             Layout(name="upper", size=15),  # Upper: Portfolio summary
+            Layout(name="alerts", size=8),  # Middle: Market alerts
             Layout(name="lower"),  # Lower: Limit breaches
         )
         return layout
@@ -94,6 +95,7 @@ class TerminalDashboard:
         health: List[ComponentHealth],
         positions: Optional[List[Position]] = None,
         market_data: Optional[Dict[str, MarketData]] = None,
+        market_alerts: Optional[List[Dict[str, any]]] = None,
     ) -> None:
         """
         Update dashboard with latest data.
@@ -104,12 +106,15 @@ class TerminalDashboard:
             health: List of component health statuses.
             positions: List of positions for detailed display.
             market_data: Market data by symbol.
+            market_alerts: List of market-wide alerts (VIX spikes, etc).
+                Each alert is a dict with keys: 'type', 'message', 'severity'
         """
         self.layout["header"].update(self._render_header())
         self.layout["profile"].update(
             self._render_positions_profile(positions or [], market_data or {})
         )
         self.layout["right"]["upper"].update(self._render_portfolio_summary(snapshot))
+        self.layout["right"]["alerts"].update(self._render_market_alerts(market_alerts or []))
         self.layout["right"]["lower"].update(self._render_breaches(breaches))
         self.layout["footer"].update(self._render_health(health))
 
@@ -164,6 +169,61 @@ class TerminalDashboard:
         table.add_row("Margin Utilization", f"{snapshot.margin_utilization:.1%}")
 
         return Panel(table, title="Portfolio Summary", border_style="green")
+
+    def _render_market_alerts(self, alerts: List[Dict[str, any]]) -> Panel:
+        """
+        Render market-wide alerts panel.
+
+        Args:
+            alerts: List of market alerts. Each alert is a dict with:
+                - type: str (e.g., "VIX_SPIKE", "MARKET_DROP", "VOLATILITY")
+                - message: str (e.g., "VIX jumped 15% to 28.5")
+                - severity: str ("INFO", "WARNING", "CRITICAL")
+        """
+        if not alerts:
+            text = Text("✓ No market alerts", style="dim")
+            return Panel(text, title="Market Alerts", border_style="dim")
+
+        table = Table(show_header=False, box=None)
+        table.add_column("Alert", style="bold")
+        table.add_column("Details", justify="left")
+
+        for alert in alerts:
+            alert_type = alert.get("type", "UNKNOWN")
+            message = alert.get("message", "")
+            severity = alert.get("severity", "INFO")
+
+            # Set style based on severity
+            if severity == "CRITICAL":
+                style = "bold red"
+                icon = "🔴"
+            elif severity == "WARNING":
+                style = "bold yellow"
+                icon = "⚠️"
+            else:
+                style = "cyan"
+                icon = "ℹ️"
+
+            table.add_row(
+                Text(f"{icon} {alert_type}", style=style),
+                Text(message, style=style)
+            )
+
+        # Set border color based on highest severity
+        has_critical = any(a.get("severity") == "CRITICAL" for a in alerts)
+        has_warning = any(a.get("severity") == "WARNING" for a in alerts)
+
+        if has_critical:
+            border_style = "red"
+            title = f"🔴 Market Alerts ({len(alerts)})"
+        elif has_warning:
+            border_style = "yellow"
+            title = f"⚠️  Market Alerts ({len(alerts)})"
+        else:
+            border_style = "cyan"
+            title = f"Market Alerts ({len(alerts)})"
+
+        return Panel(table, title=title, border_style=border_style)
 
     def _render_breaches(self, breaches: List[LimitBreach]) -> Panel:
         """Render limit breaches panel."""
@@ -244,8 +304,14 @@ class TerminalDashboard:
                         details = f"All {total} OK" if total > 0 else "No positions"
             # Add metadata info for other degraded/unhealthy components
             elif h.status != HealthStatus.HEALTHY and h.metadata and details == "":
-                details = str(h.metadata)
+                # Convert metadata to string, handling various types
+                if isinstance(h.metadata, dict):
+                    details = str(h.metadata)
+                else:
+                    details = str(h.metadata) if h.metadata else ""
 
+            # Ensure details is always a string
+            details = str(details) if details is not None else ""
             details_list.append(Text(details, style="dim"))
 
         table.add_row(*details_list)
@@ -286,9 +352,10 @@ class TerminalDashboard:
         table.add_column("Ticker", style="bold", no_wrap=True)
         table.add_column("Pos", justify="right", no_wrap=True)
         table.add_column("Spot", justify="right", no_wrap=True)
+        table.add_column("IV", justify="right", no_wrap=True)
         table.add_column("Mkt Value", justify="right", no_wrap=True)
-        table.add_column("Daily P&L", justify="right", no_wrap=True)
-        table.add_column("Unrealised P&L", justify="right", no_wrap=True)
+        table.add_column("P&L", justify="right", no_wrap=True)
+        table.add_column("UP&L", justify="right", no_wrap=True)
         table.add_column("Delta $", justify="right", no_wrap=True)
         table.add_column("VAR", justify="right", no_wrap=True)
         table.add_column("D(Δ)", justify="right", no_wrap=True)
@@ -318,6 +385,7 @@ class TerminalDashboard:
 
         table.add_row(
             "▼ All Tickers",
+            "",
             "",
             "",
             self._format_number(total_market_value, color=False),
@@ -393,6 +461,7 @@ class TerminalDashboard:
                 f"▼ {underlying} ",
                 "",
                 underlying_mark,
+                "",
                 self._format_number(underlying_market_value, color=False),
                 self._format_number(underlying_daily_pnl, color=True),
                 self._format_number(underlying_unrealized, color=True),
@@ -414,6 +483,7 @@ class TerminalDashboard:
                     f" {pos.get_display_name()} ",
                     self._format_quantity(pos.quantity),
                     f"{mark:.2f}" if mark else "",
+                    "",  # IV - not applicable for stocks
                     self._format_number(self._calculate_market_value(pos, md), color=False),
                     self._format_number(self._calculate_daily_pnl(pos, md), color=True),
                     self._format_number(self._calculate_unrealized_pnl(pos, md), color=True),
@@ -468,6 +538,7 @@ class TerminalDashboard:
                     f"  ▼ {expiry}",
                     "",
                     "",
+                    "",
                     self._format_number(expiry_market_value, color=False),
                     self._format_number(expiry_daily_pnl, color=True),
                     self._format_number(expiry_unrealized, color=True),
@@ -489,10 +560,16 @@ class TerminalDashboard:
                     if pos.strike and pos.right:
                         option_desc = f"{pos.get_display_name()}"
 
+                    # Format IV as percentage (e.g., 0.25 -> 25%)
+                    iv_display = ""
+                    if md and md.iv is not None:
+                        iv_display = f"{md.iv * 100:.1f}%"
+
                     table.add_row(
                         f"    {option_desc}",
                         self._format_quantity(pos.quantity),
                         f"{mark:.3f}" if mark else "",
+                        iv_display,
                         self._format_number(self._calculate_market_value(pos, md), color=False),
                         self._format_number(self._calculate_daily_pnl(pos, md), color=True),
                         self._format_number(self._calculate_unrealized_pnl(pos, md), color=True),

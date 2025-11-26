@@ -160,7 +160,7 @@ class FileLoader(PositionProvider):
             symbol = pos_dict["symbol"]
             underlying = pos_dict["underlying"]
             asset_type = AssetType[pos_dict["asset_type"].upper()]
-            quantity = int(pos_dict["quantity"])
+            quantity = float(pos_dict["quantity"])  # Support fractional shares
             avg_price = float(pos_dict["avg_price"])
         except KeyError as e:
             raise ValueError(f"Missing required field: {e}")

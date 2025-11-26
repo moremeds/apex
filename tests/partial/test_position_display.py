@@ -74,6 +74,7 @@ def test_position_display():
             bid=6.15,
             ask=6.25,
             mid=6.20,
+            iv=0.253,  # 25.3% implied volatility
             delta=0.45,
             gamma=0.02,
             vega=0.15,
@@ -124,6 +125,7 @@ def test_position_display():
             ],
             positions=positions,
             market_data=market_data,
+            market_alerts=[],
         )
         print(f"   ✓ Dashboard.update() called successfully with {len(positions)} positions")
 
@@ -159,6 +161,7 @@ def test_position_display():
             ],
             positions=None,  # No positions
             market_data={},
+            market_alerts=[],
         )
         print(f"   ✓ Dashboard.update() called successfully with no positions")
 

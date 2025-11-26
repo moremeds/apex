@@ -196,7 +196,12 @@ async def main_async(args: argparse.Namespace) -> None:
                         # Get positions and market data from stores
                         positions = position_store.get_all()
                         market_data = market_data_store.get_all()
-                        dashboard.update(snapshot, breaches, health, positions, market_data)
+
+                        # TODO: Implement market alert detection (VIX spikes, market drops, etc.)
+                        # For now, pass empty list
+                        market_alerts = []
+
+                        dashboard.update(snapshot, breaches, health, positions, market_data, market_alerts)
 
                         # Log market data fetch
                         market_structured.info(
@@ -207,7 +212,7 @@ async def main_async(args: argparse.Namespace) -> None:
                     else:
                         # No snapshot yet - show empty snapshot with health status
                         empty_snapshot = RiskSnapshot()
-                        dashboard.update(empty_snapshot, [], health, [], {})
+                        dashboard.update(empty_snapshot, [], health, [], {}, [])
 
                     await asyncio.sleep(config.dashboard.refresh_interval_sec)
             except KeyboardInterrupt:
