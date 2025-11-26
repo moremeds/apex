@@ -6,6 +6,7 @@ from .mdqc import MDQC
 from .rule_engine import RuleEngine, BreachSeverity
 from .suggester import SimpleSuggester
 from .shock_engine import SimpleShockEngine
+from .market_alert_detector import MarketAlertDetector
 
 __all__ = [
     "RiskEngine",
@@ -15,4 +16,5 @@ __all__ = [
     "BreachSeverity",
     "SimpleSuggester",
     "SimpleShockEngine",
+    "MarketAlertDetector",
 ]

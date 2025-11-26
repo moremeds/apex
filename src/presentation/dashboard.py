@@ -226,14 +226,14 @@ class TerminalDashboard:
         return Panel(table, title=title, border_style=border_style)
 
     def _render_breaches(self, breaches: List[LimitBreach]) -> Panel:
-        """Render limit breaches panel."""
+        """Render portfolio risk alerts panel."""
         if not breaches:
-            text = Text("✓ All limits within range", style="green")
-            return Panel(text, title="Limit Status", border_style="green")
+            text = Text("✓ All risk limits OK", style="green")
+            return Panel(text, title="Portfolio Risk Alert", border_style="green")
 
         table = Table(show_header=True, box=None)
         table.add_column("Severity", style="bold")
-        table.add_column("Limit", style="cyan")
+        table.add_column("Risk Metric", style="cyan")
         table.add_column("Status", justify="right")
 
         for breach in breaches:
@@ -247,7 +247,7 @@ class TerminalDashboard:
             )
 
         border_style = "red" if any(b.severity == BreachSeverity.HARD for b in breaches) else "yellow"
-        return Panel(table, title=f"⚠ Limit Breaches ({len(breaches)})", border_style=border_style)
+        return Panel(table, title=f"⚠ Portfolio Risk Alert ({len(breaches)})", border_style=border_style)
 
     def _render_health(self, health: List[ComponentHealth]) -> Panel:
         """Render health status panel horizontally."""

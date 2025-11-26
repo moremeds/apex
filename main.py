@@ -14,7 +14,7 @@ import logging
 import sys
 
 from config.config_manager import ConfigManager
-from src.domain.services import SimpleSuggester
+from src.domain.services import SimpleSuggester, MarketAlertDetector
 from src.infrastructure.adapters import IbAdapter, FileLoader
 from src.infrastructure.stores import PositionStore, MarketDataStore, AccountStore
 from src.infrastructure.monitoring import HealthMonitor, Watchdog
@@ -126,6 +126,7 @@ async def main_async(args: argparse.Namespace) -> None:
             risk_limits=config.raw.get("risk_limits", {}),
             soft_threshold=config.risk_limits.soft_breach_threshold,
         )
+        market_alert_detector = MarketAlertDetector(config.raw.get("market_alerts", {}))
         # suggester = SimpleSuggester()  # TODO: Use for breach analysis in dashboard
         # shock_engine = SimpleShockEngine(risk_engine=risk_engine, config=config.raw)  # TODO: Add scenario analysis
 
@@ -152,6 +153,7 @@ async def main_async(args: argparse.Namespace) -> None:
             watchdog=watchdog,
             event_bus=event_bus,
             config=config.raw,
+            market_alert_detector=market_alert_detector,
         )
 
         # Initialize dashboard (if not disabled)
@@ -194,9 +196,8 @@ async def main_async(args: argparse.Namespace) -> None:
                     if snapshot:
                         breaches = rule_engine.evaluate(snapshot)
 
-                        # TODO: Implement market alert detection (VIX spikes, market drops, etc.)
-                        # For now, pass empty list
-                        market_alerts = []
+                        # Use market alert detector output from orchestrator
+                        market_alerts = orchestrator.get_latest_market_alerts()
 
                         # Dashboard now uses pre-calculated data from snapshot.position_risks
                         dashboard.update(snapshot, breaches, health, market_alerts)

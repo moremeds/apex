@@ -22,6 +22,7 @@ from ..domain.services.risk_engine import RiskEngine
 from ..domain.services.reconciler import Reconciler
 from ..domain.services.mdqc import MDQC
 from ..domain.services.rule_engine import RuleEngine
+from ..domain.services.market_alert_detector import MarketAlertDetector
 from ..infrastructure.stores import PositionStore, MarketDataStore, AccountStore
 from ..infrastructure.monitoring import HealthMonitor, HealthStatus, Watchdog
 from ..models.risk_snapshot import RiskSnapshot
@@ -59,6 +60,7 @@ class Orchestrator:
         watchdog: Watchdog,
         event_bus: EventBus,
         config: Dict[str, Any],
+        market_alert_detector: MarketAlertDetector | None = None,
     ):
         """
         Initialize orchestrator with all dependencies.
@@ -91,12 +93,14 @@ class Orchestrator:
         self.watchdog = watchdog
         self.event_bus = event_bus
         self.config = config
+        self.market_alert_detector = market_alert_detector
 
         self.refresh_interval_sec = config.get("dashboard", {}).get("refresh_interval_sec", 2)
         self._running = False
         self._task: asyncio.Task | None = None
 
         self._latest_snapshot: RiskSnapshot | None = None
+        self._latest_market_alerts: list[dict[str, Any]] = []
 
     async def start(self) -> None:
         """Start the orchestrator main loop."""
@@ -269,6 +273,9 @@ class Orchestrator:
         market_data = self.market_data_store.get_all()
         self.mdqc.validate_all(market_data)
 
+        # 4b. Fetch market-wide indicators for alerts (e.g., VIX) and detect alerts
+        await self._detect_market_alerts()
+
         # 5. Fetch account info
         account_info = await self.ib_adapter.fetch_account_info()
         self.account_store.update(account_info)
@@ -297,3 +304,35 @@ class Orchestrator:
     def get_latest_snapshot(self) -> RiskSnapshot | None:
         """Get the latest risk snapshot."""
         return self._latest_snapshot
+
+    def get_latest_market_alerts(self) -> list[dict[str, Any]]:
+        """Get the latest market alerts."""
+        return self._latest_market_alerts
+
+    async def _detect_market_alerts(self) -> None:
+        """Fetch market indicators and detect alerts like VIX spikes."""
+        if not self.market_alert_detector:
+            self._latest_market_alerts = []
+            return
+
+        symbols = self.config.get("market_alerts", {}).get("symbols", ["VIX"])
+        indicators: dict[str, Any] = {}
+
+        try:
+            md_map = await self.ib_adapter.fetch_market_indicators(symbols)
+            if md_map:
+                # Cache indicators for reuse / dashboard display
+                self.market_data_store.upsert(md_map.values())
+
+                # Extract VIX level for alerting
+                vix_md = md_map.get("VIX")
+                if vix_md:
+                    vix_mark = vix_md.effective_mid() or vix_md.last or vix_md.bid or vix_md.ask
+                    indicators["vix"] = vix_mark
+                    indicators["vix_prev_close"] = vix_md.yesterday_close
+                    indicators["timestamp"] = vix_md.timestamp
+        except Exception as e:
+            logger.warning(f"Failed to fetch market indicators: {e}")
+
+        # Detect alerts (safe on empty data)
+        self._latest_market_alerts = self.market_alert_detector.detect_alerts(indicators)

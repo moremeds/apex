@@ -48,6 +48,12 @@ dashboard:
   refresh_interval_sec: 2
   show_positions: true
 
+market_alerts:
+  symbols: ["VIX"]
+  vix_warning_threshold: 25.0
+  vix_critical_threshold: 35.0
+  vix_spike_pct: 15.0
+
 watchdog:
   snapshot_stale_sec: 10
   max_missing_md_ratio: 0.2

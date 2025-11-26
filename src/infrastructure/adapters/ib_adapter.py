@@ -324,6 +324,71 @@ class IbAdapter(PositionProvider, MarketDataProvider):
         """Get latest cached market data for a symbol."""
         return self._market_data_cache.get(symbol)
 
+    async def fetch_market_indicators(self, symbols: List[str]) -> Dict[str, MarketData]:
+        """
+        Fetch snapshot market data for broad market indicators (e.g., VIX, SPY).
+
+        Designed for market-alert use cases where we need lightweight quotes
+        without Greeks or streaming subscriptions.
+
+        Args:
+            symbols: List of ticker symbols to fetch.
+
+        Returns:
+            Dict mapping symbol -> MarketData
+        """
+        if not self.is_connected():
+            raise ConnectionError("Not connected to IB")
+
+        if not symbols:
+            return {}
+
+        from ib_async import Stock, Index
+
+        # Map of known index symbols
+        INDEX_SYMBOLS = {"VIX", "SPX", "NDX", "DJI", "RUT"}
+
+        contracts = []
+        for sym in symbols:
+            try:
+                # Use Index contract for known indices, Stock for everything else
+                if sym in INDEX_SYMBOLS:
+                    contracts.append(Index(sym, "CBOE", currency="USD"))
+                else:
+                    contracts.append(Stock(sym, "SMART", currency="USD"))
+            except Exception as e:
+                logger.warning(f"Failed to build contract for {sym}: {e}")
+
+        if not contracts:
+            return {}
+
+        market_data: Dict[str, MarketData] = {}
+
+        try:
+            qualified = await self.ib.qualifyContractsAsync(*contracts)
+            tickers = await self.ib.reqTickersAsync(*qualified)
+
+            for sym, ticker in zip(symbols, tickers):
+                try:
+                    md = MarketData(
+                        symbol=sym,
+                        last=float(ticker.last) if ticker.last and not isnan(ticker.last) else None,
+                        bid=float(ticker.bid) if ticker.bid and not isnan(ticker.bid) else None,
+                        ask=float(ticker.ask) if ticker.ask and not isnan(ticker.ask) else None,
+                        mid=float((ticker.bid + ticker.ask) / 2) if ticker.bid and ticker.ask and not isnan(ticker.bid) and not isnan(ticker.ask) else None,
+                        yesterday_close=float(ticker.close) if hasattr(ticker, "close") and ticker.close and not isnan(ticker.close) else None,
+                        timestamp=datetime.now(),
+                    )
+                    market_data[sym] = md
+                    self._market_data_cache[sym] = md
+                except Exception as e:
+                    logger.warning(f"Failed to parse indicator data for {sym}: {e}")
+
+        except Exception as e:
+            logger.error(f"Error fetching market indicators: {e}")
+
+        return market_data
+
     async def fetch_account_info(self) -> AccountInfo:
         """
         Fetch account information from IB using accountSummary API.
