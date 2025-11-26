@@ -13,7 +13,7 @@ import logging
 import asyncio
 
 from ...models.position import Position, AssetType
-from ...models.market_data import MarketData
+from ...models.market_data import MarketData, GreeksSource
 
 
 logger = logging.getLogger(__name__)
@@ -268,16 +268,16 @@ class MarketDataFetcher:
             for i, contract in enumerate(contracts):
                 _, pos = contract_pos_pairs[i]
 
-                # Generic tick type 106 enables option computations (Greeks)
-                # Empty string '' means no generic ticks - just use delayed/snapshot data
+                # Generic tick type 106 enables option computations (Greeks + IV)
+                # This requests: delta, gamma, vega, theta, implied volatility, and live prices
                 existing = self._active_tickers.get(pos.symbol)
                 if existing:
                     tickers.append(existing)
                 else:
-                    ticker = self.ib.reqMktData(contract, '', False, False)
+                    ticker = self.ib.reqMktData(contract, '106', False, False)
                     tickers.append(ticker)
                     self._active_tickers[pos.symbol] = ticker
-                    logger.debug(f"Requested streaming data for option {i+1}/{len(contracts)}")
+                    logger.debug(f"Requested streaming data with Greeks for option {i+1}/{len(contracts)}")
 
             # Wait for data to populate using robust polling mechanism
             logger.debug(f"Polling for option data population (timeout={self.data_timeout}s)...")
@@ -379,7 +379,7 @@ class MarketDataFetcher:
 
     def _extract_greeks(self, ticker, md: MarketData, pos: Position) -> None:
         """
-        Extract Greeks from ticker and populate MarketData object.
+        Extract Greeks and IV from ticker and populate MarketData object.
 
         Args:
             ticker: IB ticker object
@@ -389,12 +389,26 @@ class MarketDataFetcher:
         if pos.asset_type != AssetType.OPTION:
             return
 
+        # Extract IV first (available directly on ticker)
+        if hasattr(ticker, 'impliedVolatility') and ticker.impliedVolatility and not isnan(ticker.impliedVolatility):
+            md.iv = float(ticker.impliedVolatility)
+            logger.debug(f"✓ IV for {pos.symbol}: {md.iv:.3f} ({md.iv*100:.1f}%)")
+        else:
+            logger.debug(f"No IV available for {pos.symbol}")
+
+        # Extract Greeks from modelGreeks
         if hasattr(ticker, 'modelGreeks') and ticker.modelGreeks:
             greeks = ticker.modelGreeks
             md.delta = float(greeks.delta) if greeks.delta and not isnan(greeks.delta) else None
             md.gamma = float(greeks.gamma) if greeks.gamma and not isnan(greeks.gamma) else None
             md.vega = float(greeks.vega) if greeks.vega and not isnan(greeks.vega) else None
             md.theta = float(greeks.theta) if greeks.theta and not isnan(greeks.theta) else None
+            md.greeks_source = GreeksSource.IBKR
+
+            # Extract underlying price (critical for delta dollars calculation)
+            if hasattr(greeks, 'undPrice') and greeks.undPrice and not isnan(greeks.undPrice):
+                md.underlying_price = float(greeks.undPrice)
+                logger.debug(f"✓ Underlying price for {pos.underlying}: ${md.underlying_price:.2f}")
 
             if md.delta:
                 logger.debug(f"✓ Greeks for {pos.symbol}: Δ={md.delta:.3f}, γ={md.gamma:.4f}, ν={md.vega:.2f}, θ={md.theta:.2f}")

@@ -14,13 +14,14 @@ Performance features:
 
 from __future__ import annotations
 from typing import Dict, List, Any, Tuple
-from datetime import date
+from datetime import date, datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from ...models.position import Position
 from ...models.market_data import MarketData
 from ...models.account import AccountInfo
 from ...models.risk_snapshot import RiskSnapshot
+from ...models.position_risk import PositionRisk
 from ...utils.market_hours import MarketHours
 
 
@@ -101,6 +102,15 @@ class RiskEngine:
             # Parallel processing for large portfolios
             metrics_list = self._calculate_metrics_parallel(positions, market_data)
 
+        # Create PositionRisk objects for each position (single source of truth)
+        position_risks = []
+        for pos, metrics in zip(positions, metrics_list):
+            if metrics is not None:
+                pos_risk = self._create_position_risk(pos, market_data.get(pos.symbol), metrics)
+                position_risks.append(pos_risk)
+
+        snapshot.position_risks = position_risks
+
         # Aggregate metrics into snapshot
         self._aggregate_metrics(snapshot, metrics_list, account_info)
 
@@ -141,7 +151,11 @@ class RiskEngine:
                 has_missing_greeks=False,
             )
 
+        # Prefer live mid/last, but fall back to yesterday's close when quotes are absent
         mark = md.effective_mid()
+        if mark is None and md.yesterday_close is not None:
+            mark = md.yesterday_close
+
         if mark is None:
             return PositionMetrics(
                 symbol=pos.symbol,
@@ -164,13 +178,13 @@ class RiskEngine:
         # Calculate position notional
         notional = mark * pos.quantity * pos.multiplier
 
-        # Aggregate Greeks (use IBKR only, skip if missing)
+        # Aggregate Greeks (use IBKR only, but still calculate P&L even if Greeks missing)
+        has_missing_greeks = False
         if md.has_greeks():
             delta_contribution = (md.delta or 0.0) * pos.quantity * pos.multiplier
             gamma_contribution = (md.gamma or 0.0) * pos.quantity * pos.multiplier
             vega_contribution = (md.vega or 0.0) * pos.quantity * pos.multiplier
             theta_contribution = (md.theta or 0.0) * pos.quantity * pos.multiplier
-            has_missing_greeks = False
         else:
             # For stocks without Greeks, delta = 1.0
             if pos.asset_type.value == "STOCK":
@@ -178,25 +192,13 @@ class RiskEngine:
                 gamma_contribution = 0.0
                 vega_contribution = 0.0
                 theta_contribution = 0.0
-                has_missing_greeks = False
             else:
-                return PositionMetrics(
-                    symbol=pos.symbol,
-                    underlying=pos.underlying,
-                    notional=notional,
-                    unrealized_pnl=0.0,
-                    daily_pnl=0.0,
-                    delta_contribution=0.0,
-                    gamma_contribution=0.0,
-                    vega_contribution=0.0,
-                    theta_contribution=0.0,
-                    expiry_bucket=pos.expiry_bucket(),
-                    days_to_expiry=pos.days_to_expiry(),
-                    gamma_notional_near_term=0.0,
-                    vega_notional_near_term=0.0,
-                    has_missing_md=False,
-                    has_missing_greeks=True,
-                )
+                # Options can trade without Greeks during off-hours; keep P&L but flag missing Greeks
+                delta_contribution = 0.0
+                gamma_contribution = 0.0
+                vega_contribution = 0.0
+                theta_contribution = 0.0
+                has_missing_greeks = True
 
         # Near-term Greeks concentration
         dte = pos.days_to_expiry()
@@ -224,11 +226,11 @@ class RiskEngine:
             if pos.asset_type.value == "STOCK":
                 pnl_price = mark  # Stocks trade in extended hours
             else:
-                pnl_price = md.yesterday_close if md.yesterday_close else mark  # Options don't trade extended hours
+                pnl_price = md.yesterday_close if md.yesterday_close is not None else mark  # Options don't trade extended hours
             calculate_daily_pnl = False  # Skip daily P&L when market not in regular hours
         else:
             # Market closed: use yesterday close for all assets
-            pnl_price = md.yesterday_close if md.yesterday_close else mark
+            pnl_price = md.yesterday_close if md.yesterday_close is not None else mark
             calculate_daily_pnl = False
 
         # Calculate unrealized P&L
@@ -276,28 +278,108 @@ class RiskEngine:
         Returns:
             List of PositionMetrics.
         """
-        metrics_list = []
+        metrics_list: List[PositionMetrics | None] = [None] * len(positions)
 
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            # Submit all tasks
-            future_to_pos = {
-                executor.submit(self._calculate_position_metrics, pos, market_data): pos
-                for pos in positions
+            # Submit all tasks and track original position index to preserve order
+            future_to_idx = {
+                executor.submit(self._calculate_position_metrics, pos, market_data): idx
+                for idx, pos in enumerate(positions)
             }
 
             # Collect results as they complete
-            for future in as_completed(future_to_pos):
+            for future in as_completed(future_to_idx):
+                idx = future_to_idx[future]
                 try:
                     metrics = future.result()
-                    metrics_list.append(metrics)
+                    metrics_list[idx] = metrics
                 except Exception as e:
-                    pos = future_to_pos[future]
-                    # Log error and create null metrics
+                    pos = positions[idx]
+                    # Log error and leave placeholder None so downstream logic can skip
                     import logging
                     logging.error(f"Error calculating metrics for {pos.symbol}: {e}")
-                    metrics_list.append(None)
+                    metrics_list[idx] = None
 
         return metrics_list
+
+    def _create_position_risk(
+        self,
+        pos: Position,
+        md: MarketData | None,
+        metrics: PositionMetrics,
+    ) -> PositionRisk:
+        """
+        Create PositionRisk object from position, market data, and calculated metrics.
+
+        This is the SINGLE SOURCE OF TRUTH for all position-level calculations.
+        The dashboard should use these pre-calculated values without recalculation.
+
+        Args:
+            pos: The position.
+            md: Market data for the position (may be None).
+            metrics: Calculated position metrics.
+
+        Returns:
+            PositionRisk object with all calculated fields.
+        """
+        # Extract market data fields
+        mark_price = None
+        iv = None
+        has_market_data = md is not None and not metrics.has_missing_md
+        has_greeks = False
+        is_stale = False
+
+        if md is not None:
+            mark_price = md.effective_mid()
+            if mark_price is None and md.yesterday_close is not None:
+                mark_price = md.yesterday_close
+
+            iv = md.iv
+            has_greeks = md.has_greeks()
+            is_stale = md.is_stale() if hasattr(md, 'is_stale') else False
+
+        # Calculate delta dollars (delta * underlying_price * quantity * multiplier)
+        delta_dollars = 0.0
+        if md is not None:
+            # Get per-share delta
+            if md.delta is not None:
+                per_share_delta = md.delta
+            elif pos.asset_type.value == "STOCK":
+                per_share_delta = 1.0
+            else:
+                per_share_delta = 0.0
+
+            # Determine price to use for delta dollars calculation
+            if pos.asset_type.value == "OPTION":
+                # For options, use underlying price (NOT option price)
+                # Delta dollars = exposure to underlying price movement
+                price_for_delta = md.underlying_price if md.underlying_price else mark_price
+            else:
+                # For stocks, use stock price
+                price_for_delta = mark_price
+
+            if price_for_delta:
+                delta_dollars = per_share_delta * price_for_delta * pos.quantity * pos.multiplier
+
+        # Create PositionRisk object
+        return PositionRisk(
+            position=pos,
+            mark_price=mark_price,
+            iv=iv,
+            market_value=metrics.notional,
+            unrealized_pnl=metrics.unrealized_pnl,
+            daily_pnl=metrics.daily_pnl,
+            delta=metrics.delta_contribution,
+            gamma=metrics.gamma_contribution,
+            vega=metrics.vega_contribution,
+            theta=metrics.theta_contribution,
+            delta_dollars=delta_dollars,
+            notional=metrics.notional,
+            has_market_data=has_market_data and not metrics.has_missing_md,
+            has_greeks=has_greeks and not metrics.has_missing_greeks,
+            is_stale=is_stale,
+            calculated_at=datetime.now(),
+        )
 
     def _aggregate_metrics(
         self, snapshot: RiskSnapshot, metrics_list: List[PositionMetrics | None], account_info: AccountInfo
@@ -334,7 +416,6 @@ class RiskEngine:
 
             if metrics.has_missing_greeks:
                 snapshot.missing_greeks_count += 1
-                continue
 
             # Update portfolio Greeks
             snapshot.portfolio_delta += metrics.delta_contribution
