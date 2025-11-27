@@ -56,14 +56,29 @@ class MarketData:
 
     def effective_mid(self) -> Optional[float]:
         """
-        Return the best available mark price (mid -> last -> theoretical).
+        Return the best available mark price (mid -> last).
+
+        Filters out invalid prices (None, negative, or zero).
 
         Returns:
-            Best available price, or None if no price data.
+            Best available price, or None if no valid price data.
         """
-        if self.mid is not None:
+        # Check mid first (bid/ask midpoint)
+        if self.mid is not None and self.mid > 0:
             return self.mid
-        return self.last
+        # Fall back to last trade price
+        if self.last is not None and self.last > 0:
+            return self.last
+        return None
+
+    def has_live_price(self) -> bool:
+        """
+        Check if we have valid live price data (mid or last).
+
+        Returns:
+            True if live price is available and valid.
+        """
+        return (self.mid is not None and self.mid > 0) or (self.last is not None and self.last > 0)
 
     def is_stale(self, stale_seconds: int = 10) -> bool:
         """Check if market data exceeds staleness threshold."""

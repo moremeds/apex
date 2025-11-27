@@ -505,11 +505,12 @@ class TerminalDashboard:
             underlying_vega = sum(pr.vega for pr in underlying_pos_risks)
             underlying_theta = sum(pr.theta for pr in underlying_pos_risks)
 
-            # Get mark price for underlying
+            # Get mark price for underlying (with 'c' indicator if using close)
             underlying_mark = ""
             if stock_pos_risks:
-                if stock_pos_risks[0].mark_price:
-                    underlying_mark = f"{stock_pos_risks[0].mark_price:.2f}"
+                pr = stock_pos_risks[0]
+                if pr.mark_price:
+                    underlying_mark = self._format_price(pr.mark_price, pr.is_using_close, decimals=2)
 
             # Add underlying header row
             table.add_row(
@@ -534,7 +535,7 @@ class TerminalDashboard:
                 table.add_row(
                     f" {pr.get_display_name()} ",
                     self._format_quantity(pr.quantity),
-                    f"{pr.mark_price:.2f}" if pr.mark_price else "",
+                    self._format_price(pr.mark_price, pr.is_using_close, decimals=2),
                     "",  # IV - not applicable for stocks
                     self._format_number(pr.market_value, color=False),
                     self._format_number(pr.daily_pnl, color=True),
@@ -603,7 +604,7 @@ class TerminalDashboard:
                     table.add_row(
                         f"    {option_desc}",
                         self._format_quantity(pr.quantity),
-                        f"{pr.mark_price:.3f}" if pr.mark_price else "",
+                        self._format_price(pr.mark_price, pr.is_using_close, decimals=3),
                         iv_display,
                         self._format_number(pr.market_value, color=False),
                         self._format_number(pr.daily_pnl, color=True),
@@ -618,6 +619,25 @@ class TerminalDashboard:
                     )
 
         return Panel(table, title="Portfolio Positions", border_style="blue")
+
+    def _format_price(self, price: float | None, is_using_close: bool = False, decimals: int = 2) -> str:
+        """
+        Format price with 'c' indicator if using yesterday's close.
+
+        Args:
+            price: The price to format (or None)
+            is_using_close: True if price is from yesterday's close (no live data)
+            decimals: Number of decimal places (2 for stocks, 3 for options)
+
+        Returns:
+            Formatted price string with 'c' suffix if using close
+        """
+        if price is None:
+            return ""
+        formatted = f"{price:.{decimals}f}"
+        if is_using_close:
+            return f"{formatted}c"
+        return formatted
 
     def _format_quantity(self, value: float) -> str:
         """Format quantity with decimal places for fractional shares/contracts."""

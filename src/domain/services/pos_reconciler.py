@@ -152,7 +152,7 @@ class Reconciler:
 
         For positions with the same key:
         - Aggregates quantities across accounts/sources
-        - Computes weighted average price
+        - Manual avg_price takes precedence (user-specified cost basis)
         - Broker sources (IB, FUTU) take precedence over manual for metadata
 
         Args:
@@ -165,37 +165,43 @@ class Reconciler:
         """
         merged: Dict[tuple, Position] = {}
 
-        # Build list of all positions (manual first, then brokers so broker metadata wins)
-        all_positions = manual_positions.copy()
-        if futu_positions:
-            all_positions.extend(futu_positions)
-        all_positions.extend(ib_positions)
+        # Build manual map for avg_price lookups
+        manual_map = {p.key(): p for p in manual_positions}
 
-        for position in all_positions:
+        # Build list of all broker positions (IB first, then Futu)
+        broker_positions = ib_positions.copy()
+        if futu_positions:
+            broker_positions.extend(futu_positions)
+
+        # Process broker positions (primary source for quantity/metadata)
+        for position in broker_positions:
             key = position.key()
 
             if key not in merged:
+                # Check if manual has avg_price override for this position
+                manual_pos = manual_map.get(key)
+                if manual_pos is not None:
+                    # Use manual avg_price (user-specified cost basis)
+                    position.avg_price = manual_pos.avg_price
+                    # Also preserve manual strategy_tag if set
+                    if manual_pos.strategy_tag:
+                        position.strategy_tag = manual_pos.strategy_tag
+
                 merged[key] = position
-                continue
+            else:
+                # Aggregate quantities (same position from multiple accounts)
+                existing = merged[key]
+                total_quantity = existing.quantity + position.quantity
+                existing.quantity = total_quantity
+                # Keep the existing avg_price (already set from manual or first broker position)
 
-            existing = merged[key]
+        # Process manual positions that don't exist in any broker
+        for position in manual_positions:
+            key = position.key()
 
-            total_value = (
-                existing.avg_price * existing.quantity * existing.multiplier
-                + position.avg_price * position.quantity * position.multiplier
-            )
-            total_quantity = existing.quantity + position.quantity
-
-            if total_quantity != 0:
-                existing.avg_price = total_value / (total_quantity * existing.multiplier)
-            # Preserve previous avg_price when net flat
-            existing.quantity = total_quantity
-
-            # Broker sources take precedence for metadata (IB > FUTU > MANUAL)
-            if position.source in (PositionSource.IB, PositionSource.FUTU):
-                existing.source = position.source
-                existing.last_updated = position.last_updated
-                existing.account_id = position.account_id
+            if key not in merged:
+                # Position only in manual - use as-is
+                merged[key] = position
 
         return list(merged.values())
 

@@ -45,6 +45,7 @@ class PositionRisk:
     has_market_data: bool = False
     has_greeks: bool = False
     is_stale: bool = False
+    is_using_close: bool = False  # True if mark_price is from yesterday's close (no live data)
 
     # Timestamp
     calculated_at: datetime = field(default_factory=datetime.now)

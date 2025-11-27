@@ -164,10 +164,13 @@ class RiskEngine:
                 has_missing_greeks=False,
             )
 
-        # Prefer live mid/last, but fall back to yesterday's close when quotes are absent
-        mark = md.effective_mid()
-        if mark is None and md.yesterday_close is not None:
+        # Prefer live mid/last, but fall back to yesterday's close when quotes are absent/invalid
+        if md.has_live_price():
+            mark = md.effective_mid()
+        elif md.yesterday_close is not None and md.yesterday_close > 0:
             mark = md.yesterday_close
+        else:
+            mark = None
 
         if mark is None:
             return PositionMetrics(
@@ -246,14 +249,7 @@ class RiskEngine:
             pnl_price = md.yesterday_close if md.yesterday_close is not None else mark
             calculate_daily_pnl = False
 
-        # Calculate unrealized P&L
-        # For options: avg_price is per contract, pnl_price is per share
-        # For stocks: both are per share
-        if pos.asset_type.value == "OPTION":
-            current_value = pnl_price * pos.multiplier  # Convert to per-contract value
-            unrealized = (current_value - pos.avg_price) * pos.quantity
-        else:
-            unrealized = (pnl_price - pos.avg_price) * pos.quantity * pos.multiplier
+        unrealized = (pnl_price - pos.avg_price) * pos.quantity * pos.multiplier
 
         # Daily P&L: only calculated during regular market hours
         daily_pnl = 0.0
@@ -341,11 +337,16 @@ class RiskEngine:
         has_market_data = md is not None and not metrics.has_missing_md
         has_greeks = False
         is_stale = False
+        is_using_close = False  # Track if using yesterday's close instead of live data
 
         if md is not None:
-            mark_price = md.effective_mid()
-            if mark_price is None and md.yesterday_close is not None:
+            # Check if we have valid live price data
+            if md.has_live_price():
+                mark_price = md.effective_mid()
+            elif md.yesterday_close is not None and md.yesterday_close > 0:
+                # No valid live data, fall back to yesterday's close
                 mark_price = md.yesterday_close
+                is_using_close = True
 
             iv = md.iv
             has_greeks = md.has_greeks()
@@ -391,6 +392,7 @@ class RiskEngine:
             has_market_data=has_market_data and not metrics.has_missing_md,
             has_greeks=has_greeks and not metrics.has_missing_greeks,
             is_stale=is_stale,
+            is_using_close=is_using_close,
             calculated_at=datetime.now(),
         )
 

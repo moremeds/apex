@@ -3,6 +3,8 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import List, Optional
+
+from ...models import Position
 from ...models.market_data import MarketData
 
 
@@ -10,7 +12,7 @@ class MarketDataProvider(ABC):
     """Interface for market data sources (IBKR, vendors, etc)."""
 
     @abstractmethod
-    async def fetch_market_data(self, symbols: List[str]) -> List[MarketData]:
+    async def fetch_market_data(self, symbols: List[Position]) -> List[MarketData]:
         """
         Fetch market data (prices + Greeks) for given symbols.
 
