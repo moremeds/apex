@@ -375,6 +375,14 @@ class RiskEngine:
             if price_for_delta:
                 delta_dollars = per_share_delta * price_for_delta * pos.quantity * pos.multiplier
 
+        # Get beta from config (lookup by underlying symbol)
+        betas_config = self.config.get("betas", {})
+        default_beta = betas_config.get("default", 1.0)
+        beta = betas_config.get(pos.underlying, default_beta)
+
+        # Calculate beta-adjusted delta (SPY-equivalent exposure)
+        beta_adjusted_delta = metrics.delta_contribution * beta if beta else 0.0
+
         # Create PositionRisk object
         return PositionRisk(
             position=pos,
@@ -387,8 +395,10 @@ class RiskEngine:
             gamma=metrics.gamma_contribution,
             vega=metrics.vega_contribution,
             theta=metrics.theta_contribution,
+            beta=beta,
             delta_dollars=delta_dollars,
             notional=metrics.notional,
+            beta_adjusted_delta=beta_adjusted_delta,
             has_market_data=has_market_data and not metrics.has_missing_md,
             has_greeks=has_greeks and not metrics.has_missing_greeks,
             is_stale=is_stale,

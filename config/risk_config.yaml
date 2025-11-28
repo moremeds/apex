@@ -200,6 +200,46 @@ greeks:
   fallback_enabled: false  # No fallback calculation in MVP
   mark_missing_as: "DATA_MISSING"  # Flag when Greeks unavailable
 
+# Beta values for SPY-equivalent exposure calculation
+# Used for beta-adjusted delta and portfolio beta weighting
+# Values are relative to SPY (SPY = 1.0)
+betas:
+  default: 1.0  # Default beta for unlisted underlyings
+  SPY: 1.00
+  QQQ: 1.20
+  TSLA: 2.05
+  NVDA: 1.75
+  AAPL: 1.25
+  MSFT: 1.15
+  AMZN: 1.30
+  GOOGL: 1.20
+  META: 1.45
+  AMD: 1.85
+  NFLX: 1.35
+  CRM: 1.25
+  # Finance
+  JPM: 1.15
+  BAC: 1.40
+  GS: 1.35
+  MS: 1.45
+  WFC: 1.20
+  # Healthcare (typically lower beta)
+  JNJ: 0.65
+  UNH: 0.80
+  PFE: 0.70
+  LLY: 0.85
+  # Energy
+  XOM: 0.95
+  CVX: 0.90
+  # Consumer
+  WMT: 0.55
+  HD: 1.05
+  MCD: 0.70
+  # Industrial
+  CAT: 1.10
+  BA: 1.50
+  # Add more symbols as needed
+
 # Alert thresholds (for future email/Slack integration)
 alerts:
   enabled: false  # Not implemented in MVP

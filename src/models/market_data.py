@@ -48,6 +48,9 @@ class MarketData:
     # Underlying price (for options delta dollars calculation)
     underlying_price: Optional[float] = None
 
+    # Beta (underlying's beta to SPY/market)
+    beta: Optional[float] = None
+
     # Metadata
     yesterday_close: Optional[float] = None
     timestamp: Optional[datetime] = None

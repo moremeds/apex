@@ -663,6 +663,7 @@ class TerminalDashboard:
         table.add_column("Pos", justify="right", no_wrap=True)
         table.add_column("Spot", justify="right", no_wrap=True)
         table.add_column("IV", justify="right", no_wrap=True)
+        table.add_column("Beta", justify="right", no_wrap=True)
         table.add_column("Mkt Value", justify="right", no_wrap=True)
         table.add_column("P&L", justify="right", no_wrap=True)
         table.add_column("UP&L", justify="right", no_wrap=True)
@@ -690,6 +691,7 @@ class TerminalDashboard:
             "",
             "",
             "",
+            "",  # Beta - empty for portfolio total
             self._format_number(total_market_value, color=False),
             self._format_number(total_daily_pnl, color=True),
             self._format_number(total_unrealized, color=True),
@@ -743,12 +745,20 @@ class TerminalDashboard:
                 if pr.mark_price:
                     underlying_mark = self._format_price(pr.mark_price, pr.is_using_close, decimals=2)
 
+            # Get beta for underlying (use first position's beta)
+            underlying_beta = ""
+            if underlying_pos_risks:
+                first_beta = underlying_pos_risks[0].beta
+                if first_beta is not None:
+                    underlying_beta = f"{first_beta:.2f}"
+
             # Add underlying header row
             table.add_row(
                 f"▼ {underlying} ",
                 "",
                 underlying_mark,
                 "",
+                underlying_beta,
                 self._format_number(underlying_market_value, color=False),
                 self._format_number(underlying_daily_pnl, color=True),
                 self._format_number(underlying_unrealized, color=True),
@@ -763,11 +773,14 @@ class TerminalDashboard:
 
             # Add stock positions (if any) - use pre-calculated values
             for pr in stock_pos_risks:
+                # Format beta for stock position
+                stock_beta = f"{pr.beta:.2f}" if pr.beta is not None else ""
                 table.add_row(
                     f" {pr.get_display_name()} ",
                     self._format_quantity(pr.quantity),
                     self._format_price(pr.mark_price, pr.is_using_close, decimals=2),
                     "",  # IV - not applicable for stocks
+                    stock_beta,
                     self._format_number(pr.market_value, color=False),
                     self._format_number(pr.daily_pnl, color=True),
                     self._format_number(pr.unrealized_pnl, color=True),
@@ -811,6 +824,7 @@ class TerminalDashboard:
                     "",
                     "",
                     "",
+                    "",  # Beta - empty for expiry header
                     self._format_number(expiry_market_value, color=False),
                     self._format_number(expiry_daily_pnl, color=True),
                     self._format_number(expiry_unrealized, color=True),
@@ -832,11 +846,15 @@ class TerminalDashboard:
                     if pr.iv is not None:
                         iv_display = f"{pr.iv * 100:.1f}%"
 
+                    # Format beta for option position
+                    option_beta = f"{pr.beta:.2f}" if pr.beta is not None else ""
+
                     table.add_row(
                         f"    {option_desc}",
                         self._format_quantity(pr.quantity),
                         self._format_price(pr.mark_price, pr.is_using_close, decimals=3),
                         iv_display,
+                        option_beta,
                         self._format_number(pr.market_value, color=False),
                         self._format_number(pr.daily_pnl, color=True),
                         self._format_number(pr.unrealized_pnl, color=True),

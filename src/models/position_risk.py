@@ -37,15 +37,18 @@ class PositionRisk:
     vega: float = 0.0
     theta: float = 0.0
 
+    # Beta (underlying's beta to SPY/market)
+    beta: Optional[float] = None
+
     # Derived metrics
     delta_dollars: float = 0.0  # delta * mark * quantity * multiplier
     notional: float = 0.0  # mark * quantity * multiplier
+    beta_adjusted_delta: float = 0.0  # delta * beta (for SPY-equivalent exposure)
 
     # Data quality flags
     has_market_data: bool = False
     has_greeks: bool = False
     is_stale: bool = False
-    is_using_close: bool = False  # True if mark_price is from yesterday's close (no live data)
 
     # Timestamp
     calculated_at: datetime = field(default_factory=datetime.now)

@@ -117,7 +117,7 @@ class RiskAlertLogger:
     Comprehensive risk alert logger with full context capture.
 
     Features:
-    - Separate log file for risk alerts (risk_alerts_{env}.log)
+    - Separate log file for risk alerts (risk_alerts_{env}_{date}.log)
     - JSON format for easy parsing and analysis
     - Captures full market/position/Greeks context
     - Daily rotation with retention policy
@@ -144,23 +144,28 @@ class RiskAlertLogger:
         # Create log directory
         self.log_dir.mkdir(parents=True, exist_ok=True)
 
+        # Track current date for log file naming
+        self._current_date = datetime.now().strftime("%Y-%m-%d")
+
         # Set up dedicated logger
         self._logger = self._setup_logger()
 
         # Cache for market indicators (updated each cycle)
         self._market_cache: Dict[str, Any] = {}
 
-        logger.info(f"RiskAlertLogger initialized: {self.log_dir}/risk_alerts_{env}.log")
+        log_filename = f"risk_alerts_{env}_{self._current_date}.log"
+        logger.info(f"RiskAlertLogger initialized: {self.log_dir}/{log_filename}")
 
     def _setup_logger(self) -> logging.Logger:
-        """Set up dedicated file logger for risk alerts."""
+        """Set up dedicated file logger for risk alerts with date-based naming."""
         alert_logger = logging.getLogger(f"apex.risk_alerts.{self.env}")
         alert_logger.setLevel(logging.INFO)
         alert_logger.handlers.clear()
         alert_logger.propagate = False
 
-        # File handler with daily rotation
-        log_file = self.log_dir / f"risk_alerts_{self.env}.log"
+        # File handler with daily rotation and custom namer
+        # Base file uses current date in name: risk_alerts_dev_2025-11-28.log
+        log_file = self.log_dir / f"risk_alerts_{self.env}_{self._current_date}.log"
         file_handler = logging.handlers.TimedRotatingFileHandler(
             filename=str(log_file),
             when="midnight",
@@ -169,11 +174,50 @@ class RiskAlertLogger:
             encoding='utf-8'
         )
 
+        # Custom namer for rotated files: risk_alerts_dev_2025-11-27.log
+        file_handler.namer = self._log_namer
+        file_handler.rotator = self._log_rotator
+
         # Simple formatter - we'll write JSON directly
         file_handler.setFormatter(logging.Formatter('%(message)s'))
         alert_logger.addHandler(file_handler)
 
         return alert_logger
+
+    def _log_namer(self, default_name: str) -> str:
+        """
+        Custom namer for rotated log files.
+
+        Converts: risk_alerts_dev_2025-11-28.log.2025-11-27
+        To:       risk_alerts_dev_2025-11-27.log
+        """
+        import re
+        # Extract date from suffix (e.g., .2025-11-27)
+        match = re.search(r'\.(\d{4}-\d{2}-\d{2})$', default_name)
+        if match:
+            date_str = match.group(1)
+            # Build new filename with date
+            return str(self.log_dir / f"risk_alerts_{self.env}_{date_str}.log")
+        return default_name
+
+    def _log_rotator(self, source: str, dest: str):
+        """
+        Custom rotator that renames the source file to the dated destination.
+
+        After rotation, updates the current log file to use today's date.
+        """
+        import os
+        import shutil
+
+        # Rename old log to dated backup
+        if os.path.exists(source):
+            shutil.move(source, dest)
+
+        # Update current date and recreate logger for new day
+        new_date = datetime.now().strftime("%Y-%m-%d")
+        if new_date != self._current_date:
+            self._current_date = new_date
+            # The handler will create the new file automatically
 
     def update_market_cache(
         self,
@@ -457,7 +501,9 @@ class RiskAlertLogger:
 
     def get_recent_alerts(self, hours: int = 24) -> List[Dict[str, Any]]:
         """
-        Read recent alerts from log file.
+        Read recent alerts from log files.
+
+        Scans log files from recent days based on the hours parameter.
 
         Args:
             hours: Number of hours to look back
@@ -465,26 +511,34 @@ class RiskAlertLogger:
         Returns:
             List of alert dictionaries
         """
+        import glob
+
         alerts = []
-        log_file = self.log_dir / f"risk_alerts_{self.env}.log"
-
-        if not log_file.exists():
-            return alerts
-
         cutoff = datetime.now().timestamp() - (hours * 3600)
 
-        try:
-            with open(log_file, 'r') as f:
-                for line in f:
-                    try:
-                        alert = json.loads(line.strip())
-                        # Parse timestamp and check if within window
-                        ts = datetime.fromisoformat(alert.get("timestamp", ""))
-                        if ts.timestamp() >= cutoff:
-                            alerts.append(alert)
-                    except (json.JSONDecodeError, ValueError):
-                        continue
-        except Exception as e:
-            logger.error(f"Failed to read risk alert log: {e}")
+        # Calculate how many days of logs we need to check
+        days_to_check = (hours // 24) + 2  # +2 to ensure we cover edge cases
+
+        # Find all matching log files
+        pattern = str(self.log_dir / f"risk_alerts_{self.env}_*.log")
+        log_files = sorted(glob.glob(pattern), reverse=True)[:days_to_check]
+
+        for log_file in log_files:
+            try:
+                with open(log_file, 'r') as f:
+                    for line in f:
+                        try:
+                            alert = json.loads(line.strip())
+                            # Parse timestamp and check if within window
+                            ts = datetime.fromisoformat(alert.get("timestamp", ""))
+                            if ts.timestamp() >= cutoff:
+                                alerts.append(alert)
+                        except (json.JSONDecodeError, ValueError):
+                            continue
+            except Exception as e:
+                logger.error(f"Failed to read risk alert log {log_file}: {e}")
+
+        # Sort by timestamp descending (most recent first)
+        alerts.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
 
         return alerts

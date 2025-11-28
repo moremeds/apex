@@ -20,7 +20,7 @@ async def test_vix_alert():
 
     # Load config
     print("\n1. Loading config...")
-    config_manager = ConfigManager(config_dir="config", env="dev")
+    config_manager = ConfigManager(config_dir="../config", env="dev")
     config = config_manager.load()
     print(f"   ✓ Config loaded")
     print(f"   VIX warning threshold: {config.raw.get('market_alerts', {}).get('vix_warning_threshold')}")
