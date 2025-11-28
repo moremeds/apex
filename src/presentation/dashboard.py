@@ -55,6 +55,12 @@ class TerminalDashboard:
         self.layout = self._create_layout()
         self.live: Optional[Live] = None
 
+        # Persistent alert tracking: {alert_key: {alert_data, first_seen, last_seen, is_active}}
+        self._persistent_alerts: Dict[str, Dict] = {}
+        self._persistent_risk_signals: Dict[str, Dict] = {}
+        # How long to keep cleared alerts visible (seconds)
+        self._alert_retention_seconds = config.get("alert_retention_seconds", 300)  # 5 minutes default
+
     def _create_layout(self) -> Layout:
         """Create dashboard layout."""
         layout = Layout()
@@ -179,9 +185,82 @@ class TerminalDashboard:
 
         return Panel(table, title="Portfolio Summary", border_style="green")
 
+    def _update_persistent_alerts(self, current_alerts: List[Dict[str, any]]) -> List[Dict[str, any]]:
+        """
+        Update persistent alert tracking and return alerts to display.
+
+        Active alerts are updated with last_seen timestamp.
+        Cleared alerts are kept for alert_retention_seconds with is_active=False.
+
+        Args:
+            current_alerts: List of currently active alerts
+
+        Returns:
+            List of alerts to display (active + recently cleared)
+        """
+        now = datetime.now()
+
+        # Build set of current alert keys
+        current_keys = set()
+        for alert in current_alerts:
+            alert_key = f"{alert.get('type', 'UNKNOWN')}_{alert.get('severity', 'INFO')}"
+            current_keys.add(alert_key)
+
+            if alert_key in self._persistent_alerts:
+                # Update existing alert
+                self._persistent_alerts[alert_key]["alert_data"] = alert
+                self._persistent_alerts[alert_key]["last_seen"] = now
+                self._persistent_alerts[alert_key]["is_active"] = True
+            else:
+                # New alert
+                self._persistent_alerts[alert_key] = {
+                    "alert_data": alert,
+                    "first_seen": now,
+                    "last_seen": now,
+                    "is_active": True,
+                }
+
+        # Mark alerts not in current set as inactive
+        for alert_key in self._persistent_alerts:
+            if alert_key not in current_keys:
+                self._persistent_alerts[alert_key]["is_active"] = False
+
+        # Build display list and cleanup expired alerts
+        display_alerts = []
+        expired_keys = []
+
+        for alert_key, alert_info in self._persistent_alerts.items():
+            age_seconds = (now - alert_info["last_seen"]).total_seconds()
+
+            if alert_info["is_active"]:
+                # Active alert - always display
+                display_alerts.append({
+                    **alert_info["alert_data"],
+                    "first_seen": alert_info["first_seen"],
+                    "last_seen": alert_info["last_seen"],
+                    "is_active": True,
+                })
+            elif age_seconds <= self._alert_retention_seconds:
+                # Recently cleared - display with dimmed style
+                display_alerts.append({
+                    **alert_info["alert_data"],
+                    "first_seen": alert_info["first_seen"],
+                    "last_seen": alert_info["last_seen"],
+                    "is_active": False,
+                })
+            else:
+                # Expired - mark for cleanup
+                expired_keys.append(alert_key)
+
+        # Cleanup expired alerts
+        for key in expired_keys:
+            del self._persistent_alerts[key]
+
+        return display_alerts
+
     def _render_market_alerts(self, alerts: List[Dict[str, any]]) -> Panel:
         """
-        Render market-wide alerts panel.
+        Render market-wide alerts panel with persistent alert tracking.
 
         Args:
             alerts: List of market alerts. Each alert is a dict with:
@@ -189,63 +268,172 @@ class TerminalDashboard:
                 - message: str (e.g., "VIX jumped 15% to 28.5")
                 - severity: str ("INFO", "WARNING", "CRITICAL")
         """
-        if not alerts:
+        # Update persistent alerts and get display list
+        display_alerts = self._update_persistent_alerts(alerts)
+
+        if not display_alerts:
             text = Text("✓ No market alerts", style="dim")
             return Panel(text, title="Market Alerts", border_style="dim")
 
         table = Table(show_header=False, box=None)
         table.add_column("Alert", style="bold")
         table.add_column("Details", justify="left")
+        table.add_column("Time", justify="right", style="dim")
 
-        for alert in alerts:
+        for alert in display_alerts:
             alert_type = alert.get("type", "UNKNOWN")
             message = alert.get("message", "")
             severity = alert.get("severity", "INFO")
+            is_active = alert.get("is_active", True)
+            last_seen = alert.get("last_seen")
 
-            # Set style based on severity
-            if severity == "CRITICAL":
+            # Format time display
+            time_str = ""
+            if last_seen:
+                time_str = last_seen.strftime("%H:%M:%S")
+
+            # Set style based on severity and active status
+            if not is_active:
+                # Cleared alert - dimmed style
+                style = "dim"
+                icon = "○"
+                status_suffix = " [cleared]"
+            elif severity == "CRITICAL":
                 style = "bold red"
                 icon = "🔴"
+                status_suffix = ""
             elif severity == "WARNING":
                 style = "bold yellow"
                 icon = "⚠️"
+                status_suffix = ""
             else:
                 style = "cyan"
                 icon = "ℹ️"
+                status_suffix = ""
 
             table.add_row(
                 Text(f"{icon} {alert_type}", style=style),
-                Text(message, style=style)
+                Text(f"{message}{status_suffix}", style=style),
+                Text(time_str, style="dim")
             )
 
-        # Set border color based on highest severity
-        has_critical = any(a.get("severity") == "CRITICAL" for a in alerts)
-        has_warning = any(a.get("severity") == "WARNING" for a in alerts)
+        # Set border color based on highest severity of ACTIVE alerts
+        active_alerts = [a for a in display_alerts if a.get("is_active", True)]
+        has_critical = any(a.get("severity") == "CRITICAL" for a in active_alerts)
+        has_warning = any(a.get("severity") == "WARNING" for a in active_alerts)
+
+        active_count = len(active_alerts)
+        cleared_count = len(display_alerts) - active_count
 
         if has_critical:
             border_style = "red"
-            title = f"🔴 Market Alerts ({len(alerts)})"
+            title = f"🔴 Market Alerts ({active_count} active"
         elif has_warning:
             border_style = "yellow"
-            title = f"⚠️  Market Alerts ({len(alerts)})"
-        else:
+            title = f"⚠️  Market Alerts ({active_count} active"
+        elif active_count > 0:
             border_style = "cyan"
-            title = f"Market Alerts ({len(alerts)})"
+            title = f"Market Alerts ({active_count} active"
+        else:
+            border_style = "dim"
+            title = f"Market Alerts (0 active"
+
+        if cleared_count > 0:
+            title += f", {cleared_count} cleared)"
+        else:
+            title += ")"
 
         return Panel(table, title=title, border_style=border_style)
 
+    def _update_persistent_risk_signals(self, current_signals: List[RiskSignal]) -> List[Dict]:
+        """
+        Update persistent risk signal tracking and return signals to display.
+
+        Active signals are updated with last_seen timestamp.
+        Cleared signals are kept for alert_retention_seconds with is_active=False.
+
+        Args:
+            current_signals: List of currently active risk signals
+
+        Returns:
+            List of signal info dicts to display (active + recently cleared)
+        """
+        now = datetime.now()
+
+        # Build set of current signal keys
+        current_keys = set()
+        for signal in current_signals:
+            signal_key = f"{signal.symbol or 'PORTFOLIO'}_{signal.trigger_rule}_{signal.severity.value}"
+            current_keys.add(signal_key)
+
+            if signal_key in self._persistent_risk_signals:
+                # Update existing signal
+                self._persistent_risk_signals[signal_key]["signal"] = signal
+                self._persistent_risk_signals[signal_key]["last_seen"] = now
+                self._persistent_risk_signals[signal_key]["is_active"] = True
+            else:
+                # New signal
+                self._persistent_risk_signals[signal_key] = {
+                    "signal": signal,
+                    "first_seen": now,
+                    "last_seen": now,
+                    "is_active": True,
+                }
+
+        # Mark signals not in current set as inactive
+        for signal_key in self._persistent_risk_signals:
+            if signal_key not in current_keys:
+                self._persistent_risk_signals[signal_key]["is_active"] = False
+
+        # Build display list and cleanup expired signals
+        display_signals = []
+        expired_keys = []
+
+        for signal_key, signal_info in self._persistent_risk_signals.items():
+            age_seconds = (now - signal_info["last_seen"]).total_seconds()
+
+            if signal_info["is_active"]:
+                # Active signal - always display
+                display_signals.append({
+                    "signal": signal_info["signal"],
+                    "first_seen": signal_info["first_seen"],
+                    "last_seen": signal_info["last_seen"],
+                    "is_active": True,
+                })
+            elif age_seconds <= self._alert_retention_seconds:
+                # Recently cleared - display with dimmed style
+                display_signals.append({
+                    "signal": signal_info["signal"],
+                    "first_seen": signal_info["first_seen"],
+                    "last_seen": signal_info["last_seen"],
+                    "is_active": False,
+                })
+            else:
+                # Expired - mark for cleanup
+                expired_keys.append(signal_key)
+
+        # Cleanup expired signals
+        for key in expired_keys:
+            del self._persistent_risk_signals[key]
+
+        return display_signals
+
     def _render_breaches(self, breaches: List[LimitBreach] | List[RiskSignal]) -> Panel:
         """Render portfolio risk alerts panel (supports both LimitBreach and RiskSignal)."""
-        if not breaches:
-            text = Text("✓ All risk limits OK", style="green")
-            return Panel(text, title="Portfolio Risk Alert", border_style="green")
-
         # Check if we're using RiskSignals or legacy LimitBreaches
         is_risk_signals = breaches and isinstance(breaches[0], RiskSignal)
 
         if is_risk_signals:
             return self._render_risk_signals(breaches)
         else:
+            # For legacy breaches, check if empty
+            if not breaches:
+                # Also check persistent risk signals for cleared items
+                display_signals = self._update_persistent_risk_signals([])
+                if display_signals:
+                    return self._render_risk_signals_from_persistent(display_signals)
+                text = Text("✓ All risk limits OK", style="green")
+                return Panel(text, title="Portfolio Risk Alert", border_style="green")
             return self._render_legacy_breaches(breaches)
 
     def _render_legacy_breaches(self, breaches: List[LimitBreach]) -> Panel:
@@ -269,57 +457,100 @@ class TerminalDashboard:
         return Panel(table, title=f"⚠ Portfolio Risk Alert ({len(breaches)})", border_style=border_style)
 
     def _render_risk_signals(self, signals: List[RiskSignal]) -> Panel:
-        """Render RiskSignal objects with enhanced display."""
+        """Render RiskSignal objects with persistent tracking and enhanced display."""
+        # Update persistent tracking and get display list
+        display_signals = self._update_persistent_risk_signals(signals)
+        return self._render_risk_signals_from_persistent(display_signals)
+
+    def _render_risk_signals_from_persistent(self, display_signals: List[Dict]) -> Panel:
+        """Render risk signals from persistent tracking data."""
+        if not display_signals:
+            text = Text("✓ All risk limits OK", style="green")
+            return Panel(text, title="Portfolio Risk Alert", border_style="green")
+
         table = Table(show_header=True, box=None)
         table.add_column("Severity", style="bold", no_wrap=True)
         table.add_column("Symbol", style="cyan", no_wrap=True)
         table.add_column("Rule", style="white")
         table.add_column("Action", style="yellow", justify="right")
+        table.add_column("Time", style="dim", justify="right")
 
-        # Sort by severity (CRITICAL first)
+        # Sort by active status first (active first), then by severity
         sorted_signals = sorted(
-            signals,
-            key=lambda s: {"CRITICAL": 0, "WARNING": 1, "INFO": 2}[s.severity.value]
+            display_signals,
+            key=lambda s: (
+                0 if s["is_active"] else 1,
+                {"CRITICAL": 0, "WARNING": 1, "INFO": 2}[s["signal"].severity.value]
+            )
         )
 
-        for signal in sorted_signals:
-            severity_style = {
-                "CRITICAL": "bold red",
-                "WARNING": "bold yellow",
-                "INFO": "cyan"
-            }[signal.severity.value]
+        for signal_info in sorted_signals:
+            signal = signal_info["signal"]
+            is_active = signal_info["is_active"]
+            last_seen = signal_info["last_seen"]
 
-            icon = {
-                "CRITICAL": "🔴",
-                "WARNING": "⚠️",
-                "INFO": "ℹ️"
-            }[signal.severity.value]
+            # Format time display
+            time_str = last_seen.strftime("%H:%M:%S") if last_seen else ""
+
+            if not is_active:
+                # Cleared signal - dimmed style
+                severity_style = "dim"
+                icon = "○"
+                status_suffix = " [cleared]"
+            else:
+                severity_style = {
+                    "CRITICAL": "bold red",
+                    "WARNING": "bold yellow",
+                    "INFO": "cyan"
+                }[signal.severity.value]
+
+                icon = {
+                    "CRITICAL": "🔴",
+                    "WARNING": "⚠️",
+                    "INFO": "ℹ️"
+                }[signal.severity.value]
+                status_suffix = ""
 
             # Format action
             action_text = signal.suggested_action.value
             if signal.breach_pct:
                 action_text += f" ({signal.breach_pct:.0f}%)"
 
+            rule_text = signal.trigger_rule + status_suffix
+
             table.add_row(
                 Text(f"{icon} {signal.severity.value}", style=severity_style),
                 signal.symbol or "PORTFOLIO",
-                signal.trigger_rule,
-                action_text
+                Text(rule_text, style=severity_style if not is_active else "white"),
+                Text(action_text, style=severity_style if not is_active else "yellow"),
+                Text(time_str, style="dim")
             )
 
-        # Set border color based on highest severity
-        has_critical = any(s.severity == SignalSeverity.CRITICAL for s in signals)
-        has_warning = any(s.severity == SignalSeverity.WARNING for s in signals)
+        # Set border color based on highest severity of ACTIVE signals
+        active_signals = [s for s in display_signals if s["is_active"]]
+        has_critical = any(s["signal"].severity == SignalSeverity.CRITICAL for s in active_signals)
+        has_warning = any(s["signal"].severity == SignalSeverity.WARNING for s in active_signals)
+
+        active_count = len(active_signals)
+        cleared_count = len(display_signals) - active_count
 
         if has_critical:
             border_style = "red"
-            title = f"🔴 Portfolio Risk Alert ({len(signals)})"
+            title = f"🔴 Portfolio Risk Alert ({active_count} active"
         elif has_warning:
             border_style = "yellow"
-            title = f"⚠️  Portfolio Risk Alert ({len(signals)})"
-        else:
+            title = f"⚠️  Portfolio Risk Alert ({active_count} active"
+        elif active_count > 0:
             border_style = "cyan"
-            title = f"Portfolio Risk Alert ({len(signals)})"
+            title = f"Portfolio Risk Alert ({active_count} active"
+        else:
+            border_style = "dim"
+            title = f"Portfolio Risk Alert (0 active"
+
+        if cleared_count > 0:
+            title += f", {cleared_count} cleared)"
+        else:
+            title += ")"
 
         return Panel(table, title=title, border_style=border_style)
 
