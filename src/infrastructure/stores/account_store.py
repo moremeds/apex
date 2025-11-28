@@ -28,6 +28,10 @@ class AccountStore:
         with self._lock:
             return self._account
 
+    def get_latest(self) -> Optional[AccountInfo]:
+        """Alias for get() - Get latest account information."""
+        return self.get()
+
     def clear(self) -> None:
         """Clear account information."""
         with self._lock:

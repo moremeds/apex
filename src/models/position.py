@@ -18,6 +18,7 @@ class AssetType(Enum):
 class PositionSource(Enum):
     """Position data source for reconciliation."""
     IB = "IB"  # Interactive Brokers
+    FUTU = "FUTU"  # Futu OpenD
     MANUAL = "MANUAL"  # Manual YAML file
     CACHED = "CACHED"  # Previous snapshot
 

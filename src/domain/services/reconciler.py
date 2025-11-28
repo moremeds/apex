@@ -6,7 +6,7 @@ and identifies discrepancies.
 """
 
 from __future__ import annotations
-from typing import Dict, List, Set
+from typing import Dict, List, Set, Optional
 from datetime import datetime
 import logging
 from ...models.position import Position, PositionSource, AssetType
@@ -145,6 +145,7 @@ class Reconciler:
         self,
         ib_positions: List[Position],
         manual_positions: List[Position],
+        futu_positions: Optional[List[Position]] = None,
     ) -> List[Position]:
         """
         Merge positions across sources while preserving business rules.
@@ -152,12 +153,25 @@ class Reconciler:
         For positions with the same key:
         - Aggregates quantities across accounts/sources
         - Computes weighted average price
-        - IB source takes precedence over manual for metadata
+        - Broker sources (IB, FUTU) take precedence over manual for metadata
+
+        Args:
+            ib_positions: Positions from Interactive Brokers.
+            manual_positions: Positions from manual YAML file.
+            futu_positions: Positions from Futu OpenD (optional).
+
+        Returns:
+            Merged list of positions with aggregated quantities.
         """
         merged: Dict[tuple, Position] = {}
 
-        # Process all positions (manual first, then IB so IB metadata wins)
-        for position in manual_positions + ib_positions:
+        # Build list of all positions (manual first, then brokers so broker metadata wins)
+        all_positions = manual_positions.copy()
+        if futu_positions:
+            all_positions.extend(futu_positions)
+        all_positions.extend(ib_positions)
+
+        for position in all_positions:
             key = position.key()
 
             if key not in merged:
@@ -177,13 +191,32 @@ class Reconciler:
             # Preserve previous avg_price when net flat
             existing.quantity = total_quantity
 
-            # IB source takes precedence for metadata
-            if position.source == PositionSource.IB:
+            # Broker sources take precedence for metadata (IB > FUTU > MANUAL)
+            if position.source in (PositionSource.IB, PositionSource.FUTU):
                 existing.source = position.source
                 existing.last_updated = position.last_updated
                 existing.account_id = position.account_id
 
         return list(merged.values())
+
+    def merge_all_positions(self, positions_by_source: Dict[str, List[Position]]) -> List[Position]:
+        """
+        Merge positions from multiple sources using a flexible dict input.
+
+        This method provides a more flexible interface for multi-broker scenarios.
+
+        Args:
+            positions_by_source: Dict mapping source name to positions.
+                                 Keys can be "ib", "futu", "manual", etc.
+
+        Returns:
+            Merged list of positions.
+        """
+        ib_positions = positions_by_source.get("ib", [])
+        futu_positions = positions_by_source.get("futu", [])
+        manual_positions = positions_by_source.get("manual", [])
+
+        return self.merge_positions(ib_positions, manual_positions, futu_positions)
 
     def _is_stale(self, position: Position) -> bool:
         """Check if position exceeds staleness threshold."""

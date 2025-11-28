@@ -13,7 +13,7 @@ Performance features:
 """
 
 from __future__ import annotations
-from typing import Dict, List, Any, Tuple
+from typing import Dict, List, Any, Tuple, Optional
 from datetime import date, datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -75,6 +75,8 @@ class RiskEngine:
         positions: List[Position],
         market_data: Dict[str, MarketData],
         account_info: AccountInfo,
+        ib_account: Optional[AccountInfo] = None,
+        futu_account: Optional[AccountInfo] = None,
     ) -> RiskSnapshot:
         """
         Build complete risk snapshot from current state.
@@ -84,7 +86,9 @@ class RiskEngine:
         Args:
             positions: List of all positions.
             market_data: Dict mapping symbol -> MarketData.
-            account_info: Current account information.
+            account_info: Aggregated account information.
+            ib_account: Optional IB-specific account info for separate display.
+            futu_account: Optional Futu-specific account info for separate display.
 
         Returns:
             RiskSnapshot with aggregated metrics.
@@ -93,6 +97,15 @@ class RiskEngine:
         """
         snapshot = RiskSnapshot()
         snapshot.total_positions = len(positions)
+
+        # Store per-broker account info for separate display
+        if ib_account:
+            snapshot.ib_net_liquidation = ib_account.net_liquidation
+            snapshot.ib_buying_power = ib_account.buying_power
+        if futu_account:
+            snapshot.futu_net_liquidation = futu_account.net_liquidation
+            snapshot.futu_buying_power = futu_account.buying_power
+        snapshot.total_net_liquidation = account_info.net_liquidation
 
         # Choose processing strategy based on portfolio size
         if len(positions) < self.parallel_threshold:

@@ -8,9 +8,23 @@ from typing import Dict, Any, List
 @dataclass
 class IbConfig:
     """Interactive Brokers configuration."""
+    enabled: bool
     host: str
     port: int
     client_id: int
+    provides_market_data: bool = True
+
+
+@dataclass
+class FutuConfig:
+    """Futu OpenD configuration."""
+    enabled: bool
+    host: str
+    port: int
+    security_firm: str
+    trd_env: str
+    filter_trdmarket: str
+    provides_market_data: bool = False
 
 
 @dataclass
@@ -84,6 +98,7 @@ class LoggingConfig:
 class AppConfig:
     """Complete application configuration."""
     ibkr: IbConfig
+    futu: FutuConfig
     manual_positions: ManualPositionsConfig
     risk_limits: RiskLimitsConfig
     scenarios: ScenariosConfig
