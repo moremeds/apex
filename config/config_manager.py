@@ -16,6 +16,7 @@ import logging
 from .models import (
     AppConfig,
     IbConfig,
+    FutuConfig,
     ManualPositionsConfig,
     RiskLimitsConfig,
     ScenariosConfig,
@@ -110,11 +111,27 @@ class ConfigManager:
     def _parse_config(self) -> AppConfig:
         """Parse raw dict into AppConfig."""
         try:
-            ibkr_raw = self.config.get("ibkr", {})
+            # Support both old 'ibkr' and new 'brokers.ibkr' config structures
+            brokers_raw = self.config.get("brokers", {})
+            ibkr_raw = brokers_raw.get("ibkr", self.config.get("ibkr", {}))
+            futu_raw = brokers_raw.get("futu", self.config.get("futu", {}))
+
             ibkr = IbConfig(
+                enabled=ibkr_raw.get("enabled", True),
                 host=ibkr_raw.get("host", "127.0.0.1"),
-                port=ibkr_raw.get("port", 7497),
+                port=ibkr_raw.get("port", 4001),
                 client_id=ibkr_raw.get("client_id", 1),
+                provides_market_data=ibkr_raw.get("provides_market_data", True),
+            )
+
+            futu = FutuConfig(
+                enabled=futu_raw.get("enabled", False),
+                host=futu_raw.get("host", "127.0.0.1"),
+                port=futu_raw.get("port", 11111),
+                security_firm=futu_raw.get("security_firm", "FUTUSECURITIES"),
+                trd_env=futu_raw.get("trd_env", "REAL"),
+                filter_trdmarket=futu_raw.get("filter_trdmarket", "US"),
+                provides_market_data=futu_raw.get("provides_market_data", False),
             )
 
             manual_raw = self.config.get("manual_positions", {})
@@ -179,6 +196,7 @@ class ConfigManager:
 
             return AppConfig(
                 ibkr=ibkr,
+                futu=futu,
                 manual_positions=manual_positions,
                 risk_limits=risk_limits,
                 scenarios=scenarios,

@@ -50,9 +50,16 @@ class RiskSnapshot:
     gamma_notional_near_term: float = 0.0  # 0-7 DTE
     vega_notional_near_term: float = 0.0   # 0-30 DTE
 
-    # Account metrics
+    # Account metrics (aggregated)
     margin_utilization: float = 0.0
     buying_power: float = 0.0
+
+    # Per-broker account info for separate display
+    ib_net_liquidation: float = 0.0
+    ib_buying_power: float = 0.0
+    futu_net_liquidation: float = 0.0
+    futu_buying_power: float = 0.0
+    total_net_liquidation: float = 0.0
 
     # Risk limit breaches
     breached_limits: List[str] = field(default_factory=list)

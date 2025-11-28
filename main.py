@@ -15,7 +15,7 @@ import sys
 
 from config.config_manager import ConfigManager
 from src.domain.services import SimpleSuggester, MarketAlertDetector
-from src.infrastructure.adapters import IbAdapter, FileLoader
+from src.infrastructure.adapters import IbAdapter, FutuAdapter, FileLoader
 from src.infrastructure.stores import PositionStore, MarketDataStore, AccountStore
 from src.infrastructure.monitoring import HealthMonitor, Watchdog
 from src.domain.services.risk_engine import RiskEngine
@@ -109,6 +109,20 @@ async def main_async(args: argparse.Namespace) -> None:
             client_id=config.ibkr.client_id,
         )
 
+        # Initialize Futu adapter if enabled
+        futu_adapter = FutuAdapter(
+            host=config.futu.host,
+            port=config.futu.port,
+            security_firm=config.futu.security_firm,
+            trd_env=config.futu.trd_env,
+            filter_trdmarket=config.futu.filter_trdmarket,
+        )
+        system_structured.info(LogCategory.SYSTEM, "Futu adapter ENABLED", {
+            "host": config.futu.host,
+            "port": config.futu.port,
+            "market": config.futu.filter_trdmarket,
+        })
+
         file_loader = FileLoader(
             file_path=config.manual_positions.file,
             reload_interval_sec=config.manual_positions.reload_interval_sec,
@@ -154,6 +168,7 @@ async def main_async(args: argparse.Namespace) -> None:
             event_bus=event_bus,
             config=config.raw,
             market_alert_detector=market_alert_detector,
+            futu_adapter=futu_adapter,
         )
 
         # Initialize dashboard (if not disabled)

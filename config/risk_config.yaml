@@ -1,11 +1,28 @@
 # Live Risk Management System - Configuration
 # Complete configuration for risk monitoring, limits, and alerts
 
-# Interactive Brokers connection settings
-ibkr:
-  host: 127.0.0.1
-  port: 4001  # 7497 for TWS Paper, 7496 for TWS Live, 4000 for IB Gateway Paper, 4001 for Live
-  client_id: 1
+# Broker adapters configuration
+# Enable/disable multiple brokers for position and account data
+brokers:
+  # Interactive Brokers - primary source for market data
+  ibkr:
+    enabled: true
+    host: 127.0.0.1
+    port: 4001  # 7497 for TWS Paper, 7496 for TWS Live, 4000 for IB Gateway Paper, 4001 for Live
+    client_id: 1
+    # IBKR provides: positions, account info, market data (prices + Greeks)
+    provides_market_data: true
+
+  # Futu OpenD - secondary source for positions and account info
+  futu:
+    enabled: true
+    host: 127.0.0.1
+    port: 11111  # Default Futu OpenD port
+    security_firm: FUTUSECURITIES  # FUTUSECURITIES, FUTUINC, FUTUSG, FUTUAU
+    trd_env: REAL  # REAL or SIMULATE
+    filter_trdmarket: US  # US, HK, CN, SG, JP, AU
+    # Futu provides: positions, account info (no market data - use IBKR)
+    provides_market_data: false
 
 # Manual position file loader
 manual_positions:
