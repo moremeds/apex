@@ -42,14 +42,16 @@ class TerminalDashboard:
     - Position details (if enabled)
     """
 
-    def __init__(self, config: dict):
+    def __init__(self, config: dict, env: str = "dev"):
         """
         Initialize dashboard.
 
         Args:
             config: Dashboard configuration dict.
+            env: Environment name (dev, demo, prod).
         """
         self.config = config
+        self.env = env
         self.show_positions = config.get("show_positions", True)
         self.console = Console()
         self.layout = self._create_layout()
@@ -126,12 +128,22 @@ class TerminalDashboard:
         self.layout["footer"].update(self._render_health(health))
 
     def _render_header(self) -> Panel:
-        """Render header panel with market status."""
+        """Render header panel with market status and environment."""
         # Get market status
         market_status = MarketHours.get_market_status()
 
         # Create header text
         header = Text("Live Risk Management System", style="bold cyan")
+
+        # Add environment indicator
+        header.append("  |  ", style="dim")
+        env_upper = self.env.upper()
+        if self.env == "prod":
+            header.append(env_upper, style="bold red")
+        elif self.env == "demo":
+            header.append(env_upper, style="bold magenta")
+        else:  # dev
+            header.append(env_upper, style="bold yellow")
 
         # Add market status indicator
         header.append("  |  ", style="dim")
