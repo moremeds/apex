@@ -24,6 +24,7 @@ from src.domain.services.mdqc import MDQC
 from src.domain.services.rule_engine import RuleEngine
 from src.domain.services.risk_signal_manager import RiskSignalManager
 from src.domain.services.risk_signal_engine import RiskSignalEngine
+from src.domain.services.risk_alert_logger import RiskAlertLogger
 # from src.domain.services.suggester import SimpleSuggester
 # from src.domain.services.shock_engine import SimpleShockEngine
 from src.application import Orchestrator, SimpleEventBus
@@ -158,6 +159,17 @@ async def main_async(args: argparse.Namespace) -> None:
         )
         system_structured.info(LogCategory.SYSTEM, "Risk signal engine initialized")
 
+        # Initialize risk alert logger for audit trail
+        risk_alert_logger = RiskAlertLogger(
+            log_dir="./logs",
+            env=args.env,
+            retention_days=config.raw.get("risk_alerts", {}).get("retention_days", 30),
+        )
+        system_structured.info(LogCategory.SYSTEM, "Risk alert logger initialized", {
+            "log_dir": "./logs",
+            "retention_days": config.raw.get("risk_alerts", {}).get("retention_days", 30),
+        })
+
         # suggester = SimpleSuggester()  # TODO: Use for breach analysis in dashboard
         # shock_engine = SimpleShockEngine(risk_engine=risk_engine, config=config.raw)  # TODO: Add scenario analysis
 
@@ -187,6 +199,7 @@ async def main_async(args: argparse.Namespace) -> None:
             market_alert_detector=market_alert_detector,
             futu_adapter=futu_adapter,
             risk_signal_engine=risk_signal_engine,
+            risk_alert_logger=risk_alert_logger,
         )
 
         # Initialize dashboard (if not disabled)

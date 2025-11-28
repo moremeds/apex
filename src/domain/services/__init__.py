@@ -8,6 +8,7 @@ from .suggester import SimpleSuggester
 from .shock_engine import SimpleShockEngine
 from .market_alert_detector import MarketAlertDetector
 from .risk_signal_manager import RiskSignalManager
+from .risk_alert_logger import RiskAlertLogger
 
 __all__ = [
     "RiskEngine",
@@ -19,4 +20,5 @@ __all__ = [
     "SimpleShockEngine",
     "MarketAlertDetector",
     "RiskSignalManager",
+    "RiskAlertLogger",
 ]

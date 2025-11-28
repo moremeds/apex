@@ -24,6 +24,7 @@ from ..domain.services.mdqc import MDQC
 from ..domain.services.rule_engine import RuleEngine
 from ..domain.services.market_alert_detector import MarketAlertDetector
 from ..domain.services.risk_signal_engine import RiskSignalEngine
+from ..domain.services.risk_alert_logger import RiskAlertLogger
 from ..models.risk_snapshot import RiskSnapshot
 from ..models.account import AccountInfo
 from ..models.position import Position
@@ -66,6 +67,7 @@ class Orchestrator:
         market_alert_detector: MarketAlertDetector | None = None,
         futu_adapter: Optional[PositionProvider] = None,
         risk_signal_engine: RiskSignalEngine | None = None,
+        risk_alert_logger: RiskAlertLogger | None = None,
     ):
         """
         Initialize orchestrator with all dependencies.
@@ -87,6 +89,7 @@ class Orchestrator:
             market_alert_detector: Optional market alert detector.
             futu_adapter: Optional Futu adapter (positions + account).
             risk_signal_engine: Multi-layer risk signal engine (optional, replaces rule_engine).
+            risk_alert_logger: Optional risk alert logger for audit trail.
         """
         self.ib_adapter = ib_adapter
         self.futu_adapter = futu_adapter
@@ -104,6 +107,7 @@ class Orchestrator:
         self.config = config
         self.market_alert_detector = market_alert_detector
         self.risk_signal_engine = risk_signal_engine
+        self.risk_alert_logger = risk_alert_logger
 
         self.refresh_interval_sec = config.get("dashboard", {}).get("refresh_interval_sec", 2)
         self._running = False
@@ -431,6 +435,10 @@ class Orchestrator:
                 for breach in breaches:
                     self.event_bus.publish(EventType.LIMIT_BREACHED, breach)
 
+        # 7b. Log all alerts and signals to audit trail
+        if self.risk_alert_logger:
+            self._log_risk_alerts(snapshot)
+
         # 8. Update watchdog
         self.watchdog.update_snapshot_time(snapshot.timestamp)
         self.watchdog.check_missing_market_data(
@@ -484,6 +492,41 @@ class Orchestrator:
 
         # Detect alerts (safe on empty data)
         self._latest_market_alerts = self.market_alert_detector.detect_alerts(indicators)
+
+    def _log_risk_alerts(self, snapshot: RiskSnapshot) -> None:
+        """
+        Log all current alerts and signals to the risk alert logger.
+
+        Only logs if there are active alerts or signals to record.
+
+        Args:
+            snapshot: Current risk snapshot with position risks
+        """
+        if not self.risk_alert_logger:
+            return
+
+        # Update market cache in logger
+        self.risk_alert_logger.update_market_cache(
+            market_data_store=self.market_data_store
+        )
+
+        # Only log if there are alerts or signals
+        if not self._latest_market_alerts and not self._latest_risk_signals:
+            return
+
+        # Log batch with full context
+        self.risk_alert_logger.log_batch(
+            market_alerts=self._latest_market_alerts,
+            risk_signals=self._latest_risk_signals,
+            snapshot=snapshot,
+            position_risks=snapshot.position_risks if snapshot else None,
+            market_data_store=self.market_data_store,
+        )
+
+        logger.debug(
+            f"Logged {len(self._latest_market_alerts)} market alerts, "
+            f"{len(self._latest_risk_signals)} risk signals to audit trail"
+        )
 
     def _aggregate_account_info(
         self,
