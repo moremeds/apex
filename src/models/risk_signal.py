@@ -111,7 +111,7 @@ class RiskSignal:
         Returns:
             RiskSignal object
         """
-        from ..domain.services.rule_engine import BreachSeverity
+        from src.domain.services.risk.rule_engine import BreachSeverity
 
         # Map breach severity to signal severity
         severity = (

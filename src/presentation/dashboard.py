@@ -23,7 +23,7 @@ import logging
 from ..models.risk_snapshot import RiskSnapshot
 from ..models.position_risk import PositionRisk
 from ..models.risk_signal import RiskSignal, SignalSeverity
-from ..domain.services.rule_engine import LimitBreach, BreachSeverity
+from src.domain.services.risk.rule_engine import LimitBreach, BreachSeverity
 from ..infrastructure.monitoring import ComponentHealth, HealthStatus
 from ..utils.market_hours import MarketHours
 

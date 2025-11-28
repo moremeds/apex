@@ -16,18 +16,18 @@ from __future__ import annotations
 from typing import List, Dict, Any, Optional
 import logging
 
-from ...models.risk_snapshot import RiskSnapshot
-from ...models.risk_signal import RiskSignal
-from ...models.position import Position
-from ...models.market_data import MarketData
+from src.models.risk_snapshot import RiskSnapshot
+from src.models.risk_signal import RiskSignal
+from src.models.position import Position
+from src.models.market_data import MarketData
 
 from .rule_engine import RuleEngine
 from .risk_signal_manager import RiskSignalManager
-from .position_risk_analyzer import PositionRiskAnalyzer
-from .strategy_detector import StrategyDetector
-from .strategy_risk_analyzer import StrategyRiskAnalyzer
-from .correlation_analyzer import CorrelationAnalyzer
-from .event_risk_detector import EventRiskDetector
+from src.domain.services.position_risk_analyzer import PositionRiskAnalyzer
+from src.domain.services.strategy_detector import StrategyDetector
+from src.domain.services.strategy_risk_analyzer import StrategyRiskAnalyzer
+from src.domain.services.correlation_analyzer import CorrelationAnalyzer
+from src.domain.services.event_risk_detector import EventRiskDetector
 
 
 logger = logging.getLogger(__name__)

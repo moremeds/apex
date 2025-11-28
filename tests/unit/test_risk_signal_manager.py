@@ -2,14 +2,12 @@
 Unit tests for RiskSignalManager.
 """
 
-import pytest
-from datetime import datetime, timedelta
-from src.domain.services.risk_signal_manager import RiskSignalManager
+from datetime import datetime
+from src.domain.services.risk.risk_signal_manager import RiskSignalManager
 from src.models.risk_signal import (
     RiskSignal,
     SignalLevel,
     SignalSeverity,
-    SuggestedAction,
 )
 
 

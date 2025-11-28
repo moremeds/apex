@@ -18,13 +18,13 @@ import logging
 from ..domain.interfaces.position_provider import PositionProvider
 from ..domain.interfaces.market_data_provider import MarketDataProvider
 from ..domain.interfaces.event_bus import EventBus, EventType
-from ..domain.services.risk_engine import RiskEngine
+from src.domain.services.risk.risk_engine import RiskEngine
 from ..domain.services.pos_reconciler import Reconciler
 from ..domain.services.mdqc import MDQC
-from ..domain.services.rule_engine import RuleEngine
+from src.domain.services.risk.rule_engine import RuleEngine
 from ..domain.services.market_alert_detector import MarketAlertDetector
-from ..domain.services.risk_signal_engine import RiskSignalEngine
-from ..domain.services.risk_alert_logger import RiskAlertLogger
+from src.domain.services.risk.risk_signal_engine import RiskSignalEngine
+from src.domain.services.risk.risk_alert_logger import RiskAlertLogger
 from ..models.risk_snapshot import RiskSnapshot
 from ..models.account import AccountInfo
 from ..models.position import Position

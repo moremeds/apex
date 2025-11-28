@@ -4,11 +4,10 @@ Unit tests for RiskSignalEngine - Integration of all risk layers.
 
 import pytest
 from datetime import datetime
-from src.domain.services.risk_signal_engine import RiskSignalEngine
-from src.domain.services.rule_engine import RuleEngine
-from src.domain.services.risk_signal_manager import RiskSignalManager
+from src.domain.services.risk.risk_signal_engine import RiskSignalEngine
+from src.domain.services.risk.rule_engine import RuleEngine
+from src.domain.services.risk.risk_signal_manager import RiskSignalManager
 from src.models.risk_snapshot import RiskSnapshot
-from src.models.position_risk import PositionRisk
 from src.models.risk_signal import SignalSeverity
 
 

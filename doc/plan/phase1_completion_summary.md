@@ -158,7 +158,7 @@ assert len(result) == 1  # Escalation fired!
 ### Converting Legacy LimitBreach
 
 ```python
-from src.domain.services.rule_engine import LimitBreach, BreachSeverity
+from src.domain.services.risk.rule_engine import LimitBreach, BreachSeverity
 from src.models.risk_signal import RiskSignal
 
 breach = LimitBreach(

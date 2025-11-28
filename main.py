@@ -10,21 +10,20 @@ Usage:
 from __future__ import annotations
 import asyncio
 import argparse
-import logging
 import sys
 
 from config.config_manager import ConfigManager
-from src.domain.services import SimpleSuggester, MarketAlertDetector
+from src.domain.services import MarketAlertDetector
 from src.infrastructure.adapters import IbAdapter, FutuAdapter, FileLoader
 from src.infrastructure.stores import PositionStore, MarketDataStore, AccountStore
 from src.infrastructure.monitoring import HealthMonitor, Watchdog
-from src.domain.services.risk_engine import RiskEngine
+from src.domain.services.risk.risk_engine import RiskEngine
 from src.domain.services.pos_reconciler import Reconciler
 from src.domain.services.mdqc import MDQC
-from src.domain.services.rule_engine import RuleEngine
-from src.domain.services.risk_signal_manager import RiskSignalManager
-from src.domain.services.risk_signal_engine import RiskSignalEngine
-from src.domain.services.risk_alert_logger import RiskAlertLogger
+from src.domain.services.risk.rule_engine import RuleEngine
+from src.domain.services.risk.risk_signal_manager import RiskSignalManager
+from src.domain.services.risk.risk_signal_engine import RiskSignalEngine
+from src.domain.services.risk.risk_alert_logger import RiskAlertLogger
 # from src.domain.services.suggester import SimpleSuggester
 # from src.domain.services.shock_engine import SimpleShockEngine
 from src.application import Orchestrator, SimpleEventBus

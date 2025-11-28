@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Dict, List, Any
 from dataclasses import dataclass
 from enum import Enum
-from ...models.risk_snapshot import RiskSnapshot
+from src.models.risk_snapshot import RiskSnapshot
 
 
 class BreachSeverity(Enum):

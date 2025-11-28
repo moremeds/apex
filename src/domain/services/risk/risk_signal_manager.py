@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Tuple
 import logging
 
-from ...models.risk_signal import RiskSignal, SignalSeverity
+from src.models.risk_signal import RiskSignal, SignalSeverity
 
 
 logger = logging.getLogger(__name__)

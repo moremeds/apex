@@ -1,11 +1,10 @@
 """Test script to visualize the dashboard layout with sample data."""
 
-from datetime import date, datetime, timedelta
+from datetime import datetime
 from src.presentation.dashboard import TerminalDashboard
 from src.models.risk_snapshot import RiskSnapshot
 from src.models.position import Position, AssetType, PositionSource
 from src.models.market_data import MarketData, GreeksSource, DataQuality
-from src.domain.services.rule_engine import LimitBreach, BreachSeverity
 from src.infrastructure.monitoring import ComponentHealth, HealthStatus
 import time
 

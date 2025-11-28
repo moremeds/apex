@@ -2,7 +2,6 @@
 Unit tests for RiskSignal model.
 """
 
-import pytest
 from datetime import datetime
 from src.models.risk_signal import (
     RiskSignal,
@@ -109,7 +108,7 @@ class TestRiskSignal:
 
     def test_from_breach_conversion(self):
         """Test conversion from legacy LimitBreach."""
-        from src.domain.services.rule_engine import LimitBreach, BreachSeverity
+        from src.domain.services.risk.rule_engine import LimitBreach, BreachSeverity
 
         breach = LimitBreach(
             limit_name="Portfolio Delta",
@@ -130,7 +129,7 @@ class TestRiskSignal:
 
     def test_from_breach_soft(self):
         """Test conversion from soft breach."""
-        from src.domain.services.rule_engine import LimitBreach, BreachSeverity
+        from src.domain.services.risk.rule_engine import LimitBreach, BreachSeverity
 
         breach = LimitBreach(
             limit_name="Vega Limit",

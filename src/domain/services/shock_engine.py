@@ -12,7 +12,7 @@ from copy import deepcopy
 from ...models.position import Position
 from ...models.market_data import MarketData
 from ...models.risk_snapshot import RiskSnapshot
-from .risk_engine import RiskEngine
+from src.domain.services.risk.risk_engine import RiskEngine
 
 
 @dataclass

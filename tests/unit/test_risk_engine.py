@@ -1,12 +1,6 @@
 """Unit tests for RiskEngine."""
 
-import pytest
-from datetime import datetime
-
-from src.domain.services.risk_engine import RiskEngine
-from src.models.position import Position
-from src.models.market_data import MarketData
-from src.models.account import AccountInfo
+from src.domain.services.risk.risk_engine import RiskEngine
 
 
 def test_build_snapshot_empty(sample_account_info, sample_risk_config):
