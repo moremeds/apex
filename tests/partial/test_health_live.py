@@ -14,7 +14,7 @@ from src.infrastructure.adapters import IbAdapter, FileLoader
 from src.infrastructure.stores import PositionStore, MarketDataStore, AccountStore
 from src.infrastructure.monitoring import HealthMonitor, Watchdog
 from src.domain.services.risk_engine import RiskEngine
-from src.domain.services.reconciler import Reconciler
+from src.domain.services.pos_reconciler import Reconciler
 from src.domain.services.mdqc import MDQC
 from src.domain.services.rule_engine import RuleEngine
 from src.application import Orchestrator, SimpleEventBus

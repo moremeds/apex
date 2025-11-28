@@ -19,7 +19,7 @@ from ..domain.interfaces.position_provider import PositionProvider
 from ..domain.interfaces.market_data_provider import MarketDataProvider
 from ..domain.interfaces.event_bus import EventBus, EventType
 from ..domain.services.risk_engine import RiskEngine
-from ..domain.services.reconciler import Reconciler
+from ..domain.services.pos_reconciler import Reconciler
 from ..domain.services.mdqc import MDQC
 from ..domain.services.rule_engine import RuleEngine
 from ..domain.services.market_alert_detector import MarketAlertDetector
