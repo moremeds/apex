@@ -110,6 +110,58 @@ market_alerts:
   vix_critical_threshold: 35.0  # VIX level for critical alert
   vix_spike_pct: 15.0  # % change threshold for VIX spike alert
 
+# Risk Signal Engine - Multi-layer risk detection (Phase 1-4)
+risk_signals:
+  # Signal management (debounce/cooldown)
+  debounce_seconds: 15  # Require 15s persistence before firing
+  cooldown_minutes: 5   # Suppress duplicates for 5min
+
+  # Position-level rules (Phase 2)
+  position_rules:
+    stop_loss_pct: 0.60  # -60% stop loss
+    take_profit_pct: 1.00  # +100% take profit
+    trailing_stop_drawdown: 0.30  # 30% drawdown from peak
+    dte_exit_ratio: 0.20  # Exit when DTE < 20% of initial
+    short_r_multiple: 1.5  # Stop at 1.5x premium loss for short positions
+
+  # Strategy-specific rules (Phase 3)
+  strategy_rules:
+    credit_spread_r_multiple: 1.5  # Stop at 1.5x premium loss
+    diagonal_delta_flip_warning: true  # Alert on delta flip
+    calendar_iv_crush_threshold: 0.30  # 30% IV loss threshold
+
+  # Correlation risk (Phase 4a)
+  correlation_risk:
+    enabled: true
+    max_sector_concentration_pct: 0.60  # 60% max single sector
+    beta_reference: SPY  # Use SPY for beta-weighting
+    sectors:
+      Tech: [AAPL, MSFT, NVDA, TSLA, GOOGL, META, AMZN, NFLX, AMD, CRM]
+      Finance: [JPM, BAC, GS, MS, WFC, C, BLK, SCHW]
+      Healthcare: [JNJ, UNH, PFE, ABBV, TMO, LLY]
+      Energy: [XOM, CVX, COP, SLB, EOG]
+      Consumer: [WMT, HD, MCD, NKE, SBUX, TGT]
+      Industrial: [CAT, BA, GE, HON, UPS, LMT]
+      Communication: [DIS, CMCSA, VZ, T]
+
+  # Event risk - Earnings calendar (Phase 4b)
+  event_risk:
+    enabled: true
+    earnings_warning_days: 3  # Warn T-3 days before earnings
+    earnings_critical_days: 1  # Critical alert T-1 day
+
+    # Manual earnings calendar (update quarterly)
+    # Format: SYMBOL: "YYYY-MM-DD"
+    upcoming_earnings:
+      TSLA: "2025-01-24"
+      NVDA: "2025-02-21"
+      AAPL: "2025-01-30"
+      MSFT: "2025-01-28"
+      META: "2025-02-05"
+      AMZN: "2025-02-06"
+      GOOGL: "2025-02-04"
+      # Add more symbols as needed
+
 # Watchdog monitoring
 watchdog:
   snapshot_stale_sec: 10  # Alert if snapshot not updated
@@ -147,6 +199,46 @@ greeks:
   source: "ibkr"  # Use IBKR Greeks only (no local BSM/Bachelier)
   fallback_enabled: false  # No fallback calculation in MVP
   mark_missing_as: "DATA_MISSING"  # Flag when Greeks unavailable
+
+# Beta values for SPY-equivalent exposure calculation
+# Used for beta-adjusted delta and portfolio beta weighting
+# Values are relative to SPY (SPY = 1.0)
+betas:
+  default: 1.0  # Default beta for unlisted underlyings
+  SPY: 1.00
+  QQQ: 1.20
+  TSLA: 2.05
+  NVDA: 1.75
+  AAPL: 1.25
+  MSFT: 1.15
+  AMZN: 1.30
+  GOOGL: 1.20
+  META: 1.45
+  AMD: 1.85
+  NFLX: 1.35
+  CRM: 1.25
+  # Finance
+  JPM: 1.15
+  BAC: 1.40
+  GS: 1.35
+  MS: 1.45
+  WFC: 1.20
+  # Healthcare (typically lower beta)
+  JNJ: 0.65
+  UNH: 0.80
+  PFE: 0.70
+  LLY: 0.85
+  # Energy
+  XOM: 0.95
+  CVX: 0.90
+  # Consumer
+  WMT: 0.55
+  HD: 1.05
+  MCD: 0.70
+  # Industrial
+  CAT: 1.10
+  BA: 1.50
+  # Add more symbols as needed
 
 # Alert thresholds (for future email/Slack integration)
 alerts:

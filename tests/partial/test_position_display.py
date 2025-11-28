@@ -9,7 +9,7 @@ This test verifies that the position display issue is fixed by:
 
 import sys
 from pathlib import Path
-from datetime import date, datetime
+from datetime import datetime
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -19,8 +19,7 @@ from src.models.risk_snapshot import RiskSnapshot
 from src.models.position import Position, AssetType, PositionSource
 from src.models.market_data import MarketData, GreeksSource, DataQuality
 from src.models.account import AccountInfo
-from src.domain.services.risk_engine import RiskEngine
-from src.domain.services.rule_engine import LimitBreach
+from src.domain.services.risk.risk_engine import RiskEngine
 from src.infrastructure.monitoring import ComponentHealth, HealthStatus
 
 

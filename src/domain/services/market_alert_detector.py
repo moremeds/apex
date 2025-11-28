@@ -1,11 +1,15 @@
 """
-Market Alert Detector - Detect market-wide alerts like VIX spikes.
+Market Alert Detector - Detects market-wide events and alerts.
 
-Monitors market indicators and generates alerts based on configurable thresholds.
+This service monitors market-wide conditions and generates alerts for:
+- VIX spikes
+- Market drops
+- High volatility
+- Volume surges
 """
 
 from __future__ import annotations
-from typing import Dict, List, Any, Optional
+from typing import List, Dict, Optional, Any
 from datetime import datetime
 import logging
 
@@ -15,92 +19,156 @@ logger = logging.getLogger(__name__)
 
 class MarketAlertDetector:
     """
-    Detects market-wide alerts based on indicator thresholds.
+    Market alert detector for system-wide market events.
 
-    Monitors:
-    - VIX level warnings/critical alerts
-    - VIX spike detection (% change)
+    Monitors market conditions and generates alerts based on configurable thresholds.
     """
 
-    def __init__(
-        self,
-        config: Optional[Dict[str, Any]] = None,
-        vix_warning_threshold: float = 25.0,
-        vix_critical_threshold: float = 35.0,
-        vix_spike_pct: float = 15.0,
-    ):
+    def __init__(self, config: Optional[Dict] = None):
         """
         Initialize market alert detector.
 
         Args:
-            config: Optional config dict with threshold values.
-            vix_warning_threshold: VIX level for warning alert (default if not in config).
-            vix_critical_threshold: VIX level for critical alert (default if not in config).
-            vix_spike_pct: Percentage change threshold for VIX spike alert.
+            config: Configuration dict with alert thresholds:
+                - vix_warning_threshold: VIX level for WARNING (default: 25)
+                - vix_critical_threshold: VIX level for CRITICAL (default: 35)
+                - market_drop_warning: Daily drop % for WARNING (default: -2.0)
+                - market_drop_critical: Daily drop % for CRITICAL (default: -3.0)
+                - vix_spike_pct: VIX % change for spike alert (default: 15.0)
         """
-        # Support both config dict and individual parameters
-        if config and isinstance(config, dict):
-            self.vix_warning_threshold = config.get("vix_warning_threshold", vix_warning_threshold)
-            self.vix_critical_threshold = config.get("vix_critical_threshold", vix_critical_threshold)
-            self.vix_spike_pct = config.get("vix_spike_pct", vix_spike_pct)
-        else:
-            self.vix_warning_threshold = vix_warning_threshold
-            self.vix_critical_threshold = vix_critical_threshold
-            self.vix_spike_pct = vix_spike_pct
+        self.config = config or {}
 
-    def detect_alerts(self, indicators: Dict[str, Any]) -> List[Dict[str, Any]]:
+        # VIX thresholds
+        self.vix_warning = self.config.get("vix_warning_threshold", 25.0)
+        self.vix_critical = self.config.get("vix_critical_threshold", 35.0)
+        self.vix_spike_pct = self.config.get("vix_spike_pct", 15.0)
+
+        # Market drop thresholds
+        self.drop_warning = self.config.get("market_drop_warning", -2.0)
+        self.drop_critical = self.config.get("market_drop_critical", -3.0)
+
+        # Track previous VIX for spike detection
+        self._prev_vix: Optional[float] = None
+
+    def detect_alerts(self, market_data: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
-        Detect market alerts based on current indicators.
+        Detect market alerts based on current market data.
 
         Args:
-            indicators: Dict with market data, e.g.:
-                - "vix": Current VIX level
-                - "vix_prev_close": Previous VIX close
-                - "timestamp": Data timestamp
+            market_data: Dictionary with market indicators:
+                - vix: Current VIX value
+                - vix_prev_close: Yesterday's VIX close (optional)
+                - spy_change_pct: SPY daily % change
+                - qqq_change_pct: QQQ daily % change
+                - spy_realized_vol: SPY realized volatility
+                - timestamp: Data timestamp
 
         Returns:
-            List of alert dicts with "type", "severity", "message", "value".
+            List of alert dicts with keys: type, message, severity
         """
-        alerts: List[Dict[str, Any]] = []
+        alerts = []
 
-        vix = indicators.get("vix")
-        vix_prev_close = indicators.get("vix_prev_close")
-        timestamp = indicators.get("timestamp", datetime.now())
+        # Check VIX levels
+        vix = market_data.get("vix")
+        vix_prev_close = market_data.get("vix_prev_close")
+        if vix is not None:
+            alerts.extend(self._check_vix_alerts(vix, vix_prev_close))
 
-        if vix is None:
-            return alerts
+        # Check market drops
+        spy_change = market_data.get("spy_change_pct")
+        if spy_change is not None:
+            alerts.extend(self._check_market_drop_alerts(spy_change, "SPY"))
 
-        # VIX level alerts
-        if vix >= self.vix_critical_threshold:
+        qqq_change = market_data.get("qqq_change_pct")
+        if qqq_change is not None:
+            alerts.extend(self._check_market_drop_alerts(qqq_change, "QQQ"))
+
+        # Check realized volatility
+        spy_vol = market_data.get("spy_realized_vol")
+        if spy_vol is not None:
+            alerts.extend(self._check_volatility_alerts(spy_vol))
+
+        logger.info(f"Market alert detection complete: {len(alerts)} alerts")
+        return alerts
+
+    def _check_vix_alerts(self, vix: float, prev_close: Optional[float] = None) -> List[Dict[str, Any]]:
+        """Check VIX-related alerts."""
+        alerts = []
+
+        # Check absolute VIX level
+        if vix >= self.vix_critical:
             alerts.append({
                 "type": "VIX_CRITICAL",
-                "severity": "CRITICAL",
-                "message": f"VIX at critical level: {vix:.2f} (threshold: {self.vix_critical_threshold})",
-                "value": vix,
-                "threshold": self.vix_critical_threshold,
-                "timestamp": timestamp,
+                "message": f"VIX at {vix:.1f} (critical threshold: {self.vix_critical})",
+                "severity": "CRITICAL"
             })
-        elif vix >= self.vix_warning_threshold:
+        elif vix >= self.vix_warning:
             alerts.append({
-                "type": "VIX_WARNING",
-                "severity": "WARNING",
-                "message": f"VIX elevated: {vix:.2f} (threshold: {self.vix_warning_threshold})",
-                "value": vix,
-                "threshold": self.vix_warning_threshold,
-                "timestamp": timestamp,
+                "type": "VIX_ELEVATED",
+                "message": f"VIX at {vix:.1f} (warning threshold: {self.vix_warning})",
+                "severity": "WARNING"
             })
 
-        # VIX spike detection
-        if vix_prev_close and vix_prev_close > 0:
-            pct_change = ((vix - vix_prev_close) / vix_prev_close) * 100
-            if pct_change >= self.vix_spike_pct:
+        # Check VIX spike (percentage change)
+        baseline = self._prev_vix or prev_close
+        if baseline:
+            if baseline == 0:
+                baseline = None  # Avoid divide-by-zero
+        if baseline:
+            vix_change_pct = ((vix - baseline) / baseline) * 100
+            if vix_change_pct >= self.vix_spike_pct:
+                severity = "CRITICAL" if vix >= self.vix_critical else "WARNING"
                 alerts.append({
                     "type": "VIX_SPIKE",
-                    "severity": "WARNING",
-                    "message": f"VIX spiked {pct_change:.1f}% (from {vix_prev_close:.2f} to {vix:.2f})",
-                    "value": pct_change,
-                    "threshold": self.vix_spike_pct,
-                    "timestamp": timestamp,
+                    "message": f"VIX jumped {vix_change_pct:.1f}% to {vix:.1f}",
+                    "severity": severity
                 })
 
+        # Update previous VIX
+        self._prev_vix = vix
+
         return alerts
+
+    def _check_market_drop_alerts(self, change_pct: float, symbol: str) -> List[Dict[str, Any]]:
+        """Check for market drop alerts."""
+        alerts = []
+
+        if change_pct <= self.drop_critical:
+            alerts.append({
+                "type": "MARKET_DROP",
+                "message": f"{symbol} down {abs(change_pct):.1f}% (critical threshold)",
+                "severity": "CRITICAL"
+            })
+        elif change_pct <= self.drop_warning:
+            alerts.append({
+                "type": "MARKET_DROP",
+                "message": f"{symbol} down {abs(change_pct):.1f}% intraday",
+                "severity": "WARNING"
+            })
+
+        return alerts
+
+    def _check_volatility_alerts(self, realized_vol: float) -> List[Dict[str, Any]]:
+        """Check for high volatility alerts."""
+        alerts = []
+
+        # High realized vol threshold
+        if realized_vol > 40:
+            alerts.append({
+                "type": "HIGH_VOLATILITY",
+                "message": f"SPY realized vol at {realized_vol:.1f}% (elevated)",
+                "severity": "WARNING"
+            })
+        elif realized_vol > 30:
+            alerts.append({
+                "type": "VOLATILITY",
+                "message": f"SPY realized vol at {realized_vol:.1f}% (above average)",
+                "severity": "INFO"
+            })
+
+        return alerts
+
+    def reset_state(self):
+        """Reset internal state (useful for testing or daily resets)."""
+        self._prev_vix = None
+        logger.info("Market alert detector state reset")

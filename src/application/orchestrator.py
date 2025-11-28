@@ -18,16 +18,19 @@ import logging
 from ..domain.interfaces.position_provider import PositionProvider
 from ..domain.interfaces.market_data_provider import MarketDataProvider
 from ..domain.interfaces.event_bus import EventBus, EventType
-from ..domain.services.risk_engine import RiskEngine
+from src.domain.services.risk.risk_engine import RiskEngine
 from ..domain.services.pos_reconciler import Reconciler
 from ..domain.services.mdqc import MDQC
-from ..domain.services.rule_engine import RuleEngine
+from src.domain.services.risk.rule_engine import RuleEngine
 from ..domain.services.market_alert_detector import MarketAlertDetector
-from ..infrastructure.stores import PositionStore, MarketDataStore, AccountStore
-from ..infrastructure.monitoring import HealthMonitor, HealthStatus, Watchdog
+from src.domain.services.risk.risk_signal_engine import RiskSignalEngine
+from src.domain.services.risk.risk_alert_logger import RiskAlertLogger
 from ..models.risk_snapshot import RiskSnapshot
 from ..models.account import AccountInfo
 from ..models.position import Position
+from ..models.risk_signal import RiskSignal
+from ..infrastructure.stores import PositionStore, MarketDataStore, AccountStore
+from ..infrastructure.monitoring import HealthMonitor, HealthStatus, Watchdog
 
 
 logger = logging.getLogger(__name__)
@@ -63,6 +66,8 @@ class Orchestrator:
         config: Dict[str, Any],
         market_alert_detector: MarketAlertDetector | None = None,
         futu_adapter: Optional[PositionProvider] = None,
+        risk_signal_engine: RiskSignalEngine | None = None,
+        risk_alert_logger: RiskAlertLogger | None = None,
     ):
         """
         Initialize orchestrator with all dependencies.
@@ -76,13 +81,15 @@ class Orchestrator:
             risk_engine: Risk calculation engine.
             reconciler: Position reconciliation service.
             mdqc: Market data quality control.
-            rule_engine: Risk limit evaluation.
+            rule_engine: Risk limit evaluation (legacy).
             health_monitor: Health monitoring service.
             watchdog: Watchdog monitoring service.
             event_bus: Event bus for publish-subscribe.
             config: Application configuration.
             market_alert_detector: Optional market alert detector.
             futu_adapter: Optional Futu adapter (positions + account).
+            risk_signal_engine: Multi-layer risk signal engine (optional, replaces rule_engine).
+            risk_alert_logger: Optional risk alert logger for audit trail.
         """
         self.ib_adapter = ib_adapter
         self.futu_adapter = futu_adapter
@@ -99,6 +106,8 @@ class Orchestrator:
         self.event_bus = event_bus
         self.config = config
         self.market_alert_detector = market_alert_detector
+        self.risk_signal_engine = risk_signal_engine
+        self.risk_alert_logger = risk_alert_logger
 
         self.refresh_interval_sec = config.get("dashboard", {}).get("refresh_interval_sec", 2)
         self._running = False
@@ -106,6 +115,7 @@ class Orchestrator:
 
         self._latest_snapshot: RiskSnapshot | None = None
         self._latest_market_alerts: list[dict[str, Any]] = []
+        self._latest_risk_signals: List[RiskSignal] = []
 
     async def start(self) -> None:
         """Start the orchestrator main loop."""
@@ -408,12 +418,26 @@ class Orchestrator:
         )
         self._latest_snapshot = snapshot
 
-        # 7. Evaluate risk limits
-        breaches = self.rule_engine.evaluate(snapshot)
-        if breaches:
-            logger.warning(f"Found {len(breaches)} limit breaches")
-            for breach in breaches:
-                self.event_bus.publish(EventType.LIMIT_BREACHED, breach)
+        # 7. Evaluate risk limits (use RiskSignalEngine if available, else legacy RuleEngine)
+        if self.risk_signal_engine:
+            # New: Multi-layer risk signal engine
+            risk_signals = self.risk_signal_engine.evaluate(snapshot)
+            self._latest_risk_signals = risk_signals
+            if risk_signals:
+                logger.warning(f"Found {len(risk_signals)} risk signals")
+                for signal in risk_signals:
+                    self.event_bus.publish(EventType.LIMIT_BREACHED, signal)
+        else:
+            # Legacy: Portfolio rule engine only
+            breaches = self.rule_engine.evaluate(snapshot)
+            if breaches:
+                logger.warning(f"Found {len(breaches)} limit breaches")
+                for breach in breaches:
+                    self.event_bus.publish(EventType.LIMIT_BREACHED, breach)
+
+        # 7b. Log all alerts and signals to audit trail
+        if self.risk_alert_logger:
+            self._log_risk_alerts(snapshot)
 
         # 8. Update watchdog
         self.watchdog.update_snapshot_time(snapshot.timestamp)
@@ -430,6 +454,10 @@ class Orchestrator:
     def get_latest_market_alerts(self) -> list[dict[str, Any]]:
         """Get the latest market alerts."""
         return self._latest_market_alerts
+
+    def get_latest_risk_signals(self) -> List[RiskSignal]:
+        """Get the latest risk signals."""
+        return self._latest_risk_signals
 
     async def _detect_market_alerts(self) -> None:
         """Fetch market indicators and detect alerts like VIX spikes."""
@@ -464,6 +492,41 @@ class Orchestrator:
 
         # Detect alerts (safe on empty data)
         self._latest_market_alerts = self.market_alert_detector.detect_alerts(indicators)
+
+    def _log_risk_alerts(self, snapshot: RiskSnapshot) -> None:
+        """
+        Log all current alerts and signals to the risk alert logger.
+
+        Only logs if there are active alerts or signals to record.
+
+        Args:
+            snapshot: Current risk snapshot with position risks
+        """
+        if not self.risk_alert_logger:
+            return
+
+        # Update market cache in logger
+        self.risk_alert_logger.update_market_cache(
+            market_data_store=self.market_data_store
+        )
+
+        # Only log if there are alerts or signals
+        if not self._latest_market_alerts and not self._latest_risk_signals:
+            return
+
+        # Log batch with full context
+        self.risk_alert_logger.log_batch(
+            market_alerts=self._latest_market_alerts,
+            risk_signals=self._latest_risk_signals,
+            snapshot=snapshot,
+            position_risks=snapshot.position_risks if snapshot else None,
+            market_data_store=self.market_data_store,
+        )
+
+        logger.debug(
+            f"Logged {len(self._latest_market_alerts)} market alerts, "
+            f"{len(self._latest_risk_signals)} risk signals to audit trail"
+        )
 
     def _aggregate_account_info(
         self,

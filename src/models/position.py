@@ -46,6 +46,12 @@ class Position:
     last_updated: datetime = field(default_factory=datetime.now)
     account_id: Optional[str] = None
 
+    # Risk tracking fields (Phase 2: Position-Level Rules)
+    entry_timestamp: Optional[datetime] = None  # When position was opened
+    max_profit_reached: Optional[float] = None  # Peak PnL for trailing stops
+    strategy_label: Optional[str] = None  # "LONG_CALL", "SHORT_PUT", "CREDIT_SPREAD", etc.
+    related_position_ids: list[str] = field(default_factory=list)  # For multi-leg strategies
+
     def key(self) -> tuple:
         """
         Composite key used for de-duplication and reconciliation across sources.
