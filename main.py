@@ -29,7 +29,7 @@ from src.domain.services.risk.risk_alert_logger import RiskAlertLogger
 from src.application import Orchestrator, SimpleEventBus
 from src.presentation import TerminalDashboard
 from src.models.risk_snapshot import RiskSnapshot
-from src.utils import StructuredLogger
+from src.utils import StructuredLogger, flush_all_loggers, set_log_timezone
 from src.utils.structured_logger import LogCategory
 from src.utils.logging_setup import setup_category_logging
 
@@ -72,6 +72,17 @@ Examples:
 
 async def main_async(args: argparse.Namespace) -> None:
     """Main async entry point."""
+    # Load configuration first to get timezone setting
+    config_manager = ConfigManager(config_dir="config", env=args.env)
+    config = config_manager.load()
+
+    # Set timezone for logging (before creating loggers)
+    log_tz = config.logging.timezone
+    if log_tz and log_tz.lower() != "local":
+        set_log_timezone(log_tz)
+    else:
+        set_log_timezone(None)  # Use local time
+
     # Set up category-based logging with environment prefix
     category_loggers = setup_category_logging(env=args.env, log_dir="./logs", level="DEBUG")
     system_logger = category_loggers["system"]
@@ -84,16 +95,13 @@ async def main_async(args: argparse.Namespace) -> None:
     system_structured.info(
         LogCategory.SYSTEM,
         "Starting Live Risk Management System",
-        {"env": args.env}
+        {"env": args.env, "log_timezone": log_tz}
     )
 
     orchestrator = None
     dashboard = None
 
     try:
-        # Load configuration
-        config_manager = ConfigManager(config_dir="config", env=args.env)
-        config = config_manager.load()
         system_structured.info(LogCategory.SYSTEM, "Configuration loaded", {"env": args.env})
 
         # Initialize event bus
@@ -287,6 +295,9 @@ async def main_async(args: argparse.Namespace) -> None:
         if orchestrator:
             await orchestrator.stop()
             system_structured.info(LogCategory.SYSTEM, "Orchestrator stopped")
+
+        # Ensure all logs are flushed to disk
+        flush_all_loggers()
 
 
 def main() -> None:

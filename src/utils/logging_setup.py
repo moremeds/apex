@@ -6,7 +6,9 @@ Provides:
 - Configurable retention policy (number of backup files)
 - JSON or standard text formatting
 - Console and file output handlers
-- Custom naming: live_risk_{date}_{number}.log
+- Custom naming: live_risk_{env}_{category}_{date}_{run_number}.log
+- New log file created on each program run with incremental number
+- Configurable timezone for log timestamps (defaults to local time)
 """
 
 from __future__ import annotations
@@ -17,8 +19,57 @@ import os
 import re
 from pathlib import Path
 from typing import Optional, Dict
-from datetime import datetime
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from config.models import LoggingConfig
+
+# Global run number for this session (determined at startup)
+_session_run_number: Optional[int] = None
+
+# Global timezone setting for log timestamps (None = local time)
+_log_timezone: Optional[ZoneInfo] = None
+
+
+def set_log_timezone(tz: Optional[str] = None) -> None:
+    """
+    Set the timezone for log timestamps.
+
+    Args:
+        tz: Timezone name (e.g., "America/New_York", "US/Eastern", "UTC").
+            If None, uses local system time.
+
+    Example:
+        >>> set_log_timezone("America/New_York")  # Eastern Time
+        >>> set_log_timezone("UTC")               # UTC time
+        >>> set_log_timezone(None)                # Local system time
+    """
+    global _log_timezone
+    if tz is None:
+        _log_timezone = None
+    else:
+        _log_timezone = ZoneInfo(tz)
+
+
+def get_log_timezone() -> Optional[ZoneInfo]:
+    """Get the current log timezone setting."""
+    return _log_timezone
+
+
+def get_current_timestamp() -> str:
+    """
+    Get the current timestamp formatted for logging.
+
+    Returns:
+        ISO format timestamp with timezone info.
+        - If timezone is set: "2025-11-28T09:30:45.123456-05:00"
+        - If no timezone (local): "2025-11-28T09:30:45.123456" (no suffix)
+    """
+    if _log_timezone is not None:
+        now = datetime.now(_log_timezone)
+        return now.isoformat()
+    else:
+        # Local time without timezone suffix
+        return datetime.now().isoformat()
 
 
 class JSONFormatter(logging.Formatter):
@@ -26,6 +77,7 @@ class JSONFormatter(logging.Formatter):
     JSON formatter for structured logging.
 
     Formats log records as single-line JSON for easy parsing.
+    Uses the configured timezone for timestamps.
     """
 
     def format(self, record: logging.LogRecord) -> str:
@@ -36,10 +88,9 @@ class JSONFormatter(logging.Formatter):
 
         # Otherwise, create basic JSON structure
         import json
-        from datetime import datetime
 
         log_entry = {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": get_current_timestamp(),
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),
@@ -238,13 +289,76 @@ def get_logger(name: str, config: Optional[LoggingConfig] = None) -> logging.Log
     return logger
 
 
+def _get_next_run_number(log_dir: str, env: str, date_str: str) -> int:
+    """
+    Find the next available run number for today's date.
+
+    Scans existing log files to find the highest run number used today,
+    then returns the next number.
+
+    Args:
+        log_dir: Directory containing log files.
+        env: Environment name (dev/prod).
+        date_str: Date string (e.g., "2025-11-28").
+
+    Returns:
+        Next available run number (starting from 1).
+    """
+    log_path = Path(log_dir)
+    if not log_path.exists():
+        return 1
+
+    # Pattern: live_risk_{env}_{category}_{date}_{N}.log
+    # We check for any category (sys or mkt) to find the max run number
+    pattern = re.compile(
+        rf'^live_risk_{re.escape(env)}_(?:sys|mkt)_{re.escape(date_str)}_(\d+)\.log$'
+    )
+
+    max_num = 0
+    for filename in os.listdir(log_path):
+        match = pattern.match(filename)
+        if match:
+            num = int(match.group(1))
+            max_num = max(max_num, num)
+
+    return max_num + 1
+
+
+def _get_session_run_number(log_dir: str, env: str) -> int:
+    """
+    Get or initialize the session run number.
+
+    This ensures all loggers in the same session use the same run number.
+
+    Args:
+        log_dir: Directory containing log files.
+        env: Environment name (dev/prod).
+
+    Returns:
+        Run number for this session.
+    """
+    global _session_run_number
+
+    if _session_run_number is None:
+        date_str = datetime.now().strftime('%Y-%m-%d')
+        _session_run_number = _get_next_run_number(log_dir, env, date_str)
+
+    return _session_run_number
+
+
 def setup_category_logging(env: str, log_dir: str = "./logs", level: str = "INFO") -> Dict[str, logging.Logger]:
     """
     Set up separate log files for different log categories.
 
-    Creates separate log files:
-    - live_risk_{env}_sys_{date}_{number}.log - System events, errors, connections
-    - live_risk_{env}_mkt_{date}_{number}.log - Market data, positions, trading
+    Creates separate log files with incremental run numbers:
+    - live_risk_{env}_sys_{date}_{run_number}.log - System events, errors, connections
+    - live_risk_{env}_mkt_{date}_{run_number}.log - Market data, positions, trading
+
+    Each program run creates new log files with an incremented run number.
+    For example, if run 3 times on 2025-11-28:
+    - live_risk_dev_sys_2025-11-28_1.log (first run)
+    - live_risk_dev_sys_2025-11-28_2.log (second run)
+    - live_risk_dev_sys_2025-11-28_3.log (third run)
 
     Note: Logs are written to files only (no console output) to avoid
     interfering with the terminal dashboard UI.
@@ -262,16 +376,18 @@ def setup_category_logging(env: str, log_dir: str = "./logs", level: str = "INFO
         >>> loggers["system"].info("System started")
         >>> loggers["market"].info("Fetched market data")
     """
-    from pathlib import Path
-
     # Create log directory
     log_path = Path(log_dir)
     log_path.mkdir(parents=True, exist_ok=True)
 
+    # Get run number for this session
+    date_str = datetime.now().strftime('%Y-%m-%d')
+    run_number = _get_session_run_number(str(log_path), env)
+
     loggers = {}
     categories = {
-        "system": f"live_risk_{env}_sys.log",
-        "market": f"live_risk_{env}_mkt.log",
+        "system": f"live_risk_{env}_sys_{date_str}_{run_number}.log",
+        "market": f"live_risk_{env}_mkt_{date_str}_{run_number}.log",
     }
 
     for category, filename in categories.items():
@@ -284,19 +400,42 @@ def setup_category_logging(env: str, log_dir: str = "./logs", level: str = "INFO
         # JSON formatter
         formatter = JSONFormatter()
 
-        # File handler with rotation
+        # File handler - use simple FileHandler since we create new file each run
         file_path = str(log_path / filename)
-        file_handler = logging.handlers.TimedRotatingFileHandler(
+        file_handler = logging.FileHandler(
             filename=file_path,
-            when="midnight",
-            interval=1,
-            backupCount=7,
+            mode='a',  # Append mode (file is new anyway)
             encoding='utf-8'
         )
         file_handler.setFormatter(formatter)
-        file_handler.namer = lambda name: custom_namer(name, env)
         logger.addHandler(file_handler)
+
+        # Flush immediately after adding handler to ensure file is created
+        file_handler.flush()
 
         loggers[category] = logger
 
     return loggers
+
+
+def flush_all_loggers() -> None:
+    """
+    Flush all file handlers to ensure logs are written to disk.
+
+    Call this before program exit or when you need to ensure
+    all pending log messages are written.
+    """
+    for logger_name in ["apex.system", "apex.market"]:
+        logger = logging.getLogger(logger_name)
+        for handler in logger.handlers:
+            handler.flush()
+
+
+def reset_session_run_number() -> None:
+    """
+    Reset the session run number.
+
+    Useful for testing to force a new run number on next setup_category_logging call.
+    """
+    global _session_run_number
+    _session_run_number = None

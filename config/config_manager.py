@@ -192,6 +192,7 @@ class ConfigManager:
                 backup_count=logging_raw.get("backup_count", 7),  # Keep 7 backups
                 when=logging_raw.get("when", "midnight"),  # Rotate at midnight
                 interval=logging_raw.get("interval", 1),  # Every 1 day
+                timezone=logging_raw.get("timezone", "local"),  # Default to local time
             )
 
             return AppConfig(
