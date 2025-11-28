@@ -92,6 +92,7 @@ class LoggingConfig:
     backup_count: int  # Number of backup files to keep
     when: str  # For time-based rotation: "midnight", "H" (hourly), "D" (daily), "W0" (Monday)
     interval: int  # Interval for time-based rotation
+    timezone: str  # Timezone for log timestamps (e.g., "America/New_York", "UTC", or "local")
 
 
 @dataclass

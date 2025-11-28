@@ -5,14 +5,16 @@ Provides structured logging with:
 - JSON output format
 - Log categories (SYSTEM, RISK, TRADING, DATA, ALERT)
 - Standard schema for log entries
+- Configurable timezone support (via logging_setup.set_log_timezone)
 """
 
 from __future__ import annotations
 import json
 import logging
 from typing import Dict, Any
-from datetime import datetime
 from enum import Enum
+
+from .logging_setup import get_current_timestamp
 
 
 class LogCategory(Enum):
@@ -64,7 +66,7 @@ class StructuredLogger:
             data: Optional additional data dict.
         """
         log_entry = {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": get_current_timestamp(),
             "level": level.upper(),
             "category": category.value,
             "message": message,
