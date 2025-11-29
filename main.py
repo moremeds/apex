@@ -51,8 +51,8 @@ Examples:
         "--env",
         type=str,
         default="dev",
-        choices=["dev", "prod"],
-        help="Environment to run in (default: dev)"
+        choices=["dev", "prod", "demo"],
+        help="Environment to run in (default: dev). Use 'demo' for offline mode with sample positions."
     )
 
     parser.add_argument(
@@ -112,26 +112,38 @@ async def main_async(args: argparse.Namespace) -> None:
         market_data_store = MarketDataStore()
         account_store = AccountStore()
 
-        # Initialize adapters
-        ib_adapter = IbAdapter(
-            host=config.ibkr.host,
-            port=config.ibkr.port,
-            client_id=config.ibkr.client_id,
-        )
+        # Initialize adapters (skip in demo mode)
+        ib_adapter = None
+        futu_adapter = None
 
-        # Initialize Futu adapter if enabled
-        futu_adapter = FutuAdapter(
-            host=config.futu.host,
-            port=config.futu.port,
-            security_firm=config.futu.security_firm,
-            trd_env=config.futu.trd_env,
-            filter_trdmarket=config.futu.filter_trdmarket,
-        )
-        system_structured.info(LogCategory.SYSTEM, "Futu adapter ENABLED", {
-            "host": config.futu.host,
-            "port": config.futu.port,
-            "market": config.futu.filter_trdmarket,
-        })
+        if config.ibkr.enabled:
+            ib_adapter = IbAdapter(
+                host=config.ibkr.host,
+                port=config.ibkr.port,
+                client_id=config.ibkr.client_id,
+            )
+            system_structured.info(LogCategory.SYSTEM, "IB adapter ENABLED", {
+                "host": config.ibkr.host,
+                "port": config.ibkr.port,
+            })
+        else:
+            system_structured.info(LogCategory.SYSTEM, "IB adapter DISABLED (demo mode)")
+
+        if config.futu.enabled:
+            futu_adapter = FutuAdapter(
+                host=config.futu.host,
+                port=config.futu.port,
+                security_firm=config.futu.security_firm,
+                trd_env=config.futu.trd_env,
+                filter_trdmarket=config.futu.filter_trdmarket,
+            )
+            system_structured.info(LogCategory.SYSTEM, "Futu adapter ENABLED", {
+                "host": config.futu.host,
+                "port": config.futu.port,
+                "market": config.futu.filter_trdmarket,
+            })
+        else:
+            system_structured.info(LogCategory.SYSTEM, "Futu adapter DISABLED")
 
         file_loader = FileLoader(
             file_path=config.manual_positions.file,
@@ -211,7 +223,7 @@ async def main_async(args: argparse.Namespace) -> None:
 
         # Initialize dashboard (if not disabled)
         if not args.no_dashboard:
-            dashboard = TerminalDashboard(config=config.raw.get("dashboard", {}))
+            dashboard = TerminalDashboard(config=config.raw.get("dashboard", {}), env=args.env)
 
         # Start orchestrator
         system_structured.info(LogCategory.SYSTEM, "Starting orchestrator")

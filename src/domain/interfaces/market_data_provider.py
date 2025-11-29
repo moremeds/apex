@@ -12,15 +12,15 @@ class MarketDataProvider(ABC):
     """Interface for market data sources (IBKR, vendors, etc)."""
 
     @abstractmethod
-    async def fetch_market_data(self, symbols: List[Position]) -> List[MarketData]:
+    async def fetch_market_data(self, positions: List[Position]) -> List[MarketData]:
         """
-        Fetch market data (prices + Greeks) for given symbols.
+        Fetch market data (prices + Greeks) for given positions.
 
         Args:
-            symbols: List of symbols to fetch data for.
+            positions: List of positions to fetch market data for.
 
         Returns:
-            List of MarketData objects. Missing symbols may be omitted.
+            List of MarketData objects. Missing positions may be omitted.
 
         Raises:
             ConnectionError: If unable to connect to data source.

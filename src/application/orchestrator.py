@@ -51,7 +51,7 @@ class Orchestrator:
 
     def __init__(
         self,
-        ib_adapter: PositionProvider | MarketDataProvider,
+        ib_adapter: Optional[PositionProvider | MarketDataProvider],
         file_loader: PositionProvider,
         position_store: PositionStore,
         market_data_store: MarketDataStore,
@@ -151,31 +151,40 @@ class Orchestrator:
         # Stop watchdog
         await self.watchdog.stop()
 
-        # Disconnect providers
-        await self.ib_adapter.disconnect()
+        # Disconnect providers (if they exist)
+        if self.ib_adapter:
+            await self.ib_adapter.disconnect()
         if self.futu_adapter:
             await self.futu_adapter.disconnect()
-        await self.file_loader.disconnect()
+        if self.file_loader:
+            await self.file_loader.disconnect()
 
         logger.info("Orchestrator stopped")
 
     async def _connect_providers(self) -> None:
         """Connect to all data providers."""
-        # IB Adapter connection
-        try:
-            print("🔌 Connecting to IB adapter...", flush=True)
-            logger.info("Attempting to connect to IB adapter...")
-            await self.ib_adapter.connect()
+        # IB Adapter connection (if enabled)
+        if self.ib_adapter:
+            try:
+                print("🔌 Connecting to IB adapter...", flush=True)
+                logger.info("Attempting to connect to IB adapter...")
+                await self.ib_adapter.connect()
+                self.health_monitor.update_component_health(
+                    "ib_adapter", HealthStatus.HEALTHY, "Connected"
+                )
+                print("✓ IB adapter connected", flush=True)
+                logger.info("IB adapter connected successfully")
+            except Exception as e:
+                print(f"✗ IB adapter failed: {e}", flush=True)
+                logger.error(f"Failed to connect IB adapter: {e}")
+                self.health_monitor.update_component_health(
+                    "ib_adapter", HealthStatus.UNHEALTHY, f"Connection failed: {str(e)[:50]}"
+                )
+        else:
+            print("⏭️  IB adapter disabled (demo mode)", flush=True)
+            logger.info("IB adapter disabled - running in demo mode")
             self.health_monitor.update_component_health(
-                "ib_adapter", HealthStatus.HEALTHY, "Connected"
-            )
-            print("✓ IB adapter connected", flush=True)
-            logger.info("IB adapter connected successfully")
-        except Exception as e:
-            print(f"✗ IB adapter failed: {e}", flush=True)
-            logger.error(f"Failed to connect IB adapter: {e}")
-            self.health_monitor.update_component_health(
-                "ib_adapter", HealthStatus.UNHEALTHY, f"Connection failed: {str(e)[:50]}"
+                "ib_adapter", HealthStatus.HEALTHY, "Disabled (demo)"
             )
 
         # Futu Adapter connection (if configured)
@@ -239,8 +248,13 @@ class Orchestrator:
         futu_positions: List[Position] = []
         manual_positions: List[Position] = []
 
-        # Fetch from IB if connected
-        if self.ib_adapter.is_connected():
+        # Check if demo mode (positions from file only)
+        demo_positions_only = self.config.get("demo_positions_only", False)
+
+        # Fetch from IB if enabled and connected (skip in demo mode)
+        if demo_positions_only:
+            logger.debug("Demo mode - skipping IB positions (using file positions only)")
+        elif self.ib_adapter and self.ib_adapter.is_connected():
             try:
                 ib_positions = await self.ib_adapter.fetch_positions()
                 self.health_monitor.update_component_health(
@@ -251,11 +265,15 @@ class Orchestrator:
                 self.health_monitor.update_component_health(
                     "ib_adapter", HealthStatus.DEGRADED, f"Position fetch failed: {str(e)[:50]}"
                 )
+        elif not self.ib_adapter:
+            logger.debug("IB adapter disabled")
         else:
             logger.debug("IB adapter not connected - skipping IB positions")
 
-        # Fetch from Futu if configured and connected
-        if self.futu_adapter:
+        # Fetch from Futu if configured and connected (skip in demo mode)
+        if demo_positions_only:
+            logger.debug("Demo mode - skipping Futu positions")
+        elif self.futu_adapter:
             if self.futu_adapter.is_connected():
                 try:
                     logger.info("Fetching positions from Futu...")
@@ -313,8 +331,8 @@ class Orchestrator:
         ib_account: Optional[AccountInfo] = None
         futu_account: Optional[AccountInfo] = None
 
-        # Fetch from IB if connected
-        if self.ib_adapter.is_connected():
+        # Fetch from IB if enabled and connected
+        if self.ib_adapter and self.ib_adapter.is_connected():
             try:
                 ib_account = await self.ib_adapter.fetch_account_info()
                 logger.debug(f"IB account: NetLiq=${ib_account.net_liquidation:,.2f}")
@@ -352,14 +370,15 @@ class Orchestrator:
             logger.debug(f"Early snapshot with {len(merged_positions)} positions (market data pending)")
 
         # 4. Fetch market data (optimized: only fetch stale data)
-        # Get positions that need fresh market data (prices always refresh, Greeks cached)
-        stale_symbols = self.market_data_store.get_stale_symbols()
-        positions_to_fetch = [p for p in merged_positions if p.symbol in stale_symbols or p.symbol not in self.market_data_store.get_symbols()]
+        # Get symbols that need fresh market data (atomic operation to prevent race conditions)
+        all_symbols = [p.symbol for p in merged_positions]
+        symbols_needing_refresh = set(self.market_data_store.get_symbols_needing_refresh(all_symbols))
+        positions_to_fetch = [p for p in merged_positions if p.symbol in symbols_needing_refresh]
 
         if positions_to_fetch:
             logger.debug(f"Fetching market data for {len(positions_to_fetch)}/{len(merged_positions)} positions (Greeks cache optimization)")
             try:
-                if not self.ib_adapter.is_connected():
+                if not self.ib_adapter or not self.ib_adapter.is_connected():
                     # IB not connected - mark as UNHEALTHY and continue with cached data
                     logger.error("IB adapter not connected - cannot fetch market data")
                     self.health_monitor.update_component_health(
@@ -465,9 +484,9 @@ class Orchestrator:
             self._latest_market_alerts = []
             return
 
-        # Skip if IB not connected
-        if not self.ib_adapter.is_connected():
-            logger.debug("IB adapter not connected - skipping market alerts")
+        # Skip if IB not enabled or not connected
+        if not self.ib_adapter or not self.ib_adapter.is_connected():
+            logger.debug("IB adapter not available - skipping market alerts")
             self._latest_market_alerts = []
             return
 

@@ -17,12 +17,20 @@ from typing import Dict, List, Any, Tuple, Optional
 from datetime import date, datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+import logging
 from src.models.position import Position
 from src.models.market_data import MarketData
 from src.models.account import AccountInfo
 from src.models.risk_snapshot import RiskSnapshot
 from src.models.position_risk import PositionRisk
 from src.utils.market_hours import MarketHours
+
+logger = logging.getLogger(__name__)
+
+# Constants for near-term Greeks concentration thresholds
+NEAR_TERM_GAMMA_DTE = 7  # Days to expiry threshold for near-term gamma
+NEAR_TERM_VEGA_DTE = 30  # Days to expiry threshold for near-term vega
+GAMMA_NOTIONAL_FACTOR = 0.01  # Multiplier for gamma notional calculation
 
 
 @dataclass
@@ -222,38 +230,36 @@ class RiskEngine:
         vega_notional_near_term = 0.0
 
         if dte is not None:
-            if dte <= 7:
-                # Gamma notional = gamma * mark^2 * 0.01 * qty * mult
-                gamma_notional_near_term = abs((md.gamma or 0.0) * (mark ** 2) * 0.01 * pos.quantity * pos.multiplier)
-            if dte <= 30:
+            if dte <= NEAR_TERM_GAMMA_DTE:
+                # Gamma notional = gamma * mark^2 * factor * qty * mult
+                gamma_notional_near_term = abs((md.gamma or 0.0) * (mark ** 2) * GAMMA_NOTIONAL_FACTOR * pos.quantity * pos.multiplier)
+            if dte <= NEAR_TERM_VEGA_DTE:
                 vega_notional_near_term = abs((md.vega or 0.0) * pos.quantity * pos.multiplier)
 
         # P&L calculation with market hours logic
-        # Market status determines which price to use
+        # Market status determines which price to use for unrealized P&L
         market_status = MarketHours.get_market_status()
 
         # Determine price to use for unrealized P&L
         if market_status == "OPEN":
             # Regular hours: use current mark
             pnl_price = mark
-            calculate_daily_pnl = True
         elif market_status == "EXTENDED":
             # Extended hours: stocks use current price, options use yesterday close
             if pos.asset_type.value == "STOCK":
                 pnl_price = mark  # Stocks trade in extended hours
             else:
                 pnl_price = md.yesterday_close if md.yesterday_close is not None else mark  # Options don't trade extended hours
-            calculate_daily_pnl = False  # Skip daily P&L when market not in regular hours
         else:
             # Market closed: use yesterday close for all assets
             pnl_price = md.yesterday_close if md.yesterday_close is not None else mark
-            calculate_daily_pnl = False
 
         unrealized = (pnl_price - pos.avg_price) * pos.quantity * pos.multiplier
 
-        # Daily P&L: only calculated during regular market hours
+        # Daily P&L: always calculate change from yesterday's close (regardless of market hours)
+        # This represents the position's gain/loss since the previous trading day's close
         daily_pnl = 0.0
-        if calculate_daily_pnl and md.yesterday_close:
+        if md.yesterday_close and md.yesterday_close > 0:
             daily_pnl = (mark - md.yesterday_close) * pos.quantity * pos.multiplier
 
         return PositionMetrics(
@@ -305,8 +311,7 @@ class RiskEngine:
                 except Exception as e:
                     pos = positions[idx]
                     # Log error and leave placeholder None so downstream logic can skip
-                    import logging
-                    logging.error(f"Error calculating metrics for {pos.symbol}: {e}")
+                    logger.error(f"Error calculating metrics for {pos.symbol}: {e}")
                     metrics_list[idx] = None
 
         return metrics_list
@@ -381,7 +386,8 @@ class RiskEngine:
         beta = betas_config.get(pos.underlying, default_beta)
 
         # Calculate beta-adjusted delta (SPY-equivalent exposure)
-        beta_adjusted_delta = metrics.delta_contribution * beta if beta else 0.0
+        # Use beta or 1.0 to handle beta=0 case (beta=0 means no correlation, not no exposure)
+        beta_adjusted_delta = metrics.delta_contribution * (beta if beta is not None else 1.0)
 
         # Create PositionRisk object
         return PositionRisk(
@@ -498,8 +504,7 @@ class RiskEngine:
         # Account metrics
         snapshot.margin_utilization = account_info.margin_utilization()
         snapshot.buying_power = account_info.buying_power
-
-        return snapshot
+        # Note: snapshot is mutated in place, no return needed
 
     def _empty_bucket(self) -> Dict[str, Any]:
         """Create empty expiry bucket structure."""

@@ -1,6 +1,6 @@
 # Code Review Report: Live Risk Management System
 
-**Date:** 2025-11-27
+**Date:** 2025-11-29 (Updated)
 **Reviewer:** Claude Code
 **Branch:** feature/risk-signal-engine
 
@@ -10,9 +10,42 @@ This is a **well-architected** risk management system following hexagonal/clean 
 
 ---
 
+## Fixes Applied (2025-11-29)
+
+### CRITICAL Issues Fixed
+
+| Issue | File | Fix Applied |
+|-------|------|-------------|
+| Return in void method | `risk_engine.py:502` | Removed `return snapshot` (mutates in place) |
+| Type mismatch `symbols: List[Position]` | `market_data_provider.py:15` | Renamed to `positions: List[Position]` |
+| Race condition in stale check | `orchestrator.py:374-376` | Use atomic `get_symbols_needing_refresh()` |
+| Division by zero in margin_utilization | `account.py:32-51` | Added `<= 0` check and NaN/infinity validation |
+| Daily P&L suppressed in extended hours | `risk_engine.py:251-255` | Always calculate from yesterday's close |
+
+### HIGH Priority Issues Fixed
+
+| Issue | File | Fix Applied |
+|-------|------|-------------|
+| Import inside exception handler | `risk_engine.py:309` | Use module-level logger instead of inline import |
+| Import inside method | `position.py:100-104` | Moved logging import to module level |
+| Missing validation in `_check_range` | `rule_engine.py:179` | Added length validation with error logging |
+| Missing soft threshold for ranges | `rule_engine.py:179-248` | Added soft breach detection for range limits |
+| Missing NaN/infinity validation | `mdqc.py:51-76` | Added NaN/infinity checks for prices and Greeks |
+| Beta = 0 handling bug | `risk_engine.py:384` | Changed `if beta` to `if beta is not None` |
+
+### MEDIUM Priority Issues Fixed
+
+| Issue | File | Fix Applied |
+|-------|------|-------------|
+| Lowercase `any` annotation | `dashboard.py:104,200,273` | Changed to `Any` from typing module |
+| Hardcoded magic numbers | `risk_engine.py:228-237` | Extracted to constants: `NEAR_TERM_GAMMA_DTE`, `NEAR_TERM_VEGA_DTE`, `GAMMA_NOTIONAL_FACTOR` |
+| Unused `layer3_signals` counter | `risk_signal_engine.py:75-84` | Removed counter (reserved for future VIX integration in comment) |
+
+---
+
 ## CRITICAL Issues
 
-### 1. Return Statement in Void Method (`src/domain/services/risk_engine.py:477`)
+### 1. ✅ FIXED: Return Statement in Void Method (`src/domain/services/risk_engine.py:477`)
 
 ```python
 def _aggregate_metrics(
@@ -35,7 +68,7 @@ def _aggregate_metrics(
 
 ---
 
-### 2. Type Annotation Mismatch in Interface (`src/domain/interfaces/market_data_provider.py:15`)
+### 2. ✅ FIXED: Type Annotation Mismatch in Interface (`src/domain/interfaces/market_data_provider.py:15`)
 
 ```python
 async def fetch_market_data(self, symbols: List[Position]) -> List[MarketData]:
@@ -51,7 +84,7 @@ async def fetch_market_data(self, positions: List[Position]) -> List[MarketData]
 
 ---
 
-### 3. Potential Race Condition in `_run_cycle` (`src/application/orchestrator.py:226-229`)
+### 3. ✅ FIXED: Potential Race Condition in `_run_cycle` (`src/application/orchestrator.py:226-229`)
 
 ```python
 stale_symbols = self.market_data_store.get_stale_symbols()
@@ -75,7 +108,7 @@ def get_symbols_needing_refresh(self) -> set[str]:
 
 ## HIGH Priority Issues
 
-### 4. Import Inside Function (`src/domain/services/risk_engine.py:299`)
+### 4. ✅ FIXED: Import Inside Function (`src/domain/services/risk_engine.py:299`)
 
 ```python
 for future in as_completed(future_to_idx):
@@ -105,7 +138,7 @@ except Exception as e:
 
 ---
 
-### 5. Duplicate Import Pattern in Position Model (`src/models/position.py:96-102`)
+### 5. ✅ FIXED: Duplicate Import Pattern in Position Model (`src/models/position.py:96-102`)
 
 ```python
 def days_to_expiry(self, ref_date: Optional[date] = None) -> Optional[int]:
@@ -119,7 +152,7 @@ def days_to_expiry(self, ref_date: Optional[date] = None) -> Optional[int]:
 
 ---
 
-### 6. Inconsistent Error Handling in `_check_range` (`src/domain/services/rule_engine.py:176-200`)
+### 6. ✅ FIXED: Inconsistent Error Handling in `_check_range` (`src/domain/services/rule_engine.py:176-200`)
 
 ```python
 def _check_range(self, name: str, value: float, range_limits: List[float]) -> List[LimitBreach]:
@@ -140,7 +173,7 @@ def _check_range(self, name: str, value: float, range_limits: List[float]) -> Li
 
 ---
 
-### 7. Missing Soft Threshold for Range Checks (`src/domain/services/rule_engine.py:176-200`)
+### 7. ✅ FIXED: Missing Soft Threshold for Range Checks (`src/domain/services/rule_engine.py:176-200`)
 
 **Problem:** `_check_range` only reports HARD breaches. Unlike `_check_limit`, there's no soft threshold warning when approaching range boundaries.
 
@@ -166,7 +199,7 @@ def _check_range(self, name: str, value: float, range_limits: List[float]) -> Li
 
 ## MEDIUM Priority Issues
 
-### 8. Dashboard Type Annotation Uses `any` (`src/presentation/dashboard.py:96,174`)
+### 8. ✅ FIXED: Dashboard Type Annotation Uses `any` (`src/presentation/dashboard.py:96,174`)
 
 ```python
 def update(
@@ -185,7 +218,7 @@ market_alerts: Optional[List[Dict[str, Any]]] = None
 
 ---
 
-### 9. Hardcoded Magic Numbers
+### 9. ✅ FIXED: Hardcoded Magic Numbers
 
 **`src/domain/services/risk_engine.py:209-213`:**
 ```python
@@ -216,7 +249,7 @@ __all__ = ["RiskEngine", "PositionMetrics"]
 
 ---
 
-### 11. Unused `_stats["layer3_signals"]` (`src/domain/services/risk_signal_engine.py:81,133-134`)
+### 11. ✅ FIXED: Unused `_stats["layer3_signals"]` (`src/domain/services/risk_signal_engine.py:81,133-134`)
 
 ```python
 self._stats = {
@@ -299,14 +332,50 @@ logger.info(f"✓ Fetched market data for {len(market_data_list)}/{len(positions
 
 ## Summary of Fixes by Priority
 
-| Priority | Count | Files Affected |
-|----------|-------|----------------|
-| CRITICAL | 3 | risk_engine.py, market_data_provider.py, orchestrator.py |
-| HIGH | 4 | risk_engine.py, position.py, rule_engine.py |
-| MEDIUM | 5 | dashboard.py, risk_signal_engine.py, various |
-| LOW | 3 | Style/documentation |
+| Priority | Total | Fixed | Remaining | Files Affected |
+|----------|-------|-------|-----------|----------------|
+| CRITICAL | 5 | 5 | 0 | risk_engine.py, market_data_provider.py, orchestrator.py, account.py |
+| HIGH | 7 | 6 | 1 | risk_engine.py, position.py, rule_engine.py, mdqc.py |
+| MEDIUM | 5 | 3 | 2 | dashboard.py, risk_signal_engine.py, various |
+| LOW | 3 | 0 | 3 | Style/documentation |
 
-**Recommended Action:** Address all Critical and High priority issues before production deployment. Medium issues should be addressed in the next sprint.
+**Status:** All CRITICAL issues fixed. 6 of 7 HIGH priority issues fixed. 3 of 5 MEDIUM issues fixed.
+
+**Remaining Issues:**
+- HIGH: Sensitive data logging in structured_logger.py
+- MEDIUM: Floating-point precision, cache eviction, missing `__all__` exports
+
+---
+
+## Additional Issues Found (2025-11-29 Review)
+
+### NEW Critical Issues (Now Fixed)
+
+| Issue | File | Status |
+|-------|------|--------|
+| Division by zero in `margin_utilization()` | `account.py:32-36` | ✅ FIXED |
+| Daily P&L suppressed in extended hours | `risk_engine.py:246-257` | ✅ FIXED |
+
+### NEW HIGH Priority Issues (Now Fixed)
+
+| Issue | File | Status |
+|-------|------|--------|
+| Missing NaN/Infinity Validation in MDQC | `mdqc.py:51-76` | ✅ FIXED |
+| Beta = 0 Handling Bug | `risk_engine.py:384` | ✅ FIXED |
+
+### Remaining Issues (Not Yet Fixed)
+
+1. **Sensitive Data Logging** (`structured_logger.py`) - HIGH
+   - No filtering of sensitive keys before logging
+
+2. **Floating-Point Precision** (`risk_engine.py:195`) - MEDIUM
+   - Rounding errors accumulate in concentration calculations
+
+3. **No Cache Eviction in MarketDataStore** - MEDIUM
+   - Memory grows unbounded with old symbols
+
+4. **Missing `__all__` Exports** - MEDIUM
+   - Most modules lack `__all__` definitions
 
 ---
 

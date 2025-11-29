@@ -99,6 +99,37 @@ class MarketDataStore:
         with self._lock:
             return list(self._market_data.keys())
 
+    def get_symbols_needing_refresh(self, requested_symbols: List[str]) -> List[str]:
+        """
+        Get symbols that need market data refresh (stale or missing) - atomic operation.
+
+        This method combines stale check and missing check in a single lock acquisition
+        to prevent race conditions.
+
+        Args:
+            requested_symbols: List of symbols we want market data for.
+
+        Returns:
+            List of symbols that need refresh (either stale or not in cache).
+        """
+        with self._lock:
+            stale_set = set()
+            existing_set = set(self._market_data.keys())
+
+            # Check for stale symbols
+            for symbol, md in self._market_data.items():
+                if not md.timestamp:
+                    stale_set.add(symbol)
+                    continue
+                age = (datetime.now() - md.timestamp).total_seconds()
+                if age > self._greeks_ttl_seconds:
+                    stale_set.add(symbol)
+
+            # Return symbols that are stale OR not in cache
+            requested_set = set(requested_symbols)
+            missing_set = requested_set - existing_set
+            return list(stale_set.union(missing_set) & requested_set)
+
     def clear(self) -> None:
         """Clear all market data."""
         with self._lock:

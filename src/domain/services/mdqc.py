@@ -5,11 +5,13 @@ Validates market data for:
 - Staleness (timestamp exceeds threshold)
 - Bid/ask sanity (bid <= ask)
 - Zero quotes (bid or ask = 0)
+- NaN/infinity values (corrupted data)
 - Missing Greeks vs missing prices
 """
 
 from __future__ import annotations
 from typing import Dict, List
+import math
 from ...models.market_data import MarketData, DataQuality
 
 
@@ -58,6 +60,18 @@ class MDQC:
         # Check if data is present
         if md.last is None and md.bid is None and md.ask is None:
             return DataQuality.MISSING
+
+        # Check for NaN/infinity in price fields (corrupted IBKR data)
+        price_fields = [md.bid, md.ask, md.last, md.mid]
+        for price in price_fields:
+            if price is not None and (math.isnan(price) or math.isinf(price)):
+                return DataQuality.SUSPICIOUS
+
+        # Check for NaN/infinity in Greeks fields
+        greeks_fields = [md.delta, md.gamma, md.vega, md.theta, md.iv]
+        for greek in greeks_fields:
+            if greek is not None and (math.isnan(greek) or math.isinf(greek)):
+                return DataQuality.SUSPICIOUS
 
         # Check staleness
         if md.is_stale(self.stale_seconds):

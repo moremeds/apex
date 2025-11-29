@@ -10,7 +10,7 @@ Real-time terminal UI for risk monitoring with:
 """
 
 from __future__ import annotations
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 from datetime import date, datetime
 from rich.console import Console
 from rich.layout import Layout
@@ -42,14 +42,16 @@ class TerminalDashboard:
     - Position details (if enabled)
     """
 
-    def __init__(self, config: dict):
+    def __init__(self, config: dict, env: str = "dev"):
         """
         Initialize dashboard.
 
         Args:
             config: Dashboard configuration dict.
+            env: Environment name (dev, demo, prod).
         """
         self.config = config
+        self.env = env
         self.show_positions = config.get("show_positions", True)
         self.console = Console()
         self.layout = self._create_layout()
@@ -99,7 +101,7 @@ class TerminalDashboard:
         snapshot: RiskSnapshot,
         breaches: List[LimitBreach] | List[RiskSignal],
         health: List[ComponentHealth],
-        market_alerts: Optional[List[Dict[str, any]]] = None,
+        market_alerts: Optional[List[Dict[str, Any]]] = None,
     ) -> None:
         """
         Update dashboard with latest data.
@@ -126,12 +128,22 @@ class TerminalDashboard:
         self.layout["footer"].update(self._render_health(health))
 
     def _render_header(self) -> Panel:
-        """Render header panel with market status."""
+        """Render header panel with market status and environment."""
         # Get market status
         market_status = MarketHours.get_market_status()
 
         # Create header text
         header = Text("Live Risk Management System", style="bold cyan")
+
+        # Add environment indicator
+        header.append("  |  ", style="dim")
+        env_upper = self.env.upper()
+        if self.env == "prod":
+            header.append(env_upper, style="bold red")
+        elif self.env == "demo":
+            header.append(env_upper, style="bold magenta")
+        else:  # dev
+            header.append(env_upper, style="bold yellow")
 
         # Add market status indicator
         header.append("  |  ", style="dim")
@@ -185,7 +197,7 @@ class TerminalDashboard:
 
         return Panel(table, title="Portfolio Summary", border_style="green")
 
-    def _update_persistent_alerts(self, current_alerts: List[Dict[str, any]]) -> List[Dict[str, any]]:
+    def _update_persistent_alerts(self, current_alerts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Update persistent alert tracking and return alerts to display.
 
@@ -258,7 +270,7 @@ class TerminalDashboard:
 
         return display_alerts
 
-    def _render_market_alerts(self, alerts: List[Dict[str, any]]) -> Panel:
+    def _render_market_alerts(self, alerts: List[Dict[str, Any]]) -> Panel:
         """
         Render market-wide alerts panel with persistent alert tracking.
 

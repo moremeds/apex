@@ -1,0 +1,33 @@
+# Demo Mode Configuration
+# Uses demo positions from file, but still connects to IB for live market data
+
+# Demo mode: IB enabled for market data only, Futu disabled
+brokers:
+  ibkr:
+    enabled: true  # Keep enabled for live market data
+    # Positions will be ignored in demo mode (see demo_positions_only flag below)
+  futu:
+    enabled: false  # Disable Futu positions
+
+# Demo mode flag - only use file positions, ignore broker positions
+demo_positions_only: true
+
+# Use demo positions file
+manual_positions:
+  file: ./data/positions/demo_positions.yaml
+  reload_interval_sec: 30
+
+# Dashboard settings for demo
+dashboard:
+  refresh_interval_sec: 2
+  show_positions: true
+
+# Relaxed risk limits for demo
+risk_limits:
+  max_total_gross_notional: 10_000_000
+  soft_breach_threshold: 0.80
+
+# Demo market data settings
+mdqc:
+  stale_seconds: 60  # More lenient for demo mode
+  ignore_zero_quotes: true
