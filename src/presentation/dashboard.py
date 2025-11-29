@@ -7,11 +7,17 @@ Real-time terminal UI for risk monitoring with:
 - Top contributors
 - Health status
 - Position table (optional)
+
+Keyboard shortcuts:
+- 1 or p: Positions view (default)
+- 2 or r: Risk Signals view (full screen)
+- q: Quit
 """
 
 from __future__ import annotations
 from typing import List, Optional, Dict, Any
 from datetime import date, datetime
+from enum import Enum
 from rich.console import Console
 from rich.layout import Layout
 from rich.live import Live
@@ -19,6 +25,9 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 import logging
+import threading
+import sys
+import select
 
 from ..models.risk_snapshot import RiskSnapshot
 from ..models.position_risk import PositionRisk
@@ -29,6 +38,12 @@ from ..utils.market_hours import MarketHours
 
 
 logger = logging.getLogger(__name__)
+
+
+class DashboardView(Enum):
+    """Available dashboard views."""
+    POSITIONS = "positions"
+    RISK_SIGNALS = "risk_signals"
 
 
 class TerminalDashboard:
@@ -54,8 +69,18 @@ class TerminalDashboard:
         self.env = env
         self.show_positions = config.get("show_positions", True)
         self.console = Console()
-        self.layout = self._create_layout()
         self.live: Optional[Live] = None
+
+        # View state
+        self._current_view = DashboardView.POSITIONS
+        self._layout_positions = self._create_layout_positions()
+        self._layout_risk_signals = self._create_layout_risk_signals()
+        self.layout = self._layout_positions  # Default to positions view
+
+        # Keyboard input handling
+        self._input_thread: Optional[threading.Thread] = None
+        self._stop_input = threading.Event()
+        self._quit_requested = False
 
         # Persistent alert tracking: {alert_key: {alert_data, first_seen, last_seen, is_active}}
         self._persistent_alerts: Dict[str, Dict] = {}
@@ -63,8 +88,14 @@ class TerminalDashboard:
         # How long to keep cleared alerts visible (seconds)
         self._alert_retention_seconds = config.get("alert_retention_seconds", 300)  # 5 minutes default
 
-    def _create_layout(self) -> Layout:
-        """Create dashboard layout."""
+        # Store latest data for view switching
+        self._last_snapshot: Optional[RiskSnapshot] = None
+        self._last_breaches: List = []
+        self._last_health: List[ComponentHealth] = []
+        self._last_market_alerts: List[Dict[str, Any]] = []
+
+    def _create_layout_positions(self) -> Layout:
+        """Create positions view layout (default)."""
         layout = Layout()
         layout.split_column(
             Layout(name="header", size=3),
@@ -84,17 +115,128 @@ class TerminalDashboard:
         )
         return layout
 
+    def _create_layout_risk_signals(self) -> Layout:
+        """Create risk signals view layout (full screen)."""
+        layout = Layout()
+        layout.split_column(
+            Layout(name="header", size=3),
+            Layout(name="body"),  # Main body - full screen for risk signals
+            Layout(name="footer", size=5),  # Health status at bottom
+        )
+        # Split body into left (risk signals) and right (summary)
+        layout["body"].split_row(
+            Layout(name="signals", ratio=3),  # Left: Full risk signals (60%)
+            Layout(name="right", ratio=2),  # Right: Summary + Market alerts (40%)
+        )
+        # Split right side
+        layout["right"].split_column(
+            Layout(name="upper", size=15),  # Upper: Portfolio summary
+            Layout(name="alerts"),  # Lower: Market alerts (expanded)
+        )
+        return layout
+
+    def _create_layout(self) -> Layout:
+        """Create default layout (for backwards compatibility)."""
+        return self._create_layout_positions()
+
     def start(self) -> None:
         """Start live dashboard (blocking)."""
         self.live = Live(self.layout, console=self.console, refresh_per_second=2)
         self.live.start()
+        self._start_keyboard_listener()
         logger.info("Terminal dashboard started")
 
     def stop(self) -> None:
         """Stop live dashboard."""
+        self._stop_keyboard_listener()
         if self.live:
             self.live.stop()
             logger.info("Terminal dashboard stopped")
+
+    def _start_keyboard_listener(self) -> None:
+        """Start background thread for keyboard input."""
+        self._stop_input.clear()
+        self._input_thread = threading.Thread(target=self._keyboard_listener, daemon=True)
+        self._input_thread.start()
+        logger.debug("Keyboard listener started")
+
+    def _stop_keyboard_listener(self) -> None:
+        """Stop keyboard input thread."""
+        self._stop_input.set()
+        if self._input_thread and self._input_thread.is_alive():
+            self._input_thread.join(timeout=1.0)
+        logger.debug("Keyboard listener stopped")
+
+    def _keyboard_listener(self) -> None:
+        """Background thread that listens for keyboard input."""
+        import termios
+        import tty
+
+        # Save terminal settings
+        try:
+            old_settings = termios.tcgetattr(sys.stdin)
+        except termios.error:
+            logger.warning("Cannot get terminal settings, keyboard shortcuts disabled")
+            return
+
+        try:
+            # Use cbreak mode instead of raw mode
+            # cbreak allows single-char input without echo, but preserves terminal signals
+            # and doesn't interfere with rich's output like raw mode does
+            tty.setcbreak(sys.stdin.fileno())
+
+            while not self._stop_input.is_set():
+                # Check if input is available (non-blocking)
+                if select.select([sys.stdin], [], [], 0.1)[0]:
+                    char = sys.stdin.read(1)
+                    self._handle_keypress(char)
+        except Exception as e:
+            logger.error(f"Keyboard listener error: {e}")
+        finally:
+            # Restore terminal settings
+            termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+
+    def _handle_keypress(self, char: str) -> None:
+        """Handle a single keypress."""
+        if char in ('1', 'p', 'P'):
+            self._switch_view(DashboardView.POSITIONS)
+        elif char in ('2', 'r', 'R'):
+            self._switch_view(DashboardView.RISK_SIGNALS)
+        elif char in ('q', 'Q', '\x03'):  # q or Ctrl+C
+            self._quit_requested = True
+            logger.info("Quit requested via keyboard")
+
+    def _switch_view(self, new_view: DashboardView) -> None:
+        """Switch to a different dashboard view."""
+        if new_view == self._current_view:
+            return
+
+        self._current_view = new_view
+        logger.info(f"Switched to {new_view.value} view")
+
+        # Update layout reference and re-render
+        if new_view == DashboardView.POSITIONS:
+            self.layout = self._layout_positions
+        else:
+            self.layout = self._layout_risk_signals
+
+        # Update live display with new layout
+        if self.live:
+            self.live.update(self.layout)
+
+        # Re-render with cached data
+        if self._last_snapshot:
+            self.update(
+                self._last_snapshot,
+                self._last_breaches,
+                self._last_health,
+                self._last_market_alerts,
+            )
+
+    @property
+    def quit_requested(self) -> bool:
+        """Check if user requested quit via keyboard."""
+        return self._quit_requested
 
     def update(
         self,
@@ -118,17 +260,55 @@ class TerminalDashboard:
             This dashboard is a "dumb" presentation layer - it does NOT perform
             any calculations, only displays the data from the RiskEngine.
         """
-        self.layout["header"].update(self._render_header())
-        self.layout["profile"].update(
+        # Cache data for view switching
+        self._last_snapshot = snapshot
+        self._last_breaches = breaches
+        self._last_health = health
+        self._last_market_alerts = market_alerts or []
+
+        # Render based on current view
+        if self._current_view == DashboardView.POSITIONS:
+            self._update_positions_view(snapshot, breaches, health, market_alerts or [])
+        else:
+            self._update_risk_signals_view(snapshot, breaches, health, market_alerts or [])
+
+    def _update_positions_view(
+        self,
+        snapshot: RiskSnapshot,
+        breaches: List[LimitBreach] | List[RiskSignal],
+        health: List[ComponentHealth],
+        market_alerts: List[Dict[str, Any]],
+    ) -> None:
+        """Update the positions view layout."""
+        layout = self._layout_positions
+        layout["header"].update(self._render_header())
+        layout["body"]["profile"].update(
             self._render_positions_profile(snapshot.position_risks)
         )
-        self.layout["right"]["upper"].update(self._render_portfolio_summary(snapshot))
-        self.layout["right"]["alerts"].update(self._render_market_alerts(market_alerts or []))
-        self.layout["right"]["lower"].update(self._render_breaches(breaches))
-        self.layout["footer"].update(self._render_health(health))
+        layout["body"]["right"]["upper"].update(self._render_portfolio_summary(snapshot))
+        layout["body"]["right"]["alerts"].update(self._render_market_alerts(market_alerts))
+        layout["body"]["right"]["lower"].update(self._render_breaches(breaches))
+        layout["footer"].update(self._render_health(health))
+
+    def _update_risk_signals_view(
+        self,
+        snapshot: RiskSnapshot,
+        breaches: List[LimitBreach] | List[RiskSignal],
+        health: List[ComponentHealth],
+        market_alerts: List[Dict[str, Any]],
+    ) -> None:
+        """Update the risk signals view layout."""
+        layout = self._layout_risk_signals
+        layout["header"].update(self._render_header())
+        layout["body"]["signals"].update(
+            self._render_risk_signals_fullscreen(breaches, snapshot)
+        )
+        layout["body"]["right"]["upper"].update(self._render_portfolio_summary(snapshot))
+        layout["body"]["right"]["alerts"].update(self._render_market_alerts(market_alerts))
+        layout["footer"].update(self._render_health(health))
 
     def _render_header(self) -> Panel:
-        """Render header panel with market status and environment."""
+        """Render header panel with market status, environment, and view tabs."""
         # Get market status
         market_status = MarketHours.get_market_status()
 
@@ -156,6 +336,17 @@ class TerminalDashboard:
         else:
             header.append("Market: ", style="dim")
             header.append("CLOSED", style="bold red")
+
+        # Add view tabs
+        header.append("  |  ", style="dim")
+        if self._current_view == DashboardView.POSITIONS:
+            header.append("[1]Positions", style="bold white on blue")
+            header.append(" ", style="dim")
+            header.append("[2]Signals", style="dim")
+        else:
+            header.append("[1]Positions", style="dim")
+            header.append(" ", style="dim")
+            header.append("[2]Signals", style="bold white on blue")
 
         header.justify = "center"
         return Panel(header, style="bold")
@@ -563,6 +754,165 @@ class TerminalDashboard:
             title += f", {cleared_count} cleared)"
         else:
             title += ")"
+
+        return Panel(table, title=title, border_style=border_style)
+
+    def _render_risk_signals_fullscreen(
+        self,
+        breaches: List[LimitBreach] | List[RiskSignal],
+        snapshot: RiskSnapshot,
+    ) -> Panel:
+        """
+        Render full-screen risk signals view with detailed information.
+
+        Shows:
+        - All active signals with full details
+        - Signal history (recently cleared)
+        - Grouping by severity (CRITICAL → WARNING → INFO)
+        - More context per signal (current value, limit, breach %)
+        """
+        # Get display signals (active + recently cleared)
+        if breaches and isinstance(breaches[0], RiskSignal):
+            display_signals = self._update_persistent_risk_signals(breaches)
+        else:
+            # Legacy breaches - convert to display format
+            display_signals = self._update_persistent_risk_signals([])
+
+        # Create main table with expanded columns
+        table = Table(show_header=True, box=None, padding=(0, 1), expand=True)
+        table.add_column("Status", style="bold", no_wrap=True, width=10)
+        table.add_column("Severity", style="bold", no_wrap=True, width=10)
+        table.add_column("Symbol", style="cyan", no_wrap=True, width=12)
+        table.add_column("Layer", style="dim", no_wrap=True, width=8)
+        table.add_column("Trigger Rule", style="white", width=30)
+        table.add_column("Current", justify="right", width=12)
+        table.add_column("Limit", justify="right", width=12)
+        table.add_column("Breach %", justify="right", width=10)
+        table.add_column("Action", style="yellow", width=15)
+        table.add_column("First Seen", style="dim", justify="right", width=10)
+        table.add_column("Last Seen", style="dim", justify="right", width=10)
+
+        if not display_signals:
+            # Show "all clear" message with summary stats
+            table.add_row(
+                Text("✓", style="green"),
+                "",
+                "PORTFOLIO",
+                "",
+                Text("All risk limits within acceptable range", style="green"),
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+            )
+        else:
+            # Sort by: active first, then by severity, then by symbol
+            sorted_signals = sorted(
+                display_signals,
+                key=lambda s: (
+                    0 if s["is_active"] else 1,
+                    {"CRITICAL": 0, "WARNING": 1, "INFO": 2}[s["signal"].severity.value],
+                    s["signal"].symbol or "ZZZZZ",  # Portfolio signals last within severity
+                )
+            )
+
+            for signal_info in sorted_signals:
+                signal = signal_info["signal"]
+                is_active = signal_info["is_active"]
+                first_seen = signal_info["first_seen"]
+                last_seen = signal_info["last_seen"]
+
+                # Format time displays
+                first_seen_str = first_seen.strftime("%H:%M:%S") if first_seen else ""
+                last_seen_str = last_seen.strftime("%H:%M:%S") if last_seen else ""
+
+                # Status indicator
+                if is_active:
+                    status_text = Text("● ACTIVE", style="bold green")
+                else:
+                    status_text = Text("○ CLEARED", style="dim")
+
+                # Severity styling
+                if not is_active:
+                    severity_style = "dim"
+                    icon = "○"
+                else:
+                    severity_style = {
+                        "CRITICAL": "bold red",
+                        "WARNING": "bold yellow",
+                        "INFO": "cyan"
+                    }[signal.severity.value]
+                    icon = {
+                        "CRITICAL": "🔴",
+                        "WARNING": "⚠️",
+                        "INFO": "ℹ️"
+                    }[signal.severity.value]
+
+                # Format current value and limit (threshold)
+                current_str = f"{signal.current_value:,.2f}" if signal.current_value is not None else "-"
+                limit_str = f"{signal.threshold:,.2f}" if signal.threshold is not None else "-"
+                breach_str = f"{signal.breach_pct:.1f}%" if signal.breach_pct is not None else "-"
+
+                # Layer info
+                layer_str = f"L{signal.layer}" if hasattr(signal, 'layer') and signal.layer else "-"
+
+                # Action
+                action_str = signal.suggested_action.value if signal.suggested_action else "-"
+
+                table.add_row(
+                    status_text,
+                    Text(f"{icon} {signal.severity.value}", style=severity_style),
+                    signal.symbol or "PORTFOLIO",
+                    layer_str,
+                    Text(signal.trigger_rule, style=severity_style if not is_active else "white"),
+                    Text(current_str, style=severity_style if not is_active else "white"),
+                    Text(limit_str, style="dim"),
+                    Text(breach_str, style=severity_style if not is_active else "yellow"),
+                    Text(action_str, style=severity_style if not is_active else "yellow"),
+                    Text(first_seen_str, style="dim"),
+                    Text(last_seen_str, style="dim"),
+                )
+
+        # Calculate summary stats
+        active_signals = [s for s in display_signals if s["is_active"]]
+        cleared_signals = [s for s in display_signals if not s["is_active"]]
+
+        critical_count = sum(1 for s in active_signals if s["signal"].severity == SignalSeverity.CRITICAL)
+        warning_count = sum(1 for s in active_signals if s["signal"].severity == SignalSeverity.WARNING)
+        info_count = sum(1 for s in active_signals if s["signal"].severity == SignalSeverity.INFO)
+
+        # Build title with summary
+        title_parts = ["Risk Signals"]
+        if active_signals:
+            title_parts.append(f"({len(active_signals)} active")
+            if critical_count:
+                title_parts.append(f"🔴{critical_count}")
+            if warning_count:
+                title_parts.append(f"⚠️{warning_count}")
+            if info_count:
+                title_parts.append(f"ℹ️{info_count}")
+            if cleared_signals:
+                title_parts.append(f", {len(cleared_signals)} cleared)")
+            else:
+                title_parts.append(")")
+        elif cleared_signals:
+            title_parts.append(f"(0 active, {len(cleared_signals)} cleared)")
+        else:
+            title_parts.append("(✓ All Clear)")
+
+        title = " ".join(title_parts)
+
+        # Border color based on highest active severity
+        if critical_count > 0:
+            border_style = "red"
+        elif warning_count > 0:
+            border_style = "yellow"
+        elif info_count > 0:
+            border_style = "cyan"
+        else:
+            border_style = "green"
 
         return Panel(table, title=title, border_style=border_style)
 
