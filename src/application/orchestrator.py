@@ -370,9 +370,10 @@ class Orchestrator:
             logger.debug(f"Early snapshot with {len(merged_positions)} positions (market data pending)")
 
         # 4. Fetch market data (optimized: only fetch stale data)
-        # Get positions that need fresh market data (prices always refresh, Greeks cached)
-        stale_symbols = self.market_data_store.get_stale_symbols()
-        positions_to_fetch = [p for p in merged_positions if p.symbol in stale_symbols or p.symbol not in self.market_data_store.get_symbols()]
+        # Get symbols that need fresh market data (atomic operation to prevent race conditions)
+        all_symbols = [p.symbol for p in merged_positions]
+        symbols_needing_refresh = set(self.market_data_store.get_symbols_needing_refresh(all_symbols))
+        positions_to_fetch = [p for p in merged_positions if p.symbol in symbols_needing_refresh]
 
         if positions_to_fetch:
             logger.debug(f"Fetching market data for {len(positions_to_fetch)}/{len(merged_positions)} positions (Greeks cache optimization)")

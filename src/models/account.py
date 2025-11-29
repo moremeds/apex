@@ -30,7 +30,22 @@ class AccountInfo:
     account_id: Optional[str] = None
 
     def margin_utilization(self) -> float:
-        """Calculate margin utilization ratio."""
-        if self.buying_power == 0:
+        """
+        Calculate margin utilization ratio.
+
+        Returns:
+            Margin utilization as a ratio (0.0 to ~2.0+).
+            Returns 0.0 if buying_power is zero/negative or result is invalid.
+        """
+        import math
+
+        if self.buying_power <= 0:
             return 0.0
-        return self.margin_used / self.buying_power
+
+        ratio = self.margin_used / self.buying_power
+
+        # Sanity check: ratio should be non-negative and not NaN/infinity
+        if math.isnan(ratio) or math.isinf(ratio) or ratio < 0:
+            return 0.0
+
+        return ratio

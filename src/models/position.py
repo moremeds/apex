@@ -5,6 +5,9 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Optional, Literal
 from enum import Enum
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class AssetType(Enum):
@@ -94,13 +97,11 @@ class Position:
                 expiry_date = datetime.strptime(self.expiry, "%Y%m%d").date()
             else:
                 # Unexpected type
-                import logging
-                logging.error(f"Invalid expiry type: {type(self.expiry)}, value: {self.expiry}")
+                logger.error(f"Invalid expiry type: {type(self.expiry)}, value: {self.expiry}")
                 return None
         except (ValueError, TypeError) as e:
             # Log error and return None
-            import logging
-            logging.error(f"Invalid expiry format: {self.expiry}, error: {e}")
+            logger.error(f"Invalid expiry format: {self.expiry}, error: {e}")
             return None
 
         ref = ref_date or date.today()

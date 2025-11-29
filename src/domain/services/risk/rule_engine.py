@@ -9,7 +9,10 @@ from __future__ import annotations
 from typing import Dict, List, Any
 from dataclasses import dataclass
 from enum import Enum
+import logging
 from src.models.risk_snapshot import RiskSnapshot
+
+logger = logging.getLogger(__name__)
 
 
 class BreachSeverity(Enum):
@@ -174,10 +177,38 @@ class RuleEngine:
         return breaches
 
     def _check_range(self, name: str, value: float, range_limits: List[float]) -> List[LimitBreach]:
-        """Check range limit (min <= value <= max)."""
+        """
+        Check range limit (min <= value <= max) with soft threshold support.
+
+        Args:
+            name: Name of the limit being checked.
+            value: Current value to check.
+            range_limits: List of [min_limit, max_limit].
+
+        Returns:
+            List of LimitBreach objects (empty if no breach).
+        """
         breaches = []
+
+        # Validate range_limits has exactly 2 elements
+        if len(range_limits) != 2:
+            logger.error(f"Invalid range_limits for {name}: expected [min, max], got {range_limits}")
+            return []
+
         min_limit, max_limit = range_limits
 
+        # Calculate soft thresholds (percentage of the way towards the limit)
+        range_size = max_limit - min_limit
+        if range_size > 0:
+            soft_buffer = range_size * (1 - self.soft_threshold) / 2
+            soft_min = min_limit + soft_buffer
+            soft_max = max_limit - soft_buffer
+        else:
+            # If range is 0 or negative, don't use soft thresholds
+            soft_min = min_limit
+            soft_max = max_limit
+
+        # Check for breaches
         if value < min_limit:
             breaches.append(
                 LimitBreach(
@@ -187,11 +218,29 @@ class RuleEngine:
                     limit_value=min_limit,
                 )
             )
+        elif value < soft_min:
+            breaches.append(
+                LimitBreach(
+                    limit_name=f"{name}_min",
+                    severity=BreachSeverity.SOFT,
+                    current_value=value,
+                    limit_value=min_limit,
+                )
+            )
         elif value > max_limit:
             breaches.append(
                 LimitBreach(
                     limit_name=f"{name}_max",
                     severity=BreachSeverity.HARD,
+                    current_value=value,
+                    limit_value=max_limit,
+                )
+            )
+        elif value > soft_max:
+            breaches.append(
+                LimitBreach(
+                    limit_name=f"{name}_max",
+                    severity=BreachSeverity.SOFT,
                     current_value=value,
                     limit_value=max_limit,
                 )

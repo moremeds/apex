@@ -10,7 +10,7 @@ Real-time terminal UI for risk monitoring with:
 """
 
 from __future__ import annotations
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 from datetime import date, datetime
 from rich.console import Console
 from rich.layout import Layout
@@ -101,7 +101,7 @@ class TerminalDashboard:
         snapshot: RiskSnapshot,
         breaches: List[LimitBreach] | List[RiskSignal],
         health: List[ComponentHealth],
-        market_alerts: Optional[List[Dict[str, any]]] = None,
+        market_alerts: Optional[List[Dict[str, Any]]] = None,
     ) -> None:
         """
         Update dashboard with latest data.
@@ -197,7 +197,7 @@ class TerminalDashboard:
 
         return Panel(table, title="Portfolio Summary", border_style="green")
 
-    def _update_persistent_alerts(self, current_alerts: List[Dict[str, any]]) -> List[Dict[str, any]]:
+    def _update_persistent_alerts(self, current_alerts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Update persistent alert tracking and return alerts to display.
 
@@ -270,7 +270,7 @@ class TerminalDashboard:
 
         return display_alerts
 
-    def _render_market_alerts(self, alerts: List[Dict[str, any]]) -> Panel:
+    def _render_market_alerts(self, alerts: List[Dict[str, Any]]) -> Panel:
         """
         Render market-wide alerts panel with persistent alert tracking.
 

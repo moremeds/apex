@@ -78,7 +78,8 @@ class RiskSignalEngine:
             "filtered_signals": 0,
             "layer1_signals": 0,
             "layer2_signals": 0,
-            "layer3_signals": 0,
+            # Note: layer3_signals reserved for future VIX regime integration
+            # Currently handled separately by MarketAlertDetector
             "layer4_signals": 0,
         }
 
@@ -257,7 +258,7 @@ class RiskSignalEngine:
             "filtered_signals": 0,
             "layer1_signals": 0,
             "layer2_signals": 0,
-            "layer3_signals": 0,
+            # Note: layer3_signals reserved for future VIX regime integration
             "layer4_signals": 0,
         }
         self.signal_manager.reset_stats()
