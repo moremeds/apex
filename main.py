@@ -244,10 +244,11 @@ async def main_async(args: argparse.Namespace) -> None:
         if dashboard:
             dashboard.start()
 
-            # Update loop
+            # Update loop - event-driven sync with orchestrator
             try:
                 while True:
-                    snapshot = orchestrator.get_latest_snapshot()
+                    # Wait for orchestrator to signal new snapshot (instead of polling)
+                    snapshot = await orchestrator.wait_for_snapshot(timeout=3.0)
                     health = health_monitor.get_all_health()
 
                     # Debug: Log health component count
@@ -279,8 +280,6 @@ async def main_async(args: argparse.Namespace) -> None:
                         # No snapshot yet - show empty snapshot with health status
                         empty_snapshot = RiskSnapshot()
                         dashboard.update(empty_snapshot, [], health, [])
-
-                    await asyncio.sleep(config.dashboard.refresh_interval_sec)
             except KeyboardInterrupt:
                 system_structured.info(LogCategory.SYSTEM, "Received shutdown signal")
         else:

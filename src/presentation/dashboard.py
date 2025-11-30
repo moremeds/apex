@@ -295,7 +295,7 @@ class TerminalDashboard:
         layout = self._layout_account_summary
         layout["header"].update(self._render_header())
         layout["body"]["positions"].update(
-            self._render_consolidated_positions(snapshot.position_risks)
+            self._render_consolidated_positions(snapshot.position_risks, snapshot)
         )
         layout["body"]["right"]["summary"].update(self._render_portfolio_summary(snapshot))
         layout["body"]["right"]["alerts"].update(self._render_market_alerts(market_alerts))
@@ -1020,12 +1020,13 @@ class TerminalDashboard:
         return Panel(table, title="Component Health", border_style=border_style)
 
     def _render_consolidated_positions(
-        self, position_risks: List[PositionRisk]
+        self, position_risks: List[PositionRisk], snapshot: RiskSnapshot = None
     ) -> Panel:
         """
         Render consolidated positions table grouped by underlying only (Tab 1).
 
         Shows summary row per underlying with aggregated metrics.
+        Uses pre-calculated snapshot values when available to avoid re-summing.
         """
         if not position_risks:
             return Panel(
@@ -1056,15 +1057,27 @@ class TerminalDashboard:
         table.add_column("V(ν)", justify="right", no_wrap=True)
         table.add_column("Th(Θ)", justify="right", no_wrap=True)
 
-        # Portfolio totals
-        total_market_value = sum(pr.market_value for pr in position_risks)
-        total_daily_pnl = sum(pr.daily_pnl for pr in position_risks)
-        total_unrealized = sum(pr.unrealized_pnl for pr in position_risks)
-        total_delta_dollars = sum(pr.delta_dollars for pr in position_risks)
-        portfolio_delta = sum(pr.delta for pr in position_risks)
-        portfolio_gamma = sum(pr.gamma for pr in position_risks)
-        portfolio_vega = sum(pr.vega for pr in position_risks)
-        portfolio_theta = sum(pr.theta for pr in position_risks)
+        # Portfolio totals - use pre-calculated snapshot values when available
+        if snapshot:
+            total_daily_pnl = snapshot.total_daily_pnl
+            total_unrealized = snapshot.total_unrealized_pnl
+            portfolio_delta = snapshot.portfolio_delta
+            portfolio_gamma = snapshot.portfolio_gamma
+            portfolio_vega = snapshot.portfolio_vega
+            portfolio_theta = snapshot.portfolio_theta
+            # These are not in snapshot, calculate once
+            total_market_value = sum(pr.market_value for pr in position_risks)
+            total_delta_dollars = sum(pr.delta_dollars for pr in position_risks)
+        else:
+            # Fallback to calculating from position_risks
+            total_market_value = sum(pr.market_value for pr in position_risks)
+            total_daily_pnl = sum(pr.daily_pnl for pr in position_risks)
+            total_unrealized = sum(pr.unrealized_pnl for pr in position_risks)
+            total_delta_dollars = sum(pr.delta_dollars for pr in position_risks)
+            portfolio_delta = sum(pr.delta for pr in position_risks)
+            portfolio_gamma = sum(pr.gamma for pr in position_risks)
+            portfolio_vega = sum(pr.vega for pr in position_risks)
+            portfolio_theta = sum(pr.theta for pr in position_risks)
 
         # Add portfolio total row
         table.add_row(

@@ -1,12 +1,12 @@
 """
-Market data fetcher with fallback mechanisms.
+Market data fetcher with streaming and fallback mechanisms.
 
 Handles fetching market data from IBKR with separate strategies for stocks and options.
-Provides fallback to snapshot data if streaming data is unavailable.
+Supports event-driven streaming updates and fallback to snapshot data.
 """
 
 from __future__ import annotations
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Callable, TYPE_CHECKING
 from datetime import datetime
 from math import isnan
 import logging
@@ -15,6 +15,8 @@ import asyncio
 from ...models.position import Position, AssetType
 from ...models.market_data import MarketData, GreeksSource
 
+if TYPE_CHECKING:
+    from ...infrastructure.stores.market_data_store import MarketDataStore
 
 logger = logging.getLogger(__name__)
 
@@ -25,11 +27,18 @@ class MarketDataFetcher:
 
     Supports:
     - Streaming data with Greeks for options (via reqMktData)
+    - Event-driven updates via callback on price changes
     - Snapshot data fallback (via reqTickers)
     - Separate handling for stocks vs options
     """
 
-    def __init__(self, ib, data_timeout: float = 3.0, poll_interval: float = 0.1):
+    def __init__(
+        self,
+        ib,
+        data_timeout: float = 3.0,
+        poll_interval: float = 0.1,
+        on_price_update: Optional[Callable[[str, MarketData], None]] = None,
+    ):
         """
         Initialize market data fetcher.
 
@@ -37,11 +46,15 @@ class MarketDataFetcher:
             ib: ib_async.IB instance
             data_timeout: Maximum time to wait for data population (seconds)
             poll_interval: Interval between data availability checks (seconds)
+            on_price_update: Callback when streaming price updates (symbol, MarketData)
         """
         self.ib = ib
         self._active_tickers: Dict[str, object] = {}
+        self._ticker_positions: Dict[str, Position] = {}  # symbol -> Position mapping
         self.data_timeout = data_timeout
         self.poll_interval = poll_interval
+        self._on_price_update = on_price_update
+        self._streaming_enabled = False
 
     async def fetch_market_data(
         self,
@@ -120,6 +133,10 @@ class MarketDataFetcher:
             for i, ticker in enumerate(tickers):
                 try:
                     _, pos = contract_pos_pairs[i]
+
+                    # Store position mapping for streaming callbacks
+                    self._ticker_positions[pos.symbol] = pos
+
                     md = self._extract_market_data(ticker, pos)
 
                     # Set delta to 1.0 for stocks
@@ -267,6 +284,9 @@ class MarketDataFetcher:
             tickers = []
             for i, contract in enumerate(contracts):
                 _, pos = contract_pos_pairs[i]
+
+                # Store position mapping for streaming callbacks
+                self._ticker_positions[pos.symbol] = pos
 
                 # Generic tick type 106 enables option computations (Greeks + IV)
                 # This requests: delta, gamma, vega, theta, implied volatility, and live prices
@@ -417,8 +437,72 @@ class MarketDataFetcher:
         else:
             logger.debug(f"No modelGreeks available for {pos.symbol}")
 
+    def enable_streaming(self) -> None:
+        """
+        Enable streaming mode with event callbacks.
+
+        Registers IB pendingTickersEvent to receive real-time price updates.
+        """
+        if self._streaming_enabled:
+            return
+
+        self.ib.pendingTickersEvent += self._on_pending_tickers
+        self._streaming_enabled = True
+        logger.info("Streaming market data enabled")
+
+    def disable_streaming(self) -> None:
+        """Disable streaming mode."""
+        if not self._streaming_enabled:
+            return
+
+        self.ib.pendingTickersEvent -= self._on_pending_tickers
+        self._streaming_enabled = False
+        logger.info("Streaming market data disabled")
+
+    def _on_pending_tickers(self, tickers) -> None:
+        """
+        Handle streaming ticker updates from IB.
+
+        Called by IB when any subscribed ticker has new data.
+        """
+        if not self._on_price_update:
+            return
+
+        for ticker in tickers:
+            try:
+                # Find position for this ticker
+                symbol = None
+                for sym, active_ticker in self._active_tickers.items():
+                    if active_ticker is ticker:
+                        symbol = sym
+                        break
+
+                if not symbol:
+                    continue
+
+                pos = self._ticker_positions.get(symbol)
+                if not pos:
+                    continue
+
+                # Extract updated market data
+                md = self._extract_market_data(ticker, pos)
+
+                # Extract Greeks if available (for options)
+                if pos.asset_type == AssetType.OPTION:
+                    self._extract_greeks(ticker, md, pos)
+                else:
+                    md.delta = 1.0  # Stocks have delta of 1
+
+                # Fire callback
+                self._on_price_update(symbol, md)
+
+            except Exception as e:
+                logger.warning(f"Error processing streaming update: {e}")
+
     def cleanup(self) -> None:
         """Cancel all active market data subscriptions."""
+        self.disable_streaming()
+
         for symbol, ticker in self._active_tickers.items():
             try:
                 self.ib.cancelMktData(ticker.contract)
@@ -427,3 +511,4 @@ class MarketDataFetcher:
                 logger.warning(f"Error cancelling market data for {symbol}: {e}")
 
         self._active_tickers.clear()
+        self._ticker_positions.clear()

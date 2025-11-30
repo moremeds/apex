@@ -98,6 +98,16 @@ class RiskSignalEngine:
         self._stats["total_evaluations"] += 1
         raw_signals = []
 
+        # Fetch positions and market data ONCE for all Layer 2 checks
+        # This avoids duplicate get_all() calls which create thread-safe copies
+        positions: List[Position] = []
+        market_data_map: Dict[str, MarketData] = {}
+
+        if self.position_store:
+            positions = self.position_store.get_all()
+        if self.market_data_store:
+            market_data_map = self.market_data_store.get_all()
+
         # Layer 1: Portfolio hard limits (existing RuleEngine)
         try:
             breaches = self.rule_engine.evaluate(snapshot)
@@ -109,7 +119,7 @@ class RiskSignalEngine:
 
         # Layer 2a: Position-level rules
         try:
-            position_signals = self._check_position_rules(snapshot)
+            position_signals = self._check_position_rules(positions, market_data_map)
             raw_signals.extend(position_signals)
             self._stats["layer2_signals"] += len(position_signals)
         except Exception as e:
@@ -117,7 +127,7 @@ class RiskSignalEngine:
 
         # Layer 2b: Strategy-level rules
         try:
-            strategy_signals = self._check_strategy_rules(snapshot)
+            strategy_signals = self._check_strategy_rules(positions, market_data_map)
             raw_signals.extend(strategy_signals)
             self._stats["layer2_signals"] += len(strategy_signals)
         except Exception as e:
@@ -162,29 +172,29 @@ class RiskSignalEngine:
 
         return filtered_signals
 
-    def _check_position_rules(self, snapshot: RiskSnapshot) -> List[RiskSignal]:
+    def _check_position_rules(
+        self,
+        positions: List[Position],
+        market_data_map: Dict[str, MarketData],
+    ) -> List[RiskSignal]:
         """
         Check all positions for position-level rules.
 
         Args:
-            snapshot: Risk snapshot
+            positions: List of positions (pre-fetched from store)
+            market_data_map: Dict of symbol -> MarketData (pre-fetched from store)
 
         Returns:
             List of position-level risk signals
         """
         signals = []
 
-        # Need position store and market data store
-        if not self.position_store or not self.market_data_store:
-            logger.debug("Position/market data stores not available, skipping position rules")
+        if not positions:
             return signals
 
-        # Get all positions
-        positions = self.position_store.get_all()
-
         for position in positions:
-            # Get market data
-            market_data = self.market_data_store.get(position.symbol)
+            # Get market data from pre-fetched map
+            market_data = market_data_map.get(position.symbol)
 
             # Check position
             pos_signals = self.position_analyzer.check(position, market_data)
@@ -199,38 +209,30 @@ class RiskSignalEngine:
 
         return signals
 
-    def _check_strategy_rules(self, snapshot: RiskSnapshot) -> List[RiskSignal]:
+    def _check_strategy_rules(
+        self,
+        positions: List[Position],
+        market_data_map: Dict[str, MarketData],
+    ) -> List[RiskSignal]:
         """
         Detect strategies and check strategy-specific rules.
 
         Args:
-            snapshot: Risk snapshot
+            positions: List of positions (pre-fetched from store)
+            market_data_map: Dict of symbol -> MarketData (pre-fetched from store)
 
         Returns:
             List of strategy-level risk signals
         """
         signals = []
 
-        # Need position store
-        if not self.position_store:
-            logger.debug("Position store not available, skipping strategy rules")
+        if not positions:
             return signals
 
-        # Get all positions
-        positions = self.position_store.get_all()
-
-        # Detect strategies
+        # Detect strategies from pre-fetched positions
         strategies = self.strategy_detector.detect(positions)
 
-        # Build market data map
-        market_data_map = {}
-        if self.market_data_store:
-            for position in positions:
-                md = self.market_data_store.get(position.symbol)
-                if md:
-                    market_data_map[position.symbol] = md
-
-        # Check each strategy
+        # Check each strategy using pre-fetched market data
         for strategy in strategies:
             strategy_signals = self.strategy_analyzer.check(strategy, market_data_map)
             signals.extend(strategy_signals)
