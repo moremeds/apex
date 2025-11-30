@@ -148,14 +148,24 @@ class IbAdapter(PositionProvider, MarketDataProvider):
         else:
             asset_type = AssetType.CASH
 
+        # For stocks, expiry/strike/right should be None
+        if asset_type == AssetType.STOCK:
+            expiry = None
+            strike = None
+            right = None
+        else:
+            expiry = contract.lastTradeDateOrContractMonth or None  # Convert "" to None
+            strike = float(contract.strike) if contract.strike else None
+            right = contract.right or None  # Convert "" to None
+
         return Position(
             symbol=contract.localSymbol,
             underlying=contract.symbol,  # Simplified - extract from contract
             asset_type=asset_type,
             quantity=float(ib_pos.position),
-            strike=float(contract.strike),
-            right=contract.right,
-            expiry=contract.lastTradeDateOrContractMonth,
+            strike=strike,
+            right=right,
+            expiry=expiry,
             avg_price=ib_pos.avgCost,
             multiplier=int(contract.multiplier or 1),
             source=PositionSource.IB,

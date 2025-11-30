@@ -173,9 +173,17 @@ class Reconciler:
         if futu_positions:
             broker_positions.extend(futu_positions)
 
+        # Track which positions exist in which sources (for multi-broker visibility)
+        sources_by_key: Dict[tuple, set] = {}
+
         # Process broker positions (primary source for quantity/metadata)
         for position in broker_positions:
             key = position.key()
+
+            # Track source
+            if key not in sources_by_key:
+                sources_by_key[key] = set()
+            sources_by_key[key].add(position.source)
 
             if key not in merged:
                 # Check if manual has avg_price override for this position
@@ -202,6 +210,24 @@ class Reconciler:
             if key not in merged:
                 # Position only in manual - use as-is
                 merged[key] = position
+
+        # Set all_sources field on each merged position
+        for key, pos in merged.items():
+            if key in sources_by_key:
+                pos.all_sources = list(sources_by_key[key])
+            else:
+                # Position from manual only
+                pos.all_sources = [pos.source]
+
+        # Log merged position sources for debugging
+        source_counts = {}
+        multi_source_count = 0
+        for pos in merged.values():
+            src = pos.source.value if pos.source else "None"
+            source_counts[src] = source_counts.get(src, 0) + 1
+            if len(pos.all_sources) > 1:
+                multi_source_count += 1
+        logger.info(f"Merged position sources: {source_counts}, multi-source positions: {multi_source_count}")
 
         return list(merged.values())
 

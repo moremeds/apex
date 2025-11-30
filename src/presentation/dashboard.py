@@ -1,16 +1,17 @@
 """
 Terminal Dashboard using rich library.
 
-Real-time terminal UI for risk monitoring with:
-- Portfolio summary (P&L, Greeks, notional)
-- Limit breaches (SOFT/HARD)
-- Top contributors
-- Health status
-- Position table (optional)
+Real-time terminal UI for risk monitoring with tabbed views:
+- Tab 1: Account Summary (consolidated positions by underlying, summary, alerts, health)
+- Tab 2: Risk Signals (full screen risk signals)
+- Tab 3: IB Positions (detailed Interactive Brokers positions)
+- Tab 4: Futu Positions (detailed Futu positions)
 
 Keyboard shortcuts:
-- 1 or p: Positions view (default)
-- 2 or r: Risk Signals view (full screen)
+- 1: Account Summary view (default)
+- 2: Risk Signals view
+- 3: IB Positions view
+- 4: Futu Positions view
 - q: Quit
 """
 
@@ -42,8 +43,10 @@ logger = logging.getLogger(__name__)
 
 class DashboardView(Enum):
     """Available dashboard views."""
-    POSITIONS = "positions"
-    RISK_SIGNALS = "risk_signals"
+    ACCOUNT_SUMMARY = "account_summary"  # Tab 1: Consolidated view
+    RISK_SIGNALS = "risk_signals"        # Tab 2: Risk signals only
+    IB_POSITIONS = "ib_positions"        # Tab 3: IB detailed positions
+    FUTU_POSITIONS = "futu_positions"    # Tab 4: Futu detailed positions
 
 
 class TerminalDashboard:
@@ -72,10 +75,11 @@ class TerminalDashboard:
         self.live: Optional[Live] = None
 
         # View state
-        self._current_view = DashboardView.POSITIONS
-        self._layout_positions = self._create_layout_positions()
+        self._current_view = DashboardView.ACCOUNT_SUMMARY
+        self._layout_account_summary = self._create_layout_account_summary()
         self._layout_risk_signals = self._create_layout_risk_signals()
-        self.layout = self._layout_positions  # Default to positions view
+        self._layout_broker_positions = self._create_layout_broker_positions()
+        self.layout = self._layout_account_summary  # Default to account summary view
 
         # Keyboard input handling
         self._input_thread: Optional[threading.Thread] = None
@@ -94,50 +98,47 @@ class TerminalDashboard:
         self._last_health: List[ComponentHealth] = []
         self._last_market_alerts: List[Dict[str, Any]] = []
 
-    def _create_layout_positions(self) -> Layout:
-        """Create positions view layout (default)."""
+    def _create_layout_account_summary(self) -> Layout:
+        """Create account summary view layout (Tab 1)."""
         layout = Layout()
         layout.split_column(
             Layout(name="header", size=3),
             Layout(name="body"),  # Main body - expands to fill available space
-            Layout(name="footer", size=5),  # Health status at bottom (horizontal layout)
+            Layout(name="footer", size=5),  # Health status at bottom
         )
-        # Split body into left (positions) and right (summary + breaches)
+        # Split body into left (consolidated positions) and right (summary + alerts)
         layout["body"].split_row(
-            Layout(name="profile", ratio=3),  # Left: Portfolio positions (60%)
-            Layout(name="right", ratio=2),  # Right: Summary + Breaches (40%)
+            Layout(name="positions", ratio=3),  # Left: Consolidated positions (60%)
+            Layout(name="right", ratio=2),  # Right: Summary + Alerts (40%)
         )
-        # Split right side into three sections: summary, market alerts, and breaches
+        # Split right side into summary and alerts
         layout["right"].split_column(
-            Layout(name="upper", size=15),  # Upper: Portfolio summary
-            Layout(name="alerts", size=8),  # Middle: Market alerts
-            Layout(name="lower"),  # Lower: Limit breaches
+            Layout(name="summary", size=18),  # Upper: Portfolio summary
+            Layout(name="alerts"),  # Lower: Market alerts
         )
         return layout
 
     def _create_layout_risk_signals(self) -> Layout:
-        """Create risk signals view layout (full screen)."""
+        """Create risk signals view layout (Tab 2) - full screen signals only."""
         layout = Layout()
         layout.split_column(
             Layout(name="header", size=3),
-            Layout(name="body"),  # Main body - full screen for risk signals
-            Layout(name="footer", size=5),  # Health status at bottom
+            Layout(name="signals"),  # Full screen for risk signals
         )
-        # Split body into left (risk signals) and right (summary)
-        layout["body"].split_row(
-            Layout(name="signals", ratio=3),  # Left: Full risk signals (60%)
-            Layout(name="right", ratio=2),  # Right: Summary + Market alerts (40%)
-        )
-        # Split right side
-        layout["right"].split_column(
-            Layout(name="upper", size=15),  # Upper: Portfolio summary
-            Layout(name="alerts"),  # Lower: Market alerts (expanded)
+        return layout
+
+    def _create_layout_broker_positions(self) -> Layout:
+        """Create broker positions view layout (Tab 3 & 4) - full screen positions."""
+        layout = Layout()
+        layout.split_column(
+            Layout(name="header", size=3),
+            Layout(name="positions"),  # Full screen for detailed positions
         )
         return layout
 
     def _create_layout(self) -> Layout:
         """Create default layout (for backwards compatibility)."""
-        return self._create_layout_positions()
+        return self._create_layout_account_summary()
 
     def start(self) -> None:
         """Start live dashboard (blocking)."""
@@ -198,10 +199,14 @@ class TerminalDashboard:
 
     def _handle_keypress(self, char: str) -> None:
         """Handle a single keypress."""
-        if char in ('1', 'p', 'P'):
-            self._switch_view(DashboardView.POSITIONS)
-        elif char in ('2', 'r', 'R'):
+        if char == '1':
+            self._switch_view(DashboardView.ACCOUNT_SUMMARY)
+        elif char == '2':
             self._switch_view(DashboardView.RISK_SIGNALS)
+        elif char == '3':
+            self._switch_view(DashboardView.IB_POSITIONS)
+        elif char == '4':
+            self._switch_view(DashboardView.FUTU_POSITIONS)
         elif char in ('q', 'Q', '\x03'):  # q or Ctrl+C
             self._quit_requested = True
             logger.info("Quit requested via keyboard")
@@ -214,11 +219,14 @@ class TerminalDashboard:
         self._current_view = new_view
         logger.info(f"Switched to {new_view.value} view")
 
-        # Update layout reference and re-render
-        if new_view == DashboardView.POSITIONS:
-            self.layout = self._layout_positions
-        else:
+        # Update layout reference based on view
+        if new_view == DashboardView.ACCOUNT_SUMMARY:
+            self.layout = self._layout_account_summary
+        elif new_view == DashboardView.RISK_SIGNALS:
             self.layout = self._layout_risk_signals
+        elif new_view in (DashboardView.IB_POSITIONS, DashboardView.FUTU_POSITIONS):
+            # Recreate layout for broker positions (different title)
+            self.layout = self._create_layout_broker_positions()
 
         # Update live display with new layout
         if self.live:
@@ -267,45 +275,55 @@ class TerminalDashboard:
         self._last_market_alerts = market_alerts or []
 
         # Render based on current view
-        if self._current_view == DashboardView.POSITIONS:
-            self._update_positions_view(snapshot, breaches, health, market_alerts or [])
-        else:
-            self._update_risk_signals_view(snapshot, breaches, health, market_alerts or [])
+        if self._current_view == DashboardView.ACCOUNT_SUMMARY:
+            self._update_account_summary_view(snapshot, breaches, health, market_alerts or [])
+        elif self._current_view == DashboardView.RISK_SIGNALS:
+            self._update_risk_signals_view(snapshot, breaches)
+        elif self._current_view == DashboardView.IB_POSITIONS:
+            self._update_broker_positions_view(snapshot, "IB")
+        elif self._current_view == DashboardView.FUTU_POSITIONS:
+            self._update_broker_positions_view(snapshot, "FUTU")
 
-    def _update_positions_view(
+    def _update_account_summary_view(
         self,
         snapshot: RiskSnapshot,
         breaches: List[LimitBreach] | List[RiskSignal],
         health: List[ComponentHealth],
         market_alerts: List[Dict[str, Any]],
     ) -> None:
-        """Update the positions view layout."""
-        layout = self._layout_positions
+        """Update the account summary view layout (Tab 1)."""
+        layout = self._layout_account_summary
         layout["header"].update(self._render_header())
-        layout["body"]["profile"].update(
-            self._render_positions_profile(snapshot.position_risks)
+        layout["body"]["positions"].update(
+            self._render_consolidated_positions(snapshot.position_risks)
         )
-        layout["body"]["right"]["upper"].update(self._render_portfolio_summary(snapshot))
+        layout["body"]["right"]["summary"].update(self._render_portfolio_summary(snapshot))
         layout["body"]["right"]["alerts"].update(self._render_market_alerts(market_alerts))
-        layout["body"]["right"]["lower"].update(self._render_breaches(breaches))
         layout["footer"].update(self._render_health(health))
 
     def _update_risk_signals_view(
         self,
         snapshot: RiskSnapshot,
         breaches: List[LimitBreach] | List[RiskSignal],
-        health: List[ComponentHealth],
-        market_alerts: List[Dict[str, Any]],
     ) -> None:
-        """Update the risk signals view layout."""
+        """Update the risk signals view layout (Tab 2)."""
         layout = self._layout_risk_signals
         layout["header"].update(self._render_header())
-        layout["body"]["signals"].update(
+        layout["signals"].update(
             self._render_risk_signals_fullscreen(breaches, snapshot)
         )
-        layout["body"]["right"]["upper"].update(self._render_portfolio_summary(snapshot))
-        layout["body"]["right"]["alerts"].update(self._render_market_alerts(market_alerts))
-        layout["footer"].update(self._render_health(health))
+
+    def _update_broker_positions_view(
+        self,
+        snapshot: RiskSnapshot,
+        broker: str,
+    ) -> None:
+        """Update the broker positions view layout (Tab 3 & 4)."""
+        layout = self.layout
+        layout["header"].update(self._render_header())
+        layout["positions"].update(
+            self._render_broker_positions(snapshot.position_risks, broker)
+        )
 
     def _render_header(self) -> Panel:
         """Render header panel with market status, environment, and view tabs."""
@@ -339,14 +357,19 @@ class TerminalDashboard:
 
         # Add view tabs
         header.append("  |  ", style="dim")
-        if self._current_view == DashboardView.POSITIONS:
-            header.append("[1]Positions", style="bold white on blue")
-            header.append(" ", style="dim")
-            header.append("[2]Signals", style="dim")
-        else:
-            header.append("[1]Positions", style="dim")
-            header.append(" ", style="dim")
-            header.append("[2]Signals", style="bold white on blue")
+        tabs = [
+            ("1", "Summary", DashboardView.ACCOUNT_SUMMARY),
+            ("2", "Signals", DashboardView.RISK_SIGNALS),
+            ("3", "IB", DashboardView.IB_POSITIONS),
+            ("4", "Futu", DashboardView.FUTU_POSITIONS),
+        ]
+        for i, (key, label, view) in enumerate(tabs):
+            if i > 0:
+                header.append(" ", style="dim")
+            if self._current_view == view:
+                header.append(f"[{key}]{label}", style="bold white on blue")
+            else:
+                header.append(f"[{key}]{label}", style="dim")
 
         header.justify = "center"
         return Panel(header, style="bold")
@@ -995,6 +1018,268 @@ class TerminalDashboard:
             border_style = "green"
 
         return Panel(table, title="Component Health", border_style=border_style)
+
+    def _render_consolidated_positions(
+        self, position_risks: List[PositionRisk]
+    ) -> Panel:
+        """
+        Render consolidated positions table grouped by underlying only (Tab 1).
+
+        Shows summary row per underlying with aggregated metrics.
+        """
+        if not position_risks:
+            return Panel(
+                Text("No positions", style="dim"),
+                title="Portfolio Positions (Consolidated)",
+                border_style="blue",
+            )
+
+        # Group position_risks by underlying
+        by_underlying: Dict[str, List[PositionRisk]] = {}
+        for pos_risk in position_risks:
+            if pos_risk.underlying not in by_underlying:
+                by_underlying[pos_risk.underlying] = []
+            by_underlying[pos_risk.underlying].append(pos_risk)
+
+        # Create table
+        table = Table(show_header=True, box=None, padding=(0, 1))
+        table.add_column("Underlying", style="bold", no_wrap=True)
+        table.add_column("Positions", justify="right", no_wrap=True)
+        table.add_column("Spot", justify="right", no_wrap=True)
+        table.add_column("Beta", justify="right", no_wrap=True)
+        table.add_column("Mkt Value", justify="right", no_wrap=True)
+        table.add_column("P&L", justify="right", no_wrap=True)
+        table.add_column("UP&L", justify="right", no_wrap=True)
+        table.add_column("Delta $", justify="right", no_wrap=True)
+        table.add_column("D(Δ)", justify="right", no_wrap=True)
+        table.add_column("G(γ)", justify="right", no_wrap=True)
+        table.add_column("V(ν)", justify="right", no_wrap=True)
+        table.add_column("Th(Θ)", justify="right", no_wrap=True)
+
+        # Portfolio totals
+        total_market_value = sum(pr.market_value for pr in position_risks)
+        total_daily_pnl = sum(pr.daily_pnl for pr in position_risks)
+        total_unrealized = sum(pr.unrealized_pnl for pr in position_risks)
+        total_delta_dollars = sum(pr.delta_dollars for pr in position_risks)
+        portfolio_delta = sum(pr.delta for pr in position_risks)
+        portfolio_gamma = sum(pr.gamma for pr in position_risks)
+        portfolio_vega = sum(pr.vega for pr in position_risks)
+        portfolio_theta = sum(pr.theta for pr in position_risks)
+
+        # Add portfolio total row
+        table.add_row(
+            "▼ PORTFOLIO",
+            str(len(position_risks)),
+            "",
+            "",
+            self._format_number(total_market_value, color=False),
+            self._format_number(total_daily_pnl, color=True),
+            self._format_number(total_unrealized, color=True),
+            self._format_number(total_delta_dollars, color=False),
+            self._format_number(portfolio_delta, color=False),
+            self._format_number(portfolio_gamma, color=False),
+            self._format_number(portfolio_vega, color=False),
+            self._format_number(portfolio_theta, color=False),
+            style="bold white on rgb(80,80,80)",
+        )
+
+        # Sort underlyings by absolute market value (descending)
+        underlying_values = {}
+        for underlying, prs in by_underlying.items():
+            underlying_values[underlying] = sum(abs(pr.market_value) for pr in prs)
+        sorted_underlyings = sorted(by_underlying.keys(), key=lambda u: underlying_values[u], reverse=True)
+
+        for underlying in sorted_underlyings:
+            prs = by_underlying[underlying]
+
+            # Calculate aggregates for this underlying
+            underlying_market_value = sum(pr.market_value for pr in prs)
+            underlying_daily_pnl = sum(pr.daily_pnl for pr in prs)
+            underlying_unrealized = sum(pr.unrealized_pnl for pr in prs)
+            underlying_delta_dollars = sum(pr.delta_dollars for pr in prs)
+            underlying_delta = sum(pr.delta for pr in prs)
+            underlying_gamma = sum(pr.gamma for pr in prs)
+            underlying_vega = sum(pr.vega for pr in prs)
+            underlying_theta = sum(pr.theta for pr in prs)
+
+            # Get spot price (from stock position if available)
+            # Note: stocks may have expiry=None or expiry="" depending on broker
+            spot_price = ""
+            is_using_close = False
+            for pr in prs:
+                if not pr.expiry and pr.mark_price:  # Stock position
+                    spot_price = pr.mark_price
+                    is_using_close = pr.is_using_close
+                    break
+
+            # Get beta
+            beta_str = ""
+            if prs and prs[0].beta is not None:
+                beta_str = f"{prs[0].beta:.2f}"
+
+            table.add_row(
+                f"  {underlying}",
+                str(len(prs)),
+                self._format_price(spot_price, is_using_close, decimals=2) if spot_price else "",
+                beta_str,
+                self._format_number(underlying_market_value, color=False),
+                self._format_number(underlying_daily_pnl, color=True),
+                self._format_number(underlying_unrealized, color=True),
+                self._format_number(underlying_delta_dollars, color=False),
+                self._format_number(underlying_delta, color=False),
+                self._format_number(underlying_gamma, color=False),
+                self._format_number(underlying_vega, color=False),
+                self._format_number(underlying_theta, color=False),
+                style="white",
+            )
+
+        return Panel(table, title="Portfolio Positions (Consolidated)", border_style="blue")
+
+    def _render_broker_positions(
+        self, position_risks: List[PositionRisk], broker: str
+    ) -> Panel:
+        """
+        Render detailed positions for a specific broker (Tab 3 & 4).
+
+        Shows full position details filtered by source (IB or FUTU).
+        """
+        # Filter positions by broker source (using all_sources to show positions in multiple brokers)
+        from ..models.position import PositionSource
+        broker_source = PositionSource.IB if broker == "IB" else PositionSource.FUTU
+
+        filtered_risks = []
+        for pr in position_risks:
+            pos = pr.position
+            # Check all_sources if populated, otherwise fall back to source
+            if pos.all_sources and broker_source in pos.all_sources:
+                filtered_risks.append(pr)
+            elif pos.source == broker_source:
+                filtered_risks.append(pr)
+
+        if not filtered_risks:
+            return Panel(
+                Text(f"No {broker} positions", style="dim"),
+                title=f"{broker} Positions",
+                border_style="blue",
+            )
+
+        # Group by underlying
+        by_underlying: Dict[str, List[PositionRisk]] = {}
+        for pos_risk in filtered_risks:
+            if pos_risk.underlying not in by_underlying:
+                by_underlying[pos_risk.underlying] = []
+            by_underlying[pos_risk.underlying].append(pos_risk)
+
+        # Create table with full details
+        table = Table(show_header=True, box=None, padding=(0, 1))
+        table.add_column("Symbol", style="bold", no_wrap=True)
+        table.add_column("Pos", justify="right", no_wrap=True)
+        table.add_column("Spot", justify="right", no_wrap=True)
+        table.add_column("IV", justify="right", no_wrap=True)
+        table.add_column("Beta", justify="right", no_wrap=True)
+        table.add_column("Mkt Value", justify="right", no_wrap=True)
+        table.add_column("P&L", justify="right", no_wrap=True)
+        table.add_column("UP&L", justify="right", no_wrap=True)
+        table.add_column("Delta $", justify="right", no_wrap=True)
+        table.add_column("D(Δ)", justify="right", no_wrap=True)
+        table.add_column("G(γ)", justify="right", no_wrap=True)
+        table.add_column("V(ν)", justify="right", no_wrap=True)
+        table.add_column("Th(Θ)", justify="right", no_wrap=True)
+
+        # Broker totals
+        total_market_value = sum(pr.market_value for pr in filtered_risks)
+        total_daily_pnl = sum(pr.daily_pnl for pr in filtered_risks)
+        total_unrealized = sum(pr.unrealized_pnl for pr in filtered_risks)
+        total_delta_dollars = sum(pr.delta_dollars for pr in filtered_risks)
+        total_delta = sum(pr.delta for pr in filtered_risks)
+        total_gamma = sum(pr.gamma for pr in filtered_risks)
+        total_vega = sum(pr.vega for pr in filtered_risks)
+        total_theta = sum(pr.theta for pr in filtered_risks)
+
+        # Add broker total row
+        table.add_row(
+            f"▼ {broker} Total",
+            str(len(filtered_risks)),
+            "",
+            "",
+            "",
+            self._format_number(total_market_value, color=False),
+            self._format_number(total_daily_pnl, color=True),
+            self._format_number(total_unrealized, color=True),
+            self._format_number(total_delta_dollars, color=False),
+            self._format_number(total_delta, color=False),
+            self._format_number(total_gamma, color=False),
+            self._format_number(total_vega, color=False),
+            self._format_number(total_theta, color=False),
+            style="bold white on rgb(80,80,80)",
+        )
+
+        # Sort underlyings by absolute market value
+        underlying_values = {}
+        for underlying, prs in by_underlying.items():
+            underlying_values[underlying] = sum(abs(pr.market_value) for pr in prs)
+        sorted_underlyings = sorted(by_underlying.keys(), key=lambda u: underlying_values[u], reverse=True)
+
+        for underlying in sorted_underlyings:
+            prs = by_underlying[underlying]
+
+            # Add underlying header
+            underlying_market_value = sum(pr.market_value for pr in prs)
+            underlying_daily_pnl = sum(pr.daily_pnl for pr in prs)
+            underlying_unrealized = sum(pr.unrealized_pnl for pr in prs)
+            underlying_delta_dollars = sum(pr.delta_dollars for pr in prs)
+            underlying_delta = sum(pr.delta for pr in prs)
+            underlying_gamma = sum(pr.gamma for pr in prs)
+            underlying_vega = sum(pr.vega for pr in prs)
+            underlying_theta = sum(pr.theta for pr in prs)
+
+            # Get beta
+            beta_str = f"{prs[0].beta:.2f}" if prs and prs[0].beta is not None else ""
+
+            table.add_row(
+                f"▼ {underlying}",
+                "",
+                "",
+                "",
+                beta_str,
+                self._format_number(underlying_market_value, color=False),
+                self._format_number(underlying_daily_pnl, color=True),
+                self._format_number(underlying_unrealized, color=True),
+                self._format_number(underlying_delta_dollars, color=False),
+                self._format_number(underlying_delta, color=False),
+                self._format_number(underlying_gamma, color=False),
+                self._format_number(underlying_vega, color=False),
+                self._format_number(underlying_theta, color=False),
+                style="bold white",
+            )
+
+            # Sort positions: stocks first, then by expiry
+            # Note: stocks may have expiry=None or expiry="" (empty string) depending on broker
+            stocks = [pr for pr in prs if not pr.expiry]
+            options = sorted([pr for pr in prs if pr.expiry], key=lambda p: p.expiry or "")
+
+            for pr in stocks + options:
+                iv_str = f"{pr.iv * 100:.1f}%" if pr.iv is not None else ""
+                beta_str = f"{pr.beta:.2f}" if pr.beta is not None else ""
+
+                table.add_row(
+                    f"  {pr.get_display_name()}",
+                    self._format_quantity(pr.quantity),
+                    self._format_price(pr.mark_price, pr.is_using_close, decimals=3 if pr.expiry else 2),
+                    iv_str,
+                    beta_str,
+                    self._format_number(pr.market_value, color=False),
+                    self._format_number(pr.daily_pnl, color=True),
+                    self._format_number(pr.unrealized_pnl, color=True),
+                    self._format_number(pr.delta_dollars, color=False),
+                    self._format_number(pr.delta, color=False),
+                    self._format_number(pr.gamma, color=False),
+                    self._format_number(pr.vega, color=False),
+                    self._format_number(pr.theta, color=False),
+                    style="white",
+                )
+
+        return Panel(table, title=f"{broker} Positions ({len(filtered_risks)})", border_style="blue")
 
     def _render_positions_profile(
         self, position_risks: List[PositionRisk]

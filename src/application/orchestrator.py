@@ -349,6 +349,7 @@ class Orchestrator:
                 logger.warning(f"Failed to fetch account info from Futu: {e}")
 
         # Aggregate account info from all sources
+        # todo put aggregate account info into reconciler
         account_info = self._aggregate_account_info(ib_account, futu_account)
         self.account_store.update(account_info)
 

@@ -7,7 +7,7 @@ Uses the futu-api SDK to connect to Futu OpenD and fetch positions/account info.
 
 from __future__ import annotations
 from typing import List, Dict, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 import re
 
@@ -65,14 +65,18 @@ class FutuAdapter(PositionProvider):
         self._acc_id: Optional[int] = None  # Selected account ID
 
         # Cache for account info (Futu rate limit: 10 calls per 30 seconds)
+        # With both positions and account queries, need at least 6 seconds between each type
+        # Using 10 seconds to have safety margin
         self._account_cache: Optional[AccountInfo] = None
         self._account_cache_time: Optional[datetime] = None
-        self._account_cache_ttl_sec: int = 5  # Cache for 5 seconds to avoid rate limits
+        self._account_cache_ttl_sec: int = 10  # Cache for 10 seconds to avoid rate limits
 
         # Cache for positions (Futu rate limit: 10 calls per 30 seconds)
         self._position_cache: Optional[List[Position]] = None
         self._position_cache_time: Optional[datetime] = None
-        self._position_cache_ttl_sec: int = 5  # Cache for 5 seconds to avoid rate limits
+        self._position_cache_ttl_sec: int = 10  # Cache for 10 seconds to avoid rate limits
+        # Cooldown after hitting rate limits to avoid hammering OpenD
+        self._position_cooldown_until: Optional[datetime] = None
 
     async def connect(self) -> None:
         """
@@ -180,8 +184,24 @@ class FutuAdapter(PositionProvider):
         Raises:
             ConnectionError: If not connected.
         """
-        # Check cache first (Futu rate limit: 10 calls per 30 seconds)
         now = datetime.now()
+
+        # Respect cooldown if we recently hit the OpenD rate limit
+        if self._position_cooldown_until and now < self._position_cooldown_until:
+            logger.warning(
+                "Futu position fetch skipped due to rate-limit cooldown "
+                f"(retry after {self._position_cooldown_until.isoformat(timespec='seconds')})"
+            )
+            if (
+                self._position_cache is not None
+                and self._position_cache_time is not None
+                and (now - self._position_cache_time).total_seconds() < self._position_cache_ttl_sec
+            ):
+                logger.debug("Returning cached Futu positions during cooldown")
+                return self._position_cache
+            return []
+
+        # Check cache first (Futu rate limit: 10 calls per 30 seconds)
         if (
             self._position_cache is not None
             and self._position_cache_time is not None
@@ -199,10 +219,13 @@ class FutuAdapter(PositionProvider):
         try:
             trd_env_enum = getattr(TrdEnv, self.trd_env, TrdEnv.REAL)
 
+            # Use refresh_cache=False to use Futu's internal cache
+            # This avoids hitting Futu's rate limit (10 calls per 30 seconds)
+            # Our application-level cache (10s TTL) controls refresh frequency
             ret, data = self._trd_ctx.position_list_query(
                 trd_env=trd_env_enum,
                 acc_id=self._acc_id,
-                refresh_cache=True,
+                refresh_cache=False,
             )
 
             if ret != RET_OK:
@@ -215,12 +238,14 @@ class FutuAdapter(PositionProvider):
                     ret, data = self._trd_ctx.position_list_query(
                         trd_env=trd_env_enum,
                         acc_id=self._acc_id,
-                        refresh_cache=True,
+                        refresh_cache=False,
                     )
                     if ret != RET_OK:
                         raise Exception(f"Position query failed after reconnect: {data}")
                 else:
-                    logger.error(f"Failed to fetch positions from Futu: {data}")
+                    # Don't log rate limit errors at error level - they're handled below
+                    if "frequent" not in str(data).lower():
+                        logger.error(f"Failed to fetch positions from Futu: {data}")
                     raise Exception(f"Position query failed: {data}")
 
             if data.empty:
@@ -239,17 +264,31 @@ class FutuAdapter(PositionProvider):
             # Update cache
             self._position_cache = positions
             self._position_cache_time = datetime.now()
+            # Clear any prior cooldown after a successful fetch
+            self._position_cooldown_until = None
 
         except Exception as e:
-            logger.error(f"Failed to fetch positions from Futu: {e}")
             # Only mark disconnected on connection-related errors
             if "disconnect" in str(e).lower() or "connection" in str(e).lower():
+                logger.error(f"Failed to fetch positions from Futu: {e}")
                 self._connected = False
 
             # If rate limited and we have cached data, return it instead of failing
-            if "frequent" in str(e).lower() and self._position_cache is not None:
-                logger.warning("Rate limited - returning cached positions")
-                return self._position_cache
+            if "frequent" in str(e).lower():
+                # Back off for the full 30-second Futu window to avoid hammering
+                cooldown_seconds = 30
+                self._position_cooldown_until = datetime.now() + timedelta(seconds=cooldown_seconds)
+                logger.warning(
+                    f"Futu rate limit hit; backing off for {cooldown_seconds}s "
+                    f"(until {self._position_cooldown_until.isoformat(timespec='seconds')})"
+                )
+                if self._position_cache is not None:
+                    logger.debug("Rate limited - returning cached positions")
+                    return self._position_cache
+                # No cache available, log at warning level
+                logger.warning(f"Futu rate limited and no cached positions available")
+            else:
+                logger.error(f"Failed to fetch positions from Futu: {e}")
             raise
 
         return positions
@@ -385,10 +424,13 @@ class FutuAdapter(PositionProvider):
         try:
             trd_env_enum = getattr(TrdEnv, self.trd_env, TrdEnv.REAL)
 
+            # Use refresh_cache=False to use Futu's internal cache
+            # This avoids hitting Futu's rate limit (10 calls per 30 seconds)
+            # Our application-level cache (10s TTL) controls refresh frequency
             ret, data = self._trd_ctx.accinfo_query(
                 trd_env=trd_env_enum,
                 acc_id=self._acc_id,
-                refresh_cache=True,
+                refresh_cache=False,
                 currency=Currency.USD,  # Request in USD for consistency
             )
 
@@ -402,13 +444,15 @@ class FutuAdapter(PositionProvider):
                     ret, data = self._trd_ctx.accinfo_query(
                         trd_env=trd_env_enum,
                         acc_id=self._acc_id,
-                        refresh_cache=True,
+                        refresh_cache=False,
                         currency=Currency.USD,
                     )
                     if ret != RET_OK:
                         raise Exception(f"Account info query failed after reconnect: {data}")
                 else:
-                    logger.error(f"Failed to fetch account info from Futu: {data}")
+                    # Don't log rate limit errors at error level - they're handled below
+                    if "frequent" not in str(data).lower():
+                        logger.error(f"Failed to fetch account info from Futu: {data}")
                     raise Exception(f"Account info query failed: {data}")
 
             if data.empty:
@@ -476,13 +520,18 @@ class FutuAdapter(PositionProvider):
             return account_info
 
         except Exception as e:
-            logger.error(f"Failed to fetch account info from Futu: {e}")
             # Only mark disconnected on connection-related errors
             if "disconnect" in str(e).lower() or "connection" in str(e).lower():
+                logger.error(f"Failed to fetch account info from Futu: {e}")
                 self._connected = False
 
             # If rate limited and we have cached data, return it instead of failing
-            if "frequent" in str(e).lower() and self._account_cache is not None:
-                logger.warning("Rate limited - returning cached account info")
-                return self._account_cache
+            if "frequent" in str(e).lower():
+                if self._account_cache is not None:
+                    logger.debug("Rate limited - returning cached account info")
+                    return self._account_cache
+                # No cache available, log at warning level
+                logger.warning(f"Futu rate limited and no cached account info available")
+            else:
+                logger.error(f"Failed to fetch account info from Futu: {e}")
             raise
