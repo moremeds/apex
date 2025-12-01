@@ -93,13 +93,12 @@ class AlertRepository:
 
     def get_unacknowledged_alerts(self, limit: int = 100) -> List[Dict[str, Any]]:
         """Get unacknowledged alerts."""
-        rows = self.db.fetch_all("""
+        return self.db.fetch_all("""
             SELECT * FROM risk_alerts
             WHERE acknowledged = FALSE
             ORDER BY alert_time DESC
             LIMIT ?
         """, (limit,))
-        return [dict(row) for row in rows] if rows else []
 
     def get_alerts_by_severity(
         self,
@@ -109,21 +108,19 @@ class AlertRepository:
     ) -> List[Dict[str, Any]]:
         """Get alerts by severity level."""
         if start_time:
-            rows = self.db.fetch_all("""
+            return self.db.fetch_all("""
                 SELECT * FROM risk_alerts
                 WHERE severity = ? AND alert_time >= ?
                 ORDER BY alert_time DESC
                 LIMIT ?
             """, (severity, start_time, limit))
         else:
-            rows = self.db.fetch_all("""
+            return self.db.fetch_all("""
                 SELECT * FROM risk_alerts
                 WHERE severity = ?
                 ORDER BY alert_time DESC
                 LIMIT ?
             """, (severity, limit))
-
-        return [dict(row) for row in rows] if rows else []
 
     def get_alerts_by_symbol(
         self,
@@ -133,30 +130,27 @@ class AlertRepository:
     ) -> List[Dict[str, Any]]:
         """Get alerts for a specific symbol."""
         if start_time:
-            rows = self.db.fetch_all("""
+            return self.db.fetch_all("""
                 SELECT * FROM risk_alerts
                 WHERE symbol = ? AND alert_time >= ?
                 ORDER BY alert_time DESC
                 LIMIT ?
             """, (symbol, start_time, limit))
         else:
-            rows = self.db.fetch_all("""
+            return self.db.fetch_all("""
                 SELECT * FROM risk_alerts
                 WHERE symbol = ?
                 ORDER BY alert_time DESC
                 LIMIT ?
             """, (symbol, limit))
 
-        return [dict(row) for row in rows] if rows else []
-
     def get_alerts_today(self) -> List[Dict[str, Any]]:
         """Get all alerts for today."""
-        rows = self.db.fetch_all("""
+        return self.db.fetch_all("""
             SELECT * FROM risk_alerts
             WHERE alert_time >= CURRENT_DATE
             ORDER BY alert_time DESC
         """)
-        return [dict(row) for row in rows] if rows else []
 
     def get_alert_summary(self, start_time: datetime, end_time: datetime) -> Dict[str, Any]:
         """Get alert statistics for a time range."""
@@ -171,15 +165,7 @@ class AlertRepository:
             WHERE alert_time BETWEEN ? AND ?
         """, (start_time, end_time))
 
-        if result:
-            return {
-                "total_alerts": result[0],
-                "critical_count": result[1],
-                "warning_count": result[2],
-                "info_count": result[3],
-                "acknowledged_count": result[4],
-            }
-        return {}
+        return result if result else {}
 
     def get_most_triggered_rules(
         self,
@@ -200,7 +186,7 @@ class AlertRepository:
             LIMIT ?
         """, (start_time, end_time, limit))
 
-        return [{"rule": r[0], "count": r[1], "symbols": r[2]} for r in rows] if rows else []
+        return [{"rule": r.get("trigger_rule"), "count": r.get("trigger_count"), "symbols": r.get("symbols_affected")} for r in rows] if rows else []
 
     def cleanup_old_alerts(self, days_to_keep: int = 365) -> int:
         """Delete alerts older than specified days."""

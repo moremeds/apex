@@ -50,12 +50,11 @@ class PortfolioRepository:
 
     def get_latest_snapshot(self) -> Optional[Dict[str, Any]]:
         """Get the most recent portfolio snapshot."""
-        result = self.db.fetch_one("""
+        return self.db.fetch_one("""
             SELECT * FROM portfolio_snapshots
             ORDER BY snapshot_time DESC
             LIMIT 1
         """)
-        return dict(result) if result else None
 
     def get_snapshots_range(
         self,
@@ -63,12 +62,11 @@ class PortfolioRepository:
         end_time: datetime,
     ) -> List[Dict[str, Any]]:
         """Get portfolio snapshots within a time range."""
-        rows = self.db.fetch_all("""
+        return self.db.fetch_all("""
             SELECT * FROM portfolio_snapshots
             WHERE snapshot_time BETWEEN ? AND ?
             ORDER BY snapshot_time
         """, (start_time, end_time))
-        return [dict(row) for row in rows] if rows else []
 
     def get_snapshots_df(self, start_time: datetime, end_time: datetime):
         """Get portfolio snapshots as DataFrame for analytics."""
@@ -127,8 +125,8 @@ class PortfolioRepository:
         )
 
         if existing:
-            peak_pnl = existing[0] or current_pnl
-            max_drawdown = existing[1] or 0
+            peak_pnl = existing.get("peak_pnl") or current_pnl
+            max_drawdown = existing.get("max_drawdown") or 0
 
             if current_pnl > peak_pnl:
                 peak_pnl = current_pnl
@@ -161,20 +159,18 @@ class PortfolioRepository:
 
     def get_daily_pnl(self, trade_date: date) -> Optional[Dict[str, Any]]:
         """Get daily P&L record for a specific date."""
-        result = self.db.fetch_one(
+        return self.db.fetch_one(
             "SELECT * FROM daily_pnl WHERE trade_date = ?",
             (trade_date,)
         )
-        return dict(result) if result else None
 
     def get_daily_pnl_range(self, start_date: date, end_date: date) -> List[Dict[str, Any]]:
         """Get daily P&L records within a date range."""
-        rows = self.db.fetch_all("""
+        return self.db.fetch_all("""
             SELECT * FROM daily_pnl
             WHERE trade_date BETWEEN ? AND ?
             ORDER BY trade_date
         """, (start_date, end_date))
-        return [dict(row) for row in rows] if rows else []
 
     def get_daily_pnl_df(self, start_date: date, end_date: date):
         """Get daily P&L as DataFrame for analytics."""

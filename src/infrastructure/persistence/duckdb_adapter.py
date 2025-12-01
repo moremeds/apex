@@ -240,15 +240,19 @@ class DuckDBAdapter:
         result = self.execute(query, params)
         return result.df()
 
-    def fetch_all(self, query: str, params: Optional[tuple] = None) -> List[tuple]:
-        """Execute query and return all rows."""
+    def fetch_all(self, query: str, params: Optional[tuple] = None) -> List[Dict[str, Any]]:
+        """Execute query and return all rows as dicts."""
         result = self.execute(query, params)
-        return result.fetchall()
+        columns = [desc[0] for desc in result.description] if result.description else []
+        rows = result.fetchall()
+        return [dict(zip(columns, row)) for row in rows] if rows else []
 
-    def fetch_one(self, query: str, params: Optional[tuple] = None) -> Optional[tuple]:
-        """Execute query and return first row."""
+    def fetch_one(self, query: str, params: Optional[tuple] = None) -> Optional[Dict[str, Any]]:
+        """Execute query and return first row as dict."""
         result = self.execute(query, params)
-        return result.fetchone()
+        columns = [desc[0] for desc in result.description] if result.description else []
+        row = result.fetchone()
+        return dict(zip(columns, row)) if row else None
 
     def close(self) -> None:
         """Close database connection."""

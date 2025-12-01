@@ -597,6 +597,20 @@ class RiskEngine:
                 self._needs_rebuild = True
         logger.debug("RiskEngine timer tick")
 
+    def mark_dirty(self, underlying: str | None = None) -> None:
+        """
+        Mark the risk engine as needing a rebuild.
+
+        Args:
+            underlying: Optional specific underlying to mark dirty.
+                       If None, marks all as needing rebuild.
+        """
+        with self._lock:
+            if underlying:
+                self._dirty_underlyings.add(underlying)
+            else:
+                self._needs_rebuild = True
+
     def needs_rebuild(self) -> bool:
         """
         Check if snapshot needs rebuild.

@@ -357,18 +357,23 @@ class PersistenceManager:
         known positions from a previous session (reconciliation on startup).
         """
         try:
-            # Get the most recent position snapshot for each symbol
+            # Get the most recent position snapshot for each symbol (DuckDB compatible)
             rows = self.db.fetch_all("""
-                SELECT DISTINCT ON (symbol)
-                    symbol, quantity, avg_price, source
-                FROM position_snapshots
-                WHERE source IN ('IB', 'FUTU')
-                ORDER BY symbol, snapshot_time DESC
+                WITH ranked AS (
+                    SELECT
+                        symbol, quantity, avg_price, source,
+                        ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY snapshot_time DESC) as rn
+                    FROM position_snapshots
+                    WHERE source IN ('IB', 'FUTU')
+                )
+                SELECT symbol, quantity, avg_price, source
+                FROM ranked
+                WHERE rn = 1
             """)
 
             if rows:
                 for row in rows:
-                    row_dict = dict(row)
+                    row_dict = row
                     symbol = row_dict.get("symbol")
                     if symbol:
                         self._position_states[symbol] = PositionState(
@@ -397,16 +402,25 @@ class PersistenceManager:
             List of position snapshot records
         """
         try:
+            # Use window function to get latest snapshot per symbol (DuckDB compatible)
             rows = self.db.fetch_all(f"""
-                SELECT DISTINCT ON (symbol)
+                WITH ranked AS (
+                    SELECT
+                        symbol, underlying, asset_type, quantity, avg_price,
+                        mark_price, unrealized_pnl, daily_pnl, source,
+                        snapshot_time, expiry, strike, option_type,
+                        ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY snapshot_time DESC) as rn
+                    FROM position_snapshots
+                )
+                SELECT
                     symbol, underlying, asset_type, quantity, avg_price,
                     mark_price, unrealized_pnl, daily_pnl, source,
                     snapshot_time, expiry, strike, option_type
-                FROM position_snapshots
-                ORDER BY symbol, snapshot_time DESC
+                FROM ranked
+                WHERE rn = 1
                 LIMIT {limit}
             """)
-            return [dict(row) for row in rows] if rows else []
+            return rows if rows else []
         except Exception as e:
             logger.warning(f"Failed to get position snapshots: {e}")
             return []

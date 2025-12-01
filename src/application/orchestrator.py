@@ -1,13 +1,19 @@
 """
-Orchestrator - Main application workflow control.
+Orchestrator - Main application workflow control (Event-Driven Architecture).
 
 Coordinates:
-- Position/market data fetching
+- Position/market data fetching via TIMER_TICK events
 - Position reconciliation
-- Risk calculation
+- Risk calculation triggered by data events
 - Limit breach detection
-- Dashboard updates
+- Dashboard updates via SNAPSHOT_READY events
 - Event publishing
+
+The orchestrator operates in a fully event-driven mode:
+- TIMER_TICK: Triggers position/market data refresh and reconciliation
+- MARKET_DATA_TICK/BATCH: Updates market data store, marks risk engine dirty
+- POSITION_UPDATED/BATCH: Updates position store, marks risk engine dirty
+- Snapshot dispatcher: Debounced snapshot rebuilds when risk engine is dirty
 """
 
 from __future__ import annotations
@@ -44,15 +50,14 @@ logger = logging.getLogger(__name__)
 
 class Orchestrator:
     """
-    Main application orchestrator.
+    Main application orchestrator (Event-Driven Architecture).
 
-    Coordinates the entire risk monitoring workflow:
-    1. Fetch positions from IB, Futu, and manual sources
-    2. Reconcile positions across sources
-    3. Fetch market data and validate quality
-    4. Calculate risk metrics
-    5. Evaluate risk limits
-    6. Publish events and update dashboard
+    Coordinates the entire risk monitoring workflow through events:
+    1. TIMER_TICK triggers position/account fetching from all sources
+    2. TIMER_TICK triggers market data refresh for stale symbols
+    3. Data events (POSITION_*, MARKET_DATA_*, ACCOUNT_*) update stores
+    4. Snapshot dispatcher rebuilds risk metrics when data changes
+    5. SNAPSHOT_READY triggers dashboard updates and persistence
     """
 
     def __init__(
@@ -120,7 +125,6 @@ class Orchestrator:
 
         self.refresh_interval_sec = config.get("dashboard", {}).get("refresh_interval_sec", 2)
         self._running = False
-        self._task: asyncio.Task | None = None
 
         self._latest_snapshot: RiskSnapshot | None = None
         self._latest_market_alerts: list[dict[str, Any]] = []
@@ -129,23 +133,20 @@ class Orchestrator:
         # Event to signal when new snapshot is ready (for dashboard sync)
         self._snapshot_ready: asyncio.Event = asyncio.Event()
 
-        # Streaming mode: rebuild snapshot on market data updates
+        # Streaming callback registration
         self._streaming_enabled = False
-        self._market_data_updated: asyncio.Event = asyncio.Event()
-        self._last_streaming_rebuild: datetime | None = None
 
-        # Event-driven mode
-        self._event_driven_mode = False
+        # Event-driven tasks
         self._timer_task: asyncio.Task | None = None
         self._snapshot_dispatcher_task: asyncio.Task | None = None
 
     async def start(self) -> None:
-        """Start the orchestrator main loop."""
+        """Start the orchestrator (event-driven mode)."""
         if self._running:
             logger.warning("Orchestrator already running")
             return
 
-        logger.info("Starting orchestrator...")
+        logger.info("Starting orchestrator (event-driven mode)...")
 
         # Connect to data sources
         await self._connect_providers()
@@ -153,26 +154,48 @@ class Orchestrator:
         # Start watchdog
         await self.watchdog.start()
 
-        # Start main loop
         self._running = True
-        self._task = asyncio.create_task(self._main_loop())
-        logger.info("Orchestrator started")
+
+        # Start async event bus
+        if isinstance(self.event_bus, AsyncEventBus):
+            await self.event_bus.start()
+            logger.info("AsyncEventBus started")
+
+        # Subscribe all components to events
+        self._subscribe_components_to_events()
+
+        # Start snapshot dispatcher (debounced rebuilds)
+        self._snapshot_dispatcher_task = asyncio.create_task(self._snapshot_dispatcher())
+
+        # Start timer task for periodic data refresh (includes initial fetch)
+        self._timer_task = asyncio.create_task(self._timer_loop())
+
+        logger.info("Orchestrator started (event-driven)")
 
     async def stop(self) -> None:
         """Stop the orchestrator."""
         logger.info("Stopping orchestrator...")
         self._running = False
 
-        # Disable event-driven mode if enabled
-        if self._event_driven_mode:
-            await self.disable_event_driven_mode()
-
-        if self._task:
-            self._task.cancel()
+        # Cancel timer task
+        if self._timer_task:
+            self._timer_task.cancel()
             try:
-                await self._task
+                await self._timer_task
             except asyncio.CancelledError:
                 pass
+
+        # Cancel snapshot dispatcher
+        if self._snapshot_dispatcher_task:
+            self._snapshot_dispatcher_task.cancel()
+            try:
+                await self._snapshot_dispatcher_task
+            except asyncio.CancelledError:
+                pass
+
+        # Stop async event bus
+        if isinstance(self.event_bus, AsyncEventBus):
+            await self.event_bus.stop()
 
         # Stop watchdog
         await self.watchdog.stop()
@@ -253,67 +276,18 @@ class Orchestrator:
             logger.debug(f"Manual positions not loaded (optional): {e}")
             # Don't mark as unhealthy - manual positions are optional
 
-    async def _main_loop(self) -> None:
-        """Main orchestration loop."""
-        # Minimum interval between streaming snapshot rebuilds (throttle)
-        streaming_throttle_sec = 0.5
-
-        last_full_cycle = datetime.now()
-
-        while self._running:
-            try:
-                # Wait for either:
-                # 1. Streaming market data update (immediate)
-                # 2. Timeout for full cycle (refresh_interval_sec)
-                time_since_full_cycle = (datetime.now() - last_full_cycle).total_seconds()
-                wait_time = max(0.1, self.refresh_interval_sec - time_since_full_cycle)
-
-                try:
-                    # Wait for streaming update or timeout
-                    await asyncio.wait_for(
-                        self._market_data_updated.wait(),
-                        timeout=wait_time
-                    )
-                    # Streaming update received
-                    self._market_data_updated.clear()
-
-                    # Throttle streaming rebuilds
-                    now = datetime.now()
-                    if (
-                        self._last_streaming_rebuild is None
-                        or (now - self._last_streaming_rebuild).total_seconds() >= streaming_throttle_sec
-                    ):
-                        self._last_streaming_rebuild = now
-                        await self._rebuild_snapshot_from_cache()
-
-                except asyncio.TimeoutError:
-                    # Timeout - time for full cycle
-                    pass
-
-                # Run full cycle at normal interval
-                if (datetime.now() - last_full_cycle).total_seconds() >= self.refresh_interval_sec:
-                    await self._run_cycle()
-                    last_full_cycle = datetime.now()
-
-            except Exception as e:
-                logger.error(f"Orchestrator cycle error: {e}", exc_info=True)
-                await asyncio.sleep(5)
-
-    async def _run_cycle(self) -> None:
+    async def _fetch_and_reconcile(self) -> None:
         """
-        Run one complete orchestration cycle.
+        Fetch positions/account data from all sources and reconcile.
 
-        Steps:
-        1. Fetch positions from all sources
-        2. Reconcile positions
-        3. Fetch market data
-        4. Validate market data quality
-        5. Calculate risk metrics
-        6. Evaluate risk limits
-        7. Update watchdog
-        8. Publish events
+        This is called:
+        1. On startup (initial data load)
+        2. On each TIMER_TICK (periodic refresh)
+
+        Market data is handled separately via streaming callbacks.
+        Snapshot rebuilds are handled by the snapshot dispatcher.
         """
-        logger.debug("Starting orchestration cycle")
+        logger.debug("Starting data fetch and reconciliation")
 
         # 1. Fetch positions from all sources (handle disconnected adapters gracefully)
         ib_positions: List[Position] = []
@@ -391,7 +365,11 @@ class Orchestrator:
         merged_positions = self.reconciler.merge_positions(ib_positions, manual_positions, futu_positions)
         merged_positions = self.reconciler.remove_expired_options(merged_positions)
         self.position_store.upsert_positions(merged_positions)
-        self.event_bus.publish(EventType.POSITION_CHANGED, {"count": len(merged_positions)})
+        self.event_bus.publish(EventType.POSITIONS_BATCH, {
+            "positions": merged_positions,
+            "source": "reconciler",
+            "timestamp": datetime.now(),
+        })
 
         # Log position counts prominently (both to file and console)
         position_msg = (
@@ -401,7 +379,7 @@ class Orchestrator:
         logger.info(position_msg)
         print(position_msg, flush=True)  # Ensure visible in console
 
-        # 3. Fetch account info EARLY from all brokers (before slow market data fetch)
+        # 3. Fetch account info from all brokers
         ib_account: Optional[AccountInfo] = None
         futu_account: Optional[AccountInfo] = None
 
@@ -425,6 +403,12 @@ class Orchestrator:
         # Aggregate account info from all sources (single source of truth in Reconciler)
         account_info = self.reconciler.aggregate_account_info(ib_account, futu_account)
         self.account_store.update(account_info)
+        self.event_bus.publish(EventType.ACCOUNT_UPDATED, {
+            "account_info": account_info,
+            "ib_account": ib_account,
+            "futu_account": futu_account,
+            "timestamp": datetime.now(),
+        })
 
         account_msg = (
             f"💰 Account: IB=${ib_account.net_liquidation if ib_account else 0:,.0f}, "
@@ -434,20 +418,15 @@ class Orchestrator:
         logger.info(account_msg)
         print(account_msg, flush=True)  # Ensure visible in console
 
-        # Note: Early snapshot removed per architecture review - it duplicated work
-        # and the final snapshot after market data fetch is the authoritative one
-
-        # 4. Fetch market data (optimized: only fetch stale data)
-        # Get symbols that need fresh market data (atomic operation to prevent race conditions)
+        # 4. Fetch market data for new/stale positions
         all_symbols = [p.symbol for p in merged_positions]
         symbols_needing_refresh = set(self.market_data_store.get_symbols_needing_refresh(all_symbols))
         positions_to_fetch = [p for p in merged_positions if p.symbol in symbols_needing_refresh]
 
         if positions_to_fetch:
-            logger.debug(f"Fetching market data for {len(positions_to_fetch)}/{len(merged_positions)} positions (Greeks cache optimization)")
+            logger.debug(f"Fetching market data for {len(positions_to_fetch)}/{len(merged_positions)} positions")
             try:
                 if not self.ib_adapter or not self.ib_adapter.is_connected():
-                    # IB not connected - mark as UNHEALTHY and continue with cached data
                     logger.error("IB adapter not connected - cannot fetch market data")
                     self.health_monitor.update_component_health(
                         "market_data_feed",
@@ -455,11 +434,15 @@ class Orchestrator:
                         "IB adapter not connected"
                     )
                 else:
-                    # Fetch market data from IBKR
+                    # Fetch market data from IBKR (will emit events via streaming)
                     market_data_list = await self.ib_adapter.fetch_market_data(positions_to_fetch)
                     self.market_data_store.upsert(market_data_list)
+                    self.event_bus.publish(EventType.MARKET_DATA_BATCH, {
+                        "data": market_data_list,
+                        "source": "IB",
+                        "timestamp": datetime.now(),
+                    })
 
-                    # Update health status based on fetch success
                     if market_data_list:
                         self.health_monitor.update_component_health(
                             "market_data_feed",
@@ -473,83 +456,32 @@ class Orchestrator:
                             "Fetch returned no data"
                         )
             except Exception as e:
-                # Market data fetch failed - mark as UNHEALTHY
                 logger.error(f"Failed to fetch market data: {e}")
                 self.health_monitor.update_component_health(
                     "market_data_feed",
                     HealthStatus.UNHEALTHY,
                     f"Fetch failed: {str(e)[:50]}"
                 )
-                # Continue with cached market data (no mock fallback)
-                logger.warning("Continuing with cached market data - system may display stale data")
         else:
-            logger.debug(f"All market data fresh (Greeks cache hit: {len(merged_positions)} positions)")
-            # All data is cached - mark as healthy since we're using valid cached data
+            logger.debug(f"All market data fresh ({len(merged_positions)} positions)")
             self.health_monitor.update_component_health(
                 "market_data_feed",
                 HealthStatus.HEALTHY,
                 "Using cached data (all fresh)"
             )
 
-        # 4. Validate market data quality
+        # 5. Validate market data quality
         market_data = self.market_data_store.get_all()
         self.mdqc.validate_all(market_data)
 
-        # 4b. Fetch market-wide indicators for alerts (e.g., VIX) and detect alerts
+        # 6. Fetch market-wide indicators (VIX) and detect alerts
         await self._detect_market_alerts()
 
-        # 5. Calculate risk metrics (account_info already fetched earlier)
-        snapshot = self.risk_engine.build_snapshot(
-            merged_positions, market_data, account_info,
-            ib_account=ib_account, futu_account=futu_account
-        )
-        self._latest_snapshot = snapshot
+        # Mark risk engine as dirty to trigger snapshot rebuild
+        if hasattr(self.risk_engine, 'mark_dirty'):
+            self.risk_engine.mark_dirty()
 
-        # Signal that new snapshot is ready (for dashboard sync)
-        self._snapshot_ready.set()
-
-        # 6. Persist snapshot to database (non-blocking)
-        if self.persistence_manager:
-            try:
-                self.persistence_manager.persist_snapshot(snapshot)
-            except Exception as e:
-                logger.warning(f"Failed to persist snapshot: {e}")
-
-        # 7. Evaluate risk limits (use RiskSignalEngine if available, else legacy RuleEngine)
-        if self.risk_signal_engine:
-            # New: Multi-layer risk signal engine
-            risk_signals = self.risk_signal_engine.evaluate(snapshot)
-            self._latest_risk_signals = risk_signals
-            if risk_signals:
-                logger.warning(f"Found {len(risk_signals)} risk signals")
-                for signal in risk_signals:
-                    self.event_bus.publish(EventType.LIMIT_BREACHED, signal)
-
-                # Persist risk signals to database
-                if self.persistence_manager:
-                    try:
-                        self.persistence_manager.persist_alerts(risk_signals)
-                    except Exception as e:
-                        logger.warning(f"Failed to persist risk signals: {e}")
-        else:
-            # Legacy: Portfolio rule engine only
-            breaches = self.rule_engine.evaluate(snapshot)
-            if breaches:
-                logger.warning(f"Found {len(breaches)} limit breaches")
-                for breach in breaches:
-                    self.event_bus.publish(EventType.LIMIT_BREACHED, breach)
-
-        # 7b. Log all alerts and signals to audit trail
-        if self.risk_alert_logger:
-            self._log_risk_alerts(snapshot)
-
-        # 8. Update watchdog
-        self.watchdog.update_snapshot_time(snapshot.timestamp)
-        self.watchdog.check_missing_market_data(
-            snapshot.total_positions, snapshot.positions_with_missing_md
-        )
-
-        logger.debug("Orchestration cycle completed")
+        logger.debug("Data fetch and reconciliation completed")
 
     def get_latest_snapshot(self) -> RiskSnapshot | None:
         """Get the latest risk snapshot."""
@@ -583,42 +515,15 @@ class Orchestrator:
         """
         Handle streaming market data update from IB.
 
-        Updates the market data store and signals for snapshot rebuild.
+        Updates the market data store - snapshot rebuild is handled
+        by the snapshot dispatcher when risk engine is marked dirty.
         """
         # Update store
         self.market_data_store.upsert([market_data])
 
-        # Signal main loop to rebuild snapshot (throttled there)
-        self._market_data_updated.set()
-
-    async def _rebuild_snapshot_from_cache(self) -> None:
-        """
-        Rebuild snapshot using cached positions and fresh market data.
-
-        Called on streaming market data updates (throttled).
-        Lighter than full _run_cycle - skips position fetching.
-        """
-        try:
-            # Get cached positions and account
-            positions = self.position_store.get_all()
-            if not positions:
-                return
-
-            market_data = self.market_data_store.get_all()
-            account_info = self.account_store.get()
-
-            # Rebuild snapshot with fresh market data
-            snapshot = self.risk_engine.build_snapshot(
-                positions, market_data, account_info
-            )
-            self._latest_snapshot = snapshot
-
-            # Signal dashboard
-            self._snapshot_ready.set()
-
-            logger.debug(f"Streaming snapshot rebuild: {len(positions)} positions")
-        except Exception as e:
-            logger.warning(f"Streaming snapshot rebuild failed: {e}")
+        # Mark risk engine as dirty (snapshot dispatcher will rebuild)
+        if hasattr(self.risk_engine, 'mark_dirty'):
+            self.risk_engine.mark_dirty()
 
     def get_latest_risk_signals(self) -> List[RiskSignal]:
         """Get the latest risk signals."""
@@ -693,37 +598,7 @@ class Orchestrator:
             f"{len(self._latest_risk_signals)} risk signals to audit trail"
         )
 
-    # ========== Event-Driven Mode Methods ==========
-
-    async def enable_event_driven_mode(self) -> None:
-        """
-        Enable event-driven mode.
-
-        This subscribes all components to the event bus and starts
-        background tasks for timer and snapshot dispatching.
-        """
-        if self._event_driven_mode:
-            logger.warning("Event-driven mode already enabled")
-            return
-
-        logger.info("Enabling event-driven mode...")
-
-        # Start async event bus if it's the right type
-        if isinstance(self.event_bus, AsyncEventBus):
-            await self.event_bus.start()
-            logger.info("AsyncEventBus started")
-
-        # Subscribe all components to events
-        self._subscribe_components_to_events()
-
-        # Start timer task for periodic reconciliation
-        self._timer_task = asyncio.create_task(self._timer_loop())
-
-        # Start snapshot dispatcher (debounced rebuilds)
-        self._snapshot_dispatcher_task = asyncio.create_task(self._snapshot_dispatcher())
-
-        self._event_driven_mode = True
-        logger.info("Event-driven mode enabled")
+    # ========== Event-Driven Core Methods ==========
 
     def _subscribe_components_to_events(self) -> None:
         """Subscribe all components to the event bus."""
@@ -749,28 +624,45 @@ class Orchestrator:
 
     async def _timer_loop(self) -> None:
         """
-        Timer loop that emits TIMER_TICK events for periodic reconciliation.
+        Timer loop for periodic data refresh and reconciliation.
 
-        This ensures the system remains consistent even if events are missed.
+        This triggers position/account fetching at regular intervals
+        to ensure the system remains consistent. Runs initial fetch
+        immediately on startup.
         """
+        first_run = True
         while self._running:
             try:
-                await asyncio.sleep(self.refresh_interval_sec)
+                # Skip sleep on first run to fetch data immediately
+                if first_run:
+                    first_run = False
+                else:
+                    await asyncio.sleep(self.refresh_interval_sec)
+
+                # Run data fetch and reconciliation
+                await self._fetch_and_reconcile()
+
+                # Emit TIMER_TICK for any subscribers
                 self.event_bus.publish(EventType.TIMER_TICK, {
                     "timestamp": datetime.now(),
                 })
+
             except asyncio.CancelledError:
                 logger.debug("Timer loop cancelled")
                 break
             except Exception as e:
-                logger.error(f"Timer loop error: {e}")
+                logger.error(f"Timer loop error: {e}", exc_info=True)
+                await asyncio.sleep(5)  # Back off on error
 
     async def _snapshot_dispatcher(self) -> None:
         """
         Snapshot dispatcher with debouncing.
 
         Rebuilds snapshots when the risk engine is marked dirty,
-        with a minimum interval between rebuilds.
+        with a minimum interval between rebuilds. Also handles:
+        - Risk signal evaluation
+        - Persistence
+        - Watchdog updates
         """
         min_interval_sec = 0.1  # 100ms debounce
 
@@ -780,64 +672,81 @@ class Orchestrator:
 
                 # Check if risk engine needs rebuild
                 if hasattr(self.risk_engine, 'needs_rebuild') and self.risk_engine.needs_rebuild():
-                    # Rebuild snapshot
+                    # Get current data
                     positions = self.position_store.get_all()
-                    if positions:
-                        market_data = self.market_data_store.get_all()
-                        account_info = self.account_store.get()
+                    if not positions:
+                        self.risk_engine.clear_dirty_state()
+                        continue
 
-                        if account_info:
-                            snapshot = self.risk_engine.build_snapshot(
-                                positions, market_data, account_info
-                            )
-                            self._latest_snapshot = snapshot
+                    market_data = self.market_data_store.get_all()
+                    account_info = self.account_store.get()
 
-                            # Clear dirty state
-                            self.risk_engine.clear_dirty_state()
+                    if not account_info:
+                        self.risk_engine.clear_dirty_state()
+                        continue
 
-                            # Publish snapshot ready event
-                            self.risk_engine.publish_snapshot(snapshot)
+                    # Build snapshot
+                    snapshot = self.risk_engine.build_snapshot(
+                        positions, market_data, account_info
+                    )
+                    self._latest_snapshot = snapshot
 
-                            # Signal dashboard
-                            self._snapshot_ready.set()
+                    # Clear dirty state
+                    self.risk_engine.clear_dirty_state()
 
-                            logger.debug(f"Event-driven snapshot rebuild: {len(positions)} positions")
+                    # Evaluate risk signals
+                    if self.risk_signal_engine:
+                        risk_signals = self.risk_signal_engine.evaluate(snapshot)
+                        self._latest_risk_signals = risk_signals
+                        if risk_signals:
+                            logger.warning(f"Found {len(risk_signals)} risk signals")
+                            for signal in risk_signals:
+                                self.event_bus.publish(EventType.RISK_SIGNAL, {"signal": signal})
+
+                            # Persist risk signals
+                            if self.persistence_manager:
+                                try:
+                                    self.persistence_manager.persist_alerts(risk_signals)
+                                except Exception as e:
+                                    logger.warning(f"Failed to persist risk signals: {e}")
+                    else:
+                        # Legacy: Portfolio rule engine only
+                        breaches = self.rule_engine.evaluate(snapshot)
+                        if breaches:
+                            logger.warning(f"Found {len(breaches)} limit breaches")
+                            for breach in breaches:
+                                self.event_bus.publish(EventType.LIMIT_BREACHED, breach)
+
+                    # Log risk alerts to audit trail
+                    if self.risk_alert_logger:
+                        self._log_risk_alerts(snapshot)
+
+                    # Persist snapshot
+                    if self.persistence_manager:
+                        try:
+                            self.persistence_manager.persist_snapshot(snapshot)
+                        except Exception as e:
+                            logger.warning(f"Failed to persist snapshot: {e}")
+
+                    # Update watchdog
+                    self.watchdog.update_snapshot_time(snapshot.timestamp)
+                    self.watchdog.check_missing_market_data(
+                        snapshot.total_positions, snapshot.positions_with_missing_md
+                    )
+
+                    # Publish snapshot ready event
+                    self.event_bus.publish(EventType.SNAPSHOT_READY, {"snapshot": snapshot})
+
+                    # Signal dashboard
+                    self._snapshot_ready.set()
+
+                    logger.debug(f"Snapshot rebuilt: {len(positions)} positions")
 
             except asyncio.CancelledError:
                 logger.debug("Snapshot dispatcher cancelled")
                 break
             except Exception as e:
-                logger.error(f"Snapshot dispatcher error: {e}")
-
-    async def disable_event_driven_mode(self) -> None:
-        """Disable event-driven mode and clean up tasks."""
-        if not self._event_driven_mode:
-            return
-
-        logger.info("Disabling event-driven mode...")
-
-        # Cancel timer task
-        if self._timer_task:
-            self._timer_task.cancel()
-            try:
-                await self._timer_task
-            except asyncio.CancelledError:
-                pass
-
-        # Cancel snapshot dispatcher
-        if self._snapshot_dispatcher_task:
-            self._snapshot_dispatcher_task.cancel()
-            try:
-                await self._snapshot_dispatcher_task
-            except asyncio.CancelledError:
-                pass
-
-        # Stop async event bus
-        if isinstance(self.event_bus, AsyncEventBus):
-            await self.event_bus.stop()
-
-        self._event_driven_mode = False
-        logger.info("Event-driven mode disabled")
+                logger.error(f"Snapshot dispatcher error: {e}", exc_info=True)
 
     def get_event_bus_stats(self) -> Dict[str, Any]:
         """Get event bus statistics (if async event bus is used)."""

@@ -52,7 +52,7 @@ class PositionRepository:
                 pr.iv,
                 pos.expiry,
                 pos.strike,
-                pos.option_type.value if pos.option_type else None,
+                pos.right,  # "C" or "P" for options, None for stocks
                 pos.source.value if pos.source else None,
                 pr.has_market_data,
             ))
@@ -143,13 +143,12 @@ class PositionRepository:
 
     def get_latest_snapshot(self, symbol: str) -> Optional[Dict[str, Any]]:
         """Get the most recent snapshot for a symbol."""
-        result = self.db.fetch_one("""
+        return self.db.fetch_one("""
             SELECT * FROM position_snapshots
             WHERE symbol = ?
             ORDER BY snapshot_time DESC
             LIMIT 1
         """, (symbol,))
-        return dict(result) if result else None
 
     def get_snapshots_range(
         self,
@@ -173,7 +172,7 @@ class PositionRepository:
             """
             rows = self.db.fetch_all(query, (start_time, end_time))
 
-        return [dict(row) for row in rows] if rows else []
+        return rows if rows else []
 
     def get_changes_today(self) -> List[Dict[str, Any]]:
         """Get all position changes for today."""
@@ -182,7 +181,7 @@ class PositionRepository:
             WHERE change_time >= CURRENT_DATE
             ORDER BY change_time DESC
         """)
-        return [dict(row) for row in rows] if rows else []
+        return rows if rows else []
 
     def get_changes_range(self, start_time: datetime, end_time: datetime) -> List[Dict[str, Any]]:
         """Get position changes within a time range."""
@@ -191,7 +190,7 @@ class PositionRepository:
             WHERE change_time BETWEEN ? AND ?
             ORDER BY change_time DESC
         """, (start_time, end_time))
-        return [dict(row) for row in rows] if rows else []
+        return rows if rows else []
 
     def get_changes_recent_days(self, days: int = 5, exclude_today: bool = True) -> List[Dict[str, Any]]:
         """
@@ -223,7 +222,7 @@ class PositionRepository:
                 WHERE change_time >= ?
                 ORDER BY change_time DESC
             """, (start_date,))
-        return [dict(row) for row in rows] if rows else []
+        return rows if rows else []
 
     def cleanup_old_snapshots(self, days_to_keep: int = 90) -> int:
         """Delete position snapshots older than specified days."""

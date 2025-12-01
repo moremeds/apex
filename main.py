@@ -26,7 +26,7 @@ from src.domain.services.risk.risk_signal_engine import RiskSignalEngine
 from src.domain.services.risk.risk_alert_logger import RiskAlertLogger
 # from src.domain.services.suggester import SimpleSuggester
 # from src.domain.services.shock_engine import SimpleShockEngine
-from src.application import Orchestrator, SimpleEventBus, AsyncEventBus
+from src.application import Orchestrator, AsyncEventBus
 from src.presentation import TerminalDashboard
 from src.infrastructure.persistence import PersistenceManager, DuckDBAdapter
 from src.infrastructure.persistence.persistence_manager import PersistenceConfig
@@ -69,12 +69,6 @@ Examples:
         help="Disable terminal dashboard (headless mode)"
     )
 
-    parser.add_argument(
-        "--event-driven",
-        action="store_true",
-        help="Enable event-driven mode (experimental)"
-    )
-
     return parser.parse_args()
 
 
@@ -112,12 +106,9 @@ async def main_async(args: argparse.Namespace) -> None:
     try:
         system_structured.info(LogCategory.SYSTEM, "Configuration loaded", {"env": args.env})
 
-        # Initialize event bus (use AsyncEventBus for event-driven mode)
-        if args.event_driven:
-            event_bus = AsyncEventBus()
-            system_structured.info(LogCategory.SYSTEM, "Using AsyncEventBus (event-driven mode)")
-        else:
-            event_bus = SimpleEventBus()
+        # Initialize event bus (always use AsyncEventBus)
+        event_bus = AsyncEventBus()
+        system_structured.info(LogCategory.SYSTEM, "Using AsyncEventBus")
 
         # Initialize data stores
         position_store = PositionStore()
@@ -260,17 +251,17 @@ async def main_async(args: argparse.Namespace) -> None:
                 persistence_manager=persistence_manager,
             )
 
-        # Start orchestrator
+        # Start dashboard FIRST (non-blocking) so it shows immediately
+        if dashboard:
+            dashboard.start()
+            # Show initial empty state while data loads
+            empty_snapshot = RiskSnapshot()
+            dashboard.update(empty_snapshot, [], [], [])
+
+        # Start orchestrator (event-driven mode is the default and only mode)
+        # Data fetching happens in background, dashboard updates when ready
         system_structured.info(LogCategory.SYSTEM, "Starting orchestrator")
         await orchestrator.start()
-
-        # Give orchestrator a moment to fully initialize
-        await asyncio.sleep(0.5)
-
-        # Enable event-driven mode if requested
-        if args.event_driven:
-            await orchestrator.enable_event_driven_mode()
-            system_structured.info(LogCategory.SYSTEM, "Event-driven mode enabled")
 
         # Debug: Check health components after orchestrator start
         initial_health = health_monitor.get_all_health()
@@ -280,11 +271,8 @@ async def main_async(args: argparse.Namespace) -> None:
             {"components": [h.component_name for h in initial_health]}
         )
 
-        # Start dashboard (blocking)
+        # Update loop - event-driven sync with orchestrator
         if dashboard:
-            dashboard.start()
-
-            # Update loop - event-driven sync with orchestrator
             try:
                 while True:
                     # Wait for orchestrator to signal new snapshot (instead of polling)
