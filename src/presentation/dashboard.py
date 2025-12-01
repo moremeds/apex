@@ -143,8 +143,13 @@ class TerminalDashboard:
         )
         # Split body into positions (left) and history (right)
         layout["body"].split_row(
-            Layout(name="positions", ratio=3),  # Current positions (left 75%)
-            Layout(name="history", ratio=2),    # Position history (right 25%)
+            Layout(name="positions", ratio=3),  # Current positions (left 60%)
+            Layout(name="history_panel", ratio=2),  # Position history panel (right 40%)
+        )
+        # Split history panel into today and recent (5 days)
+        layout["body"]["history_panel"].split_column(
+            Layout(name="history_today"),       # Today's changes (top)
+            Layout(name="history_recent"),      # Recent 5 days changes (bottom)
         )
         return layout
 
@@ -336,8 +341,11 @@ class TerminalDashboard:
         layout["body"]["positions"].update(
             self._render_broker_positions(snapshot.position_risks, broker)
         )
-        layout["body"]["history"].update(
-            self._render_position_history(broker)
+        layout["body"]["history_panel"]["history_today"].update(
+            self._render_position_history_today(broker)
+        )
+        layout["body"]["history_panel"]["history_recent"].update(
+            self._render_position_history_recent(broker)
         )
 
     def _render_header(self) -> Panel:
@@ -1309,16 +1317,16 @@ class TerminalDashboard:
 
         return Panel(table, title=f"{broker} Positions ({len(filtered_risks)})", border_style="blue")
 
-    def _render_position_history(self, broker: str) -> Panel:
+    def _render_position_history_today(self, broker: str) -> Panel:
         """
-        Render position change history for a broker.
+        Render today's position change history for a broker.
 
-        Shows recent OPEN/CLOSE/MODIFY events from the database.
+        Shows OPEN/CLOSE/MODIFY events from today.
         """
         if not self.persistence_manager:
             return Panel(
                 Text("Persistence not enabled", style="dim"),
-                title=f"{broker} Position History",
+                title=f"Today's Changes",
                 border_style="dim",
             )
 
@@ -1335,22 +1343,20 @@ class TerminalDashboard:
             if not broker_changes:
                 return Panel(
                     Text("No position changes today", style="dim"),
-                    title=f"{broker} Position History (Today)",
+                    title=f"Today's Changes ({broker})",
                     border_style="dim",
                 )
 
             # Create table
             table = Table(show_header=True, box=None, padding=(0, 1))
-            table.add_column("Time", style="dim", no_wrap=True, width=10)
-            table.add_column("Action", style="bold", no_wrap=True, width=8)
-            table.add_column("Symbol", style="cyan", no_wrap=True, width=25)
-            table.add_column("Underlying", style="white", no_wrap=True, width=10)
-            table.add_column("Qty Before", justify="right", width=12)
-            table.add_column("Qty After", justify="right", width=12)
-            table.add_column("Avg Price", justify="right", width=12)
+            table.add_column("Time", style="dim", no_wrap=True, width=8)
+            table.add_column("Action", style="bold", no_wrap=True, width=7)
+            table.add_column("Symbol", style="cyan", no_wrap=True)
+            table.add_column("Qty", justify="right", width=10)
+            table.add_column("Price", justify="right", width=10)
 
-            # Show most recent first, limit to 10 rows
-            for change in broker_changes[:10]:
+            # Show most recent first, limit to 8 rows
+            for change in broker_changes[:8]:
                 change_time = change.get("change_time")
                 time_str = change_time.strftime("%H:%M:%S") if change_time else ""
 
@@ -1367,31 +1373,135 @@ class TerminalDashboard:
                     type_style = "yellow"
                     icon = "~"
 
-                qty_before = change.get("quantity_before")
                 qty_after = change.get("quantity_after")
                 avg_price = change.get("avg_price_after") or change.get("avg_price_before")
 
+                # Show qty change for MODIFY, otherwise just qty_after
+                qty_str = f"{qty_after:,.0f}" if qty_after is not None else "-"
+
                 table.add_row(
                     time_str,
-                    Text(f"{icon} {change_type}", style=type_style),
-                    change.get("symbol", ""),
-                    change.get("underlying", ""),
-                    f"{qty_before:,.0f}" if qty_before is not None else "-",
-                    f"{qty_after:,.0f}" if qty_after is not None else "-",
+                    Text(f"{icon}{change_type[:3]}", style=type_style),
+                    change.get("symbol", "")[:20],  # Truncate long symbols
+                    qty_str,
                     f"${avg_price:,.2f}" if avg_price else "-",
                 )
 
             return Panel(
                 table,
-                title=f"{broker} Position History (Today: {len(broker_changes)} changes)",
+                title=f"Today's Changes ({len(broker_changes)})",
                 border_style="cyan",
             )
 
         except Exception as e:
-            logger.warning(f"Failed to load position history: {e}")
+            logger.warning(f"Failed to load today's position history: {e}")
             return Panel(
-                Text(f"Error loading history: {e}", style="red"),
-                title=f"{broker} Position History",
+                Text(f"Error: {e}", style="red"),
+                title="Today's Changes",
+                border_style="red",
+            )
+
+    def _render_position_history_recent(self, broker: str) -> Panel:
+        """
+        Render all stored positions from database for a broker.
+
+        Shows positions currently tracked in the database to verify persistence is working.
+        """
+        if not self.persistence_manager:
+            return Panel(
+                Text("Persistence not enabled", style="dim"),
+                title="Stored Positions (DB)",
+                border_style="dim",
+            )
+
+        try:
+            # Get all stored positions from database
+            all_positions = self.persistence_manager.get_all_position_snapshots(limit=100)
+
+            # Filter by broker source
+            broker_positions = [
+                p for p in all_positions
+                if p.get("source") == broker
+            ]
+
+            if not broker_positions:
+                # Show persistence stats to help debug
+                stats = self.persistence_manager.get_stats()
+                info_text = Text()
+                info_text.append("No positions stored for this broker\n\n", style="dim")
+                info_text.append(f"DB Stats:\n", style="cyan")
+                info_text.append(f"  Snapshots saved: {stats.get('snapshots_saved', 0)}\n", style="white")
+                info_text.append(f"  Changes detected: {stats.get('changes_detected', 0)}\n", style="white")
+                info_text.append(f"  Tracked positions: {stats.get('tracked_positions', 0)}\n", style="white")
+                return Panel(
+                    info_text,
+                    title=f"Stored Positions ({broker})",
+                    border_style="dim",
+                )
+
+            # Create table
+            table = Table(show_header=True, box=None, padding=(0, 1))
+            table.add_column("Symbol", style="cyan", no_wrap=True)
+            table.add_column("Qty", justify="right", width=8)
+            table.add_column("AvgPx", justify="right", width=10)
+            table.add_column("Mark", justify="right", width=10)
+            table.add_column("P&L", justify="right", width=10)
+            table.add_column("Updated", style="dim", width=10)
+
+            # Sort by underlying then symbol
+            broker_positions.sort(key=lambda p: (p.get("underlying", ""), p.get("symbol", "")))
+
+            for pos in broker_positions[:20]:  # Limit display
+                symbol = pos.get("symbol", "")[:18]
+                qty = pos.get("quantity")
+                avg_price = pos.get("avg_price")
+                mark_price = pos.get("mark_price")
+                pnl = pos.get("unrealized_pnl")
+                snapshot_time = pos.get("snapshot_time")
+
+                # Format values
+                qty_str = f"{qty:,.0f}" if qty is not None else "-"
+                avg_str = f"${avg_price:,.2f}" if avg_price else "-"
+                mark_str = f"${mark_price:,.2f}" if mark_price else "-"
+
+                # P&L with color
+                if pnl is not None:
+                    if pnl > 0:
+                        pnl_str = Text(f"+${pnl:,.0f}", style="green")
+                    elif pnl < 0:
+                        pnl_str = Text(f"-${abs(pnl):,.0f}", style="red")
+                    else:
+                        pnl_str = Text("$0", style="dim")
+                else:
+                    pnl_str = Text("-", style="dim")
+
+                # Time
+                time_str = snapshot_time.strftime("%H:%M:%S") if snapshot_time else "-"
+
+                table.add_row(
+                    symbol,
+                    qty_str,
+                    avg_str,
+                    mark_str,
+                    pnl_str,
+                    time_str,
+                )
+
+            # Show count and persistence stats
+            stats = self.persistence_manager.get_stats()
+            title = f"Stored Positions ({len(broker_positions)} in DB, {stats.get('changes_detected', 0)} changes)"
+
+            return Panel(
+                table,
+                title=title,
+                border_style="blue",
+            )
+
+        except Exception as e:
+            logger.warning(f"Failed to load stored positions: {e}")
+            return Panel(
+                Text(f"Error: {e}", style="red"),
+                title="Stored Positions",
                 border_style="red",
             )
 

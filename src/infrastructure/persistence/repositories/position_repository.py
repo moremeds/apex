@@ -193,6 +193,38 @@ class PositionRepository:
         """, (start_time, end_time))
         return [dict(row) for row in rows] if rows else []
 
+    def get_changes_recent_days(self, days: int = 5, exclude_today: bool = True) -> List[Dict[str, Any]]:
+        """
+        Get position changes for the last N days.
+
+        Args:
+            days: Number of days to look back (default 5)
+            exclude_today: If True, exclude today's changes (default True)
+
+        Returns:
+            List of position change records ordered by time descending
+        """
+        # DuckDB doesn't support parameterized intervals, so we calculate the date in Python
+        from datetime import timedelta
+        start_date = date.today() - timedelta(days=days)
+
+        if exclude_today:
+            # Get changes from N days ago up to (but not including) today
+            rows = self.db.fetch_all("""
+                SELECT * FROM position_changes
+                WHERE change_time >= ?
+                  AND change_time < CURRENT_DATE
+                ORDER BY change_time DESC
+            """, (start_date,))
+        else:
+            # Get changes from N days ago up to now
+            rows = self.db.fetch_all("""
+                SELECT * FROM position_changes
+                WHERE change_time >= ?
+                ORDER BY change_time DESC
+            """, (start_date,))
+        return [dict(row) for row in rows] if rows else []
+
     def cleanup_old_snapshots(self, days_to_keep: int = 90) -> int:
         """Delete position snapshots older than specified days."""
         result = self.db.execute("""

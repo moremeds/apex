@@ -91,6 +91,9 @@ class PersistenceManager:
 
         logger.info(f"PersistenceManager initialized: {self.config.db_path}")
 
+        # Load previous position state from database on startup
+        self._load_position_state_from_db()
+
     def persist_snapshot(self, snapshot: RiskSnapshot) -> None:
         """
         Persist a risk snapshot (positions + portfolio).
@@ -110,10 +113,32 @@ class PersistenceManager:
                     return
 
             # Filter to only broker positions (IB, FUTU - exclude MANUAL)
-            broker_position_risks = [
-                pr for pr in (snapshot.position_risks or [])
-                if pr.position.source in BROKER_SOURCES
-            ]
+            # Check both source and all_sources fields
+            broker_position_risks = []
+            for pr in (snapshot.position_risks or []):
+                if not pr.position:
+                    continue
+                pos = pr.position
+                # Check primary source
+                if pos.source in BROKER_SOURCES:
+                    broker_position_risks.append(pr)
+                # Also check all_sources (reconciler populates this)
+                elif pos.all_sources and any(s in BROKER_SOURCES for s in pos.all_sources):
+                    broker_position_risks.append(pr)
+
+            # Debug logging (print to console for visibility)
+            total_positions = len(snapshot.position_risks) if snapshot.position_risks else 0
+            if total_positions > 0:
+                sources = {}
+                for pr in snapshot.position_risks:
+                    src = pr.position.source.value if pr.position and pr.position.source else "None"
+                    sources[src] = sources.get(src, 0) + 1
+                msg = f"💾 Persistence: {total_positions} positions by source: {sources}, {len(broker_position_risks)} to save"
+                print(msg, flush=True)
+                logger.info(msg)
+            else:
+                print("💾 Persistence: No positions in snapshot", flush=True)
+                logger.info("Persistence: No positions in snapshot")
 
             # Save portfolio snapshot (uses full snapshot metrics which are already broker-based)
             self.portfolio.save_snapshot(snapshot)
@@ -121,6 +146,7 @@ class PersistenceManager:
             # Save position snapshots (only broker positions)
             if broker_position_risks:
                 self.positions.save_snapshots(broker_position_risks, now)
+                print(f"💾 Saved {len(broker_position_risks)} position snapshots to database", flush=True)
 
                 # Detect position changes (only broker positions)
                 if self.config.change_detection:
@@ -128,6 +154,9 @@ class PersistenceManager:
                     if changes:
                         self._change_batch.extend(changes)
                         self._flush_changes()
+                        print(f"💾 Detected {len(changes)} position changes", flush=True)
+            else:
+                print("💾 No broker positions to save (all MANUAL?)", flush=True)
 
             # Update daily P&L tracking
             self._update_daily_pnl(snapshot)
@@ -318,6 +347,80 @@ class PersistenceManager:
         self.flush()
         self.db.close()
         logger.info("PersistenceManager closed")
+
+    def _load_position_state_from_db(self) -> None:
+        """
+        Load previous position state from database on startup.
+
+        This enables proper change detection by comparing against the last
+        known positions from a previous session (reconciliation on startup).
+        """
+        try:
+            # Get the most recent position snapshot for each symbol
+            rows = self.db.fetch_all("""
+                SELECT DISTINCT ON (symbol)
+                    symbol, quantity, avg_price, source
+                FROM position_snapshots
+                WHERE source IN ('IB', 'FUTU')
+                ORDER BY symbol, snapshot_time DESC
+            """)
+
+            if rows:
+                for row in rows:
+                    row_dict = dict(row)
+                    symbol = row_dict.get("symbol")
+                    if symbol:
+                        self._position_states[symbol] = PositionState(
+                            symbol=symbol,
+                            quantity=row_dict.get("quantity", 0),
+                            avg_price=row_dict.get("avg_price"),
+                            source=row_dict.get("source"),
+                        )
+
+                logger.info(f"Loaded {len(self._position_states)} positions from database for change detection")
+            else:
+                logger.info("No previous positions found in database - starting fresh")
+
+        except Exception as e:
+            logger.warning(f"Failed to load position state from database: {e}")
+            # Continue with empty state - will treat all positions as new
+
+    def get_all_position_snapshots(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """
+        Get all position snapshots from database (most recent per symbol).
+
+        Args:
+            limit: Maximum number of positions to return
+
+        Returns:
+            List of position snapshot records
+        """
+        try:
+            rows = self.db.fetch_all(f"""
+                SELECT DISTINCT ON (symbol)
+                    symbol, underlying, asset_type, quantity, avg_price,
+                    mark_price, unrealized_pnl, daily_pnl, source,
+                    snapshot_time, expiry, strike, option_type
+                FROM position_snapshots
+                ORDER BY symbol, snapshot_time DESC
+                LIMIT {limit}
+            """)
+            return [dict(row) for row in rows] if rows else []
+        except Exception as e:
+            logger.warning(f"Failed to get position snapshots: {e}")
+            return []
+
+    def get_position_count(self) -> int:
+        """Get total count of unique positions in database."""
+        try:
+            result = self.db.fetch_one("""
+                SELECT COUNT(DISTINCT symbol) as count
+                FROM position_snapshots
+            """)
+            return result["count"] if result else 0
+        except Exception as e:
+            logger.warning(f"Failed to get position count: {e}")
+            return 0
 
     def __repr__(self) -> str:
         return f"PersistenceManager(db={self.config.db_path}, snapshots={self._stats['snapshots_saved']})"
