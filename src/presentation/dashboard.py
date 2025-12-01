@@ -35,8 +35,13 @@ from ..models.position_risk import PositionRisk
 from ..models.risk_signal import RiskSignal, SignalSeverity
 from src.domain.services.risk.rule_engine import LimitBreach, BreachSeverity
 from ..infrastructure.monitoring import ComponentHealth, HealthStatus
+from ..infrastructure.persistence import PersistenceManager
 from ..utils.market_hours import MarketHours
 
+# Type checking imports
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from ..infrastructure.persistence.persistence_manager import PersistenceManager
 
 logger = logging.getLogger(__name__)
 
@@ -60,19 +65,21 @@ class TerminalDashboard:
     - Position details (if enabled)
     """
 
-    def __init__(self, config: dict, env: str = "dev"):
+    def __init__(self, config: dict, env: str = "dev", persistence_manager: Optional[PersistenceManager] = None):
         """
         Initialize dashboard.
 
         Args:
             config: Dashboard configuration dict.
             env: Environment name (dev, demo, prod).
+            persistence_manager: Optional persistence manager for history queries.
         """
         self.config = config
         self.env = env
         self.show_positions = config.get("show_positions", True)
         self.console = Console()
         self.live: Optional[Live] = None
+        self.persistence_manager = persistence_manager
 
         # View state
         self._current_view = DashboardView.ACCOUNT_SUMMARY
@@ -128,11 +135,16 @@ class TerminalDashboard:
         return layout
 
     def _create_layout_broker_positions(self) -> Layout:
-        """Create broker positions view layout (Tab 3 & 4) - full screen positions."""
+        """Create broker positions view layout (Tab 3 & 4) - positions with history on right."""
         layout = Layout()
         layout.split_column(
             Layout(name="header", size=3),
-            Layout(name="positions"),  # Full screen for detailed positions
+            Layout(name="body"),
+        )
+        # Split body into positions (left) and history (right)
+        layout["body"].split_row(
+            Layout(name="positions", ratio=3),  # Current positions (left 75%)
+            Layout(name="history", ratio=2),    # Position history (right 25%)
         )
         return layout
 
@@ -321,8 +333,11 @@ class TerminalDashboard:
         """Update the broker positions view layout (Tab 3 & 4)."""
         layout = self.layout
         layout["header"].update(self._render_header())
-        layout["positions"].update(
+        layout["body"]["positions"].update(
             self._render_broker_positions(snapshot.position_risks, broker)
+        )
+        layout["body"]["history"].update(
+            self._render_position_history(broker)
         )
 
     def _render_header(self) -> Panel:
@@ -1293,6 +1308,92 @@ class TerminalDashboard:
                 )
 
         return Panel(table, title=f"{broker} Positions ({len(filtered_risks)})", border_style="blue")
+
+    def _render_position_history(self, broker: str) -> Panel:
+        """
+        Render position change history for a broker.
+
+        Shows recent OPEN/CLOSE/MODIFY events from the database.
+        """
+        if not self.persistence_manager:
+            return Panel(
+                Text("Persistence not enabled", style="dim"),
+                title=f"{broker} Position History",
+                border_style="dim",
+            )
+
+        try:
+            # Get today's position changes filtered by broker
+            changes = self.persistence_manager.positions.get_changes_today()
+
+            # Filter by broker source
+            broker_changes = [
+                c for c in changes
+                if c.get("source") == broker or (c.get("source") is None and broker == "IB")
+            ]
+
+            if not broker_changes:
+                return Panel(
+                    Text("No position changes today", style="dim"),
+                    title=f"{broker} Position History (Today)",
+                    border_style="dim",
+                )
+
+            # Create table
+            table = Table(show_header=True, box=None, padding=(0, 1))
+            table.add_column("Time", style="dim", no_wrap=True, width=10)
+            table.add_column("Action", style="bold", no_wrap=True, width=8)
+            table.add_column("Symbol", style="cyan", no_wrap=True, width=25)
+            table.add_column("Underlying", style="white", no_wrap=True, width=10)
+            table.add_column("Qty Before", justify="right", width=12)
+            table.add_column("Qty After", justify="right", width=12)
+            table.add_column("Avg Price", justify="right", width=12)
+
+            # Show most recent first, limit to 10 rows
+            for change in broker_changes[:10]:
+                change_time = change.get("change_time")
+                time_str = change_time.strftime("%H:%M:%S") if change_time else ""
+
+                change_type = change.get("change_type", "UNKNOWN")
+
+                # Style based on change type
+                if change_type == "OPEN":
+                    type_style = "green"
+                    icon = "+"
+                elif change_type == "CLOSE":
+                    type_style = "red"
+                    icon = "−"
+                else:  # MODIFY
+                    type_style = "yellow"
+                    icon = "~"
+
+                qty_before = change.get("quantity_before")
+                qty_after = change.get("quantity_after")
+                avg_price = change.get("avg_price_after") or change.get("avg_price_before")
+
+                table.add_row(
+                    time_str,
+                    Text(f"{icon} {change_type}", style=type_style),
+                    change.get("symbol", ""),
+                    change.get("underlying", ""),
+                    f"{qty_before:,.0f}" if qty_before is not None else "-",
+                    f"{qty_after:,.0f}" if qty_after is not None else "-",
+                    f"${avg_price:,.2f}" if avg_price else "-",
+                )
+
+            return Panel(
+                table,
+                title=f"{broker} Position History (Today: {len(broker_changes)} changes)",
+                border_style="cyan",
+            )
+
+        except Exception as e:
+            logger.warning(f"Failed to load position history: {e}")
+            return Panel(
+                Text(f"Error loading history: {e}", style="red"),
+                title=f"{broker} Position History",
+                border_style="red",
+            )
 
     def _render_positions_profile(
         self, position_risks: List[PositionRisk]

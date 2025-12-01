@@ -13,7 +13,7 @@ Coordinates:
 from __future__ import annotations
 import asyncio
 from datetime import datetime
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, TYPE_CHECKING
 import logging
 
 from ..domain.interfaces.position_provider import PositionProvider
@@ -32,6 +32,10 @@ from ..models.position import Position
 from ..models.risk_signal import RiskSignal
 from ..infrastructure.stores import PositionStore, MarketDataStore, AccountStore
 from ..infrastructure.monitoring import HealthMonitor, HealthStatus, Watchdog
+from ..infrastructure.persistence import PersistenceManager
+
+if TYPE_CHECKING:
+    from ..infrastructure.adapters.ib_adapter import IBAdapter
 
 
 logger = logging.getLogger(__name__)
@@ -52,7 +56,7 @@ class Orchestrator:
 
     def __init__(
         self,
-        ib_adapter: Optional[PositionProvider | MarketDataProvider],
+        ib_adapter: Optional["IBAdapter"],
         file_loader: PositionProvider,
         position_store: PositionStore,
         market_data_store: MarketDataStore,
@@ -69,6 +73,7 @@ class Orchestrator:
         futu_adapter: Optional[PositionProvider] = None,
         risk_signal_engine: RiskSignalEngine | None = None,
         risk_alert_logger: RiskAlertLogger | None = None,
+        persistence_manager: PersistenceManager | None = None,
     ):
         """
         Initialize orchestrator with all dependencies.
@@ -91,6 +96,7 @@ class Orchestrator:
             futu_adapter: Optional Futu adapter (positions + account).
             risk_signal_engine: Multi-layer risk signal engine (optional, replaces rule_engine).
             risk_alert_logger: Optional risk alert logger for audit trail.
+            persistence_manager: Optional persistence manager for database storage.
         """
         self.ib_adapter = ib_adapter
         self.futu_adapter = futu_adapter
@@ -109,6 +115,7 @@ class Orchestrator:
         self.market_alert_detector = market_alert_detector
         self.risk_signal_engine = risk_signal_engine
         self.risk_alert_logger = risk_alert_logger
+        self.persistence_manager = persistence_manager
 
         self.refresh_interval_sec = config.get("dashboard", {}).get("refresh_interval_sec", 2)
         self._running = False
@@ -167,6 +174,10 @@ class Orchestrator:
             await self.futu_adapter.disconnect()
         if self.file_loader:
             await self.file_loader.disconnect()
+
+        # Close persistence manager (flushes pending writes)
+        if self.persistence_manager:
+            self.persistence_manager.close()
 
         logger.info("Orchestrator stopped")
 
@@ -487,6 +498,13 @@ class Orchestrator:
         # Signal that new snapshot is ready (for dashboard sync)
         self._snapshot_ready.set()
 
+        # 6. Persist snapshot to database (non-blocking)
+        if self.persistence_manager:
+            try:
+                self.persistence_manager.persist_snapshot(snapshot)
+            except Exception as e:
+                logger.warning(f"Failed to persist snapshot: {e}")
+
         # 7. Evaluate risk limits (use RiskSignalEngine if available, else legacy RuleEngine)
         if self.risk_signal_engine:
             # New: Multi-layer risk signal engine
@@ -496,6 +514,13 @@ class Orchestrator:
                 logger.warning(f"Found {len(risk_signals)} risk signals")
                 for signal in risk_signals:
                     self.event_bus.publish(EventType.LIMIT_BREACHED, signal)
+
+                # Persist risk signals to database
+                if self.persistence_manager:
+                    try:
+                        self.persistence_manager.persist_alerts(risk_signals)
+                    except Exception as e:
+                        logger.warning(f"Failed to persist risk signals: {e}")
         else:
             # Legacy: Portfolio rule engine only
             breaches = self.rule_engine.evaluate(snapshot)
