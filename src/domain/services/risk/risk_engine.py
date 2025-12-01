@@ -13,10 +13,11 @@ Performance features:
 """
 
 from __future__ import annotations
-from typing import Dict, List, Any, Tuple, Optional
+from typing import Dict, List, Any, Tuple, Optional, Set, TYPE_CHECKING
 from datetime import date, datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from threading import Lock
 import logging
 from src.models.position import Position
 from src.models.market_data import MarketData
@@ -24,6 +25,9 @@ from src.models.account import AccountInfo
 from src.models.risk_snapshot import RiskSnapshot
 from src.models.position_risk import PositionRisk
 from src.utils.market_hours import MarketHours
+
+if TYPE_CHECKING:
+    from src.domain.interfaces.event_bus import EventBus
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +81,12 @@ class RiskEngine:
         self.config = config
         self.parallel_threshold = parallel_threshold
         self.max_workers = max_workers
+
+        # Event-driven state tracking
+        self._lock = Lock()
+        self._needs_rebuild = False
+        self._dirty_underlyings: Set[str] = set()
+        self._event_bus: Optional["EventBus"] = None
 
     def build_snapshot(
         self,
@@ -516,3 +526,113 @@ class RiskEngine:
             "vega": 0.0,
             "theta": 0.0,
         }
+
+    # ========== Event-Driven Methods ==========
+
+    def subscribe_to_events(self, event_bus: "EventBus") -> None:
+        """
+        Subscribe to data change events.
+
+        Args:
+            event_bus: Event bus to subscribe to.
+        """
+        from src.domain.interfaces.event_bus import EventType
+
+        self._event_bus = event_bus
+
+        event_bus.subscribe(EventType.POSITIONS_BATCH, self._on_data_changed)
+        event_bus.subscribe(EventType.POSITION_UPDATED, self._on_data_changed)
+        event_bus.subscribe(EventType.MARKET_DATA_BATCH, self._on_data_changed)
+        event_bus.subscribe(EventType.MARKET_DATA_TICK, self._on_market_tick)
+        event_bus.subscribe(EventType.ACCOUNT_UPDATED, self._on_data_changed)
+        event_bus.subscribe(EventType.TIMER_TICK, self._on_timer)
+        logger.debug("RiskEngine subscribed to events")
+
+    def _on_data_changed(self, payload: dict) -> None:
+        """
+        Handle data change events (positions, market data batch, account).
+
+        Marks that full snapshot rebuild is needed.
+
+        Args:
+            payload: Event payload.
+        """
+        with self._lock:
+            self._needs_rebuild = True
+        logger.debug(f"RiskEngine marked dirty: {payload.get('source', 'unknown')} data changed")
+
+    def _on_market_tick(self, payload: dict) -> None:
+        """
+        Handle single market data tick (from streaming).
+
+        Only marks the affected underlying as dirty for incremental rebuild.
+
+        Args:
+            payload: Event payload with 'symbol' and 'data'.
+        """
+        symbol = payload.get("symbol", "")
+        data = payload.get("data")
+
+        # Get underlying from market data or symbol
+        underlying = symbol
+        if data and hasattr(data, "underlying") and data.underlying:
+            underlying = data.underlying
+        elif " " in symbol:  # Option symbol format: "AAPL  240119C..."
+            underlying = symbol.split()[0]
+
+        with self._lock:
+            self._dirty_underlyings.add(underlying)
+
+    def _on_timer(self, payload: dict) -> None:
+        """
+        Handle timer tick for periodic reconciliation.
+
+        Forces rebuild if any dirty state exists.
+
+        Args:
+            payload: Event payload.
+        """
+        with self._lock:
+            if self._dirty_underlyings:
+                self._needs_rebuild = True
+        logger.debug("RiskEngine timer tick")
+
+    def needs_rebuild(self) -> bool:
+        """
+        Check if snapshot needs rebuild.
+
+        Returns:
+            True if rebuild is needed.
+        """
+        with self._lock:
+            return self._needs_rebuild or bool(self._dirty_underlyings)
+
+    def clear_dirty_state(self) -> None:
+        """Clear dirty state after rebuild."""
+        with self._lock:
+            self._needs_rebuild = False
+            self._dirty_underlyings.clear()
+
+    def get_dirty_underlyings(self) -> Set[str]:
+        """
+        Get set of underlyings with updated data.
+
+        Returns:
+            Set of underlying symbols that have changed.
+        """
+        with self._lock:
+            return set(self._dirty_underlyings)
+
+    def publish_snapshot(self, snapshot: RiskSnapshot) -> None:
+        """
+        Publish snapshot ready event.
+
+        Args:
+            snapshot: The computed risk snapshot.
+        """
+        if self._event_bus:
+            from src.domain.interfaces.event_bus import EventType
+            self._event_bus.publish(EventType.SNAPSHOT_READY, {
+                "snapshot": snapshot,
+                "timestamp": datetime.now(),
+            })

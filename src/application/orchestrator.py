@@ -33,6 +33,7 @@ from ..models.risk_signal import RiskSignal
 from ..infrastructure.stores import PositionStore, MarketDataStore, AccountStore
 from ..infrastructure.monitoring import HealthMonitor, HealthStatus, Watchdog
 from ..infrastructure.persistence import PersistenceManager
+from .async_event_bus import AsyncEventBus
 
 if TYPE_CHECKING:
     from ..infrastructure.adapters.ib_adapter import IBAdapter
@@ -133,6 +134,11 @@ class Orchestrator:
         self._market_data_updated: asyncio.Event = asyncio.Event()
         self._last_streaming_rebuild: datetime | None = None
 
+        # Event-driven mode
+        self._event_driven_mode = False
+        self._timer_task: asyncio.Task | None = None
+        self._snapshot_dispatcher_task: asyncio.Task | None = None
+
     async def start(self) -> None:
         """Start the orchestrator main loop."""
         if self._running:
@@ -156,6 +162,10 @@ class Orchestrator:
         """Stop the orchestrator."""
         logger.info("Stopping orchestrator...")
         self._running = False
+
+        # Disable event-driven mode if enabled
+        if self._event_driven_mode:
+            await self.disable_event_driven_mode()
 
         if self._task:
             self._task.cancel()
@@ -682,4 +692,156 @@ class Orchestrator:
             f"Logged {len(self._latest_market_alerts)} market alerts, "
             f"{len(self._latest_risk_signals)} risk signals to audit trail"
         )
+
+    # ========== Event-Driven Mode Methods ==========
+
+    async def enable_event_driven_mode(self) -> None:
+        """
+        Enable event-driven mode.
+
+        This subscribes all components to the event bus and starts
+        background tasks for timer and snapshot dispatching.
+        """
+        if self._event_driven_mode:
+            logger.warning("Event-driven mode already enabled")
+            return
+
+        logger.info("Enabling event-driven mode...")
+
+        # Start async event bus if it's the right type
+        if isinstance(self.event_bus, AsyncEventBus):
+            await self.event_bus.start()
+            logger.info("AsyncEventBus started")
+
+        # Subscribe all components to events
+        self._subscribe_components_to_events()
+
+        # Start timer task for periodic reconciliation
+        self._timer_task = asyncio.create_task(self._timer_loop())
+
+        # Start snapshot dispatcher (debounced rebuilds)
+        self._snapshot_dispatcher_task = asyncio.create_task(self._snapshot_dispatcher())
+
+        self._event_driven_mode = True
+        logger.info("Event-driven mode enabled")
+
+    def _subscribe_components_to_events(self) -> None:
+        """Subscribe all components to the event bus."""
+        # Subscribe stores
+        if hasattr(self.position_store, 'subscribe_to_events'):
+            self.position_store.subscribe_to_events(self.event_bus)
+
+        if hasattr(self.market_data_store, 'subscribe_to_events'):
+            self.market_data_store.subscribe_to_events(self.event_bus)
+
+        if hasattr(self.account_store, 'subscribe_to_events'):
+            self.account_store.subscribe_to_events(self.event_bus)
+
+        # Subscribe risk engine
+        if hasattr(self.risk_engine, 'subscribe_to_events'):
+            self.risk_engine.subscribe_to_events(self.event_bus)
+
+        # Subscribe persistence manager
+        if self.persistence_manager and hasattr(self.persistence_manager, 'subscribe_to_events'):
+            self.persistence_manager.subscribe_to_events(self.event_bus)
+
+        logger.info("All components subscribed to events")
+
+    async def _timer_loop(self) -> None:
+        """
+        Timer loop that emits TIMER_TICK events for periodic reconciliation.
+
+        This ensures the system remains consistent even if events are missed.
+        """
+        while self._running:
+            try:
+                await asyncio.sleep(self.refresh_interval_sec)
+                self.event_bus.publish(EventType.TIMER_TICK, {
+                    "timestamp": datetime.now(),
+                })
+            except asyncio.CancelledError:
+                logger.debug("Timer loop cancelled")
+                break
+            except Exception as e:
+                logger.error(f"Timer loop error: {e}")
+
+    async def _snapshot_dispatcher(self) -> None:
+        """
+        Snapshot dispatcher with debouncing.
+
+        Rebuilds snapshots when the risk engine is marked dirty,
+        with a minimum interval between rebuilds.
+        """
+        min_interval_sec = 0.1  # 100ms debounce
+
+        while self._running:
+            try:
+                await asyncio.sleep(min_interval_sec)
+
+                # Check if risk engine needs rebuild
+                if hasattr(self.risk_engine, 'needs_rebuild') and self.risk_engine.needs_rebuild():
+                    # Rebuild snapshot
+                    positions = self.position_store.get_all()
+                    if positions:
+                        market_data = self.market_data_store.get_all()
+                        account_info = self.account_store.get()
+
+                        if account_info:
+                            snapshot = self.risk_engine.build_snapshot(
+                                positions, market_data, account_info
+                            )
+                            self._latest_snapshot = snapshot
+
+                            # Clear dirty state
+                            self.risk_engine.clear_dirty_state()
+
+                            # Publish snapshot ready event
+                            self.risk_engine.publish_snapshot(snapshot)
+
+                            # Signal dashboard
+                            self._snapshot_ready.set()
+
+                            logger.debug(f"Event-driven snapshot rebuild: {len(positions)} positions")
+
+            except asyncio.CancelledError:
+                logger.debug("Snapshot dispatcher cancelled")
+                break
+            except Exception as e:
+                logger.error(f"Snapshot dispatcher error: {e}")
+
+    async def disable_event_driven_mode(self) -> None:
+        """Disable event-driven mode and clean up tasks."""
+        if not self._event_driven_mode:
+            return
+
+        logger.info("Disabling event-driven mode...")
+
+        # Cancel timer task
+        if self._timer_task:
+            self._timer_task.cancel()
+            try:
+                await self._timer_task
+            except asyncio.CancelledError:
+                pass
+
+        # Cancel snapshot dispatcher
+        if self._snapshot_dispatcher_task:
+            self._snapshot_dispatcher_task.cancel()
+            try:
+                await self._snapshot_dispatcher_task
+            except asyncio.CancelledError:
+                pass
+
+        # Stop async event bus
+        if isinstance(self.event_bus, AsyncEventBus):
+            await self.event_bus.stop()
+
+        self._event_driven_mode = False
+        logger.info("Event-driven mode disabled")
+
+    def get_event_bus_stats(self) -> Dict[str, Any]:
+        """Get event bus statistics (if async event bus is used)."""
+        if isinstance(self.event_bus, AsyncEventBus):
+            return self.event_bus.get_stats()
+        return {}
 

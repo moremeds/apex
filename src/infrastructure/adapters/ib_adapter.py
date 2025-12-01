@@ -5,13 +5,14 @@ Implements PositionProvider and MarketDataProvider interfaces for IBKR TWS/Gatew
 """
 
 from __future__ import annotations
-from typing import List, Dict, Optional, Literal
+from typing import List, Dict, Optional, Literal, TYPE_CHECKING
 from datetime import datetime
 from math import isnan
 import logging
 
 from ...domain.interfaces.position_provider import PositionProvider
 from ...domain.interfaces.market_data_provider import MarketDataProvider
+from ...domain.interfaces.event_bus import EventBus, EventType
 from ...models.position import Position, AssetType, PositionSource
 from ...models.market_data import MarketData
 from ...models.account import AccountInfo
@@ -36,6 +37,7 @@ class IbAdapter(PositionProvider, MarketDataProvider):
         reconnect_backoff_initial: int = 1,
         reconnect_backoff_max: int = 60,
         reconnect_backoff_factor: float = 2.0,
+        event_bus: Optional[EventBus] = None,
     ):
         """
         Initialize IB adapter.
@@ -47,6 +49,7 @@ class IbAdapter(PositionProvider, MarketDataProvider):
             reconnect_backoff_initial: Initial reconnect delay (seconds).
             reconnect_backoff_max: Max reconnect delay (seconds).
             reconnect_backoff_factor: Backoff multiplier.
+            event_bus: Optional event bus for publishing events.
         """
         self.host = host
         self.port = port
@@ -60,6 +63,9 @@ class IbAdapter(PositionProvider, MarketDataProvider):
         self._subscribed_symbols: List[str] = []
         self._market_data_cache: Dict[str, MarketData] = {}
         self._market_data_fetcher: Optional[MarketDataFetcher] = None
+
+        # Event bus for publishing events
+        self._event_bus = event_bus
 
         # Cache for account info (avoid excessive API calls)
         self._account_cache: Optional[AccountInfo] = None
@@ -152,6 +158,15 @@ class IbAdapter(PositionProvider, MarketDataProvider):
             # Update cache
             self._position_cache = positions
             self._position_cache_time = datetime.now()
+
+            # Emit event
+            if self._event_bus and positions:
+                self._event_bus.publish(EventType.POSITIONS_BATCH, {
+                    "positions": positions,
+                    "source": "IB",
+                    "count": len(positions),
+                    "timestamp": datetime.now(),
+                })
         except Exception as e:
             logger.error(f"Failed to fetch positions from IB: {e}")
             # Return cached data on error if available
@@ -298,6 +313,15 @@ class IbAdapter(PositionProvider, MarketDataProvider):
                     logger.error(f"Error fetching market data: {e}")
 
             logger.info(f"✓ Fetched market data for {len(market_data_list)}/{len(positions)} positions")
+
+            # Emit event
+            if self._event_bus and market_data_list:
+                self._event_bus.publish(EventType.MARKET_DATA_BATCH, {
+                    "market_data": market_data_list,
+                    "source": "IB",
+                    "count": len(market_data_list),
+                    "timestamp": datetime.now(),
+                })
 
         except Exception as e:
             logger.error(f"Error in fetch_market_data: {e}")
@@ -523,6 +547,14 @@ class IbAdapter(PositionProvider, MarketDataProvider):
             self._account_cache = account_info
             self._account_cache_time = datetime.now()
 
+            # Emit event
+            if self._event_bus:
+                self._event_bus.publish(EventType.ACCOUNT_UPDATED, {
+                    "account": account_info,
+                    "source": "IB",
+                    "timestamp": datetime.now(),
+                })
+
             return account_info
 
         except Exception as e:
@@ -559,11 +591,20 @@ class IbAdapter(PositionProvider, MarketDataProvider):
         """
         Handle streaming market data update from fetcher.
 
-        Updates cache and fires callback if registered.
+        Updates cache, emits event, and fires callback if registered.
         """
         # Update cache
         self._market_data_cache[symbol] = market_data
 
-        # Fire callback
+        # Emit event (non-blocking via event bus)
+        if self._event_bus:
+            self._event_bus.publish(EventType.MARKET_DATA_TICK, {
+                "symbol": symbol,
+                "data": market_data,
+                "source": "IB",
+                "timestamp": datetime.now(),
+            })
+
+        # Fire callback (legacy support)
         if self._on_market_data_update:
             self._on_market_data_update(symbol, market_data)

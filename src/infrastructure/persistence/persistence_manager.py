@@ -17,6 +17,7 @@ from src.models.risk_snapshot import RiskSnapshot
 from src.models.position_risk import PositionRisk
 from src.models.risk_signal import RiskSignal
 from src.models.position import PositionSource
+from src.domain.interfaces.event_bus import EventBus, EventType
 
 logger = logging.getLogger(__name__)
 
@@ -424,3 +425,62 @@ class PersistenceManager:
 
     def __repr__(self) -> str:
         return f"PersistenceManager(db={self.config.db_path}, snapshots={self._stats['snapshots_saved']})"
+
+    # ========== Event-Driven Methods ==========
+
+    def subscribe_to_events(self, event_bus: EventBus) -> None:
+        """
+        Subscribe to persistence-related events.
+
+        Args:
+            event_bus: Event bus to subscribe to.
+        """
+        event_bus.subscribe(EventType.SNAPSHOT_READY, self._on_snapshot_ready)
+        event_bus.subscribe(EventType.RISK_SIGNAL, self._on_risk_signal)
+        event_bus.subscribe(EventType.POSITION_UPDATED, self._on_position_change)
+        logger.debug("PersistenceManager subscribed to events")
+
+    def _on_snapshot_ready(self, payload: dict) -> None:
+        """
+        Handle snapshot ready event.
+
+        Persists the snapshot asynchronously.
+
+        Args:
+            payload: Event payload with 'snapshot'.
+        """
+        snapshot = payload.get("snapshot")
+        if snapshot:
+            try:
+                self.persist_snapshot(snapshot)
+            except Exception as e:
+                logger.error(f"Failed to persist snapshot from event: {e}")
+
+    def _on_risk_signal(self, payload: dict) -> None:
+        """
+        Handle risk signal event.
+
+        Persists the signal to the database.
+
+        Args:
+            payload: Event payload with 'signal'.
+        """
+        signal = payload.get("signal")
+        if signal:
+            try:
+                self.persist_alerts([signal])
+            except Exception as e:
+                logger.error(f"Failed to persist risk signal from event: {e}")
+
+    def _on_position_change(self, payload: dict) -> None:
+        """
+        Handle position update event (e.g., from trade deal push).
+
+        Logs the position change for audit trail.
+
+        Args:
+            payload: Event payload with position update info.
+        """
+        symbol = payload.get("symbol", "unknown")
+        source = payload.get("source", "unknown")
+        logger.info(f"Position change event: {symbol} from {source}")

@@ -26,7 +26,7 @@ from src.domain.services.risk.risk_signal_engine import RiskSignalEngine
 from src.domain.services.risk.risk_alert_logger import RiskAlertLogger
 # from src.domain.services.suggester import SimpleSuggester
 # from src.domain.services.shock_engine import SimpleShockEngine
-from src.application import Orchestrator, SimpleEventBus
+from src.application import Orchestrator, SimpleEventBus, AsyncEventBus
 from src.presentation import TerminalDashboard
 from src.infrastructure.persistence import PersistenceManager, DuckDBAdapter
 from src.infrastructure.persistence.persistence_manager import PersistenceConfig
@@ -69,6 +69,12 @@ Examples:
         help="Disable terminal dashboard (headless mode)"
     )
 
+    parser.add_argument(
+        "--event-driven",
+        action="store_true",
+        help="Enable event-driven mode (experimental)"
+    )
+
     return parser.parse_args()
 
 
@@ -106,8 +112,12 @@ async def main_async(args: argparse.Namespace) -> None:
     try:
         system_structured.info(LogCategory.SYSTEM, "Configuration loaded", {"env": args.env})
 
-        # Initialize event bus
-        event_bus = SimpleEventBus()
+        # Initialize event bus (use AsyncEventBus for event-driven mode)
+        if args.event_driven:
+            event_bus = AsyncEventBus()
+            system_structured.info(LogCategory.SYSTEM, "Using AsyncEventBus (event-driven mode)")
+        else:
+            event_bus = SimpleEventBus()
 
         # Initialize data stores
         position_store = PositionStore()
@@ -123,6 +133,7 @@ async def main_async(args: argparse.Namespace) -> None:
                 host=config.ibkr.host,
                 port=config.ibkr.port,
                 client_id=config.ibkr.client_id,
+                event_bus=event_bus,  # Pass event bus to adapter
             )
             system_structured.info(LogCategory.SYSTEM, "IB adapter ENABLED", {
                 "host": config.ibkr.host,
@@ -138,6 +149,7 @@ async def main_async(args: argparse.Namespace) -> None:
                 security_firm=config.futu.security_firm,
                 trd_env=config.futu.trd_env,
                 filter_trdmarket=config.futu.filter_trdmarket,
+                event_bus=event_bus,  # Pass event bus to adapter
             )
             system_structured.info(LogCategory.SYSTEM, "Futu adapter ENABLED", {
                 "host": config.futu.host,
@@ -254,6 +266,11 @@ async def main_async(args: argparse.Namespace) -> None:
 
         # Give orchestrator a moment to fully initialize
         await asyncio.sleep(0.5)
+
+        # Enable event-driven mode if requested
+        if args.event_driven:
+            await orchestrator.enable_event_driven_mode()
+            system_structured.info(LogCategory.SYSTEM, "Event-driven mode enabled")
 
         # Debug: Check health components after orchestrator start
         initial_health = health_monitor.get_all_health()

@@ -114,7 +114,10 @@ class MarketDataFetcher:
         contract_pos_pairs: List[Tuple]
     ) -> List[MarketData]:
         """
-        Fetch stock market data using snapshot method.
+        Fetch stock market data using streaming subscription.
+
+        Uses reqMktData for real-time streaming updates (same as options).
+        This ensures stocks get the same streaming updates as options.
 
         Args:
             contracts: List of stock contracts
@@ -123,19 +126,28 @@ class MarketDataFetcher:
         Returns:
             List of MarketData objects
         """
-        logger.debug(f"Fetching snapshot data for {len(contracts)} stocks...")
+        logger.debug(f"Subscribing to streaming data for {len(contracts)} stocks...")
         market_data_list = []
 
         try:
-            # Use reqTickers for fast snapshot data
-            tickers = await self.ib.reqTickersAsync(*contracts)
-
-            for i, ticker in enumerate(tickers):
+            # Subscribe to streaming data for each stock (like options)
+            for i, contract in enumerate(contracts):
                 try:
                     _, pos = contract_pos_pairs[i]
 
                     # Store position mapping for streaming callbacks
                     self._ticker_positions[pos.symbol] = pos
+
+                    # Check if already subscribed
+                    if pos.symbol in self._active_tickers:
+                        ticker = self._active_tickers[pos.symbol]
+                    else:
+                        # Subscribe to streaming data (no special generic ticks for stocks)
+                        ticker = self.ib.reqMktData(contract, '', False, False)
+                        self._active_tickers[pos.symbol] = ticker
+
+                    # Wait for data to populate
+                    await self._wait_for_ticker_data(ticker, timeout=self.data_timeout)
 
                     md = self._extract_market_data(ticker, pos)
 
@@ -146,13 +158,34 @@ class MarketDataFetcher:
                     logger.debug(f"✓ Stock data for {pos.symbol}: bid={md.bid}, ask={md.ask}")
 
                 except Exception as e:
-                    logger.warning(f"Failed to parse stock data: {e}")
+                    logger.warning(f"Failed to subscribe stock {contract.symbol}: {e}")
                     continue
 
         except Exception as e:
-            logger.error(f"Error fetching stock snapshots: {e}")
+            logger.error(f"Error fetching stock data: {e}")
 
         return market_data_list
+
+    async def _wait_for_ticker_data(self, ticker, timeout: float = 3.0) -> bool:
+        """
+        Wait for ticker to have valid data.
+
+        Args:
+            ticker: IB ticker object
+            timeout: Maximum time to wait
+
+        Returns:
+            True if data received, False if timeout
+        """
+        start = asyncio.get_event_loop().time()
+        while asyncio.get_event_loop().time() - start < timeout:
+            # Check if we have valid price data
+            if ticker.last and not isnan(ticker.last) and ticker.last > 0:
+                return True
+            if ticker.bid and not isnan(ticker.bid) and ticker.bid > 0:
+                return True
+            await asyncio.sleep(self.poll_interval)
+        return False
 
     async def _fetch_option_streaming_with_fallback(
         self,

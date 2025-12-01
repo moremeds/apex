@@ -14,6 +14,7 @@ import re
 import threading
 
 from ...domain.interfaces.position_provider import PositionProvider
+from ...domain.interfaces.event_bus import EventBus, EventType
 from ...models.position import Position, AssetType, PositionSource
 from ...models.account import AccountInfo
 
@@ -119,6 +120,7 @@ class FutuAdapter(PositionProvider):
         reconnect_backoff_initial: int = 1,
         reconnect_backoff_max: int = 60,
         reconnect_backoff_factor: float = 2.0,
+        event_bus: Optional[EventBus] = None,
     ):
         """
         Initialize Futu adapter.
@@ -132,6 +134,7 @@ class FutuAdapter(PositionProvider):
             reconnect_backoff_initial: Initial reconnect delay (seconds).
             reconnect_backoff_max: Max reconnect delay (seconds).
             reconnect_backoff_factor: Backoff multiplier.
+            event_bus: Optional event bus for publishing events.
         """
         self.host = host
         self.port = port
@@ -145,6 +148,9 @@ class FutuAdapter(PositionProvider):
         self._trd_ctx = None  # OpenSecTradeContext instance (lazy init)
         self._connected = False
         self._acc_id: Optional[int] = None  # Selected account ID
+
+        # Event bus for publishing events
+        self._event_bus = event_bus
 
         # Cache for account info (Futu rate limit: 10 calls per 30 seconds)
         # With both positions and account queries, need at least 6 seconds between each type
@@ -295,7 +301,7 @@ class FutuAdapter(PositionProvider):
         """
         Callback invoked when a trade deal is received via push.
 
-        Invalidates the position cache to force a fresh fetch on next request.
+        Invalidates the position cache, emits event, and forces a fresh fetch.
         This is called from Futu's internal thread, so we use the cache lock.
 
         Args:
@@ -310,6 +316,15 @@ class FutuAdapter(PositionProvider):
                 f"Trade deal notification: {code} qty={qty} side={trd_side} - "
                 "invalidating position cache"
             )
+
+            # Emit event for trade deal (position update signal)
+            if self._event_bus:
+                self._event_bus.publish(EventType.POSITION_UPDATED, {
+                    "symbol": code,
+                    "deal": deal_data,
+                    "source": "FUTU",
+                    "timestamp": datetime.now(),
+                })
 
             # Invalidate position cache to force refresh on next fetch
             with self._cache_lock:
@@ -418,6 +433,15 @@ class FutuAdapter(PositionProvider):
                 self._position_cache_time = datetime.now()
                 # Clear any prior cooldown after a successful fetch
                 self._position_cooldown_until = None
+
+            # Emit event
+            if self._event_bus and positions:
+                self._event_bus.publish(EventType.POSITIONS_BATCH, {
+                    "positions": positions,
+                    "source": "FUTU",
+                    "count": len(positions),
+                    "timestamp": datetime.now(),
+                })
 
         except Exception as e:
             # Only mark disconnected on connection-related errors
@@ -670,6 +694,14 @@ class FutuAdapter(PositionProvider):
             # Update cache
             self._account_cache = account_info
             self._account_cache_time = datetime.now()
+
+            # Emit event
+            if self._event_bus:
+                self._event_bus.publish(EventType.ACCOUNT_UPDATED, {
+                    "account": account_info,
+                    "source": "FUTU",
+                    "timestamp": datetime.now(),
+                })
 
             return account_info
 

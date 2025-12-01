@@ -1,10 +1,17 @@
 """Thread-safe in-memory market data store with separate price/Greeks caching."""
 
 from __future__ import annotations
-from typing import Dict, Iterable, List, Optional
+from typing import Dict, Iterable, List, Optional, TYPE_CHECKING
 from threading import RLock
 from datetime import datetime, timedelta
+import logging
+
 from ...models.market_data import MarketData
+
+if TYPE_CHECKING:
+    from ...domain.interfaces.event_bus import EventBus
+
+logger = logging.getLogger(__name__)
 
 
 class MarketDataStore:
@@ -147,3 +154,40 @@ class MarketDataStore:
         """Get market data count."""
         with self._lock:
             return len(self._market_data)
+
+    def subscribe_to_events(self, event_bus: "EventBus") -> None:
+        """
+        Subscribe to market data-related events.
+
+        Args:
+            event_bus: Event bus to subscribe to.
+        """
+        from ...domain.interfaces.event_bus import EventType
+
+        event_bus.subscribe(EventType.MARKET_DATA_BATCH, self._on_market_data_batch)
+        event_bus.subscribe(EventType.MARKET_DATA_TICK, self._on_market_data_tick)
+        logger.debug("MarketDataStore subscribed to events")
+
+    def _on_market_data_batch(self, payload: dict) -> None:
+        """
+        Handle batch market data update event.
+
+        Args:
+            payload: Event payload with 'market_data' list.
+        """
+        market_data_list = payload.get("market_data", [])
+        if market_data_list:
+            self.upsert(market_data_list)
+            logger.debug(f"MarketDataStore updated from batch: {len(market_data_list)} symbols")
+
+    def _on_market_data_tick(self, payload: dict) -> None:
+        """
+        Handle single market data tick event (from streaming).
+
+        Args:
+            payload: Event payload with 'symbol' and 'data'.
+        """
+        data = payload.get("data")
+        if data:
+            self.upsert([data])
+            logger.debug(f"MarketDataStore tick: {payload.get('symbol', 'unknown')}")
