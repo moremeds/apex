@@ -22,16 +22,14 @@ from datetime import datetime
 from typing import Dict, Any, Optional, List, TYPE_CHECKING
 import logging
 
-from ..domain.interfaces.position_provider import PositionProvider
-from ..domain.interfaces.market_data_provider import MarketDataProvider
 from ..domain.interfaces.event_bus import EventBus, EventType
-from src.domain.services.risk.risk_engine import RiskEngine
+from ..domain.services.risk.risk_engine import RiskEngine
 from ..domain.services.pos_reconciler import Reconciler
 from ..domain.services.mdqc import MDQC
-from src.domain.services.risk.rule_engine import RuleEngine
+from ..domain.services.risk.rule_engine import RuleEngine
 from ..domain.services.market_alert_detector import MarketAlertDetector
-from src.domain.services.risk.risk_signal_engine import RiskSignalEngine
-from src.domain.services.risk.risk_alert_logger import RiskAlertLogger
+from ..domain.services.risk.risk_signal_engine import RiskSignalEngine
+from ..domain.services.risk.risk_alert_logger import RiskAlertLogger
 from ..models.risk_snapshot import RiskSnapshot
 from ..models.account import AccountInfo
 from ..models.position import Position
@@ -42,7 +40,8 @@ from ..infrastructure.persistence import PersistenceManager
 from .async_event_bus import AsyncEventBus
 
 if TYPE_CHECKING:
-    from ..infrastructure.adapters.ib_adapter import IBAdapter
+    from ..infrastructure.adapters.ib_adapter import IbAdapter
+    from ..domain.interfaces.position_provider import PositionProvider
 
 
 logger = logging.getLogger(__name__)
@@ -62,8 +61,8 @@ class Orchestrator:
 
     def __init__(
         self,
-        ib_adapter: Optional["IBAdapter"],
-        file_loader: PositionProvider,
+        ib_adapter: Optional["IbAdapter"],
+        file_loader: "PositionProvider",
         position_store: PositionStore,
         market_data_store: MarketDataStore,
         account_store: AccountStore,
@@ -76,7 +75,7 @@ class Orchestrator:
         event_bus: EventBus,
         config: Dict[str, Any],
         market_alert_detector: MarketAlertDetector | None = None,
-        futu_adapter: Optional[PositionProvider] = None,
+        futu_adapter: Optional["PositionProvider"] = None,
         risk_signal_engine: RiskSignalEngine | None = None,
         risk_alert_logger: RiskAlertLogger | None = None,
         persistence_manager: PersistenceManager | None = None,
@@ -132,9 +131,6 @@ class Orchestrator:
 
         # Event to signal when new snapshot is ready (for dashboard sync)
         self._snapshot_ready: asyncio.Event = asyncio.Event()
-
-        # Streaming callback registration
-        self._streaming_enabled = False
 
         # Event-driven tasks
         self._timer_task: asyncio.Task | None = None
@@ -226,7 +222,6 @@ class Orchestrator:
                 # Register streaming callback and enable streaming
                 self.ib_adapter.set_market_data_callback(self._on_streaming_market_data)
                 self.ib_adapter.enable_streaming()
-                self._streaming_enabled = True
 
                 self.health_monitor.update_component_health(
                     "ib_adapter", HealthStatus.HEALTHY, "Connected (streaming)"
@@ -478,8 +473,7 @@ class Orchestrator:
         await self._detect_market_alerts()
 
         # Mark risk engine as dirty to trigger snapshot rebuild
-        if hasattr(self.risk_engine, 'mark_dirty'):
-            self.risk_engine.mark_dirty()
+        self.risk_engine.mark_dirty()
 
         logger.debug("Data fetch and reconciliation completed")
 
@@ -512,18 +506,9 @@ class Orchestrator:
         return self._latest_market_alerts
 
     def _on_streaming_market_data(self, symbol: str, market_data) -> None:
-        """
-        Handle streaming market data update from IB.
-
-        Updates the market data store - snapshot rebuild is handled
-        by the snapshot dispatcher when risk engine is marked dirty.
-        """
-        # Update store
+        """Handle streaming market data update from IB."""
         self.market_data_store.upsert([market_data])
-
-        # Mark risk engine as dirty (snapshot dispatcher will rebuild)
-        if hasattr(self.risk_engine, 'mark_dirty'):
-            self.risk_engine.mark_dirty()
+        self.risk_engine.mark_dirty()
 
     def get_latest_risk_signals(self) -> List[RiskSignal]:
         """Get the latest risk signals."""
@@ -602,22 +587,12 @@ class Orchestrator:
 
     def _subscribe_components_to_events(self) -> None:
         """Subscribe all components to the event bus."""
-        # Subscribe stores
-        if hasattr(self.position_store, 'subscribe_to_events'):
-            self.position_store.subscribe_to_events(self.event_bus)
+        self.position_store.subscribe_to_events(self.event_bus)
+        self.market_data_store.subscribe_to_events(self.event_bus)
+        self.account_store.subscribe_to_events(self.event_bus)
+        self.risk_engine.subscribe_to_events(self.event_bus)
 
-        if hasattr(self.market_data_store, 'subscribe_to_events'):
-            self.market_data_store.subscribe_to_events(self.event_bus)
-
-        if hasattr(self.account_store, 'subscribe_to_events'):
-            self.account_store.subscribe_to_events(self.event_bus)
-
-        # Subscribe risk engine
-        if hasattr(self.risk_engine, 'subscribe_to_events'):
-            self.risk_engine.subscribe_to_events(self.event_bus)
-
-        # Subscribe persistence manager
-        if self.persistence_manager and hasattr(self.persistence_manager, 'subscribe_to_events'):
+        if self.persistence_manager:
             self.persistence_manager.subscribe_to_events(self.event_bus)
 
         logger.info("All components subscribed to events")
@@ -655,95 +630,73 @@ class Orchestrator:
                 await asyncio.sleep(5)  # Back off on error
 
     async def _snapshot_dispatcher(self) -> None:
-        """
-        Snapshot dispatcher with debouncing.
-
-        Rebuilds snapshots when the risk engine is marked dirty,
-        with a minimum interval between rebuilds. Also handles:
-        - Risk signal evaluation
-        - Persistence
-        - Watchdog updates
-        """
+        """Snapshot dispatcher with debouncing. Rebuilds when risk engine is dirty."""
         min_interval_sec = 0.1  # 100ms debounce
 
         while self._running:
             try:
                 await asyncio.sleep(min_interval_sec)
 
-                # Check if risk engine needs rebuild
-                if hasattr(self.risk_engine, 'needs_rebuild') and self.risk_engine.needs_rebuild():
-                    # Get current data
-                    positions = self.position_store.get_all()
-                    if not positions:
-                        self.risk_engine.clear_dirty_state()
-                        continue
+                if not self.risk_engine.needs_rebuild():
+                    continue
 
-                    market_data = self.market_data_store.get_all()
-                    account_info = self.account_store.get()
-
-                    if not account_info:
-                        self.risk_engine.clear_dirty_state()
-                        continue
-
-                    # Build snapshot
-                    snapshot = self.risk_engine.build_snapshot(
-                        positions, market_data, account_info
-                    )
-                    self._latest_snapshot = snapshot
-
-                    # Clear dirty state
+                # Get current data
+                positions = self.position_store.get_all()
+                if not positions:
                     self.risk_engine.clear_dirty_state()
+                    continue
 
-                    # Evaluate risk signals
-                    if self.risk_signal_engine:
-                        risk_signals = self.risk_signal_engine.evaluate(snapshot)
-                        self._latest_risk_signals = risk_signals
-                        if risk_signals:
-                            logger.warning(f"Found {len(risk_signals)} risk signals")
-                            for signal in risk_signals:
-                                self.event_bus.publish(EventType.RISK_SIGNAL, {"signal": signal})
+                account_info = self.account_store.get()
+                if not account_info:
+                    self.risk_engine.clear_dirty_state()
+                    continue
 
-                            # Persist risk signals
-                            if self.persistence_manager:
-                                try:
-                                    self.persistence_manager.persist_alerts(risk_signals)
-                                except Exception as e:
-                                    logger.warning(f"Failed to persist risk signals: {e}")
-                    else:
-                        # Legacy: Portfolio rule engine only
-                        breaches = self.rule_engine.evaluate(snapshot)
-                        if breaches:
-                            logger.warning(f"Found {len(breaches)} limit breaches")
-                            for breach in breaches:
-                                self.event_bus.publish(EventType.LIMIT_BREACHED, breach)
+                market_data = self.market_data_store.get_all()
 
-                    # Log risk alerts to audit trail
-                    if self.risk_alert_logger:
-                        self._log_risk_alerts(snapshot)
+                # Build snapshot
+                snapshot = self.risk_engine.build_snapshot(positions, market_data, account_info)
+                self._latest_snapshot = snapshot
+                self.risk_engine.clear_dirty_state()
 
-                    # Persist snapshot
-                    if self.persistence_manager:
-                        try:
-                            self.persistence_manager.persist_snapshot(snapshot)
-                        except Exception as e:
-                            logger.warning(f"Failed to persist snapshot: {e}")
+                # Evaluate risk signals
+                if self.risk_signal_engine:
+                    self._latest_risk_signals = self.risk_signal_engine.evaluate(snapshot)
+                    if self._latest_risk_signals:
+                        for signal in self._latest_risk_signals:
+                            self.event_bus.publish(EventType.RISK_SIGNAL, {"signal": signal})
+                        if self.persistence_manager:
+                            try:
+                                self.persistence_manager.persist_alerts(self._latest_risk_signals)
+                            except Exception as e:
+                                logger.warning(f"Failed to persist risk signals: {e}")
+                else:
+                    # Legacy rule engine fallback
+                    breaches = self.rule_engine.evaluate(snapshot)
+                    for breach in breaches:
+                        self.event_bus.publish(EventType.LIMIT_BREACHED, breach)
 
-                    # Update watchdog
-                    self.watchdog.update_snapshot_time(snapshot.timestamp)
-                    self.watchdog.check_missing_market_data(
-                        snapshot.total_positions, snapshot.positions_with_missing_md
-                    )
+                # Log alerts to audit trail
+                if self.risk_alert_logger:
+                    self._log_risk_alerts(snapshot)
 
-                    # Publish snapshot ready event
-                    self.event_bus.publish(EventType.SNAPSHOT_READY, {"snapshot": snapshot})
+                # Persist snapshot
+                if self.persistence_manager:
+                    try:
+                        self.persistence_manager.persist_snapshot(snapshot)
+                    except Exception as e:
+                        logger.warning(f"Failed to persist snapshot: {e}")
 
-                    # Signal dashboard
-                    self._snapshot_ready.set()
+                # Update watchdog
+                self.watchdog.update_snapshot_time(snapshot.timestamp)
+                self.watchdog.check_missing_market_data(
+                    snapshot.total_positions, snapshot.positions_with_missing_md
+                )
 
-                    logger.debug(f"Snapshot rebuilt: {len(positions)} positions")
+                # Signal dashboard
+                self.event_bus.publish(EventType.SNAPSHOT_READY, {"snapshot": snapshot})
+                self._snapshot_ready.set()
 
             except asyncio.CancelledError:
-                logger.debug("Snapshot dispatcher cancelled")
                 break
             except Exception as e:
                 logger.error(f"Snapshot dispatcher error: {e}", exc_info=True)

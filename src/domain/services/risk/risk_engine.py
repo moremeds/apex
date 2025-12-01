@@ -86,7 +86,6 @@ class RiskEngine:
         self._lock = Lock()
         self._needs_rebuild = False
         self._dirty_underlyings: Set[str] = set()
-        self._event_bus: Optional["EventBus"] = None
 
     def build_snapshot(
         self,
@@ -530,15 +529,8 @@ class RiskEngine:
     # ========== Event-Driven Methods ==========
 
     def subscribe_to_events(self, event_bus: "EventBus") -> None:
-        """
-        Subscribe to data change events.
-
-        Args:
-            event_bus: Event bus to subscribe to.
-        """
+        """Subscribe to data change events."""
         from src.domain.interfaces.event_bus import EventType
-
-        self._event_bus = event_bus
 
         event_bus.subscribe(EventType.POSITIONS_BATCH, self._on_data_changed)
         event_bus.subscribe(EventType.POSITION_UPDATED, self._on_data_changed)
@@ -626,27 +618,3 @@ class RiskEngine:
         with self._lock:
             self._needs_rebuild = False
             self._dirty_underlyings.clear()
-
-    def get_dirty_underlyings(self) -> Set[str]:
-        """
-        Get set of underlyings with updated data.
-
-        Returns:
-            Set of underlying symbols that have changed.
-        """
-        with self._lock:
-            return set(self._dirty_underlyings)
-
-    def publish_snapshot(self, snapshot: RiskSnapshot) -> None:
-        """
-        Publish snapshot ready event.
-
-        Args:
-            snapshot: The computed risk snapshot.
-        """
-        if self._event_bus:
-            from src.domain.interfaces.event_bus import EventType
-            self._event_bus.publish(EventType.SNAPSHOT_READY, {
-                "snapshot": snapshot,
-                "timestamp": datetime.now(),
-            })
