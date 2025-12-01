@@ -19,7 +19,7 @@ from ...models.risk_signal import (
     SignalSeverity,
     SuggestedAction,
 )
-from ...models.market_data import MarketData
+from ...models.position_risk import PositionRisk
 
 
 logger = logging.getLogger(__name__)
@@ -59,14 +59,14 @@ class StrategyRiskAnalyzer:
     def check(
         self,
         strategy: DetectedStrategy,
-        market_data_map: Dict[str, MarketData],
+        position_risk_map: Dict[str, PositionRisk],
     ) -> List[RiskSignal]:
         """
         Check strategy for risk conditions.
 
         Args:
             strategy: Detected strategy to analyze
-            market_data_map: Map of symbol -> MarketData
+            position_risk_map: Map of symbol -> PositionRisk (pre-calculated by RiskEngine)
 
         Returns:
             List of risk signals
@@ -75,23 +75,23 @@ class StrategyRiskAnalyzer:
 
         # Route to specific strategy checker
         if strategy.strategy_type == "DIAGONAL_SPREAD":
-            signals.extend(self._check_diagonal_spread(strategy, market_data_map))
+            signals.extend(self._check_diagonal_spread(strategy, position_risk_map))
 
         elif "CREDIT" in strategy.strategy_type:
-            signals.extend(self._check_credit_spread(strategy, market_data_map))
+            signals.extend(self._check_credit_spread(strategy, position_risk_map))
 
         elif strategy.strategy_type == "CALENDAR_SPREAD":
-            signals.extend(self._check_calendar_spread(strategy, market_data_map))
+            signals.extend(self._check_calendar_spread(strategy, position_risk_map))
 
         elif strategy.strategy_type == "IRON_CONDOR":
-            signals.extend(self._check_iron_condor(strategy, market_data_map))
+            signals.extend(self._check_iron_condor(strategy, position_risk_map))
 
         return signals
 
     def _check_diagonal_spread(
         self,
         strategy: DetectedStrategy,
-        market_data_map: Dict[str, MarketData],
+        position_risk_map: Dict[str, PositionRisk],
     ) -> List[RiskSignal]:
         """
         Check diagonal spread for delta flip.
@@ -111,16 +111,17 @@ class StrategyRiskAnalyzer:
         if not long_leg or not short_leg:
             return signals
 
-        # Get market data
-        long_md = market_data_map.get(long_leg.symbol)
-        short_md = market_data_map.get(short_leg.symbol)
+        # Get pre-calculated PositionRisk
+        long_pr = position_risk_map.get(long_leg.symbol)
+        short_pr = position_risk_map.get(short_leg.symbol)
 
-        if not long_md or not short_md:
+        if not long_pr or not short_pr:
             return signals
 
-        # Check delta flip
-        long_delta = abs(long_md.delta or 0.0)
-        short_delta = abs(short_md.delta or 0.0)
+        # Check delta flip using pre-calculated delta from RiskEngine
+        # Note: PositionRisk.delta is position-level (qty*multiplier applied), so use per-share
+        long_delta = abs(long_pr.delta / (abs(long_leg.quantity) * long_leg.multiplier)) if long_leg.quantity != 0 else 0.0
+        short_delta = abs(short_pr.delta / (abs(short_leg.quantity) * short_leg.multiplier)) if short_leg.quantity != 0 else 0.0
 
         if short_delta > long_delta:
             # Delta flip detected - critical risk
@@ -157,7 +158,7 @@ class StrategyRiskAnalyzer:
     def _check_credit_spread(
         self,
         strategy: DetectedStrategy,
-        market_data_map: Dict[str, MarketData],
+        position_risk_map: Dict[str, PositionRisk],
     ) -> List[RiskSignal]:
         """
         Check credit spread for R-multiple stop.
@@ -167,20 +168,15 @@ class StrategyRiskAnalyzer:
         """
         signals = []
 
-        # Calculate current PnL
+        # Calculate total PnL using pre-calculated values from RiskEngine
         total_pnl = 0.0
         for pos in strategy.positions:
-            md = market_data_map.get(pos.symbol)
-            if not md:
-                return signals  # Need all market data
+            pr = position_risk_map.get(pos.symbol)
+            if not pr or not pr.has_market_data:
+                return signals  # Need all position risks
 
-            current_price = md.effective_mid()
-            if not current_price or not pos.avg_price:
-                return signals
-
-            # PnL for this leg
-            leg_pnl = (current_price - pos.avg_price) * pos.quantity * pos.multiplier
-            total_pnl += leg_pnl
+            # Use pre-calculated unrealized_pnl (single source of truth)
+            total_pnl += pr.unrealized_pnl
 
         # For credit spreads, premium is typically negative (credit received)
         # If current PnL is negative (loss), check R-multiple
@@ -223,7 +219,7 @@ class StrategyRiskAnalyzer:
     def _check_calendar_spread(
         self,
         strategy: DetectedStrategy,
-        market_data_map: Dict[str, MarketData],
+        position_risk_map: Dict[str, PositionRisk],
     ) -> List[RiskSignal]:
         """
         Check calendar spread for IV crush on long leg.
@@ -238,13 +234,13 @@ class StrategyRiskAnalyzer:
         if not long_leg:
             return signals
 
-        md = market_data_map.get(long_leg.symbol)
-        if not md or not md.implied_volatility:
+        pr = position_risk_map.get(long_leg.symbol)
+        if not pr or not pr.iv:
             return signals
 
         # For IV crush detection, we'd need historical IV
         # For now, check if vega is negative (losing value from IV drop)
-        if md.vega and md.vega < -10:  # Significant negative vega
+        if pr.vega and pr.vega < -10:  # Significant negative vega
             signals.append(RiskSignal(
                 signal_id=f"STRATEGY:{strategy.underlying}:Calendar_IV_Crush",
                 timestamp=datetime.now(),
@@ -253,20 +249,20 @@ class StrategyRiskAnalyzer:
                 symbol=strategy.underlying,
                 strategy_type=strategy.strategy_type,
                 trigger_rule="Calendar_IV_Crush",
-                current_value=md.vega,
+                current_value=pr.vega,
                 threshold=-10.0,
                 breach_pct=0.0,
                 suggested_action=SuggestedAction.MONITOR,
                 action_details=(
-                    f"Calendar spread showing negative vega ({md.vega:.2f}), "
+                    f"Calendar spread showing negative vega ({pr.vega:.2f}), "
                     f"indicating potential IV crush. Monitor closely."
                 ),
                 layer=2,
                 metadata={
                     "long_strike": long_leg.strike,
                     "long_expiry": long_leg.expiry,
-                    "implied_volatility": md.implied_volatility,
-                    "vega": md.vega,
+                    "implied_volatility": pr.iv,
+                    "vega": pr.vega,
                 },
             ))
 
@@ -275,7 +271,7 @@ class StrategyRiskAnalyzer:
     def _check_iron_condor(
         self,
         strategy: DetectedStrategy,
-        market_data_map: Dict[str, MarketData],
+        position_risk_map: Dict[str, PositionRisk],
     ) -> List[RiskSignal]:
         """
         Check iron condor for early profit take or stop loss.
@@ -285,19 +281,15 @@ class StrategyRiskAnalyzer:
         """
         signals = []
 
-        # Calculate current PnL
+        # Calculate total PnL using pre-calculated values from RiskEngine
         total_pnl = 0.0
         for pos in strategy.positions:
-            md = market_data_map.get(pos.symbol)
-            if not md or not pos.avg_price:
+            pr = position_risk_map.get(pos.symbol)
+            if not pr or not pr.has_market_data:
                 return signals
 
-            current_price = md.effective_mid()
-            if not current_price:
-                return signals
-
-            leg_pnl = (current_price - pos.avg_price) * pos.quantity * pos.multiplier
-            total_pnl += leg_pnl
+            # Use pre-calculated unrealized_pnl (single source of truth)
+            total_pnl += pr.unrealized_pnl
 
         # For iron condors, we collected premium (negative cost basis)
         # If current PnL is positive and > 50% of max profit, consider closing

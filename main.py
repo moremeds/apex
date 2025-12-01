@@ -28,6 +28,8 @@ from src.domain.services.risk.risk_alert_logger import RiskAlertLogger
 # from src.domain.services.shock_engine import SimpleShockEngine
 from src.application import Orchestrator, SimpleEventBus
 from src.presentation import TerminalDashboard
+from src.infrastructure.persistence import PersistenceManager, DuckDBAdapter
+from src.infrastructure.persistence.persistence_manager import PersistenceConfig
 from src.models.risk_snapshot import RiskSnapshot
 from src.utils import StructuredLogger, flush_all_loggers, set_log_timezone
 from src.utils.structured_logger import LogCategory
@@ -173,8 +175,6 @@ async def main_async(args: argparse.Namespace) -> None:
             config=config.raw,
             rule_engine=rule_engine,
             signal_manager=signal_manager,
-            position_store=position_store,
-            market_data_store=market_data_store,
         )
         system_structured.info(LogCategory.SYSTEM, "Risk signal engine initialized")
 
@@ -191,6 +191,24 @@ async def main_async(args: argparse.Namespace) -> None:
 
         # suggester = SimpleSuggester()  # TODO: Use for breach analysis in dashboard
         # shock_engine = SimpleShockEngine(risk_engine=risk_engine, config=config.raw)  # TODO: Add scenario analysis
+
+        # Initialize persistence manager (optional - enabled by config)
+        persistence_manager = None
+        persistence_config = config.raw.get("persistence", {})
+        if persistence_config.get("enabled", False):
+            persistence_manager = PersistenceManager(
+                config=PersistenceConfig(
+                    db_path=persistence_config.get("db_path", "./data/apex_risk.duckdb"),
+                    snapshot_interval_sec=persistence_config.get("snapshot_interval_sec", 60),
+                    change_detection=persistence_config.get("change_detection", True),
+                    position_snapshots_days=persistence_config.get("position_snapshots_days", 90),
+                    portfolio_snapshots_days=persistence_config.get("portfolio_snapshots_days", 365),
+                    alerts_days=persistence_config.get("alerts_days", 365),
+                )
+            )
+            system_structured.info(LogCategory.SYSTEM, "Persistence manager initialized", {
+                "db_path": persistence_config.get("db_path", "./data/apex_risk.duckdb"),
+            })
 
         # Initialize monitoring
         health_monitor = HealthMonitor()
@@ -219,11 +237,16 @@ async def main_async(args: argparse.Namespace) -> None:
             futu_adapter=futu_adapter,
             risk_signal_engine=risk_signal_engine,
             risk_alert_logger=risk_alert_logger,
+            persistence_manager=persistence_manager,
         )
 
         # Initialize dashboard (if not disabled)
         if not args.no_dashboard:
-            dashboard = TerminalDashboard(config=config.raw.get("dashboard", {}), env=args.env)
+            dashboard = TerminalDashboard(
+                config=config.raw.get("dashboard", {}),
+                env=args.env,
+                persistence_manager=persistence_manager,
+            )
 
         # Start orchestrator
         system_structured.info(LogCategory.SYSTEM, "Starting orchestrator")
@@ -244,10 +267,11 @@ async def main_async(args: argparse.Namespace) -> None:
         if dashboard:
             dashboard.start()
 
-            # Update loop
+            # Update loop - event-driven sync with orchestrator
             try:
                 while True:
-                    snapshot = orchestrator.get_latest_snapshot()
+                    # Wait for orchestrator to signal new snapshot (instead of polling)
+                    snapshot = await orchestrator.wait_for_snapshot(timeout=3.0)
                     health = health_monitor.get_all_health()
 
                     # Debug: Log health component count
@@ -279,8 +303,6 @@ async def main_async(args: argparse.Namespace) -> None:
                         # No snapshot yet - show empty snapshot with health status
                         empty_snapshot = RiskSnapshot()
                         dashboard.update(empty_snapshot, [], health, [])
-
-                    await asyncio.sleep(config.dashboard.refresh_interval_sec)
             except KeyboardInterrupt:
                 system_structured.info(LogCategory.SYSTEM, "Received shutdown signal")
         else:

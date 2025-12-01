@@ -1,15 +1,17 @@
 """
-Futu OpenD adapter with auto-reconnect.
+Futu OpenD adapter with auto-reconnect and push subscription.
 
 Implements PositionProvider interface for Futu OpenD gateway.
 Uses the futu-api SDK to connect to Futu OpenD and fetch positions/account info.
+Supports real-time position updates via trade deal push notifications.
 """
 
 from __future__ import annotations
-from typing import List, Dict, Optional
-from datetime import datetime
+from typing import List, Dict, Optional, Callable
+from datetime import datetime, timedelta
 import logging
 import re
+import threading
 
 from ...domain.interfaces.position_provider import PositionProvider
 from ...models.position import Position, AssetType, PositionSource
@@ -17,6 +19,86 @@ from ...models.account import AccountInfo
 
 
 logger = logging.getLogger(__name__)
+
+
+def create_trade_deal_handler(on_deal_callback: Callable[[dict], None]):
+    """
+    Factory function to create a Futu trade deal handler.
+
+    Creates a handler class that inherits from Futu's TradeDealHandlerBase
+    to receive real-time trade deal notifications.
+
+    Args:
+        on_deal_callback: Callback function to invoke when a deal is received.
+
+    Returns:
+        Handler instance or None if futu library not available.
+    """
+    try:
+        from futu import TradeDealHandlerBase
+
+        class FutuTradeDealHandler(TradeDealHandlerBase):
+            """
+            Handler for Futu trade deal push notifications.
+
+            Inherits from Futu SDK's TradeDealHandlerBase to receive
+            real-time notifications when trades are executed.
+            """
+
+            def __init__(self, callback: Callable[[dict], None]):
+                super().__init__()
+                self._callback = callback
+                self._lock = threading.Lock()
+
+            def on_recv_rsp(self, rsp_str):
+                """
+                Called by Futu SDK when a trade deal notification is received.
+
+                Args:
+                    rsp_str: Response string/data from Futu SDK containing deal info.
+                """
+                try:
+                    import pandas as pd
+
+                    # rsp_str is typically a tuple (ret_code, data) from Futu SDK
+                    # where data is a DataFrame with deal information
+                    if isinstance(rsp_str, tuple) and len(rsp_str) >= 2:
+                        ret_code, data = rsp_str[0], rsp_str[1]
+                        if ret_code != 0:
+                            logger.warning(f"Futu trade deal notification error: {data}")
+                            return
+
+                        # data is a pandas DataFrame with deal info
+                        if isinstance(data, pd.DataFrame) and not data.empty:
+                            for _, row in data.iterrows():
+                                deal_data = {
+                                    'deal_id': row.get('deal_id', None),
+                                    'order_id': row.get('order_id', None),
+                                    'code': row.get('code', None),
+                                    'stock_name': row.get('stock_name', None),
+                                    'qty': float(row.get('qty', 0)),
+                                    'price': float(row.get('price', 0)),
+                                    'trd_side': row.get('trd_side', None),
+                                    'create_time': row.get('create_time', None),
+                                }
+                                logger.info(
+                                    f"Futu trade deal received: {deal_data['code']} "
+                                    f"qty={deal_data['qty']} price={deal_data['price']} "
+                                    f"side={deal_data['trd_side']}"
+                                )
+
+                                with self._lock:
+                                    if self._callback:
+                                        self._callback(deal_data)
+
+                except Exception as e:
+                    logger.error(f"Error processing Futu trade deal notification: {e}")
+
+        return FutuTradeDealHandler(on_deal_callback)
+
+    except ImportError:
+        logger.warning("futu-api library not installed, trade deal handler unavailable")
+        return None
 
 
 class FutuAdapter(PositionProvider):
@@ -65,14 +147,23 @@ class FutuAdapter(PositionProvider):
         self._acc_id: Optional[int] = None  # Selected account ID
 
         # Cache for account info (Futu rate limit: 10 calls per 30 seconds)
+        # With both positions and account queries, need at least 6 seconds between each type
+        # Using 10 seconds to have safety margin
         self._account_cache: Optional[AccountInfo] = None
         self._account_cache_time: Optional[datetime] = None
-        self._account_cache_ttl_sec: int = 5  # Cache for 5 seconds to avoid rate limits
+        self._account_cache_ttl_sec: int = 10  # Cache for 10 seconds to avoid rate limits
 
         # Cache for positions (Futu rate limit: 10 calls per 30 seconds)
         self._position_cache: Optional[List[Position]] = None
         self._position_cache_time: Optional[datetime] = None
-        self._position_cache_ttl_sec: int = 5  # Cache for 5 seconds to avoid rate limits
+        self._position_cache_ttl_sec: int = 30  # Cache for 30 seconds (Futu limit: 10 calls/30s)
+        # Cooldown after hitting rate limits to avoid hammering OpenD
+        self._position_cooldown_until: Optional[datetime] = None
+
+        # Push subscription for real-time trade updates
+        self._trade_deal_handler = None
+        self._push_enabled = False
+        self._cache_lock = threading.Lock()  # Thread safety for cache updates from push
 
     async def connect(self) -> None:
         """
@@ -128,6 +219,9 @@ class FutuAdapter(PositionProvider):
                 f"account={self._acc_id}, market={self.filter_trdmarket}"
             )
 
+            # Set up push subscription for real-time trade deal updates
+            self._setup_push_subscription()
+
         except ImportError:
             logger.error("futu-api library not installed. Install with: pip install futu-api")
             raise ConnectionError("futu-api library not installed")
@@ -170,6 +264,65 @@ class FutuAdapter(PositionProvider):
                 self._trd_ctx = None
             await self.connect()
 
+    def _setup_push_subscription(self) -> None:
+        """
+        Set up push subscription for real-time trade deal notifications.
+
+        This allows immediate cache invalidation when trades execute,
+        ensuring positions are refreshed on the next fetch.
+        """
+        if not self._trd_ctx:
+            logger.warning("Cannot set up push subscription: no trade context")
+            return
+
+        try:
+            # Create the trade deal handler with callback
+            self._trade_deal_handler = create_trade_deal_handler(self._on_trade_deal)
+
+            if self._trade_deal_handler:
+                # Register the handler with the trade context
+                self._trd_ctx.set_handler(self._trade_deal_handler)
+                self._push_enabled = True
+                logger.info("Futu trade deal push subscription enabled")
+            else:
+                logger.warning("Failed to create trade deal handler")
+
+        except Exception as e:
+            logger.error(f"Failed to set up Futu push subscription: {e}")
+            self._push_enabled = False
+
+    def _on_trade_deal(self, deal_data: dict) -> None:
+        """
+        Callback invoked when a trade deal is received via push.
+
+        Invalidates the position cache to force a fresh fetch on next request.
+        This is called from Futu's internal thread, so we use the cache lock.
+
+        Args:
+            deal_data: Dictionary containing trade deal information.
+        """
+        try:
+            code = deal_data.get('code', 'unknown')
+            qty = deal_data.get('qty', 0)
+            trd_side = deal_data.get('trd_side', 'unknown')
+
+            logger.info(
+                f"Trade deal notification: {code} qty={qty} side={trd_side} - "
+                "invalidating position cache"
+            )
+
+            # Invalidate position cache to force refresh on next fetch
+            with self._cache_lock:
+                self._position_cache = None
+                self._position_cache_time = None
+                # Clear any cooldown since we need fresh data after a trade
+                self._position_cooldown_until = None
+
+            logger.debug("Position cache invalidated due to trade deal")
+
+        except Exception as e:
+            logger.error(f"Error handling trade deal notification: {e}")
+
     async def fetch_positions(self) -> List[Position]:
         """
         Fetch positions from Futu OpenD.
@@ -180,15 +333,33 @@ class FutuAdapter(PositionProvider):
         Raises:
             ConnectionError: If not connected.
         """
-        # Check cache first (Futu rate limit: 10 calls per 30 seconds)
         now = datetime.now()
-        if (
-            self._position_cache is not None
-            and self._position_cache_time is not None
-            and (now - self._position_cache_time).total_seconds() < self._position_cache_ttl_sec
-        ):
-            logger.debug("Using cached Futu positions")
-            return self._position_cache
+
+        # Check cache with lock (cache may be invalidated by push handler)
+        with self._cache_lock:
+            # Respect cooldown if we recently hit the OpenD rate limit
+            if self._position_cooldown_until and now < self._position_cooldown_until:
+                logger.warning(
+                    "Futu position fetch skipped due to rate-limit cooldown "
+                    f"(retry after {self._position_cooldown_until.isoformat(timespec='seconds')})"
+                )
+                if (
+                    self._position_cache is not None
+                    and self._position_cache_time is not None
+                    and (now - self._position_cache_time).total_seconds() < self._position_cache_ttl_sec
+                ):
+                    logger.debug("Returning cached Futu positions during cooldown")
+                    return self._position_cache
+                return []
+
+            # Check cache first (Futu rate limit: 10 calls per 30 seconds)
+            if (
+                self._position_cache is not None
+                and self._position_cache_time is not None
+                and (now - self._position_cache_time).total_seconds() < self._position_cache_ttl_sec
+            ):
+                logger.debug("Using cached Futu positions")
+                return self._position_cache
 
         # Auto-reconnect if needed
         await self._ensure_connected()
@@ -199,10 +370,13 @@ class FutuAdapter(PositionProvider):
         try:
             trd_env_enum = getattr(TrdEnv, self.trd_env, TrdEnv.REAL)
 
+            # Use refresh_cache=False to use Futu's internal cache
+            # Futu rate limit is strict (10 calls/30s), so we rely on their cache
+            # Our app-level cache (10s TTL) controls how often we call the API
             ret, data = self._trd_ctx.position_list_query(
                 trd_env=trd_env_enum,
                 acc_id=self._acc_id,
-                refresh_cache=True,
+                refresh_cache=False,
             )
 
             if ret != RET_OK:
@@ -215,12 +389,14 @@ class FutuAdapter(PositionProvider):
                     ret, data = self._trd_ctx.position_list_query(
                         trd_env=trd_env_enum,
                         acc_id=self._acc_id,
-                        refresh_cache=True,
+                        refresh_cache=False,
                     )
                     if ret != RET_OK:
                         raise Exception(f"Position query failed after reconnect: {data}")
                 else:
-                    logger.error(f"Failed to fetch positions from Futu: {data}")
+                    # Don't log rate limit errors at error level - they're handled below
+                    if "frequent" not in str(data).lower():
+                        logger.error(f"Failed to fetch positions from Futu: {data}")
                     raise Exception(f"Position query failed: {data}")
 
             if data.empty:
@@ -236,20 +412,37 @@ class FutuAdapter(PositionProvider):
             # Mark as connected since operation succeeded
             self._connected = True
 
-            # Update cache
-            self._position_cache = positions
-            self._position_cache_time = datetime.now()
+            # Update cache with lock (cache may be accessed by push handler)
+            with self._cache_lock:
+                self._position_cache = positions
+                self._position_cache_time = datetime.now()
+                # Clear any prior cooldown after a successful fetch
+                self._position_cooldown_until = None
 
         except Exception as e:
-            logger.error(f"Failed to fetch positions from Futu: {e}")
             # Only mark disconnected on connection-related errors
             if "disconnect" in str(e).lower() or "connection" in str(e).lower():
+                logger.error(f"Failed to fetch positions from Futu: {e}")
                 self._connected = False
 
             # If rate limited and we have cached data, return it instead of failing
-            if "frequent" in str(e).lower() and self._position_cache is not None:
-                logger.warning("Rate limited - returning cached positions")
-                return self._position_cache
+            if "frequent" in str(e).lower():
+                # Back off for the full 30-second Futu window to avoid hammering
+                cooldown_seconds = 30
+                with self._cache_lock:
+                    self._position_cooldown_until = datetime.now() + timedelta(seconds=cooldown_seconds)
+                logger.warning(
+                    f"Futu rate limit hit; backing off for {cooldown_seconds}s "
+                    f"(until {self._position_cooldown_until.isoformat(timespec='seconds')})"
+                )
+                with self._cache_lock:
+                    if self._position_cache is not None:
+                        logger.debug("Rate limited - returning cached positions")
+                        return self._position_cache
+                # No cache available, log at warning level
+                logger.warning("Futu rate limited and no cached positions available")
+            else:
+                logger.error(f"Failed to fetch positions from Futu: {e}")
             raise
 
         return positions
@@ -385,10 +578,13 @@ class FutuAdapter(PositionProvider):
         try:
             trd_env_enum = getattr(TrdEnv, self.trd_env, TrdEnv.REAL)
 
+            # Use refresh_cache=False to use Futu's internal cache
+            # This avoids hitting Futu's rate limit (10 calls per 30 seconds)
+            # Our application-level cache (10s TTL) controls refresh frequency
             ret, data = self._trd_ctx.accinfo_query(
                 trd_env=trd_env_enum,
                 acc_id=self._acc_id,
-                refresh_cache=True,
+                refresh_cache=False,
                 currency=Currency.USD,  # Request in USD for consistency
             )
 
@@ -402,13 +598,15 @@ class FutuAdapter(PositionProvider):
                     ret, data = self._trd_ctx.accinfo_query(
                         trd_env=trd_env_enum,
                         acc_id=self._acc_id,
-                        refresh_cache=True,
+                        refresh_cache=False,
                         currency=Currency.USD,
                     )
                     if ret != RET_OK:
                         raise Exception(f"Account info query failed after reconnect: {data}")
                 else:
-                    logger.error(f"Failed to fetch account info from Futu: {data}")
+                    # Don't log rate limit errors at error level - they're handled below
+                    if "frequent" not in str(data).lower():
+                        logger.error(f"Failed to fetch account info from Futu: {data}")
                     raise Exception(f"Account info query failed: {data}")
 
             if data.empty:
@@ -476,13 +674,18 @@ class FutuAdapter(PositionProvider):
             return account_info
 
         except Exception as e:
-            logger.error(f"Failed to fetch account info from Futu: {e}")
             # Only mark disconnected on connection-related errors
             if "disconnect" in str(e).lower() or "connection" in str(e).lower():
+                logger.error(f"Failed to fetch account info from Futu: {e}")
                 self._connected = False
 
             # If rate limited and we have cached data, return it instead of failing
-            if "frequent" in str(e).lower() and self._account_cache is not None:
-                logger.warning("Rate limited - returning cached account info")
-                return self._account_cache
+            if "frequent" in str(e).lower():
+                if self._account_cache is not None:
+                    logger.debug("Rate limited - returning cached account info")
+                    return self._account_cache
+                # No cache available, log at warning level
+                logger.warning(f"Futu rate limited and no cached account info available")
+            else:
+                logger.error(f"Failed to fetch account info from Futu: {e}")
             raise

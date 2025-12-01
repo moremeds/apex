@@ -12,7 +12,8 @@ Coordinates:
 
 from __future__ import annotations
 import asyncio
-from typing import Dict, Any, Optional, List
+from datetime import datetime
+from typing import Dict, Any, Optional, List, TYPE_CHECKING
 import logging
 
 from ..domain.interfaces.position_provider import PositionProvider
@@ -31,6 +32,10 @@ from ..models.position import Position
 from ..models.risk_signal import RiskSignal
 from ..infrastructure.stores import PositionStore, MarketDataStore, AccountStore
 from ..infrastructure.monitoring import HealthMonitor, HealthStatus, Watchdog
+from ..infrastructure.persistence import PersistenceManager
+
+if TYPE_CHECKING:
+    from ..infrastructure.adapters.ib_adapter import IBAdapter
 
 
 logger = logging.getLogger(__name__)
@@ -51,7 +56,7 @@ class Orchestrator:
 
     def __init__(
         self,
-        ib_adapter: Optional[PositionProvider | MarketDataProvider],
+        ib_adapter: Optional["IBAdapter"],
         file_loader: PositionProvider,
         position_store: PositionStore,
         market_data_store: MarketDataStore,
@@ -68,6 +73,7 @@ class Orchestrator:
         futu_adapter: Optional[PositionProvider] = None,
         risk_signal_engine: RiskSignalEngine | None = None,
         risk_alert_logger: RiskAlertLogger | None = None,
+        persistence_manager: PersistenceManager | None = None,
     ):
         """
         Initialize orchestrator with all dependencies.
@@ -90,6 +96,7 @@ class Orchestrator:
             futu_adapter: Optional Futu adapter (positions + account).
             risk_signal_engine: Multi-layer risk signal engine (optional, replaces rule_engine).
             risk_alert_logger: Optional risk alert logger for audit trail.
+            persistence_manager: Optional persistence manager for database storage.
         """
         self.ib_adapter = ib_adapter
         self.futu_adapter = futu_adapter
@@ -108,6 +115,7 @@ class Orchestrator:
         self.market_alert_detector = market_alert_detector
         self.risk_signal_engine = risk_signal_engine
         self.risk_alert_logger = risk_alert_logger
+        self.persistence_manager = persistence_manager
 
         self.refresh_interval_sec = config.get("dashboard", {}).get("refresh_interval_sec", 2)
         self._running = False
@@ -116,6 +124,14 @@ class Orchestrator:
         self._latest_snapshot: RiskSnapshot | None = None
         self._latest_market_alerts: list[dict[str, Any]] = []
         self._latest_risk_signals: List[RiskSignal] = []
+
+        # Event to signal when new snapshot is ready (for dashboard sync)
+        self._snapshot_ready: asyncio.Event = asyncio.Event()
+
+        # Streaming mode: rebuild snapshot on market data updates
+        self._streaming_enabled = False
+        self._market_data_updated: asyncio.Event = asyncio.Event()
+        self._last_streaming_rebuild: datetime | None = None
 
     async def start(self) -> None:
         """Start the orchestrator main loop."""
@@ -159,6 +175,10 @@ class Orchestrator:
         if self.file_loader:
             await self.file_loader.disconnect()
 
+        # Close persistence manager (flushes pending writes)
+        if self.persistence_manager:
+            self.persistence_manager.close()
+
         logger.info("Orchestrator stopped")
 
     async def _connect_providers(self) -> None:
@@ -169,11 +189,17 @@ class Orchestrator:
                 print("🔌 Connecting to IB adapter...", flush=True)
                 logger.info("Attempting to connect to IB adapter...")
                 await self.ib_adapter.connect()
+
+                # Register streaming callback and enable streaming
+                self.ib_adapter.set_market_data_callback(self._on_streaming_market_data)
+                self.ib_adapter.enable_streaming()
+                self._streaming_enabled = True
+
                 self.health_monitor.update_component_health(
-                    "ib_adapter", HealthStatus.HEALTHY, "Connected"
+                    "ib_adapter", HealthStatus.HEALTHY, "Connected (streaming)"
                 )
-                print("✓ IB adapter connected", flush=True)
-                logger.info("IB adapter connected successfully")
+                print("✓ IB adapter connected (streaming enabled)", flush=True)
+                logger.info("IB adapter connected with streaming enabled")
             except Exception as e:
                 print(f"✗ IB adapter failed: {e}", flush=True)
                 logger.error(f"Failed to connect IB adapter: {e}")
@@ -219,10 +245,46 @@ class Orchestrator:
 
     async def _main_loop(self) -> None:
         """Main orchestration loop."""
+        # Minimum interval between streaming snapshot rebuilds (throttle)
+        streaming_throttle_sec = 0.5
+
+        last_full_cycle = datetime.now()
+
         while self._running:
             try:
-                await self._run_cycle()
-                await asyncio.sleep(self.refresh_interval_sec)
+                # Wait for either:
+                # 1. Streaming market data update (immediate)
+                # 2. Timeout for full cycle (refresh_interval_sec)
+                time_since_full_cycle = (datetime.now() - last_full_cycle).total_seconds()
+                wait_time = max(0.1, self.refresh_interval_sec - time_since_full_cycle)
+
+                try:
+                    # Wait for streaming update or timeout
+                    await asyncio.wait_for(
+                        self._market_data_updated.wait(),
+                        timeout=wait_time
+                    )
+                    # Streaming update received
+                    self._market_data_updated.clear()
+
+                    # Throttle streaming rebuilds
+                    now = datetime.now()
+                    if (
+                        self._last_streaming_rebuild is None
+                        or (now - self._last_streaming_rebuild).total_seconds() >= streaming_throttle_sec
+                    ):
+                        self._last_streaming_rebuild = now
+                        await self._rebuild_snapshot_from_cache()
+
+                except asyncio.TimeoutError:
+                    # Timeout - time for full cycle
+                    pass
+
+                # Run full cycle at normal interval
+                if (datetime.now() - last_full_cycle).total_seconds() >= self.refresh_interval_sec:
+                    await self._run_cycle()
+                    last_full_cycle = datetime.now()
+
             except Exception as e:
                 logger.error(f"Orchestrator cycle error: {e}", exc_info=True)
                 await asyncio.sleep(5)
@@ -306,8 +368,10 @@ class Orchestrator:
 
         cached_positions = self.position_store.get_all()
 
-        # 2. Reconcile positions (IB vs manual for now - can extend for Futu)
-        issues = self.reconciler.reconcile(ib_positions, manual_positions, cached_positions)
+        # 2. Reconcile positions across all sources (IB, Futu, manual)
+        issues = self.reconciler.reconcile(
+            ib_positions, manual_positions, cached_positions, futu_positions
+        )
         if issues:
             logger.warning(f"Found {len(issues)} reconciliation issues")
             for issue in issues:
@@ -348,8 +412,8 @@ class Orchestrator:
             except Exception as e:
                 logger.warning(f"Failed to fetch account info from Futu: {e}")
 
-        # Aggregate account info from all sources
-        account_info = self._aggregate_account_info(ib_account, futu_account)
+        # Aggregate account info from all sources (single source of truth in Reconciler)
+        account_info = self.reconciler.aggregate_account_info(ib_account, futu_account)
         self.account_store.update(account_info)
 
         account_msg = (
@@ -360,14 +424,8 @@ class Orchestrator:
         logger.info(account_msg)
         print(account_msg, flush=True)  # Ensure visible in console
 
-        # Emit early snapshot with positions (before market data)
-        if merged_positions:
-            early_snapshot = self.risk_engine.build_snapshot(
-                merged_positions, self.market_data_store.get_all(), account_info,
-                ib_account=ib_account, futu_account=futu_account
-            )
-            self._latest_snapshot = early_snapshot
-            logger.debug(f"Early snapshot with {len(merged_positions)} positions (market data pending)")
+        # Note: Early snapshot removed per architecture review - it duplicated work
+        # and the final snapshot after market data fetch is the authoritative one
 
         # 4. Fetch market data (optimized: only fetch stale data)
         # Get symbols that need fresh market data (atomic operation to prevent race conditions)
@@ -437,6 +495,16 @@ class Orchestrator:
         )
         self._latest_snapshot = snapshot
 
+        # Signal that new snapshot is ready (for dashboard sync)
+        self._snapshot_ready.set()
+
+        # 6. Persist snapshot to database (non-blocking)
+        if self.persistence_manager:
+            try:
+                self.persistence_manager.persist_snapshot(snapshot)
+            except Exception as e:
+                logger.warning(f"Failed to persist snapshot: {e}")
+
         # 7. Evaluate risk limits (use RiskSignalEngine if available, else legacy RuleEngine)
         if self.risk_signal_engine:
             # New: Multi-layer risk signal engine
@@ -446,6 +514,13 @@ class Orchestrator:
                 logger.warning(f"Found {len(risk_signals)} risk signals")
                 for signal in risk_signals:
                     self.event_bus.publish(EventType.LIMIT_BREACHED, signal)
+
+                # Persist risk signals to database
+                if self.persistence_manager:
+                    try:
+                        self.persistence_manager.persist_alerts(risk_signals)
+                    except Exception as e:
+                        logger.warning(f"Failed to persist risk signals: {e}")
         else:
             # Legacy: Portfolio rule engine only
             breaches = self.rule_engine.evaluate(snapshot)
@@ -470,9 +545,70 @@ class Orchestrator:
         """Get the latest risk snapshot."""
         return self._latest_snapshot
 
+    async def wait_for_snapshot(self, timeout: float = 5.0) -> RiskSnapshot | None:
+        """
+        Wait for a new snapshot to be ready.
+
+        This allows the dashboard to sync with the orchestrator cycle
+        instead of polling on a separate timer.
+
+        Args:
+            timeout: Maximum time to wait in seconds.
+
+        Returns:
+            Latest snapshot, or None if timeout.
+        """
+        try:
+            await asyncio.wait_for(self._snapshot_ready.wait(), timeout=timeout)
+            self._snapshot_ready.clear()  # Reset for next cycle
+            return self._latest_snapshot
+        except asyncio.TimeoutError:
+            return self._latest_snapshot  # Return cached if timeout
+
     def get_latest_market_alerts(self) -> list[dict[str, Any]]:
         """Get the latest market alerts."""
         return self._latest_market_alerts
+
+    def _on_streaming_market_data(self, symbol: str, market_data) -> None:
+        """
+        Handle streaming market data update from IB.
+
+        Updates the market data store and signals for snapshot rebuild.
+        """
+        # Update store
+        self.market_data_store.upsert([market_data])
+
+        # Signal main loop to rebuild snapshot (throttled there)
+        self._market_data_updated.set()
+
+    async def _rebuild_snapshot_from_cache(self) -> None:
+        """
+        Rebuild snapshot using cached positions and fresh market data.
+
+        Called on streaming market data updates (throttled).
+        Lighter than full _run_cycle - skips position fetching.
+        """
+        try:
+            # Get cached positions and account
+            positions = self.position_store.get_all()
+            if not positions:
+                return
+
+            market_data = self.market_data_store.get_all()
+            account_info = self.account_store.get()
+
+            # Rebuild snapshot with fresh market data
+            snapshot = self.risk_engine.build_snapshot(
+                positions, market_data, account_info
+            )
+            self._latest_snapshot = snapshot
+
+            # Signal dashboard
+            self._snapshot_ready.set()
+
+            logger.debug(f"Streaming snapshot rebuild: {len(positions)} positions")
+        except Exception as e:
+            logger.warning(f"Streaming snapshot rebuild failed: {e}")
 
     def get_latest_risk_signals(self) -> List[RiskSignal]:
         """Get the latest risk signals."""
@@ -547,60 +683,3 @@ class Orchestrator:
             f"{len(self._latest_risk_signals)} risk signals to audit trail"
         )
 
-    def _aggregate_account_info(
-        self,
-        ib_account: Optional[AccountInfo],
-        futu_account: Optional[AccountInfo],
-    ) -> AccountInfo:
-        """
-        Aggregate account info from multiple brokers.
-
-        Args:
-            ib_account: AccountInfo from IB (may be None).
-            futu_account: AccountInfo from Futu (may be None).
-
-        Returns:
-            Aggregated AccountInfo with combined values.
-        """
-        # Start with zero values
-        aggregated = AccountInfo(
-            net_liquidation=0.0,
-            total_cash=0.0,
-            buying_power=0.0,
-            margin_used=0.0,
-            margin_available=0.0,
-            maintenance_margin=0.0,
-            init_margin_req=0.0,
-            excess_liquidity=0.0,
-            realized_pnl=0.0,
-            unrealized_pnl=0.0,
-            account_id="AGGREGATED",
-        )
-
-        # Add IB account values
-        if ib_account:
-            aggregated.net_liquidation += ib_account.net_liquidation
-            aggregated.total_cash += ib_account.total_cash
-            aggregated.buying_power += ib_account.buying_power
-            aggregated.margin_used += ib_account.margin_used
-            aggregated.margin_available += ib_account.margin_available
-            aggregated.maintenance_margin += ib_account.maintenance_margin
-            aggregated.init_margin_req += ib_account.init_margin_req
-            aggregated.excess_liquidity += ib_account.excess_liquidity
-            aggregated.realized_pnl += ib_account.realized_pnl
-            aggregated.unrealized_pnl += ib_account.unrealized_pnl
-
-        # Add Futu account values
-        if futu_account:
-            aggregated.net_liquidation += futu_account.net_liquidation
-            aggregated.total_cash += futu_account.total_cash
-            aggregated.buying_power += futu_account.buying_power
-            aggregated.margin_used += futu_account.margin_used
-            aggregated.margin_available += futu_account.margin_available
-            aggregated.maintenance_margin += futu_account.maintenance_margin
-            aggregated.init_margin_req += futu_account.init_margin_req
-            aggregated.excess_liquidity += futu_account.excess_liquidity
-            aggregated.realized_pnl += futu_account.realized_pnl
-            aggregated.unrealized_pnl += futu_account.unrealized_pnl
-
-        return aggregated

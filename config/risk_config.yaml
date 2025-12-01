@@ -173,6 +173,20 @@ watchdog:
     max: 60
     factor: 2  # Exponential backoff multiplier
 
+# Persistence layer (DuckDB for position history, P&L, alerts)
+persistence:
+  enabled: true  # Enable database persistence
+  db_path: ./data/apex_risk.duckdb  # DuckDB database file
+
+  # Snapshot frequency
+  snapshot_interval_sec: 60  # Full snapshot every 60s
+  change_detection: true     # Track position changes (open/close/modify)
+
+  # Retention policies (days)
+  position_snapshots_days: 90   # Keep 90 days of position snapshots
+  portfolio_snapshots_days: 365 # Keep 1 year of portfolio snapshots
+  alerts_days: 365              # Keep 1 year of alerts
+
 # Logging configuration
 logging:
   level: INFO  # DEBUG, INFO, WARNING, ERROR, CRITICAL

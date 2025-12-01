@@ -76,8 +76,6 @@ def risk_signal_engine(config, rule_engine, signal_manager):
         config=config,
         rule_engine=rule_engine,
         signal_manager=signal_manager,
-        position_store=None,  # Not needed for basic tests
-        market_data_store=None,
     )
 
 

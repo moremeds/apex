@@ -61,6 +61,19 @@ class IbAdapter(PositionProvider, MarketDataProvider):
         self._market_data_cache: Dict[str, MarketData] = {}
         self._market_data_fetcher: Optional[MarketDataFetcher] = None
 
+        # Cache for account info (avoid excessive API calls)
+        self._account_cache: Optional[AccountInfo] = None
+        self._account_cache_time: Optional[datetime] = None
+        self._account_cache_ttl_sec: int = 10  # Cache for 10 seconds
+
+        # Cache for positions (avoid excessive API calls)
+        self._position_cache: Optional[List[Position]] = None
+        self._position_cache_time: Optional[datetime] = None
+        self._position_cache_ttl_sec: int = 10  # Cache for 10 seconds
+
+        # Callback for streaming market data updates
+        self._on_market_data_update: Optional[callable] = None
+
     async def connect(self) -> None:
         """
         Connect to Interactive Brokers TWS/Gateway with auto-reconnect.
@@ -73,7 +86,10 @@ class IbAdapter(PositionProvider, MarketDataProvider):
             self.ib = IB()
             await self.ib.connectAsync(self.host, self.port, clientId=self.client_id, timeout=5)
             self._connected = True
-            self._market_data_fetcher = MarketDataFetcher(self.ib)
+            self._market_data_fetcher = MarketDataFetcher(
+                self.ib,
+                on_price_update=self._handle_streaming_update,
+            )
             logger.info(f"Connected to IB at {self.host}:{self.port}")
         except ImportError:
             logger.error("ib_async library not installed. Install with: pip install ib_async")
@@ -102,6 +118,8 @@ class IbAdapter(PositionProvider, MarketDataProvider):
         """
         Fetch positions from Interactive Brokers.
 
+        Uses a 10-second TTL cache to avoid excessive API calls.
+
         Returns:
             List of Position objects with source=IB.
 
@@ -110,6 +128,16 @@ class IbAdapter(PositionProvider, MarketDataProvider):
         """
         if not self.is_connected():
             raise ConnectionError("Not connected to IB")
+
+        # Check cache first
+        now = datetime.now()
+        if (
+            self._position_cache is not None
+            and self._position_cache_time is not None
+            and (now - self._position_cache_time).total_seconds() < self._position_cache_ttl_sec
+        ):
+            logger.debug("Using cached IB positions")
+            return self._position_cache
 
         positions = []
         try:
@@ -120,8 +148,16 @@ class IbAdapter(PositionProvider, MarketDataProvider):
                 positions.append(position)
 
             logger.info(f"Fetched {len(positions)} positions from IB")
+
+            # Update cache
+            self._position_cache = positions
+            self._position_cache_time = datetime.now()
         except Exception as e:
             logger.error(f"Failed to fetch positions from IB: {e}")
+            # Return cached data on error if available
+            if self._position_cache is not None:
+                logger.debug("Returning cached positions after error")
+                return self._position_cache
             raise
 
         return positions
@@ -148,14 +184,24 @@ class IbAdapter(PositionProvider, MarketDataProvider):
         else:
             asset_type = AssetType.CASH
 
+        # For stocks, expiry/strike/right should be None
+        if asset_type == AssetType.STOCK:
+            expiry = None
+            strike = None
+            right = None
+        else:
+            expiry = contract.lastTradeDateOrContractMonth or None  # Convert "" to None
+            strike = float(contract.strike) if contract.strike else None
+            right = contract.right or None  # Convert "" to None
+
         return Position(
             symbol=contract.localSymbol,
             underlying=contract.symbol,  # Simplified - extract from contract
             asset_type=asset_type,
             quantity=float(ib_pos.position),
-            strike=float(contract.strike),
-            right=contract.right,
-            expiry=contract.lastTradeDateOrContractMonth,
+            strike=strike,
+            right=right,
+            expiry=expiry,
             avg_price=ib_pos.avgCost,
             multiplier=int(contract.multiplier or 1),
             source=PositionSource.IB,
@@ -393,6 +439,8 @@ class IbAdapter(PositionProvider, MarketDataProvider):
         """
         Fetch account information from IB using accountSummary API.
 
+        Uses a 10-second TTL cache to avoid excessive API calls.
+
         Returns:
             AccountInfo object with real account data from IBKR.
 
@@ -402,6 +450,16 @@ class IbAdapter(PositionProvider, MarketDataProvider):
         """
         if not self.is_connected():
             raise ConnectionError("Not connected to IB")
+
+        # Check cache first
+        now = datetime.now()
+        if (
+            self._account_cache is not None
+            and self._account_cache_time is not None
+            and (now - self._account_cache_time).total_seconds() < self._account_cache_ttl_sec
+        ):
+            logger.debug("Using cached IB account info")
+            return self._account_cache
 
         try:
             # Request account summary from IBKR
@@ -446,7 +504,7 @@ class IbAdapter(PositionProvider, MarketDataProvider):
 
             logger.info(f"✓ Fetched account info: NetLiq=${net_liquidation:,.2f}, BuyingPower=${buying_power:,.2f}, Margin={margin_used:,.2f}/{net_liquidation:,.2f}")
 
-            return AccountInfo(
+            account_info = AccountInfo(
                 net_liquidation=net_liquidation,
                 total_cash=total_cash,
                 buying_power=buying_power,
@@ -461,7 +519,51 @@ class IbAdapter(PositionProvider, MarketDataProvider):
                 account_id=account_id,
             )
 
+            # Update cache
+            self._account_cache = account_info
+            self._account_cache_time = datetime.now()
+
+            return account_info
+
         except Exception as e:
             logger.error(f"Failed to fetch account info from IB: {e}")
+            # Return cached data on error if available
+            if self._account_cache is not None:
+                logger.debug("Returning cached account info after error")
+                return self._account_cache
             # Propagate to caller to avoid silent risk calculations with zeroed balances
             raise
+
+    def set_market_data_callback(self, callback: callable) -> None:
+        """
+        Set callback for streaming market data updates.
+
+        Args:
+            callback: Function(symbol: str, market_data: MarketData) called on updates.
+        """
+        self._on_market_data_update = callback
+
+    def enable_streaming(self) -> None:
+        """Enable streaming market data updates."""
+        if self._market_data_fetcher:
+            self._market_data_fetcher.enable_streaming()
+            logger.info("IB streaming market data enabled")
+
+    def disable_streaming(self) -> None:
+        """Disable streaming market data updates."""
+        if self._market_data_fetcher:
+            self._market_data_fetcher.disable_streaming()
+            logger.info("IB streaming market data disabled")
+
+    def _handle_streaming_update(self, symbol: str, market_data: MarketData) -> None:
+        """
+        Handle streaming market data update from fetcher.
+
+        Updates cache and fires callback if registered.
+        """
+        # Update cache
+        self._market_data_cache[symbol] = market_data
+
+        # Fire callback
+        if self._on_market_data_update:
+            self._on_market_data_update(symbol, market_data)

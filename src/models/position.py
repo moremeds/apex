@@ -45,6 +45,7 @@ class Position:
 
     # Reconciliation & metadata
     source: PositionSource = PositionSource.IB
+    all_sources: list[PositionSource] = field(default_factory=list)  # All sources this position exists in
     strategy_tag: Optional[str] = None
     last_updated: datetime = field(default_factory=datetime.now)
     account_id: Optional[str] = None
