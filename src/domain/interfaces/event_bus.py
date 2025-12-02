@@ -8,13 +8,27 @@ from enum import Enum
 
 class EventType(Enum):
     """System event types."""
-    POSITION_CHANGED = "position_changed"
-    LIMIT_BREACHED = "limit_breached"
-    CONNECTION_LOST = "connection_lost"
-    CONNECTION_RESTORED = "connection_restored"
-    MARKET_DATA_STALE = "market_data_stale"
-    RECONCILIATION_ISSUE = "reconciliation_issue"
-    HEALTH_CHECK_FAILED = "health_check_failed"
+    # Position events
+    POSITION_UPDATED = "position_updated"      # Single position update (from push)
+    POSITIONS_BATCH = "positions_batch"        # Batch from adapter poll
+
+    # Market data events
+    MARKET_DATA_TICK = "market_data_tick"      # Single symbol tick (streaming)
+    MARKET_DATA_BATCH = "market_data_batch"    # Batch from poll
+    MARKET_DATA_STALE = "market_data_stale"    # Market data staleness detected
+
+    # Account events
+    ACCOUNT_UPDATED = "account_updated"        # Account snapshot updated
+
+    # Risk events
+    SNAPSHOT_READY = "snapshot_ready"          # Risk snapshot computed
+    RISK_SIGNAL = "risk_signal"                # Risk signal detected
+    RECONCILIATION_ISSUE = "reconciliation_issue"  # Position reconciliation issue
+
+    # System events
+    TIMER_TICK = "timer_tick"                  # Periodic tick for reconciliation
+    CONNECTION_RESTORED = "connection_restored"  # Adapter reconnected
+    SHUTDOWN = "shutdown"                      # Graceful shutdown signal
 
 
 class EventBus(ABC):

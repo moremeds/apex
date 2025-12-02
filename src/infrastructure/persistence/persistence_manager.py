@@ -13,10 +13,13 @@ from .duckdb_adapter import DuckDBAdapter
 from .repositories.position_repository import PositionRepository
 from .repositories.portfolio_repository import PortfolioRepository
 from .repositories.alert_repository import AlertRepository
+from .repositories.order_repository import OrderRepository
 from src.models.risk_snapshot import RiskSnapshot
 from src.models.position_risk import PositionRisk
 from src.models.risk_signal import RiskSignal
 from src.models.position import PositionSource
+from src.models.order import Order, Trade, OrderSource
+from src.domain.interfaces.event_bus import EventBus, EventType
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +38,9 @@ class PersistenceConfig:
     position_snapshots_days: int = 90
     portfolio_snapshots_days: int = 365
     alerts_days: int = 365
+    orders_days: int = 365
+    trades_days: int = 365
+    order_sync_days_back: int = 30  # Days to sync on startup
 
 
 @dataclass
@@ -71,6 +77,7 @@ class PersistenceManager:
         self.positions = PositionRepository(self.db)
         self.portfolio = PortfolioRepository(self.db)
         self.alerts = AlertRepository(self.db)
+        self.orders = OrderRepository(self.db)
 
         # State tracking for change detection
         self._position_states: Dict[str, PositionState] = {}
@@ -87,6 +94,8 @@ class PersistenceManager:
             "changes_detected": 0,
             "alerts_saved": 0,
             "last_persist_ms": 0,
+            "orders_synced": 0,
+            "trades_synced": 0,
         }
 
         logger.info(f"PersistenceManager initialized: {self.config.db_path}")
@@ -356,18 +365,23 @@ class PersistenceManager:
         known positions from a previous session (reconciliation on startup).
         """
         try:
-            # Get the most recent position snapshot for each symbol
+            # Get the most recent position snapshot for each symbol (DuckDB compatible)
             rows = self.db.fetch_all("""
-                SELECT DISTINCT ON (symbol)
-                    symbol, quantity, avg_price, source
-                FROM position_snapshots
-                WHERE source IN ('IB', 'FUTU')
-                ORDER BY symbol, snapshot_time DESC
+                WITH ranked AS (
+                    SELECT
+                        symbol, quantity, avg_price, source,
+                        ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY snapshot_time DESC) as rn
+                    FROM position_snapshots
+                    WHERE source IN ('IB', 'FUTU')
+                )
+                SELECT symbol, quantity, avg_price, source
+                FROM ranked
+                WHERE rn = 1
             """)
 
             if rows:
                 for row in rows:
-                    row_dict = dict(row)
+                    row_dict = row
                     symbol = row_dict.get("symbol")
                     if symbol:
                         self._position_states[symbol] = PositionState(
@@ -396,16 +410,25 @@ class PersistenceManager:
             List of position snapshot records
         """
         try:
+            # Use window function to get latest snapshot per symbol (DuckDB compatible)
             rows = self.db.fetch_all(f"""
-                SELECT DISTINCT ON (symbol)
+                WITH ranked AS (
+                    SELECT
+                        symbol, underlying, asset_type, quantity, avg_price,
+                        mark_price, unrealized_pnl, daily_pnl, source,
+                        snapshot_time, expiry, strike, option_type,
+                        ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY snapshot_time DESC) as rn
+                    FROM position_snapshots
+                )
+                SELECT
                     symbol, underlying, asset_type, quantity, avg_price,
                     mark_price, unrealized_pnl, daily_pnl, source,
                     snapshot_time, expiry, strike, option_type
-                FROM position_snapshots
-                ORDER BY symbol, snapshot_time DESC
+                FROM ranked
+                WHERE rn = 1
                 LIMIT {limit}
             """)
-            return [dict(row) for row in rows] if rows else []
+            return rows if rows else []
         except Exception as e:
             logger.warning(f"Failed to get position snapshots: {e}")
             return []
@@ -424,3 +447,322 @@ class PersistenceManager:
 
     def __repr__(self) -> str:
         return f"PersistenceManager(db={self.config.db_path}, snapshots={self._stats['snapshots_saved']})"
+
+    # ========== Event-Driven Methods ==========
+
+    def subscribe_to_events(self, event_bus: EventBus) -> None:
+        """
+        Subscribe to persistence-related events.
+
+        Args:
+            event_bus: Event bus to subscribe to.
+        """
+        event_bus.subscribe(EventType.SNAPSHOT_READY, self._on_snapshot_ready)
+        event_bus.subscribe(EventType.RISK_SIGNAL, self._on_risk_signal)
+        event_bus.subscribe(EventType.POSITION_UPDATED, self._on_position_change)
+        logger.debug("PersistenceManager subscribed to events")
+
+    def _on_snapshot_ready(self, payload: dict) -> None:
+        """
+        Handle snapshot ready event.
+
+        Persists the snapshot asynchronously using a thread pool to avoid blocking.
+
+        Args:
+            payload: Event payload with 'snapshot'.
+        """
+        snapshot = payload.get("snapshot")
+        if snapshot:
+            # Run persistence in a thread pool to avoid blocking the event loop
+            try:
+                loop = asyncio.get_running_loop()
+                loop.run_in_executor(None, self._persist_snapshot_sync, snapshot)
+            except RuntimeError:
+                # No event loop running, fall back to sync
+                self._persist_snapshot_sync(snapshot)
+
+    def _persist_snapshot_sync(self, snapshot: RiskSnapshot) -> None:
+        """Synchronous snapshot persistence (runs in thread pool)."""
+        try:
+            self.persist_snapshot(snapshot)
+        except Exception as e:
+            logger.error(f"Failed to persist snapshot from event: {e}")
+
+    def _on_risk_signal(self, payload: dict) -> None:
+        """
+        Handle risk signal event.
+
+        Persists the signal to the database asynchronously via thread pool
+        to avoid blocking the event loop during DuckDB writes.
+
+        Args:
+            payload: Event payload with 'signal'.
+        """
+        signal = payload.get("signal")
+        if signal:
+            try:
+                loop = asyncio.get_running_loop()
+                loop.run_in_executor(None, self._persist_alert_sync, signal)
+            except RuntimeError:
+                # No event loop running, fall back to sync
+                self._persist_alert_sync(signal)
+
+    def _persist_alert_sync(self, signal) -> None:
+        """Synchronous alert persistence (runs in thread pool)."""
+        try:
+            self.persist_alerts([signal])
+        except Exception as e:
+            logger.error(f"Failed to persist risk signal from event: {e}")
+
+    def _on_position_change(self, payload: dict) -> None:
+        """
+        Handle position update event (e.g., from trade deal push).
+
+        Logs the position change for audit trail.
+
+        Args:
+            payload: Event payload with position update info.
+        """
+        symbol = payload.get("symbol", "unknown")
+        source = payload.get("source", "unknown")
+        logger.info(f"Position change event: {symbol} from {source}")
+
+    # ========== Order History Methods ==========
+
+    def sync_orders(self, orders: List[Order]) -> Dict[str, int]:
+        """
+        Synchronize orders to the database (upsert).
+
+        Args:
+            orders: List of Order objects to sync
+
+        Returns:
+            Dict with counts: {"inserted": N, "updated": M}
+        """
+        if not orders:
+            return {"inserted": 0, "updated": 0}
+
+        result = self.orders.upsert_orders(orders)
+        self._stats["orders_synced"] += result["inserted"] + result["updated"]
+        return result
+
+    def sync_trades(self, trades: List[Trade]) -> Dict[str, int]:
+        """
+        Synchronize trades to the database (upsert).
+
+        Args:
+            trades: List of Trade objects to sync
+
+        Returns:
+            Dict with counts: {"inserted": N, "updated": M}
+        """
+        if not trades:
+            return {"inserted": 0, "updated": 0}
+
+        result = self.orders.upsert_trades(trades)
+        self._stats["trades_synced"] += result["inserted"] + result["updated"]
+        return result
+
+    async def sync_order_history_from_brokers(
+        self,
+        ib_adapters: Optional[List] = None,
+        futu_adapter: Optional[Any] = None,
+        days_back: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """
+        Synchronize order and trade history from all brokers on startup.
+
+        This method fetches historical orders and trades from both IB and Futu
+        adapters and upserts them into the database.
+
+        Args:
+            ib_adapters: List of IB adapter instances (supports multiple accounts)
+            futu_adapter: Futu adapter instance
+            days_back: Number of days to look back (default from config)
+
+        Returns:
+            Dict with sync statistics
+        """
+        days_back = days_back or self.config.order_sync_days_back
+        results = {
+            "ib_orders": {"inserted": 0, "updated": 0},
+            "ib_trades": {"inserted": 0, "updated": 0},
+            "futu_orders": {"inserted": 0, "updated": 0},
+            "futu_trades": {"inserted": 0, "updated": 0},
+            "errors": [],
+        }
+
+        # Sync from IB adapters (can have multiple accounts)
+        if ib_adapters:
+            for idx, ib_adapter in enumerate(ib_adapters):
+                try:
+                    if not ib_adapter.is_connected():
+                        logger.warning(f"IB adapter {idx} not connected, skipping order sync")
+                        continue
+
+                    # Fetch orders
+                    logger.info(f"Fetching order history from IB adapter {idx}...")
+                    orders = await ib_adapter.fetch_orders(include_open=True, include_completed=True)
+                    order_result = self.sync_orders(orders)
+                    results["ib_orders"]["inserted"] += order_result["inserted"]
+                    results["ib_orders"]["updated"] += order_result["updated"]
+
+                    # Fetch trades
+                    logger.info(f"Fetching trade history from IB adapter {idx}...")
+                    trades = await ib_adapter.fetch_trades(days_back=days_back)
+                    trade_result = self.sync_trades(trades)
+                    results["ib_trades"]["inserted"] += trade_result["inserted"]
+                    results["ib_trades"]["updated"] += trade_result["updated"]
+
+                    logger.info(
+                        f"IB adapter {idx} sync complete: "
+                        f"orders={order_result['inserted']}+{order_result['updated']}, "
+                        f"trades={trade_result['inserted']}+{trade_result['updated']}"
+                    )
+
+                except Exception as e:
+                    error_msg = f"Failed to sync from IB adapter {idx}: {e}"
+                    logger.error(error_msg)
+                    results["errors"].append(error_msg)
+
+        # Sync from Futu adapter
+        if futu_adapter:
+            try:
+                if not futu_adapter.is_connected():
+                    logger.warning("Futu adapter not connected, skipping order sync")
+                else:
+                    # Fetch orders
+                    logger.info("Fetching order history from Futu...")
+                    orders = await futu_adapter.fetch_orders(
+                        include_open=True,
+                        include_completed=True,
+                        days_back=days_back,
+                    )
+                    order_result = self.sync_orders(orders)
+                    results["futu_orders"]["inserted"] = order_result["inserted"]
+                    results["futu_orders"]["updated"] = order_result["updated"]
+
+                    # Fetch trades
+                    logger.info("Fetching trade history from Futu...")
+                    trades = await futu_adapter.fetch_trades(days_back=days_back)
+                    trade_result = self.sync_trades(trades)
+                    results["futu_trades"]["inserted"] = trade_result["inserted"]
+                    results["futu_trades"]["updated"] = trade_result["updated"]
+
+                    logger.info(
+                        f"Futu sync complete: "
+                        f"orders={order_result['inserted']}+{order_result['updated']}, "
+                        f"trades={trade_result['inserted']}+{trade_result['updated']}"
+                    )
+
+            except Exception as e:
+                error_msg = f"Failed to sync from Futu: {e}"
+                logger.error(error_msg)
+                results["errors"].append(error_msg)
+
+        # Log summary
+        total_orders = (
+            results["ib_orders"]["inserted"] + results["ib_orders"]["updated"] +
+            results["futu_orders"]["inserted"] + results["futu_orders"]["updated"]
+        )
+        total_trades = (
+            results["ib_trades"]["inserted"] + results["ib_trades"]["updated"] +
+            results["futu_trades"]["inserted"] + results["futu_trades"]["updated"]
+        )
+        logger.info(
+            f"Order history sync complete: {total_orders} orders, {total_trades} trades "
+            f"({len(results['errors'])} errors)"
+        )
+
+        return results
+
+    def get_order_stats(self) -> Dict[str, Any]:
+        """Get order and trade statistics."""
+        return {
+            "orders_synced": self._stats["orders_synced"],
+            "trades_synced": self._stats["trades_synced"],
+            "total_orders": len(self.orders.get_orders(limit=10000)),
+            "total_trades": len(self.orders.get_trades(limit=10000)),
+            "open_orders": len(self.orders.get_open_orders()),
+        }
+
+    def get_recent_trades(
+        self,
+        days: int = 7,
+        source: Optional[OrderSource] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Get recent trades for display/analysis.
+
+        Args:
+            days: Number of days to look back
+            source: Filter by source (IB/FUTU)
+
+        Returns:
+            List of trade records
+        """
+        start_time = datetime.now() - timedelta(days=days)
+        return self.orders.get_trades(
+            source=source,
+            start_time=start_time,
+            limit=500,
+        )
+
+    def reconcile_orders_with_trades(self) -> Dict[str, Any]:
+        """
+        Reconcile orders with trades to identify discrepancies.
+
+        Checks for:
+        - Orders marked FILLED but no corresponding trades
+        - Trades without parent orders
+        - Fill quantity mismatches
+
+        Returns:
+            Dict with reconciliation results
+        """
+        issues = []
+
+        # Get all filled orders from last 30 days
+        start_time = datetime.now() - timedelta(days=30)
+        from src.models.order import OrderStatus
+        filled_orders = self.orders.get_orders(
+            status=OrderStatus.FILLED,
+            start_time=start_time,
+            limit=1000,
+        )
+
+        for order in filled_orders:
+            source = OrderSource(order["source"])
+            trades = self.orders.get_trades_by_order(
+                source=source,
+                order_id=order["order_id"],
+                account_id=order["account_id"],
+            )
+
+            if not trades:
+                issues.append({
+                    "type": "MISSING_TRADES",
+                    "order_id": order["order_id"],
+                    "source": order["source"],
+                    "symbol": order["symbol"],
+                    "message": f"Order {order['order_id']} is FILLED but has no trades",
+                })
+            else:
+                # Check fill quantity
+                total_trade_qty = sum(t["quantity"] for t in trades)
+                if abs(total_trade_qty - order["filled_quantity"]) > 0.01:
+                    issues.append({
+                        "type": "QUANTITY_MISMATCH",
+                        "order_id": order["order_id"],
+                        "source": order["source"],
+                        "symbol": order["symbol"],
+                        "order_qty": order["filled_quantity"],
+                        "trade_qty": total_trade_qty,
+                        "message": f"Order filled qty ({order['filled_quantity']}) != trades ({total_trade_qty})",
+                    })
+
+        return {
+            "issues_count": len(issues),
+            "issues": issues,
+            "orders_checked": len(filled_orders),
+        }

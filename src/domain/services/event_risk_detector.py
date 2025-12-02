@@ -24,6 +24,7 @@ from ...models.risk_signal import (
     SignalSeverity,
     SuggestedAction,
 )
+from .risk.threshold import Threshold, ThresholdDirection
 
 
 logger = logging.getLogger(__name__)
@@ -53,6 +54,14 @@ class EventRiskDetector:
         self.enabled = event_config.get("enabled", True)
         self.earnings_warning_days = event_config.get("earnings_warning_days", 3)
         self.earnings_critical_days = event_config.get("earnings_critical_days", 1)
+
+        # Threshold for days to earnings (BELOW = warning when value is low)
+        # Days <= critical_days → CRITICAL, Days <= warning_days → WARNING
+        self.earnings_threshold = Threshold(
+            warning=float(self.earnings_warning_days),
+            critical=float(self.earnings_critical_days),
+            direction=ThresholdDirection.BELOW,
+        )
 
         # Load earnings calendar
         self.earnings_calendar = self._load_earnings_calendar(
@@ -137,6 +146,8 @@ class EventRiskDetector:
         """
         Create earnings risk signal based on position type and days to earnings.
 
+        Uses Threshold helper for standardized severity checking.
+
         Args:
             pos_risk: Position risk data
             symbol: Symbol
@@ -146,11 +157,11 @@ class EventRiskDetector:
         Returns:
             RiskSignal or None
         """
-        # Determine severity based on days to earnings
-        if days_to_earnings <= self.earnings_critical_days:
-            severity = SignalSeverity.CRITICAL
-        else:
-            severity = SignalSeverity.WARNING
+        # Determine severity using Threshold helper
+        severity_str = self.earnings_threshold.check(float(days_to_earnings))
+        if not severity_str:
+            return None  # Outside warning window
+        severity = SignalSeverity.CRITICAL if severity_str == "CRITICAL" else SignalSeverity.WARNING
 
         # Determine suggested action based on position type
         # Short options have higher risk (assignment, IV crush)

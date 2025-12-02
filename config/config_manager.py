@@ -65,14 +65,13 @@ class ConfigManager:
             FileNotFoundError: If base config not found.
             ValueError: If config is invalid.
         """
-        # Load base config (required)
+        # Load base config (required) - no fallback, use base.yaml directly
         base_path = self.config_dir / "base.yaml"
         if not base_path.exists():
-            # Fallback to risk_config.yaml for backward compatibility
-            base_path = self.config_dir / "risk_config.yaml"
-
-        if not base_path.exists():
-            raise FileNotFoundError(f"Base config not found: {base_path}")
+            raise FileNotFoundError(
+                f"Base config not found: {base_path}. "
+                "Rename your risk_config.yaml to base.yaml or create a new base.yaml."
+            )
 
         self.config = self._load_yaml(base_path)
         logger.info(f"Loaded base config from {base_path}")

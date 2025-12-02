@@ -13,6 +13,8 @@ from typing import List, Dict, Optional, Any
 from datetime import datetime
 import logging
 
+from .risk.threshold import Threshold, ThresholdDirection
+
 
 logger = logging.getLogger(__name__)
 
@@ -38,14 +40,31 @@ class MarketAlertDetector:
         """
         self.config = config or {}
 
-        # VIX thresholds
+        # VIX thresholds (using Threshold helper)
         self.vix_warning = self.config.get("vix_warning_threshold", 25.0)
         self.vix_critical = self.config.get("vix_critical_threshold", 35.0)
         self.vix_spike_pct = self.config.get("vix_spike_pct", 15.0)
+        self.vix_threshold = Threshold(
+            warning=self.vix_warning,
+            critical=self.vix_critical,
+            direction=ThresholdDirection.ABOVE,
+        )
 
-        # Market drop thresholds
+        # Market drop thresholds (using Threshold helper - direction BELOW)
         self.drop_warning = self.config.get("market_drop_warning", -2.0)
         self.drop_critical = self.config.get("market_drop_critical", -3.0)
+        self.drop_threshold = Threshold(
+            warning=self.drop_warning,
+            critical=self.drop_critical,
+            direction=ThresholdDirection.BELOW,
+        )
+
+        # Volatility thresholds (using Threshold helper)
+        self.vol_threshold = Threshold(
+            warning=30.0,
+            critical=40.0,
+            direction=ThresholdDirection.ABOVE,
+        )
 
         # Track previous VIX for spike detection
         self._prev_vix: Optional[float] = None
@@ -92,32 +111,26 @@ class MarketAlertDetector:
         return alerts
 
     def _check_vix_alerts(self, vix: float, prev_close: Optional[float] = None) -> List[Dict[str, Any]]:
-        """Check VIX-related alerts."""
+        """Check VIX-related alerts using Threshold helper."""
         alerts = []
 
-        # Check absolute VIX level
-        if vix >= self.vix_critical:
+        # Check absolute VIX level using Threshold
+        severity_str = self.vix_threshold.check(vix)
+        if severity_str:
+            alert_type = "VIX_CRITICAL" if severity_str == "CRITICAL" else "VIX_ELEVATED"
+            threshold = self.vix_critical if severity_str == "CRITICAL" else self.vix_warning
             alerts.append({
-                "type": "VIX_CRITICAL",
-                "message": f"VIX at {vix:.1f} (critical threshold: {self.vix_critical})",
-                "severity": "CRITICAL"
-            })
-        elif vix >= self.vix_warning:
-            alerts.append({
-                "type": "VIX_ELEVATED",
-                "message": f"VIX at {vix:.1f} (warning threshold: {self.vix_warning})",
-                "severity": "WARNING"
+                "type": alert_type,
+                "message": f"VIX at {vix:.1f} ({severity_str.lower()} threshold: {threshold})",
+                "severity": severity_str
             })
 
         # Check VIX spike (percentage change)
         baseline = self._prev_vix or prev_close
-        if baseline:
-            if baseline == 0:
-                baseline = None  # Avoid divide-by-zero
-        if baseline:
+        if baseline and baseline != 0:
             vix_change_pct = ((vix - baseline) / baseline) * 100
             if vix_change_pct >= self.vix_spike_pct:
-                severity = "CRITICAL" if vix >= self.vix_critical else "WARNING"
+                severity = "CRITICAL" if severity_str == "CRITICAL" else "WARNING"
                 alerts.append({
                     "type": "VIX_SPIKE",
                     "message": f"VIX jumped {vix_change_pct:.1f}% to {vix:.1f}",
@@ -130,36 +143,32 @@ class MarketAlertDetector:
         return alerts
 
     def _check_market_drop_alerts(self, change_pct: float, symbol: str) -> List[Dict[str, Any]]:
-        """Check for market drop alerts."""
+        """Check for market drop alerts using Threshold helper."""
         alerts = []
 
-        if change_pct <= self.drop_critical:
+        severity_str = self.drop_threshold.check(change_pct)
+        if severity_str:
+            msg_suffix = "(critical threshold)" if severity_str == "CRITICAL" else "intraday"
             alerts.append({
                 "type": "MARKET_DROP",
-                "message": f"{symbol} down {abs(change_pct):.1f}% (critical threshold)",
-                "severity": "CRITICAL"
-            })
-        elif change_pct <= self.drop_warning:
-            alerts.append({
-                "type": "MARKET_DROP",
-                "message": f"{symbol} down {abs(change_pct):.1f}% intraday",
-                "severity": "WARNING"
+                "message": f"{symbol} down {abs(change_pct):.1f}% {msg_suffix}",
+                "severity": severity_str
             })
 
         return alerts
 
     def _check_volatility_alerts(self, realized_vol: float) -> List[Dict[str, Any]]:
-        """Check for high volatility alerts."""
+        """Check for high volatility alerts using Threshold helper."""
         alerts = []
 
-        # High realized vol threshold
-        if realized_vol > 40:
+        severity_str = self.vol_threshold.check(realized_vol)
+        if severity_str == "CRITICAL":
             alerts.append({
                 "type": "HIGH_VOLATILITY",
                 "message": f"SPY realized vol at {realized_vol:.1f}% (elevated)",
-                "severity": "WARNING"
+                "severity": "WARNING"  # Downgrade to WARNING (vol is less urgent)
             })
-        elif realized_vol > 30:
+        elif severity_str == "WARNING":
             alerts.append({
                 "type": "VOLATILITY",
                 "message": f"SPY realized vol at {realized_vol:.1f}% (above average)",

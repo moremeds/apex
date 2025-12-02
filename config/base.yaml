@@ -1,0 +1,278 @@
+# Live Risk Management System - Configuration
+# Complete configuration for risk monitoring, limits, and alerts
+
+# Broker adapters configuration
+# Enable/disable multiple brokers for position and account data
+brokers:
+  # Interactive Brokers - primary source for market data
+  ibkr:
+    enabled: true
+    host: 127.0.0.1
+    port: 4001  # 7497 for TWS Paper, 7496 for TWS Live, 4000 for IB Gateway Paper, 4001 for Live
+    client_id: 1
+    # IBKR provides: positions, account info, market data (prices + Greeks)
+    provides_market_data: true
+
+  # Futu OpenD - secondary source for positions and account info
+  futu:
+    enabled: true
+    host: 127.0.0.1
+    port: 11111  # Default Futu OpenD port
+    security_firm: FUTUSECURITIES  # FUTUSECURITIES, FUTUINC, FUTUSG, FUTUAU
+    trd_env: REAL  # REAL or SIMULATE
+    filter_trdmarket: US  # US, HK, CN, SG, JP, AU
+    # Futu provides: positions, account info (no market data - use IBKR)
+    provides_market_data: false
+
+# Manual position file loader
+manual_positions:
+  file: ./data/positions/manual.yaml
+  reload_interval_sec: 60  # Auto-reload interval
+
+# Risk limit definitions
+risk_limits:
+  # Maximum total gross notional exposure
+  max_total_gross_notional: 5_000_000
+
+  # Per-underlying notional limits (absolute value)
+  max_per_underlying_notional:
+    default: 1_000_000  # Default limit for unlisted underlyings
+    TSLA: 1_500_000
+    NVDA: 1_200_000
+    SPY: 2_000_000
+    QQQ: 1_500_000
+    AAPL: 1_000_000
+    MSFT: 1_000_000
+
+  # Portfolio Greeks ranges (min, max)
+  portfolio_delta_range: [-50_000, 50_000]  # Net delta exposure
+  portfolio_vega_range: [-15_000, 15_000]   # Vega exposure
+  portfolio_theta_range: [-5_000, 5_000]    # Theta decay
+
+  # Margin and concentration limits
+  max_margin_utilization: 0.60  # 60% max margin usage
+  max_concentration_pct: 0.30   # 30% max single-name concentration
+
+  # Soft breach threshold (warning before hard breach)
+  soft_breach_threshold: 0.80  # Alert at 80% of limit
+
+# Scenario shock testing
+scenarios:
+  enabled: true
+
+  # Spot price shocks (percentage moves)
+  spot_shocks:
+    - -0.03  # -3%
+    - -0.05  # -5%
+    - -0.07  # -7%
+    - -0.10  # -10%
+    - 0.03   # +3%
+    - 0.05   # +5%
+    - 0.07   # +7%
+
+  # IV shocks (deferred to v1.2 - not implemented in MVP)
+  iv_shocks:
+    - 0.05   # +5 vol points
+    - 0.10   # +10 vol points
+    - 0.20   # +20 vol points
+
+  # Combined spot + IV shocks (deferred to v1.2)
+  combined:
+    - name: "Crash_5pct_IV+20pct"
+      spot: -0.05
+      iv_rel: 0.20
+    - name: "Rally_5pct_IV-10pct"
+      spot: 0.05
+      iv_rel: -0.10
+
+# Market Data Quality Control (MDQC)
+mdqc:
+  stale_seconds: 10  # Mark data as stale after 10 seconds
+  ignore_zero_quotes: true  # Flag zero bid/ask as suspicious
+  enforce_bid_ask_sanity: true  # Validate bid <= ask
+  max_abs_delta: 1.0  # Max absolute delta for options (sanity check)
+
+  # Fallback order when mid is missing
+  fallback_order:
+    - "mid"
+    - "theoretical"  # Model-derived (deferred to v1.2)
+    - "last"
+
+# Dashboard settings
+dashboard:
+  refresh_interval_sec: 2  # UI refresh rate
+  show_positions: true  # Display position table
+
+# Market-wide alerts (VIX spikes, market drops, etc)
+market_alerts:
+  symbols: ["VIX"]  # Market indicators to monitor
+  vix_warning_threshold: 25.0  # VIX level for warning alert
+  vix_critical_threshold: 35.0  # VIX level for critical alert
+  vix_spike_pct: 15.0  # % change threshold for VIX spike alert
+
+# Risk Signal Engine - Multi-layer risk detection (Phase 1-4)
+risk_signals:
+  # Signal management (debounce/cooldown)
+  debounce_seconds: 15  # Require 15s persistence before firing
+  cooldown_minutes: 5   # Suppress duplicates for 5min
+
+  # Position-level rules (Phase 2)
+  position_rules:
+    stop_loss_pct: 0.60  # -60% stop loss
+    take_profit_pct: 1.00  # +100% take profit
+    trailing_stop_drawdown: 0.30  # 30% drawdown from peak
+    dte_exit_ratio: 0.20  # Exit when DTE < 20% of initial
+    short_r_multiple: 1.5  # Stop at 1.5x premium loss for short positions
+
+  # Strategy-specific rules (Phase 3)
+  strategy_rules:
+    credit_spread_r_multiple: 1.5  # Stop at 1.5x premium loss
+    diagonal_delta_flip_warning: true  # Alert on delta flip
+    calendar_iv_crush_threshold: 0.30  # 30% IV loss threshold
+
+  # Correlation risk (Phase 4a)
+  correlation_risk:
+    enabled: true
+    max_sector_concentration_pct: 0.60  # 60% max single sector
+    beta_reference: SPY  # Use SPY for beta-weighting
+    sectors:
+      Tech: [AAPL, MSFT, NVDA, TSLA, GOOGL, META, AMZN, NFLX, AMD, CRM]
+      Finance: [JPM, BAC, GS, MS, WFC, C, BLK, SCHW]
+      Healthcare: [JNJ, UNH, PFE, ABBV, TMO, LLY]
+      Energy: [XOM, CVX, COP, SLB, EOG]
+      Consumer: [WMT, HD, MCD, NKE, SBUX, TGT]
+      Industrial: [CAT, BA, GE, HON, UPS, LMT]
+      Communication: [DIS, CMCSA, VZ, T]
+
+  # Event risk - Earnings calendar (Phase 4b)
+  event_risk:
+    enabled: true
+    earnings_warning_days: 3  # Warn T-3 days before earnings
+    earnings_critical_days: 1  # Critical alert T-1 day
+
+    # Manual earnings calendar (update quarterly)
+    # Format: SYMBOL: "YYYY-MM-DD"
+    upcoming_earnings:
+      TSLA: "2025-01-24"
+      NVDA: "2025-02-21"
+      AAPL: "2025-01-30"
+      MSFT: "2025-01-28"
+      META: "2025-02-05"
+      AMZN: "2025-02-06"
+      GOOGL: "2025-02-04"
+      # Add more symbols as needed
+
+# Watchdog monitoring
+watchdog:
+  snapshot_stale_sec: 10  # Alert if snapshot not updated
+  max_missing_md_ratio: 0.2  # Alert if >20% positions missing market data
+
+  # Auto-reconnect backoff settings
+  reconnect_backoff_sec:
+    initial: 1
+    max: 60
+    factor: 2  # Exponential backoff multiplier
+
+# Persistence layer (DuckDB for position history, P&L, alerts)
+persistence:
+  enabled: true  # Enable database persistence
+  db_path: ./data/apex_risk.duckdb  # DuckDB database file
+
+  # Snapshot frequency
+  snapshot_interval_sec: 60  # Full snapshot every 60s
+  change_detection: true     # Track position changes (open/close/modify)
+
+  # Retention policies (days)
+  position_snapshots_days: 90   # Keep 90 days of position snapshots
+  portfolio_snapshots_days: 365 # Keep 1 year of portfolio snapshots
+  alerts_days: 365              # Keep 1 year of alerts
+
+# Logging configuration
+logging:
+  level: INFO  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  json: true  # Output structured JSON logs
+  file: ./data/logs/live_risk.log
+  timezone: "America/New_York"  # Timezone for log timestamps ("local", "UTC", or IANA timezone like "America/New_York")
+
+# Position reconciliation settings
+reconciliation:
+  stale_threshold_sec: 300  # Mark position as stale after 5 minutes
+  alert_on_missing: true
+  alert_on_drift: true
+  quantity_drift_threshold: 0  # Alert on any quantity mismatch
+
+# Expiry bucket classification (reference - hardcoded in RiskEngine)
+# 0DTE: 0 days to expiry
+# 1_7D: 1-7 days
+# 8_30D: 8-30 days
+# 31_90D: 31-90 days
+# 90D_PLUS: >90 days
+# NO_EXPIRY: Stocks, futures without expiry
+
+# Greeks configuration (MVP uses IBKR Greeks exclusively)
+greeks:
+  source: "ibkr"  # Use IBKR Greeks only (no local BSM/Bachelier)
+  fallback_enabled: false  # No fallback calculation in MVP
+  mark_missing_as: "DATA_MISSING"  # Flag when Greeks unavailable
+
+# Beta values for SPY-equivalent exposure calculation
+# Used for beta-adjusted delta and portfolio beta weighting
+# Values are relative to SPY (SPY = 1.0)
+betas:
+  default: 1.0  # Default beta for unlisted underlyings
+  SPY: 1.00
+  QQQ: 1.20
+  TSLA: 2.05
+  NVDA: 1.75
+  AAPL: 1.25
+  MSFT: 1.15
+  AMZN: 1.30
+  GOOGL: 1.20
+  META: 1.45
+  AMD: 1.85
+  NFLX: 1.35
+  CRM: 1.25
+  # Finance
+  JPM: 1.15
+  BAC: 1.40
+  GS: 1.35
+  MS: 1.45
+  WFC: 1.20
+  # Healthcare (typically lower beta)
+  JNJ: 0.65
+  UNH: 0.80
+  PFE: 0.70
+  LLY: 0.85
+  # Energy
+  XOM: 0.95
+  CVX: 0.90
+  # Consumer
+  WMT: 0.55
+  HD: 1.05
+  MCD: 0.70
+  # Industrial
+  CAT: 1.10
+  BA: 1.50
+  # Add more symbols as needed
+
+# Alert thresholds (for future email/Slack integration)
+alerts:
+  enabled: false  # Not implemented in MVP
+  channels:
+    - slack
+    - email
+  breach_severity:
+    soft: "warning"
+    hard: "critical"
+
+# Performance targets (reference)
+# <100ms refresh for <100 positions
+# <250ms for 100-250 positions
+# <500ms for 250-500 positions
+
+# Acceptance criteria (reference)
+# P&L accuracy > 99.9% vs TWS
+# Auto-reconnect success rate 100%
+# No crashes during 8-hour run
+# Memory growth < 20% over 8 hours
+# Test coverage > 85%

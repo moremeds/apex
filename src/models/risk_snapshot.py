@@ -61,8 +61,8 @@ class RiskSnapshot:
     futu_buying_power: float = 0.0
     total_net_liquidation: float = 0.0
 
-    # Risk limit breaches
-    breached_limits: List[str] = field(default_factory=list)
+    # NOTE: breached_limits field removed - replaced by RiskSignal model.
+    # Risk signals are now published via RISK_SIGNAL events and stored separately.
 
     # Data quality
     positions_with_missing_md: int = 0
