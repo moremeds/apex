@@ -146,10 +146,11 @@ class TerminalDashboard:
             Layout(name="positions", ratio=3),  # Current positions (left 60%)
             Layout(name="history_panel", ratio=2),  # Position history panel (right 40%)
         )
-        # Split history panel into today and recent (5 days)
+        # Split history panel into today's changes, open orders, and stored positions
         layout["body"]["history_panel"].split_column(
             Layout(name="history_today"),       # Today's changes (top)
-            Layout(name="history_recent"),      # Recent 5 days changes (bottom)
+            Layout(name="open_orders"),         # Open/pending orders (middle)
+            Layout(name="history_recent"),      # Stored positions (bottom)
         )
         return layout
 
@@ -343,6 +344,9 @@ class TerminalDashboard:
         )
         layout["body"]["history_panel"]["history_today"].update(
             self._render_position_history_today(broker)
+        )
+        layout["body"]["history_panel"]["open_orders"].update(
+            self._render_open_orders(broker)
         )
         layout["body"]["history_panel"]["history_recent"].update(
             self._render_position_history_recent(broker)
@@ -1319,85 +1323,173 @@ class TerminalDashboard:
 
     def _render_position_history_today(self, broker: str) -> Panel:
         """
-        Render today's position change history for a broker.
+        Render today's executed trades for a broker.
 
-        Shows OPEN/CLOSE/MODIFY events from today.
+        Shows actual trade executions from the trades table in database.
         """
         if not self.persistence_manager:
             return Panel(
                 Text("Persistence not enabled", style="dim"),
-                title=f"Today's Changes",
+                title="Today's Trades",
                 border_style="dim",
             )
 
         try:
-            # Get today's position changes filtered by broker
-            changes = self.persistence_manager.positions.get_changes_today()
+            from src.models.order import OrderSource
+            from datetime import datetime, timedelta
 
-            # Filter by broker source
-            broker_changes = [
-                c for c in changes
-                if c.get("source") == broker or (c.get("source") is None and broker == "IB")
-            ]
+            # Map broker string to OrderSource enum
+            source = OrderSource.IB if broker == "IB" else OrderSource.FUTU
 
-            if not broker_changes:
+            # Get today's trades from database
+            today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            today_trades = self.persistence_manager.orders.get_trades(
+                source=source,
+                start_time=today_start,
+                limit=20,
+            )
+
+            if not today_trades:
                 return Panel(
-                    Text("No position changes today", style="dim"),
-                    title=f"Today's Changes ({broker})",
+                    Text("No trades today", style="dim"),
+                    title=f"Today's Trades ({broker})",
                     border_style="dim",
                 )
 
             # Create table
             table = Table(show_header=True, box=None, padding=(0, 1))
             table.add_column("Time", style="dim", no_wrap=True, width=8)
-            table.add_column("Action", style="bold", no_wrap=True, width=7)
+            table.add_column("Side", style="bold", no_wrap=True, width=4)
             table.add_column("Symbol", style="cyan", no_wrap=True)
-            table.add_column("Qty", justify="right", width=10)
+            table.add_column("Qty", justify="right", width=8)
             table.add_column("Price", justify="right", width=10)
 
             # Show most recent first, limit to 8 rows
-            for change in broker_changes[:8]:
-                change_time = change.get("change_time")
-                time_str = change_time.strftime("%H:%M:%S") if change_time else ""
+            for trade in today_trades[:8]:
+                trade_time = trade.get("trade_time")
+                time_str = trade_time.strftime("%H:%M:%S") if trade_time else ""
 
-                change_type = change.get("change_type", "UNKNOWN")
+                side = trade.get("side", "")
+                # Style based on side
+                if side == "BUY":
+                    side_style = "green"
+                    side_str = "BUY"
+                else:
+                    side_style = "red"
+                    side_str = "SELL"
 
-                # Style based on change type
-                if change_type == "OPEN":
-                    type_style = "green"
-                    icon = "+"
-                elif change_type == "CLOSE":
-                    type_style = "red"
-                    icon = "−"
-                else:  # MODIFY
-                    type_style = "yellow"
-                    icon = "~"
-
-                qty_after = change.get("quantity_after")
-                avg_price = change.get("avg_price_after") or change.get("avg_price_before")
-
-                # Show qty change for MODIFY, otherwise just qty_after
-                qty_str = f"{qty_after:,.0f}" if qty_after is not None else "-"
+                qty = trade.get("quantity", 0)
+                price = trade.get("price", 0)
 
                 table.add_row(
                     time_str,
-                    Text(f"{icon}{change_type[:3]}", style=type_style),
-                    change.get("symbol", "")[:20],  # Truncate long symbols
-                    qty_str,
-                    f"${avg_price:,.2f}" if avg_price else "-",
+                    Text(side_str, style=side_style),
+                    trade.get("symbol", "")[:18],  # Truncate long symbols
+                    f"{qty:,.0f}",
+                    f"${price:,.2f}" if price else "-",
                 )
 
             return Panel(
                 table,
-                title=f"Today's Changes ({len(broker_changes)})",
+                title=f"Today's Trades ({len(today_trades)})",
                 border_style="cyan",
             )
 
         except Exception as e:
-            logger.warning(f"Failed to load today's position history: {e}")
+            logger.warning(f"Failed to load today's trades: {e}")
             return Panel(
                 Text(f"Error: {e}", style="red"),
-                title="Today's Changes",
+                title="Today's Trades",
+                border_style="red",
+            )
+
+    def _render_open_orders(self, broker: str) -> Panel:
+        """
+        Render open/pending orders from database for a broker.
+
+        Shows orders that are not yet filled (PENDING, SUBMITTED, PARTIALLY_FILLED).
+        Queries directly from database for efficiency.
+        """
+        if not self.persistence_manager:
+            return Panel(
+                Text("Persistence not enabled", style="dim"),
+                title="Open Orders",
+                border_style="dim",
+            )
+
+        try:
+            from src.models.order import OrderSource
+
+            # Map broker string to OrderSource enum
+            source = OrderSource.IB if broker == "IB" else OrderSource.FUTU
+
+            # Query open orders from database
+            open_orders = self.persistence_manager.orders.get_open_orders(source=source)
+
+            if not open_orders:
+                return Panel(
+                    Text("No open orders", style="dim"),
+                    title=f"Open Orders ({broker})",
+                    border_style="dim",
+                )
+
+            # Create table
+            table = Table(show_header=True, box=None, padding=(0, 1))
+            table.add_column("Time", style="dim", no_wrap=True, width=8)
+            table.add_column("Side", style="bold", no_wrap=True, width=4)
+            table.add_column("Symbol", style="cyan", no_wrap=True)
+            table.add_column("Qty", justify="right", width=6)
+            table.add_column("Price", justify="right", width=8)
+            table.add_column("Status", style="yellow", width=8)
+
+            # Show most recent first, limit to 8 rows
+            for order in open_orders[:8]:
+                created_time = order.get("created_time")
+                time_str = created_time.strftime("%H:%M:%S") if created_time else ""
+
+                side = order.get("side", "")
+                side_style = "green" if side == "BUY" else "red"
+
+                qty = order.get("quantity", 0)
+                filled = order.get("filled_quantity", 0)
+                limit_price = order.get("limit_price")
+
+                # Show filled/total for partial fills
+                if filled > 0:
+                    qty_str = f"{filled:.0f}/{qty:.0f}"
+                else:
+                    qty_str = f"{qty:.0f}"
+
+                price_str = f"${limit_price:,.2f}" if limit_price else "MKT"
+
+                status = order.get("status", "PENDING")
+                if status == "PARTIALLY_FILLED":
+                    status_str = "PARTIAL"
+                elif status == "SUBMITTED":
+                    status_str = "SENT"
+                else:
+                    status_str = status[:7]
+
+                table.add_row(
+                    time_str,
+                    Text(side[:1], style=side_style),  # B or S
+                    order.get("symbol", "")[:15],
+                    qty_str,
+                    price_str,
+                    status_str,
+                )
+
+            return Panel(
+                table,
+                title=f"Open Orders ({len(open_orders)})",
+                border_style="yellow",
+            )
+
+        except Exception as e:
+            logger.warning(f"Failed to load open orders: {e}")
+            return Panel(
+                Text(f"Error: {e}", style="red"),
+                title="Open Orders",
                 border_style="red",
             )
 

@@ -16,6 +16,7 @@ from ...domain.interfaces.event_bus import EventBus, EventType
 from ...models.position import Position, AssetType, PositionSource
 from ...models.market_data import MarketData
 from ...models.account import AccountInfo
+from ...models.order import Order, Trade, OrderSource, OrderStatus, OrderSide, OrderType
 from .market_data_fetcher import MarketDataFetcher
 
 
@@ -182,6 +183,12 @@ class IbAdapter(PositionProvider, MarketDataProvider):
 
         Returns:
             Position object.
+
+        Note on avgCost:
+            IB's avgCost is the "average cost per share" which for options already
+            includes the multiplier. For a PUT sold at $5.00, IB reports avgCost=500.
+            We need to divide by multiplier to get the per-contract price for our
+            PnL calculation: (mark - avg_price) * quantity * multiplier
         """
         contract = ib_pos.contract
 
@@ -205,6 +212,19 @@ class IbAdapter(PositionProvider, MarketDataProvider):
             strike = float(contract.strike) if contract.strike else None
             right = contract.right or None  # Convert "" to None
 
+        # Get multiplier (default 1 for stocks, typically 100 for options)
+        multiplier = int(contract.multiplier or 1)
+
+        # IB's avgCost is already multiplied by the contract multiplier for derivatives
+        # For options: avgCost = price_per_contract * 100
+        # We need per-contract price for our PnL formula: (mark - avg_price) * qty * mult
+        # So we divide by multiplier to get the per-contract avg_price
+        avg_cost = ib_pos.avgCost
+        if asset_type in (AssetType.OPTION, AssetType.FUTURE) and multiplier > 1:
+            avg_price = avg_cost / multiplier
+        else:
+            avg_price = avg_cost
+
         return Position(
             symbol=contract.localSymbol,
             underlying=contract.symbol,  # Simplified - extract from contract
@@ -213,8 +233,8 @@ class IbAdapter(PositionProvider, MarketDataProvider):
             strike=strike,
             right=right,
             expiry=expiry,
-            avg_price=ib_pos.avgCost,
-            multiplier=int(contract.multiplier or 1),
+            avg_price=avg_price,
+            multiplier=multiplier,
             source=PositionSource.IB,
             last_updated=datetime.now(),
             account_id=ib_pos.account,
@@ -604,3 +624,259 @@ class IbAdapter(PositionProvider, MarketDataProvider):
         # Fire callback (legacy support)
         if self._on_market_data_update:
             self._on_market_data_update(symbol, market_data)
+
+    async def fetch_orders(self, include_open: bool = True, include_completed: bool = True) -> List[Order]:
+        """
+        Fetch order history from Interactive Brokers.
+
+        Args:
+            include_open: Include open/pending orders
+            include_completed: Include filled/cancelled orders
+
+        Returns:
+            List of Order objects with source=IB.
+
+        Raises:
+            ConnectionError: If not connected.
+        """
+        if not self.is_connected():
+            raise ConnectionError("Not connected to IB")
+
+        orders = []
+
+        try:
+            # Request all orders (open and completed) from IB
+            # openOrders() gets currently open orders
+            # reqCompletedOrders() gets historical completed orders
+            if include_open:
+                open_trades = await self.ib.reqOpenOrdersAsync()
+                for trade in open_trades:
+                    order = self._convert_ib_trade_to_order(trade)
+                    if order:
+                        orders.append(order)
+                logger.debug(f"Fetched {len(open_trades)} open orders from IB")
+
+            if include_completed:
+                # Request completed orders (fills, cancellations)
+                completed_trades = await self.ib.reqCompletedOrdersAsync(apiOnly=False)
+                for trade in completed_trades:
+                    order = self._convert_ib_trade_to_order(trade)
+                    if order:
+                        orders.append(order)
+                logger.debug(f"Fetched {len(completed_trades)} completed orders from IB")
+
+            logger.info(f"Fetched {len(orders)} total orders from IB")
+
+        except Exception as e:
+            logger.error(f"Failed to fetch orders from IB: {e}")
+            raise
+
+        return orders
+
+    async def fetch_trades(self, days_back: int = 7) -> List[Trade]:
+        """
+        Fetch trade/execution history from Interactive Brokers.
+
+        Args:
+            days_back: Number of days to look back (default 7)
+
+        Returns:
+            List of Trade objects with source=IB.
+
+        Raises:
+            ConnectionError: If not connected.
+        """
+        if not self.is_connected():
+            raise ConnectionError("Not connected to IB")
+
+        trades = []
+
+        try:
+            # Request executions from IB
+            # This returns all fills/executions within the lookback period
+            from ib_async import ExecutionFilter
+
+            exec_filter = ExecutionFilter()
+            # ib_async uses YYYYMMDD format for time
+            from datetime import timedelta
+            start_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y%m%d")
+            exec_filter.time = start_date
+
+            fills = await self.ib.reqExecutionsAsync(exec_filter)
+
+            for fill in fills:
+                trade = self._convert_ib_fill_to_trade(fill)
+                if trade:
+                    trades.append(trade)
+
+            logger.info(f"Fetched {len(trades)} trades from IB (last {days_back} days)")
+
+        except Exception as e:
+            logger.error(f"Failed to fetch trades from IB: {e}")
+            raise
+
+        return trades
+
+    def _convert_ib_trade_to_order(self, ib_trade) -> Optional[Order]:
+        """
+        Convert ib_async Trade to internal Order model.
+
+        Args:
+            ib_trade: ib_async Trade object (order + status).
+
+        Returns:
+            Order object or None if conversion fails.
+        """
+        try:
+            contract = ib_trade.contract
+            order = ib_trade.order
+            order_status = ib_trade.orderStatus
+
+            # Determine asset type
+            if contract.secType == "STK":
+                asset_type = "STOCK"
+            elif contract.secType == "OPT":
+                asset_type = "OPTION"
+            elif contract.secType == "FUT":
+                asset_type = "FUTURE"
+            else:
+                asset_type = contract.secType
+
+            # Map IB order type
+            order_type_map = {
+                "MKT": OrderType.MARKET,
+                "LMT": OrderType.LIMIT,
+                "STP": OrderType.STOP,
+                "STP LMT": OrderType.STOP_LIMIT,
+            }
+            order_type = order_type_map.get(order.orderType, OrderType.MARKET)
+
+            # Map IB order status
+            status_map = {
+                "PendingSubmit": OrderStatus.PENDING,
+                "PendingCancel": OrderStatus.PENDING,
+                "PreSubmitted": OrderStatus.SUBMITTED,
+                "Submitted": OrderStatus.SUBMITTED,
+                "Cancelled": OrderStatus.CANCELLED,
+                "Filled": OrderStatus.FILLED,
+                "Inactive": OrderStatus.REJECTED,
+            }
+            status = status_map.get(order_status.status, OrderStatus.PENDING)
+
+            # Determine side
+            side = OrderSide.BUY if order.action == "BUY" else OrderSide.SELL
+
+            # Option-specific fields
+            expiry = None
+            strike = None
+            right = None
+            if asset_type == "OPTION":
+                expiry = contract.lastTradeDateOrContractMonth or None
+                strike = float(contract.strike) if contract.strike else None
+                right = contract.right or None
+
+            return Order(
+                order_id=str(order.orderId),
+                source=OrderSource.IB,
+                account_id=order.account or "",
+                symbol=contract.localSymbol or contract.symbol,
+                underlying=contract.symbol,
+                asset_type=asset_type,
+                side=side,
+                order_type=order_type,
+                quantity=float(order.totalQuantity),
+                limit_price=float(order.lmtPrice) if order.lmtPrice else None,
+                stop_price=float(order.auxPrice) if order.auxPrice else None,
+                status=status,
+                filled_quantity=float(order_status.filled) if order_status.filled else 0.0,
+                avg_fill_price=float(order_status.avgFillPrice) if order_status.avgFillPrice else None,
+                commission=float(order_status.commission) if order_status.commission and not isnan(order_status.commission) else 0.0,
+                submitted_time=datetime.now(),  # IB doesn't provide exact submission time
+                filled_time=datetime.now() if status == OrderStatus.FILLED else None,
+                updated_time=datetime.now(),
+                expiry=expiry,
+                strike=strike,
+                right=right,
+                broker_order_id=str(order.permId) if order.permId else None,
+                exchange=contract.exchange,
+                time_in_force=order.tif,
+            )
+
+        except Exception as e:
+            logger.warning(f"Failed to convert IB trade to order: {e}")
+            return None
+
+    def _convert_ib_fill_to_trade(self, ib_fill) -> Optional[Trade]:
+        """
+        Convert ib_async Fill to internal Trade model.
+
+        Args:
+            ib_fill: ib_async Fill object (execution details).
+
+        Returns:
+            Trade object or None if conversion fails.
+        """
+        try:
+            contract = ib_fill.contract
+            execution = ib_fill.execution
+            commission_report = ib_fill.commissionReport
+
+            # Determine asset type
+            if contract.secType == "STK":
+                asset_type = "STOCK"
+            elif contract.secType == "OPT":
+                asset_type = "OPTION"
+            elif contract.secType == "FUT":
+                asset_type = "FUTURE"
+            else:
+                asset_type = contract.secType
+
+            # Determine side
+            side = OrderSide.BUY if execution.side == "BOT" else OrderSide.SELL
+
+            # Parse execution time
+            trade_time = datetime.now()
+            if execution.time:
+                try:
+                    # IB time format: "YYYYMMDD HH:MM:SS"
+                    trade_time = datetime.strptime(execution.time, "%Y%m%d %H:%M:%S")
+                except ValueError:
+                    pass
+
+            # Option-specific fields
+            expiry = None
+            strike = None
+            right = None
+            if asset_type == "OPTION":
+                expiry = contract.lastTradeDateOrContractMonth or None
+                strike = float(contract.strike) if contract.strike else None
+                right = contract.right or None
+
+            # Get commission from report
+            commission = 0.0
+            if commission_report and commission_report.commission and not isnan(commission_report.commission):
+                commission = float(commission_report.commission)
+
+            return Trade(
+                trade_id=execution.execId,
+                order_id=str(execution.orderId),
+                source=OrderSource.IB,
+                account_id=execution.acctNumber or "",
+                symbol=contract.localSymbol or contract.symbol,
+                underlying=contract.symbol,
+                asset_type=asset_type,
+                side=side,
+                quantity=float(execution.shares),
+                price=float(execution.price),
+                commission=commission,
+                trade_time=trade_time,
+                expiry=expiry,
+                strike=strike,
+                right=right,
+                exchange=execution.exchange,
+                liquidity=execution.liquidation if hasattr(execution, 'liquidation') else None,
+            )
+
+        except Exception as e:
+            logger.warning(f"Failed to convert IB fill to trade: {e}")
+            return None

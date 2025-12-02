@@ -17,6 +17,7 @@ from ...domain.interfaces.position_provider import PositionProvider
 from ...domain.interfaces.event_bus import EventBus, EventType
 from ...models.position import Position, AssetType, PositionSource
 from ...models.account import AccountInfo
+from ...models.order import Order, Trade, OrderSource, OrderStatus, OrderSide, OrderType
 
 
 logger = logging.getLogger(__name__)
@@ -717,3 +718,290 @@ class FutuAdapter(PositionProvider):
             else:
                 logger.error(f"Failed to fetch account info from Futu: {e}")
             raise
+
+    async def fetch_orders(
+        self,
+        include_open: bool = True,
+        include_completed: bool = True,
+        days_back: int = 30,
+    ) -> List[Order]:
+        """
+        Fetch order history from Futu OpenD.
+
+        Args:
+            include_open: Include open/pending orders
+            include_completed: Include filled/cancelled orders
+            days_back: Number of days to look back for completed orders
+
+        Returns:
+            List of Order objects with source=FUTU.
+
+        Raises:
+            ConnectionError: If not connected.
+        """
+        await self._ensure_connected()
+
+        from futu import RET_OK, TrdEnv, OrderStatus as FutuOrderStatus
+
+        orders = []
+        trd_env_enum = getattr(TrdEnv, self.trd_env, TrdEnv.REAL)
+
+        try:
+            # Fetch order list from Futu
+            # Note: order_list_query returns all orders for the current trading day
+            # For historical orders, use history_order_list_query
+            if include_open:
+                ret, data = self._trd_ctx.order_list_query(
+                    trd_env=trd_env_enum,
+                    acc_id=self._acc_id,
+                    refresh_cache=False,
+                )
+                if ret == RET_OK and not data.empty:
+                    for _, row in data.iterrows():
+                        order = self._convert_futu_order(row)
+                        if order:
+                            orders.append(order)
+                    logger.debug(f"Fetched {len(data)} orders from Futu")
+
+            if include_completed:
+                # Fetch historical orders
+                from datetime import timedelta
+                end_date = datetime.now()
+                start_date = end_date - timedelta(days=days_back)
+
+                ret, data = self._trd_ctx.history_order_list_query(
+                    trd_env=trd_env_enum,
+                    acc_id=self._acc_id,
+                    start=start_date.strftime("%Y-%m-%d"),
+                    end=end_date.strftime("%Y-%m-%d"),
+                )
+                if ret == RET_OK and not data.empty:
+                    for _, row in data.iterrows():
+                        order = self._convert_futu_order(row)
+                        if order:
+                            # Avoid duplicates (some orders may appear in both queries)
+                            if not any(o.order_id == order.order_id for o in orders):
+                                orders.append(order)
+                    logger.debug(f"Fetched historical orders from Futu")
+
+            logger.info(f"Fetched {len(orders)} total orders from Futu")
+
+        except Exception as e:
+            logger.error(f"Failed to fetch orders from Futu: {e}")
+            raise
+
+        return orders
+
+    async def fetch_trades(self, days_back: int = 30) -> List[Trade]:
+        """
+        Fetch trade/execution history from Futu OpenD.
+
+        Args:
+            days_back: Number of days to look back
+
+        Returns:
+            List of Trade objects with source=FUTU.
+
+        Raises:
+            ConnectionError: If not connected.
+        """
+        await self._ensure_connected()
+
+        from futu import RET_OK, TrdEnv
+
+        trades = []
+        trd_env_enum = getattr(TrdEnv, self.trd_env, TrdEnv.REAL)
+
+        try:
+            # Fetch deal list (executions) from Futu
+            # deal_list_query returns today's deals
+            # history_deal_list_query returns historical deals
+            from datetime import timedelta
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=days_back)
+
+            # First get today's deals
+            ret, data = self._trd_ctx.deal_list_query(
+                trd_env=trd_env_enum,
+                acc_id=self._acc_id,
+                refresh_cache=False,
+            )
+            if ret == RET_OK and not data.empty:
+                for _, row in data.iterrows():
+                    trade = self._convert_futu_deal(row)
+                    if trade:
+                        trades.append(trade)
+                logger.debug(f"Fetched {len(data)} trades (today) from Futu")
+
+            # Then get historical deals
+            ret, data = self._trd_ctx.history_deal_list_query(
+                trd_env=trd_env_enum,
+                acc_id=self._acc_id,
+                start=start_date.strftime("%Y-%m-%d"),
+                end=end_date.strftime("%Y-%m-%d"),
+            )
+            if ret == RET_OK and not data.empty:
+                for _, row in data.iterrows():
+                    trade = self._convert_futu_deal(row)
+                    if trade:
+                        # Avoid duplicates
+                        if not any(t.trade_id == trade.trade_id for t in trades):
+                            trades.append(trade)
+                logger.debug(f"Fetched historical trades from Futu")
+
+            logger.info(f"Fetched {len(trades)} total trades from Futu (last {days_back} days)")
+
+        except Exception as e:
+            logger.error(f"Failed to fetch trades from Futu: {e}")
+            raise
+
+        return trades
+
+    def _convert_futu_order(self, row) -> Optional[Order]:
+        """
+        Convert Futu order row to internal Order model.
+
+        Args:
+            row: pandas DataFrame row from order_list_query.
+
+        Returns:
+            Order object or None if conversion fails.
+        """
+        try:
+            code = row.get("code", "")
+            order_id = str(row.get("order_id", ""))
+
+            # Parse the Futu code format
+            asset_type_enum, symbol, underlying, expiry, strike, right = self._parse_futu_code(code)
+            asset_type = asset_type_enum.value if asset_type_enum else "STOCK"
+
+            # Map Futu order status
+            futu_status = row.get("order_status", "")
+            status_map = {
+                "UNSUBMITTED": OrderStatus.PENDING,
+                "WAITING_SUBMIT": OrderStatus.PENDING,
+                "SUBMITTING": OrderStatus.PENDING,
+                "SUBMIT_FAILED": OrderStatus.REJECTED,
+                "SUBMITTED": OrderStatus.SUBMITTED,
+                "FILLED_PART": OrderStatus.PARTIALLY_FILLED,
+                "FILLED_ALL": OrderStatus.FILLED,
+                "CANCELLING_PART": OrderStatus.PARTIALLY_FILLED,
+                "CANCELLING_ALL": OrderStatus.SUBMITTED,
+                "CANCELLED_PART": OrderStatus.PARTIALLY_FILLED,
+                "CANCELLED_ALL": OrderStatus.CANCELLED,
+                "FAILED": OrderStatus.REJECTED,
+                "DISABLED": OrderStatus.REJECTED,
+                "DELETED": OrderStatus.CANCELLED,
+            }
+            status = status_map.get(str(futu_status), OrderStatus.PENDING)
+
+            # Map Futu order type
+            futu_order_type = row.get("order_type", "")
+            order_type_map = {
+                "NORMAL": OrderType.LIMIT,
+                "MARKET": OrderType.MARKET,
+                "ABSOLUTE_LIMIT": OrderType.LIMIT,
+                "AUCTION": OrderType.MARKET,
+                "AUCTION_LIMIT": OrderType.LIMIT,
+                "SPECIAL_LIMIT": OrderType.LIMIT,
+                "SPECIAL_LIMIT_ALL": OrderType.LIMIT,
+            }
+            order_type = order_type_map.get(str(futu_order_type), OrderType.LIMIT)
+
+            # Map Futu trade side
+            trd_side = row.get("trd_side", "")
+            side = OrderSide.BUY if str(trd_side) in ("BUY", "BUY_BACK") else OrderSide.SELL
+
+            # Parse timestamps
+            create_time = None
+            updated_time = None
+            if row.get("create_time"):
+                try:
+                    create_time = datetime.strptime(str(row.get("create_time")), "%Y-%m-%d %H:%M:%S")
+                except ValueError:
+                    pass
+            if row.get("updated_time"):
+                try:
+                    updated_time = datetime.strptime(str(row.get("updated_time")), "%Y-%m-%d %H:%M:%S")
+                except ValueError:
+                    pass
+
+            return Order(
+                order_id=order_id,
+                source=OrderSource.FUTU,
+                account_id=str(self._acc_id) if self._acc_id else "",
+                symbol=symbol,
+                underlying=underlying,
+                asset_type=asset_type,
+                side=side,
+                order_type=order_type,
+                quantity=float(row.get("qty", 0)),
+                limit_price=float(row.get("price", 0)) if row.get("price") else None,
+                status=status,
+                filled_quantity=float(row.get("dealt_qty", 0) or 0),
+                avg_fill_price=float(row.get("dealt_avg_price", 0)) if row.get("dealt_avg_price") else None,
+                created_time=create_time,
+                updated_time=updated_time or datetime.now(),
+                expiry=expiry,
+                strike=strike,
+                right=right,
+                exchange=row.get("exchange", None),
+                time_in_force=str(row.get("time_in_force", "")) if row.get("time_in_force") else None,
+            )
+
+        except Exception as e:
+            logger.warning(f"Failed to convert Futu order: {e}, row={row.to_dict() if hasattr(row, 'to_dict') else row}")
+            return None
+
+    def _convert_futu_deal(self, row) -> Optional[Trade]:
+        """
+        Convert Futu deal row to internal Trade model.
+
+        Args:
+            row: pandas DataFrame row from deal_list_query.
+
+        Returns:
+            Trade object or None if conversion fails.
+        """
+        try:
+            code = row.get("code", "")
+            deal_id = str(row.get("deal_id", ""))
+            order_id = str(row.get("order_id", ""))
+
+            # Parse the Futu code format
+            asset_type_enum, symbol, underlying, expiry, strike, right = self._parse_futu_code(code)
+            asset_type = asset_type_enum.value if asset_type_enum else "STOCK"
+
+            # Map Futu trade side
+            trd_side = row.get("trd_side", "")
+            side = OrderSide.BUY if str(trd_side) in ("BUY", "BUY_BACK") else OrderSide.SELL
+
+            # Parse trade time
+            trade_time = datetime.now()
+            if row.get("create_time"):
+                try:
+                    trade_time = datetime.strptime(str(row.get("create_time")), "%Y-%m-%d %H:%M:%S")
+                except ValueError:
+                    pass
+
+            return Trade(
+                trade_id=deal_id,
+                order_id=order_id,
+                source=OrderSource.FUTU,
+                account_id=str(self._acc_id) if self._acc_id else "",
+                symbol=symbol,
+                underlying=underlying,
+                asset_type=asset_type,
+                side=side,
+                quantity=float(row.get("qty", 0)),
+                price=float(row.get("price", 0)),
+                commission=0.0,  # Futu doesn't return commission in deal list
+                trade_time=trade_time,
+                expiry=expiry,
+                strike=strike,
+                right=right,
+            )
+
+        except Exception as e:
+            logger.warning(f"Failed to convert Futu deal: {e}, row={row.to_dict() if hasattr(row, 'to_dict') else row}")
+            return None
