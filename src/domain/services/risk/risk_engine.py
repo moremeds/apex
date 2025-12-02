@@ -85,6 +85,12 @@ class RiskEngine:
         # Event-driven state tracking
         self._lock = Lock()
         self._needs_rebuild = False
+        # Tracks which underlyings have changed since last rebuild (for future incremental rebuild)
+        # TODO: Phase 2 - Use _dirty_underlyings to scope rebuilds:
+        #   1. Cache previous PositionRisk objects by symbol
+        #   2. Only recalculate positions with dirty underlyings
+        #   3. Merge recalculated with cached results
+        #   Currently, build_snapshot() always recomputes all positions.
         self._dirty_underlyings: Set[str] = set()
 
     def build_snapshot(

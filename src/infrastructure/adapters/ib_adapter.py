@@ -159,14 +159,10 @@ class IbAdapter(PositionProvider, MarketDataProvider):
             self._position_cache = positions
             self._position_cache_time = datetime.now()
 
-            # Emit event
-            if self._event_bus and positions:
-                self._event_bus.publish(EventType.POSITIONS_BATCH, {
-                    "positions": positions,
-                    "source": "IB",
-                    "count": len(positions),
-                    "timestamp": datetime.now(),
-                })
+            # NOTE: Do NOT publish POSITIONS_BATCH here.
+            # The orchestrator publishes after reconciliation to ensure single data path.
+            # Publishing here would cause store/RiskEngine to process raw adapter data
+            # before reconciliation, leading to transient inconsistent snapshots.
         except Exception as e:
             logger.error(f"Failed to fetch positions from IB: {e}")
             # Return cached data on error if available

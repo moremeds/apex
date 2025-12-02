@@ -434,14 +434,10 @@ class FutuAdapter(PositionProvider):
                 # Clear any prior cooldown after a successful fetch
                 self._position_cooldown_until = None
 
-            # Emit event
-            if self._event_bus and positions:
-                self._event_bus.publish(EventType.POSITIONS_BATCH, {
-                    "positions": positions,
-                    "source": "FUTU",
-                    "count": len(positions),
-                    "timestamp": datetime.now(),
-                })
+            # NOTE: Do NOT publish POSITIONS_BATCH here.
+            # The orchestrator publishes after reconciliation to ensure single data path.
+            # Publishing here would cause store/RiskEngine to process raw adapter data
+            # before reconciliation, leading to transient inconsistent snapshots.
 
         except Exception as e:
             # Only mark disconnected on connection-related errors

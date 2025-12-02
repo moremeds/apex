@@ -484,7 +484,8 @@ class PersistenceManager:
         """
         Handle risk signal event.
 
-        Persists the signal to the database.
+        Persists the signal to the database asynchronously via thread pool
+        to avoid blocking the event loop during DuckDB writes.
 
         Args:
             payload: Event payload with 'signal'.
@@ -492,9 +493,18 @@ class PersistenceManager:
         signal = payload.get("signal")
         if signal:
             try:
-                self.persist_alerts([signal])
-            except Exception as e:
-                logger.error(f"Failed to persist risk signal from event: {e}")
+                loop = asyncio.get_running_loop()
+                loop.run_in_executor(None, self._persist_alert_sync, signal)
+            except RuntimeError:
+                # No event loop running, fall back to sync
+                self._persist_alert_sync(signal)
+
+    def _persist_alert_sync(self, signal) -> None:
+        """Synchronous alert persistence (runs in thread pool)."""
+        try:
+            self.persist_alerts([signal])
+        except Exception as e:
+            logger.error(f"Failed to persist risk signal from event: {e}")
 
     def _on_position_change(self, payload: dict) -> None:
         """
