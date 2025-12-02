@@ -458,17 +458,27 @@ class PersistenceManager:
         """
         Handle snapshot ready event.
 
-        Persists the snapshot asynchronously.
+        Persists the snapshot asynchronously using a thread pool to avoid blocking.
 
         Args:
             payload: Event payload with 'snapshot'.
         """
         snapshot = payload.get("snapshot")
         if snapshot:
+            # Run persistence in a thread pool to avoid blocking the event loop
             try:
-                self.persist_snapshot(snapshot)
-            except Exception as e:
-                logger.error(f"Failed to persist snapshot from event: {e}")
+                loop = asyncio.get_running_loop()
+                loop.run_in_executor(None, self._persist_snapshot_sync, snapshot)
+            except RuntimeError:
+                # No event loop running, fall back to sync
+                self._persist_snapshot_sync(snapshot)
+
+    def _persist_snapshot_sync(self, snapshot: RiskSnapshot) -> None:
+        """Synchronous snapshot persistence (runs in thread pool)."""
+        try:
+            self.persist_snapshot(snapshot)
+        except Exception as e:
+            logger.error(f"Failed to persist snapshot from event: {e}")
 
     def _on_risk_signal(self, payload: dict) -> None:
         """

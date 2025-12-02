@@ -136,6 +136,12 @@ class Orchestrator:
         self._timer_task: asyncio.Task | None = None
         self._snapshot_dispatcher_task: asyncio.Task | None = None
 
+        # Account TTL caching (account info changes slowly - fetch every 30s, not every tick)
+        self._account_ttl_sec: float = config.get("account_ttl_sec", 30.0)
+        self._last_account_fetch: Optional[datetime] = None
+        self._cached_ib_account: Optional[AccountInfo] = None
+        self._cached_futu_account: Optional[AccountInfo] = None
+
     async def start(self) -> None:
         """Start the orchestrator (event-driven mode)."""
         if self._running:
@@ -284,66 +290,13 @@ class Orchestrator:
         """
         logger.debug("Starting data fetch and reconciliation")
 
-        # 1. Fetch positions from all sources (handle disconnected adapters gracefully)
-        ib_positions: List[Position] = []
-        futu_positions: List[Position] = []
-        manual_positions: List[Position] = []
-
         # Check if demo mode (positions from file only)
         demo_positions_only = self.config.get("demo_positions_only", False)
 
-        # Fetch from IB if enabled and connected (skip in demo mode)
-        if demo_positions_only:
-            logger.debug("Demo mode - skipping IB positions (using file positions only)")
-        elif self.ib_adapter and self.ib_adapter.is_connected():
-            try:
-                ib_positions = await self.ib_adapter.fetch_positions()
-                self.health_monitor.update_component_health(
-                    "ib_adapter", HealthStatus.HEALTHY, f"Fetched {len(ib_positions)} positions"
-                )
-            except Exception as e:
-                logger.warning(f"Failed to fetch IB positions: {e}")
-                self.health_monitor.update_component_health(
-                    "ib_adapter", HealthStatus.DEGRADED, f"Position fetch failed: {str(e)[:50]}"
-                )
-        elif not self.ib_adapter:
-            logger.debug("IB adapter disabled")
-        else:
-            logger.debug("IB adapter not connected - skipping IB positions")
-
-        # Fetch from Futu if configured and connected (skip in demo mode)
-        if demo_positions_only:
-            logger.debug("Demo mode - skipping Futu positions")
-        elif self.futu_adapter:
-            if self.futu_adapter.is_connected():
-                try:
-                    logger.info("Fetching positions from Futu...")
-                    futu_positions = await self.futu_adapter.fetch_positions()
-                    logger.info(f"✓ Futu: {len(futu_positions)} positions")
-                    self.health_monitor.update_component_health(
-                        "futu_adapter", HealthStatus.HEALTHY, f"Fetched {len(futu_positions)} positions"
-                    )
-                except Exception as e:
-                    logger.warning(f"Failed to fetch Futu positions: {e}")
-                    self.health_monitor.update_component_health(
-                        "futu_adapter", HealthStatus.DEGRADED, f"Position fetch failed: {str(e)[:50]}"
-                    )
-            else:
-                logger.warning("Futu adapter configured but not connected")
-                self.health_monitor.update_component_health(
-                    "futu_adapter", HealthStatus.UNHEALTHY, "Not connected"
-                )
-        else:
-            logger.debug("Futu adapter not configured")
-
-        # Fetch from file loader if connected (optional - ignore if empty)
-        if self.file_loader and self.file_loader.is_connected():
-            try:
-                manual_positions = await self.file_loader.fetch_positions()
-                if manual_positions:
-                    logger.debug(f"Loaded {len(manual_positions)} manual positions")
-            except Exception as e:
-                logger.debug(f"Manual positions not available: {e}")
+        # 1. Fetch positions from all sources IN PARALLEL
+        ib_positions, futu_positions, manual_positions = await self._fetch_all_positions_parallel(
+            demo_positions_only
+        )
 
         cached_positions = self.position_store.get_all()
 
@@ -359,7 +312,7 @@ class Orchestrator:
         # Merge positions from all sources (IB > Futu > Manual precedence)
         merged_positions = self.reconciler.merge_positions(ib_positions, manual_positions, futu_positions)
         merged_positions = self.reconciler.remove_expired_options(merged_positions)
-        self.position_store.upsert_positions(merged_positions)
+        # Publish event - store will update via subscription (single data path)
         self.event_bus.publish(EventType.POSITIONS_BATCH, {
             "positions": merged_positions,
             "source": "reconciler",
@@ -374,30 +327,12 @@ class Orchestrator:
         logger.info(position_msg)
         print(position_msg, flush=True)  # Ensure visible in console
 
-        # 3. Fetch account info from all brokers
-        ib_account: Optional[AccountInfo] = None
-        futu_account: Optional[AccountInfo] = None
-
-        # Fetch from IB if enabled and connected
-        if self.ib_adapter and self.ib_adapter.is_connected():
-            try:
-                ib_account = await self.ib_adapter.fetch_account_info()
-                logger.debug(f"IB account: NetLiq=${ib_account.net_liquidation:,.2f}")
-            except Exception as e:
-                logger.warning(f"Failed to fetch account info from IB: {e}")
-
-        # Fetch from Futu if connected
-        if self.futu_adapter and self.futu_adapter.is_connected():
-            try:
-                if hasattr(self.futu_adapter, 'fetch_account_info'):
-                    futu_account = await self.futu_adapter.fetch_account_info()
-                    logger.debug(f"Futu account: NetLiq=${futu_account.net_liquidation:,.2f}")
-            except Exception as e:
-                logger.warning(f"Failed to fetch account info from Futu: {e}")
+        # 3. Fetch account info from all brokers (with TTL caching)
+        ib_account, futu_account = await self._fetch_account_info_cached()
 
         # Aggregate account info from all sources (single source of truth in Reconciler)
         account_info = self.reconciler.aggregate_account_info(ib_account, futu_account)
-        self.account_store.update(account_info)
+        # Publish event - store will update via subscription (single data path)
         self.event_bus.publish(EventType.ACCOUNT_UPDATED, {
             "account_info": account_info,
             "ib_account": ib_account,
@@ -431,9 +366,9 @@ class Orchestrator:
                 else:
                     # Fetch market data from IBKR (will emit events via streaming)
                     market_data_list = await self.ib_adapter.fetch_market_data(positions_to_fetch)
-                    self.market_data_store.upsert(market_data_list)
+                    # Publish event - store will update via subscription
                     self.event_bus.publish(EventType.MARKET_DATA_BATCH, {
-                        "data": market_data_list,
+                        "market_data": market_data_list,
                         "source": "IB",
                         "timestamp": datetime.now(),
                     })
@@ -506,13 +441,162 @@ class Orchestrator:
         return self._latest_market_alerts
 
     def _on_streaming_market_data(self, symbol: str, market_data) -> None:
-        """Handle streaming market data update from IB."""
-        self.market_data_store.upsert([market_data])
-        self.risk_engine.mark_dirty()
+        """Handle streaming market data update from IB via event bus."""
+        self.event_bus.publish(EventType.MARKET_DATA_TICK, {
+            "symbol": symbol,
+            "data": market_data,
+            "source": "IB_STREAMING",
+            "timestamp": datetime.now(),
+        })
 
     def get_latest_risk_signals(self) -> List[RiskSignal]:
         """Get the latest risk signals."""
         return self._latest_risk_signals
+
+    async def _fetch_account_info_cached(
+        self,
+    ) -> tuple[Optional[AccountInfo], Optional[AccountInfo]]:
+        """
+        Fetch account info with TTL caching to reduce API calls.
+
+        Account info changes slowly (balance, margin), so we only refresh every 30s.
+
+        Returns:
+            Tuple of (ib_account, futu_account)
+        """
+        now = datetime.now()
+
+        # Check if cache is still valid
+        if self._last_account_fetch:
+            elapsed = (now - self._last_account_fetch).total_seconds()
+            if elapsed < self._account_ttl_sec:
+                # Use cached values
+                logger.debug(f"Using cached account info (age: {elapsed:.1f}s)")
+                return self._cached_ib_account, self._cached_futu_account
+
+        # Cache expired or first fetch - refresh from brokers
+        ib_account: Optional[AccountInfo] = None
+        futu_account: Optional[AccountInfo] = None
+
+        # Fetch from IB if enabled and connected
+        if self.ib_adapter and self.ib_adapter.is_connected():
+            try:
+                ib_account = await self.ib_adapter.fetch_account_info()
+                logger.debug(f"IB account refreshed: NetLiq=${ib_account.net_liquidation:,.2f}")
+            except Exception as e:
+                logger.warning(f"Failed to fetch account info from IB: {e}")
+
+        # Fetch from Futu if connected
+        if self.futu_adapter and self.futu_adapter.is_connected():
+            try:
+                if hasattr(self.futu_adapter, 'fetch_account_info'):
+                    futu_account = await self.futu_adapter.fetch_account_info()
+                    logger.debug(f"Futu account refreshed: NetLiq=${futu_account.net_liquidation:,.2f}")
+            except Exception as e:
+                logger.warning(f"Failed to fetch account info from Futu: {e}")
+
+        # Update cache
+        self._last_account_fetch = now
+        self._cached_ib_account = ib_account
+        self._cached_futu_account = futu_account
+
+        return ib_account, futu_account
+
+    async def _fetch_all_positions_parallel(
+        self, demo_positions_only: bool
+    ) -> tuple[List[Position], List[Position], List[Position]]:
+        """
+        Fetch positions from all sources in parallel using asyncio.gather.
+
+        Args:
+            demo_positions_only: If True, skip broker fetches and use file only.
+
+        Returns:
+            Tuple of (ib_positions, futu_positions, manual_positions)
+        """
+
+        async def fetch_ib() -> List[Position]:
+            if demo_positions_only:
+                logger.debug("Demo mode - skipping IB positions")
+                return []
+            if not self.ib_adapter or not self.ib_adapter.is_connected():
+                if not self.ib_adapter:
+                    logger.debug("IB adapter disabled")
+                else:
+                    logger.debug("IB adapter not connected - skipping")
+                return []
+            try:
+                positions = await self.ib_adapter.fetch_positions()
+                self.health_monitor.update_component_health(
+                    "ib_adapter", HealthStatus.HEALTHY, f"Fetched {len(positions)} positions"
+                )
+                return positions
+            except Exception as e:
+                logger.warning(f"Failed to fetch IB positions: {e}")
+                self.health_monitor.update_component_health(
+                    "ib_adapter", HealthStatus.DEGRADED, f"Position fetch failed: {str(e)[:50]}"
+                )
+                return []
+
+        async def fetch_futu() -> List[Position]:
+            if demo_positions_only:
+                logger.debug("Demo mode - skipping Futu positions")
+                return []
+            if not self.futu_adapter:
+                logger.debug("Futu adapter not configured")
+                return []
+            if not self.futu_adapter.is_connected():
+                logger.warning("Futu adapter configured but not connected")
+                self.health_monitor.update_component_health(
+                    "futu_adapter", HealthStatus.UNHEALTHY, "Not connected"
+                )
+                return []
+            try:
+                logger.info("Fetching positions from Futu...")
+                positions = await self.futu_adapter.fetch_positions()
+                logger.info(f"✓ Futu: {len(positions)} positions")
+                self.health_monitor.update_component_health(
+                    "futu_adapter", HealthStatus.HEALTHY, f"Fetched {len(positions)} positions"
+                )
+                return positions
+            except Exception as e:
+                logger.warning(f"Failed to fetch Futu positions: {e}")
+                self.health_monitor.update_component_health(
+                    "futu_adapter", HealthStatus.DEGRADED, f"Position fetch failed: {str(e)[:50]}"
+                )
+                return []
+
+        async def fetch_file() -> List[Position]:
+            if not self.file_loader or not self.file_loader.is_connected():
+                return []
+            try:
+                positions = await self.file_loader.fetch_positions()
+                if positions:
+                    logger.debug(f"Loaded {len(positions)} manual positions")
+                return positions
+            except Exception as e:
+                logger.debug(f"Manual positions not available: {e}")
+                return []
+
+        # Execute all fetches in parallel
+        results = await asyncio.gather(
+            fetch_ib(), fetch_futu(), fetch_file(),
+            return_exceptions=True
+        )
+
+        # Handle exceptions from gather
+        ib_positions = results[0] if not isinstance(results[0], Exception) else []
+        futu_positions = results[1] if not isinstance(results[1], Exception) else []
+        manual_positions = results[2] if not isinstance(results[2], Exception) else []
+
+        # Log any exceptions
+        for i, (name, result) in enumerate([
+            ("IB", results[0]), ("Futu", results[1]), ("File", results[2])
+        ]):
+            if isinstance(result, Exception):
+                logger.error(f"Parallel fetch {name} failed: {result}")
+
+        return ib_positions, futu_positions, manual_positions
 
     async def _detect_market_alerts(self) -> None:
         """Fetch market indicators and detect alerts like VIX spikes."""
@@ -532,8 +616,12 @@ class Orchestrator:
         try:
             md_map = await self.ib_adapter.fetch_market_indicators(symbols)
             if md_map:
-                # Cache indicators for reuse / dashboard display
-                self.market_data_store.upsert(md_map.values())
+                # Publish event - store will update via subscription
+                self.event_bus.publish(EventType.MARKET_DATA_BATCH, {
+                    "market_data": list(md_map.values()),
+                    "source": "IB_INDICATORS",
+                    "timestamp": datetime.now(),
+                })
 
                 # Extract VIX level for alerting
                 vix_md = md_map.get("VIX")
@@ -658,33 +746,17 @@ class Orchestrator:
                 self._latest_snapshot = snapshot
                 self.risk_engine.clear_dirty_state()
 
-                # Evaluate risk signals
+                # Evaluate risk signals (RiskSignalEngine is required, no legacy fallback)
                 if self.risk_signal_engine:
                     self._latest_risk_signals = self.risk_signal_engine.evaluate(snapshot)
-                    if self._latest_risk_signals:
-                        for signal in self._latest_risk_signals:
-                            self.event_bus.publish(EventType.RISK_SIGNAL, {"signal": signal})
-                        if self.persistence_manager:
-                            try:
-                                self.persistence_manager.persist_alerts(self._latest_risk_signals)
-                            except Exception as e:
-                                logger.warning(f"Failed to persist risk signals: {e}")
-                else:
-                    # Legacy rule engine fallback
-                    breaches = self.rule_engine.evaluate(snapshot)
-                    for breach in breaches:
-                        self.event_bus.publish(EventType.LIMIT_BREACHED, breach)
+                    for signal in self._latest_risk_signals:
+                        self.event_bus.publish(EventType.RISK_SIGNAL, {"signal": signal})
 
                 # Log alerts to audit trail
                 if self.risk_alert_logger:
                     self._log_risk_alerts(snapshot)
 
-                # Persist snapshot
-                if self.persistence_manager:
-                    try:
-                        self.persistence_manager.persist_snapshot(snapshot)
-                    except Exception as e:
-                        logger.warning(f"Failed to persist snapshot: {e}")
+                # Persistence handled via SNAPSHOT_READY event subscription
 
                 # Update watchdog
                 self.watchdog.update_snapshot_time(snapshot.timestamp)

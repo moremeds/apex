@@ -66,25 +66,27 @@ class AccountStore:
         Handle account update event.
 
         Args:
-            payload: Event payload with 'account' and 'source'.
+            payload: Event payload with 'account_info', 'ib_account', 'futu_account'.
         """
-        account = payload.get("account")
-        source = payload.get("source", "")
-
-        if not account:
-            return
+        # Handle aggregated account info from orchestrator
+        account_info = payload.get("account_info")
+        ib_account = payload.get("ib_account")
+        futu_account = payload.get("futu_account")
 
         with self._lock:
-            # Store source-specific account
-            if source == "IB":
-                self._ib_account = account
-            elif source == "FUTU":
-                self._futu_account = account
+            # Store source-specific accounts
+            if ib_account:
+                self._ib_account = ib_account
+            if futu_account:
+                self._futu_account = futu_account
 
-            # Aggregate accounts from all sources
-            self._account = self._aggregate_accounts()
+            # Use pre-aggregated account or aggregate from sources
+            if account_info:
+                self._account = account_info
+            else:
+                self._account = self._aggregate_accounts()
 
-        logger.debug(f"AccountStore updated from {source}")
+        logger.debug("AccountStore updated from event")
 
     def _aggregate_accounts(self) -> AccountInfo:
         """

@@ -18,6 +18,7 @@ from ...models.risk_signal import (
     SignalSeverity,
     SuggestedAction,
 )
+from .risk.threshold import Threshold, ThresholdDirection
 
 
 logger = logging.getLogger(__name__)
@@ -42,6 +43,23 @@ class PositionRiskAnalyzer:
         self.stop_loss_pct = position_rules.get("stop_loss_pct", 0.60)
         self.take_profit_pct = position_rules.get("take_profit_pct", 1.00)
         self.trailing_stop_drawdown = position_rules.get("trailing_stop_drawdown", 0.30)
+
+        # Initialize threshold helpers for standardized checking
+        self.stop_loss_threshold = Threshold(
+            warning=-self.stop_loss_pct * 0.8,  # Warning at 80% of stop loss
+            critical=-self.stop_loss_pct,
+            direction=ThresholdDirection.BELOW,
+        )
+        self.take_profit_threshold = Threshold(
+            warning=self.take_profit_pct,
+            critical=self.take_profit_pct * 1.5,  # Strong profit at 150%
+            direction=ThresholdDirection.ABOVE,
+        )
+        self.trailing_stop_threshold = Threshold(
+            warning=self.trailing_stop_drawdown * 0.8,  # Warning at 80% of trailing
+            critical=self.trailing_stop_drawdown,
+            direction=ThresholdDirection.ABOVE,
+        )
 
         logger.info(
             f"PositionRiskAnalyzer initialized: stop_loss={self.stop_loss_pct:.0%}, "
@@ -87,26 +105,26 @@ class PositionRiskAnalyzer:
     def _check_stop_loss(
         self, position: Position, pnl_pct: float, current_price: float
     ) -> Optional[RiskSignal]:
-        """Check if stop loss threshold breached."""
-        if pnl_pct >= 0:
+        """Check if stop loss threshold breached using Threshold helper."""
+        severity_str = self.stop_loss_threshold.check(pnl_pct)
+        if not severity_str:
             return None
 
-        loss_threshold = -self.stop_loss_pct
-        if pnl_pct > loss_threshold:
-            return None
+        severity = SignalSeverity.CRITICAL if severity_str == "CRITICAL" else SignalSeverity.WARNING
+        breach_pct = self.stop_loss_threshold.breach_pct(pnl_pct) * 100
 
         return RiskSignal(
             signal_id=f"POSITION:{position.symbol}:Stop_Loss",
             timestamp=datetime.now(),
             level=SignalLevel.POSITION,
-            severity=SignalSeverity.CRITICAL,
+            severity=severity,
             symbol=position.symbol,
             trigger_rule="Stop_Loss_Hit",
             current_value=pnl_pct * 100,
-            threshold=loss_threshold * 100,
-            breach_pct=abs((pnl_pct - loss_threshold) / loss_threshold) * 100,
-            suggested_action=SuggestedAction.CLOSE,
-            action_details=f"Position down {pnl_pct*100:.1f}% (stop: {loss_threshold*100:.0f}%). Close immediately.",
+            threshold=-self.stop_loss_pct * 100,
+            breach_pct=breach_pct,
+            suggested_action=SuggestedAction.CLOSE if severity == SignalSeverity.CRITICAL else SuggestedAction.REDUCE,
+            action_details=f"Position down {pnl_pct*100:.1f}% (stop: {-self.stop_loss_pct*100:.0f}%). {'Close immediately.' if severity == SignalSeverity.CRITICAL else 'Approaching stop loss.'}",
             layer=2,
             metadata={"entry_price": position.avg_price, "current_price": current_price, "quantity": position.quantity},
         )
@@ -114,20 +132,25 @@ class PositionRiskAnalyzer:
     def _check_take_profit(
         self, position: Position, pnl_pct: float, current_price: float
     ) -> Optional[RiskSignal]:
-        """Check if take profit threshold reached."""
-        if pnl_pct <= 0 or pnl_pct < self.take_profit_pct:
+        """Check if take profit threshold reached using Threshold helper."""
+        severity_str = self.take_profit_threshold.check(pnl_pct)
+        if not severity_str:
             return None
+
+        # Take profit is always a good thing - INFO for warning, WARNING for critical (strong profit)
+        severity = SignalSeverity.WARNING if severity_str == "CRITICAL" else SignalSeverity.INFO
+        breach_pct = self.take_profit_threshold.breach_pct(pnl_pct) * 100
 
         return RiskSignal(
             signal_id=f"POSITION:{position.symbol}:Take_Profit",
             timestamp=datetime.now(),
             level=SignalLevel.POSITION,
-            severity=SignalSeverity.WARNING,
+            severity=severity,
             symbol=position.symbol,
             trigger_rule="Take_Profit_Hit",
             current_value=pnl_pct * 100,
             threshold=self.take_profit_pct * 100,
-            breach_pct=((pnl_pct - self.take_profit_pct) / self.take_profit_pct) * 100,
+            breach_pct=breach_pct,
             suggested_action=SuggestedAction.REDUCE,
             action_details=f"Position up {pnl_pct*100:.1f}% (TP: {self.take_profit_pct*100:.0f}%). Consider reducing 50%.",
             layer=2,
@@ -137,24 +160,28 @@ class PositionRiskAnalyzer:
     def _check_trailing_stop(
         self, position: Position, pnl_pct: float, current_price: float
     ) -> Optional[RiskSignal]:
-        """Check trailing stop from peak profit."""
-        if position.max_profit_reached is None or pnl_pct <= 0:
+        """Check trailing stop from peak profit using Threshold helper."""
+        if position.max_profit_reached is None or position.max_profit_reached <= 0 or pnl_pct <= 0:
             return None
 
         drawdown = (position.max_profit_reached - pnl_pct) / position.max_profit_reached
-        if drawdown < self.trailing_stop_drawdown:
+        severity_str = self.trailing_stop_threshold.check(drawdown)
+        if not severity_str:
             return None
+
+        severity = SignalSeverity.WARNING if severity_str == "CRITICAL" else SignalSeverity.INFO
+        breach_pct = self.trailing_stop_threshold.breach_pct(drawdown) * 100
 
         return RiskSignal(
             signal_id=f"POSITION:{position.symbol}:Trailing_Stop",
             timestamp=datetime.now(),
             level=SignalLevel.POSITION,
-            severity=SignalSeverity.WARNING,
+            severity=severity,
             symbol=position.symbol,
             trigger_rule="Trailing_Stop_Hit",
             current_value=drawdown * 100,
             threshold=self.trailing_stop_drawdown * 100,
-            breach_pct=(drawdown - self.trailing_stop_drawdown) / self.trailing_stop_drawdown * 100,
+            breach_pct=breach_pct,
             suggested_action=SuggestedAction.CLOSE,
             action_details=f"Dropped {drawdown*100:.1f}% from peak {position.max_profit_reached*100:.1f}%. Close to protect gains.",
             layer=2,

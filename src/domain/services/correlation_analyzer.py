@@ -20,6 +20,7 @@ from ...models.risk_signal import (
     SignalSeverity,
     SuggestedAction,
 )
+from .risk.threshold import Threshold, ThresholdDirection
 
 
 logger = logging.getLogger(__name__)
@@ -51,6 +52,13 @@ class CorrelationAnalyzer:
             "max_sector_concentration_pct", 0.60
         )
         self.beta_reference = correlation_config.get("beta_reference", "SPY")
+
+        # Threshold for sector concentration (warning at 80% of limit, critical at limit)
+        self.concentration_threshold = Threshold(
+            warning=self.max_sector_concentration_pct * 0.8,
+            critical=self.max_sector_concentration_pct,
+            direction=ThresholdDirection.ABOVE,
+        )
 
         # Sector mappings
         self.sector_map = self._build_sector_map(correlation_config.get("sectors", {}))
@@ -105,6 +113,7 @@ class CorrelationAnalyzer:
         Check if portfolio has excessive concentration in a single sector.
 
         Returns signal if any sector exceeds max_sector_concentration_pct of total delta.
+        Uses Threshold helper for standardized severity checking.
         """
         # Calculate delta by sector
         sector_deltas: Dict[str, float] = defaultdict(float)
@@ -122,15 +131,14 @@ class CorrelationAnalyzer:
         if total_delta == 0:
             return None
 
-        # Check each sector concentration
+        # Check each sector concentration using Threshold helper
         for sector, sector_delta in sector_deltas.items():
             concentration = abs(sector_delta) / total_delta
 
-            if concentration > self.max_sector_concentration_pct:
-                breach_pct = (
-                    (concentration - self.max_sector_concentration_pct) /
-                    self.max_sector_concentration_pct * 100
-                )
+            severity_str = self.concentration_threshold.check(concentration)
+            if severity_str:
+                breach_pct = self.concentration_threshold.breach_pct(concentration) * 100
+                severity = SignalSeverity.CRITICAL if severity_str == "CRITICAL" else SignalSeverity.WARNING
 
                 # Get symbols in this sector
                 sector_symbols = [
@@ -143,7 +151,7 @@ class CorrelationAnalyzer:
                     signal_id=f"PORTFOLIO:Sector_Concentration:{sector}",
                     timestamp=datetime.now(),
                     level=SignalLevel.PORTFOLIO,
-                    severity=SignalSeverity.WARNING,
+                    severity=severity,
                     trigger_rule="Sector_Concentration",
                     current_value=concentration * 100,
                     threshold=self.max_sector_concentration_pct * 100,

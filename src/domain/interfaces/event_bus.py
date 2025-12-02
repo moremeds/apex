@@ -23,7 +23,6 @@ class EventType(Enum):
     # Risk events
     SNAPSHOT_READY = "snapshot_ready"          # Risk snapshot computed
     RISK_SIGNAL = "risk_signal"                # Risk signal detected
-    LIMIT_BREACHED = "limit_breached"          # Legacy breach event
     RECONCILIATION_ISSUE = "reconciliation_issue"  # Position reconciliation issue
 
     # System events
