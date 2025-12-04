@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from src.infrastructure.monitoring import HealthMonitor, Watchdog, HealthStatus
 from src.application.simple_event_bus import SimpleEventBus
-from src.presentation.dashboard import TerminalDashboard
+from src.tui.dashboard import TerminalDashboard
 from src.models.risk_snapshot import RiskSnapshot
 
 

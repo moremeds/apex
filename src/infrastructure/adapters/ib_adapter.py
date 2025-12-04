@@ -728,12 +728,14 @@ class IbAdapter(BrokerAdapter, MarketDataProvider):
             # Request executions from IB
             # This returns all fills/executions within the lookback period
             from ib_async import ExecutionFilter
+            from datetime import timedelta, timezone
 
             exec_filter = ExecutionFilter()
-            # ib_async uses YYYYMMDD format for time
-            from datetime import timedelta
-            start_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y%m%d")
-            exec_filter.time = start_date
+            # IB expects time filter in YYYYMMDD-HH:MM:SS format (exchange timezone)
+            # Use UTC and go back extra day to handle timezone edge cases
+            start_datetime = datetime.now(timezone.utc) - timedelta(days=days_back + 1)
+            exec_filter.time = start_datetime.strftime("%Y%m%d-%H:%M:%S")
+            exec_filter.clientId = self.client_id
 
             fills = await self.ib.reqExecutionsAsync(exec_filter)
 

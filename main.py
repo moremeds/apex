@@ -26,6 +26,7 @@ from src.domain.services.risk.risk_signal_engine import RiskSignalEngine
 from src.domain.services.risk.risk_alert_logger import RiskAlertLogger
 from src.application import Orchestrator, AsyncEventBus
 from src.presentation import TerminalDashboard
+from src.tui import TerminalDashboard
 from src.models.risk_snapshot import RiskSnapshot
 from src.utils import StructuredLogger, flush_all_loggers, set_log_timezone
 from src.utils.structured_logger import LogCategory
@@ -222,9 +223,7 @@ async def main_async(args: argparse.Namespace) -> None:
         # suggester = SimpleSuggester()  # TODO: Use for breach analysis in dashboard
         # shock_engine = SimpleShockEngine(risk_engine=risk_engine, config=config.raw)  # TODO: Add scenario analysis
 
-        # Initialize monitoring
-        health_monitor = HealthMonitor()
-        watchdog = Watchdog(
+      watchdog = Watchdog(
             health_monitor=health_monitor,
             event_bus=event_bus,
             config=config.raw.get("watchdog", {}),
