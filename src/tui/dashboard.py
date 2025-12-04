@@ -283,7 +283,7 @@ class TerminalDashboard:
 
         Note:
             The snapshot.position_risks field contains all pre-calculated metrics.
-            This dashboard is a "dumb" presentation layer - it does NOT perform
+            This dashboard is a "dumb" tui layer - it does NOT perform
             any calculations, only displays the data from the RiskEngine.
         """
         # Cache data for view switching

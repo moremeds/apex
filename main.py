@@ -25,7 +25,7 @@ from src.domain.services.risk.risk_signal_manager import RiskSignalManager
 from src.domain.services.risk.risk_signal_engine import RiskSignalEngine
 from src.domain.services.risk.risk_alert_logger import RiskAlertLogger
 from src.application import Orchestrator, AsyncEventBus
-from src.presentation import TerminalDashboard
+from src.tui import TerminalDashboard
 from src.infrastructure.persistence import PersistenceManager, DuckDBAdapter
 from src.infrastructure.persistence.persistence_manager import PersistenceConfig
 from src.models.risk_snapshot import RiskSnapshot

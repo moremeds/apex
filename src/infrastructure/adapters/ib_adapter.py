@@ -735,6 +735,7 @@ class IbAdapter(BrokerAdapter, MarketDataProvider):
             # Use UTC and go back extra day to handle timezone edge cases
             start_datetime = datetime.now(timezone.utc) - timedelta(days=days_back + 1)
             exec_filter.time = start_datetime.strftime("%Y%m%d-%H:%M:%S")
+            exec_filter.clientId = self.client_id
 
             fills = await self.ib.reqExecutionsAsync(exec_filter)
 
