@@ -25,6 +25,9 @@ class EventType(Enum):
     RISK_SIGNAL = "risk_signal"                # Risk signal detected
     RECONCILIATION_ISSUE = "reconciliation_issue"  # Position reconciliation issue
 
+    # Trade/Order events
+
+
     # System events
     TIMER_TICK = "timer_tick"                  # Periodic tick for reconciliation
     CONNECTION_RESTORED = "connection_restored"  # Adapter reconnected

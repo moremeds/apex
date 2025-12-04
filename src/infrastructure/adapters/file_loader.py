@@ -1,30 +1,34 @@
 """
 File loader for manual YAML position loading.
 
-Implements PositionProvider interface for loading positions from YAML files.
+Implements BrokerAdapter interface for loading positions from YAML files.
 """
 
 from __future__ import annotations
-import asyncio
 from pathlib import Path
 from typing import List
 from datetime import datetime, date
 import logging
 import yaml
 
-from ...domain.interfaces.position_provider import PositionProvider
+from ...domain.interfaces.broker_adapter import BrokerAdapter
 from ...models.position import Position, AssetType, PositionSource
+from ...models.account import AccountInfo
+from ...models.order import Order, Trade
 
 
 logger = logging.getLogger(__name__)
 
 
-class FileLoader(PositionProvider):
+class FileLoader(BrokerAdapter):
     """
     Manual position file loader (YAML format).
 
-    Implements PositionProvider for loading positions from YAML files.
+    Implements BrokerAdapter for loading positions from YAML files.
     Supports hot-reload with configurable interval.
+
+    Note: Order/trade/account methods raise NotImplementedError since
+    this is a file-based position source, not a broker.
     """
 
     def __init__(
@@ -47,9 +51,14 @@ class FileLoader(PositionProvider):
 
     async def connect(self) -> None:
         """Initialize file loader (load positions)."""
-        await self._load_positions()
+        try:
+            await self._load_positions()
+            logger.info(f"FileLoader initialized from {self.file_path}")
+        except ConnectionError:
+            # File not found is OK - manual positions are optional
+            logger.info(f"Manual positions file not found: {self.file_path} (optional)")
+            self._positions = []
         self._connected = True
-        logger.info(f"FileLoader initialized from {self.file_path}")
 
     async def disconnect(self) -> None:
         """Disconnect file loader (no-op)."""
@@ -120,8 +129,9 @@ class FileLoader(PositionProvider):
             with open(self.file_path, "r") as f:
                 data = yaml.safe_load(f)
 
-            if not data or "positions" not in data:
-                logger.warning(f"No positions found in {self.file_path}")
+            # Handle empty file, missing key, or empty positions list
+            if not data or "positions" not in data or not data["positions"]:
+                logger.info(f"No positions found in {self.file_path}")
                 self._positions = []
                 self._last_loaded = datetime.now()
                 return
@@ -207,3 +217,24 @@ class FileLoader(PositionProvider):
             strategy_tag=strategy_tag,
             last_updated=datetime.now(),
         )
+
+    # -------------------------------------------------------------------------
+    # Not implemented for file-based source
+    # -------------------------------------------------------------------------
+
+    async def fetch_account_info(self) -> AccountInfo:
+        """Not supported for file-based position source."""
+        raise NotImplementedError("FileLoader does not support account info")
+
+    async def fetch_orders(
+        self,
+        include_open: bool = True,
+        include_completed: bool = True,
+        days_back: int = 30,
+    ) -> List[Order]:
+        """Not supported for file-based position source."""
+        raise NotImplementedError("FileLoader does not support orders")
+
+    async def fetch_trades(self, days_back: int = 30) -> List[Trade]:
+        """Not supported for file-based position source."""
+        raise NotImplementedError("FileLoader does not support trades")
