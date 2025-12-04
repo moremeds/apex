@@ -374,6 +374,9 @@ class Orchestrator:
         # 6. Fetch market-wide indicators (VIX) and detect alerts
         await self._detect_market_alerts()
 
+        # 7. Sync orders and trades from brokers (event-driven persistence)
+        await self._sync_orders_and_trades()
+
         # Mark risk engine as dirty to trigger snapshot rebuild
         self.risk_engine.mark_dirty()
 
@@ -485,6 +488,39 @@ class Orchestrator:
 
         # Detect alerts (safe on empty data)
         self._latest_market_alerts = self.market_alert_detector.detect_alerts(indicators)
+
+    async def _sync_orders_and_trades(self) -> None:
+        """
+        Sync orders and trades from all brokers.
+
+        This triggers ORDERS_BATCH and TRADES_BATCH events which the
+        PersistenceManager subscribes to for database persistence.
+        """
+        # Get sync config
+        order_sync_config = self.config.get("order_sync", {})
+        enabled = order_sync_config.get("enabled", True)
+        days_back = order_sync_config.get("days_back", 7)
+
+        if not enabled:
+            return
+
+        try:
+            # Fetch orders - BrokerManager publishes ORDERS_BATCH event
+            await self.broker_manager.fetch_orders(
+                include_open=True,
+                include_completed=True,
+                days_back=days_back,
+                publish_event=True,
+            )
+
+            # Fetch trades - BrokerManager publishes TRADES_BATCH event
+            await self.broker_manager.fetch_trades(
+                days_back=days_back,
+                publish_event=True,
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to sync orders/trades: {e}")
 
     def _log_risk_alerts(self, snapshot: RiskSnapshot) -> None:
         """

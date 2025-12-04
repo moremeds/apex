@@ -460,6 +460,10 @@ class PersistenceManager:
         event_bus.subscribe(EventType.SNAPSHOT_READY, self._on_snapshot_ready)
         event_bus.subscribe(EventType.RISK_SIGNAL, self._on_risk_signal)
         event_bus.subscribe(EventType.POSITION_UPDATED, self._on_position_change)
+        event_bus.subscribe(EventType.ORDERS_BATCH, self._on_orders_batch)
+        event_bus.subscribe(EventType.TRADES_BATCH, self._on_trades_batch)
+        event_bus.subscribe(EventType.ORDER_UPDATED, self._on_order_updated)
+        event_bus.subscribe(EventType.TRADE_EXECUTED, self._on_trade_executed)
         logger.debug("PersistenceManager subscribed to events")
 
     def _on_snapshot_ready(self, payload: dict) -> None:
@@ -526,6 +530,96 @@ class PersistenceManager:
         symbol = payload.get("symbol", "unknown")
         source = payload.get("source", "unknown")
         logger.info(f"Position change event: {symbol} from {source}")
+
+    def _on_orders_batch(self, payload: dict) -> None:
+        """
+        Handle batch of orders from broker sync.
+
+        Args:
+            payload: Event payload with 'orders' list.
+        """
+        orders = payload.get("orders", [])
+        if not orders:
+            return
+
+        try:
+            loop = asyncio.get_running_loop()
+            loop.run_in_executor(None, self._sync_orders_sync, orders)
+        except RuntimeError:
+            # No event loop running, fall back to sync
+            self._sync_orders_sync(orders)
+
+    def _sync_orders_sync(self, orders: List[Order]) -> None:
+        """Synchronous order sync (runs in thread pool)."""
+        try:
+            result = self.sync_orders(orders)
+            logger.info(
+                f"Synced {result['inserted']} new, {result['updated']} updated orders"
+            )
+        except Exception as e:
+            logger.error(f"Failed to sync orders from event: {e}")
+
+    def _on_trades_batch(self, payload: dict) -> None:
+        """
+        Handle batch of trades from broker sync.
+
+        Args:
+            payload: Event payload with 'trades' list.
+        """
+        trades = payload.get("trades", [])
+        if not trades:
+            return
+
+        try:
+            loop = asyncio.get_running_loop()
+            loop.run_in_executor(None, self._sync_trades_sync, trades)
+        except RuntimeError:
+            # No event loop running, fall back to sync
+            self._sync_trades_sync(trades)
+
+    def _sync_trades_sync(self, trades: List[Trade]) -> None:
+        """Synchronous trade sync (runs in thread pool)."""
+        try:
+            result = self.sync_trades(trades)
+            logger.info(
+                f"Synced {result['inserted']} new, {result['updated']} updated trades"
+            )
+        except Exception as e:
+            logger.error(f"Failed to sync trades from event: {e}")
+
+    def _on_order_updated(self, payload: dict) -> None:
+        """
+        Handle single order update event (e.g., status change).
+
+        Args:
+            payload: Event payload with 'order'.
+        """
+        order = payload.get("order")
+        if not order:
+            return
+
+        try:
+            loop = asyncio.get_running_loop()
+            loop.run_in_executor(None, self._sync_orders_sync, [order])
+        except RuntimeError:
+            self._sync_orders_sync([order])
+
+    def _on_trade_executed(self, payload: dict) -> None:
+        """
+        Handle single trade execution event (e.g., fill).
+
+        Args:
+            payload: Event payload with 'trade'.
+        """
+        trade = payload.get("trade")
+        if not trade:
+            return
+
+        try:
+            loop = asyncio.get_running_loop()
+            loop.run_in_executor(None, self._sync_trades_sync, [trade])
+        except RuntimeError:
+            self._sync_trades_sync([trade])
 
     # ========== Order History Methods ==========
 

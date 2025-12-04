@@ -117,7 +117,7 @@ async def main_async(args: argparse.Namespace) -> None:
         health_monitor = HealthMonitor()
 
         # Initialize BrokerManager to manage all broker connections
-        broker_manager = BrokerManager(health_monitor=health_monitor)
+        broker_manager = BrokerManager(health_monitor=health_monitor, event_bus=event_bus)
 
         # Register adapters with BrokerManager
         if config.ibkr.enabled:

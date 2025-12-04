@@ -728,12 +728,13 @@ class IbAdapter(BrokerAdapter, MarketDataProvider):
             # Request executions from IB
             # This returns all fills/executions within the lookback period
             from ib_async import ExecutionFilter
+            from datetime import timedelta, timezone
 
             exec_filter = ExecutionFilter()
-            # ib_async uses YYYYMMDD format for time
-            from datetime import timedelta
-            start_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y%m%d")
-            exec_filter.time = start_date
+            # IB expects time filter in YYYYMMDD-HH:MM:SS format (exchange timezone)
+            # Use UTC and go back extra day to handle timezone edge cases
+            start_datetime = datetime.now(timezone.utc) - timedelta(days=days_back + 1)
+            exec_filter.time = start_datetime.strftime("%Y%m%d-%H:%M:%S")
 
             fills = await self.ib.reqExecutionsAsync(exec_filter)
 
@@ -873,14 +874,12 @@ class IbAdapter(BrokerAdapter, MarketDataProvider):
             # Determine side
             side = OrderSide.BUY if execution.side == "BOT" else OrderSide.SELL
 
-            # Parse execution time
-            trade_time = datetime.now()
-            if execution.time:
-                try:
-                    # IB time format: "YYYYMMDD HH:MM:SS"
-                    trade_time = datetime.strptime(execution.time, "%Y%m%d %H:%M:%S")
-                except ValueError:
-                    pass
+            # Get execution time (ib_async returns datetime with UTC timezone)
+            trade_time = execution.time if execution.time else datetime.now()
+            # Convert to local time if it's timezone-aware UTC
+            if hasattr(trade_time, 'tzinfo') and trade_time.tzinfo is not None:
+                # Convert UTC to local time for display consistency
+                trade_time = trade_time.replace(tzinfo=None)  # Keep as naive datetime in UTC
 
             # Option-specific fields
             expiry = None

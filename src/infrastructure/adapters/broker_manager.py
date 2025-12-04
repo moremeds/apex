@@ -13,6 +13,7 @@ import logging
 import asyncio
 
 from ...domain.interfaces.broker_adapter import BrokerAdapter
+from ...domain.interfaces.event_bus import EventBus, EventType
 from ...models.position import Position, PositionSource
 from ...models.account import AccountInfo
 from ...models.order import Order, Trade
@@ -47,17 +48,23 @@ class BrokerManager(BrokerAdapter):
     - Health monitoring integration
     """
 
-    def __init__(self, health_monitor: Optional["HealthMonitor"] = None):
+    def __init__(
+        self,
+        health_monitor: Optional["HealthMonitor"] = None,
+        event_bus: Optional[EventBus] = None,
+    ):
         """
         Initialize broker manager with empty adapter list.
 
         Args:
             health_monitor: Optional HealthMonitor for reporting broker health.
+            event_bus: Optional EventBus for publishing order/trade events.
         """
         self._adapters: Dict[str, BrokerAdapter] = {}
         self._status: Dict[str, BrokerStatus] = {}
         self._connected = False
         self._health_monitor = health_monitor
+        self._event_bus = event_bus
 
     def register_adapter(self, name: str, adapter: BrokerAdapter) -> None:
         """
@@ -401,6 +408,7 @@ class BrokerManager(BrokerAdapter):
         include_open: bool = True,
         include_completed: bool = True,
         days_back: int = 30,
+        publish_event: bool = True,
     ) -> List[Order]:
         """
         Fetch orders from all connected brokers.
@@ -409,6 +417,7 @@ class BrokerManager(BrokerAdapter):
             include_open: Include open/pending orders.
             include_completed: Include filled/cancelled/expired orders.
             days_back: Number of days to look back for completed orders.
+            publish_event: Whether to publish ORDERS_BATCH event.
 
         Returns:
             Aggregated list of orders from all brokers.
@@ -433,14 +442,28 @@ class BrokerManager(BrokerAdapter):
                 logger.error(f"Failed to fetch orders from {name}: {e}")
 
         logger.info(f"Fetched {len(all_orders)} total orders from all brokers")
+
+        # Publish event for persistence manager to handle
+        if publish_event and self._event_bus and all_orders:
+            self._event_bus.publish(EventType.ORDERS_BATCH, {
+                "orders": all_orders,
+                "source": "BrokerManager",
+                "timestamp": datetime.now(),
+            })
+
         return all_orders
 
-    async def fetch_trades(self, days_back: int = 30) -> List[Trade]:
+    async def fetch_trades(
+        self,
+        days_back: int = 30,
+        publish_event: bool = True,
+    ) -> List[Trade]:
         """
         Fetch trades from all connected brokers.
 
         Args:
             days_back: Number of days to look back.
+            publish_event: Whether to publish TRADES_BATCH event.
 
         Returns:
             Aggregated list of trades from all brokers.
@@ -461,4 +484,22 @@ class BrokerManager(BrokerAdapter):
                 logger.error(f"Failed to fetch trades from {name}: {e}")
 
         logger.info(f"Fetched {len(all_trades)} total trades from all brokers")
+
+        # Publish event for persistence manager to handle
+        if publish_event and self._event_bus and all_trades:
+            self._event_bus.publish(EventType.TRADES_BATCH, {
+                "trades": all_trades,
+                "source": "BrokerManager",
+                "timestamp": datetime.now(),
+            })
+
         return all_trades
+
+    def set_event_bus(self, event_bus: EventBus) -> None:
+        """
+        Set the event bus after initialization.
+
+        Args:
+            event_bus: EventBus instance to use for publishing events.
+        """
+        self._event_bus = event_bus

@@ -25,8 +25,11 @@ class EventType(Enum):
     RISK_SIGNAL = "risk_signal"                # Risk signal detected
     RECONCILIATION_ISSUE = "reconciliation_issue"  # Position reconciliation issue
 
-    # Trade/Order events
-
+    # Order/Trade events
+    ORDERS_BATCH = "orders_batch"              # Batch of orders from broker sync
+    ORDER_UPDATED = "order_updated"            # Single order update (status change)
+    TRADES_BATCH = "trades_batch"              # Batch of trades from broker sync
+    TRADE_EXECUTED = "trade_executed"          # Single trade execution (fill)
 
     # System events
     TIMER_TICK = "timer_tick"                  # Periodic tick for reconciliation
