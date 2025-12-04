@@ -376,6 +376,18 @@ class OrderRepository:
             WHERE source = ? AND order_id = ? AND account_id = ?
         """, (source.value, order_id, account_id))
 
+    def get_trade_by_id(
+        self,
+        source: OrderSource,
+        trade_id: str,
+        account_id: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Get a specific trade by its composite key."""
+        return self.db.fetch_one("""
+            SELECT * FROM trades
+            WHERE source = ? AND trade_id = ? AND account_id = ?
+        """, (source.value, trade_id, account_id))
+
     def get_trades_by_order(
         self,
         source: OrderSource,

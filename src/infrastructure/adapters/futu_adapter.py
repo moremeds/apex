@@ -1,9 +1,9 @@
 """
 Futu OpenD adapter with auto-reconnect and push subscription.
 
-Implements PositionProvider interface for Futu OpenD gateway.
+Implements BrokerAdapter interface for Futu OpenD gateway.
 Uses the futu-api SDK to connect to Futu OpenD and fetch positions/account info.
-Supports real-time position updates via trade deal push notifications.
+Supports real-time position updates via trade push notifications.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import logging
 import re
 import threading
 
-from ...domain.interfaces.position_provider import PositionProvider
+from ...domain.interfaces.broker_adapter import BrokerAdapter
 from ...domain.interfaces.event_bus import EventBus, EventType
 from ...models.position import Position, AssetType, PositionSource
 from ...models.account import AccountInfo
@@ -23,15 +23,17 @@ from ...models.order import Order, Trade, OrderSource, OrderStatus, OrderSide, O
 logger = logging.getLogger(__name__)
 
 
-def create_trade_deal_handler(on_deal_callback: Callable[[dict], None]):
+def create_trade_handler(on_trade_callback: Callable[[dict], None]):
     """
-    Factory function to create a Futu trade deal handler.
+    Factory function to create a Futu trade handler.
 
     Creates a handler class that inherits from Futu's TradeDealHandlerBase
-    to receive real-time trade deal notifications.
+    to receive real-time trade notifications (executions/fills).
+
+    Note: Futu SDK calls executions "Deals", but we use "Trade" for consistency.
 
     Args:
-        on_deal_callback: Callback function to invoke when a deal is received.
+        on_trade_callback: Callback function to invoke when a trade is received.
 
     Returns:
         Handler instance or None if futu library not available.
@@ -39,12 +41,12 @@ def create_trade_deal_handler(on_deal_callback: Callable[[dict], None]):
     try:
         from futu import TradeDealHandlerBase
 
-        class FutuTradeDealHandler(TradeDealHandlerBase):
+        class FutuTradeHandler(TradeDealHandlerBase):
             """
-            Handler for Futu trade deal push notifications.
+            Handler for Futu trade push notifications.
 
             Inherits from Futu SDK's TradeDealHandlerBase to receive
-            real-time notifications when trades are executed.
+            real-time notifications when trades (executions/fills) occur.
             """
 
             def __init__(self, callback: Callable[[dict], None]):
@@ -54,27 +56,27 @@ def create_trade_deal_handler(on_deal_callback: Callable[[dict], None]):
 
             def on_recv_rsp(self, rsp_str):
                 """
-                Called by Futu SDK when a trade deal notification is received.
+                Called by Futu SDK when a trade notification is received.
 
                 Args:
-                    rsp_str: Response string/data from Futu SDK containing deal info.
+                    rsp_str: Response string/data from Futu SDK containing trade info.
                 """
                 try:
                     import pandas as pd
 
                     # rsp_str is typically a tuple (ret_code, data) from Futu SDK
-                    # where data is a DataFrame with deal information
+                    # where data is a DataFrame with trade information
                     if isinstance(rsp_str, tuple) and len(rsp_str) >= 2:
                         ret_code, data = rsp_str[0], rsp_str[1]
                         if ret_code != 0:
-                            logger.warning(f"Futu trade deal notification error: {data}")
+                            logger.warning(f"Futu trade notification error: {data}")
                             return
 
-                        # data is a pandas DataFrame with deal info
+                        # data is a pandas DataFrame with trade info
                         if isinstance(data, pd.DataFrame) and not data.empty:
                             for _, row in data.iterrows():
-                                deal_data = {
-                                    'deal_id': row.get('deal_id', None),
+                                trade_data = {
+                                    'trade_id': row.get('deal_id', None),  # Futu calls it deal_id
                                     'order_id': row.get('order_id', None),
                                     'code': row.get('code', None),
                                     'stock_name': row.get('stock_name', None),
@@ -84,30 +86,30 @@ def create_trade_deal_handler(on_deal_callback: Callable[[dict], None]):
                                     'create_time': row.get('create_time', None),
                                 }
                                 logger.info(
-                                    f"Futu trade deal received: {deal_data['code']} "
-                                    f"qty={deal_data['qty']} price={deal_data['price']} "
-                                    f"side={deal_data['trd_side']}"
+                                    f"Futu trade received: {trade_data['code']} "
+                                    f"qty={trade_data['qty']} price={trade_data['price']} "
+                                    f"side={trade_data['trd_side']}"
                                 )
 
                                 with self._lock:
                                     if self._callback:
-                                        self._callback(deal_data)
+                                        self._callback(trade_data)
 
                 except Exception as e:
-                    logger.error(f"Error processing Futu trade deal notification: {e}")
+                    logger.error(f"Error processing Futu trade notification: {e}")
 
-        return FutuTradeDealHandler(on_deal_callback)
+        return FutuTradeHandler(on_trade_callback)
 
     except ImportError:
-        logger.warning("futu-api library not installed, trade deal handler unavailable")
+        logger.warning("futu-api library not installed, trade handler unavailable")
         return None
 
 
-class FutuAdapter(PositionProvider):
+class FutuAdapter(BrokerAdapter):
     """
     Futu OpenD adapter with auto-reconnect.
 
-    Implements PositionProvider using futu-api SDK.
+    Implements BrokerAdapter using futu-api SDK.
     Requires Futu OpenD gateway to be running locally or on a server.
     """
 
@@ -168,7 +170,7 @@ class FutuAdapter(PositionProvider):
         self._position_cooldown_until: Optional[datetime] = None
 
         # Push subscription for real-time trade updates
-        self._trade_deal_handler = None
+        self._trade_handler = None
         self._push_enabled = False
         self._cache_lock = threading.Lock()  # Thread safety for cache updates from push
 
@@ -226,7 +228,7 @@ class FutuAdapter(PositionProvider):
                 f"account={self._acc_id}, market={self.filter_trdmarket}"
             )
 
-            # Set up push subscription for real-time trade deal updates
+            # Set up push subscription for real-time trade updates
             self._setup_push_subscription()
 
         except ImportError:
@@ -273,56 +275,56 @@ class FutuAdapter(PositionProvider):
 
     def _setup_push_subscription(self) -> None:
         """
-        Set up push subscription for real-time trade deal notifications.
+        Set up push subscription for real-time trade notifications.
 
         This allows immediate cache invalidation when trades execute,
         ensuring positions are refreshed on the next fetch.
         """
         if not self._trd_ctx:
-            logger.warning("Cannot set up push subscription: no trade context")
+            logger.warning("Cannot set up push subscription: no trading context")
             return
 
         try:
-            # Create the trade deal handler with callback
-            self._trade_deal_handler = create_trade_deal_handler(self._on_trade_deal)
+            # Create the trade handler with callback
+            self._trade_handler = create_trade_handler(self._on_trade_received)
 
-            if self._trade_deal_handler:
-                # Register the handler with the trade context
-                self._trd_ctx.set_handler(self._trade_deal_handler)
+            if self._trade_handler:
+                # Register the handler with the trading context
+                self._trd_ctx.set_handler(self._trade_handler)
                 self._push_enabled = True
-                logger.info("Futu trade deal push subscription enabled")
+                logger.info("Futu trade push subscription enabled")
             else:
-                logger.warning("Failed to create trade deal handler")
+                logger.warning("Failed to create trade handler")
 
         except Exception as e:
             logger.error(f"Failed to set up Futu push subscription: {e}")
             self._push_enabled = False
 
-    def _on_trade_deal(self, deal_data: dict) -> None:
+    def _on_trade_received(self, trade_data: dict) -> None:
         """
-        Callback invoked when a trade deal is received via push.
+        Callback invoked when a trade is received via push.
 
         Invalidates the position cache, emits event, and forces a fresh fetch.
         This is called from Futu's internal thread, so we use the cache lock.
 
         Args:
-            deal_data: Dictionary containing trade deal information.
+            trade_data: Dictionary containing trade information.
         """
         try:
-            code = deal_data.get('code', 'unknown')
-            qty = deal_data.get('qty', 0)
-            trd_side = deal_data.get('trd_side', 'unknown')
+            code = trade_data.get('code', 'unknown')
+            qty = trade_data.get('qty', 0)
+            trd_side = trade_data.get('trd_side', 'unknown')
 
             logger.info(
-                f"Trade deal notification: {code} qty={qty} side={trd_side} - "
+                f"Trade notification: {code} qty={qty} side={trd_side} - "
                 "invalidating position cache"
             )
 
-            # Emit event for trade deal (position update signal)
+            # Emit event for trade (position update signal)
             if self._event_bus:
                 self._event_bus.publish(EventType.POSITION_UPDATED, {
                     "symbol": code,
-                    "deal": deal_data,
+                    "trade": trade_data,
                     "source": "FUTU",
                     "timestamp": datetime.now(),
                 })
@@ -334,10 +336,10 @@ class FutuAdapter(PositionProvider):
                 # Clear any cooldown since we need fresh data after a trade
                 self._position_cooldown_until = None
 
-            logger.debug("Position cache invalidated due to trade deal")
+            logger.debug("Position cache invalidated due to trade")
 
         except Exception as e:
-            logger.error(f"Error handling trade deal notification: {e}")
+            logger.error(f"Error handling trade notification: {e}")
 
     async def fetch_positions(self) -> List[Position]:
         """
@@ -813,14 +815,14 @@ class FutuAdapter(PositionProvider):
         trd_env_enum = getattr(TrdEnv, self.trd_env, TrdEnv.REAL)
 
         try:
-            # Fetch deal list (executions) from Futu
-            # deal_list_query returns today's deals
-            # history_deal_list_query returns historical deals
+            # Fetch trades (executions) from Futu
+            # Futu SDK calls these "deals" - deal_list_query returns today's trades
+            # history_deal_list_query returns historical trades
             from datetime import timedelta
             end_date = datetime.now()
             start_date = end_date - timedelta(days=days_back)
 
-            # First get today's deals
+            # First get today's trades
             ret, data = self._trd_ctx.deal_list_query(
                 trd_env=trd_env_enum,
                 acc_id=self._acc_id,
@@ -828,12 +830,12 @@ class FutuAdapter(PositionProvider):
             )
             if ret == RET_OK and not data.empty:
                 for _, row in data.iterrows():
-                    trade = self._convert_futu_deal(row)
+                    trade = self._convert_futu_trade(row)
                     if trade:
                         trades.append(trade)
                 logger.debug(f"Fetched {len(data)} trades (today) from Futu")
 
-            # Then get historical deals
+            # Then get historical trades
             ret, data = self._trd_ctx.history_deal_list_query(
                 trd_env=trd_env_enum,
                 acc_id=self._acc_id,
@@ -842,7 +844,7 @@ class FutuAdapter(PositionProvider):
             )
             if ret == RET_OK and not data.empty:
                 for _, row in data.iterrows():
-                    trade = self._convert_futu_deal(row)
+                    trade = self._convert_futu_trade(row)
                     if trade:
                         # Avoid duplicates
                         if not any(t.trade_id == trade.trade_id for t in trades):
@@ -953,9 +955,11 @@ class FutuAdapter(PositionProvider):
             logger.warning(f"Failed to convert Futu order: {e}, row={row.to_dict() if hasattr(row, 'to_dict') else row}")
             return None
 
-    def _convert_futu_deal(self, row) -> Optional[Trade]:
+    def _convert_futu_trade(self, row) -> Optional[Trade]:
         """
-        Convert Futu deal row to internal Trade model.
+        Convert Futu trade row to internal Trade model.
+
+        Note: Futu SDK calls trades "deals" - this converts from their format.
 
         Args:
             row: pandas DataFrame row from deal_list_query.
@@ -965,7 +969,7 @@ class FutuAdapter(PositionProvider):
         """
         try:
             code = row.get("code", "")
-            deal_id = str(row.get("deal_id", ""))
+            trade_id = str(row.get("deal_id", ""))  # Futu calls it deal_id
             order_id = str(row.get("order_id", ""))
 
             # Parse the Futu code format
@@ -985,7 +989,7 @@ class FutuAdapter(PositionProvider):
                     pass
 
             return Trade(
-                trade_id=deal_id,
+                trade_id=trade_id,
                 order_id=order_id,
                 source=OrderSource.FUTU,
                 account_id=str(self._acc_id) if self._acc_id else "",
@@ -995,7 +999,7 @@ class FutuAdapter(PositionProvider):
                 side=side,
                 quantity=float(row.get("qty", 0)),
                 price=float(row.get("price", 0)),
-                commission=0.0,  # Futu doesn't return commission in deal list
+                commission=0.0,  # Futu doesn't return commission in trade list
                 trade_time=trade_time,
                 expiry=expiry,
                 strike=strike,
@@ -1003,5 +1007,5 @@ class FutuAdapter(PositionProvider):
             )
 
         except Exception as e:
-            logger.warning(f"Failed to convert Futu deal: {e}, row={row.to_dict() if hasattr(row, 'to_dict') else row}")
+            logger.warning(f"Failed to convert Futu trade: {e}, row={row.to_dict() if hasattr(row, 'to_dict') else row}")
             return None

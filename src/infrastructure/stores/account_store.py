@@ -103,7 +103,21 @@ class AccountStore:
         if self._futu_account and not self._ib_account:
             return self._futu_account
         if not self._ib_account and not self._futu_account:
-            return AccountInfo(net_liquidation=0, timestamp=datetime.now())
+            # Return empty account with all required fields
+            return AccountInfo(
+                net_liquidation=0.0,
+                total_cash=0.0,
+                buying_power=0.0,
+                margin_used=0.0,
+                margin_available=0.0,
+                maintenance_margin=0.0,
+                init_margin_req=0.0,
+                excess_liquidity=0.0,
+                realized_pnl=0.0,
+                unrealized_pnl=0.0,
+                timestamp=datetime.now(),
+                account_id="empty",
+            )
 
         # Aggregate from both sources
         ib = self._ib_account

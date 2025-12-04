@@ -1,16 +1,16 @@
 """
 Interactive Brokers adapter with auto-reconnect.
 
-Implements PositionProvider and MarketDataProvider interfaces for IBKR TWS/Gateway.
+Implements BrokerAdapter and MarketDataProvider interfaces for IBKR TWS/Gateway.
 """
 
 from __future__ import annotations
-from typing import List, Dict, Optional, Literal, TYPE_CHECKING
+from typing import List, Dict, Optional, Callable, TYPE_CHECKING
 from datetime import datetime
 from math import isnan
 import logging
 
-from ...domain.interfaces.position_provider import PositionProvider
+from ...domain.interfaces.broker_adapter import BrokerAdapter
 from ...domain.interfaces.market_data_provider import MarketDataProvider
 from ...domain.interfaces.event_bus import EventBus, EventType
 from ...models.position import Position, AssetType, PositionSource
@@ -23,11 +23,11 @@ from .market_data_fetcher import MarketDataFetcher
 logger = logging.getLogger(__name__)
 
 
-class IbAdapter(PositionProvider, MarketDataProvider):
+class IbAdapter(BrokerAdapter, MarketDataProvider):
     """
     Interactive Brokers adapter with auto-reconnect.
 
-    Implements both PositionProvider and MarketDataProvider using ib_async.
+    Implements BrokerAdapter and MarketDataProvider using ib_async.
     """
 
     def __init__(
@@ -79,7 +79,7 @@ class IbAdapter(PositionProvider, MarketDataProvider):
         self._position_cache_ttl_sec: int = 10  # Cache for 10 seconds
 
         # Callback for streaming market data updates
-        self._on_market_data_update: Optional[callable] = None
+        self._on_market_data_update: Optional[Callable[[str, MarketData], None]] = None
 
     async def connect(self) -> None:
         """
@@ -475,6 +475,42 @@ class IbAdapter(PositionProvider, MarketDataProvider):
 
         return market_data
 
+    async def fetch_quotes(self, symbols: List[str]) -> Dict[str, MarketData]:
+        """
+        Fetch quotes for a list of symbols (without position context).
+
+        This is an alias for fetch_market_indicators to satisfy the
+        MarketDataProvider interface.
+
+        Args:
+            symbols: List of symbols to fetch quotes for.
+
+        Returns:
+            Dict mapping symbol to MarketData.
+        """
+        return await self.fetch_market_indicators(symbols)
+
+    def set_streaming_callback(
+        self,
+        callback: Optional[Callable[[str, MarketData], None]]
+    ) -> None:
+        """
+        Set callback for streaming market data updates.
+
+        Args:
+            callback: Function to call with (symbol, market_data) on updates.
+                     Set to None to disable streaming callbacks.
+        """
+        self._on_market_data_update = callback
+
+    def supports_streaming(self) -> bool:
+        """Check if this provider supports real-time streaming."""
+        return True  # IB supports streaming via reqMktData
+
+    def supports_greeks(self) -> bool:
+        """Check if this provider supports Greeks (options data)."""
+        return True  # IB provides Greeks for options
+
     async def fetch_account_info(self) -> AccountInfo:
         """
         Fetch account information from IB using accountSummary API.
@@ -582,15 +618,6 @@ class IbAdapter(PositionProvider, MarketDataProvider):
             # Propagate to caller to avoid silent risk calculations with zeroed balances
             raise
 
-    def set_market_data_callback(self, callback: callable) -> None:
-        """
-        Set callback for streaming market data updates.
-
-        Args:
-            callback: Function(symbol: str, market_data: MarketData) called on updates.
-        """
-        self._on_market_data_update = callback
-
     def enable_streaming(self) -> None:
         """Enable streaming market data updates."""
         if self._market_data_fetcher:
@@ -625,13 +652,19 @@ class IbAdapter(PositionProvider, MarketDataProvider):
         if self._on_market_data_update:
             self._on_market_data_update(symbol, market_data)
 
-    async def fetch_orders(self, include_open: bool = True, include_completed: bool = True) -> List[Order]:
+    async def fetch_orders(
+        self,
+        include_open: bool = True,
+        include_completed: bool = True,
+        days_back: int = 30,
+    ) -> List[Order]:
         """
         Fetch order history from Interactive Brokers.
 
         Args:
-            include_open: Include open/pending orders
-            include_completed: Include filled/cancelled orders
+            include_open: Include open/pending orders.
+            include_completed: Include filled/cancelled orders.
+            days_back: Number of days to look back for completed orders (unused by IB API).
 
         Returns:
             List of Order objects with source=IB.
@@ -651,7 +684,7 @@ class IbAdapter(PositionProvider, MarketDataProvider):
             if include_open:
                 open_trades = await self.ib.reqOpenOrdersAsync()
                 for trade in open_trades:
-                    order = self._convert_ib_trade_to_order(trade)
+                    order = self._convert_ib_order_wrapper_to_order(trade)
                     if order:
                         orders.append(order)
                 logger.debug(f"Fetched {len(open_trades)} open orders from IB")
@@ -660,7 +693,7 @@ class IbAdapter(PositionProvider, MarketDataProvider):
                 # Request completed orders (fills, cancellations)
                 completed_trades = await self.ib.reqCompletedOrdersAsync(apiOnly=False)
                 for trade in completed_trades:
-                    order = self._convert_ib_trade_to_order(trade)
+                    order = self._convert_ib_order_wrapper_to_order(trade)
                     if order:
                         orders.append(order)
                 logger.debug(f"Fetched {len(completed_trades)} completed orders from IB")
@@ -717,20 +750,26 @@ class IbAdapter(PositionProvider, MarketDataProvider):
 
         return trades
 
-    def _convert_ib_trade_to_order(self, ib_trade) -> Optional[Order]:
+    def _convert_ib_order_wrapper_to_order(self, ib_order_wrapper) -> Optional[Order]:
         """
-        Convert ib_async Trade to internal Order model.
+        Convert ib_async Trade wrapper to internal Order model.
+
+        Note: In ib_async, the Trade class is a wrapper containing:
+        - trade.contract (security)
+        - trade.order (the IB Order object)
+        - trade.orderStatus (status information)
+        It represents an order with its status, NOT a trade/execution.
 
         Args:
-            ib_trade: ib_async Trade object (order + status).
+            ib_order_wrapper: ib_async Trade object (order + status wrapper).
 
         Returns:
             Order object or None if conversion fails.
         """
         try:
-            contract = ib_trade.contract
-            order = ib_trade.order
-            order_status = ib_trade.orderStatus
+            contract = ib_order_wrapper.contract
+            order = ib_order_wrapper.order
+            order_status = ib_order_wrapper.orderStatus
 
             # Determine asset type
             if contract.secType == "STK":
@@ -803,7 +842,7 @@ class IbAdapter(PositionProvider, MarketDataProvider):
             )
 
         except Exception as e:
-            logger.warning(f"Failed to convert IB trade to order: {e}")
+            logger.warning(f"Failed to convert IB order wrapper to order: {e}")
             return None
 
     def _convert_ib_fill_to_trade(self, ib_fill) -> Optional[Trade]:
