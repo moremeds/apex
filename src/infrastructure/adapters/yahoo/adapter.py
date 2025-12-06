@@ -174,7 +174,7 @@ class YahooFinanceAdapter(MarketDataProvider):
 
     def _fetch_from_yahoo(self, symbols: List[str]) -> List[MarketData]:
         """
-        Fetch data from Yahoo Finance API.
+        Fetch data from Yahoo Finance API using concurrent requests.
 
         Args:
             symbols: Symbols to fetch
@@ -182,32 +182,42 @@ class YahooFinanceAdapter(MarketDataProvider):
         Returns:
             List of MarketData objects
         """
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
         market_data_list = []
 
-        try:
-            # Use batch download for efficiency
-            tickers = yf.Tickers(" ".join(symbols))
+        def fetch_single(symbol: str) -> tuple[str, dict | None]:
+            """Fetch a single symbol's info."""
+            try:
+                ticker = yf.Ticker(symbol)
+                return (symbol, ticker.info)
+            except Exception as e:
+                logger.warning(f"Failed to fetch {symbol}: {e}")
+                return (symbol, None)
 
-            for symbol in symbols:
-                try:
-                    ticker = tickers.tickers.get(symbol)
-                    if not ticker:
+        try:
+            # Use ThreadPoolExecutor for concurrent fetches
+            with ThreadPoolExecutor(max_workers=min(10, len(symbols))) as executor:
+                futures = {executor.submit(fetch_single, sym): sym for sym in symbols}
+
+                for future in as_completed(futures):
+                    symbol, info = future.result()
+                    if info is None:
                         continue
 
-                    info = ticker.info
-                    md = self._parse_ticker_info(symbol, info)
-                    market_data_list.append(md)
+                    try:
+                        md = self._parse_ticker_info(symbol, info)
+                        market_data_list.append(md)
 
-                    # Cache the result
-                    with self._lock:
-                        self._cache[symbol] = CachedData(
-                            data=md,
-                            beta=info.get("beta"),
-                            fetched_at=now_utc(),
-                        )
-
-                except Exception as e:
-                    logger.warning(f"Failed to fetch {symbol} from Yahoo: {e}")
+                        # Cache the result
+                        with self._lock:
+                            self._cache[symbol] = CachedData(
+                                data=md,
+                                beta=info.get("beta"),
+                                fetched_at=now_utc(),
+                            )
+                    except Exception as e:
+                        logger.warning(f"Failed to parse {symbol}: {e}")
 
         except Exception as e:
             logger.error(f"Yahoo Finance batch fetch error: {e}")
@@ -297,7 +307,7 @@ class YahooFinanceAdapter(MarketDataProvider):
 
     def get_betas(self, symbols: List[str]) -> Dict[str, float]:
         """
-        Get betas for multiple symbols.
+        Get betas for multiple symbols efficiently using batch fetching.
 
         Args:
             symbols: List of symbols
@@ -305,7 +315,39 @@ class YahooFinanceAdapter(MarketDataProvider):
         Returns:
             Dict mapping symbol to beta
         """
-        return {symbol: self.get_beta(symbol) for symbol in symbols}
+        if not symbols:
+            return {}
+
+        result: Dict[str, float] = {}
+        to_fetch: List[str] = []
+
+        # Check cache first for all symbols
+        with self._lock:
+            for symbol in symbols:
+                if symbol in self._cache:
+                    entry = self._cache[symbol]
+                    if now_utc() - entry.fetched_at < self._beta_ttl:
+                        if entry.beta is not None:
+                            result[symbol] = entry.beta
+                            continue
+                to_fetch.append(symbol)
+
+        # Batch fetch missing symbols
+        if to_fetch and self._yf_available:
+            self._fetch_from_yahoo(to_fetch)
+            # Now get from cache
+            with self._lock:
+                for symbol in to_fetch:
+                    if symbol in self._cache and self._cache[symbol].beta is not None:
+                        result[symbol] = self._cache[symbol].beta
+                    else:
+                        result[symbol] = self.DEFAULT_BETA
+        else:
+            # No yfinance available, use default
+            for symbol in to_fetch:
+                result[symbol] = self.DEFAULT_BETA
+
+        return result
 
     def prefetch_betas(self, symbols: List[str]) -> int:
         """
