@@ -341,7 +341,7 @@ class IbAdapter(BrokerAdapter, MarketDataProvider):
             from ib_async import Stock, Option
 
             contracts = []
-            pos_map = {}
+            positions_for_contracts = []  # Parallel list: positions_for_contracts[i] is position for contracts[i]
 
             for pos in positions:
                 try:
@@ -364,16 +364,23 @@ class IbAdapter(BrokerAdapter, MarketDataProvider):
                         contract = Stock(pos.symbol, 'SMART', currency="USD")
 
                     contracts.append(contract)
-                    pos_map[id(contract)] = pos
+                    positions_for_contracts.append(pos)
                 except Exception as e:
                     logger.warning(f"Failed to create contract for {pos.symbol}: {e}")
                     continue
 
             qualified = []
+            pos_map = {}  # Mapping from qualified contract id to position
             if contracts:
                 try:
                     qualified_raw = await self.ib.qualifyContractsAsync(*contracts)
-                    qualified = [c for c in qualified_raw if c is not None]
+
+                    # Build mapping from qualified contracts to positions
+                    # qualified_raw maintains same order as input contracts
+                    for i, qualified_contract in enumerate(qualified_raw):
+                        if qualified_contract is not None:
+                            qualified.append(qualified_contract)
+                            pos_map[id(qualified_contract)] = positions_for_contracts[i]
 
                     failed_count = len(contracts) - len(qualified)
                     if failed_count > 0:

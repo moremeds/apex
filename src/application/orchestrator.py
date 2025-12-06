@@ -326,7 +326,12 @@ class Orchestrator:
                 else:
                     # Fetch market data from all available providers
                     market_data_list = await self.market_data_manager.fetch_market_data(positions_to_fetch)
-                    # Publish event - store will update via subscription
+
+                    # Update store directly (don't rely on async event dispatch)
+                    if market_data_list:
+                        self.market_data_store.upsert(market_data_list)
+
+                    # Also publish event for other subscribers
                     self.event_bus.publish(EventType.MARKET_DATA_BATCH, {
                         "market_data": market_data_list,
                         "source": "MarketDataManager",

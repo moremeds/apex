@@ -14,7 +14,7 @@ Performance features:
 
 from __future__ import annotations
 from typing import Dict, List, Any, Tuple, Optional, Set, TYPE_CHECKING
-from datetime import date, datetime
+from datetime import date
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from threading import Lock
@@ -25,6 +25,7 @@ from src.models.account import AccountInfo
 from src.models.risk_snapshot import RiskSnapshot
 from src.models.position_risk import PositionRisk
 from src.utils.market_hours import MarketHours
+from src.utils.timezone import now_utc
 
 if TYPE_CHECKING:
     from src.domain.interfaces.event_bus import EventBus
@@ -140,6 +141,12 @@ class RiskEngine:
             snapshot.futu_buying_power = futu_account.buying_power
         snapshot.total_net_liquidation = account_info.net_liquidation
 
+        # Prefetch betas for all unique underlyings (batch fetch to avoid N+1 API calls)
+        beta_cache: Dict[str, float] = {}
+        if self._yahoo_adapter is not None:
+            unique_underlyings = list(set(pos.underlying for pos in positions))
+            beta_cache = self._yahoo_adapter.get_betas(unique_underlyings)
+
         # Choose processing strategy based on portfolio size
         if len(positions) < self.parallel_threshold:
             # Sequential processing for small portfolios (lower overhead)
@@ -152,7 +159,7 @@ class RiskEngine:
         position_risks = []
         for pos, metrics in zip(positions, metrics_list):
             if metrics is not None:
-                pos_risk = self._create_position_risk(pos, market_data.get(pos.symbol), metrics)
+                pos_risk = self._create_position_risk(pos, market_data.get(pos.symbol), metrics, beta_cache)
                 position_risks.append(pos_risk)
 
         snapshot.position_risks = position_risks
@@ -346,6 +353,7 @@ class RiskEngine:
         pos: Position,
         md: MarketData | None,
         metrics: PositionMetrics,
+        beta_cache: Dict[str, float] | None = None,
     ) -> PositionRisk:
         """
         Create PositionRisk object from position, market data, and calculated metrics.
@@ -357,6 +365,7 @@ class RiskEngine:
             pos: The position.
             md: Market data for the position (may be None).
             metrics: Calculated position metrics.
+            beta_cache: Pre-fetched beta values by underlying symbol.
 
         Returns:
             PositionRisk object with all calculated fields.
@@ -405,11 +414,11 @@ class RiskEngine:
             if price_for_delta:
                 delta_dollars = per_share_delta * price_for_delta * pos.quantity * pos.multiplier
 
-        # Get beta from Yahoo Finance adapter (default to 1.0 if not available)
-        if self._yahoo_adapter is not None:
-            beta = self._yahoo_adapter.get_beta(pos.underlying)
+        # Get beta from pre-fetched cache (default to 1.0 if not available)
+        if beta_cache is not None:
+            beta = beta_cache.get(pos.underlying, 1.0)
         else:
-            beta = 1.0  # Default beta when no provider available
+            beta = 1.0  # Default beta when no cache available
 
         # Calculate beta-adjusted delta (SPY-equivalent exposure)
         # Use beta or 1.0 to handle beta=0 case (beta=0 means no correlation, not no exposure)
@@ -435,7 +444,7 @@ class RiskEngine:
             has_greeks=has_greeks and not metrics.has_missing_greeks,
             is_stale=is_stale,
             is_using_close=is_using_close,
-            calculated_at=datetime.now(),
+            calculated_at=now_utc(),
         )
 
     def _aggregate_metrics(

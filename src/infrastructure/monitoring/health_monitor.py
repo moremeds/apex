@@ -11,6 +11,8 @@ from typing import Dict, List
 from enum import Enum
 import logging
 
+from ...utils.timezone import now_utc
+
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +36,7 @@ class ComponentHealth:
 
     def __post_init__(self):
         if self.last_check is None:
-            self.last_check = datetime.now()
+            self.last_check = now_utc()
         if self.metadata is None:
             self.metadata = {}
 
@@ -75,7 +77,7 @@ class HealthMonitor:
             component_name=component_name,
             status=status,
             message=message,
-            last_check=datetime.now(),
+            last_check=now_utc(),
             metadata=metadata or {},
         )
         logger.debug(f"{component_name} health updated: {status.value} - {message}")

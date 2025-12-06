@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Any, TYPE_CHECKING
 
+from ..utils.timezone import now_utc
+
 if TYPE_CHECKING:
     from .position_risk import PositionRisk
 
@@ -18,7 +20,7 @@ class RiskSnapshot:
     Greeks, concentration, and expiry bucket analysis.
     """
 
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=now_utc)
 
     # Portfolio P&L
     total_unrealized_pnl: float = 0.0
