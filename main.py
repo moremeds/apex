@@ -116,7 +116,9 @@ async def main_async(args: argparse.Namespace) -> None:
         health_monitor = HealthMonitor()
 
         # Initialize BrokerManager to manage all broker connections
-        broker_manager = BrokerManager(health_monitor=health_monitor)
+        broker_manager = BrokerManager(health_monitor=health_monitor, event_bus=event_bus)
+        # Initialize MarketDataManager to manage all market data sources
+        market_data_manager = MarketDataManager(health_monitor=health_monitor)
 
         # Register adapters with BrokerManager
         if config.ibkr.enabled:
@@ -130,6 +132,11 @@ async def main_async(args: argparse.Namespace) -> None:
             system_structured.info(LogCategory.SYSTEM, "IB adapter registered", {
                 "host": config.ibkr.host,
                 "port": config.ibkr.port,
+            })
+            market_data_manager.register_provider("ib", ib_adapter, priority=10)
+            system_structured.info(LogCategory.SYSTEM, "IB registered as market data provider", {
+                "streaming": ib_adapter.supports_streaming(),
+                "greeks": ib_adapter.supports_greeks(),
             })
         else:
             system_structured.info(LogCategory.SYSTEM, "IB adapter DISABLED (demo mode)")
@@ -158,20 +165,6 @@ async def main_async(args: argparse.Namespace) -> None:
             reload_interval_sec=config.manual_positions.reload_interval_sec,
         )
         broker_manager.register_adapter("manual", file_loader)
-
-        # Initialize MarketDataManager to manage all market data sources
-        market_data_manager = MarketDataManager(health_monitor=health_monitor)
-
-        # Register IB adapter as market data provider (if enabled)
-        if config.ibkr.enabled:
-            # IB adapter is already created above, register it for market data too
-            market_data_manager.register_provider("ib", ib_adapter, priority=10)
-            system_structured.info(LogCategory.SYSTEM, "IB registered as market data provider", {
-                "streaming": ib_adapter.supports_streaming(),
-                "greeks": ib_adapter.supports_greeks(),
-            })
-        else:
-            system_structured.info(LogCategory.SYSTEM, "IB market data DISABLED (demo mode)")
 
         # TODO: Register additional market data providers here as needed
         # Example for future Yahoo Finance or CCXT providers:
