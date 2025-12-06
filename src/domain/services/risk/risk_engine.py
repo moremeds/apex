@@ -28,6 +28,7 @@ from src.utils.market_hours import MarketHours
 
 if TYPE_CHECKING:
     from src.domain.interfaces.event_bus import EventBus
+    from src.infrastructure.adapters.yahoo import YahooFinanceAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +70,13 @@ class RiskEngine:
     - Parallel processing for >=50 positions (ThreadPoolExecutor)
     """
 
-    def __init__(self, config: Dict[str, Any], parallel_threshold: int = 50, max_workers: int = 4):
+    def __init__(
+        self,
+        config: Dict[str, Any],
+        parallel_threshold: int = 50,
+        max_workers: int = 4,
+        yahoo_adapter: Optional["YahooFinanceAdapter"] = None,
+    ):
         """
         Initialize risk engine with configuration.
 
@@ -77,10 +84,13 @@ class RiskEngine:
             config: Risk configuration dict (from ConfigManager).
             parallel_threshold: Number of positions to trigger parallel processing.
             max_workers: Maximum worker threads for parallel processing.
+            yahoo_adapter: Optional YahooFinanceAdapter for dynamic beta lookup.
+                          If None, falls back to static config lookup.
         """
         self.config = config
         self.parallel_threshold = parallel_threshold
         self.max_workers = max_workers
+        self._yahoo_adapter = yahoo_adapter
 
         # Event-driven state tracking
         self._lock = Lock()
@@ -395,10 +405,11 @@ class RiskEngine:
             if price_for_delta:
                 delta_dollars = per_share_delta * price_for_delta * pos.quantity * pos.multiplier
 
-        # Get beta from config (lookup by underlying symbol)
-        betas_config = self.config.get("betas", {})
-        default_beta = betas_config.get("default", 1.0)
-        beta = betas_config.get(pos.underlying, default_beta)
+        # Get beta from Yahoo Finance adapter (default to 1.0 if not available)
+        if self._yahoo_adapter is not None:
+            beta = self._yahoo_adapter.get_beta(pos.underlying)
+        else:
+            beta = 1.0  # Default beta when no provider available
 
         # Calculate beta-adjusted delta (SPY-equivalent exposure)
         # Use beta or 1.0 to handle beta=0 case (beta=0 means no correlation, not no exposure)

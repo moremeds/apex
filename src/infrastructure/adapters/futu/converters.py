@@ -2,6 +2,8 @@
 Futu data converters.
 
 Converts Futu API responses to internal domain models.
+All timestamps are stored as UTC for internal consistency.
+Futu returns timestamps in US Eastern time for US market.
 """
 
 from __future__ import annotations
@@ -11,6 +13,7 @@ import logging
 
 from ....models.position import Position, AssetType, PositionSource
 from ....models.order import Order, Trade, OrderSource, OrderStatus, OrderSide, OrderType
+from ....utils.timezone import now_utc, parse_futu_timestamp
 from .code_parser import parse_futu_code
 
 
@@ -52,7 +55,7 @@ def convert_position(row, acc_id: Optional[int] = None) -> Optional[Position]:
             strike=strike,
             right=right,
             source=PositionSource.FUTU,
-            last_updated=datetime.now(),
+            last_updated=now_utc(),
             account_id=str(acc_id) if acc_id else None,
         )
 
@@ -117,19 +120,12 @@ def convert_order(row, acc_id: Optional[int] = None) -> Optional[Order]:
         trd_side = row.get("trd_side", "")
         side = OrderSide.BUY if str(trd_side) in ("BUY", "BUY_BACK") else OrderSide.SELL
 
-        # Parse timestamps
-        create_time = None
-        updated_time = None
-        if row.get("create_time"):
-            try:
-                create_time = datetime.strptime(str(row.get("create_time")), "%Y-%m-%d %H:%M:%S")
-            except ValueError:
-                pass
-        if row.get("updated_time"):
-            try:
-                updated_time = datetime.strptime(str(row.get("updated_time")), "%Y-%m-%d %H:%M:%S")
-            except ValueError:
-                pass
+        # Parse timestamps (Futu returns EST for US market) -> convert to UTC
+        create_time = parse_futu_timestamp(row.get("create_time"))
+        updated_time = parse_futu_timestamp(row.get("updated_time"))
+
+        # Use updated_time as filled_time for filled orders
+        filled_time = updated_time if status == OrderStatus.FILLED else None
 
         return Order(
             order_id=order_id,
@@ -146,7 +142,8 @@ def convert_order(row, acc_id: Optional[int] = None) -> Optional[Order]:
             filled_quantity=float(row.get("dealt_qty", 0) or 0),
             avg_fill_price=float(row.get("dealt_avg_price", 0)) if row.get("dealt_avg_price") else None,
             created_time=create_time,
-            updated_time=updated_time or datetime.now(),
+            filled_time=filled_time,
+            updated_time=updated_time or now_utc(),
             expiry=expiry,
             strike=strike,
             right=right,
@@ -191,13 +188,8 @@ def convert_trade(row: Union[Dict, object], acc_id: Optional[int] = None) -> Opt
         trd_side = get_val("trd_side", "")
         side = OrderSide.BUY if str(trd_side) in ("BUY", "BUY_BACK") else OrderSide.SELL
 
-        # Parse trade time
-        trade_time = datetime.now()
-        if get_val("create_time"):
-            try:
-                trade_time = datetime.strptime(str(get_val("create_time")), "%Y-%m-%d %H:%M:%S")
-            except ValueError:
-                pass
+        # Parse trade time (Futu returns EST for US market) -> convert to UTC
+        trade_time = parse_futu_timestamp(get_val("create_time")) or now_utc()
 
         return Trade(
             trade_id=trade_id,
@@ -248,13 +240,8 @@ def convert_trade_with_fee(row: Dict, commission: float, acc_id: Optional[int] =
         trd_side = row.get("trd_side", "")
         side = OrderSide.BUY if str(trd_side) in ("BUY", "BUY_BACK") else OrderSide.SELL
 
-        # Parse trade time
-        trade_time = datetime.now()
-        if row.get("create_time"):
-            try:
-                trade_time = datetime.strptime(str(row.get("create_time")), "%Y-%m-%d %H:%M:%S")
-            except ValueError:
-                pass
+        # Parse trade time (Futu returns EST for US market) -> convert to UTC
+        trade_time = parse_futu_timestamp(row.get("create_time")) or now_utc()
 
         return Trade(
             trade_id=trade_id,
@@ -285,6 +272,7 @@ def build_trade_from_order(order: Dict, acc_id: Optional[int] = None) -> Optiona
 
     For filled orders, we create a synthetic trade using the order's
     dealt_qty and dealt_avg_price. The fee is included from order_fee_query.
+    Uses updated_time as the fill time (trade_time).
 
     Args:
         order: Order dict with fee_amount merged
@@ -311,15 +299,8 @@ def build_trade_from_order(order: Dict, acc_id: Optional[int] = None) -> Optiona
         trd_side = order.get("trd_side", "")
         side = OrderSide.BUY if str(trd_side) in ("BUY", "BUY_BACK") else OrderSide.SELL
 
-        # Parse trade time from order update time
-        trade_time = datetime.now()
-        if order.get("updated_time"):
-            try:
-                trade_time = datetime.strptime(
-                    str(order.get("updated_time")), "%Y-%m-%d %H:%M:%S"
-                )
-            except ValueError:
-                pass
+        # Use updated_time as fill time (Futu returns EST for US market) -> convert to UTC
+        trade_time = parse_futu_timestamp(order.get("updated_time")) or now_utc()
 
         # Create trade with order_id as trade_id (synthetic ID)
         return Trade(
