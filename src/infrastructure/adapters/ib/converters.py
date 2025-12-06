@@ -2,6 +2,8 @@
 IB data converters.
 
 Converts IB API responses to internal domain models.
+All timestamps are stored as UTC for internal consistency.
+IB returns timezone-aware UTC timestamps.
 """
 
 from __future__ import annotations
@@ -12,6 +14,7 @@ import logging
 
 from ....models.position import Position, AssetType, PositionSource
 from ....models.order import Order, Trade, OrderSource, OrderStatus, OrderSide, OrderType
+from ....utils.timezone import now_utc, parse_ib_timestamp
 
 
 logger = logging.getLogger(__name__)
@@ -76,7 +79,7 @@ def convert_position(ib_pos) -> Position:
         avg_price=avg_price,
         multiplier=multiplier,
         source=PositionSource.IB,
-        last_updated=datetime.now(),
+        last_updated=now_utc(),
         account_id=ib_pos.account,
     )
 
@@ -161,9 +164,9 @@ def convert_order(ib_order_wrapper) -> Optional[Order]:
             filled_quantity=float(order_status.filled) if order_status.filled else 0.0,
             avg_fill_price=float(order_status.avgFillPrice) if order_status.avgFillPrice else None,
             commission=float(order_status.commission) if order_status.commission and not isnan(order_status.commission) else 0.0,
-            submitted_time=datetime.now(),
-            filled_time=datetime.now() if status == OrderStatus.FILLED else None,
-            updated_time=datetime.now(),
+            submitted_time=now_utc(),
+            filled_time=now_utc() if status == OrderStatus.FILLED else None,
+            updated_time=now_utc(),
             expiry=expiry,
             strike=strike,
             right=right,
@@ -205,10 +208,8 @@ def convert_fill(ib_fill) -> Optional[Trade]:
         # Determine side
         side = OrderSide.BUY if execution.side == "BOT" else OrderSide.SELL
 
-        # Get execution time
-        trade_time = execution.time if execution.time else datetime.now()
-        if hasattr(trade_time, 'tzinfo') and trade_time.tzinfo is not None:
-            trade_time = trade_time.replace(tzinfo=None)
+        # Get execution time - IB returns UTC-aware timestamps
+        trade_time = parse_ib_timestamp(execution.time) if execution.time else now_utc()
 
         # Option-specific fields
         expiry = None

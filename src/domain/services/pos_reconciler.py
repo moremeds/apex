@@ -12,6 +12,7 @@ from dataclasses import replace
 import logging
 from ...models.position import Position, PositionSource, AssetType
 from ...models.reconciliation import ReconciliationIssue, IssueType
+from ...utils.timezone import age_seconds
 
 
 logger = logging.getLogger(__name__)
@@ -132,7 +133,7 @@ class Reconciler:
                         underlying=key[1],
                         ib_position=ib_pos if pos == ib_pos else None,
                         manual_position=manual_pos if pos == manual_pos else None,
-                        staleness_seconds=(datetime.now() - pos.last_updated).total_seconds(),
+                        staleness_seconds=age_seconds(pos.last_updated),
                         severity="WARNING",
                     )
                     issues.append(issue)
@@ -281,5 +282,4 @@ class Reconciler:
 
     def _is_stale(self, position: Position) -> bool:
         """Check if position exceeds staleness threshold."""
-        age_seconds = (datetime.now() - position.last_updated).total_seconds()
-        return age_seconds > self.stale_threshold_seconds
+        return age_seconds(position.last_updated) > self.stale_threshold_seconds

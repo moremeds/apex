@@ -6,6 +6,8 @@ from datetime import datetime
 from typing import Optional
 from enum import Enum
 
+from ..utils.timezone import age_seconds
+
 
 class GreeksSource(Enum):
     """Source of Greeks calculation."""
@@ -87,8 +89,7 @@ class MarketData:
         """Check if market data exceeds staleness threshold."""
         if self.timestamp is None:
             return True
-        age = (datetime.now() - self.timestamp).total_seconds()
-        return age > stale_seconds
+        return age_seconds(self.timestamp) > stale_seconds
 
     def has_greeks(self) -> bool:
         """Check if Greeks are available."""

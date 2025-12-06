@@ -15,6 +15,7 @@ from ...domain.interfaces.broker_adapter import BrokerAdapter
 from ...models.position import Position, AssetType, PositionSource
 from ...models.account import AccountInfo
 from ...models.order import Order, Trade
+from ...utils.timezone import now_utc, age_seconds
 
 
 logger = logging.getLogger(__name__)
@@ -93,7 +94,7 @@ class FileLoader(BrokerAdapter):
         """Check if file should be reloaded based on interval."""
         if self._last_loaded is None:
             return True
-        elapsed = (datetime.now() - self._last_loaded).total_seconds()
+        elapsed = age_seconds(self._last_loaded)
         return elapsed >= self.reload_interval_sec
 
     async def _load_positions(self) -> None:
@@ -133,7 +134,7 @@ class FileLoader(BrokerAdapter):
             if not data or "positions" not in data or not data["positions"]:
                 logger.info(f"No positions found in {self.file_path}")
                 self._positions = []
-                self._last_loaded = datetime.now()
+                self._last_loaded = now_utc()
                 return
 
             positions = []
@@ -142,7 +143,7 @@ class FileLoader(BrokerAdapter):
                 positions.append(position)
 
             self._positions = positions
-            self._last_loaded = datetime.now()
+            self._last_loaded = now_utc()
             logger.info(f"Loaded {len(positions)} positions from {self.file_path}")
 
         except FileNotFoundError:
@@ -215,7 +216,7 @@ class FileLoader(BrokerAdapter):
             right=right,
             source=PositionSource.MANUAL,
             strategy_tag=strategy_tag,
-            last_updated=datetime.now(),
+            last_updated=now_utc(),
         )
 
     # -------------------------------------------------------------------------

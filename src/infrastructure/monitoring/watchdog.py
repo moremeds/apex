@@ -16,6 +16,7 @@ import logging
 from ...domain.interfaces.broker_adapter import BrokerAdapter
 from ...domain.interfaces.market_data_provider import MarketDataProvider
 from ...domain.interfaces.event_bus import EventBus, EventType
+from ...utils.timezone import age_seconds
 from .health_monitor import HealthMonitor, HealthStatus
 
 
@@ -119,7 +120,7 @@ class Watchdog:
         if self._last_snapshot_time is None:
             return
 
-        age = (datetime.now() - self._last_snapshot_time).total_seconds()
+        age = age_seconds(self._last_snapshot_time)
         if age > self.snapshot_stale_sec:
             logger.warning(f"Snapshot stale: {age:.1f}s")
             self.health_monitor.update_component_health(

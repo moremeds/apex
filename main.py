@@ -14,7 +14,7 @@ import sys
 
 from config.config_manager import ConfigManager
 from src.domain.services import MarketAlertDetector
-from src.infrastructure.adapters import IbAdapter, FutuAdapter, FileLoader, BrokerManager, MarketDataManager
+from src.infrastructure.adapters import IbAdapter, FutuAdapter, FileLoader, BrokerManager, MarketDataManager, YahooFinanceAdapter
 from src.infrastructure.stores import PositionStore, MarketDataStore, AccountStore
 from src.infrastructure.monitoring import HealthMonitor, Watchdog
 from src.domain.services.risk.risk_engine import RiskEngine
@@ -176,8 +176,16 @@ async def main_async(args: argparse.Namespace) -> None:
         #     ccxt_provider = CcxtProvider(...)
         #     market_data_manager.register_provider("ccxt", ccxt_provider, priority=60)
 
+        # Initialize Yahoo Finance adapter for beta and market data
+        yahoo_adapter = YahooFinanceAdapter(
+            price_ttl_seconds=30,
+            beta_ttl_hours=24,
+        )
+        await yahoo_adapter.connect()
+        system_structured.info(LogCategory.SYSTEM, "Yahoo Finance adapter initialized")
+
         # Initialize domain services
-        risk_engine = RiskEngine(config=config.raw)
+        risk_engine = RiskEngine(config=config.raw, yahoo_adapter=yahoo_adapter)
         reconciler = Reconciler(stale_threshold_seconds=300)
         mdqc = MDQC(
             stale_seconds=config.mdqc.stale_seconds,
