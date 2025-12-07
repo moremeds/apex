@@ -51,11 +51,6 @@ from ..models.risk_signal import RiskSignal
 from src.domain.services.risk.rule_engine import LimitBreach
 from ..infrastructure.monitoring import ComponentHealth
 
-# Type checking imports
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from ..infrastructure.persistence.persistence_manager import PersistenceManager
-
 logger = logging.getLogger(__name__)
 
 
@@ -70,21 +65,19 @@ class TerminalDashboard:
     - Position details (if enabled)
     """
 
-    def __init__(self, config: dict, env: str = "dev", persistence_manager: Optional["PersistenceManager"] = None):
+    def __init__(self, config: dict, env: str = "dev"):
         """
         Initialize dashboard.
 
         Args:
             config: Dashboard configuration dict.
             env: Environment name (dev, demo, prod).
-            persistence_manager: Optional persistence manager for history queries.
         """
         self.config = config
         self.env = env
         self.show_positions = config.get("show_positions", True)
         self.console = Console()
         self.live: Optional[Live] = None
-        self.persistence_manager = persistence_manager
 
         # View state
         self._current_view = DashboardView.ACCOUNT_SUMMARY
@@ -290,11 +283,11 @@ class TerminalDashboard:
             render_broker_positions(snapshot.position_risks, broker)
         )
         layout["body"]["history_panel"]["history_today"].update(
-            render_position_history_today(broker, self.persistence_manager)
+            render_position_history_today(broker)
         )
         layout["body"]["history_panel"]["open_orders"].update(
-            render_open_orders(broker, self.persistence_manager)
+            render_open_orders(broker)
         )
         layout["body"]["history_panel"]["history_recent"].update(
-            render_position_history_recent(broker, self.persistence_manager)
+            render_position_history_recent(broker)
         )

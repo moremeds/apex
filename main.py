@@ -26,8 +26,6 @@ from src.domain.services.risk.risk_signal_engine import RiskSignalEngine
 from src.domain.services.risk.risk_alert_logger import RiskAlertLogger
 from src.application import Orchestrator, AsyncEventBus
 from src.tui import TerminalDashboard
-from src.infrastructure.persistence import PersistenceManager, DuckDBAdapter
-from src.infrastructure.persistence.persistence_manager import PersistenceConfig
 from src.models.risk_snapshot import RiskSnapshot
 from src.utils import StructuredLogger, flush_all_loggers, set_log_timezone
 from src.utils.structured_logger import LogCategory
@@ -225,24 +223,6 @@ async def main_async(args: argparse.Namespace) -> None:
         # suggester = SimpleSuggester()  # TODO: Use for breach analysis in dashboard
         # shock_engine = SimpleShockEngine(risk_engine=risk_engine, config=config.raw)  # TODO: Add scenario analysis
 
-        # Initialize persistence manager (optional - enabled by config)
-        persistence_manager = None
-        persistence_config = config.raw.get("persistence", {})
-        if persistence_config.get("enabled", False):
-            persistence_manager = PersistenceManager(
-                config=PersistenceConfig(
-                    db_path=persistence_config.get("db_path", "./data/apex_risk.duckdb"),
-                    snapshot_interval_sec=persistence_config.get("snapshot_interval_sec", 60),
-                    change_detection=persistence_config.get("change_detection", True),
-                    position_snapshots_days=persistence_config.get("position_snapshots_days", 90),
-                    portfolio_snapshots_days=persistence_config.get("portfolio_snapshots_days", 365),
-                    alerts_days=persistence_config.get("alerts_days", 365),
-                )
-            )
-            system_structured.info(LogCategory.SYSTEM, "Persistence manager initialized", {
-                "db_path": persistence_config.get("db_path", "./data/apex_risk.duckdb"),
-            })
-
         # Initialize watchdog (health_monitor already created above)
         watchdog = Watchdog(
             health_monitor=health_monitor,
@@ -268,7 +248,6 @@ async def main_async(args: argparse.Namespace) -> None:
             market_alert_detector=market_alert_detector,
             risk_signal_engine=risk_signal_engine,
             risk_alert_logger=risk_alert_logger,
-            persistence_manager=persistence_manager,
         )
 
         # Initialize dashboard (if not disabled)
@@ -276,7 +255,6 @@ async def main_async(args: argparse.Namespace) -> None:
             dashboard = TerminalDashboard(
                 config=config.raw.get("dashboard", {}),
                 env=args.env,
-                persistence_manager=persistence_manager,
             )
 
         # Start dashboard FIRST (non-blocking) so it shows immediately

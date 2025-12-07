@@ -36,7 +36,6 @@ from ..models.position import Position
 from ..models.risk_signal import RiskSignal
 from ..infrastructure.stores import PositionStore, MarketDataStore, AccountStore
 from ..infrastructure.monitoring import HealthMonitor, HealthStatus, Watchdog
-from ..infrastructure.persistence import PersistenceManager
 from ..infrastructure.adapters.broker_manager import BrokerManager
 from ..infrastructure.adapters.market_data_manager import MarketDataManager
 from .async_event_bus import AsyncEventBus
@@ -54,7 +53,7 @@ class Orchestrator:
     2. TIMER_TICK triggers market data refresh for stale symbols
     3. Data events (POSITION_*, MARKET_DATA_*, ACCOUNT_*) update stores
     4. Snapshot dispatcher rebuilds risk metrics when data changes
-    5. SNAPSHOT_READY triggers dashboard updates and persistence
+    5. SNAPSHOT_READY triggers dashboard updates
     """
 
     def __init__(
@@ -75,7 +74,6 @@ class Orchestrator:
         market_alert_detector: MarketAlertDetector | None = None,
         risk_signal_engine: RiskSignalEngine | None = None,
         risk_alert_logger: RiskAlertLogger | None = None,
-        persistence_manager: PersistenceManager | None = None,
     ):
         """
         Initialize orchestrator with all dependencies.
@@ -97,7 +95,6 @@ class Orchestrator:
             market_alert_detector: Optional market alert detector.
             risk_signal_engine: Multi-layer risk signal engine (optional, replaces rule_engine).
             risk_alert_logger: Optional risk alert logger for audit trail.
-            persistence_manager: Optional persistence manager for database storage.
         """
         self.broker_manager = broker_manager
         self.market_data_manager = market_data_manager
@@ -115,7 +112,6 @@ class Orchestrator:
         self.market_alert_detector = market_alert_detector
         self.risk_signal_engine = risk_signal_engine
         self.risk_alert_logger = risk_alert_logger
-        self.persistence_manager = persistence_manager
 
         self.refresh_interval_sec = config.get("dashboard", {}).get("refresh_interval_sec", 2)
         self._running = False
@@ -198,10 +194,6 @@ class Orchestrator:
 
         # Disconnect all brokers via BrokerManager
         await self.broker_manager.disconnect()
-
-        # Close persistence manager (flushes pending writes)
-        if self.persistence_manager:
-            self.persistence_manager.close()
 
         logger.info("Orchestrator stopped")
 
@@ -379,7 +371,7 @@ class Orchestrator:
         # 6. Fetch market-wide indicators (VIX) and detect alerts
         await self._detect_market_alerts()
 
-        # 7. Sync orders and trades from brokers (event-driven persistence)
+        # 7. Sync orders and trades from brokers
         await self._sync_orders_and_trades()
 
         # Mark risk engine as dirty to trigger snapshot rebuild
@@ -498,8 +490,7 @@ class Orchestrator:
         """
         Sync orders and trades from all brokers.
 
-        This triggers ORDERS_BATCH and TRADES_BATCH events which the
-        PersistenceManager subscribes to for database persistence.
+        This triggers ORDERS_BATCH and TRADES_BATCH events for subscribers.
         """
         # Get sync config
         order_sync_config = self.config.get("order_sync", {})
@@ -570,9 +561,6 @@ class Orchestrator:
         self.market_data_store.subscribe_to_events(self.event_bus)
         self.account_store.subscribe_to_events(self.event_bus)
         self.risk_engine.subscribe_to_events(self.event_bus)
-
-        if self.persistence_manager:
-            self.persistence_manager.subscribe_to_events(self.event_bus)
 
         logger.info("All components subscribed to events")
 

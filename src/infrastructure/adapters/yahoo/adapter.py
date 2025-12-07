@@ -174,7 +174,11 @@ class YahooFinanceAdapter(MarketDataProvider):
 
     def _fetch_from_yahoo(self, symbols: List[str]) -> List[MarketData]:
         """
-        Fetch data from Yahoo Finance API using concurrent requests.
+        Fetch data from Yahoo Finance API.
+
+        Note: yfinance uses curl_cffi which has thread-safety issues with
+        concurrent requests (memory corruption in libcurl-impersonate).
+        We fetch sequentially to avoid crashes.
 
         Args:
             symbols: Symbols to fetch
@@ -182,45 +186,30 @@ class YahooFinanceAdapter(MarketDataProvider):
         Returns:
             List of MarketData objects
         """
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-
         market_data_list = []
 
-        def fetch_single(symbol: str) -> tuple[str, dict | None]:
-            """Fetch a single symbol's info."""
+        # Fetch sequentially to avoid curl_cffi thread-safety issues
+        # curl_cffi/libcurl-impersonate crashes with concurrent ThreadPoolExecutor
+        for symbol in symbols:
             try:
                 ticker = yf.Ticker(symbol)
-                return (symbol, ticker.info)
+                info = ticker.info
+
+                if info is None:
+                    continue
+
+                md = self._parse_ticker_info(symbol, info)
+                market_data_list.append(md)
+
+                # Cache the result
+                with self._lock:
+                    self._cache[symbol] = CachedData(
+                        data=md,
+                        beta=info.get("beta"),
+                        fetched_at=now_utc(),
+                    )
             except Exception as e:
                 logger.warning(f"Failed to fetch {symbol}: {e}")
-                return (symbol, None)
-
-        try:
-            # Use ThreadPoolExecutor for concurrent fetches
-            with ThreadPoolExecutor(max_workers=min(10, len(symbols))) as executor:
-                futures = {executor.submit(fetch_single, sym): sym for sym in symbols}
-
-                for future in as_completed(futures):
-                    symbol, info = future.result()
-                    if info is None:
-                        continue
-
-                    try:
-                        md = self._parse_ticker_info(symbol, info)
-                        market_data_list.append(md)
-
-                        # Cache the result
-                        with self._lock:
-                            self._cache[symbol] = CachedData(
-                                data=md,
-                                beta=info.get("beta"),
-                                fetched_at=now_utc(),
-                            )
-                    except Exception as e:
-                        logger.warning(f"Failed to parse {symbol}: {e}")
-
-        except Exception as e:
-            logger.error(f"Yahoo Finance batch fetch error: {e}")
 
         return market_data_list
 
