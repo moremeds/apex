@@ -26,7 +26,7 @@ class DuckDBAdapter:
         when the dashboard or other components access the database from multiple threads.
     """
 
-    SCHEMA_VERSION = 2
+    SCHEMA_VERSION = 3
 
     def __init__(self, db_path: str = "./data/apex_risk.duckdb"):
         """
@@ -314,6 +314,139 @@ class DuckDBAdapter:
             conn.execute("INSERT INTO schema_version (version) VALUES (2)")
             logger.info("Applied schema migration v2 (orders and trades tables)")
 
+        if from_version < 3:
+            # ============================================================
+            # RAW LAYER: Preserve original API payloads for audit/replay
+            # ============================================================
+
+            # Futu Raw Orders
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS orders_raw_futu (
+                    broker VARCHAR DEFAULT 'FUTU',
+                    acc_id BIGINT NOT NULL,
+                    order_id VARCHAR NOT NULL,
+                    payload JSON NOT NULL,
+                    create_time_raw_str VARCHAR,
+                    update_time_raw_str VARCHAR,
+                    ingest_ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (acc_id, order_id)
+                )
+            """)
+
+            # Futu Raw Trades/Deals
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS trades_raw_futu (
+                    broker VARCHAR DEFAULT 'FUTU',
+                    acc_id BIGINT NOT NULL,
+                    deal_id VARCHAR NOT NULL,
+                    order_id VARCHAR,
+                    payload JSON NOT NULL,
+                    trade_time_raw_str VARCHAR,
+                    ingest_ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (acc_id, deal_id)
+                )
+            """)
+
+            # Futu Raw Fees
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS fees_raw_futu (
+                    broker VARCHAR DEFAULT 'FUTU',
+                    acc_id BIGINT NOT NULL,
+                    order_id VARCHAR NOT NULL,
+                    fee_amount DECIMAL(20, 8),
+                    fee_details JSON,
+                    payload JSON NOT NULL,
+                    ingest_ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (acc_id, order_id)
+                )
+            """)
+
+            # IB Raw Orders (captured in real-time or from Flex)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS orders_raw_ib (
+                    broker VARCHAR DEFAULT 'IB',
+                    account VARCHAR NOT NULL,
+                    perm_id BIGINT,
+                    client_order_id VARCHAR,
+                    order_ref VARCHAR,
+                    payload JSON NOT NULL,
+                    create_time_raw_str VARCHAR,
+                    update_time_raw_str VARCHAR,
+                    source VARCHAR DEFAULT 'API',
+                    ingest_ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (account, perm_id)
+                )
+            """)
+
+            # IB Raw Trades/Executions
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS trades_raw_ib (
+                    broker VARCHAR DEFAULT 'IB',
+                    account VARCHAR NOT NULL,
+                    exec_id VARCHAR NOT NULL,
+                    perm_id BIGINT,
+                    order_ref VARCHAR,
+                    payload JSON NOT NULL,
+                    trade_time_raw_str VARCHAR,
+                    source VARCHAR DEFAULT 'API',
+                    ingest_ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (account, exec_id)
+                )
+            """)
+
+            # IB Raw Fees (from commissionReport or Flex)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS fees_raw_ib (
+                    broker VARCHAR DEFAULT 'IB',
+                    account VARCHAR NOT NULL,
+                    exec_id VARCHAR NOT NULL,
+                    commission DECIMAL(20, 8),
+                    currency VARCHAR,
+                    realized_pnl DECIMAL(20, 8),
+                    payload JSON,
+                    source VARCHAR DEFAULT 'API',
+                    ingest_ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (account, exec_id)
+                )
+            """)
+
+            # ============================================================
+            # STRATEGY LAYER: Trade grouping and classification
+            # ============================================================
+
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS order_strategy_map (
+                    broker VARCHAR NOT NULL,
+                    account_id VARCHAR NOT NULL,
+                    order_uid VARCHAR NOT NULL,
+                    strategy_id VARCHAR NOT NULL,
+                    strategy_type VARCHAR NOT NULL,
+                    strategy_name VARCHAR,
+                    confidence DECIMAL(5, 4),
+                    leg_index INTEGER,
+                    legs JSON,
+                    classify_version VARCHAR DEFAULT 'v1',
+                    updated_ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (broker, account_id, order_uid)
+                )
+            """)
+
+            # Create indexes for raw tables
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_raw_futu_time ON orders_raw_futu(ingest_ts)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_trades_raw_futu_time ON trades_raw_futu(ingest_ts)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_trades_raw_futu_order ON trades_raw_futu(order_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_raw_ib_time ON orders_raw_ib(ingest_ts)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_trades_raw_ib_time ON trades_raw_ib(ingest_ts)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_trades_raw_ib_perm ON trades_raw_ib(perm_id)")
+
+            # Strategy map indexes
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_strategy_map_type ON order_strategy_map(strategy_type)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_strategy_map_strategy_id ON order_strategy_map(strategy_id)")
+
+            # Record migration
+            conn.execute("INSERT INTO schema_version (version) VALUES (3)")
+            logger.info("Applied schema migration v3 (raw data tables + strategy classification)")
+
     def execute(self, query: str, params: Optional[tuple] = None) -> duckdb.DuckDBPyRelation:
         """Execute a query (thread-safe)."""
         with self._lock:
@@ -365,7 +498,15 @@ class DuckDBAdapter:
     def get_stats(self) -> Dict[str, Any]:
         """Get database statistics (thread-safe)."""
         stats = {}
-        for table in ["position_snapshots", "portfolio_snapshots", "position_changes", "risk_alerts", "daily_pnl", "orders", "trades"]:
+        tables = [
+            "position_snapshots", "portfolio_snapshots", "position_changes",
+            "risk_alerts", "daily_pnl", "orders", "trades",
+            # v3 tables
+            "orders_raw_futu", "trades_raw_futu", "fees_raw_futu",
+            "orders_raw_ib", "trades_raw_ib", "fees_raw_ib",
+            "order_strategy_map"
+        ]
+        for table in tables:
             try:
                 result = self.fetch_one(f"SELECT COUNT(*) as cnt FROM {table}")
                 stats[f"{table}_count"] = result["cnt"] if result else 0

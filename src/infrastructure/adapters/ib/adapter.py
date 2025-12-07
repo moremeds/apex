@@ -98,6 +98,11 @@ class IbAdapter(BrokerAdapter, MarketDataProvider):
                 self.ib,
                 on_price_update=self._handle_streaming_update,
             )
+
+            # Subscribe to real-time execution and commission events
+            self.ib.execDetailsEvent += self._on_exec_details
+            self.ib.commissionReportEvent += self._on_commission_report
+
             logger.info(f"Connected to IB at {self.host}:{self.port}")
         except ImportError:
             logger.error("ib_async library not installed. Install with: pip install ib_async")
@@ -559,3 +564,95 @@ class IbAdapter(BrokerAdapter, MarketDataProvider):
 
         if self._on_market_data_update:
             self._on_market_data_update(symbol, market_data)
+
+    # -------------------------------------------------------------------------
+    # Real-Time Execution/Commission Event Handlers
+    # -------------------------------------------------------------------------
+
+    def _on_exec_details(self, trade, fill) -> None:
+        """
+        Handle real-time execution event from IB.
+
+        Called when a fill occurs. Publishes TRADE_EXECUTED event with raw payload.
+        """
+        try:
+            # Convert fill to Trade model
+            trade_obj = convert_fill(fill, trade.contract)
+            if not trade_obj:
+                return
+
+            # Build raw payload for audit
+            raw_payload = {
+                "exec_id": fill.execution.execId,
+                "perm_id": fill.execution.permId,
+                "client_id": fill.execution.clientId,
+                "order_id": fill.execution.orderId,
+                "account": fill.execution.acctNumber,
+                "symbol": trade.contract.symbol,
+                "sec_type": trade.contract.secType,
+                "exchange": fill.execution.exchange,
+                "side": fill.execution.side,
+                "shares": fill.execution.shares,
+                "price": fill.execution.price,
+                "time": fill.execution.time,
+                "avg_price": fill.execution.avgPrice,
+                "cum_qty": fill.execution.cumQty,
+            }
+
+            # Publish event for persistence
+            if self._event_bus:
+                self._event_bus.publish(EventType.TRADE_EXECUTED, {
+                    "trade": trade_obj,
+                    "raw_payload": raw_payload,
+                    "source": "IB",
+                })
+
+            logger.debug(
+                f"IB exec details: {fill.execution.execId} "
+                f"{fill.execution.side} {fill.execution.shares} "
+                f"@ {fill.execution.price}"
+            )
+
+        except Exception as e:
+            logger.error(f"Error handling IB exec details: {e}")
+
+    def _on_commission_report(self, trade, fill, report) -> None:
+        """
+        Handle real-time commission report from IB.
+
+        Called after an execution with commission details.
+        Publishes COMMISSION_REPORT event for fee persistence.
+        """
+        try:
+            # Build raw payload
+            raw_payload = {
+                "exec_id": report.execId,
+                "commission": report.commission,
+                "currency": report.currency,
+                "realized_pnl": report.realizedPNL if not isnan(report.realizedPNL) else None,
+                "yield_": report.yield_ if hasattr(report, 'yield_') else None,
+                "yield_redemption_date": report.yieldRedemptionDate if hasattr(report, 'yieldRedemptionDate') else None,
+            }
+
+            # Extract account from the fill if available
+            account = fill.execution.acctNumber if fill and fill.execution else None
+
+            # Publish event for persistence
+            if self._event_bus:
+                self._event_bus.publish(EventType.COMMISSION_REPORT, {
+                    "exec_id": report.execId,
+                    "commission": report.commission,
+                    "currency": report.currency,
+                    "realized_pnl": raw_payload["realized_pnl"],
+                    "account": account,
+                    "raw_payload": raw_payload,
+                    "source": "IB",
+                })
+
+            logger.debug(
+                f"IB commission report: exec_id={report.execId} "
+                f"commission={report.commission} {report.currency}"
+            )
+
+        except Exception as e:
+            logger.error(f"Error handling IB commission report: {e}")

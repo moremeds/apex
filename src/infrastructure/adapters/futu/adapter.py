@@ -9,6 +9,7 @@ from typing import List, Dict, Optional
 from datetime import datetime, timedelta
 import logging
 import threading
+import asyncio
 
 from ....domain.interfaces.broker_adapter import BrokerAdapter
 from ....domain.interfaces.event_bus import EventBus, EventType
@@ -557,18 +558,22 @@ class FutuAdapter(BrokerAdapter):
 
         fees_by_order: Dict[str, float] = {}
         for i in range(0, len(order_ids), 400):
+            # Rate limit: 10 req/30s - add 3s delay between batches
+            if i > 0:
+                await asyncio.sleep(3)
+
             batch_ids = order_ids[i:i + 400]
             ret_fee, fee_data = self._trd_ctx.order_fee_query(
                 order_id_list=batch_ids,
                 trd_env=trd_env_enum,
                 acc_id=self._acc_id,
             )
-            if ret_fee == RET_OK and not fee_data.empty:
+            if ret_fee == RET_OK and fee_data is not None and not fee_data.empty:
                 for _, fee_row in fee_data.iterrows():
                     oid = str(fee_row.get('order_id', ''))
                     fee_amount = float(fee_row.get('fee_amount', 0) or 0)
                     fees_by_order[oid] = fee_amount
-                logger.debug(f"Fetched fees for {len(fee_data)} orders")
+                logger.debug(f"Fetched fees for {len(fee_data)} orders (batch {i // 400 + 1})")
             else:
                 logger.warning(f"Failed to fetch order fees: {fee_data}")
 
@@ -688,3 +693,143 @@ class FutuAdapter(BrokerAdapter):
                     seen_deal_ids.add(deal_id)
 
         return final_trades
+
+    async def fetch_order_fees(self, order_ids: List[str]) -> List[Dict]:
+        """
+        Fetch fees for specific order IDs.
+
+        Args:
+            order_ids: List of order IDs to fetch fees for
+
+        Returns:
+            List of fee records as dicts with order_id, fee_amount, fee_list keys
+        """
+        await self._ensure_connected()
+        from futu import RET_OK, TrdEnv
+
+        trd_env_enum = getattr(TrdEnv, self.trd_env, TrdEnv.REAL)
+        fees = []
+
+        ret_fee, fee_data = self._trd_ctx.order_fee_query(
+            order_id_list=order_ids,
+            trd_env=trd_env_enum,
+            acc_id=self._acc_id,
+        )
+
+        if ret_fee == RET_OK and fee_data is not None and not fee_data.empty:
+            for _, row in fee_data.iterrows():
+                fees.append(row.to_dict())
+            logger.debug(f"Fetched fees for {len(fees)} orders")
+        else:
+            logger.warning(f"Failed to fetch order fees: {fee_data}")
+
+        return fees
+
+    async def fetch_orders_raw(
+        self,
+        days_back: int = 30,
+        include_open: bool = True,
+        include_completed: bool = True,
+    ) -> List[Dict]:
+        """
+        Fetch orders returning raw API dictionaries (not converted to Order objects).
+
+        Args:
+            days_back: Number of days to look back
+            include_open: Include open orders
+            include_completed: Include completed/filled orders
+
+        Returns:
+            List of raw order dicts from Futu API
+        """
+        await self._ensure_connected()
+        from futu import RET_OK, TrdEnv, OrderStatus as FutuOrderStatus
+
+        trd_env_enum = getattr(TrdEnv, self.trd_env, TrdEnv.REAL)
+        raw_orders = []
+        seen_order_ids = set()
+
+        # Fetch open orders
+        if include_open:
+            ret, data = self._trd_ctx.order_list_query(
+                trd_env=trd_env_enum,
+                acc_id=self._acc_id,
+                refresh_cache=False,
+            )
+            if ret == RET_OK and data is not None and not data.empty:
+                for _, row in data.iterrows():
+                    order_id = str(row.get('order_id', ''))
+                    if order_id and order_id not in seen_order_ids:
+                        raw_orders.append(row.to_dict())
+                        seen_order_ids.add(order_id)
+
+        # Fetch historical orders
+        if include_completed:
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=days_back)
+
+            ret, data = self._trd_ctx.history_order_list_query(
+                trd_env=trd_env_enum,
+                acc_id=self._acc_id,
+                start=start_date.strftime("%Y-%m-%d"),
+                end=end_date.strftime("%Y-%m-%d"),
+            )
+            if ret == RET_OK and data is not None and not data.empty:
+                for _, row in data.iterrows():
+                    order_id = str(row.get('order_id', ''))
+                    if order_id and order_id not in seen_order_ids:
+                        raw_orders.append(row.to_dict())
+                        seen_order_ids.add(order_id)
+
+        logger.debug(f"Fetched {len(raw_orders)} raw orders from Futu")
+        return raw_orders
+
+    async def fetch_deals_raw(self, days_back: int = 30) -> List[Dict]:
+        """
+        Fetch deals returning raw API dictionaries (not converted to Trade objects).
+
+        Args:
+            days_back: Number of days to look back
+
+        Returns:
+            List of raw deal dicts from Futu API
+        """
+        await self._ensure_connected()
+        from futu import RET_OK, TrdEnv
+
+        trd_env_enum = getattr(TrdEnv, self.trd_env, TrdEnv.REAL)
+        raw_deals = []
+        seen_deal_ids = set()
+
+        # Today's deals
+        ret, data = self._trd_ctx.deal_list_query(
+            trd_env=trd_env_enum,
+            acc_id=self._acc_id,
+            refresh_cache=False,
+        )
+        if ret == RET_OK and data is not None and not data.empty:
+            for _, row in data.iterrows():
+                deal_id = str(row.get('deal_id', ''))
+                if deal_id and deal_id not in seen_deal_ids:
+                    raw_deals.append(row.to_dict())
+                    seen_deal_ids.add(deal_id)
+
+        # Historical deals
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=days_back)
+
+        ret, data = self._trd_ctx.history_deal_list_query(
+            trd_env=trd_env_enum,
+            acc_id=self._acc_id,
+            start=start_date.strftime("%Y-%m-%d"),
+            end=end_date.strftime("%Y-%m-%d"),
+        )
+        if ret == RET_OK and data is not None and not data.empty:
+            for _, row in data.iterrows():
+                deal_id = str(row.get('deal_id', ''))
+                if deal_id and deal_id not in seen_deal_ids:
+                    raw_deals.append(row.to_dict())
+                    seen_deal_ids.add(deal_id)
+
+        logger.debug(f"Fetched {len(raw_deals)} raw deals from Futu")
+        return raw_deals

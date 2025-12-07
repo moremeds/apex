@@ -14,6 +14,7 @@ from .repositories.position_repository import PositionRepository
 from .repositories.portfolio_repository import PortfolioRepository
 from .repositories.alert_repository import AlertRepository
 from .repositories.order_repository import OrderRepository
+from .repositories.raw_data_repo import RawDataRepository
 from src.models.risk_snapshot import RiskSnapshot
 from src.models.position_risk import PositionRisk
 from src.models.risk_signal import RiskSignal
@@ -41,6 +42,12 @@ class PersistenceConfig:
     orders_days: int = 365
     trades_days: int = 365
     order_sync_days_back: int = 30  # Days to sync on startup
+    # Historical data settings
+    historical_enabled: bool = True
+    historical_full_reload_days: int = 365
+    historical_incremental_overlap_hours: int = 1
+    ib_flex_token: Optional[str] = None
+    ib_flex_query_id: Optional[str] = None
 
 
 @dataclass
@@ -78,6 +85,10 @@ class PersistenceManager:
         self.portfolio = PortfolioRepository(self.db)
         self.alerts = AlertRepository(self.db)
         self.orders = OrderRepository(self.db)
+        self.raw_data = RawDataRepository(self.db)
+
+        # Historical loader (lazy init - needs adapters)
+        self._historical_loader = None
 
         # State tracking for change detection
         self._position_states: Dict[str, PositionState] = {}
@@ -464,6 +475,7 @@ class PersistenceManager:
         event_bus.subscribe(EventType.TRADES_BATCH, self._on_trades_batch)
         event_bus.subscribe(EventType.ORDER_UPDATED, self._on_order_updated)
         event_bus.subscribe(EventType.TRADE_EXECUTED, self._on_trade_executed)
+        event_bus.subscribe(EventType.COMMISSION_REPORT, self._on_commission_report)
         logger.debug("PersistenceManager subscribed to events")
 
     def _on_snapshot_ready(self, payload: dict) -> None:
@@ -609,7 +621,7 @@ class PersistenceManager:
         Handle single trade execution event (e.g., fill).
 
         Args:
-            payload: Event payload with 'trade'.
+            payload: Event payload with 'trade', 'raw_payload', 'source'.
         """
         trade = payload.get("trade")
         if not trade:
@@ -617,9 +629,84 @@ class PersistenceManager:
 
         try:
             loop = asyncio.get_running_loop()
-            loop.run_in_executor(None, self._sync_trades_sync, [trade])
+            loop.run_in_executor(None, self._persist_trade_with_raw_sync, payload)
         except RuntimeError:
-            self._sync_trades_sync([trade])
+            self._persist_trade_with_raw_sync(payload)
+
+    def _persist_trade_with_raw_sync(self, payload: dict) -> None:
+        """Persist trade and raw payload (thread pool)."""
+        try:
+            trade = payload.get("trade")
+            raw_payload = payload.get("raw_payload")
+            source = payload.get("source", "UNKNOWN")
+
+            # Persist to normalized table
+            if trade:
+                self._sync_trades_sync([trade])
+
+            # Persist raw payload for IB trades
+            if raw_payload and source == "IB":
+                exec_id = raw_payload.get("exec_id")
+                account = raw_payload.get("account")
+                perm_id = raw_payload.get("perm_id")
+                trade_time = raw_payload.get("time")
+
+                if exec_id and account:
+                    self.raw_data.persist_ib_execution_raw(
+                        account=account,
+                        exec_id=exec_id,
+                        payload=raw_payload,
+                        perm_id=perm_id,
+                        trade_time_raw=trade_time,
+                        source='API',
+                    )
+
+        except Exception as e:
+            logger.error(f"Failed to persist trade with raw: {e}")
+
+    def _on_commission_report(self, payload: dict) -> None:
+        """
+        Handle IB commission report event.
+
+        Persists commission/fee data to raw tables.
+
+        Args:
+            payload: Event payload with 'exec_id', 'commission', 'currency', etc.
+        """
+        try:
+            loop = asyncio.get_running_loop()
+            loop.run_in_executor(None, self._persist_commission_sync, payload)
+        except RuntimeError:
+            self._persist_commission_sync(payload)
+
+    def _persist_commission_sync(self, payload: dict) -> None:
+        """Persist IB commission report (thread pool)."""
+        try:
+            exec_id = payload.get("exec_id")
+            commission = payload.get("commission")
+            currency = payload.get("currency", "USD")
+            realized_pnl = payload.get("realized_pnl")
+            account = payload.get("account")
+            raw_payload = payload.get("raw_payload")
+
+            if not exec_id or not account:
+                logger.warning(f"Commission report missing exec_id or account: {payload}")
+                return
+
+            self.raw_data.persist_ib_commission_raw(
+                account=account,
+                exec_id=exec_id,
+                commission=commission,
+                currency=currency,
+                payload=raw_payload,
+                realized_pnl=realized_pnl,
+                source='API',
+            )
+
+            logger.debug(f"Persisted IB commission: exec_id={exec_id} commission={commission}")
+
+        except Exception as e:
+            logger.error(f"Failed to persist IB commission: {e}")
 
     # ========== Order History Methods ==========
 
@@ -860,3 +947,140 @@ class PersistenceManager:
             "issues": issues,
             "orders_checked": len(filled_orders),
         }
+
+    def check_fee_coverage(self) -> Dict[str, Any]:
+        """
+        Check all FILLED orders have fee records.
+
+        Examines both Futu and IB fee coverage to identify
+        orders/trades missing commission data.
+
+        Returns:
+            Dict with:
+                - futu_orders_missing_fees: Count of Futu orders without fees
+                - futu_missing_sample: Sample of missing Futu orders
+                - ib_trades_missing_fees: Count of IB trades without fees
+                - ib_missing_sample: Sample of missing IB trades
+        """
+        # Check Futu fee coverage
+        futu_missing = self.db.fetch_all("""
+            SELECT o.order_id, o.symbol, o.filled_time, o.account_id
+            FROM orders o
+            LEFT JOIN fees_raw_futu f
+                ON CAST(o.account_id AS VARCHAR) = CAST(f.acc_id AS VARCHAR)
+                AND o.order_id = f.order_id
+            WHERE o.status = 'FILLED'
+                AND o.source = 'FUTU'
+                AND f.order_id IS NULL
+            ORDER BY o.filled_time DESC
+            LIMIT 100
+        """) or []
+
+        # Check IB fee coverage (match by exec_id through trades table)
+        ib_missing = self.db.fetch_all("""
+            SELECT t.trade_id, t.symbol, t.trade_time, t.account_id
+            FROM trades t
+            LEFT JOIN fees_raw_ib f
+                ON t.account_id = f.account
+                AND t.trade_id = f.exec_id
+            WHERE t.source = 'IB'
+                AND f.exec_id IS NULL
+            ORDER BY t.trade_time DESC
+            LIMIT 100
+        """) or []
+
+        return {
+            "futu_orders_missing_fees": len(futu_missing),
+            "futu_missing_sample": futu_missing[:5] if futu_missing else [],
+            "ib_trades_missing_fees": len(ib_missing),
+            "ib_missing_sample": ib_missing[:5] if ib_missing else [],
+        }
+
+    # ========== Historical Data Methods ==========
+
+    def get_historical_loader(
+        self,
+        futu_adapter=None,
+        ib_adapter=None,
+    ):
+        """
+        Get or create the historical loader instance.
+
+        Args:
+            futu_adapter: Optional FutuAdapter instance
+            ib_adapter: Optional IbAdapter instance
+
+        Returns:
+            HistoricalLoader instance
+        """
+        if self._historical_loader is None:
+            from .pipeline.historical_loader import HistoricalLoader
+
+            self._historical_loader = HistoricalLoader(
+                db=self.db,
+                futu_adapter=futu_adapter,
+                ib_adapter=ib_adapter,
+                ib_flex_token=self.config.ib_flex_token,
+                ib_flex_query_id=self.config.ib_flex_query_id,
+            )
+        return self._historical_loader
+
+    async def run_historical_sync(
+        self,
+        futu_adapter=None,
+        ib_adapter=None,
+        full_reload: bool = False,
+        force: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Run historical data synchronization.
+
+        Args:
+            futu_adapter: Optional FutuAdapter instance
+            ib_adapter: Optional IbAdapter instance
+            full_reload: Whether to do a full reload (default: incremental)
+            force: Force full reload even if data exists
+
+        Returns:
+            Dict with sync results
+        """
+        if not self.config.historical_enabled:
+            logger.info("Historical sync disabled in config")
+            return {"status": "disabled"}
+
+        loader = self.get_historical_loader(futu_adapter, ib_adapter)
+
+        try:
+            if full_reload:
+                result = await loader.full_reload(
+                    days_back=self.config.historical_full_reload_days,
+                    force=force,
+                )
+            else:
+                result = await loader.incremental_load(
+                    overlap_hours=self.config.historical_incremental_overlap_hours,
+                )
+
+            logger.info(f"Historical sync complete: {result}")
+            return result
+
+        except Exception as e:
+            logger.error(f"Historical sync failed: {e}")
+            return {"status": "error", "error": str(e)}
+
+    def get_historical_stats(self) -> Dict[str, Any]:
+        """Get historical data statistics."""
+        if self._historical_loader:
+            return self._historical_loader.get_stats()
+
+        # Return basic stats from raw_data repo
+        return {
+            "futu_orders_raw": self.raw_data.count_futu_orders_raw(),
+            "futu_deals_raw": self.raw_data.count_futu_deals_raw(),
+            "ib_orders_raw": self.raw_data.count_ib_orders_raw(),
+            "classification": self.raw_data.get_strategy_stats(),
+        }
+
+    def get_strategy_breakdown(self) -> Dict[str, Any]:
+        """Get strategy classification breakdown."""
+        return self.raw_data.get_strategy_stats()
