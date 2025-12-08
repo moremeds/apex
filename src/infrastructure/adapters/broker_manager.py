@@ -12,9 +12,11 @@ from dataclasses import dataclass, field
 import logging
 import asyncio
 
-from ...domain.interfaces.position_provider import PositionProvider
+from ...domain.interfaces.broker_adapter import BrokerAdapter
+from ...domain.interfaces.event_bus import EventBus, EventType
 from ...models.position import Position, PositionSource
 from ...models.account import AccountInfo
+from ...models.order import Order, Trade
 
 if TYPE_CHECKING:
     from ...infrastructure.monitoring import HealthMonitor, HealthStatus
@@ -33,7 +35,7 @@ class BrokerStatus:
     position_count: int = 0
 
 
-class BrokerManager(PositionProvider):
+class BrokerManager(BrokerAdapter):
     """
     Manages multiple broker adapters and aggregates their data.
 
@@ -41,35 +43,42 @@ class BrokerManager(PositionProvider):
     - Unified connection management
     - Aggregated positions across all brokers
     - Aggregated account information
+    - Aggregated orders and trades
     - Per-broker status tracking
     - Health monitoring integration
     """
 
-    def __init__(self, health_monitor: Optional["HealthMonitor"] = None):
+    def __init__(
+        self,
+        health_monitor: Optional["HealthMonitor"] = None,
+        event_bus: Optional[EventBus] = None,
+    ):
         """
         Initialize broker manager with empty adapter list.
 
         Args:
             health_monitor: Optional HealthMonitor for reporting broker health.
+            event_bus: Optional EventBus for publishing order/trade events.
         """
-        self._adapters: Dict[str, PositionProvider] = {}
+        self._adapters: Dict[str, BrokerAdapter] = {}
         self._status: Dict[str, BrokerStatus] = {}
         self._connected = False
         self._health_monitor = health_monitor
+        self._event_bus = event_bus
 
-    def register_adapter(self, name: str, adapter: PositionProvider) -> None:
+    def register_adapter(self, name: str, adapter: BrokerAdapter) -> None:
         """
         Register a broker adapter.
 
         Args:
             name: Unique name for the broker (e.g., "ibkr", "futu").
-            adapter: The adapter implementing PositionProvider.
+            adapter: The adapter implementing BrokerAdapter.
         """
         self._adapters[name] = adapter
         self._status[name] = BrokerStatus(name=name)
         logger.info(f"Registered broker adapter: {name}")
 
-    def get_adapter(self, name: str) -> Optional[PositionProvider]:
+    def get_adapter(self, name: str) -> Optional[BrokerAdapter]:
         """Get a specific adapter by name."""
         return self._adapters.get(name)
 
@@ -104,7 +113,7 @@ class BrokerManager(PositionProvider):
         connected_count = sum(1 for s in self._status.values() if s.connected)
         logger.info(f"BrokerManager connected: {connected_count}/{len(self._adapters)} adapters")
 
-    async def _connect_adapter(self, name: str, adapter: PositionProvider) -> None:
+    async def _connect_adapter(self, name: str, adapter: BrokerAdapter) -> None:
         """Connect a single adapter with error handling."""
         try:
             await adapter.connect()
@@ -163,7 +172,7 @@ class BrokerManager(PositionProvider):
         return all_positions
 
     async def _fetch_positions_from_adapter(
-        self, name: str, adapter: PositionProvider
+        self, name: str, adapter: BrokerAdapter
     ) -> List[Position]:
         """Fetch positions from a single adapter with error handling."""
         try:
@@ -209,16 +218,12 @@ class BrokerManager(PositionProvider):
                 continue
 
             try:
-                # Check if adapter has fetch_account_info method
-                if not hasattr(adapter, "fetch_account_info"):
-                    logger.debug(f"{name} adapter does not support fetch_account_info")
-                    continue
-
                 account = await adapter.fetch_account_info()
                 aggregated = self._merge_account_info(aggregated, account)
                 account_count += 1
                 logger.debug(f"Fetched account info from {name}: NetLiq=${account.net_liquidation:,.2f}")
-
+            except NotImplementedError:
+                logger.debug(f"{name} adapter does not support account info")
             except Exception as e:
                 logger.error(f"Failed to fetch account info from {name}: {e}")
 
@@ -296,13 +301,12 @@ class BrokerManager(PositionProvider):
             if not self._status[name].connected:
                 continue
 
-            if not hasattr(adapter, "fetch_account_info"):
-                continue
-
             try:
                 account = await adapter.fetch_account_info()
                 accounts_by_broker[name] = account
                 self._update_health(name, "HEALTHY", f"Account: ${account.net_liquidation:,.0f}")
+            except NotImplementedError:
+                logger.debug(f"{name} adapter does not support account info")
             except Exception as e:
                 logger.error(f"Failed to fetch account info from {name}: {e}")
                 self._update_health(name, "DEGRADED", f"Account fetch failed: {str(e)[:50]}")
@@ -398,3 +402,104 @@ class BrokerManager(PositionProvider):
                 self._update_health(name, "UNHEALTHY", f"Health check failed: {str(e)[:50]}")
 
         return self._status.copy()
+
+    async def fetch_orders(
+        self,
+        include_open: bool = True,
+        include_completed: bool = True,
+        days_back: int = 30,
+        publish_event: bool = True,
+    ) -> List[Order]:
+        """
+        Fetch orders from all connected brokers.
+
+        Args:
+            include_open: Include open/pending orders.
+            include_completed: Include filled/cancelled/expired orders.
+            days_back: Number of days to look back for completed orders.
+            publish_event: Whether to publish ORDERS_BATCH event.
+
+        Returns:
+            Aggregated list of orders from all brokers.
+        """
+        all_orders: List[Order] = []
+
+        for name, adapter in self._adapters.items():
+            if not self._status[name].connected:
+                continue
+
+            try:
+                orders = await adapter.fetch_orders(
+                    include_open=include_open,
+                    include_completed=include_completed,
+                    days_back=days_back,
+                )
+                all_orders.extend(orders)
+                logger.debug(f"Fetched {len(orders)} orders from {name}")
+            except NotImplementedError:
+                logger.debug(f"{name} adapter does not support orders")
+            except Exception as e:
+                logger.error(f"Failed to fetch orders from {name}: {e}")
+
+        logger.info(f"Fetched {len(all_orders)} total orders from all brokers")
+
+        # Publish event for persistence manager to handle
+        if publish_event and self._event_bus and all_orders:
+            self._event_bus.publish(EventType.ORDERS_BATCH, {
+                "orders": all_orders,
+                "source": "BrokerManager",
+                "timestamp": datetime.now(),
+            })
+
+        return all_orders
+
+    async def fetch_trades(
+        self,
+        days_back: int = 30,
+        publish_event: bool = True,
+    ) -> List[Trade]:
+        """
+        Fetch trades from all connected brokers.
+
+        Args:
+            days_back: Number of days to look back.
+            publish_event: Whether to publish TRADES_BATCH event.
+
+        Returns:
+            Aggregated list of trades from all brokers.
+        """
+        all_trades: List[Trade] = []
+
+        for name, adapter in self._adapters.items():
+            if not self._status[name].connected:
+                continue
+
+            try:
+                trades = await adapter.fetch_trades(days_back=days_back)
+                all_trades.extend(trades)
+                logger.debug(f"Fetched {len(trades)} trades from {name}")
+            except NotImplementedError:
+                logger.debug(f"{name} adapter does not support trades")
+            except Exception as e:
+                logger.error(f"Failed to fetch trades from {name}: {e}")
+
+        logger.info(f"Fetched {len(all_trades)} total trades from all brokers")
+
+        # Publish event for persistence manager to handle
+        if publish_event and self._event_bus and all_trades:
+            self._event_bus.publish(EventType.TRADES_BATCH, {
+                "trades": all_trades,
+                "source": "BrokerManager",
+                "timestamp": datetime.now(),
+            })
+
+        return all_trades
+
+    def set_event_bus(self, event_bus: EventBus) -> None:
+        """
+        Set the event bus after initialization.
+
+        Args:
+            event_bus: EventBus instance to use for publishing events.
+        """
+        self._event_bus = event_bus

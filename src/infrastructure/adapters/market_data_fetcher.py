@@ -7,13 +7,13 @@ Supports event-driven streaming updates and fallback to snapshot data.
 
 from __future__ import annotations
 from typing import List, Dict, Optional, Tuple, Callable, TYPE_CHECKING
-from datetime import datetime
 from math import isnan
 import logging
 import asyncio
 
 from ...models.position import Position, AssetType
 from ...models.market_data import MarketData, GreeksSource
+from ...utils.timezone import now_utc
 
 if TYPE_CHECKING:
     from ...infrastructure.stores.market_data_store import MarketDataStore
@@ -117,7 +117,7 @@ class MarketDataFetcher:
         Fetch stock market data using streaming subscription.
 
         Uses reqMktData for real-time streaming updates (same as options).
-        This ensures stocks get the same streaming updates as options.
+        Subscribes to ALL stocks first, then waits ONCE for data population.
 
         Args:
             contracts: List of stock contracts
@@ -130,7 +130,8 @@ class MarketDataFetcher:
         market_data_list = []
 
         try:
-            # Subscribe to streaming data for each stock (like options)
+            # Step 1: Subscribe to ALL stocks first (non-blocking)
+            tickers = []
             for i, contract in enumerate(contracts):
                 try:
                     _, pos = contract_pos_pairs[i]
@@ -146,20 +147,29 @@ class MarketDataFetcher:
                         ticker = self.ib.reqMktData(contract, '', False, False)
                         self._active_tickers[pos.symbol] = ticker
 
-                    # Wait for data to populate
-                    await self._wait_for_ticker_data(ticker, timeout=self.data_timeout)
-
-                    md = self._extract_market_data(ticker, pos)
-
-                    # Set delta to 1.0 for stocks
-                    md.delta = 1.0
-
-                    market_data_list.append(md)
-                    logger.debug(f"✓ Stock data for {pos.symbol}: bid={md.bid}, ask={md.ask}")
+                    tickers.append((ticker, pos))
 
                 except Exception as e:
                     logger.warning(f"Failed to subscribe stock {contract.symbol}: {e}")
                     continue
+
+            # Step 2: Wait ONCE for all data to populate (not per-symbol!)
+            if tickers:
+                logger.debug(f"Waiting for {len(tickers)} stock tickers to populate...")
+                await self._wait_for_data_population(
+                    [t for t, _ in tickers],
+                    timeout=self.data_timeout
+                )
+
+            # Step 3: Extract data from all tickers
+            for ticker, pos in tickers:
+                try:
+                    md = self._extract_market_data(ticker, pos)
+                    md.delta = 1.0  # Stocks have delta of 1
+                    market_data_list.append(md)
+                    logger.debug(f"✓ Stock data for {pos.symbol}: bid={md.bid}, ask={md.ask}")
+                except Exception as e:
+                    logger.warning(f"Failed to extract stock data for {pos.symbol}: {e}")
 
         except Exception as e:
             logger.error(f"Error fetching stock data: {e}")
@@ -179,10 +189,12 @@ class MarketDataFetcher:
         """
         start = asyncio.get_event_loop().time()
         while asyncio.get_event_loop().time() - start < timeout:
-            # Check if we have valid price data
+            # Check if we have valid price data (including yesterday's close for off-hours)
             if ticker.last and not isnan(ticker.last) and ticker.last > 0:
                 return True
             if ticker.bid and not isnan(ticker.bid) and ticker.bid > 0:
+                return True
+            if hasattr(ticker, 'close') and ticker.close and not isnan(ticker.close) and ticker.close > 0:
                 return True
             await asyncio.sleep(self.poll_interval)
         return False
@@ -212,9 +224,12 @@ class MarketDataFetcher:
         market_data_list = await self._fetch_option_streaming(contracts, contract_pos_pairs)
 
         # Check for missing data and fallback to snapshot
+        # Keep data if we have yesterday_close (useful when market is closed)
         missing_indices = []
         for i, md in enumerate(market_data_list):
-            if md is None or (not md.bid and not md.ask and not md.last):
+            has_live_data = md is not None and (md.bid or md.ask or md.last)
+            has_close_data = md is not None and md.yesterday_close
+            if not has_live_data and not has_close_data:
                 missing_indices.append(i)
 
         if missing_indices:
@@ -231,8 +246,11 @@ class MarketDataFetcher:
                     market_data_list[i] = fallback_md[fallback_idx]
                     fallback_idx += 1
 
-        # Filter out None values
-        return [md for md in market_data_list if md is not None]
+        # Filter out None values but keep entries that have at least close data
+        return [
+            md for md in market_data_list
+            if md is not None and (md.bid or md.ask or md.last or md.yesterday_close)
+        ]
 
     async def _wait_for_data_population(
         self,
@@ -244,6 +262,7 @@ class MarketDataFetcher:
 
         Polls tickers at regular intervals to check if data has arrived.
         Exits early if all tickers are populated or timeout is reached.
+        Also considers `close` (yesterday's close) as valid data for off-hours.
 
         Args:
             tickers: List of ticker objects to monitor
@@ -256,12 +275,13 @@ class MarketDataFetcher:
         last_populated_count = 0
 
         while True:
-            # Check how many tickers have data
+            # Check how many tickers have data (including yesterday's close for off-hours)
             populated_count = sum(
                 1 for t in tickers
                 if (t.bid and not isnan(t.bid)) or
                    (t.ask and not isnan(t.ask)) or
-                   (t.last and not isnan(t.last))
+                   (t.last and not isnan(t.last)) or
+                   (hasattr(t, 'close') and t.close and not isnan(t.close))
             )
 
             # Log progress if count changed
@@ -427,7 +447,7 @@ class MarketDataFetcher:
             mid=float((ticker.bid + ticker.ask) / 2) if ticker.bid and ticker.ask and not isnan(ticker.bid) and not isnan(ticker.ask) else None,
             volume=int(ticker.volume) if ticker.volume and not isnan(ticker.volume) else None,
             yesterday_close=float(ticker.close) if hasattr(ticker, 'close') and ticker.close and not isnan(ticker.close) else None,
-            timestamp=datetime.now(),
+            timestamp=now_utc(),
         )
 
     def _extract_greeks(self, ticker, md: MarketData, pos: Position) -> None:

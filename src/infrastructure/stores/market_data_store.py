@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 import logging
 
 from ...models.market_data import MarketData
+from ...utils.timezone import age_seconds
 
 if TYPE_CHECKING:
     from ...domain.interfaces.event_bus import EventBus
@@ -81,8 +82,7 @@ class MarketDataStore:
             if not md or not md.timestamp:
                 return True
 
-            age = (datetime.now() - md.timestamp).total_seconds()
-            return age > self._greeks_ttl_seconds
+            return age_seconds(md.timestamp) > self._greeks_ttl_seconds
 
     def get_stale_symbols(self) -> List[str]:
         """
@@ -98,8 +98,7 @@ class MarketDataStore:
                     stale.append(symbol)
                     continue
 
-                age = (datetime.now() - md.timestamp).total_seconds()
-                if age > self._greeks_ttl_seconds:
+                if age_seconds(md.timestamp) > self._greeks_ttl_seconds:
                     stale.append(symbol)
 
             return stale
@@ -136,8 +135,7 @@ class MarketDataStore:
                 if not md.timestamp:
                     stale_set.add(symbol)
                     continue
-                age = (datetime.now() - md.timestamp).total_seconds()
-                if age > self._price_ttl_seconds:
+                if age_seconds(md.timestamp) > self._price_ttl_seconds:
                     stale_set.add(symbol)
 
             # Return symbols that are stale OR not in cache

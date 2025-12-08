@@ -2,14 +2,38 @@
 
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import List, Optional
+from typing import List, Optional, Callable, Dict
 
 from ...models import Position
 from ...models.market_data import MarketData
 
 
 class MarketDataProvider(ABC):
-    """Interface for market data sources (IBKR, vendors, etc)."""
+    """
+    Interface for market data sources (IBKR, Yahoo Finance, CCXT, etc).
+
+    All market data providers must implement this interface.
+    """
+
+    @abstractmethod
+    async def connect(self) -> None:
+        """
+        Connect to the market data source.
+
+        Raises:
+            ConnectionError: If unable to connect.
+        """
+        pass
+
+    @abstractmethod
+    async def disconnect(self) -> None:
+        """Disconnect from the market data source."""
+        pass
+
+    @abstractmethod
+    def is_connected(self) -> bool:
+        """Check if the provider is connected."""
+        pass
 
     @abstractmethod
     async def fetch_market_data(self, positions: List[Position]) -> List[MarketData]:
@@ -28,6 +52,21 @@ class MarketDataProvider(ABC):
         pass
 
     @abstractmethod
+    async def fetch_quotes(self, symbols: List[str]) -> Dict[str, MarketData]:
+        """
+        Fetch quotes for a list of symbols (without position context).
+
+        Useful for market indicators (VIX, SPY) that aren't positions.
+
+        Args:
+            symbols: List of symbols to fetch quotes for.
+
+        Returns:
+            Dict mapping symbol to MarketData.
+        """
+        pass
+
+    @abstractmethod
     async def subscribe(self, symbols: List[str]) -> None:
         """Subscribe to real-time market data updates."""
         pass
@@ -42,7 +81,31 @@ class MarketDataProvider(ABC):
         """Get latest cached market data for a symbol."""
         pass
 
-    @abstractmethod
-    def is_connected(self) -> bool:
-        """Check if the provider is connected."""
-        pass
+    def set_streaming_callback(
+        self,
+        callback: Optional[Callable[[str, MarketData], None]]
+    ) -> None:
+        """
+        Set callback for streaming market data updates.
+
+        Args:
+            callback: Function to call with (symbol, market_data) on updates.
+                     Set to None to disable streaming callbacks.
+        """
+        pass  # Default no-op, override if streaming is supported
+
+    def enable_streaming(self) -> None:
+        """Enable streaming mode (if supported by provider)."""
+        pass  # Default no-op
+
+    def disable_streaming(self) -> None:
+        """Disable streaming mode (if supported by provider)."""
+        pass  # Default no-op
+
+    def supports_streaming(self) -> bool:
+        """Check if this provider supports real-time streaming."""
+        return False  # Default to False, override if supported
+
+    def supports_greeks(self) -> bool:
+        """Check if this provider supports Greeks (options data)."""
+        return False  # Default to False, override if supported

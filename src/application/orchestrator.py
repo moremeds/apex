@@ -36,12 +36,9 @@ from ..models.position import Position
 from ..models.risk_signal import RiskSignal
 from ..infrastructure.stores import PositionStore, MarketDataStore, AccountStore
 from ..infrastructure.monitoring import HealthMonitor, HealthStatus, Watchdog
-from ..infrastructure.persistence import PersistenceManager
+from ..infrastructure.adapters.broker_manager import BrokerManager
+from ..infrastructure.adapters.market_data_manager import MarketDataManager
 from .async_event_bus import AsyncEventBus
-
-if TYPE_CHECKING:
-    from ..infrastructure.adapters.ib_adapter import IbAdapter
-    from ..domain.interfaces.position_provider import PositionProvider
 
 
 logger = logging.getLogger(__name__)
@@ -56,13 +53,13 @@ class Orchestrator:
     2. TIMER_TICK triggers market data refresh for stale symbols
     3. Data events (POSITION_*, MARKET_DATA_*, ACCOUNT_*) update stores
     4. Snapshot dispatcher rebuilds risk metrics when data changes
-    5. SNAPSHOT_READY triggers dashboard updates and persistence
+    5. SNAPSHOT_READY triggers dashboard updates
     """
 
     def __init__(
         self,
-        ib_adapter: Optional["IbAdapter"],
-        file_loader: "PositionProvider",
+        broker_manager: BrokerManager,
+        market_data_manager: MarketDataManager,
         position_store: PositionStore,
         market_data_store: MarketDataStore,
         account_store: AccountStore,
@@ -75,17 +72,15 @@ class Orchestrator:
         event_bus: EventBus,
         config: Dict[str, Any],
         market_alert_detector: MarketAlertDetector | None = None,
-        futu_adapter: Optional["PositionProvider"] = None,
         risk_signal_engine: RiskSignalEngine | None = None,
         risk_alert_logger: RiskAlertLogger | None = None,
-        persistence_manager: PersistenceManager | None = None,
     ):
         """
         Initialize orchestrator with all dependencies.
 
         Args:
-            ib_adapter: Interactive Brokers adapter (positions + market data).
-            file_loader: Manual position file loader.
+            broker_manager: BrokerManager handling all broker connections.
+            market_data_manager: MarketDataManager handling all market data sources.
             position_store: Position store.
             market_data_store: Market data store.
             account_store: Account store.
@@ -98,14 +93,11 @@ class Orchestrator:
             event_bus: Event bus for publish-subscribe.
             config: Application configuration.
             market_alert_detector: Optional market alert detector.
-            futu_adapter: Optional Futu adapter (positions + account).
             risk_signal_engine: Multi-layer risk signal engine (optional, replaces rule_engine).
             risk_alert_logger: Optional risk alert logger for audit trail.
-            persistence_manager: Optional persistence manager for database storage.
         """
-        self.ib_adapter = ib_adapter
-        self.futu_adapter = futu_adapter
-        self.file_loader = file_loader
+        self.broker_manager = broker_manager
+        self.market_data_manager = market_data_manager
         self.position_store = position_store
         self.market_data_store = market_data_store
         self.account_store = account_store
@@ -120,7 +112,6 @@ class Orchestrator:
         self.market_alert_detector = market_alert_detector
         self.risk_signal_engine = risk_signal_engine
         self.risk_alert_logger = risk_alert_logger
-        self.persistence_manager = persistence_manager
 
         self.refresh_interval_sec = config.get("dashboard", {}).get("refresh_interval_sec", 2)
         self._running = False
@@ -139,8 +130,7 @@ class Orchestrator:
         # Account TTL caching (account info changes slowly - fetch every 30s, not every tick)
         self._account_ttl_sec: float = config.get("account_ttl_sec", 30.0)
         self._last_account_fetch: Optional[datetime] = None
-        self._cached_ib_account: Optional[AccountInfo] = None
-        self._cached_futu_account: Optional[AccountInfo] = None
+        self._cached_account_info: Optional[AccountInfo] = None
 
     async def start(self) -> None:
         """Start the orchestrator (event-driven mode)."""
@@ -202,80 +192,55 @@ class Orchestrator:
         # Stop watchdog
         await self.watchdog.stop()
 
-        # Disconnect providers (if they exist)
-        if self.ib_adapter:
-            await self.ib_adapter.disconnect()
-        if self.futu_adapter:
-            await self.futu_adapter.disconnect()
-        if self.file_loader:
-            await self.file_loader.disconnect()
-
-        # Close persistence manager (flushes pending writes)
-        if self.persistence_manager:
-            self.persistence_manager.close()
+        # Disconnect all brokers via BrokerManager
+        await self.broker_manager.disconnect()
 
         logger.info("Orchestrator stopped")
 
     async def _connect_providers(self) -> None:
-        """Connect to all data providers."""
-        # IB Adapter connection (if enabled)
-        if self.ib_adapter:
-            try:
-                print("🔌 Connecting to IB adapter...", flush=True)
-                logger.info("Attempting to connect to IB adapter...")
-                await self.ib_adapter.connect()
+        """Connect to all data providers via BrokerManager and MarketDataManager."""
+        print("🔌 Connecting to brokers...", flush=True)
+        logger.info("Connecting to all brokers via BrokerManager...")
 
-                # Register streaming callback and enable streaming
-                self.ib_adapter.set_market_data_callback(self._on_streaming_market_data)
-                self.ib_adapter.enable_streaming()
+        # Connect all registered broker adapters
+        await self.broker_manager.connect()
 
-                self.health_monitor.update_component_health(
-                    "ib_adapter", HealthStatus.HEALTHY, "Connected (streaming)"
-                )
-                print("✓ IB adapter connected (streaming enabled)", flush=True)
-                logger.info("IB adapter connected with streaming enabled")
-            except Exception as e:
-                print(f"✗ IB adapter failed: {e}", flush=True)
-                logger.error(f"Failed to connect IB adapter: {e}")
-                self.health_monitor.update_component_health(
-                    "ib_adapter", HealthStatus.UNHEALTHY, f"Connection failed: {str(e)[:50]}"
-                )
-        else:
-            print("⏭️  IB adapter disabled (demo mode)", flush=True)
-            logger.info("IB adapter disabled - running in demo mode")
-            self.health_monitor.update_component_health(
-                "ib_adapter", HealthStatus.HEALTHY, "Disabled (demo)"
-            )
+        # Get broker status for logging
+        all_status = self.broker_manager.get_all_status()
+        for name, status in all_status.items():
+            if status.connected:
+                print(f"✓ {name} broker connected", flush=True)
+                logger.info(f"{name} broker connected successfully")
+            else:
+                error_msg = status.last_error or "Unknown error"
+                print(f"✗ {name} broker failed: {error_msg}", flush=True)
+                logger.error(f"Failed to connect {name} broker: {error_msg}")
 
-        # Futu Adapter connection (if configured)
-        if self.futu_adapter:
-            try:
-                print("🔌 Connecting to Futu adapter...", flush=True)
-                logger.info("Attempting to connect to Futu adapter...")
-                await self.futu_adapter.connect()
-                self.health_monitor.update_component_health(
-                    "futu_adapter", HealthStatus.HEALTHY, "Connected"
-                )
-                print("✓ Futu adapter connected", flush=True)
-                logger.info("Futu adapter connected successfully")
-            except Exception as e:
-                print(f"✗ Futu adapter failed: {e}", flush=True)
-                logger.error(f"Failed to connect Futu adapter: {e}")
-                self.health_monitor.update_component_health(
-                    "futu_adapter", HealthStatus.UNHEALTHY, f"Connection failed: {str(e)[:50]}"
-                )
+        # Connect market data providers
+        print("📊 Connecting to market data sources...", flush=True)
+        logger.info("Connecting to market data sources via MarketDataManager...")
 
-        # File loader connection (optional - ignore if empty or fails)
-        try:
-            logger.info("Loading manual positions from file...")
-            await self.file_loader.connect()
-            self.health_monitor.update_component_health(
-                "file_loader", HealthStatus.HEALTHY, "Loaded"
-            )
-            logger.info("Manual positions loaded successfully")
-        except Exception as e:
-            logger.debug(f"Manual positions not loaded (optional): {e}")
-            # Don't mark as unhealthy - manual positions are optional
+        await self.market_data_manager.connect()
+
+        # Get market data status for logging
+        md_status = self.market_data_manager.get_all_status()
+        for name, status in md_status.items():
+            if status.connected:
+                streaming_info = " (streaming)" if status.supports_streaming else ""
+                greeks_info = " (greeks)" if status.supports_greeks else ""
+                print(f"✓ {name} market data connected{streaming_info}{greeks_info}", flush=True)
+                logger.info(f"{name} market data connected successfully")
+            else:
+                error_msg = status.last_error or "Unknown error"
+                print(f"✗ {name} market data failed: {error_msg}", flush=True)
+                logger.error(f"Failed to connect {name} market data: {error_msg}")
+
+        # Enable streaming if any provider supports it
+        if self.market_data_manager.supports_streaming():
+            self.market_data_manager.set_streaming_callback(self._on_streaming_market_data)
+            self.market_data_manager.enable_streaming()
+            print("✓ Market data streaming enabled", flush=True)
+            logger.info("Market data streaming enabled")
 
     async def _fetch_and_reconcile(self) -> None:
         """
@@ -291,12 +256,11 @@ class Orchestrator:
         logger.debug("Starting data fetch and reconciliation")
 
         # Check if demo mode (positions from file only)
-        demo_positions_only = self.config.get("demo_positions_only", False)
-
-        # 1. Fetch positions from all sources IN PARALLEL
-        ib_positions, futu_positions, manual_positions = await self._fetch_all_positions_parallel(
-            demo_positions_only
-        )
+        # 1. Fetch positions from all brokers via BrokerManager
+        positions_by_broker = await self.broker_manager.fetch_positions_by_broker()
+        ib_positions = positions_by_broker.get("ib", [])
+        futu_positions = positions_by_broker.get("futu", [])
+        manual_positions = positions_by_broker.get("manual", [])
 
         cached_positions = self.position_store.get_all()
 
@@ -327,28 +291,31 @@ class Orchestrator:
         logger.info(position_msg)
         print(position_msg, flush=True)  # Ensure visible in console
 
-        # 3. Fetch account info from all brokers (with TTL caching)
-        ib_account, futu_account = await self._fetch_account_info_cached()
+        # 2b. Prefetch betas in background (non-blocking) for faster snapshot builds
+        if merged_positions:
+            underlyings = list(set(p.underlying for p in merged_positions))
+            # Run in background via MarketDataManager - don't wait for it
+            asyncio.create_task(
+                self.market_data_manager.prefetch_betas(underlyings)
+            )
 
-        # Aggregate account info from all sources (single source of truth in Reconciler)
-        account_info = self.reconciler.aggregate_account_info(ib_account, futu_account)
+        # 3. Fetch account info from all brokers (with TTL caching)
+        account_info = await self._fetch_account_info_cached()
+        accounts_by_broker = await self.broker_manager.fetch_account_info_by_broker()
         # Publish event - store will update via subscription (single data path)
         self.event_bus.publish(EventType.ACCOUNT_UPDATED, {
             "account_info": account_info,
-            "ib_account": ib_account,
-            "futu_account": futu_account,
+            "accounts_by_broker": accounts_by_broker,
             "timestamp": datetime.now(),
         })
 
-        account_msg = (
-            f"💰 Account: IB=${ib_account.net_liquidation if ib_account else 0:,.0f}, "
-            f"Futu=${futu_account.net_liquidation if futu_account else 0:,.0f}, "
-            f"Total=${account_info.net_liquidation:,.0f}"
-        )
+        account_msg = f"💰 Account: Total=${account_info.net_liquidation:,.0f}"
+        for broker_name, acc in accounts_by_broker.items():
+            account_msg += f", {broker_name.upper()}=${acc.net_liquidation:,.0f}"
         logger.info(account_msg)
         print(account_msg, flush=True)  # Ensure visible in console
 
-        # 4. Fetch market data for new/stale positions
+        # 4. Fetch market data for new/stale positions via MarketDataManager
         all_symbols = [p.symbol for p in merged_positions]
         symbols_needing_refresh = set(self.market_data_store.get_symbols_needing_refresh(all_symbols))
         positions_to_fetch = [p for p in merged_positions if p.symbol in symbols_needing_refresh]
@@ -356,20 +323,25 @@ class Orchestrator:
         if positions_to_fetch:
             logger.debug(f"Fetching market data for {len(positions_to_fetch)}/{len(merged_positions)} positions")
             try:
-                if not self.ib_adapter or not self.ib_adapter.is_connected():
-                    logger.error("IB adapter not connected - cannot fetch market data")
+                if not self.market_data_manager.is_connected():
+                    logger.error("No market data providers connected")
                     self.health_monitor.update_component_health(
                         "market_data_feed",
                         HealthStatus.UNHEALTHY,
-                        "IB adapter not connected"
+                        "No market data providers connected"
                     )
                 else:
-                    # Fetch market data from IBKR (will emit events via streaming)
-                    market_data_list = await self.ib_adapter.fetch_market_data(positions_to_fetch)
-                    # Publish event - store will update via subscription
+                    # Fetch market data from all available providers
+                    market_data_list = await self.market_data_manager.fetch_market_data(positions_to_fetch)
+
+                    # Update store directly (don't rely on async event dispatch)
+                    if market_data_list:
+                        self.market_data_store.upsert(market_data_list)
+
+                    # Also publish event for other subscribers
                     self.event_bus.publish(EventType.MARKET_DATA_BATCH, {
                         "market_data": market_data_list,
-                        "source": "IB",
+                        "source": "MarketDataManager",
                         "timestamp": datetime.now(),
                     })
 
@@ -406,6 +378,9 @@ class Orchestrator:
 
         # 6. Fetch market-wide indicators (VIX) and detect alerts
         await self._detect_market_alerts()
+
+        # 7. Sync orders and trades from brokers
+        await self._sync_orders_and_trades()
 
         # Mark risk engine as dirty to trigger snapshot rebuild
         self.risk_engine.mark_dirty()
@@ -453,150 +428,33 @@ class Orchestrator:
         """Get the latest risk signals."""
         return self._latest_risk_signals
 
-    async def _fetch_account_info_cached(
-        self,
-    ) -> tuple[Optional[AccountInfo], Optional[AccountInfo]]:
+    async def _fetch_account_info_cached(self) -> AccountInfo:
         """
-        Fetch account info with TTL caching to reduce API calls.
+        Fetch aggregated account info with TTL caching to reduce API calls.
 
         Account info changes slowly (balance, margin), so we only refresh every 30s.
 
         Returns:
-            Tuple of (ib_account, futu_account)
+            Aggregated AccountInfo from all brokers.
         """
         now = datetime.now()
 
         # Check if cache is still valid
-        if self._last_account_fetch:
+        if self._last_account_fetch and self._cached_account_info:
             elapsed = (now - self._last_account_fetch).total_seconds()
             if elapsed < self._account_ttl_sec:
-                # Use cached values
                 logger.debug(f"Using cached account info (age: {elapsed:.1f}s)")
-                return self._cached_ib_account, self._cached_futu_account
+                return self._cached_account_info
 
-        # Cache expired or first fetch - refresh from brokers
-        ib_account: Optional[AccountInfo] = None
-        futu_account: Optional[AccountInfo] = None
-
-        # Fetch from IB if enabled and connected
-        if self.ib_adapter and self.ib_adapter.is_connected():
-            try:
-                ib_account = await self.ib_adapter.fetch_account_info()
-                logger.debug(f"IB account refreshed: NetLiq=${ib_account.net_liquidation:,.2f}")
-            except Exception as e:
-                logger.warning(f"Failed to fetch account info from IB: {e}")
-
-        # Fetch from Futu if connected
-        if self.futu_adapter and self.futu_adapter.is_connected():
-            try:
-                if hasattr(self.futu_adapter, 'fetch_account_info'):
-                    futu_account = await self.futu_adapter.fetch_account_info()
-                    logger.debug(f"Futu account refreshed: NetLiq=${futu_account.net_liquidation:,.2f}")
-            except Exception as e:
-                logger.warning(f"Failed to fetch account info from Futu: {e}")
+        # Cache expired or first fetch - refresh from BrokerManager
+        account_info = await self.broker_manager.fetch_account_info()
+        logger.debug(f"Account info refreshed: NetLiq=${account_info.net_liquidation:,.2f}")
 
         # Update cache
         self._last_account_fetch = now
-        self._cached_ib_account = ib_account
-        self._cached_futu_account = futu_account
+        self._cached_account_info = account_info
 
-        return ib_account, futu_account
-
-    async def _fetch_all_positions_parallel(
-        self, demo_positions_only: bool
-    ) -> tuple[List[Position], List[Position], List[Position]]:
-        """
-        Fetch positions from all sources in parallel using asyncio.gather.
-
-        Args:
-            demo_positions_only: If True, skip broker fetches and use file only.
-
-        Returns:
-            Tuple of (ib_positions, futu_positions, manual_positions)
-        """
-
-        async def fetch_ib() -> List[Position]:
-            if demo_positions_only:
-                logger.debug("Demo mode - skipping IB positions")
-                return []
-            if not self.ib_adapter or not self.ib_adapter.is_connected():
-                if not self.ib_adapter:
-                    logger.debug("IB adapter disabled")
-                else:
-                    logger.debug("IB adapter not connected - skipping")
-                return []
-            try:
-                positions = await self.ib_adapter.fetch_positions()
-                self.health_monitor.update_component_health(
-                    "ib_adapter", HealthStatus.HEALTHY, f"Fetched {len(positions)} positions"
-                )
-                return positions
-            except Exception as e:
-                logger.warning(f"Failed to fetch IB positions: {e}")
-                self.health_monitor.update_component_health(
-                    "ib_adapter", HealthStatus.DEGRADED, f"Position fetch failed: {str(e)[:50]}"
-                )
-                return []
-
-        async def fetch_futu() -> List[Position]:
-            if demo_positions_only:
-                logger.debug("Demo mode - skipping Futu positions")
-                return []
-            if not self.futu_adapter:
-                logger.debug("Futu adapter not configured")
-                return []
-            if not self.futu_adapter.is_connected():
-                logger.warning("Futu adapter configured but not connected")
-                self.health_monitor.update_component_health(
-                    "futu_adapter", HealthStatus.UNHEALTHY, "Not connected"
-                )
-                return []
-            try:
-                logger.info("Fetching positions from Futu...")
-                positions = await self.futu_adapter.fetch_positions()
-                logger.info(f"✓ Futu: {len(positions)} positions")
-                self.health_monitor.update_component_health(
-                    "futu_adapter", HealthStatus.HEALTHY, f"Fetched {len(positions)} positions"
-                )
-                return positions
-            except Exception as e:
-                logger.warning(f"Failed to fetch Futu positions: {e}")
-                self.health_monitor.update_component_health(
-                    "futu_adapter", HealthStatus.DEGRADED, f"Position fetch failed: {str(e)[:50]}"
-                )
-                return []
-
-        async def fetch_file() -> List[Position]:
-            if not self.file_loader or not self.file_loader.is_connected():
-                return []
-            try:
-                positions = await self.file_loader.fetch_positions()
-                if positions:
-                    logger.debug(f"Loaded {len(positions)} manual positions")
-                return positions
-            except Exception as e:
-                logger.debug(f"Manual positions not available: {e}")
-                return []
-
-        # Execute all fetches in parallel
-        results = await asyncio.gather(
-            fetch_ib(), fetch_futu(), fetch_file(),
-            return_exceptions=True
-        )
-
-        # Handle exceptions from gather
-        ib_positions = results[0] if not isinstance(results[0], Exception) else []
-        futu_positions = results[1] if not isinstance(results[1], Exception) else []
-        manual_positions = results[2] if not isinstance(results[2], Exception) else []
-
-        # Log any exceptions
-        for i, (name, result) in enumerate([
-            ("IB", results[0]), ("Futu", results[1]), ("File", results[2])
-        ]):
-            if isinstance(result, Exception):
-                logger.error(f"Parallel fetch {name} failed: {result}")
-
-        return ib_positions, futu_positions, manual_positions
+        return account_info
 
     async def _detect_market_alerts(self) -> None:
         """Fetch market indicators and detect alerts like VIX spikes."""
@@ -604,9 +462,9 @@ class Orchestrator:
             self._latest_market_alerts = []
             return
 
-        # Skip if IB not enabled or not connected
-        if not self.ib_adapter or not self.ib_adapter.is_connected():
-            logger.debug("IB adapter not available - skipping market alerts")
+        # Skip if no market data providers connected
+        if not self.market_data_manager.is_connected():
+            logger.debug("No market data providers connected - skipping market alerts")
             self._latest_market_alerts = []
             return
 
@@ -614,12 +472,12 @@ class Orchestrator:
         indicators: dict[str, Any] = {}
 
         try:
-            md_map = await self.ib_adapter.fetch_market_indicators(symbols)
+            md_map = await self.market_data_manager.fetch_quotes(symbols)
             if md_map:
                 # Publish event - store will update via subscription
                 self.event_bus.publish(EventType.MARKET_DATA_BATCH, {
                     "market_data": list(md_map.values()),
-                    "source": "IB_INDICATORS",
+                    "source": "MarketDataManager_INDICATORS",
                     "timestamp": datetime.now(),
                 })
 
@@ -635,6 +493,38 @@ class Orchestrator:
 
         # Detect alerts (safe on empty data)
         self._latest_market_alerts = self.market_alert_detector.detect_alerts(indicators)
+
+    async def _sync_orders_and_trades(self) -> None:
+        """
+        Sync orders and trades from all brokers.
+
+        This triggers ORDERS_BATCH and TRADES_BATCH events for subscribers.
+        """
+        # Get sync config
+        order_sync_config = self.config.get("order_sync", {})
+        enabled = order_sync_config.get("enabled", True)
+        days_back = order_sync_config.get("days_back", 7)
+
+        if not enabled:
+            return
+
+        try:
+            # Fetch orders - BrokerManager publishes ORDERS_BATCH event
+            await self.broker_manager.fetch_orders(
+                include_open=True,
+                include_completed=True,
+                days_back=days_back,
+                publish_event=True,
+            )
+
+            # Fetch trades - BrokerManager publishes TRADES_BATCH event
+            await self.broker_manager.fetch_trades(
+                days_back=days_back,
+                publish_event=True,
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to sync orders/trades: {e}")
 
     def _log_risk_alerts(self, snapshot: RiskSnapshot) -> None:
         """
@@ -679,9 +569,6 @@ class Orchestrator:
         self.market_data_store.subscribe_to_events(self.event_bus)
         self.account_store.subscribe_to_events(self.event_bus)
         self.risk_engine.subscribe_to_events(self.event_bus)
-
-        if self.persistence_manager:
-            self.persistence_manager.subscribe_to_events(self.event_bus)
 
         logger.info("All components subscribed to events")
 
