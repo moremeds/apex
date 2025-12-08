@@ -291,6 +291,14 @@ class Orchestrator:
         logger.info(position_msg)
         print(position_msg, flush=True)  # Ensure visible in console
 
+        # 2b. Prefetch betas in background (non-blocking) for faster snapshot builds
+        if merged_positions:
+            underlyings = list(set(p.underlying for p in merged_positions))
+            # Run in background via MarketDataManager - don't wait for it
+            asyncio.create_task(
+                self.market_data_manager.prefetch_betas(underlyings)
+            )
+
         # 3. Fetch account info from all brokers (with TTL caching)
         account_info = await self._fetch_account_info_cached()
         accounts_by_broker = await self.broker_manager.fetch_account_info_by_broker()

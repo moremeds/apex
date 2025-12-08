@@ -9,6 +9,7 @@ from typing import List, Dict, Optional, Callable
 from datetime import datetime, date
 from math import isnan
 import logging
+import asyncio
 
 from ....domain.interfaces.broker_adapter import BrokerAdapter
 from ....domain.interfaces.market_data_provider import MarketDataProvider
@@ -339,6 +340,8 @@ class IbAdapter(BrokerAdapter, MarketDataProvider):
         if not positions:
             return []
 
+        import time
+        start_time = time.time()
         logger.info(f"Fetching market data for {len(positions)} positions...")
         market_data_list = []
 
@@ -378,28 +381,57 @@ class IbAdapter(BrokerAdapter, MarketDataProvider):
             pos_map = {}  # Mapping from qualified contract id to position
             if contracts:
                 try:
-                    qualified_raw = await self.ib.qualifyContractsAsync(*contracts)
+                    # Qualify contracts in batches with timeout to avoid blocking forever
+                    BATCH_SIZE = 50
+                    QUALIFY_TIMEOUT = 10.0  # seconds per batch
 
-                    # Build mapping from qualified contracts to positions
-                    # qualified_raw maintains same order as input contracts
-                    for i, qualified_contract in enumerate(qualified_raw):
-                        if qualified_contract is not None:
-                            qualified.append(qualified_contract)
-                            pos_map[id(qualified_contract)] = positions_for_contracts[i]
+                    qualify_start = time.time()
+                    logger.info(f"Qualifying {len(contracts)} contracts in batches of {BATCH_SIZE}...")
 
+                    for batch_start in range(0, len(contracts), BATCH_SIZE):
+                        batch_end = min(batch_start + BATCH_SIZE, len(contracts))
+                        batch_contracts = contracts[batch_start:batch_end]
+                        batch_positions = positions_for_contracts[batch_start:batch_end]
+
+                        try:
+                            batch_start_time = time.time()
+                            qualified_raw = await asyncio.wait_for(
+                                self.ib.qualifyContractsAsync(*batch_contracts),
+                                timeout=QUALIFY_TIMEOUT
+                            )
+                            batch_elapsed = time.time() - batch_start_time
+
+                            batch_qualified = 0
+                            for i, qualified_contract in enumerate(qualified_raw):
+                                if qualified_contract is not None:
+                                    qualified.append(qualified_contract)
+                                    pos_map[id(qualified_contract)] = batch_positions[i]
+                                    batch_qualified += 1
+
+                            logger.info(f"Batch {batch_start}-{batch_end}: qualified {batch_qualified}/{len(batch_contracts)} in {batch_elapsed:.1f}s")
+
+                        except asyncio.TimeoutError:
+                            logger.warning(f"Contract qualification TIMEOUT for batch {batch_start}-{batch_end} (>{QUALIFY_TIMEOUT}s)")
+                            continue
+
+                    qualify_elapsed = time.time() - qualify_start
                     failed_count = len(contracts) - len(qualified)
                     if failed_count > 0:
                         logger.warning(f"Failed to qualify {failed_count}/{len(contracts)} contracts")
 
-                    logger.debug(f"Qualified {len(qualified)}/{len(contracts)} contracts")
+                    logger.info(f"Contract qualification complete: {len(qualified)}/{len(contracts)} in {qualify_elapsed:.1f}s")
                 except Exception as e:
                     logger.error(f"Error qualifying contracts: {e}")
 
             if qualified and self._market_data_fetcher:
                 try:
+                    fetch_start = time.time()
+                    logger.info(f"Fetching streaming data for {len(qualified)} qualified contracts...")
                     market_data_list = await self._market_data_fetcher.fetch_market_data(
                         positions, qualified, pos_map
                     )
+                    fetch_elapsed = time.time() - fetch_start
+                    logger.info(f"Market data fetch complete: {len(market_data_list)} items in {fetch_elapsed:.1f}s")
 
                     for md in market_data_list:
                         self._market_data_cache[md.symbol] = md
@@ -407,7 +439,8 @@ class IbAdapter(BrokerAdapter, MarketDataProvider):
                 except Exception as e:
                     logger.error(f"Error fetching market data: {e}")
 
-            logger.info(f"Fetched market data for {len(market_data_list)}/{len(positions)} positions")
+            total_elapsed = time.time() - start_time
+            logger.info(f"fetch_market_data complete: {len(market_data_list)}/{len(positions)} positions in {total_elapsed:.1f}s")
 
             if self._event_bus and market_data_list:
                 self._event_bus.publish(EventType.MARKET_DATA_BATCH, {

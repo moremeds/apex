@@ -1,0 +1,55 @@
+# Persistent Layer Configuration
+# For historical order/trade data storage in PostgreSQL
+
+persistent:
+  # PostgreSQL connection settings
+  storage:
+    # Connection string - override with POSTGRES_DSN environment variable
+    dsn: "postgresql://apex_user:apex_pass@localhost:5432/apex_risk"
+    pool_min: 2
+    pool_max: 10
+
+  # Reload settings
+  reload:
+    # Default lookback period for backfill
+    lookback_days_default: 365
+    # Set to true to truncate and reload (use --full-reload flag instead)
+    full_reload: false
+
+  # Futu broker settings
+  futu:
+    # Account IDs to process (populated from adapter at runtime)
+    # acc_ids: []
+    # Fee query batch size (max 400 per API docs)
+    batch_fee_size: 400
+    # Rate limit window (10 requests per 30 seconds)
+    fee_rate_limit_window: 30
+
+  # IB broker settings
+  ib:
+    # Flex Web Service token - set via IB_FLEX_TOKEN env var
+    flex_token: "${IB_FLEX_TOKEN}"
+    # Flex Query ID - set via IB_FLEX_QUERY_ID env var
+    flex_query_id: "${IB_FLEX_QUERY_ID}"
+    # Days to attempt API backfill (limited, Flex is primary)
+    execution_backfill_days: 7
+
+  # Position snapshots
+  snapshots:
+    enabled: true
+    # Snapshot interval (seconds) - 0 to disable periodic snapshots
+    interval_seconds: 300
+
+  # Strategy classification
+  classify:
+    # Time window for grouping trades into strategies (seconds)
+    time_window_seconds: 5
+    # Classifier version
+    version: "v1"
+
+  # Reconciliation
+  reconcile:
+    # Run reconciliation after each load
+    enabled: true
+    # Tolerance for quantity comparisons
+    qty_tolerance: 0.001

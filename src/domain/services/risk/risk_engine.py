@@ -29,7 +29,7 @@ from src.utils.timezone import now_utc
 
 if TYPE_CHECKING:
     from src.domain.interfaces.event_bus import EventBus
-    from src.infrastructure.adapters.yahoo import YahooFinanceAdapter
+    from src.infrastructure.adapters.market_data_manager import MarketDataManager
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +76,7 @@ class RiskEngine:
         config: Dict[str, Any],
         parallel_threshold: int = 50,
         max_workers: int = 4,
-        yahoo_adapter: Optional["YahooFinanceAdapter"] = None,
+        market_data_manager: Optional["MarketDataManager"] = None,
     ):
         """
         Initialize risk engine with configuration.
@@ -85,13 +85,13 @@ class RiskEngine:
             config: Risk configuration dict (from ConfigManager).
             parallel_threshold: Number of positions to trigger parallel processing.
             max_workers: Maximum worker threads for parallel processing.
-            yahoo_adapter: Optional YahooFinanceAdapter for dynamic beta lookup.
-                          If None, falls back to static config lookup.
+            market_data_manager: Optional MarketDataManager for beta lookup.
+                                If None, uses default beta of 1.0.
         """
         self.config = config
         self.parallel_threshold = parallel_threshold
         self.max_workers = max_workers
-        self._yahoo_adapter = yahoo_adapter
+        self._market_data_manager = market_data_manager
 
         # Event-driven state tracking
         self._lock = Lock()
@@ -141,11 +141,11 @@ class RiskEngine:
             snapshot.futu_buying_power = futu_account.buying_power
         snapshot.total_net_liquidation = account_info.net_liquidation
 
-        # Prefetch betas for all unique underlyings (batch fetch to avoid N+1 API calls)
+        # Get betas for all unique underlyings from MarketDataManager (non-blocking cache lookup)
         beta_cache: Dict[str, float] = {}
-        if self._yahoo_adapter is not None:
+        if self._market_data_manager is not None:
             unique_underlyings = list(set(pos.underlying for pos in positions))
-            beta_cache = self._yahoo_adapter.get_betas(unique_underlyings)
+            beta_cache = self._market_data_manager.get_betas(unique_underlyings)
 
         # Choose processing strategy based on portfolio size
         if len(positions) < self.parallel_threshold:

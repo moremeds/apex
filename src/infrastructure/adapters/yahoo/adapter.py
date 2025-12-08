@@ -296,47 +296,84 @@ class YahooFinanceAdapter(MarketDataProvider):
 
     def get_betas(self, symbols: List[str]) -> Dict[str, float]:
         """
-        Get betas for multiple symbols efficiently using batch fetching.
+        Get betas for multiple symbols from cache (NON-BLOCKING).
+
+        This method returns immediately with cached values or defaults.
+        It does NOT fetch from Yahoo Finance - use prefetch_betas_async() to warm cache.
 
         Args:
             symbols: List of symbols
 
         Returns:
-            Dict mapping symbol to beta
+            Dict mapping symbol to beta (uses DEFAULT_BETA=1.0 for cache misses)
         """
         if not symbols:
             return {}
 
         result: Dict[str, float] = {}
-        to_fetch: List[str] = []
 
-        # Check cache first for all symbols
+        # Return cached values only - no fetching
         with self._lock:
             for symbol in symbols:
                 if symbol in self._cache:
                     entry = self._cache[symbol]
-                    if now_utc() - entry.fetched_at < self._beta_ttl:
-                        if entry.beta is not None:
-                            result[symbol] = entry.beta
-                            continue
-                to_fetch.append(symbol)
-
-        # Batch fetch missing symbols
-        if to_fetch and self._yf_available:
-            self._fetch_from_yahoo(to_fetch)
-            # Now get from cache
-            with self._lock:
-                for symbol in to_fetch:
-                    if symbol in self._cache and self._cache[symbol].beta is not None:
-                        result[symbol] = self._cache[symbol].beta
-                    else:
-                        result[symbol] = self.DEFAULT_BETA
-        else:
-            # No yfinance available, use default
-            for symbol in to_fetch:
+                    if now_utc() - entry.fetched_at < self._beta_ttl and entry.beta is not None:
+                        result[symbol] = entry.beta
+                        continue
+                # Cache miss - use default (don't block on fetch)
                 result[symbol] = self.DEFAULT_BETA
 
         return result
+
+    async def prefetch_betas_async(self, symbols: List[str]) -> int:
+        """
+        Prefetch betas asynchronously (BACKGROUND TASK).
+
+        Warms the cache without blocking the main loop.
+        Run this during startup or periodically.
+
+        Args:
+            symbols: Symbols to prefetch
+
+        Returns:
+            Number of successfully fetched betas
+        """
+        if not self._yf_available:
+            return 0
+
+        # Filter to symbols not in cache
+        with self._lock:
+            to_fetch = [
+                s for s in set(symbols)
+                if s not in self._cache or
+                (now_utc() - self._cache[s].fetched_at >= self._beta_ttl)
+            ]
+
+        if not to_fetch:
+            logger.debug("All betas already cached")
+            return 0
+
+        logger.info(f"Prefetching betas for {len(to_fetch)} symbols in background...")
+
+        # Run blocking fetch in executor to avoid blocking event loop
+        import asyncio
+        loop = asyncio.get_event_loop()
+        success_count = await loop.run_in_executor(
+            None, self._prefetch_betas_sync, to_fetch
+        )
+
+        logger.info(f"Prefetched {success_count}/{len(to_fetch)} betas")
+        return success_count
+
+    def _prefetch_betas_sync(self, symbols: List[str]) -> int:
+        """Synchronous beta prefetch (runs in executor)."""
+        success_count = 0
+        batch_size = 50
+        for i in range(0, len(symbols), batch_size):
+            batch = symbols[i:i + batch_size]
+            fetched = self._fetch_from_yahoo(batch)
+            success_count += len(fetched)
+        return success_count
 
     def prefetch_betas(self, symbols: List[str]) -> int:
         """

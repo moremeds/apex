@@ -510,3 +510,71 @@ class MarketDataManager(MarketDataProvider):
             name for name, provider in self._providers.items()
             if provider.supports_streaming() and self._status[name].connected
         ]
+
+    # -------------------------------------------------------------------------
+    # Beta Data Methods (delegated to providers that support it)
+    # -------------------------------------------------------------------------
+
+    def get_betas(self, symbols: List[str]) -> Dict[str, float]:
+        """
+        Get beta values for symbols from cache (NON-BLOCKING).
+
+        Returns cached values or default (1.0) for cache misses.
+        Use prefetch_betas() to warm the cache in background.
+
+        Args:
+            symbols: List of stock symbols
+
+        Returns:
+            Dict mapping symbol to beta value
+        """
+        if not symbols:
+            return {}
+
+        # Try providers that have get_betas method
+        for name in self._priority:
+            if not self._status[name].connected:
+                continue
+
+            provider = self._providers[name]
+            if hasattr(provider, 'get_betas'):
+                try:
+                    return provider.get_betas(symbols)
+                except Exception as e:
+                    logger.warning(f"Failed to get betas from {name}: {e}")
+
+        # No provider available - return defaults
+        return {s: 1.0 for s in symbols}
+
+    async def prefetch_betas(self, symbols: List[str]) -> int:
+        """
+        Prefetch beta values asynchronously (BACKGROUND TASK).
+
+        Warms the cache without blocking. Run during startup or after
+        position changes.
+
+        Args:
+            symbols: List of stock symbols to prefetch betas for
+
+        Returns:
+            Number of successfully prefetched betas
+        """
+        if not symbols:
+            return 0
+
+        # Try providers that have prefetch_betas_async method
+        for name in self._priority:
+            if not self._status[name].connected:
+                continue
+
+            provider = self._providers[name]
+            if hasattr(provider, 'prefetch_betas_async'):
+                try:
+                    count = await provider.prefetch_betas_async(symbols)
+                    logger.debug(f"Prefetched {count} betas via {name}")
+                    return count
+                except Exception as e:
+                    logger.warning(f"Failed to prefetch betas from {name}: {e}")
+
+        logger.debug("No provider available for beta prefetch")
+        return 0

@@ -730,17 +730,24 @@ class FutuAdapter(BrokerAdapter):
         days_back: int = 30,
         include_open: bool = True,
         include_completed: bool = True,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
     ) -> List[Dict]:
         """
         Fetch orders returning raw API dictionaries (not converted to Order objects).
 
         Args:
-            days_back: Number of days to look back
+            days_back: Number of days to look back (used if start_date/end_date not provided)
             include_open: Include open orders
             include_completed: Include completed/filled orders
+            start_date: Explicit start date (overrides days_back)
+            end_date: Explicit end date (overrides days_back)
 
         Returns:
             List of raw order dicts from Futu API
+
+        Raises:
+            Exception: If API calls fail
         """
         await self._ensure_connected()
         from futu import RET_OK, TrdEnv, OrderStatus as FutuOrderStatus
@@ -748,6 +755,13 @@ class FutuAdapter(BrokerAdapter):
         trd_env_enum = getattr(TrdEnv, self.trd_env, TrdEnv.REAL)
         raw_orders = []
         seen_order_ids = set()
+        errors = []
+
+        # Calculate date range
+        if end_date is None:
+            end_date = datetime.now()
+        if start_date is None:
+            start_date = end_date - timedelta(days=days_back)
 
         # Fetch open orders
         if include_open:
@@ -756,43 +770,67 @@ class FutuAdapter(BrokerAdapter):
                 acc_id=self._acc_id,
                 refresh_cache=False,
             )
-            if ret == RET_OK and data is not None and not data.empty:
+            if ret != RET_OK:
+                error_msg = f"Failed to fetch open orders: {data}"
+                logger.warning(error_msg)
+                errors.append(error_msg)
+            elif data is not None and not data.empty:
                 for _, row in data.iterrows():
                     order_id = str(row.get('order_id', ''))
                     if order_id and order_id not in seen_order_ids:
                         raw_orders.append(row.to_dict())
                         seen_order_ids.add(order_id)
+                logger.info(f"Fetched {len(data)} open orders from Futu")
+            else:
+                logger.debug("No open orders found in Futu")
 
         # Fetch historical orders
         if include_completed:
-            end_date = datetime.now()
-            start_date = end_date - timedelta(days=days_back)
-
             ret, data = self._trd_ctx.history_order_list_query(
                 trd_env=trd_env_enum,
                 acc_id=self._acc_id,
                 start=start_date.strftime("%Y-%m-%d"),
                 end=end_date.strftime("%Y-%m-%d"),
             )
-            if ret == RET_OK and data is not None and not data.empty:
+            if ret != RET_OK:
+                error_msg = f"Failed to fetch historical orders ({start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}): {data}"
+                logger.warning(error_msg)
+                errors.append(error_msg)
+            elif data is not None and not data.empty:
                 for _, row in data.iterrows():
                     order_id = str(row.get('order_id', ''))
                     if order_id and order_id not in seen_order_ids:
                         raw_orders.append(row.to_dict())
                         seen_order_ids.add(order_id)
+                logger.debug(f"Fetched {len(data)} historical orders from Futu ({start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')})")
+            else:
+                logger.debug(f"No historical orders found in Futu ({start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')})")
 
-        logger.debug(f"Fetched {len(raw_orders)} raw orders from Futu")
+        # If all calls failed, raise an exception
+        if errors and len(raw_orders) == 0:
+            raise Exception(f"Futu order fetch failed: {'; '.join(errors)}")
+
         return raw_orders
 
-    async def fetch_deals_raw(self, days_back: int = 30) -> List[Dict]:
+    async def fetch_deals_raw(
+        self,
+        days_back: int = 30,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+    ) -> List[Dict]:
         """
         Fetch deals returning raw API dictionaries (not converted to Trade objects).
 
         Args:
-            days_back: Number of days to look back
+            days_back: Number of days to look back (used if start_date/end_date not provided)
+            start_date: Explicit start date (overrides days_back)
+            end_date: Explicit end date (overrides days_back)
 
         Returns:
             List of raw deal dicts from Futu API
+
+        Raises:
+            Exception: If API calls fail
         """
         await self._ensure_connected()
         from futu import RET_OK, TrdEnv
@@ -800,36 +838,62 @@ class FutuAdapter(BrokerAdapter):
         trd_env_enum = getattr(TrdEnv, self.trd_env, TrdEnv.REAL)
         raw_deals = []
         seen_deal_ids = set()
+        errors = []
 
-        # Today's deals
-        ret, data = self._trd_ctx.deal_list_query(
-            trd_env=trd_env_enum,
-            acc_id=self._acc_id,
-            refresh_cache=False,
-        )
-        if ret == RET_OK and data is not None and not data.empty:
-            for _, row in data.iterrows():
-                deal_id = str(row.get('deal_id', ''))
-                if deal_id and deal_id not in seen_deal_ids:
-                    raw_deals.append(row.to_dict())
-                    seen_deal_ids.add(deal_id)
+        # Calculate date range
+        if end_date is None:
+            end_date = datetime.now()
+        if start_date is None:
+            start_date = end_date - timedelta(days=days_back)
+
+        # Check if date range includes today
+        today = datetime.now().date()
+        include_today = end_date.date() >= today
+
+        # Today's deals (only if end_date includes today)
+        if include_today:
+            ret, data = self._trd_ctx.deal_list_query(
+                trd_env=trd_env_enum,
+                acc_id=self._acc_id,
+                refresh_cache=False,
+            )
+            if ret != RET_OK:
+                error_msg = f"Failed to fetch today's deals: {data}"
+                logger.warning(error_msg)
+                errors.append(error_msg)
+            elif data is not None and not data.empty:
+                for _, row in data.iterrows():
+                    deal_id = str(row.get('deal_id', ''))
+                    if deal_id and deal_id not in seen_deal_ids:
+                        raw_deals.append(row.to_dict())
+                        seen_deal_ids.add(deal_id)
+                logger.debug(f"Fetched {len(data)} deals (today) from Futu")
+            else:
+                logger.debug("No deals today in Futu")
 
         # Historical deals
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=days_back)
-
         ret, data = self._trd_ctx.history_deal_list_query(
             trd_env=trd_env_enum,
             acc_id=self._acc_id,
             start=start_date.strftime("%Y-%m-%d"),
             end=end_date.strftime("%Y-%m-%d"),
         )
-        if ret == RET_OK and data is not None and not data.empty:
+        if ret != RET_OK:
+            error_msg = f"Failed to fetch historical deals ({start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}): {data}"
+            logger.warning(error_msg)
+            errors.append(error_msg)
+        elif data is not None and not data.empty:
             for _, row in data.iterrows():
                 deal_id = str(row.get('deal_id', ''))
                 if deal_id and deal_id not in seen_deal_ids:
                     raw_deals.append(row.to_dict())
                     seen_deal_ids.add(deal_id)
+            logger.debug(f"Fetched {len(data)} historical deals from Futu ({start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')})")
+        else:
+            logger.debug(f"No historical deals found in Futu ({start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')})")
 
-        logger.debug(f"Fetched {len(raw_deals)} raw deals from Futu")
+        # If all calls failed, raise an exception
+        if errors and len(raw_deals) == 0:
+            raise Exception(f"Futu deal fetch failed: {'; '.join(errors)}")
+
         return raw_deals

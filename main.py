@@ -181,10 +181,12 @@ async def main_async(args: argparse.Namespace) -> None:
             beta_ttl_hours=24,
         )
         await yahoo_adapter.connect()
-        system_structured.info(LogCategory.SYSTEM, "Yahoo Finance adapter initialized")
+        # Register Yahoo as a market data provider (low priority fallback for stocks/betas)
+        market_data_manager.register_provider("yahoo", yahoo_adapter, priority=50)
+        system_structured.info(LogCategory.SYSTEM, "Yahoo Finance adapter registered with MarketDataManager")
 
         # Initialize domain services
-        risk_engine = RiskEngine(config=config.raw, yahoo_adapter=yahoo_adapter)
+        risk_engine = RiskEngine(config=config.raw, market_data_manager=market_data_manager)
         reconciler = Reconciler(stale_threshold_seconds=300)
         mdqc = MDQC(
             stale_seconds=config.mdqc.stale_seconds,

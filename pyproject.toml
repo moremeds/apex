@@ -14,7 +14,10 @@ dependencies = [
     "rich>=13.7.0",            # Terminal UI library
     "pyyaml>=6.0.1",           # YAML configuration parsing
     "pytz>=2025.1",            # Timezone handling for market hours
+    "python-dateutil>=2.8.0",  # Date utilities (relativedelta for monthly ranges)
     "duckdb>=1.1.0",           # Embedded analytical database for persistence
+    "asyncpg>=0.29.0",         # Async PostgreSQL driver for persistent layer
+    "ibflex>=0.15",            # IB Flex report parser for historical data
 ]
 
 [project.optional-dependencies]
