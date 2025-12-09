@@ -36,7 +36,6 @@ from ..models.position import Position
 from ..models.risk_signal import RiskSignal
 from ..infrastructure.stores import PositionStore, MarketDataStore, AccountStore
 from ..infrastructure.monitoring import HealthMonitor, HealthStatus, Watchdog
-from ..infrastructure.persistence import PersistenceManager
 from .async_event_bus import AsyncEventBus
 
 if TYPE_CHECKING:
@@ -56,7 +55,7 @@ class Orchestrator:
     2. TIMER_TICK triggers market data refresh for stale symbols
     3. Data events (POSITION_*, MARKET_DATA_*, ACCOUNT_*) update stores
     4. Snapshot dispatcher rebuilds risk metrics when data changes
-    5. SNAPSHOT_READY triggers dashboard updates and persistence
+    5. SNAPSHOT_READY triggers dashboard updates
     """
 
     def __init__(
@@ -78,7 +77,6 @@ class Orchestrator:
         futu_adapter: Optional["PositionProvider"] = None,
         risk_signal_engine: RiskSignalEngine | None = None,
         risk_alert_logger: RiskAlertLogger | None = None,
-        persistence_manager: PersistenceManager | None = None,
     ):
         """
         Initialize orchestrator with all dependencies.
@@ -101,7 +99,6 @@ class Orchestrator:
             futu_adapter: Optional Futu adapter (positions + account).
             risk_signal_engine: Multi-layer risk signal engine (optional, replaces rule_engine).
             risk_alert_logger: Optional risk alert logger for audit trail.
-            persistence_manager: Optional persistence manager for database storage.
         """
         self.ib_adapter = ib_adapter
         self.futu_adapter = futu_adapter
@@ -120,7 +117,6 @@ class Orchestrator:
         self.market_alert_detector = market_alert_detector
         self.risk_signal_engine = risk_signal_engine
         self.risk_alert_logger = risk_alert_logger
-        self.persistence_manager = persistence_manager
 
         self.refresh_interval_sec = config.get("dashboard", {}).get("refresh_interval_sec", 2)
         self._running = False
@@ -209,10 +205,6 @@ class Orchestrator:
             await self.futu_adapter.disconnect()
         if self.file_loader:
             await self.file_loader.disconnect()
-
-        # Close persistence manager (flushes pending writes)
-        if self.persistence_manager:
-            self.persistence_manager.close()
 
         logger.info("Orchestrator stopped")
 
@@ -680,9 +672,6 @@ class Orchestrator:
         self.account_store.subscribe_to_events(self.event_bus)
         self.risk_engine.subscribe_to_events(self.event_bus)
 
-        if self.persistence_manager:
-            self.persistence_manager.subscribe_to_events(self.event_bus)
-
         logger.info("All components subscribed to events")
 
     async def _timer_loop(self) -> None:
@@ -755,8 +744,6 @@ class Orchestrator:
                 # Log alerts to audit trail
                 if self.risk_alert_logger:
                     self._log_risk_alerts(snapshot)
-
-                # Persistence handled via SNAPSHOT_READY event subscription
 
                 # Update watchdog
                 self.watchdog.update_snapshot_time(snapshot.timestamp)
