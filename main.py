@@ -25,7 +25,6 @@ from src.domain.services.risk.risk_signal_manager import RiskSignalManager
 from src.domain.services.risk.risk_signal_engine import RiskSignalEngine
 from src.domain.services.risk.risk_alert_logger import RiskAlertLogger
 from src.application import Orchestrator, AsyncEventBus
-from src.presentation import TerminalDashboard
 from src.tui import TerminalDashboard
 from src.models.risk_snapshot import RiskSnapshot
 from src.utils import StructuredLogger, flush_all_loggers, set_log_timezone
@@ -116,7 +115,7 @@ async def main_async(args: argparse.Namespace) -> None:
         health_monitor = HealthMonitor()
 
         # Initialize BrokerManager to manage all broker connections
-        broker_manager = BrokerManager(health_monitor=health_monitor, event_bus=event_bus)
+        broker_manager = BrokerManager(health_monitor=health_monitor)
         # Initialize MarketDataManager to manage all market data sources
         market_data_manager = MarketDataManager(health_monitor=health_monitor)
 
@@ -224,7 +223,7 @@ async def main_async(args: argparse.Namespace) -> None:
         # suggester = SimpleSuggester()  # TODO: Use for breach analysis in dashboard
         # shock_engine = SimpleShockEngine(risk_engine=risk_engine, config=config.raw)  # TODO: Add scenario analysis
 
-      watchdog = Watchdog(
+        watchdog = Watchdog(
             health_monitor=health_monitor,
             event_bus=event_bus,
             config=config.raw.get("watchdog", {}),

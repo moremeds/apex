@@ -57,6 +57,7 @@ class YahooFinanceAdapter(MarketDataProvider):
     """
 
     DEFAULT_BETA = 1.0  # Default beta when yfinance doesn't have data
+    MAX_CONCURRENT_REQUESTS = 3  # Limit concurrent requests to avoid rate limiting
 
     def __init__(
         self,
@@ -77,6 +78,8 @@ class YahooFinanceAdapter(MarketDataProvider):
         self._lock = RLock()
         self._connected = False
         self._yf_available = yf is not None
+        self._last_request_time: Optional[datetime] = None
+        self._min_request_interval = timedelta(seconds=1)  # Rate limit: 1 req/sec to avoid Yahoo 429
 
         if not self._yf_available:
             logger.warning("yfinance not installed. YahooFinanceAdapter will return empty data.")
@@ -174,7 +177,7 @@ class YahooFinanceAdapter(MarketDataProvider):
 
     def _fetch_from_yahoo(self, symbols: List[str]) -> List[MarketData]:
         """
-        Fetch data from Yahoo Finance API using concurrent requests.
+        Fetch data from Yahoo Finance API using rate-limited sequential requests.
 
         Args:
             symbols: Symbols to fetch
@@ -182,45 +185,46 @@ class YahooFinanceAdapter(MarketDataProvider):
         Returns:
             List of MarketData objects
         """
-        from concurrent.futures import ThreadPoolExecutor, as_completed
+        import time
 
         market_data_list = []
 
-        def fetch_single(symbol: str) -> tuple[str, dict | None]:
-            """Fetch a single symbol's info."""
+        for symbol in symbols:
+            # Rate limiting: ensure minimum interval between requests
+            if self._last_request_time:
+                elapsed = now_utc() - self._last_request_time
+                if elapsed < self._min_request_interval:
+                    sleep_time = (self._min_request_interval - elapsed).total_seconds()
+                    time.sleep(sleep_time)
+
+            self._last_request_time = now_utc()
+
             try:
                 ticker = yf.Ticker(symbol)
-                return (symbol, ticker.info)
+                info = ticker.info
+
+                if info:
+                    md = self._parse_ticker_info(symbol, info)
+                    market_data_list.append(md)
+
+                    # Cache the result
+                    with self._lock:
+                        self._cache[symbol] = CachedData(
+                            data=md,
+                            beta=info.get("beta"),
+                            fetched_at=now_utc(),
+                        )
             except Exception as e:
                 logger.warning(f"Failed to fetch {symbol}: {e}")
-                return (symbol, None)
-
-        try:
-            # Use ThreadPoolExecutor for concurrent fetches
-            with ThreadPoolExecutor(max_workers=min(10, len(symbols))) as executor:
-                futures = {executor.submit(fetch_single, sym): sym for sym in symbols}
-
-                for future in as_completed(futures):
-                    symbol, info = future.result()
-                    if info is None:
-                        continue
-
-                    try:
-                        md = self._parse_ticker_info(symbol, info)
-                        market_data_list.append(md)
-
-                        # Cache the result
-                        with self._lock:
+                # On rate limit, cache default to avoid retry storm
+                if "Too Many Requests" in str(e) or "Rate limited" in str(e):
+                    with self._lock:
+                        if symbol not in self._cache:
                             self._cache[symbol] = CachedData(
-                                data=md,
-                                beta=info.get("beta"),
+                                data=MarketData(symbol=symbol, timestamp=now_utc()),
+                                beta=self.DEFAULT_BETA,
                                 fetched_at=now_utc(),
                             )
-                    except Exception as e:
-                        logger.warning(f"Failed to parse {symbol}: {e}")
-
-        except Exception as e:
-            logger.error(f"Yahoo Finance batch fetch error: {e}")
 
         return market_data_list
 
@@ -398,6 +402,16 @@ class YahooFinanceAdapter(MarketDataProvider):
         Returns:
             Beta value or None
         """
+        import time
+
+        # Rate limiting
+        if self._last_request_time:
+            elapsed = now_utc() - self._last_request_time
+            if elapsed < self._min_request_interval:
+                sleep_time = (self._min_request_interval - elapsed).total_seconds()
+                time.sleep(sleep_time)
+        self._last_request_time = now_utc()
+
         try:
             ticker = yf.Ticker(symbol)
             info = ticker.info
@@ -424,6 +438,15 @@ class YahooFinanceAdapter(MarketDataProvider):
 
         except Exception as e:
             logger.warning(f"Failed to fetch beta for {symbol}: {e}")
+            # On rate limit, cache default to avoid retry storm
+            if "Too Many Requests" in str(e) or "Rate limited" in str(e):
+                with self._lock:
+                    if symbol not in self._cache:
+                        self._cache[symbol] = CachedData(
+                            data=MarketData(symbol=symbol, timestamp=now_utc()),
+                            beta=self.DEFAULT_BETA,
+                            fetched_at=now_utc(),
+                        )
             return None
 
     # -------------------------------------------------------------------------

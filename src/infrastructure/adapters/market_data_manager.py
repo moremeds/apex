@@ -211,18 +211,36 @@ class MarketDataManager(MarketDataProvider):
         if not positions:
             return []
 
-        # Track which symbols we still need data for
+        # Fast path: single connected provider - skip all iteration overhead
+        connected_providers = [
+            (name, self._providers[name])
+            for name in self._priority
+            if self._status[name].connected
+        ]
+
+        if len(connected_providers) == 1:
+            name, provider = connected_providers[0]
+            try:
+                market_data_list = await provider.fetch_market_data(positions)
+                # Update cache in bulk
+                for md in market_data_list:
+                    self._latest_data[md.symbol] = md
+                self._status[name].symbols_fetched += len(market_data_list)
+                self._status[name].last_updated = datetime.now()
+                self._status[name].last_error = None
+                return market_data_list
+            except Exception as e:
+                self._status[name].last_error = str(e)
+                self._status[name].last_updated = datetime.now()
+                logger.error(f"Failed to fetch market data from {name}: {e}")
+                return []
+
+        # Multi-provider path: track which symbols we still need
         symbols_needed = {p.symbol for p in positions}
         symbol_to_position = {p.symbol: p for p in positions}
         result: Dict[str, MarketData] = {}
 
-        # Try each provider in priority order
-        for name in self._priority:
-            if not self._status[name].connected:
-                continue
-
-            provider = self._providers[name]
-
+        for name, provider in connected_providers:
             # Get positions we still need
             positions_to_fetch = [
                 symbol_to_position[sym]
@@ -251,13 +269,10 @@ class MarketDataManager(MarketDataProvider):
                     f"{len(symbols_needed)} still needed"
                 )
 
-                self._update_health(name, "HEALTHY", f"Fetched {len(market_data_list)} symbols")
-
             except Exception as e:
                 self._status[name].last_error = str(e)
                 self._status[name].last_updated = datetime.now()
                 logger.error(f"Failed to fetch market data from {name}: {e}")
-                self._update_health(name, "DEGRADED", f"Fetch failed: {str(e)[:50]}")
 
         if symbols_needed:
             logger.warning(
@@ -265,7 +280,6 @@ class MarketDataManager(MarketDataProvider):
                 f"{list(symbols_needed)[:5]}..."
             )
 
-        logger.info(f"Fetched market data for {len(result)}/{len(positions)} positions")
         return list(result.values())
 
     async def fetch_quotes(self, symbols: List[str]) -> Dict[str, MarketData]:

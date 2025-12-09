@@ -36,7 +36,6 @@ from ..models.position import Position
 from ..models.risk_signal import RiskSignal
 from ..infrastructure.stores import PositionStore, MarketDataStore, AccountStore
 from ..infrastructure.monitoring import HealthMonitor, HealthStatus, Watchdog
-from ..infrastructure.persistence import PersistenceManager
 from ..infrastructure.adapters.broker_manager import BrokerManager
 from ..infrastructure.adapters.market_data_manager import MarketDataManager
 from .async_event_bus import AsyncEventBus
@@ -308,61 +307,48 @@ class Orchestrator:
         logger.info(account_msg)
         print(account_msg, flush=True)  # Ensure visible in console
 
-        # 4. Fetch market data for new/stale positions via MarketDataManager
+        # 4. Subscribe to market data streaming for positions
+        # IB uses reqMktData which subscribes AND returns initial data
+        # After initial subscription, updates arrive via streaming callback
         all_symbols = [p.symbol for p in merged_positions]
-        symbols_needing_refresh = set(self.market_data_store.get_symbols_needing_refresh(all_symbols))
-        positions_to_fetch = [p for p in merged_positions if p.symbol in symbols_needing_refresh]
+        new_symbols = [s for s in all_symbols if not self.market_data_store.has_fresh_data(s)]
 
-        if positions_to_fetch:
-            logger.debug(f"Fetching market data for {len(positions_to_fetch)}/{len(merged_positions)} positions")
+        if new_symbols and self.market_data_manager.is_connected():
+            logger.info(f"Subscribing to {len(new_symbols)} new symbols for streaming...")
             try:
-                if not self.market_data_manager.is_connected():
-                    logger.error("No market data providers connected")
-                    self.health_monitor.update_component_health(
-                        "market_data_feed",
-                        HealthStatus.UNHEALTHY,
-                        "No market data providers connected"
-                    )
-                else:
-                    # Fetch market data from all available providers
-                    market_data_list = await self.market_data_manager.fetch_market_data(positions_to_fetch)
+                # This subscribes via reqMktData - after this, streaming updates flow
+                positions_to_subscribe = [p for p in merged_positions if p.symbol in new_symbols]
+                market_data_list = await self.market_data_manager.fetch_market_data(positions_to_subscribe)
 
-                    # Update store directly (don't rely on async event dispatch)
-                    if market_data_list:
-                        self.market_data_store.upsert(market_data_list)
+                if market_data_list:
+                    self.market_data_store.upsert(market_data_list)
+                    logger.info(f"Subscribed and got initial data for {len(market_data_list)} symbols")
 
-                    # Also publish event for other subscribers
-                    self.event_bus.publish(EventType.MARKET_DATA_BATCH, {
-                        "market_data": market_data_list,
-                        "source": "MarketDataManager",
-                        "timestamp": datetime.now(),
-                    })
-
-                    if market_data_list:
-                        self.health_monitor.update_component_health(
-                            "market_data_feed",
-                            HealthStatus.HEALTHY,
-                            f"Fetched {len(market_data_list)} symbols"
-                        )
-                    else:
-                        self.health_monitor.update_component_health(
-                            "market_data_feed",
-                            HealthStatus.DEGRADED,
-                            "Fetch returned no data"
-                        )
-            except Exception as e:
-                logger.error(f"Failed to fetch market data: {e}")
                 self.health_monitor.update_component_health(
                     "market_data_feed",
-                    HealthStatus.UNHEALTHY,
-                    f"Fetch failed: {str(e)[:50]}"
+                    HealthStatus.HEALTHY,
+                    f"Streaming {len(all_symbols)} symbols"
                 )
+            except Exception as e:
+                logger.error(f"Failed to subscribe to market data: {e}")
+                self.health_monitor.update_component_health(
+                    "market_data_feed",
+                    HealthStatus.DEGRADED,
+                    f"Subscription failed: {str(e)[:50]}"
+                )
+        elif not self.market_data_manager.is_connected():
+            logger.warning("No market data providers connected")
+            self.health_monitor.update_component_health(
+                "market_data_feed",
+                HealthStatus.UNHEALTHY,
+                "No market data providers connected"
+            )
         else:
-            logger.debug(f"All market data fresh ({len(merged_positions)} positions)")
+            logger.debug(f"All {len(all_symbols)} symbols already subscribed")
             self.health_monitor.update_component_health(
                 "market_data_feed",
                 HealthStatus.HEALTHY,
-                "Using cached data (all fresh)"
+                f"Streaming {len(all_symbols)} symbols"
             )
 
         # 5. Validate market data quality

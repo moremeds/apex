@@ -288,11 +288,11 @@ class TerminalDashboard:
             render_broker_positions(snapshot.position_risks, broker)
         )
         layout["body"]["history_panel"]["history_today"].update(
-            render_position_history_today(broker, self.persistence_manager)
+            render_position_history_today(broker)
         )
         layout["body"]["history_panel"]["open_orders"].update(
-            render_open_orders(broker, self.persistence_manager)
+            render_open_orders(broker)
         )
         layout["body"]["history_panel"]["history_recent"].update(
-            render_position_history_recent(broker, self.persistence_manager)
+            render_position_history_recent(broker)
         )

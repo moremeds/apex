@@ -67,6 +67,24 @@ class MarketDataStore:
         with self._lock:
             return self._market_data.get(symbol)
 
+    def has_fresh_data(self, symbol: str) -> bool:
+        """
+        Check if we have fresh price data for a symbol.
+
+        Used to determine if we need to subscribe to streaming for this symbol.
+
+        Args:
+            symbol: Symbol to check.
+
+        Returns:
+            True if we have fresh data (within price TTL), False otherwise.
+        """
+        with self._lock:
+            md = self._market_data.get(symbol)
+            if not md or not md.timestamp:
+                return False
+            return age_seconds(md.timestamp) <= self._price_ttl_seconds
+
     def is_greeks_stale(self, symbol: str) -> bool:
         """
         Check if Greeks data is stale for a symbol.
