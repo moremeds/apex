@@ -35,13 +35,7 @@ from ..models.position_risk import PositionRisk
 from ..models.risk_signal import RiskSignal, SignalSeverity
 from src.domain.services.risk.rule_engine import LimitBreach, BreachSeverity
 from ..infrastructure.monitoring import ComponentHealth, HealthStatus
-from ..infrastructure.persistence import PersistenceManager
 from ..utils.market_hours import MarketHours
-
-# Type checking imports
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from ..infrastructure.persistence.persistence_manager import PersistenceManager
 
 logger = logging.getLogger(__name__)
 
@@ -65,21 +59,19 @@ class TerminalDashboard:
     - Position details (if enabled)
     """
 
-    def __init__(self, config: dict, env: str = "dev", persistence_manager: Optional[PersistenceManager] = None):
+    def __init__(self, config: dict, env: str = "dev"):
         """
         Initialize dashboard.
 
         Args:
             config: Dashboard configuration dict.
             env: Environment name (dev, demo, prod).
-            persistence_manager: Optional persistence manager for history queries.
         """
         self.config = config
         self.env = env
         self.show_positions = config.get("show_positions", True)
         self.console = Console()
         self.live: Optional[Live] = None
-        self.persistence_manager = persistence_manager
 
         # View state
         self._current_view = DashboardView.ACCOUNT_SUMMARY
@@ -1325,277 +1317,63 @@ class TerminalDashboard:
         """
         Render today's executed trades for a broker.
 
-        Shows actual trade executions from the trades table in database.
+        Shows placeholder - persistence layer not configured.
         """
-        if not self.persistence_manager:
-            return Panel(
-                Text("Persistence not enabled", style="dim"),
-                title="Today's Trades",
-                border_style="dim",
-            )
+        # Create table structure (columns preserved for future use)
+        table = Table(show_header=True, box=None, padding=(0, 1))
+        table.add_column("Time", style="dim", no_wrap=True, width=8)
+        table.add_column("Side", style="bold", no_wrap=True, width=4)
+        table.add_column("Symbol", style="cyan", no_wrap=True)
+        table.add_column("Qty", justify="right", width=8)
+        table.add_column("Price", justify="right", width=10)
 
-        try:
-            from src.models.order import OrderSource
-            from datetime import datetime, timedelta
-
-            # Map broker string to OrderSource enum
-            source = OrderSource.IB if broker == "IB" else OrderSource.FUTU
-
-            # Get today's trades from database
-            today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-            today_trades = self.persistence_manager.orders.get_trades(
-                source=source,
-                start_time=today_start,
-                limit=20,
-            )
-
-            if not today_trades:
-                return Panel(
-                    Text("No trades today", style="dim"),
-                    title=f"Today's Trades ({broker})",
-                    border_style="dim",
-                )
-
-            # Create table
-            table = Table(show_header=True, box=None, padding=(0, 1))
-            table.add_column("Time", style="dim", no_wrap=True, width=8)
-            table.add_column("Side", style="bold", no_wrap=True, width=4)
-            table.add_column("Symbol", style="cyan", no_wrap=True)
-            table.add_column("Qty", justify="right", width=8)
-            table.add_column("Price", justify="right", width=10)
-
-            # Show most recent first, limit to 8 rows
-            for trade in today_trades[:8]:
-                trade_time = trade.get("trade_time")
-                time_str = trade_time.strftime("%H:%M:%S") if trade_time else ""
-
-                side = trade.get("side", "")
-                # Style based on side
-                if side == "BUY":
-                    side_style = "green"
-                    side_str = "BUY"
-                else:
-                    side_style = "red"
-                    side_str = "SELL"
-
-                qty = trade.get("quantity", 0)
-                price = trade.get("price", 0)
-
-                table.add_row(
-                    time_str,
-                    Text(side_str, style=side_style),
-                    trade.get("symbol", "")[:18],  # Truncate long symbols
-                    f"{qty:,.0f}",
-                    f"${price:,.2f}" if price else "-",
-                )
-
-            return Panel(
-                table,
-                title=f"Today's Trades ({len(today_trades)})",
-                border_style="cyan",
-            )
-
-        except Exception as e:
-            logger.warning(f"Failed to load today's trades: {e}")
-            return Panel(
-                Text(f"Error: {e}", style="red"),
-                title="Today's Trades",
-                border_style="red",
-            )
+        return Panel(
+            Text("No trades data", style="dim"),
+            title=f"Today's Trades ({broker})",
+            border_style="dim",
+        )
 
     def _render_open_orders(self, broker: str) -> Panel:
         """
-        Render open/pending orders from database for a broker.
+        Render open/pending orders for a broker.
 
-        Shows orders that are not yet filled (PENDING, SUBMITTED, PARTIALLY_FILLED).
-        Queries directly from database for efficiency.
+        Shows placeholder - persistence layer not configured.
         """
-        if not self.persistence_manager:
-            return Panel(
-                Text("Persistence not enabled", style="dim"),
-                title="Open Orders",
-                border_style="dim",
-            )
+        # Create table structure (columns preserved for future use)
+        table = Table(show_header=True, box=None, padding=(0, 1))
+        table.add_column("Time", style="dim", no_wrap=True, width=8)
+        table.add_column("Side", style="bold", no_wrap=True, width=4)
+        table.add_column("Symbol", style="cyan", no_wrap=True)
+        table.add_column("Qty", justify="right", width=6)
+        table.add_column("Price", justify="right", width=8)
+        table.add_column("Status", style="yellow", width=8)
 
-        try:
-            from src.models.order import OrderSource
-
-            # Map broker string to OrderSource enum
-            source = OrderSource.IB if broker == "IB" else OrderSource.FUTU
-
-            # Query open orders from database
-            open_orders = self.persistence_manager.orders.get_open_orders(source=source)
-
-            if not open_orders:
-                return Panel(
-                    Text("No open orders", style="dim"),
-                    title=f"Open Orders ({broker})",
-                    border_style="dim",
-                )
-
-            # Create table
-            table = Table(show_header=True, box=None, padding=(0, 1))
-            table.add_column("Time", style="dim", no_wrap=True, width=8)
-            table.add_column("Side", style="bold", no_wrap=True, width=4)
-            table.add_column("Symbol", style="cyan", no_wrap=True)
-            table.add_column("Qty", justify="right", width=6)
-            table.add_column("Price", justify="right", width=8)
-            table.add_column("Status", style="yellow", width=8)
-
-            # Show most recent first, limit to 8 rows
-            for order in open_orders[:8]:
-                created_time = order.get("created_time")
-                time_str = created_time.strftime("%H:%M:%S") if created_time else ""
-
-                side = order.get("side", "")
-                side_style = "green" if side == "BUY" else "red"
-
-                qty = order.get("quantity", 0)
-                filled = order.get("filled_quantity", 0)
-                limit_price = order.get("limit_price")
-
-                # Show filled/total for partial fills
-                if filled > 0:
-                    qty_str = f"{filled:.0f}/{qty:.0f}"
-                else:
-                    qty_str = f"{qty:.0f}"
-
-                price_str = f"${limit_price:,.2f}" if limit_price else "MKT"
-
-                status = order.get("status", "PENDING")
-                if status == "PARTIALLY_FILLED":
-                    status_str = "PARTIAL"
-                elif status == "SUBMITTED":
-                    status_str = "SENT"
-                else:
-                    status_str = status[:7]
-
-                table.add_row(
-                    time_str,
-                    Text(side[:1], style=side_style),  # B or S
-                    order.get("symbol", "")[:15],
-                    qty_str,
-                    price_str,
-                    status_str,
-                )
-
-            return Panel(
-                table,
-                title=f"Open Orders ({len(open_orders)})",
-                border_style="yellow",
-            )
-
-        except Exception as e:
-            logger.warning(f"Failed to load open orders: {e}")
-            return Panel(
-                Text(f"Error: {e}", style="red"),
-                title="Open Orders",
-                border_style="red",
-            )
+        return Panel(
+            Text("No orders data", style="dim"),
+            title=f"Open Orders ({broker})",
+            border_style="dim",
+        )
 
     def _render_position_history_recent(self, broker: str) -> Panel:
         """
-        Render all stored positions from database for a broker.
+        Render stored positions for a broker.
 
-        Shows positions currently tracked in the database to verify persistence is working.
+        Shows placeholder - persistence layer not configured.
         """
-        if not self.persistence_manager:
-            return Panel(
-                Text("Persistence not enabled", style="dim"),
-                title="Stored Positions (DB)",
-                border_style="dim",
-            )
+        # Create table structure (columns preserved for future use)
+        table = Table(show_header=True, box=None, padding=(0, 1))
+        table.add_column("Symbol", style="cyan", no_wrap=True)
+        table.add_column("Qty", justify="right", width=8)
+        table.add_column("AvgPx", justify="right", width=10)
+        table.add_column("Mark", justify="right", width=10)
+        table.add_column("P&L", justify="right", width=10)
+        table.add_column("Updated", style="dim", width=10)
 
-        try:
-            # Get all stored positions from database
-            all_positions = self.persistence_manager.get_all_position_snapshots(limit=100)
-
-            # Filter by broker source
-            broker_positions = [
-                p for p in all_positions
-                if p.get("source") == broker
-            ]
-
-            if not broker_positions:
-                # Show persistence stats to help debug
-                stats = self.persistence_manager.get_stats()
-                info_text = Text()
-                info_text.append("No positions stored for this broker\n\n", style="dim")
-                info_text.append(f"DB Stats:\n", style="cyan")
-                info_text.append(f"  Snapshots saved: {stats.get('snapshots_saved', 0)}\n", style="white")
-                info_text.append(f"  Changes detected: {stats.get('changes_detected', 0)}\n", style="white")
-                info_text.append(f"  Tracked positions: {stats.get('tracked_positions', 0)}\n", style="white")
-                return Panel(
-                    info_text,
-                    title=f"Stored Positions ({broker})",
-                    border_style="dim",
-                )
-
-            # Create table
-            table = Table(show_header=True, box=None, padding=(0, 1))
-            table.add_column("Symbol", style="cyan", no_wrap=True)
-            table.add_column("Qty", justify="right", width=8)
-            table.add_column("AvgPx", justify="right", width=10)
-            table.add_column("Mark", justify="right", width=10)
-            table.add_column("P&L", justify="right", width=10)
-            table.add_column("Updated", style="dim", width=10)
-
-            # Sort by underlying then symbol
-            broker_positions.sort(key=lambda p: (p.get("underlying", ""), p.get("symbol", "")))
-
-            for pos in broker_positions[:20]:  # Limit display
-                symbol = pos.get("symbol", "")[:18]
-                qty = pos.get("quantity")
-                avg_price = pos.get("avg_price")
-                mark_price = pos.get("mark_price")
-                pnl = pos.get("unrealized_pnl")
-                snapshot_time = pos.get("snapshot_time")
-
-                # Format values
-                qty_str = f"{qty:,.0f}" if qty is not None else "-"
-                avg_str = f"${avg_price:,.2f}" if avg_price else "-"
-                mark_str = f"${mark_price:,.2f}" if mark_price else "-"
-
-                # P&L with color
-                if pnl is not None:
-                    if pnl > 0:
-                        pnl_str = Text(f"+${pnl:,.0f}", style="green")
-                    elif pnl < 0:
-                        pnl_str = Text(f"-${abs(pnl):,.0f}", style="red")
-                    else:
-                        pnl_str = Text("$0", style="dim")
-                else:
-                    pnl_str = Text("-", style="dim")
-
-                # Time
-                time_str = snapshot_time.strftime("%H:%M:%S") if snapshot_time else "-"
-
-                table.add_row(
-                    symbol,
-                    qty_str,
-                    avg_str,
-                    mark_str,
-                    pnl_str,
-                    time_str,
-                )
-
-            # Show count and persistence stats
-            stats = self.persistence_manager.get_stats()
-            title = f"Stored Positions ({len(broker_positions)} in DB, {stats.get('changes_detected', 0)} changes)"
-
-            return Panel(
-                table,
-                title=title,
-                border_style="blue",
-            )
-
-        except Exception as e:
-            logger.warning(f"Failed to load stored positions: {e}")
-            return Panel(
-                Text(f"Error: {e}", style="red"),
-                title="Stored Positions",
-                border_style="red",
-            )
+        return Panel(
+            Text("No stored positions", style="dim"),
+            title=f"Stored Positions ({broker})",
+            border_style="dim",
+        )
 
     def _render_positions_profile(
         self, position_risks: List[PositionRisk]
