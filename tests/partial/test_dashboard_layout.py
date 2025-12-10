@@ -1,7 +1,7 @@
 """Test script to visualize the dashboard layout with sample data."""
 
 from datetime import datetime
-from src.presentation.dashboard import TerminalDashboard
+from src.tui.dashboard import TerminalDashboard
 from src.models.risk_snapshot import RiskSnapshot
 from src.models.position import Position, AssetType, PositionSource
 from src.models.market_data import MarketData, GreeksSource, DataQuality

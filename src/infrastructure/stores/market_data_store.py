@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 import logging
 
 from ...models.market_data import MarketData
+from ...utils.timezone import age_seconds
 
 if TYPE_CHECKING:
     from ...domain.interfaces.event_bus import EventBus
@@ -66,6 +67,24 @@ class MarketDataStore:
         with self._lock:
             return self._market_data.get(symbol)
 
+    def has_fresh_data(self, symbol: str) -> bool:
+        """
+        Check if we have fresh price data for a symbol.
+
+        Used to determine if we need to subscribe to streaming for this symbol.
+
+        Args:
+            symbol: Symbol to check.
+
+        Returns:
+            True if we have fresh data (within price TTL), False otherwise.
+        """
+        with self._lock:
+            md = self._market_data.get(symbol)
+            if not md or not md.timestamp:
+                return False
+            return age_seconds(md.timestamp) <= self._price_ttl_seconds
+
     def is_greeks_stale(self, symbol: str) -> bool:
         """
         Check if Greeks data is stale for a symbol.
@@ -81,8 +100,7 @@ class MarketDataStore:
             if not md or not md.timestamp:
                 return True
 
-            age = (datetime.now() - md.timestamp).total_seconds()
-            return age > self._greeks_ttl_seconds
+            return age_seconds(md.timestamp) > self._greeks_ttl_seconds
 
     def get_stale_symbols(self) -> List[str]:
         """
@@ -98,8 +116,7 @@ class MarketDataStore:
                     stale.append(symbol)
                     continue
 
-                age = (datetime.now() - md.timestamp).total_seconds()
-                if age > self._greeks_ttl_seconds:
+                if age_seconds(md.timestamp) > self._greeks_ttl_seconds:
                     stale.append(symbol)
 
             return stale
@@ -136,8 +153,7 @@ class MarketDataStore:
                 if not md.timestamp:
                     stale_set.add(symbol)
                     continue
-                age = (datetime.now() - md.timestamp).total_seconds()
-                if age > self._price_ttl_seconds:
+                if age_seconds(md.timestamp) > self._price_ttl_seconds:
                     stale_set.add(symbol)
 
             # Return symbols that are stale OR not in cache

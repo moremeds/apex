@@ -14,7 +14,7 @@ import sys
 
 from config.config_manager import ConfigManager
 from src.domain.services import MarketAlertDetector
-from src.infrastructure.adapters import IbAdapter, FutuAdapter, FileLoader
+from src.infrastructure.adapters import IbAdapter, FutuAdapter, FileLoader, BrokerManager, MarketDataManager, YahooFinanceAdapter
 from src.infrastructure.stores import PositionStore, MarketDataStore, AccountStore
 from src.infrastructure.monitoring import HealthMonitor, Watchdog
 from src.domain.services.risk.risk_engine import RiskEngine
@@ -24,10 +24,8 @@ from src.domain.services.risk.rule_engine import RuleEngine
 from src.domain.services.risk.risk_signal_manager import RiskSignalManager
 from src.domain.services.risk.risk_signal_engine import RiskSignalEngine
 from src.domain.services.risk.risk_alert_logger import RiskAlertLogger
-# from src.domain.services.suggester import SimpleSuggester
-# from src.domain.services.shock_engine import SimpleShockEngine
 from src.application import Orchestrator, AsyncEventBus
-from src.presentation import TerminalDashboard
+from src.tui import TerminalDashboard
 from src.models.risk_snapshot import RiskSnapshot
 from src.utils import StructuredLogger, flush_all_loggers, set_log_timezone
 from src.utils.structured_logger import LogCategory
@@ -113,20 +111,31 @@ async def main_async(args: argparse.Namespace) -> None:
         market_data_store = MarketDataStore()
         account_store = AccountStore()
 
-        # Initialize adapters (skip in demo mode)
-        ib_adapter = None
-        futu_adapter = None
+        # Initialize monitoring (needed for BrokerManager)
+        health_monitor = HealthMonitor()
 
+        # Initialize BrokerManager to manage all broker connections
+        broker_manager = BrokerManager(health_monitor=health_monitor)
+        # Initialize MarketDataManager to manage all market data sources
+        market_data_manager = MarketDataManager(health_monitor=health_monitor)
+
+        # Register adapters with BrokerManager
         if config.ibkr.enabled:
             ib_adapter = IbAdapter(
                 host=config.ibkr.host,
                 port=config.ibkr.port,
                 client_id=config.ibkr.client_id,
-                event_bus=event_bus,  # Pass event bus to adapter
+                event_bus=event_bus,
             )
-            system_structured.info(LogCategory.SYSTEM, "IB adapter ENABLED", {
+            broker_manager.register_adapter("ib", ib_adapter)
+            system_structured.info(LogCategory.SYSTEM, "IB adapter registered", {
                 "host": config.ibkr.host,
                 "port": config.ibkr.port,
+            })
+            market_data_manager.register_provider("ib", ib_adapter, priority=10)
+            system_structured.info(LogCategory.SYSTEM, "IB registered as market data provider", {
+                "streaming": ib_adapter.supports_streaming(),
+                "greeks": ib_adapter.supports_greeks(),
             })
         else:
             system_structured.info(LogCategory.SYSTEM, "IB adapter DISABLED (demo mode)")
@@ -138,9 +147,10 @@ async def main_async(args: argparse.Namespace) -> None:
                 security_firm=config.futu.security_firm,
                 trd_env=config.futu.trd_env,
                 filter_trdmarket=config.futu.filter_trdmarket,
-                event_bus=event_bus,  # Pass event bus to adapter
+                event_bus=event_bus,
             )
-            system_structured.info(LogCategory.SYSTEM, "Futu adapter ENABLED", {
+            broker_manager.register_adapter("futu", futu_adapter)
+            system_structured.info(LogCategory.SYSTEM, "Futu adapter registered", {
                 "host": config.futu.host,
                 "port": config.futu.port,
                 "market": config.futu.filter_trdmarket,
@@ -148,13 +158,33 @@ async def main_async(args: argparse.Namespace) -> None:
         else:
             system_structured.info(LogCategory.SYSTEM, "Futu adapter DISABLED")
 
+        # Register file loader for manual positions
         file_loader = FileLoader(
             file_path=config.manual_positions.file,
             reload_interval_sec=config.manual_positions.reload_interval_sec,
         )
+        broker_manager.register_adapter("manual", file_loader)
+
+        # TODO: Register additional market data providers here as needed
+        # Example for future Yahoo Finance or CCXT providers:
+        # if config.yahoo.enabled:
+        #     yahoo_provider = YahooFinanceProvider(...)
+        #     market_data_manager.register_provider("yahoo", yahoo_provider, priority=50)
+        #
+        # if config.ccxt.enabled:
+        #     ccxt_provider = CcxtProvider(...)
+        #     market_data_manager.register_provider("ccxt", ccxt_provider, priority=60)
+
+        # Initialize Yahoo Finance adapter for beta and market data
+        yahoo_adapter = YahooFinanceAdapter(
+            price_ttl_seconds=30,
+            beta_ttl_hours=24,
+        )
+        await yahoo_adapter.connect()
+        system_structured.info(LogCategory.SYSTEM, "Yahoo Finance adapter initialized")
 
         # Initialize domain services
-        risk_engine = RiskEngine(config=config.raw)
+        risk_engine = RiskEngine(config=config.raw, yahoo_adapter=yahoo_adapter)
         reconciler = Reconciler(stale_threshold_seconds=300)
         mdqc = MDQC(
             stale_seconds=config.mdqc.stale_seconds,
@@ -193,18 +223,16 @@ async def main_async(args: argparse.Namespace) -> None:
         # suggester = SimpleSuggester()  # TODO: Use for breach analysis in dashboard
         # shock_engine = SimpleShockEngine(risk_engine=risk_engine, config=config.raw)  # TODO: Add scenario analysis
 
-        # Initialize monitoring
-        health_monitor = HealthMonitor()
         watchdog = Watchdog(
             health_monitor=health_monitor,
             event_bus=event_bus,
             config=config.raw.get("watchdog", {}),
         )
 
-        # Initialize orchestrator
+        # Initialize orchestrator with BrokerManager and MarketDataManager
         orchestrator = Orchestrator(
-            ib_adapter=ib_adapter,
-            file_loader=file_loader,
+            broker_manager=broker_manager,
+            market_data_manager=market_data_manager,
             position_store=position_store,
             market_data_store=market_data_store,
             account_store=account_store,
@@ -217,7 +245,6 @@ async def main_async(args: argparse.Namespace) -> None:
             event_bus=event_bus,
             config=config.raw,
             market_alert_detector=market_alert_detector,
-            futu_adapter=futu_adapter,
             risk_signal_engine=risk_signal_engine,
             risk_alert_logger=risk_alert_logger,
         )

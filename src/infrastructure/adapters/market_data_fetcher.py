@@ -7,13 +7,13 @@ Supports event-driven streaming updates and fallback to snapshot data.
 
 from __future__ import annotations
 from typing import List, Dict, Optional, Tuple, Callable, TYPE_CHECKING
-from datetime import datetime
 from math import isnan
 import logging
 import asyncio
 
 from ...models.position import Position, AssetType
 from ...models.market_data import MarketData, GreeksSource
+from ...utils.timezone import now_utc
 
 if TYPE_CHECKING:
     from ...infrastructure.stores.market_data_store import MarketDataStore
@@ -427,7 +427,7 @@ class MarketDataFetcher:
             mid=float((ticker.bid + ticker.ask) / 2) if ticker.bid and ticker.ask and not isnan(ticker.bid) and not isnan(ticker.ask) else None,
             volume=int(ticker.volume) if ticker.volume and not isnan(ticker.volume) else None,
             yesterday_close=float(ticker.close) if hasattr(ticker, 'close') and ticker.close and not isnan(ticker.close) else None,
-            timestamp=datetime.now(),
+            timestamp=now_utc(),
         )
 
     def _extract_greeks(self, ticker, md: MarketData, pos: Position) -> None:

@@ -14,7 +14,7 @@ class PositionRisk:
     Calculated risk metrics for a single position.
 
     This model contains all pre-calculated metrics for a position,
-    computed by the RiskEngine. The presentation layer (dashboard)
+    computed by the RiskEngine. The tui layer (dashboard)
     should use these values directly without recalculation.
     """
 

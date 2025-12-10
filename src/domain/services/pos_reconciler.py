@@ -6,15 +6,14 @@ and identifies discrepancies.
 """
 
 from __future__ import annotations
-from typing import Dict, List, Set, Optional, TYPE_CHECKING
+from typing import Dict, List, Set, Optional
 from datetime import datetime
 from dataclasses import replace
 import logging
 from ...models.position import Position, PositionSource, AssetType
 from ...models.reconciliation import ReconciliationIssue, IssueType
+from ...utils.timezone import age_seconds
 
-if TYPE_CHECKING:
-    from ...models.account import AccountInfo
 
 logger = logging.getLogger(__name__)
 
@@ -134,7 +133,7 @@ class Reconciler:
                         underlying=key[1],
                         ib_position=ib_pos if pos == ib_pos else None,
                         manual_position=manual_pos if pos == manual_pos else None,
-                        staleness_seconds=(datetime.now() - pos.last_updated).total_seconds(),
+                        staleness_seconds=age_seconds(pos.last_updated),
                         severity="WARNING",
                     )
                     issues.append(issue)
@@ -283,67 +282,4 @@ class Reconciler:
 
     def _is_stale(self, position: Position) -> bool:
         """Check if position exceeds staleness threshold."""
-        age_seconds = (datetime.now() - position.last_updated).total_seconds()
-        return age_seconds > self.stale_threshold_seconds
-
-    def aggregate_account_info(
-        self,
-        ib_account: Optional["AccountInfo"],
-        futu_account: Optional["AccountInfo"],
-    ) -> "AccountInfo":
-        """
-        Aggregate account info from multiple brokers.
-
-        Single source of truth for account aggregation logic.
-
-        Args:
-            ib_account: AccountInfo from IB (may be None).
-            futu_account: AccountInfo from Futu (may be None).
-
-        Returns:
-            Aggregated AccountInfo with combined values.
-        """
-        from ...models.account import AccountInfo
-
-        # Start with zero values
-        aggregated = AccountInfo(
-            net_liquidation=0.0,
-            total_cash=0.0,
-            buying_power=0.0,
-            margin_used=0.0,
-            margin_available=0.0,
-            maintenance_margin=0.0,
-            init_margin_req=0.0,
-            excess_liquidity=0.0,
-            realized_pnl=0.0,
-            unrealized_pnl=0.0,
-            account_id="AGGREGATED",
-        )
-
-        # Add IB account values
-        if ib_account:
-            aggregated.net_liquidation += ib_account.net_liquidation
-            aggregated.total_cash += ib_account.total_cash
-            aggregated.buying_power += ib_account.buying_power
-            aggregated.margin_used += ib_account.margin_used
-            aggregated.margin_available += ib_account.margin_available
-            aggregated.maintenance_margin += ib_account.maintenance_margin
-            aggregated.init_margin_req += ib_account.init_margin_req
-            aggregated.excess_liquidity += ib_account.excess_liquidity
-            aggregated.realized_pnl += ib_account.realized_pnl
-            aggregated.unrealized_pnl += ib_account.unrealized_pnl
-
-        # Add Futu account values
-        if futu_account:
-            aggregated.net_liquidation += futu_account.net_liquidation
-            aggregated.total_cash += futu_account.total_cash
-            aggregated.buying_power += futu_account.buying_power
-            aggregated.margin_used += futu_account.margin_used
-            aggregated.margin_available += futu_account.margin_available
-            aggregated.maintenance_margin += futu_account.maintenance_margin
-            aggregated.init_margin_req += futu_account.init_margin_req
-            aggregated.excess_liquidity += futu_account.excess_liquidity
-            aggregated.realized_pnl += futu_account.realized_pnl
-            aggregated.unrealized_pnl += futu_account.unrealized_pnl
-
-        return aggregated
+        return age_seconds(position.last_updated) > self.stale_threshold_seconds

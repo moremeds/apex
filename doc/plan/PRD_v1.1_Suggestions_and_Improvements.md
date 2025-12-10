@@ -1855,7 +1855,7 @@ For MVP, use IBKR Greeks exclusively. Mark as MISSING if unavailable.
 
 3. 实现Terminal Dashboard
    ```python
-   # presentation/terminal_dashboard.py
+   # tui/terminal_dashboard.py
    class TerminalDashboard:
        def render(self, snapshot: RiskSnapshot, breaches: List[Breach]):
            # Portfolio summary panel
