@@ -117,7 +117,11 @@ async def main_async(args: argparse.Namespace) -> None:
         # Initialize BrokerManager to manage all broker connections
         broker_manager = BrokerManager(health_monitor=health_monitor)
         # Initialize MarketDataManager to manage all market data sources
-        market_data_manager = MarketDataManager(health_monitor=health_monitor)
+        # EventBus passed for single streaming path (IB → MDManager → EventBus)
+        market_data_manager = MarketDataManager(
+            health_monitor=health_monitor,
+            event_bus=event_bus,
+        )
 
         # Register adapters with BrokerManager
         if config.ibkr.enabled:

@@ -5,10 +5,11 @@ Implements BrokerAdapter interface for Futu OpenD gateway.
 """
 
 from __future__ import annotations
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Callable
 from datetime import datetime, timedelta
 import logging
 import threading
+import asyncio
 
 from ....domain.interfaces.broker_adapter import BrokerAdapter
 from ....domain.interfaces.event_bus import EventBus, EventType
@@ -94,6 +95,9 @@ class FutuAdapter(BrokerAdapter):
         self._trade_handler = None
         self._push_enabled = False
         self._cache_lock = threading.Lock()
+
+        # Callback for position updates (subscription-based)
+        self._on_position_update: Optional[Callable[[List[Position]], None]] = None
 
     # -------------------------------------------------------------------------
     # Connection Management
@@ -208,7 +212,7 @@ class FutuAdapter(BrokerAdapter):
 
             logger.info(
                 f"Trade notification: {code} qty={qty} side={trd_side} - "
-                "invalidating position cache"
+                "refreshing positions"
             )
 
             if self._event_bus:
@@ -219,13 +223,78 @@ class FutuAdapter(BrokerAdapter):
                     "timestamp": datetime.now(),
                 })
 
+            # Invalidate cache and fetch fresh positions
             with self._cache_lock:
                 self._position_cache = None
                 self._position_cache_time = None
                 self._position_cooldown_until = None
 
+            # Trigger position callback if set (async-safe via event loop)
+            if self._on_position_update:
+                self._trigger_position_refresh()
+
         except Exception as e:
             logger.error(f"Error handling trade notification: {e}")
+
+    def _trigger_position_refresh(self) -> None:
+        """Trigger async position refresh from sync callback context."""
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # Schedule the async refresh on the running loop
+                asyncio.run_coroutine_threadsafe(self._refresh_and_notify_positions(), loop)
+            else:
+                # No running loop - skip (positions will refresh on next poll)
+                logger.debug("No running event loop, skipping position refresh")
+        except RuntimeError:
+            logger.debug("Could not get event loop for position refresh")
+
+    async def _refresh_and_notify_positions(self) -> None:
+        """Fetch fresh positions and notify callback."""
+        try:
+            positions = await self.fetch_positions()
+            if self._on_position_update:
+                self._on_position_update(positions)
+        except Exception as e:
+            logger.error(f"Failed to refresh positions after trade: {e}")
+
+    def set_position_callback(self, callback: Callable[[List[Position]], None]) -> None:
+        """
+        Set callback for position updates.
+
+        The callback receives the full list of positions whenever a trade occurs.
+
+        Args:
+            callback: Function to call with updated positions list.
+        """
+        self._on_position_update = callback
+
+    async def subscribe_positions(self) -> None:
+        """
+        Subscribe to position updates via Futu trade push.
+
+        For Futu, position updates are triggered by trade notifications.
+        The push subscription is set up during connect(), so this method
+        just verifies the subscription is active.
+        """
+        if not self._connected:
+            logger.warning("Cannot subscribe to positions: not connected")
+            return
+
+        if self._push_enabled:
+            logger.info("Futu position subscription active (via trade push)")
+        else:
+            logger.warning("Futu push subscription not enabled - positions will poll only")
+
+    def unsubscribe_positions(self) -> None:
+        """
+        Unsubscribe from position updates.
+
+        For Futu, this clears the callback but doesn't disable push
+        (which is also used for other notifications).
+        """
+        self._on_position_update = None
+        logger.info("Futu position callback cleared")
 
     # -------------------------------------------------------------------------
     # Position Fetching

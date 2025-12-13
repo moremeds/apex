@@ -6,7 +6,7 @@ aggregated positions and account information.
 """
 
 from __future__ import annotations
-from typing import Dict, List, Optional, Any, TYPE_CHECKING
+from typing import Dict, List, Optional, Any, Callable, TYPE_CHECKING
 from datetime import datetime
 from dataclasses import dataclass, field
 import logging
@@ -58,6 +58,10 @@ class BrokerManager(BrokerAdapter):
         self._status: Dict[str, BrokerStatus] = {}
         self._connected = False
         self._health_monitor = health_monitor
+
+        # Position subscription callback
+        self._on_position_update: Optional[Callable[[str, List[Position]], None]] = None
+        self._position_subscription_active: bool = False
 
     def register_adapter(self, name: str, adapter: BrokerAdapter) -> None:
         """
@@ -462,3 +466,76 @@ class BrokerManager(BrokerAdapter):
 
         logger.info(f"Fetched {len(all_trades)} total trades from all brokers")
         return all_trades
+
+    # -------------------------------------------------------------------------
+    # Position Subscription (Event-Driven)
+    # -------------------------------------------------------------------------
+
+    def set_position_callback(self, callback: Callable[[str, List[Position]], None]) -> None:
+        """
+        Set callback for position updates from any broker.
+
+        The callback receives (broker_name, positions_list) whenever positions change.
+
+        Args:
+            callback: Function to call with (broker_name, positions).
+        """
+        self._on_position_update = callback
+
+    async def subscribe_positions(self) -> None:
+        """
+        Subscribe to position updates from all connected brokers.
+
+        After calling this, position changes (fills, closes) will trigger
+        the callback set via set_position_callback().
+        """
+        if self._position_subscription_active:
+            logger.debug("Position subscription already active")
+            return
+
+        for name, adapter in self._adapters.items():
+            if not self._status[name].connected:
+                continue
+
+            # Check if adapter supports position subscription
+            if hasattr(adapter, 'set_position_callback') and hasattr(adapter, 'subscribe_positions'):
+                try:
+                    # Set callback that routes to our aggregator
+                    adapter.set_position_callback(
+                        lambda positions, broker=name: self._on_broker_position_update(broker, positions)
+                    )
+                    await adapter.subscribe_positions()
+                    logger.info(f"Subscribed to position updates from {name}")
+                except Exception as e:
+                    logger.error(f"Failed to subscribe to positions from {name}: {e}")
+            else:
+                logger.debug(f"{name} adapter does not support position subscription")
+
+        self._position_subscription_active = True
+        logger.info("BrokerManager position subscription active")
+
+    def unsubscribe_positions(self) -> None:
+        """Unsubscribe from position updates on all brokers."""
+        for name, adapter in self._adapters.items():
+            if hasattr(adapter, 'unsubscribe_positions'):
+                try:
+                    adapter.unsubscribe_positions()
+                except Exception as e:
+                    logger.error(f"Error unsubscribing from {name} positions: {e}")
+
+        self._position_subscription_active = False
+        logger.info("BrokerManager position subscription stopped")
+
+    def _on_broker_position_update(self, broker_name: str, positions: List[Position]) -> None:
+        """
+        Handle position update from a specific broker.
+
+        Forwards to the registered callback with broker name.
+        """
+        self._status[broker_name].position_count = len(positions)
+        self._status[broker_name].last_updated = datetime.now()
+
+        logger.debug(f"Position update from {broker_name}: {len(positions)} positions")
+
+        if self._on_position_update:
+            self._on_position_update(broker_name, positions)

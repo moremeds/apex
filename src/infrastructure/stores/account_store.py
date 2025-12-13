@@ -66,12 +66,22 @@ class AccountStore:
         Handle account update event.
 
         Args:
-            payload: Event payload with 'account_info', 'ib_account', 'futu_account'.
+            payload: Event payload with 'account_info' and 'accounts_by_broker' dict.
+                     accounts_by_broker maps broker name -> AccountInfo (e.g., {"ib": ..., "futu": ...})
         """
         # Handle aggregated account info from orchestrator
         account_info = payload.get("account_info")
-        ib_account = payload.get("ib_account")
-        futu_account = payload.get("futu_account")
+
+        # Read per-broker accounts from accounts_by_broker dict (new format from orchestrator)
+        accounts_by_broker = payload.get("accounts_by_broker", {})
+        ib_account = accounts_by_broker.get("ib") or accounts_by_broker.get("ibkr")
+        futu_account = accounts_by_broker.get("futu")
+
+        # Fallback to legacy keys for backwards compatibility
+        if not ib_account:
+            ib_account = payload.get("ib_account")
+        if not futu_account:
+            futu_account = payload.get("futu_account")
 
         with self._lock:
             # Store source-specific accounts
@@ -86,7 +96,10 @@ class AccountStore:
             else:
                 self._account = self._aggregate_accounts()
 
-        logger.debug("AccountStore updated from event")
+        logger.debug(
+            f"AccountStore updated: IB={ib_account is not None}, "
+            f"Futu={futu_account is not None}, Aggregated={account_info is not None}"
+        )
 
     def _aggregate_accounts(self) -> AccountInfo:
         """

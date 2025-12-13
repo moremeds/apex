@@ -18,6 +18,7 @@ from ...models.market_data import MarketData
 
 if TYPE_CHECKING:
     from ...infrastructure.monitoring import HealthMonitor, HealthStatus
+    from ...application.event_bus import EventBusProtocol
 
 
 logger = logging.getLogger(__name__)
@@ -50,18 +51,25 @@ class MarketDataManager(MarketDataProvider):
     secondary providers when the primary fails.
     """
 
-    def __init__(self, health_monitor: Optional["HealthMonitor"] = None):
+    def __init__(
+        self,
+        health_monitor: Optional["HealthMonitor"] = None,
+        event_bus: Optional["EventBusProtocol"] = None,
+    ):
         """
         Initialize market data manager with empty provider list.
 
         Args:
             health_monitor: Optional HealthMonitor for reporting provider health.
+            event_bus: Optional EventBus for publishing streaming market data.
         """
         self._providers: Dict[str, MarketDataProvider] = {}
-        self._priority: List[str] = []  # Provider priority order
+        self._provider_priorities: Dict[str, int] = {}  # name -> priority (lower = higher)
+        self._priority: List[str] = []  # Provider names sorted by priority
         self._status: Dict[str, MarketDataProviderStatus] = {}
         self._connected = False
         self._health_monitor = health_monitor
+        self._event_bus = event_bus
         self._streaming_callback: Optional[Callable[[str, MarketData], None]] = None
         self._latest_data: Dict[str, MarketData] = {}
 
@@ -80,20 +88,20 @@ class MarketDataManager(MarketDataProvider):
             priority: Lower number = higher priority (default 100).
         """
         self._providers[name] = provider
+        self._provider_priorities[name] = priority
         self._status[name] = MarketDataProviderStatus(
             name=name,
             supports_streaming=provider.supports_streaming(),
             supports_greeks=provider.supports_greeks(),
         )
 
-        # Update priority list (keep sorted)
+        # Update priority list and sort by priority (lower = higher priority)
         self._priority.append(name)
-        # Sort by priority (we'll track priorities separately if needed)
-        # For now, use registration order
+        self._priority.sort(key=lambda n: self._provider_priorities.get(n, 100))
 
         logger.info(
             f"Registered market data provider: {name} "
-            f"(streaming={provider.supports_streaming()}, "
+            f"(priority={priority}, streaming={provider.supports_streaming()}, "
             f"greeks={provider.supports_greeks()})"
         )
 
@@ -421,11 +429,27 @@ class MarketDataManager(MarketDataProvider):
         )
 
     def _on_provider_data(self, provider_name: str, symbol: str, md: MarketData) -> None:
-        """Handle streaming data from a provider."""
+        """
+        Handle streaming data from a provider.
+
+        This is the SINGLE path for streaming market data (Phase 4 optimization):
+        IB → MarketDataManager → EventBus (skip Orchestrator hop)
+        """
         # Update cache
         self._latest_data[symbol] = md
 
-        # Forward to callback
+        # Publish to EventBus (single streaming path - replaces IbAdapter direct publish)
+        if self._event_bus:
+            # Lazy import to avoid circular dependency
+            from ...domain.interfaces.event_bus import EventType
+            self._event_bus.publish(EventType.MARKET_DATA_TICK, {
+                "symbol": symbol,
+                "data": md,
+                "source": provider_name,
+                "timestamp": datetime.now(),
+            })
+
+        # Forward to callback (for stores/orchestrator)
         if self._streaming_callback:
             self._streaming_callback(symbol, md)
 

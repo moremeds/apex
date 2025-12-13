@@ -175,43 +175,59 @@ class RiskEngine:
         """
         Calculate metrics for a single position.
 
+        When market data is missing or stale, uses fallback strategies to preserve
+        risk visibility rather than zeroing out exposure (which hides risk).
+
+        Fallback order:
+        1. Live mid/last price from primary provider
+        2. Yesterday's close from market data
+        3. Yesterday's close from Yahoo Finance (stocks only)
+        4. Average cost basis (last resort - preserves notional visibility)
+
         Args:
             pos: Position to calculate.
             market_data: Market data dictionary.
 
         Returns:
-            PositionMetrics or None if missing data.
+            PositionMetrics with calculated values. has_missing_md=True when using fallback.
         """
         md = market_data.get(pos.symbol)
+        has_missing_md = False
+        has_missing_greeks = False
 
-        # Track missing market data
-        if md is None:
-            return PositionMetrics(
-                symbol=pos.symbol,
-                underlying=pos.underlying,
-                notional=0.0,
-                unrealized_pnl=0.0,
-                daily_pnl=0.0,
-                delta_contribution=0.0,
-                gamma_contribution=0.0,
-                vega_contribution=0.0,
-                theta_contribution=0.0,
-                expiry_bucket=pos.expiry_bucket(),
-                days_to_expiry=pos.days_to_expiry(),
-                gamma_notional_near_term=0.0,
-                vega_notional_near_term=0.0,
-                has_missing_md=True,
-                has_missing_greeks=False,
-            )
+        # Determine mark price with fallback chain
+        mark = None
+        fallback_source = None
 
-        # Prefer live mid/last, but fall back to yesterday's close when quotes are absent/invalid
-        if md.has_live_price():
-            mark = md.effective_mid()
-        elif md.yesterday_close is not None and md.yesterday_close > 0:
-            mark = md.yesterday_close
-        else:
-            mark = None
+        if md is not None:
+            # Try live price first
+            if md.has_live_price():
+                mark = md.effective_mid()
+            # Fall back to yesterday's close from market data
+            elif md.yesterday_close is not None and md.yesterday_close > 0:
+                mark = md.yesterday_close
+                has_missing_md = True
+                fallback_source = "md_yesterday_close"
 
+        # If still no mark, try Yahoo Finance for yesterday's close (stocks only)
+        if mark is None and self._yahoo_adapter is not None:
+            # For stocks, try to get yesterday's close from Yahoo
+            if pos.asset_type.value == "STOCK":
+                yahoo_md = self._yahoo_adapter.get_latest(pos.symbol)
+                if yahoo_md and yahoo_md.yesterday_close and yahoo_md.yesterday_close > 0:
+                    mark = yahoo_md.yesterday_close
+                    has_missing_md = True
+                    fallback_source = "yahoo_yesterday_close"
+
+        # Last resort: use average cost basis to preserve notional visibility
+        # This ensures risk doesn't silently disappear when data is unavailable
+        if mark is None and pos.avg_price and pos.avg_price > 0:
+            mark = pos.avg_price
+            has_missing_md = True
+            fallback_source = "avg_cost_basis"
+
+        # If still no mark, return with explicit missing data flag
+        # but calculate what we can (expiry bucket, DTE)
         if mark is None:
             return PositionMetrics(
                 symbol=pos.symbol,
@@ -228,15 +244,18 @@ class RiskEngine:
                 gamma_notional_near_term=0.0,
                 vega_notional_near_term=0.0,
                 has_missing_md=True,
-                has_missing_greeks=False,
+                has_missing_greeks=True,
             )
+
+        if fallback_source:
+            logger.debug(f"Using fallback price for {pos.symbol}: {fallback_source}=${mark:.2f}")
 
         # Calculate position notional
         notional = mark * pos.quantity * pos.multiplier
 
         # Aggregate Greeks (use IBKR only, but still calculate P&L even if Greeks missing)
-        has_missing_greeks = False
-        if md.has_greeks():
+        # When md is None (using fallback), we have no Greeks data
+        if md is not None and md.has_greeks():
             delta_contribution = (md.delta or 0.0) * pos.quantity * pos.multiplier
             gamma_contribution = (md.gamma or 0.0) * pos.quantity * pos.multiplier
             vega_contribution = (md.vega or 0.0) * pos.quantity * pos.multiplier
@@ -261,7 +280,7 @@ class RiskEngine:
         gamma_notional_near_term = 0.0
         vega_notional_near_term = 0.0
 
-        if dte is not None:
+        if dte is not None and md is not None:
             if dte <= NEAR_TERM_GAMMA_DTE:
                 # Gamma notional = gamma * mark^2 * factor * qty * mult
                 gamma_notional_near_term = abs((md.gamma or 0.0) * (mark ** 2) * GAMMA_NOTIONAL_FACTOR * pos.quantity * pos.multiplier)
@@ -272,6 +291,9 @@ class RiskEngine:
         # Market status determines which price to use for unrealized P&L
         market_status = MarketHours.get_market_status()
 
+        # Get yesterday's close (may be None if using fallback)
+        yesterday_close = md.yesterday_close if md is not None else None
+
         # Determine price to use for unrealized P&L
         if market_status == "OPEN":
             # Regular hours: use current mark
@@ -281,18 +303,18 @@ class RiskEngine:
             if pos.asset_type.value == "STOCK":
                 pnl_price = mark  # Stocks trade in extended hours
             else:
-                pnl_price = md.yesterday_close if md.yesterday_close is not None else mark  # Options don't trade extended hours
+                pnl_price = yesterday_close if yesterday_close is not None else mark  # Options don't trade extended hours
         else:
             # Market closed: use yesterday close for all assets
-            pnl_price = md.yesterday_close if md.yesterday_close is not None else mark
+            pnl_price = yesterday_close if yesterday_close is not None else mark
 
         unrealized = (pnl_price - pos.avg_price) * pos.quantity * pos.multiplier
 
         # Daily P&L: always calculate change from yesterday's close (regardless of market hours)
         # This represents the position's gain/loss since the previous trading day's close
         daily_pnl = 0.0
-        if md.yesterday_close and md.yesterday_close > 0:
-            daily_pnl = (mark - md.yesterday_close) * pos.quantity * pos.multiplier
+        if yesterday_close and yesterday_close > 0:
+            daily_pnl = (mark - yesterday_close) * pos.quantity * pos.multiplier
 
         return PositionMetrics(
             symbol=pos.symbol,
