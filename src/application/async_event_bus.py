@@ -67,7 +67,12 @@ class AsyncEventBus(EventBus):
             "dispatched": 0,
             "dropped": 0,
             "errors": 0,
+            "high_water_mark": 0,  # Peak queue depth seen
         }
+
+        # Queue depth warning threshold (80% of max)
+        self._queue_warning_threshold = int(max_queue_size * 0.8)
+        self._queue_warning_logged = False
 
         # Debounce state for market data ticks
         self._pending_ticks: Dict[str, EventEnvelope] = {}
@@ -97,6 +102,25 @@ class AsyncEventBus(EventBus):
                 try:
                     # Use put_nowait for non-blocking
                     self._queue.put_nowait(envelope)
+
+                    # Track queue depth metrics
+                    current_depth = self._queue.qsize()
+                    if current_depth > self._stats["high_water_mark"]:
+                        self._stats["high_water_mark"] = current_depth
+
+                    # Warn at 80% capacity (once per threshold crossing)
+                    if current_depth >= self._queue_warning_threshold:
+                        if not self._queue_warning_logged:
+                            logger.warning(
+                                f"Event queue at {current_depth}/{self._max_queue_size} "
+                                f"({100 * current_depth // self._max_queue_size}%) - "
+                                "consider increasing queue size or reducing event rate"
+                            )
+                            self._queue_warning_logged = True
+                    else:
+                        # Reset warning flag when queue drops below threshold
+                        self._queue_warning_logged = False
+
                 except asyncio.QueueFull:
                     self._stats["dropped"] += 1
                     logger.warning(f"Event queue full, dropping {event_type.value}")
@@ -293,6 +317,11 @@ class AsyncEventBus(EventBus):
         with self._lock:
             stats = dict(self._stats)
             stats["queue_size"] = self._queue.qsize() if self._queue else 0
+            stats["queue_max"] = self._max_queue_size
+            stats["queue_utilization_pct"] = (
+                100 * stats["queue_size"] // self._max_queue_size
+                if self._max_queue_size > 0 else 0
+            )
             stats["subscriber_count"] = sum(len(v) for v in self._subscribers.values())
             stats["async_subscriber_count"] = sum(len(v) for v in self._async_subscribers.values())
             return stats

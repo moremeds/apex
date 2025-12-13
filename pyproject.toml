@@ -13,8 +13,8 @@ dependencies = [
     "ib-async>=2.0.1",         # Interactive Brokers API client (maintained fork of ib_insync)
     "rich>=13.7.0",            # Terminal UI library
     "pyyaml>=6.0.1",           # YAML configuration parsing
-    "pytz>=2025.1",            # Timezone handling for market hours
-    "duckdb>=1.1.0",           # Embedded analytical database for persistence
+    "pytz>=2024.1",            # Timezone handling for market hours
+    "yfinance>=0.2.36",        # Yahoo Finance for fallback market data and beta values
 ]
 
 [project.optional-dependencies]

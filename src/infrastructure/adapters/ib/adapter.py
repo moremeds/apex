@@ -83,6 +83,10 @@ class IbAdapter(BrokerAdapter, MarketDataProvider):
         # Callback for streaming market data updates
         self._on_market_data_update: Optional[Callable[[str, MarketData], None]] = None
 
+        # Position subscription callback
+        self._on_position_update: Optional[Callable[[str, List[Position]], None]] = None
+        self._position_subscription_active: bool = False
+
     # -------------------------------------------------------------------------
     # Connection Management
     # -------------------------------------------------------------------------
@@ -546,17 +550,86 @@ class IbAdapter(BrokerAdapter, MarketDataProvider):
             logger.info("IB streaming market data disabled")
 
     def _handle_streaming_update(self, symbol: str, market_data: MarketData) -> None:
-        """Handle streaming market data update from fetcher."""
+        """
+        Handle streaming market data update from fetcher.
+
+        Note: EventBus publishing moved to MarketDataManager (Phase 4 single streaming path).
+        IbAdapter only updates cache and forwards to callback.
+        """
         self._market_data_cache[symbol] = market_data
 
-        if self._event_bus:
-            self._event_bus.publish(EventType.MARKET_DATA_TICK, {
-                "symbol": symbol,
-                "data": market_data,
-                "source": "IB",
-                "timestamp": datetime.now(),
-            })
-
+        # Forward to callback (MarketDataManager handles EventBus publish)
         if self._on_market_data_update:
             self._on_market_data_update(symbol, market_data)
 
+    # -------------------------------------------------------------------------
+    # Position Subscription (Phase 6)
+    # -------------------------------------------------------------------------
+
+    def set_position_callback(
+        self,
+        callback: Callable[[List[Position]], None]
+    ) -> None:
+        """
+        Set callback for position updates.
+
+        Args:
+            callback: Function called with positions list on position change.
+        """
+        self._on_position_update = callback
+
+    async def subscribe_positions(self) -> None:
+        """
+        Subscribe to position updates via IB positionEvent.
+
+        When positions change, the callback set via set_position_callback() is invoked.
+        """
+        if not self.ib or not self._connected:
+            logger.warning("Cannot subscribe to positions: not connected")
+            return
+
+        if self._position_subscription_active:
+            logger.debug("Position subscription already active")
+            return
+
+        # Subscribe to IB position events
+        self.ib.positionEvent += self._on_ib_position_event
+        self._position_subscription_active = True
+        logger.info("IB position subscription enabled")
+
+    def unsubscribe_positions(self) -> None:
+        """Unsubscribe from position updates."""
+        if not self._position_subscription_active:
+            return
+
+        if self.ib:
+            self.ib.positionEvent -= self._on_ib_position_event
+
+        self._position_subscription_active = False
+        logger.info("IB position subscription disabled")
+
+    def _on_ib_position_event(self, position) -> None:
+        """
+        Handle IB position event.
+
+        Called by ib_async when a position changes.
+        Converts and forwards to the callback.
+        """
+        if not self._on_position_update:
+            return
+
+        try:
+            # Convert single IB position to our model
+            converted = convert_position(position)
+            if converted:
+                # Invalidate position cache since something changed
+                self._position_cache = None
+                self._position_cache_time = None
+
+                # Forward to callback (BrokerManager wraps to add broker name)
+                # Note: IB sends individual position updates, callback expects list
+                self._on_position_update([converted])
+                logger.debug(f"Position update: {converted.symbol}")
+
+        except Exception as e:
+            logger.warning(f"Error processing IB position event: {e}")

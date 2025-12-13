@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from src.infrastructure.adapters.ib_adapter import IbAdapter
+from src.infrastructure.adapters import IbAdapter
 from src.domain.services.market_alert_detector import MarketAlertDetector
 from config.config_manager import ConfigManager
 
