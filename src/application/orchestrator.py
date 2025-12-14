@@ -26,6 +26,7 @@ from ..utils.logging_setup import get_logger
 from ..utils.trace_context import new_cycle, get_cycle_id
 from ..utils.perf_logger import log_timing_async, log_timing
 from ..domain.interfaces.event_bus import EventBus, EventType
+from ..domain.events import PriorityEventBus
 from ..domain.services.risk.risk_engine import RiskEngine
 from ..domain.services.pos_reconciler import Reconciler
 from ..domain.services.mdqc import MDQC
@@ -45,6 +46,7 @@ from .async_event_bus import AsyncEventBus
 
 if TYPE_CHECKING:
     from ..infrastructure.observability import RiskMetrics, HealthMetrics
+    from .readiness_manager import ReadinessManager
 
 
 logger = get_logger(__name__)
@@ -82,6 +84,7 @@ class Orchestrator:
         risk_alert_logger: RiskAlertLogger | None = None,
         risk_metrics: Optional["RiskMetrics"] = None,
         health_metrics: Optional["HealthMetrics"] = None,
+        readiness_manager: Optional["ReadinessManager"] = None,
     ):
         """
         Initialize orchestrator with all dependencies.
@@ -105,6 +108,7 @@ class Orchestrator:
             risk_alert_logger: Optional risk alert logger for audit trail.
             risk_metrics: Optional RiskMetrics for Prometheus observability.
             health_metrics: Optional HealthMetrics for Prometheus observability.
+            readiness_manager: Optional ReadinessManager for event-driven readiness gating.
         """
         self.broker_manager = broker_manager
         self.market_data_manager = market_data_manager
@@ -124,6 +128,7 @@ class Orchestrator:
         self.risk_alert_logger = risk_alert_logger
         self._risk_metrics = risk_metrics
         self._health_metrics = health_metrics
+        self._readiness_manager = readiness_manager
 
         dashboard_cfg = config.get("dashboard", {})
         self.refresh_interval_sec = dashboard_cfg.get("refresh_interval_sec", 2)
@@ -168,10 +173,11 @@ class Orchestrator:
 
         self._running = True
 
-        # Start async event bus
-        if isinstance(self.event_bus, AsyncEventBus):
+        # Start async event bus (works for both AsyncEventBus and PriorityEventBus)
+        if isinstance(self.event_bus, (AsyncEventBus, PriorityEventBus)):
             await self.event_bus.start()
-            logger.info("AsyncEventBus started")
+            bus_type = "PriorityEventBus" if isinstance(self.event_bus, PriorityEventBus) else "AsyncEventBus"
+            logger.info(f"{bus_type} started")
 
         # Subscribe all components to events
         self._subscribe_components_to_events()
@@ -208,8 +214,12 @@ class Orchestrator:
             except asyncio.CancelledError:
                 pass
 
+        # Signal shutdown to ReadinessManager
+        if self._readiness_manager:
+            self._readiness_manager.shutdown()
+
         # Stop async event bus
-        if isinstance(self.event_bus, AsyncEventBus):
+        if isinstance(self.event_bus, (AsyncEventBus, PriorityEventBus)):
             await self.event_bus.stop()
 
         # Stop watchdog
@@ -237,6 +247,9 @@ class Orchestrator:
                 if self._health_metrics:
                     self._health_metrics.record_broker_status(name, True)
                     self._health_metrics.record_connection_attempt(name, True)
+                # Notify ReadinessManager of broker connection
+                if self._readiness_manager:
+                    self._readiness_manager.on_broker_connected(name)
             else:
                 error_msg = status.last_error or "Unknown error"
                 print(f"✗ {name} broker failed: {error_msg}", flush=True)
@@ -364,6 +377,15 @@ class Orchestrator:
             "source": "reconciler",
             "timestamp": datetime.now(),
         })
+
+        # Notify ReadinessManager of positions loaded per broker
+        if self._readiness_manager:
+            if ib_positions:
+                self._readiness_manager.on_positions_loaded("ib", len(ib_positions))
+            if futu_positions:
+                self._readiness_manager.on_positions_loaded("futu", len(futu_positions))
+            if manual_positions:
+                self._readiness_manager.on_positions_loaded("manual", len(manual_positions))
 
         # Log position counts prominently (both to file and console)
         position_msg = (
@@ -495,6 +517,10 @@ class Orchestrator:
             "source": "IB_STREAMING",
             "timestamp": datetime.now(),
         })
+
+        # Notify ReadinessManager of tick received
+        if self._readiness_manager:
+            self._readiness_manager.on_tick_received()
 
         # Record tick metrics
         if self._health_metrics:
@@ -688,8 +714,40 @@ class Orchestrator:
 
                 market_data = self.market_data_store.get_all()
 
+                # Update ReadinessManager with market data coverage
+                if self._readiness_manager:
+                    position_symbols = {p.symbol for p in positions}
+                    symbols_with_data = sum(1 for s in position_symbols if s in market_data)
+                    self._readiness_manager.on_market_data_update(
+                        total_symbols=len(position_symbols),
+                        symbols_with_data=symbols_with_data
+                    )
+
                 # Readiness gate: wait for sufficient market data before first snapshot
-                if not self._snapshot_readiness_achieved:
+                # Use ReadinessManager if available, otherwise fall back to legacy logic
+                if self._readiness_manager and not self._snapshot_readiness_achieved:
+                    if not self._readiness_manager.is_ready():
+                        elapsed = (datetime.now() - self._snapshot_startup_time).total_seconds()
+                        if elapsed < self._snapshot_ready_timeout_sec:
+                            if self._health_metrics:
+                                self._health_metrics.record_system_ready(False)
+                            continue
+                        else:
+                            logger.warning(
+                                f"ReadinessManager timeout ({elapsed:.1f}s) - proceeding in degraded mode"
+                            )
+                    else:
+                        elapsed = (datetime.now() - self._snapshot_startup_time).total_seconds()
+                        logger.info(
+                            f"System ready via ReadinessManager after {elapsed:.1f}s "
+                            f"(state: {self._readiness_manager.state.value})"
+                        )
+                    self._snapshot_readiness_achieved = True
+                    if self._health_metrics:
+                        self._health_metrics.record_system_ready(True)
+                        self._health_metrics.record_startup_duration(elapsed)
+
+                elif not self._snapshot_readiness_achieved:
                     elapsed = (datetime.now() - self._snapshot_startup_time).total_seconds()
                     ready = self._check_snapshot_readiness(positions, market_data)
 
@@ -792,8 +850,14 @@ class Orchestrator:
         return coverage_ratio >= self._snapshot_ready_ratio
 
     def get_event_bus_stats(self) -> Dict[str, Any]:
-        """Get event bus statistics (if async event bus is used)."""
-        if isinstance(self.event_bus, AsyncEventBus):
+        """Get event bus statistics (if async/priority event bus is used)."""
+        if isinstance(self.event_bus, (AsyncEventBus, PriorityEventBus)):
             return self.event_bus.get_stats()
         return {}
+
+    def get_readiness_snapshot(self):
+        """Get current readiness state snapshot (if ReadinessManager is used)."""
+        if self._readiness_manager:
+            return self._readiness_manager.get_snapshot()
+        return None
 

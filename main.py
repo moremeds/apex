@@ -24,7 +24,8 @@ from src.domain.services.risk.rule_engine import RuleEngine
 from src.domain.services.risk.risk_signal_manager import RiskSignalManager
 from src.domain.services.risk.risk_signal_engine import RiskSignalEngine
 from src.domain.services.risk.risk_alert_logger import RiskAlertLogger
-from src.application import Orchestrator, AsyncEventBus
+from src.application import Orchestrator, AsyncEventBus, ReadinessManager
+from src.domain.events import PriorityEventBus
 from src.tui import TerminalDashboard
 from src.models.risk_snapshot import RiskSnapshot
 from src.utils import StructuredLogger, flush_all_loggers, set_log_timezone
@@ -140,9 +141,9 @@ async def main_async(args: argparse.Namespace) -> None:
     try:
         system_structured.info(LogCategory.SYSTEM, "Configuration loaded", {"env": args.env})
 
-        # Initialize event bus (always use AsyncEventBus)
-        event_bus = AsyncEventBus()
-        system_structured.info(LogCategory.SYSTEM, "Using AsyncEventBus")
+        # Initialize event bus (use PriorityEventBus for dual-lane priority dispatch)
+        event_bus = PriorityEventBus()
+        system_structured.info(LogCategory.SYSTEM, "Using PriorityEventBus (dual-lane)")
 
         # Initialize observability (Prometheus metrics)
         risk_metrics = None
@@ -311,6 +312,27 @@ async def main_async(args: argparse.Namespace) -> None:
             config=config.raw.get("watchdog", {}),
         )
 
+        # Initialize ReadinessManager for event-driven system readiness
+        # Determine required brokers from config
+        required_brokers = []
+        if config.ibkr.enabled:
+            required_brokers.append("ib")
+        if config.futu.enabled:
+            required_brokers.append("futu")
+        # Manual positions always available
+        required_brokers.append("manual")
+
+        readiness_manager = ReadinessManager(
+            event_bus=event_bus,
+            required_brokers=required_brokers,
+            market_data_coverage_threshold=config.raw.get("dashboard", {}).get("snapshot_ready_ratio", 0.9),
+            startup_timeout_sec=config.raw.get("dashboard", {}).get("snapshot_ready_timeout_sec", 30.0),
+        )
+        system_structured.info(LogCategory.SYSTEM, "ReadinessManager initialized", {
+            "required_brokers": required_brokers,
+            "coverage_threshold": config.raw.get("dashboard", {}).get("snapshot_ready_ratio", 0.9),
+        })
+
         # Initialize orchestrator with BrokerManager and MarketDataManager
         orchestrator = Orchestrator(
             broker_manager=broker_manager,
@@ -331,6 +353,7 @@ async def main_async(args: argparse.Namespace) -> None:
             risk_alert_logger=risk_alert_logger,
             risk_metrics=risk_metrics,
             health_metrics=health_metrics,
+            readiness_manager=readiness_manager,
         )
 
         # Initialize dashboard (if not disabled)
