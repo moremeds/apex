@@ -21,6 +21,7 @@ import asyncio
 from datetime import datetime
 from typing import Dict, Any, Optional, List, TYPE_CHECKING
 import logging
+import time
 
 from ..domain.interfaces.event_bus import EventBus, EventType
 from ..domain.services.risk.risk_engine import RiskEngine
@@ -39,6 +40,9 @@ from ..infrastructure.monitoring import HealthMonitor, HealthStatus, Watchdog
 from ..infrastructure.adapters.broker_manager import BrokerManager
 from ..infrastructure.adapters.market_data_manager import MarketDataManager
 from .async_event_bus import AsyncEventBus
+
+if TYPE_CHECKING:
+    from ..infrastructure.observability import RiskMetrics, HealthMetrics
 
 
 logger = logging.getLogger(__name__)
@@ -74,6 +78,8 @@ class Orchestrator:
         market_alert_detector: MarketAlertDetector | None = None,
         risk_signal_engine: RiskSignalEngine | None = None,
         risk_alert_logger: RiskAlertLogger | None = None,
+        risk_metrics: Optional["RiskMetrics"] = None,
+        health_metrics: Optional["HealthMetrics"] = None,
     ):
         """
         Initialize orchestrator with all dependencies.
@@ -95,6 +101,8 @@ class Orchestrator:
             market_alert_detector: Optional market alert detector.
             risk_signal_engine: Multi-layer risk signal engine (optional, replaces rule_engine).
             risk_alert_logger: Optional risk alert logger for audit trail.
+            risk_metrics: Optional RiskMetrics for Prometheus observability.
+            health_metrics: Optional HealthMetrics for Prometheus observability.
         """
         self.broker_manager = broker_manager
         self.market_data_manager = market_data_manager
@@ -112,6 +120,8 @@ class Orchestrator:
         self.market_alert_detector = market_alert_detector
         self.risk_signal_engine = risk_signal_engine
         self.risk_alert_logger = risk_alert_logger
+        self._risk_metrics = risk_metrics
+        self._health_metrics = health_metrics
 
         dashboard_cfg = config.get("dashboard", {})
         self.refresh_interval_sec = dashboard_cfg.get("refresh_interval_sec", 2)
@@ -216,16 +226,22 @@ class Orchestrator:
         # Connect all registered broker adapters
         await self.broker_manager.connect()
 
-        # Get broker status for logging
+        # Get broker status for logging and metrics
         all_status = self.broker_manager.get_all_status()
         for name, status in all_status.items():
             if status.connected:
                 print(f"✓ {name} broker connected", flush=True)
                 logger.info(f"{name} broker connected successfully")
+                if self._health_metrics:
+                    self._health_metrics.record_broker_status(name, True)
+                    self._health_metrics.record_connection_attempt(name, True)
             else:
                 error_msg = status.last_error or "Unknown error"
                 print(f"✗ {name} broker failed: {error_msg}", flush=True)
                 logger.error(f"Failed to connect {name} broker: {error_msg}")
+                if self._health_metrics:
+                    self._health_metrics.record_broker_status(name, False)
+                    self._health_metrics.record_connection_attempt(name, False)
 
         # Connect market data providers
         print("📊 Connecting to market data sources...", flush=True)
@@ -468,12 +484,18 @@ class Orchestrator:
 
     def _on_streaming_market_data(self, symbol: str, market_data) -> None:
         """Handle streaming market data update from IB via event bus."""
+        tick_time = time.perf_counter()
+
         self.event_bus.publish(EventType.MARKET_DATA_TICK, {
             "symbol": symbol,
             "data": market_data,
             "source": "IB_STREAMING",
             "timestamp": datetime.now(),
         })
+
+        # Record tick metrics
+        if self._health_metrics:
+            self._health_metrics.record_tick_received(symbol)
 
     def get_latest_risk_signals(self) -> List[RiskSignal]:
         """Get the latest risk signals."""
@@ -662,6 +684,8 @@ class Orchestrator:
 
                     if not ready and elapsed < self._snapshot_ready_timeout_sec:
                         # Not ready yet, and haven't timed out - skip this cycle
+                        if self._health_metrics:
+                            self._health_metrics.record_system_ready(False)
                         continue
 
                     if not ready:
@@ -676,6 +700,11 @@ class Orchestrator:
 
                     self._snapshot_readiness_achieved = True
 
+                    # Record startup metrics
+                    if self._health_metrics:
+                        self._health_metrics.record_system_ready(True)
+                        self._health_metrics.record_startup_duration(elapsed)
+
                 # Debounce: enforce minimum interval between snapshots
                 now = datetime.now()
                 if last_snapshot_time:
@@ -689,11 +718,26 @@ class Orchestrator:
                 self.risk_engine.clear_dirty_state()
                 last_snapshot_time = now
 
+                # Record market data coverage metrics
+                if self._health_metrics:
+                    positions_with_data = snapshot.total_positions - snapshot.positions_with_missing_md
+                    self._health_metrics.calculate_coverage(
+                        snapshot.total_positions,
+                        positions_with_data
+                    )
+
                 # Evaluate risk signals (RiskSignalEngine is required, no legacy fallback)
                 if self.risk_signal_engine:
                     self._latest_risk_signals = self.risk_signal_engine.evaluate(snapshot)
                     for signal in self._latest_risk_signals:
                         self.event_bus.publish(EventType.RISK_SIGNAL, {"signal": signal})
+
+                        # Record breach metrics for each signal
+                        if self._risk_metrics:
+                            level = 2 if signal.severity.value == "CRITICAL" else (
+                                1 if signal.severity.value == "WARNING" else 0
+                            )
+                            self._risk_metrics.record_breach(signal.signal_type.value, level)
 
                 # Log alerts to audit trail
                 if self.risk_alert_logger:

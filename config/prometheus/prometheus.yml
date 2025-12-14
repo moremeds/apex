@@ -1,0 +1,30 @@
+# Prometheus configuration for Apex Risk Management System
+#
+# This configuration scrapes metrics from Apex and evaluates alert rules.
+# Alerts are sent to Alertmanager for routing to notification channels.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+
+rule_files:
+  - "alerts/*.yml"
+
+scrape_configs:
+  # Apex risk management application
+  - job_name: 'apex'
+    static_configs:
+      - targets: ['host.docker.internal:8000']
+    scrape_interval: 5s  # More frequent for risk metrics
+    metrics_path: '/metrics'
+
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']

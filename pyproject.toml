@@ -28,6 +28,18 @@ dev = [
     "flake8>=6.1.0",           # Linting
 ]
 
+observability = [
+    "opentelemetry-api>=1.20.0",                  # OpenTelemetry API
+    "opentelemetry-sdk>=1.20.0",                  # OpenTelemetry SDK
+    "opentelemetry-exporter-prometheus>=0.41b0", # Prometheus exporter
+    "prometheus-client>=0.17.0",                  # Prometheus client library
+]
+
+# Full installation includes observability
+full = [
+    "apex-risk[dev,observability]",
+]
+
 [project.scripts]
 apex-risk = "main:main"
 
