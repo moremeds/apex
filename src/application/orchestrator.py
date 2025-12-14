@@ -20,12 +20,14 @@ from __future__ import annotations
 import asyncio
 import time
 from datetime import datetime
-from typing import Dict, Any, Optional, List, TYPE_CHECKING
+from typing import Dict, Any, Optional, List, TYPE_CHECKING, Union
 
-from ..utils.logging_setup import get_logger
+from ..utils.logging_setup import get_logger, is_console_enabled
 from ..utils.trace_context import new_cycle, get_cycle_id
 from ..utils.perf_logger import log_timing_async, log_timing
+from ..utils.market_hours import MarketHours
 from ..domain.interfaces.event_bus import EventBus, EventType
+from ..domain.events import PriorityEventBus
 from ..domain.services.risk.risk_engine import RiskEngine
 from ..domain.services.pos_reconciler import Reconciler
 from ..domain.services.mdqc import MDQC
@@ -45,6 +47,7 @@ from .async_event_bus import AsyncEventBus
 
 if TYPE_CHECKING:
     from ..infrastructure.observability import RiskMetrics, HealthMetrics
+    from .readiness_manager import ReadinessManager
 
 
 logger = get_logger(__name__)
@@ -75,13 +78,14 @@ class Orchestrator:
         rule_engine: RuleEngine,
         health_monitor: HealthMonitor,
         watchdog: Watchdog,
-        event_bus: EventBus,
+        event_bus: Union[EventBus, PriorityEventBus],
         config: Dict[str, Any],
         market_alert_detector: MarketAlertDetector | None = None,
         risk_signal_engine: RiskSignalEngine | None = None,
         risk_alert_logger: RiskAlertLogger | None = None,
         risk_metrics: Optional["RiskMetrics"] = None,
         health_metrics: Optional["HealthMetrics"] = None,
+        readiness_manager: Optional["ReadinessManager"] = None,
     ):
         """
         Initialize orchestrator with all dependencies.
@@ -105,6 +109,7 @@ class Orchestrator:
             risk_alert_logger: Optional risk alert logger for audit trail.
             risk_metrics: Optional RiskMetrics for Prometheus observability.
             health_metrics: Optional HealthMetrics for Prometheus observability.
+            readiness_manager: Optional ReadinessManager for event-driven readiness gating.
         """
         self.broker_manager = broker_manager
         self.market_data_manager = market_data_manager
@@ -124,6 +129,7 @@ class Orchestrator:
         self.risk_alert_logger = risk_alert_logger
         self._risk_metrics = risk_metrics
         self._health_metrics = health_metrics
+        self._readiness_manager = readiness_manager
 
         dashboard_cfg = config.get("dashboard", {})
         self.refresh_interval_sec = dashboard_cfg.get("refresh_interval_sec", 2)
@@ -168,10 +174,11 @@ class Orchestrator:
 
         self._running = True
 
-        # Start async event bus
-        if isinstance(self.event_bus, AsyncEventBus):
+        # Start async event bus (works for both AsyncEventBus and PriorityEventBus)
+        if isinstance(self.event_bus, (AsyncEventBus, PriorityEventBus)):
             await self.event_bus.start()
-            logger.info("AsyncEventBus started")
+            bus_type = "PriorityEventBus" if isinstance(self.event_bus, PriorityEventBus) else "AsyncEventBus"
+            logger.info(f"{bus_type} started")
 
         # Subscribe all components to events
         self._subscribe_components_to_events()
@@ -208,8 +215,12 @@ class Orchestrator:
             except asyncio.CancelledError:
                 pass
 
+        # Signal shutdown to ReadinessManager
+        if self._readiness_manager:
+            self._readiness_manager.shutdown()
+
         # Stop async event bus
-        if isinstance(self.event_bus, AsyncEventBus):
+        if isinstance(self.event_bus, (AsyncEventBus, PriorityEventBus)):
             await self.event_bus.stop()
 
         # Stop watchdog
@@ -222,7 +233,8 @@ class Orchestrator:
 
     async def _connect_providers(self) -> None:
         """Connect to all data providers via BrokerManager and MarketDataManager."""
-        print("🔌 Connecting to brokers...", flush=True)
+        if is_console_enabled():
+            print("🔌 Connecting to brokers...", flush=True)
         logger.info("Connecting to all brokers via BrokerManager...")
 
         # Connect all registered broker adapters
@@ -232,21 +244,27 @@ class Orchestrator:
         all_status = self.broker_manager.get_all_status()
         for name, status in all_status.items():
             if status.connected:
-                print(f"✓ {name} broker connected", flush=True)
+                if is_console_enabled():
+                    print(f"✓ {name} broker connected", flush=True)
                 logger.info(f"{name} broker connected successfully")
                 if self._health_metrics:
                     self._health_metrics.record_broker_status(name, True)
                     self._health_metrics.record_connection_attempt(name, True)
+                # Notify ReadinessManager of broker connection
+                if self._readiness_manager:
+                    self._readiness_manager.on_broker_connected(name)
             else:
                 error_msg = status.last_error or "Unknown error"
-                print(f"✗ {name} broker failed: {error_msg}", flush=True)
+                if is_console_enabled():
+                    print(f"✗ {name} broker failed: {error_msg}", flush=True)
                 logger.error(f"Failed to connect {name} broker: {error_msg}")
                 if self._health_metrics:
                     self._health_metrics.record_broker_status(name, False)
                     self._health_metrics.record_connection_attempt(name, False)
 
         # Connect market data providers
-        print("📊 Connecting to market data sources...", flush=True)
+        if is_console_enabled():
+            print("📊 Connecting to market data sources...", flush=True)
         logger.info("Connecting to market data sources via MarketDataManager...")
 
         await self.market_data_manager.connect()
@@ -257,18 +275,21 @@ class Orchestrator:
             if status.connected:
                 streaming_info = " (streaming)" if status.supports_streaming else ""
                 greeks_info = " (greeks)" if status.supports_greeks else ""
-                print(f"✓ {name} market data connected{streaming_info}{greeks_info}", flush=True)
+                if is_console_enabled():
+                    print(f"✓ {name} market data connected{streaming_info}{greeks_info}", flush=True)
                 logger.info(f"{name} market data connected successfully")
             else:
                 error_msg = status.last_error or "Unknown error"
-                print(f"✗ {name} market data failed: {error_msg}", flush=True)
+                if is_console_enabled():
+                    print(f"✗ {name} market data failed: {error_msg}", flush=True)
                 logger.error(f"Failed to connect {name} market data: {error_msg}")
 
         # Enable streaming if any provider supports it
         if self.market_data_manager.supports_streaming():
             self.market_data_manager.set_streaming_callback(self._on_streaming_market_data)
             self.market_data_manager.enable_streaming()
-            print("✓ Market data streaming enabled", flush=True)
+            if is_console_enabled():
+                print("✓ Market data streaming enabled", flush=True)
             logger.info("Market data streaming enabled")
 
     async def _subscribe_to_position_updates(self) -> None:
@@ -281,11 +302,13 @@ class Orchestrator:
         try:
             self.broker_manager.set_position_callback(self._on_broker_position_update)
             await self.broker_manager.subscribe_positions()
-            print("✓ Position subscription enabled", flush=True)
+            if is_console_enabled():
+                print("✓ Position subscription enabled", flush=True)
             logger.info("Subscribed to position updates from all brokers")
         except Exception as e:
             logger.warning(f"Failed to subscribe to position updates: {e}")
-            print(f"⚠ Position subscription failed: {e}", flush=True)
+            if is_console_enabled():
+                print(f"⚠ Position subscription failed: {e}", flush=True)
 
     def _on_broker_position_update(self, broker_name: str, positions: List[Position]) -> None:
         """
@@ -365,13 +388,23 @@ class Orchestrator:
             "timestamp": datetime.now(),
         })
 
-        # Log position counts prominently (both to file and console)
+        # Notify ReadinessManager of positions loaded per broker
+        if self._readiness_manager:
+            if ib_positions:
+                self._readiness_manager.on_positions_loaded("ib", len(ib_positions))
+            if futu_positions:
+                self._readiness_manager.on_positions_loaded("futu", len(futu_positions))
+            if manual_positions:
+                self._readiness_manager.on_positions_loaded("manual", len(manual_positions))
+
+        # Log position counts prominently (both to file and console if enabled)
         position_msg = (
             f"📊 Positions: IB={len(ib_positions)}, Futu={len(futu_positions)}, "
             f"Manual={len(manual_positions)} → Merged={len(merged_positions)}"
         )
         logger.info(position_msg)
-        print(position_msg, flush=True)
+        if is_console_enabled():
+            print(position_msg, flush=True)
 
         # 3. Publish account info (already fetched concurrently above)
         account_info = await self._fetch_account_info_cached()
@@ -385,7 +418,8 @@ class Orchestrator:
         for broker_name, acc in accounts_by_broker.items():
             account_msg += f", {broker_name.upper()}=${acc.net_liquidation:,.0f}"
         logger.info(account_msg)
-        print(account_msg, flush=True)
+        if is_console_enabled():
+            print(account_msg, flush=True)
 
         # 4. Subscribe to market data in BACKGROUND (don't block timer loop)
         all_symbols = [p.symbol for p in merged_positions]
@@ -495,6 +529,10 @@ class Orchestrator:
             "source": "IB_STREAMING",
             "timestamp": datetime.now(),
         })
+
+        # Notify ReadinessManager of tick received
+        if self._readiness_manager:
+            self._readiness_manager.on_tick_received()
 
         # Record tick metrics
         if self._health_metrics:
@@ -688,8 +726,57 @@ class Orchestrator:
 
                 market_data = self.market_data_store.get_all()
 
-                # Readiness gate: wait for sufficient market data before first snapshot
-                if not self._snapshot_readiness_achieved:
+                # Update ReadinessManager with market data coverage
+                if self._readiness_manager:
+                    position_symbols = {p.symbol for p in positions}
+                    symbols_with_data = sum(1 for s in position_symbols if s in market_data)
+                    self._readiness_manager.on_market_data_update(
+                        total_symbols=len(position_symbols),
+                        symbols_with_data=symbols_with_data
+                    )
+
+                # Readiness gate: Wait for market data before first snapshot
+                # - Market OPEN: Wait for 100% live streaming data
+                # - Market CLOSED/EXTENDED: Proceed immediately (options don't trade, use previous close)
+                if self._readiness_manager and not self._snapshot_readiness_achieved:
+                    market_status = MarketHours.get_market_status()
+
+                    # When market is closed or extended hours, don't wait for live data
+                    # Options don't trade outside regular hours - use previous close
+                    if market_status in ("CLOSED", "EXTENDED"):
+                        elapsed = (datetime.now() - self._snapshot_startup_time).total_seconds()
+                        logger.info(
+                            f"✓ Market {market_status} - proceeding with last business day's close prices "
+                            f"(elapsed={elapsed:.1f}s)"
+                        )
+                        self._snapshot_readiness_achieved = True
+                        if self._health_metrics:
+                            self._health_metrics.record_system_ready(True)
+                            self._health_metrics.record_startup_duration(elapsed)
+                    elif not self._readiness_manager.is_ready():
+                        elapsed = (datetime.now() - self._snapshot_startup_time).total_seconds()
+                        coverage = self._readiness_manager.coverage_ratio
+                        # Log progress every 5 seconds
+                        if int(elapsed) % 5 == 0:
+                            logger.info(
+                                f"Waiting for market data ({market_status}): {coverage:.0%} coverage "
+                                f"({symbols_with_data}/{len(position_symbols)} symbols), "
+                                f"elapsed={elapsed:.1f}s"
+                            )
+                        if self._health_metrics:
+                            self._health_metrics.record_system_ready(False)
+                        continue  # Keep waiting - no timeout fallback
+                    else:
+                        elapsed = (datetime.now() - self._snapshot_startup_time).total_seconds()
+                        logger.info(
+                            f"✓ Market data ready: 100% coverage after {elapsed:.1f}s - starting snapshots"
+                        )
+                        self._snapshot_readiness_achieved = True
+                        if self._health_metrics:
+                            self._health_metrics.record_system_ready(True)
+                            self._health_metrics.record_startup_duration(elapsed)
+
+                elif not self._snapshot_readiness_achieved:
                     elapsed = (datetime.now() - self._snapshot_startup_time).total_seconds()
                     ready = self._check_snapshot_readiness(positions, market_data)
 
@@ -739,6 +826,12 @@ class Orchestrator:
                         snapshot.total_positions,
                         positions_with_data
                     )
+
+                    # Record event bus queue depth metrics
+                    if isinstance(self.event_bus, PriorityEventBus):
+                        stats = self.event_bus.get_stats()
+                        self._health_metrics.record_queue_size("fast", stats.get("fast_queue_size", 0))
+                        self._health_metrics.record_queue_size("slow", stats.get("slow_pending", 0))
 
                 # Evaluate risk signals (RiskSignalEngine is required, no legacy fallback)
                 if self.risk_signal_engine:
@@ -792,8 +885,69 @@ class Orchestrator:
         return coverage_ratio >= self._snapshot_ready_ratio
 
     def get_event_bus_stats(self) -> Dict[str, Any]:
-        """Get event bus statistics (if async event bus is used)."""
-        if isinstance(self.event_bus, AsyncEventBus):
+        """Get event bus statistics (if async/priority event bus is used)."""
+        if isinstance(self.event_bus, (AsyncEventBus, PriorityEventBus)):
             return self.event_bus.get_stats()
         return {}
+
+    def get_readiness_snapshot(self):
+        """Get current readiness state snapshot (if ReadinessManager is used)."""
+        if self._readiness_manager:
+            return self._readiness_manager.get_snapshot()
+        return None
+
+    def get_positions_preview(self) -> "RiskSnapshot":
+        """
+        Get a preview snapshot with positions but no full risk calculations.
+
+        Used to show positions immediately while waiting for market data.
+        Positions are displayed with basic info (symbol, qty, broker) but
+        without P&L or Greeks calculations.
+
+        Returns:
+            RiskSnapshot with position_risks populated from raw positions.
+        """
+        from ..models.risk_snapshot import RiskSnapshot
+        from ..models.position_risk import PositionRisk
+
+        positions = self.position_store.get_all()
+        if not positions:
+            return RiskSnapshot()
+
+        # Create lightweight PositionRisk objects without full calculations
+        # IMPORTANT: Do NOT use avg_price or any fake data - leave fields blank/zero
+        position_risks = []
+        for pos in positions:
+            # Create minimal PositionRisk with position info only
+            # All price/value fields are None/0 - we don't have real market data yet
+            pos_risk = PositionRisk(
+                position=pos,
+                mark_price=None,  # No market data yet - leave blank
+                iv=None,
+                market_value=0.0,  # Cannot calculate without live price
+                unrealized_pnl=0.0,
+                daily_pnl=0.0,
+                delta=0.0,  # No Greeks without market data
+                gamma=0.0,
+                vega=0.0,
+                theta=0.0,
+                beta=0.0,
+                delta_dollars=0.0,
+                notional=0.0,  # Cannot calculate without live price
+                beta_adjusted_delta=0.0,
+                has_market_data=False,  # Indicate this is preview
+                has_greeks=False,
+                is_stale=True,  # Mark as stale to indicate preview
+                is_using_close=False,
+            )
+            position_risks.append(pos_risk)
+
+        # Create preview snapshot
+        preview = RiskSnapshot()
+        preview.position_risks = position_risks
+        preview.total_positions = len(positions)
+        preview.positions_with_missing_md = len(positions)  # All positions lack live data
+        preview.is_preview = True  # Custom flag for dashboard to show "Loading..." indicator
+
+        return preview
 

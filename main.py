@@ -24,12 +24,13 @@ from src.domain.services.risk.rule_engine import RuleEngine
 from src.domain.services.risk.risk_signal_manager import RiskSignalManager
 from src.domain.services.risk.risk_signal_engine import RiskSignalEngine
 from src.domain.services.risk.risk_alert_logger import RiskAlertLogger
-from src.application import Orchestrator, AsyncEventBus
+from src.application import Orchestrator, AsyncEventBus, ReadinessManager
+from src.domain.events import PriorityEventBus
 from src.tui import TerminalDashboard
 from src.models.risk_snapshot import RiskSnapshot
 from src.utils import StructuredLogger, flush_all_loggers, set_log_timezone
 from src.utils.structured_logger import LogCategory
-from src.utils.logging_setup import setup_category_logging
+from src.utils.logging_setup import setup_category_logging, is_console_enabled
 from src.utils.perf_logger import set_perf_metrics
 
 # Observability imports (optional - graceful fallback if not installed)
@@ -40,6 +41,10 @@ try:
     OBSERVABILITY_AVAILABLE = True
 except ImportError:
     OBSERVABILITY_AVAILABLE = False
+    MetricsManager = None  # type: ignore
+    get_metrics_manager = None  # type: ignore
+    RiskMetrics = None  # type: ignore
+    HealthMetrics = None  # type: ignore
 
 
 def parse_args() -> argparse.Namespace:
@@ -140,9 +145,9 @@ async def main_async(args: argparse.Namespace) -> None:
     try:
         system_structured.info(LogCategory.SYSTEM, "Configuration loaded", {"env": args.env})
 
-        # Initialize event bus (always use AsyncEventBus)
-        event_bus = AsyncEventBus()
-        system_structured.info(LogCategory.SYSTEM, "Using AsyncEventBus")
+        # Initialize event bus (use PriorityEventBus for dual-lane priority dispatch)
+        event_bus = PriorityEventBus()
+        system_structured.info(LogCategory.SYSTEM, "Using PriorityEventBus (dual-lane)")
 
         # Initialize observability (Prometheus metrics)
         risk_metrics = None
@@ -166,7 +171,8 @@ async def main_async(args: argparse.Namespace) -> None:
                     "Observability enabled",
                     {"metrics_port": args.metrics_port, "endpoint": f"http://localhost:{args.metrics_port}/metrics"}
                 )
-                print(f"📊 Metrics available at http://localhost:{args.metrics_port}/metrics", flush=True)
+                if is_console_enabled():
+                    print(f"📊 Metrics available at http://localhost:{args.metrics_port}/metrics", flush=True)
             except Exception as e:
                 system_structured.warning(
                     LogCategory.SYSTEM,
@@ -254,17 +260,21 @@ async def main_async(args: argparse.Namespace) -> None:
         #     market_data_manager.register_provider("ccxt", ccxt_provider, priority=60)
 
         # Initialize Yahoo Finance adapter for beta and market data
-        yahoo_adapter = YahooFinanceAdapter(
-            price_ttl_seconds=30,
-            beta_ttl_hours=24,
-        )
-        await yahoo_adapter.connect()
-        system_structured.info(LogCategory.SYSTEM, "Yahoo Finance adapter initialized")
+        # DISABLED: Yahoo API calls were causing 6.5s snapshot delays
+        # TODO: Re-enable with async/cached-only mode once performance is verified
+        yahoo_adapter = None
+        # yahoo_adapter = YahooFinanceAdapter(
+        #     price_ttl_seconds=30,
+        #     beta_ttl_hours=24,
+        # )
+        # await yahoo_adapter.connect()
+        # system_structured.info(LogCategory.SYSTEM, "Yahoo Finance adapter initialized")
+        system_structured.info(LogCategory.SYSTEM, "Yahoo Finance adapter DISABLED (performance)")
 
         # Initialize domain services
         risk_engine = RiskEngine(
             config=config.raw,
-            yahoo_adapter=yahoo_adapter,
+            yahoo_adapter=yahoo_adapter,  # None - uses beta=1.0 for all
             risk_metrics=risk_metrics,
         )
         reconciler = Reconciler(stale_threshold_seconds=300)
@@ -311,6 +321,30 @@ async def main_async(args: argparse.Namespace) -> None:
             config=config.raw.get("watchdog", {}),
         )
 
+        # Initialize ReadinessManager for event-driven system readiness
+        # Determine required brokers from config
+        required_brokers = []
+        if config.ibkr.enabled:
+            required_brokers.append("ib")
+        if config.futu.enabled:
+            required_brokers.append("futu")
+        # Manual positions always available
+        required_brokers.append("manual")
+
+        # Require 100% market data coverage before starting snapshots
+        # User's positions are standard tickers that should all have data
+        market_data_threshold = 1.0  # 100% coverage required
+        readiness_manager = ReadinessManager(
+            event_bus=event_bus,
+            required_brokers=required_brokers,
+            market_data_coverage_threshold=market_data_threshold,
+            startup_timeout_sec=config.raw.get("dashboard", {}).get("snapshot_ready_timeout_sec", 30.0),
+        )
+        system_structured.info(LogCategory.SYSTEM, "ReadinessManager initialized", {
+            "required_brokers": required_brokers,
+            "coverage_threshold": market_data_threshold,
+        })
+
         # Initialize orchestrator with BrokerManager and MarketDataManager
         orchestrator = Orchestrator(
             broker_manager=broker_manager,
@@ -331,6 +365,7 @@ async def main_async(args: argparse.Namespace) -> None:
             risk_alert_logger=risk_alert_logger,
             risk_metrics=risk_metrics,
             health_metrics=health_metrics,
+            readiness_manager=readiness_manager,
         )
 
         # Initialize dashboard (if not disabled)
@@ -394,9 +429,14 @@ async def main_async(args: argparse.Namespace) -> None:
                             {"positions": snapshot.total_positions, "position_risks": len(snapshot.position_risks)}
                         )
                     else:
-                        # No snapshot yet - show empty snapshot with health status
-                        empty_snapshot = RiskSnapshot()
-                        dashboard.update(empty_snapshot, [], health, [])
+                        # No full snapshot yet - show positions preview immediately
+                        # This displays raw positions while waiting for market data
+                        preview = orchestrator.get_positions_preview()
+                        if preview and preview.total_positions > 0:
+                            dashboard.update(preview, [], health, [])
+                        else:
+                            empty_snapshot = RiskSnapshot()
+                            dashboard.update(empty_snapshot, [], health, [])
             except KeyboardInterrupt:
                 system_structured.info(LogCategory.SYSTEM, "Received shutdown signal")
         else:
