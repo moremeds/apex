@@ -9,13 +9,13 @@ from __future__ import annotations
 from typing import Dict, List, Set, Optional
 from datetime import datetime
 from dataclasses import replace
-import logging
 from ...models.position import Position, PositionSource, AssetType
 from ...models.reconciliation import ReconciliationIssue, IssueType
 from ...utils.timezone import age_seconds
+from ...utils.logging_setup import get_logger
 
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class Reconciler:

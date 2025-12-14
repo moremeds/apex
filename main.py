@@ -81,6 +81,20 @@ Examples:
         help="Port for Prometheus /metrics endpoint (default: 8000, 0 to disable)"
     )
 
+    parser.add_argument(
+        "--verbose", "-v",
+        action="store_true",
+        help="Enable verbose logging (DEBUG level for all categories)"
+    )
+
+    parser.add_argument(
+        "--log-level",
+        type=str,
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        help="Set log level (default: INFO, ignored if --verbose is set)"
+    )
+
     return parser.parse_args()
 
 
@@ -98,13 +112,20 @@ async def main_async(args: argparse.Namespace) -> None:
         set_log_timezone(None)  # Use local time
 
     # Set up category-based logging with environment prefix
-    category_loggers = setup_category_logging(env=args.env, log_dir="./logs", level="DEBUG")
+    # Now creates 5 categories: system, adapter, risk, data, perf
+    category_loggers = setup_category_logging(
+        env=args.env,
+        log_dir="./logs",
+        level=args.log_level,
+        console=args.no_dashboard,  # Console output when no dashboard
+        verbose=args.verbose,
+    )
     system_logger = category_loggers["system"]
-    market_logger = category_loggers["market"]
+    data_logger = category_loggers["data"]
 
     # Create structured loggers for each category
     system_structured = StructuredLogger(system_logger)
-    market_structured = StructuredLogger(market_logger)
+    data_structured = StructuredLogger(data_logger)
 
     system_structured.info(
         LogCategory.SYSTEM,
@@ -363,7 +384,7 @@ async def main_async(args: argparse.Namespace) -> None:
                         dashboard.update(snapshot, risk_signals, health, market_alerts)
 
                         # Log market data fetch
-                        market_structured.info(
+                        data_structured.info(
                             LogCategory.DATA,
                             "Risk snapshot refreshed",
                             {"positions": snapshot.total_positions, "position_risks": len(snapshot.position_risks)}

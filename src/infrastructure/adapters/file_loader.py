@@ -8,7 +8,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List
 from datetime import datetime, date
-import logging
 import yaml
 
 from ...domain.interfaces.broker_adapter import BrokerAdapter
@@ -16,9 +15,10 @@ from ...models.position import Position, AssetType, PositionSource
 from ...models.account import AccountInfo
 from ...models.order import Order, Trade
 from ...utils.timezone import now_utc, age_seconds
+from ...utils.logging_setup import get_logger
 
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class FileLoader(BrokerAdapter):

@@ -12,12 +12,12 @@ Tracks operational health of the Apex system:
 from __future__ import annotations
 
 import time
-import logging
 from typing import Dict, Optional
 
 from opentelemetry import metrics
+from ...utils.logging_setup import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class HealthMetrics:

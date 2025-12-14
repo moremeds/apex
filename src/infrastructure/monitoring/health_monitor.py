@@ -9,12 +9,12 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Dict, List
 from enum import Enum
-import logging
 
 from ...utils.timezone import now_utc
+from ...utils.logging_setup import get_logger
 
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class HealthStatus(Enum):

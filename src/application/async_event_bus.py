@@ -3,16 +3,16 @@
 from __future__ import annotations
 import asyncio
 import time
-import logging
 from typing import Callable, Any, Dict, List, Optional, Tuple
 from collections import defaultdict
 from dataclasses import dataclass, field
 from threading import Lock
 
 from ..domain.interfaces.event_bus import EventBus, EventType
+from ..utils.logging_setup import get_logger
 
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass

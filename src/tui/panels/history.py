@@ -5,12 +5,13 @@ Note: Persistence layer removed - these panels show placeholder content.
 """
 
 from __future__ import annotations
-import logging
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-logger = logging.getLogger(__name__)
+from src.utils.logging_setup import get_logger
+
+logger = get_logger(__name__)
 
 
 def render_position_history_today(broker: str) -> Panel:

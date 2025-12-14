@@ -18,8 +18,9 @@ from datetime import date
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from threading import Lock
-import logging
 import time
+
+from src.utils.logging_setup import get_logger
 from src.models.position import Position
 from src.models.market_data import MarketData
 from src.models.account import AccountInfo
@@ -33,7 +34,7 @@ if TYPE_CHECKING:
     from src.infrastructure.adapters.yahoo import YahooFinanceAdapter
     from src.infrastructure.observability.risk_metrics import RiskMetrics
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Constants for near-term Greeks concentration thresholds
 NEAR_TERM_GAMMA_DTE = 7  # Days to expiry threshold for near-term gamma

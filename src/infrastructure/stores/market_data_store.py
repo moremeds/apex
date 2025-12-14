@@ -4,15 +4,15 @@ from __future__ import annotations
 from typing import Dict, Iterable, List, Optional, TYPE_CHECKING
 from threading import RLock
 from datetime import datetime, timedelta
-import logging
 
+from ...utils.logging_setup import get_logger
 from ...models.market_data import MarketData
 from ...utils.timezone import age_seconds
 
 if TYPE_CHECKING:
     from ...domain.interfaces.event_bus import EventBus
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class MarketDataStore:

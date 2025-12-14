@@ -9,10 +9,10 @@ from __future__ import annotations
 from typing import Dict, List, Any
 from dataclasses import dataclass
 from enum import Enum
-import logging
 from src.models.risk_snapshot import RiskSnapshot
+from src.utils.logging_setup import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class BreachSeverity(Enum):

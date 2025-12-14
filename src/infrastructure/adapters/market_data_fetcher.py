@@ -8,17 +8,17 @@ Supports event-driven streaming updates and fallback to snapshot data.
 from __future__ import annotations
 from typing import List, Dict, Optional, Tuple, Callable, TYPE_CHECKING
 from math import isnan
-import logging
 import asyncio
 
 from ...models.position import Position, AssetType
 from ...models.market_data import MarketData, GreeksSource
 from ...utils.timezone import now_utc
+from ...utils.logging_setup import get_logger
 
 if TYPE_CHECKING:
     from ...infrastructure.stores.market_data_store import MarketDataStore
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class MarketDataFetcher:

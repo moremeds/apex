@@ -18,11 +18,13 @@ The orchestrator operates in a fully event-driven mode:
 
 from __future__ import annotations
 import asyncio
+import time
 from datetime import datetime
 from typing import Dict, Any, Optional, List, TYPE_CHECKING
-import logging
-import time
 
+from ..utils.logging_setup import get_logger
+from ..utils.trace_context import new_cycle, get_cycle_id
+from ..utils.perf_logger import log_timing_async, log_timing
 from ..domain.interfaces.event_bus import EventBus, EventType
 from ..domain.services.risk.risk_engine import RiskEngine
 from ..domain.services.pos_reconciler import Reconciler
@@ -45,7 +47,7 @@ if TYPE_CHECKING:
     from ..infrastructure.observability import RiskMetrics, HealthMetrics
 
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class Orchestrator:
@@ -317,7 +319,8 @@ class Orchestrator:
         - Positions and accounts are fetched concurrently
         - Market data subscription runs in background (doesn't block timer loop)
         """
-        logger.debug("Starting data fetch and reconciliation")
+        cycle_id = get_cycle_id()
+        logger.debug(f"[{cycle_id}] Starting data fetch and reconciliation")
 
         # 1. Fetch positions AND accounts concurrently (don't wait serially)
         positions_task = asyncio.create_task(self.broker_manager.fetch_positions_by_broker())
@@ -620,6 +623,8 @@ class Orchestrator:
         This triggers position/account fetching at regular intervals
         to ensure the system remains consistent. Runs initial fetch
         immediately on startup.
+
+        Each iteration creates a new cycle ID for log correlation.
         """
         first_run = True
         while self._running:
@@ -630,13 +635,19 @@ class Orchestrator:
                 else:
                     await asyncio.sleep(self.refresh_interval_sec)
 
-                # Run data fetch and reconciliation
-                await self._fetch_and_reconcile()
+                # Create new cycle for this refresh iteration
+                with new_cycle() as cycle_id:
+                    logger.debug(f"[{cycle_id}] Timer tick started")
 
-                # Emit TIMER_TICK for any subscribers
-                self.event_bus.publish(EventType.TIMER_TICK, {
-                    "timestamp": datetime.now(),
-                })
+                    # Run data fetch and reconciliation with timing
+                    async with log_timing_async("fetch_and_reconcile", warn_threshold_ms=2000):
+                        await self._fetch_and_reconcile()
+
+                    # Emit TIMER_TICK for any subscribers
+                    self.event_bus.publish(EventType.TIMER_TICK, {
+                        "timestamp": datetime.now(),
+                        "cycle_id": cycle_id,
+                    })
 
             except asyncio.CancelledError:
                 logger.debug("Timer loop cancelled")
@@ -712,11 +723,14 @@ class Orchestrator:
                     if elapsed_since_last < self._snapshot_min_interval_sec:
                         continue
 
-                # Build snapshot
-                snapshot = self.risk_engine.build_snapshot(positions, market_data, account_info)
+                # Build snapshot with timing
+                with log_timing("snapshot_build", warn_threshold_ms=250, extra={"positions": len(positions)}):
+                    snapshot = self.risk_engine.build_snapshot(positions, market_data, account_info)
+
                 self._latest_snapshot = snapshot
                 self.risk_engine.clear_dirty_state()
                 last_snapshot_time = now
+                logger.debug(f"[{get_cycle_id()}] Snapshot built: {len(positions)} positions")
 
                 # Record market data coverage metrics
                 if self._health_metrics:

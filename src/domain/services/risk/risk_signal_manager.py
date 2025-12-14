@@ -10,12 +10,12 @@ Prevents alert fatigue by:
 from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple
-import logging
 
 from src.models.risk_signal import RiskSignal, SignalSeverity
+from src.utils.logging_setup import get_logger
 
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class RiskSignalManager:

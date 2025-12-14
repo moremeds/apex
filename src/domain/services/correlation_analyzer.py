@@ -11,7 +11,6 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 from collections import defaultdict
-import logging
 
 from ...models.risk_snapshot import RiskSnapshot
 from ...models.risk_signal import (
@@ -21,9 +20,10 @@ from ...models.risk_signal import (
     SuggestedAction,
 )
 from .risk.threshold import Threshold, ThresholdDirection
+from ...utils.logging_setup import get_logger
 
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class CorrelationAnalyzer:

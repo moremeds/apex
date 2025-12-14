@@ -11,16 +11,16 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
-import logging
 
 from ...domain.interfaces.broker_adapter import BrokerAdapter
 from ...domain.interfaces.market_data_provider import MarketDataProvider
 from ...domain.interfaces.event_bus import EventBus, EventType
 from ...utils.timezone import age_seconds
 from .health_monitor import HealthMonitor, HealthStatus
+from ...utils.logging_setup import get_logger
 
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class Watchdog:

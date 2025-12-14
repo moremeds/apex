@@ -10,14 +10,14 @@ from __future__ import annotations
 from typing import Optional
 from datetime import datetime
 from math import isnan
-import logging
 
 from ....models.position import Position, AssetType, PositionSource
 from ....models.order import Order, Trade, OrderSource, OrderStatus, OrderSide, OrderType
 from ....utils.timezone import now_utc, parse_ib_timestamp
+from ....utils.logging_setup import get_logger
 
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def convert_position(ib_pos) -> Position:

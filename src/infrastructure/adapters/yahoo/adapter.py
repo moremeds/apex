@@ -18,7 +18,6 @@ from typing import List, Dict, Optional, Callable
 from datetime import datetime, timedelta
 from threading import RLock
 from dataclasses import dataclass
-import logging
 
 try:
     import yfinance as yf
@@ -29,8 +28,9 @@ from ....domain.interfaces.market_data_provider import MarketDataProvider
 from ....models.position import Position, AssetType
 from ....models.market_data import MarketData, DataQuality, GreeksSource
 from ....utils.timezone import now_utc
+from ....utils.logging_setup import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass

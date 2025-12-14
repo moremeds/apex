@@ -7,10 +7,11 @@ Handles real-time trade notifications from Futu OpenD.
 from __future__ import annotations
 from typing import Callable
 import threading
-import logging
+
+from ....utils.logging_setup import get_logger
 
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def create_trade_handler(on_trade_callback: Callable[[dict], None]):

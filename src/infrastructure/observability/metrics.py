@@ -15,15 +15,15 @@ Usage:
 
 from __future__ import annotations
 
-import logging
 from typing import Optional
 
 from opentelemetry import metrics
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.exporter.prometheus import PrometheusMetricReader
 from prometheus_client import start_http_server
+from ...utils.logging_setup import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class MetricsManager:

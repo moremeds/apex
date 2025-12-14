@@ -9,15 +9,15 @@ Futu returns timestamps in US Eastern time for US market.
 from __future__ import annotations
 from typing import Optional, Dict, Union
 from datetime import datetime
-import logging
 
 from ....models.position import Position, AssetType, PositionSource
 from ....models.order import Order, Trade, OrderSource, OrderStatus, OrderSide, OrderType
 from ....utils.timezone import now_utc, parse_futu_timestamp
 from .code_parser import parse_futu_code
+from ....utils.logging_setup import get_logger
 
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def convert_position(row, acc_id: Optional[int] = None) -> Optional[Position]:
