@@ -1,0 +1,143 @@
+# Apex Risk Management Alert Rules
+#
+# These rules define when alerts should fire based on Apex metrics.
+# Alerts are grouped by severity and type for proper routing.
+
+groups:
+  - name: apex_risk_alerts
+    rules:
+      # ===================
+      # CRITICAL ALERTS
+      # ===================
+
+      # Hard risk breach - immediate notification
+      - alert: RiskHardBreach
+        expr: apex_risk_breach_level == 2
+        for: 0s
+        labels:
+          severity: critical
+        annotations:
+          summary: "HARD BREACH: {{ $labels.rule }}"
+          description: "Risk limit hard breach detected on rule '{{ $labels.rule }}'. Immediate action required."
+
+      # Broker disconnected for more than 10 seconds
+      - alert: BrokerDisconnected
+        expr: apex_broker_connected == 0
+        for: 10s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Broker {{ $labels.broker }} disconnected"
+          description: "Broker '{{ $labels.broker }}' connection lost for more than 10 seconds. Check TWS/Gateway status."
+
+      # ===================
+      # WARNING ALERTS
+      # ===================
+
+      # Soft risk breach - warning after sustained 1 minute
+      - alert: RiskSoftBreach
+        expr: apex_risk_breach_level == 1
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Soft breach: {{ $labels.rule }}"
+          description: "Risk limit soft breach on rule '{{ $labels.rule }}' sustained for 1 minute. Consider reducing exposure."
+
+      # Market data stale for any symbol
+      - alert: MarketDataStale
+        expr: time() - apex_last_tick_timestamp > 30
+        for: 30s
+        labels:
+          severity: warning
+        annotations:
+          summary: "Stale market data for {{ $labels.symbol }}"
+          description: "No tick received for '{{ $labels.symbol }}' in 30+ seconds. Check market data subscription."
+
+      # Low market data coverage
+      - alert: LowMarketDataCoverage
+        expr: apex_market_data_coverage < 0.8
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low market data coverage: {{ $value | printf \"%.0f\" }}%"
+          description: "Market data coverage is below 80% for more than 1 minute. Risk calculations may be incomplete."
+
+      # System not ready for extended period
+      - alert: SystemNotReady
+        expr: apex_system_ready == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "System not ready"
+          description: "Apex system not ready for 2+ minutes. Check data sources and connections."
+
+      # High margin utilization
+      - alert: HighMarginUtilization
+        expr: apex_margin_utilization > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High margin utilization: {{ $value | printf \"%.1f\" }}%"
+          description: "Margin utilization above 80% for 5 minutes. Consider reducing positions."
+
+      # ===================
+      # PERFORMANCE ALERTS
+      # ===================
+
+      # Slow risk calculation
+      - alert: SlowRiskCalculation
+        expr: histogram_quantile(0.95, rate(apex_risk_calc_duration_ms_bucket[5m])) > 500
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Risk calculation p95 > 500ms"
+          description: "Risk calculation taking too long (p95 > 500ms). Check position count or system resources."
+
+      # Slow snapshot build
+      - alert: SlowSnapshotBuild
+        expr: histogram_quantile(0.95, rate(apex_snapshot_build_duration_ms_bucket[5m])) > 500
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Snapshot build p95 > 500ms"
+          description: "Snapshot build taking too long (p95 > 500ms). Check position count or market data latency."
+
+      # High event queue depth
+      - alert: HighEventQueueDepth
+        expr: apex_event_bus_queue_size > 1000
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High event queue depth: {{ $value }}"
+          description: "Event bus queue depth exceeds 1000. Possible event processing backlog."
+
+      # ===================
+      # INFO ALERTS
+      # ===================
+
+      # Many positions with missing market data
+      - alert: ManyPositionsMissingData
+        expr: apex_positions_missing_md > 5
+        for: 5m
+        labels:
+          severity: info
+        annotations:
+          summary: "{{ $value }} positions missing market data"
+          description: "Multiple positions missing market data. Risk metrics may be incomplete."
+
+      # High concentration in single name
+      - alert: HighConcentration
+        expr: apex_max_single_name_pct > 25
+        for: 5m
+        labels:
+          severity: info
+        annotations:
+          summary: "High concentration: {{ $value | printf \"%.1f\" }}% in single name"
+          description: "Single-name concentration exceeds 25%. Consider diversifying positions."

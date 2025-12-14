@@ -7,8 +7,9 @@ Implements BrokerAdapter interface for Futu OpenD gateway.
 from __future__ import annotations
 from typing import List, Dict, Optional, Callable
 from datetime import datetime, timedelta
-import logging
 import threading
+
+from ....utils.logging_setup import get_logger
 import asyncio
 
 from ....domain.interfaces.broker_adapter import BrokerAdapter
@@ -27,7 +28,7 @@ from .converters import (
 )
 
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class FutuAdapter(BrokerAdapter):

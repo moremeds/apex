@@ -8,7 +8,6 @@ for individual positions.
 from __future__ import annotations
 from datetime import datetime
 from typing import Optional, List, Dict, Any
-import logging
 
 from ...models.position import Position, AssetType
 from ...models.position_risk import PositionRisk
@@ -19,9 +18,10 @@ from ...models.risk_signal import (
     SuggestedAction,
 )
 from .risk.threshold import Threshold, ThresholdDirection
+from ...utils.logging_setup import get_logger
 
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class PositionRiskAnalyzer:

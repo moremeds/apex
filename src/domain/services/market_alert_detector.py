@@ -11,12 +11,12 @@ This service monitors market-wide conditions and generates alerts for:
 from __future__ import annotations
 from typing import List, Dict, Optional, Any
 from datetime import datetime
-import logging
 
 from .risk.threshold import Threshold, ThresholdDirection
+from ...utils.logging_setup import get_logger
 
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class MarketAlertDetector:

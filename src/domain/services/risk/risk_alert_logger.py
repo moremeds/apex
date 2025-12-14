@@ -22,9 +22,10 @@ from src.models.risk_signal import RiskSignal, SignalLevel, SignalSeverity, Sugg
 from src.models.risk_snapshot import RiskSnapshot
 from src.models.position_risk import PositionRisk
 from src.models.market_data import MarketData
+from src.utils.logging_setup import get_logger
 
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass

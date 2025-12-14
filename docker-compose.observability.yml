@@ -1,0 +1,83 @@
+# Docker Compose configuration for Apex Observability Stack
+#
+# This stack provides:
+# - Prometheus: Time-series database for metrics storage
+# - Alertmanager: Alert routing and notification management
+# - Grafana: Dashboards and visualization (optional)
+#
+# Usage:
+#   docker-compose -f docker-compose.observability.yml up -d
+#
+# Access:
+#   - Apex metrics:    http://localhost:8000/metrics
+#   - Prometheus:      http://localhost:9090
+#   - Alertmanager:    http://localhost:9093
+#   - Grafana:         http://localhost:3000 (admin/admin)
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.45.0
+    container_name: apex-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./config/prometheus/alerts:/etc/prometheus/alerts:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    networks:
+      - apex-monitoring
+
+  alertmanager:
+    image: prom/alertmanager:v0.25.0
+    container_name: apex-alertmanager
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./config/prometheus/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+      - '--web.external-url=http://localhost:9093'
+    restart: unless-stopped
+    networks:
+      - apex-monitoring
+
+  grafana:
+    image: grafana/grafana:10.0.0
+    container_name: apex-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+    restart: unless-stopped
+    networks:
+      - apex-monitoring
+    depends_on:
+      - prometheus
+
+volumes:
+  prometheus-data:
+    driver: local
+  alertmanager-data:
+    driver: local
+  grafana-data:
+    driver: local
+
+networks:
+  apex-monitoring:
+    driver: bridge

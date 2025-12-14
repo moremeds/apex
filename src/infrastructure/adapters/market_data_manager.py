@@ -9,9 +9,9 @@ from __future__ import annotations
 from typing import Dict, List, Optional, Any, Callable, TYPE_CHECKING
 from datetime import datetime
 from dataclasses import dataclass, field
-import logging
 import asyncio
 
+from ...utils.logging_setup import get_logger
 from ...domain.interfaces.market_data_provider import MarketDataProvider
 from ...models.position import Position
 from ...models.market_data import MarketData
@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from ...application.event_bus import EventBusProtocol
 
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass

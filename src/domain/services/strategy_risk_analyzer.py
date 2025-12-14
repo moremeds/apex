@@ -10,7 +10,6 @@ Implements risk checks for multi-leg strategies:
 from __future__ import annotations
 from datetime import datetime
 from typing import List, Dict, Any, Optional
-import logging
 
 from .strategy_detector import DetectedStrategy
 from ...models.risk_signal import (
@@ -20,9 +19,10 @@ from ...models.risk_signal import (
     SuggestedAction,
 )
 from ...models.position_risk import PositionRisk
+from ...utils.logging_setup import get_logger
 
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class StrategyRiskAnalyzer:

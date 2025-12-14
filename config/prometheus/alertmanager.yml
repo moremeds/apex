@@ -1,0 +1,105 @@
+# Alertmanager configuration for Apex Risk Management System
+#
+# This configuration routes alerts to appropriate channels based on severity.
+# Critical alerts are sent immediately, warnings are batched.
+#
+# IMPORTANT: Replace placeholder values with your actual credentials:
+# - ${SLACK_WEBHOOK_URL}: Your Slack incoming webhook URL
+# - ${PAGERDUTY_KEY}: Your PagerDuty service key (optional)
+
+global:
+  resolve_timeout: 5m
+  # Uncomment and configure for Slack
+  # slack_api_url: '${SLACK_WEBHOOK_URL}'
+
+route:
+  # Default route - group by alertname and severity
+  group_by: ['alertname', 'severity']
+  group_wait: 10s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: 'default'
+
+  routes:
+    # Critical alerts - immediate notification, minimal batching
+    - match:
+        severity: critical
+      receiver: 'critical'
+      group_wait: 0s
+      repeat_interval: 5m
+
+    # Warning alerts - batched notification
+    - match:
+        severity: warning
+      receiver: 'warning'
+      group_wait: 30s
+      repeat_interval: 1h
+
+    # Info alerts - less frequent notifications
+    - match:
+        severity: info
+      receiver: 'info'
+      group_wait: 1m
+      repeat_interval: 4h
+
+receivers:
+  # Default receiver (fallback)
+  - name: 'default'
+    # Configure your default notification channel here
+    # webhook_configs:
+    #   - url: 'http://localhost:5001/webhook'
+
+  # Critical alerts - immediate, high priority
+  - name: 'critical'
+    # Slack configuration for critical alerts
+    # slack_configs:
+    #   - api_url: '${SLACK_WEBHOOK_URL}'
+    #     channel: '#apex-alerts'
+    #     title: '{{ template "slack.default.title" . }}'
+    #     text: '{{ template "slack.default.text" . }}'
+    #     send_resolved: true
+    #     color: '{{ if eq .Status "firing" }}danger{{ else }}good{{ end }}'
+
+    # PagerDuty for critical alerts (optional)
+    # pagerduty_configs:
+    #   - service_key: '${PAGERDUTY_KEY}'
+    #     severity: critical
+
+  # Warning alerts - batched, medium priority
+  - name: 'warning'
+    # slack_configs:
+    #   - api_url: '${SLACK_WEBHOOK_URL}'
+    #     channel: '#apex-alerts'
+    #     title: '{{ template "slack.default.title" . }}'
+    #     text: '{{ template "slack.default.text" . }}'
+    #     send_resolved: true
+    #     color: '{{ if eq .Status "firing" }}warning{{ else }}good{{ end }}'
+
+  # Info alerts - low priority
+  - name: 'info'
+    # slack_configs:
+    #   - api_url: '${SLACK_WEBHOOK_URL}'
+    #     channel: '#apex-info'
+    #     title: '{{ template "slack.default.title" . }}'
+    #     text: '{{ template "slack.default.text" . }}'
+    #     send_resolved: false
+
+# Inhibition rules - prevent alert noise
+inhibit_rules:
+  # If broker is disconnected, inhibit market data stale alerts for that broker
+  - source_match:
+      alertname: 'BrokerDisconnected'
+    target_match:
+      alertname: 'MarketDataStale'
+    equal: ['broker']
+
+  # If system is not ready, inhibit other warnings
+  - source_match:
+      alertname: 'SystemNotReady'
+    target_match:
+      severity: 'warning'
+    equal: []
+
+# Templates for alert messages (optional customization)
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'

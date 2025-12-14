@@ -18,7 +18,9 @@ from datetime import date
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from threading import Lock
-import logging
+import time
+
+from src.utils.logging_setup import get_logger
 from src.models.position import Position
 from src.models.market_data import MarketData
 from src.models.account import AccountInfo
@@ -30,8 +32,9 @@ from src.utils.timezone import now_utc
 if TYPE_CHECKING:
     from src.domain.interfaces.event_bus import EventBus
     from src.infrastructure.adapters.yahoo import YahooFinanceAdapter
+    from src.infrastructure.observability.risk_metrics import RiskMetrics
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Constants for near-term Greeks concentration thresholds
 NEAR_TERM_GAMMA_DTE = 7  # Days to expiry threshold for near-term gamma
@@ -77,6 +80,7 @@ class RiskEngine:
         parallel_threshold: int = 50,
         max_workers: int = 4,
         yahoo_adapter: Optional["YahooFinanceAdapter"] = None,
+        risk_metrics: Optional["RiskMetrics"] = None,
     ):
         """
         Initialize risk engine with configuration.
@@ -87,11 +91,14 @@ class RiskEngine:
             max_workers: Maximum worker threads for parallel processing.
             yahoo_adapter: Optional YahooFinanceAdapter for dynamic beta lookup.
                           If None, falls back to static config lookup.
+            risk_metrics: Optional RiskMetrics for Prometheus observability.
+                         If provided, metrics are recorded during snapshot builds.
         """
         self.config = config
         self.parallel_threshold = parallel_threshold
         self.max_workers = max_workers
         self._yahoo_adapter = yahoo_adapter
+        self._risk_metrics = risk_metrics
 
         # Event-driven state tracking
         self._lock = Lock()
@@ -129,6 +136,8 @@ class RiskEngine:
 
         Performance target: <100ms for <100 positions, <250ms for 100-250, <500ms for 250-500.
         """
+        start_time = time.perf_counter()
+
         snapshot = RiskSnapshot()
         snapshot.total_positions = len(positions)
 
@@ -166,6 +175,13 @@ class RiskEngine:
 
         # Aggregate metrics into snapshot
         self._aggregate_metrics(snapshot, metrics_list, account_info)
+
+        # Record observability metrics
+        if self._risk_metrics:
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            self._risk_metrics.record_snapshot_build_duration(duration_ms)
+            self._risk_metrics.record_snapshot(snapshot)
+            logger.debug(f"Snapshot build completed in {duration_ms:.2f}ms")
 
         return snapshot
 
@@ -666,3 +682,15 @@ class RiskEngine:
         with self._lock:
             self._needs_rebuild = False
             self._dirty_underlyings.clear()
+
+    def set_risk_metrics(self, risk_metrics: "RiskMetrics") -> None:
+        """
+        Set or replace the risk metrics instance for observability.
+
+        Useful for dependency injection after construction.
+
+        Args:
+            risk_metrics: RiskMetrics instance for Prometheus export.
+        """
+        self._risk_metrics = risk_metrics
+        logger.info("RiskMetrics attached to RiskEngine")

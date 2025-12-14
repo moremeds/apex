@@ -5,9 +5,10 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Optional, Literal
 from enum import Enum
-import logging
 
-logger = logging.getLogger(__name__)
+from ..utils.logging_setup import get_logger
+
+logger = get_logger(__name__)
 
 
 class AssetType(Enum):

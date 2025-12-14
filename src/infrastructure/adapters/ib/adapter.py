@@ -8,8 +8,8 @@ from __future__ import annotations
 from typing import List, Dict, Optional, Callable
 from datetime import datetime, date
 from math import isnan
-import logging
 
+from ....utils.logging_setup import get_logger
 from ....domain.interfaces.broker_adapter import BrokerAdapter
 from ....domain.interfaces.market_data_provider import MarketDataProvider
 from ....domain.interfaces.event_bus import EventBus, EventType
@@ -22,7 +22,7 @@ from ..market_data_fetcher import MarketDataFetcher
 from .converters import convert_position, convert_order, convert_fill
 
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class IbAdapter(BrokerAdapter, MarketDataProvider):

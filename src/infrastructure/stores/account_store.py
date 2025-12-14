@@ -3,14 +3,14 @@
 from __future__ import annotations
 from typing import Optional, TYPE_CHECKING
 from threading import RLock
-import logging
 
 from ...models.account import AccountInfo
+from ...utils.logging_setup import get_logger
 
 if TYPE_CHECKING:
     from ...domain.interfaces.event_bus import EventBus
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class AccountStore:

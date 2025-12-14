@@ -30,6 +30,16 @@ from src.models.risk_snapshot import RiskSnapshot
 from src.utils import StructuredLogger, flush_all_loggers, set_log_timezone
 from src.utils.structured_logger import LogCategory
 from src.utils.logging_setup import setup_category_logging
+from src.utils.perf_logger import set_perf_metrics
+
+# Observability imports (optional - graceful fallback if not installed)
+try:
+    from src.infrastructure.observability import (
+        MetricsManager, get_metrics_manager, RiskMetrics, HealthMetrics
+    )
+    OBSERVABILITY_AVAILABLE = True
+except ImportError:
+    OBSERVABILITY_AVAILABLE = False
 
 
 def parse_args() -> argparse.Namespace:
@@ -65,6 +75,27 @@ Examples:
         help="Disable terminal dashboard (headless mode)"
     )
 
+    parser.add_argument(
+        "--metrics-port",
+        type=int,
+        default=8000,
+        help="Port for Prometheus /metrics endpoint (default: 8000, 0 to disable)"
+    )
+
+    parser.add_argument(
+        "--verbose", "-v",
+        action="store_true",
+        help="Enable verbose logging (DEBUG level for all categories)"
+    )
+
+    parser.add_argument(
+        "--log-level",
+        type=str,
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        help="Set log level (default: INFO, ignored if --verbose is set)"
+    )
+
     return parser.parse_args()
 
 
@@ -82,13 +113,20 @@ async def main_async(args: argparse.Namespace) -> None:
         set_log_timezone(None)  # Use local time
 
     # Set up category-based logging with environment prefix
-    category_loggers = setup_category_logging(env=args.env, log_dir="./logs", level="DEBUG")
+    # Now creates 5 categories: system, adapter, risk, data, perf
+    category_loggers = setup_category_logging(
+        env=args.env,
+        log_dir="./logs",
+        level=args.log_level,
+        console=args.no_dashboard,  # Console output when no dashboard
+        verbose=args.verbose,
+    )
     system_logger = category_loggers["system"]
-    market_logger = category_loggers["market"]
+    data_logger = category_loggers["data"]
 
     # Create structured loggers for each category
     system_structured = StructuredLogger(system_logger)
-    market_structured = StructuredLogger(market_logger)
+    data_structured = StructuredLogger(data_logger)
 
     system_structured.info(
         LogCategory.SYSTEM,
@@ -105,6 +143,42 @@ async def main_async(args: argparse.Namespace) -> None:
         # Initialize event bus (always use AsyncEventBus)
         event_bus = AsyncEventBus()
         system_structured.info(LogCategory.SYSTEM, "Using AsyncEventBus")
+
+        # Initialize observability (Prometheus metrics)
+        risk_metrics = None
+        health_metrics = None
+        metrics_manager = None
+
+        if OBSERVABILITY_AVAILABLE and args.metrics_port > 0:
+            try:
+                metrics_manager = get_metrics_manager(port=args.metrics_port)
+                metrics_manager.start()
+
+                meter = metrics_manager.get_meter("apex")
+                risk_metrics = RiskMetrics(meter)
+                health_metrics = HealthMetrics(meter)
+
+                # Wire perf logger to send metrics to Prometheus
+                set_perf_metrics(health_metrics=health_metrics, risk_metrics=risk_metrics)
+
+                system_structured.info(
+                    LogCategory.SYSTEM,
+                    "Observability enabled",
+                    {"metrics_port": args.metrics_port, "endpoint": f"http://localhost:{args.metrics_port}/metrics"}
+                )
+                print(f"📊 Metrics available at http://localhost:{args.metrics_port}/metrics", flush=True)
+            except Exception as e:
+                system_structured.warning(
+                    LogCategory.SYSTEM,
+                    f"Failed to start metrics server: {e}. Continuing without observability."
+                )
+        elif not OBSERVABILITY_AVAILABLE:
+            system_structured.info(
+                LogCategory.SYSTEM,
+                "Observability not available (install with: pip install -e '.[observability]')"
+            )
+        else:
+            system_structured.info(LogCategory.SYSTEM, "Observability disabled (--metrics-port 0)")
 
         # Initialize data stores
         position_store = PositionStore()
@@ -188,7 +262,11 @@ async def main_async(args: argparse.Namespace) -> None:
         system_structured.info(LogCategory.SYSTEM, "Yahoo Finance adapter initialized")
 
         # Initialize domain services
-        risk_engine = RiskEngine(config=config.raw, yahoo_adapter=yahoo_adapter)
+        risk_engine = RiskEngine(
+            config=config.raw,
+            yahoo_adapter=yahoo_adapter,
+            risk_metrics=risk_metrics,
+        )
         reconciler = Reconciler(stale_threshold_seconds=300)
         mdqc = MDQC(
             stale_seconds=config.mdqc.stale_seconds,
@@ -251,6 +329,8 @@ async def main_async(args: argparse.Namespace) -> None:
             market_alert_detector=market_alert_detector,
             risk_signal_engine=risk_signal_engine,
             risk_alert_logger=risk_alert_logger,
+            risk_metrics=risk_metrics,
+            health_metrics=health_metrics,
         )
 
         # Initialize dashboard (if not disabled)
@@ -308,7 +388,7 @@ async def main_async(args: argparse.Namespace) -> None:
                         dashboard.update(snapshot, risk_signals, health, market_alerts)
 
                         # Log market data fetch
-                        market_structured.info(
+                        data_structured.info(
                             LogCategory.DATA,
                             "Risk snapshot refreshed",
                             {"positions": snapshot.total_positions, "position_risks": len(snapshot.position_risks)}
@@ -343,6 +423,11 @@ async def main_async(args: argparse.Namespace) -> None:
         if orchestrator:
             await orchestrator.stop()
             system_structured.info(LogCategory.SYSTEM, "Orchestrator stopped")
+
+        # Shutdown metrics server
+        if metrics_manager:
+            metrics_manager.shutdown()
+            system_structured.info(LogCategory.SYSTEM, "Metrics server stopped")
 
         # Ensure all logs are flushed to disk
         flush_all_loggers()

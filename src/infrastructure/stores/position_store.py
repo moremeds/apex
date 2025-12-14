@@ -3,14 +3,14 @@
 from __future__ import annotations
 from typing import Dict, Iterable, List, Optional, TYPE_CHECKING
 from threading import RLock
-import logging
 
+from ...utils.logging_setup import get_logger
 from ...models.position import Position
 
 if TYPE_CHECKING:
     from ...domain.interfaces.event_bus import EventBus
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class PositionStore:

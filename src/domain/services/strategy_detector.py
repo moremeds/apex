@@ -13,12 +13,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional
 from collections import defaultdict
-import logging
 
 from ...models.position import Position, AssetType
+from ...utils.logging_setup import get_logger
 
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass

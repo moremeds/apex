@@ -14,7 +14,6 @@ Applies debounce/cooldown filtering via RiskSignalManager.
 
 from __future__ import annotations
 from typing import List, Dict, Any
-import logging
 
 from src.models.risk_snapshot import RiskSnapshot
 from src.models.risk_signal import RiskSignal
@@ -27,9 +26,10 @@ from src.domain.services.strategy_detector import StrategyDetector
 from src.domain.services.strategy_risk_analyzer import StrategyRiskAnalyzer
 from src.domain.services.correlation_analyzer import CorrelationAnalyzer
 from src.domain.services.event_risk_detector import EventRiskDetector
+from src.utils.logging_setup import get_logger
 
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class RiskSignalEngine:

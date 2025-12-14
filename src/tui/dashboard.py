@@ -17,7 +17,6 @@ Keyboard shortcuts:
 
 from __future__ import annotations
 from typing import List, Optional, Dict, Any
-import logging
 import threading
 import sys
 import select
@@ -55,8 +54,9 @@ from ..utils.market_hours import MarketHours
 from ..models.risk_signal import RiskSignal
 from src.domain.services.risk.rule_engine import LimitBreach
 from ..infrastructure.monitoring import ComponentHealth
+from src.utils.logging_setup import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class TerminalDashboard:
