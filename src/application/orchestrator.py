@@ -20,7 +20,7 @@ from __future__ import annotations
 import asyncio
 import time
 from datetime import datetime
-from typing import Dict, Any, Optional, List, TYPE_CHECKING
+from typing import Dict, Any, Optional, List, TYPE_CHECKING, Union
 
 from ..utils.logging_setup import get_logger, is_console_enabled
 from ..utils.trace_context import new_cycle, get_cycle_id
@@ -78,7 +78,7 @@ class Orchestrator:
         rule_engine: RuleEngine,
         health_monitor: HealthMonitor,
         watchdog: Watchdog,
-        event_bus: EventBus,
+        event_bus: Union[EventBus, PriorityEventBus],
         config: Dict[str, Any],
         market_alert_detector: MarketAlertDetector | None = None,
         risk_signal_engine: RiskSignalEngine | None = None,
@@ -826,6 +826,12 @@ class Orchestrator:
                         snapshot.total_positions,
                         positions_with_data
                     )
+
+                    # Record event bus queue depth metrics
+                    if isinstance(self.event_bus, PriorityEventBus):
+                        stats = self.event_bus.get_stats()
+                        self._health_metrics.record_queue_size("fast", stats.get("fast_queue_size", 0))
+                        self._health_metrics.record_queue_size("slow", stats.get("slow_pending", 0))
 
                 # Evaluate risk signals (RiskSignalEngine is required, no legacy fallback)
                 if self.risk_signal_engine:

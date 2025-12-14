@@ -3,22 +3,25 @@
 from __future__ import annotations
 import asyncio
 import time
-from typing import Callable, Any, Dict, List, Optional
+from typing import Callable, Any, Dict, List, Optional, TYPE_CHECKING
 from collections import defaultdict
 from threading import Lock
 from dataclasses import dataclass
+from abc import ABC
 
 from .event_types import (
     EventType, EventPriority, EVENT_PRIORITY_MAP,
     FAST_LANE_THRESHOLD, PriorityEventEnvelope, DROPPABLE_EVENTS
 )
-from ..interfaces.event_bus import EventBus
 from ...utils.logging_setup import get_logger
+
+if TYPE_CHECKING:
+    pass  # EventBus only needed for type checking, but we define methods inline
 
 logger = get_logger(__name__)
 
 
-class PriorityEventBus(EventBus):
+class PriorityEventBus:
     """
     Priority-based event bus with dual-lane dispatch.
 
