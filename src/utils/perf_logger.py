@@ -33,6 +33,10 @@ from .trace_context import get_cycle_id
 # Performance logger - uses 'apex.perf' category
 _perf_logger: Optional[logging.Logger] = None
 
+# Optional Prometheus metrics (set via set_perf_metrics)
+_health_metrics: Optional[Any] = None
+_risk_metrics: Optional[Any] = None
+
 
 def get_perf_logger() -> logging.Logger:
     """Get or create the performance logger."""
@@ -46,6 +50,32 @@ def set_perf_logger(logger: logging.Logger) -> None:
     """Set the performance logger (for testing or custom configuration)."""
     global _perf_logger
     _perf_logger = logger
+
+
+def set_perf_metrics(health_metrics: Any = None, risk_metrics: Any = None) -> None:
+    """
+    Set Prometheus metrics instances for performance recording.
+
+    Args:
+        health_metrics: HealthMetrics instance for event processing metrics.
+        risk_metrics: RiskMetrics instance for snapshot/calc duration metrics.
+    """
+    global _health_metrics, _risk_metrics
+    _health_metrics = health_metrics
+    _risk_metrics = risk_metrics
+
+
+def _record_to_prometheus(operation: str, duration_ms: float) -> None:
+    """Record operation duration to Prometheus metrics if available."""
+    if _risk_metrics is not None:
+        if operation == "snapshot_build":
+            _risk_metrics.record_snapshot_build_duration(duration_ms)
+        elif operation == "risk_calc":
+            _risk_metrics.record_calc_duration(duration_ms)
+
+    if _health_metrics is not None:
+        if operation in ("fetch_and_reconcile", "market_data_fetch", "position_fetch"):
+            _health_metrics.record_event_processing(operation, duration_ms)
 
 
 @contextmanager
@@ -91,6 +121,9 @@ def log_timing(
             "duration_ms": round(duration_ms, 2),
             **context,
         }
+
+        # Record to Prometheus
+        _record_to_prometheus(operation, duration_ms)
 
         # Determine log level based on duration
         if duration_ms >= error_threshold_ms:
@@ -143,6 +176,9 @@ async def log_timing_async(
             "duration_ms": round(duration_ms, 2),
             **context,
         }
+
+        # Record to Prometheus
+        _record_to_prometheus(operation, duration_ms)
 
         # Determine log level based on duration
         if duration_ms >= error_threshold_ms:

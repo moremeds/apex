@@ -30,6 +30,7 @@ from src.models.risk_snapshot import RiskSnapshot
 from src.utils import StructuredLogger, flush_all_loggers, set_log_timezone
 from src.utils.structured_logger import LogCategory
 from src.utils.logging_setup import setup_category_logging
+from src.utils.perf_logger import set_perf_metrics
 
 # Observability imports (optional - graceful fallback if not installed)
 try:
@@ -156,6 +157,9 @@ async def main_async(args: argparse.Namespace) -> None:
                 meter = metrics_manager.get_meter("apex")
                 risk_metrics = RiskMetrics(meter)
                 health_metrics = HealthMetrics(meter)
+
+                # Wire perf logger to send metrics to Prometheus
+                set_perf_metrics(health_metrics=health_metrics, risk_metrics=risk_metrics)
 
                 system_structured.info(
                     LogCategory.SYSTEM,
