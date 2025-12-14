@@ -71,6 +71,9 @@ class RiskSnapshot:
     total_positions: int = 0
     missing_greeks_count: int = 0
 
+    # Preview mode indicator (positions shown before full risk calculation)
+    is_preview: bool = False
+
     # Per-position risk breakdown (calculated by RiskEngine)
     # This is the single source of truth for all position-level calculations
     position_risks: List["PositionRisk"] = field(default_factory=list)

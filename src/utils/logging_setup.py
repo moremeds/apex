@@ -468,8 +468,9 @@ def setup_category_logging(
         file_handler.setLevel(getattr(logging, effective_level, logging.INFO))
         logger.addHandler(file_handler)
 
-        # Console handler (if enabled)
-        if console or verbose:
+        # Console handler (only when dashboard is disabled)
+        # Verbose mode controls file log level, not console output
+        if console:
             console_handler = logging.StreamHandler(sys.stderr)
             console_formatter = ConsoleFormatter(use_colors=True)
             console_handler.setFormatter(console_formatter)

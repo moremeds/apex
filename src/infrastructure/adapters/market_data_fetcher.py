@@ -220,10 +220,13 @@ class MarketDataFetcher:
         return sum(1 for t in tickers if self._has_valid_price(t))
 
     def _has_valid_price(self, ticker) -> bool:
-        """Check if ticker has valid price data."""
+        """Check if ticker has valid price data (live or previous close)."""
         if ticker.last and not isnan(ticker.last) and ticker.last > 0:
             return True
         if ticker.bid and not isnan(ticker.bid) and ticker.bid > 0:
+            return True
+        # Also accept previous close as valid (important for market closed hours)
+        if hasattr(ticker, 'close') and ticker.close and not isnan(ticker.close) and ticker.close > 0:
             return True
         return False
 
@@ -240,10 +243,8 @@ class MarketDataFetcher:
         """
         start = asyncio.get_event_loop().time()
         while asyncio.get_event_loop().time() - start < timeout:
-            # Check if we have valid price data
-            if ticker.last and not isnan(ticker.last) and ticker.last > 0:
-                return True
-            if ticker.bid and not isnan(ticker.bid) and ticker.bid > 0:
+            # Check if we have valid price data (including previous close for market closed)
+            if self._has_valid_price(ticker):
                 return True
             await asyncio.sleep(self.poll_interval)
         return False
@@ -317,13 +318,8 @@ class MarketDataFetcher:
         last_populated_count = 0
 
         while True:
-            # Check how many tickers have data
-            populated_count = sum(
-                1 for t in tickers
-                if (t.bid and not isnan(t.bid)) or
-                   (t.ask and not isnan(t.ask)) or
-                   (t.last and not isnan(t.last))
-            )
+            # Check how many tickers have data (including previous close for market closed)
+            populated_count = sum(1 for t in tickers if self._has_valid_price(t))
 
             # Log progress if count changed
             if populated_count > last_populated_count:

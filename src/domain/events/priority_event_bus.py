@@ -12,12 +12,13 @@ from .event_types import (
     EventType, EventPriority, EVENT_PRIORITY_MAP,
     FAST_LANE_THRESHOLD, PriorityEventEnvelope, DROPPABLE_EVENTS
 )
+from ..interfaces.event_bus import EventBus
 from ...utils.logging_setup import get_logger
 
 logger = get_logger(__name__)
 
 
-class PriorityEventBus:
+class PriorityEventBus(EventBus):
     """
     Priority-based event bus with dual-lane dispatch.
 
