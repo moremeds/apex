@@ -24,6 +24,16 @@ UTC = timezone.utc
 US_EASTERN = ZoneInfo("America/New_York")
 HK_TZ = ZoneInfo("Asia/Hong_Kong")
 
+# Market timezone mapping (for Futu and other broker timestamp parsing)
+MARKET_TIMEZONE = {
+    "US": ZoneInfo("America/New_York"),
+    "HK": ZoneInfo("Asia/Hong_Kong"),
+    "CN": ZoneInfo("Asia/Shanghai"),
+    "SG": ZoneInfo("Asia/Singapore"),
+    "JP": ZoneInfo("Asia/Tokyo"),
+    "AU": ZoneInfo("Australia/Sydney"),
+}
+
 
 def now_utc() -> datetime:
     """Get current time in UTC (timezone-aware)."""
@@ -122,19 +132,46 @@ def parse_timestamp(
         return None
 
 
-def parse_futu_timestamp(time_str: str) -> Optional[datetime]:
+def parse_futu_timestamp(time_str: str, market: str = "US") -> Optional[datetime]:
     """
-    Parse Futu timestamp (US Eastern) and convert to UTC.
+    Parse Futu timestamp string to UTC datetime.
 
-    Futu returns timestamps in US Eastern time for US market orders.
+    Futu returns timestamps in exchange local time:
+    - US market: America/New_York (EST/EDT)
+    - HK market: Asia/Hong_Kong (HKT)
+    - CN market: Asia/Shanghai (CST)
+
+    Supports formats:
+    - "YYYY-MM-DD HH:MM:SS" (standard)
+    - "YYYY-MM-DD HH:MM:SS.mmm" (with milliseconds)
 
     Args:
-        time_str: Timestamp string in "YYYY-MM-DD HH:MM:SS" format.
+        time_str: Timestamp string from Futu API.
+        market: Trading market code (US, HK, CN, SG, JP, AU).
 
     Returns:
         Timezone-aware datetime in UTC, or None if parsing fails.
     """
-    return parse_timestamp(time_str, source_tz=US_EASTERN)
+    if not time_str:
+        return None
+
+    # Try formats: with milliseconds first, then without
+    for fmt in ["%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"]:
+        try:
+            naive_dt = datetime.strptime(str(time_str), fmt)
+            break
+        except ValueError:
+            continue
+    else:
+        # No format matched
+        return None
+
+    # Apply exchange timezone
+    exchange_tz = MARKET_TIMEZONE.get(market, MARKET_TIMEZONE["US"])
+    local_dt = naive_dt.replace(tzinfo=exchange_tz)
+
+    # Convert to UTC for storage
+    return local_dt.astimezone(UTC)
 
 
 def parse_ib_timestamp(dt: datetime) -> datetime:
@@ -212,3 +249,96 @@ def is_stale(dt: datetime, threshold_seconds: float) -> bool:
         True if the datetime is older than the threshold.
     """
     return age_seconds(dt) > threshold_seconds
+
+
+class DisplayTimezone:
+    """
+    Configurable display timezone for UI rendering.
+
+    Used by dashboard and other UI components to display times
+    in the user's preferred timezone.
+    """
+
+    def __init__(self, tz_name: str = "Asia/Hong_Kong"):
+        """
+        Initialize with a timezone name.
+
+        Args:
+            tz_name: IANA timezone name (e.g., "Asia/Hong_Kong", "America/New_York").
+        """
+        self.tz = ZoneInfo(tz_name)
+        self.tz_name = tz_name
+
+    def format_time(self, utc_dt: datetime, fmt: str = "%H:%M:%S") -> str:
+        """
+        Format UTC datetime for display in local timezone (time only).
+
+        Args:
+            utc_dt: UTC timezone-aware datetime.
+            fmt: Time format string.
+
+        Returns:
+            Formatted time string in local timezone.
+        """
+        if utc_dt is None:
+            utc_dt = now_utc()
+        local_dt = utc_dt.astimezone(self.tz)
+        return local_dt.strftime(fmt)
+
+    def format_datetime(self, utc_dt: datetime, fmt: str = "%Y-%m-%d %H:%M:%S") -> str:
+        """
+        Format UTC datetime for display in local timezone (full datetime).
+
+        Args:
+            utc_dt: UTC timezone-aware datetime.
+            fmt: Datetime format string.
+
+        Returns:
+            Formatted datetime string in local timezone.
+        """
+        if utc_dt is None:
+            utc_dt = now_utc()
+        local_dt = utc_dt.astimezone(self.tz)
+        return local_dt.strftime(fmt)
+
+    def format_with_tz(self, utc_dt: datetime, fmt: str = "%Y-%m-%d %H:%M:%S %Z") -> str:
+        """
+        Format UTC datetime with timezone abbreviation.
+
+        Args:
+            utc_dt: UTC timezone-aware datetime.
+            fmt: Format string (should include %Z for timezone).
+
+        Returns:
+            Formatted string with timezone abbreviation (e.g., "2024-01-15 09:30:00 HKT").
+        """
+        if utc_dt is None:
+            utc_dt = now_utc()
+        local_dt = utc_dt.astimezone(self.tz)
+        return local_dt.strftime(fmt)
+
+    def current_time(self, fmt: str = "%Y-%m-%d %H:%M:%S %Z") -> str:
+        """
+        Get current time string for UI header display.
+
+        Args:
+            fmt: Format string for current time.
+
+        Returns:
+            Current time in local timezone with timezone abbreviation.
+        """
+        return datetime.now(self.tz).strftime(fmt)
+
+    def to_local(self, utc_dt: datetime) -> datetime:
+        """
+        Convert UTC datetime to local timezone.
+
+        Args:
+            utc_dt: UTC timezone-aware datetime.
+
+        Returns:
+            Datetime in local timezone.
+        """
+        if utc_dt is None:
+            return datetime.now(self.tz)
+        return utc_dt.astimezone(self.tz)

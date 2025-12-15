@@ -182,7 +182,64 @@ logging:
   level: INFO  # DEBUG, INFO, WARNING, ERROR, CRITICAL
   json: true  # Output structured JSON logs
   file: ./data/logs/live_risk.log
+  rotation: size  # "size" or "time" based rotation
+  max_bytes: 10485760  # 10MB for size-based rotation
+  backup_count: 5  # Number of backup files to keep
+  when: midnight  # For time-based rotation
+  interval: 1  # Interval for time-based rotation
   timezone: "America/New_York"  # Timezone for log timestamps ("local", "UTC", or IANA timezone like "America/New_York")
+
+# Database configuration (PostgreSQL/TimescaleDB)
+database:
+  type: timescaledb
+  host: localhost
+  port: 5432
+  database: apex_risk
+  user: apex
+  password: ""  # Set via environment variable APEX_DB_PASSWORD
+
+  # Connection pool settings
+  pool:
+    min_connections: 2
+    max_connections: 10
+
+  # TimescaleDB-specific settings
+  timescale:
+    enabled: true
+    chunk_interval: "1 month"  # Hypertable chunk interval
+    compression_enabled: true
+    compression_after: "7 days"  # Compress data older than this
+
+# Display timezone configuration (for UI rendering)
+display:
+  timezone: "Asia/Hong_Kong"  # IANA timezone for dashboard display
+  date_format: "%Y-%m-%d"
+  time_format: "%H:%M:%S"
+  datetime_format: "%Y-%m-%d %H:%M:%S %Z"
+
+# Snapshot persistence configuration (warm-start and history)
+snapshots:
+  # Capture intervals (set to 0 to disable)
+  position_interval_sec: 60   # Position snapshots every 60 seconds
+  account_interval_sec: 60    # Account snapshots every 60 seconds
+  risk_interval_sec: 60       # Risk snapshots every 60 seconds
+
+  # Shutdown behavior
+  capture_on_shutdown: true   # Capture final snapshot on graceful shutdown
+
+  # Data retention
+  retention_days: 365         # Keep snapshots for 1 year
+  compression_after_days: 7   # Compress snapshots older than 7 days
+
+# History loader configuration (for backfilling historical data)
+history_loader:
+  default_lookback_days: 30   # Default history period to load
+  batch_size: 100             # Records per batch insert
+
+  # Futu API rate limiting (10 requests per 30 seconds)
+  futu_rate_limit:
+    requests_per_window: 10
+    window_seconds: 30
 
 # Position reconciliation settings
 reconciliation:

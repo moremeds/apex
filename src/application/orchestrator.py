@@ -520,16 +520,13 @@ class Orchestrator:
         return self._latest_market_alerts
 
     def _on_streaming_market_data(self, symbol: str, market_data) -> None:
-        """Handle streaming market data update from IB via event bus."""
-        tick_time = time.perf_counter()
+        """
+        Handle streaming market data update from MarketDataManager.
 
-        self.event_bus.publish(EventType.MARKET_DATA_TICK, {
-            "symbol": symbol,
-            "data": market_data,
-            "source": "IB_STREAMING",
-            "timestamp": datetime.now(),
-        })
-
+        Note: EventBus publish is handled by MarketDataManager._on_provider_data()
+        to avoid duplicate MARKET_DATA_TICK events. This callback only handles
+        orchestrator-specific bookkeeping (readiness, metrics).
+        """
         # Notify ReadinessManager of tick received
         if self._readiness_manager:
             self._readiness_manager.on_tick_received()
