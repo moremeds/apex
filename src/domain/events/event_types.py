@@ -1,9 +1,13 @@
 """Event types and priorities for the dual-lane event bus."""
 
+from __future__ import annotations
 from enum import Enum, IntEnum
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Dict, Type, TYPE_CHECKING
 import time
+
+if TYPE_CHECKING:
+    from .domain_events import DomainEvent
 
 
 class EventPriority(IntEnum):
@@ -152,3 +156,74 @@ class PriorityEventEnvelope:
     payload: Any = field(compare=False)
     timestamp: float = field(default_factory=time.time, compare=False)
     source: str = field(default="", compare=False)
+
+
+# =============================================================================
+# EventType to DomainEvent Mapping
+# =============================================================================
+# Maps each EventType to its expected payload type (DomainEvent subclass).
+# This enables:
+# - Runtime validation of event payloads
+# - Type-safe subscription callbacks
+# - Documentation of expected payload types
+#
+# Note: Imported lazily to avoid circular imports
+
+def get_event_type_mapping() -> Dict[EventType, Type["DomainEvent"]]:
+    """
+    Get mapping from EventType to expected DomainEvent class.
+
+    Returns:
+        Dict mapping EventType to its expected payload class.
+    """
+    from .domain_events import (
+        QuoteTick, BarData, TradeFill, OrderUpdate,
+        PositionSnapshot, AccountSnapshot, ConnectionEvent, RiskBreachEvent,
+    )
+
+    return {
+        # Market Data Events
+        EventType.MARKET_DATA_TICK: QuoteTick,
+        EventType.MARKET_DATA_BATCH: BarData,
+
+        # Trading Events
+        EventType.ORDER_SUBMITTED: OrderUpdate,
+        EventType.ORDER_FILLED: TradeFill,
+        EventType.ORDER_CANCELLED: OrderUpdate,
+
+        # Position Events
+        EventType.POSITION_UPDATED: PositionSnapshot,
+
+        # Account Events
+        EventType.ACCOUNT_UPDATED: AccountSnapshot,
+
+        # Connection Events
+        EventType.BROKER_CONNECTED: ConnectionEvent,
+        EventType.BROKER_DISCONNECTED: ConnectionEvent,
+        EventType.CONNECTION_LOST: ConnectionEvent,
+        EventType.CONNECTION_RESTORED: ConnectionEvent,
+
+        # Risk Events
+        EventType.RISK_BREACH: RiskBreachEvent,
+    }
+
+
+def validate_event_payload(event_type: EventType, payload: Any) -> bool:
+    """
+    Validate that payload type matches expected type for event.
+
+    Args:
+        event_type: The event type being published.
+        payload: The payload to validate.
+
+    Returns:
+        True if payload is valid type (or no mapping exists), False otherwise.
+    """
+    mapping = get_event_type_mapping()
+    expected_type = mapping.get(event_type)
+
+    if expected_type is None:
+        # No mapping defined - allow any payload (backward compatibility)
+        return True
+
+    return isinstance(payload, expected_type)
