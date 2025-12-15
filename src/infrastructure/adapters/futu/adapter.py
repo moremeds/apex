@@ -2,12 +2,17 @@
 Futu OpenD adapter with auto-reconnect and push subscription.
 
 Implements BrokerAdapter interface for Futu OpenD gateway.
+
+Phase 2 Fix: All blocking Futu SDK calls are now wrapped with
+asyncio.run_in_executor() to prevent blocking the event loop.
 """
 
 from __future__ import annotations
-from typing import List, Dict, Optional, Callable
+from typing import List, Dict, Optional, Callable, Any, Tuple
 from datetime import datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor
 import threading
+import functools
 
 from ....utils.logging_setup import get_logger
 import asyncio
@@ -37,6 +42,9 @@ class FutuAdapter(BrokerAdapter):
 
     Implements BrokerAdapter using futu-api SDK.
     Requires Futu OpenD gateway to be running locally or on a server.
+
+    Note: All Futu SDK calls are synchronous (blocking). This adapter wraps
+    them with asyncio.run_in_executor() to prevent blocking the event loop.
     """
 
     def __init__(
@@ -81,6 +89,9 @@ class FutuAdapter(BrokerAdapter):
         # Event bus for publishing events
         self._event_bus = event_bus
 
+        # Thread pool for running blocking Futu SDK calls
+        self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="futu_")
+
         # Cache for account info (Futu rate limit: 10 calls per 30 seconds)
         self._account_cache: Optional[AccountInfo] = None
         self._account_cache_time: Optional[datetime] = None
@@ -101,6 +112,29 @@ class FutuAdapter(BrokerAdapter):
         self._on_position_update: Optional[Callable[[List[Position]], None]] = None
 
     # -------------------------------------------------------------------------
+    # Async Wrapper for Blocking Calls
+    # -------------------------------------------------------------------------
+
+    async def _run_blocking(self, func: Callable, *args, **kwargs) -> Any:
+        """
+        Run a blocking Futu SDK call in a thread pool executor.
+
+        This prevents blocking the asyncio event loop.
+
+        Args:
+            func: The blocking function to call.
+            *args: Positional arguments for the function.
+            **kwargs: Keyword arguments for the function.
+
+        Returns:
+            The result of the blocking function.
+        """
+        loop = asyncio.get_event_loop()
+        # Use functools.partial to bind arguments
+        partial_func = functools.partial(func, *args, **kwargs)
+        return await loop.run_in_executor(self._executor, partial_func)
+
+    # -------------------------------------------------------------------------
     # Connection Management
     # -------------------------------------------------------------------------
 
@@ -118,6 +152,7 @@ class FutuAdapter(BrokerAdapter):
             trd_market = getattr(TrdMarket, self.filter_trdmarket, TrdMarket.US)
             sec_firm = getattr(SecurityFirm, self.security_firm, SecurityFirm.FUTUSECURITIES)
 
+            # Context creation is synchronous but fast
             self._trd_ctx = OpenSecTradeContext(
                 filter_trdmarket=trd_market,
                 host=self.host,
@@ -125,7 +160,8 @@ class FutuAdapter(BrokerAdapter):
                 security_firm=sec_firm,
             )
 
-            ret, data = self._trd_ctx.get_acc_list()
+            # Run blocking get_acc_list in executor
+            ret, data = await self._run_blocking(self._trd_ctx.get_acc_list)
             if ret != RET_OK:
                 raise ConnectionError(f"Failed to get account list: {data}")
 
@@ -161,11 +197,15 @@ class FutuAdapter(BrokerAdapter):
     async def disconnect(self) -> None:
         """Disconnect from Futu OpenD."""
         if self._trd_ctx:
-            self._trd_ctx.close()
+            # Close is fast, but run in executor to be safe
+            await self._run_blocking(self._trd_ctx.close)
             self._trd_ctx = None
             self._connected = False
             self._acc_id = None
             logger.info("Disconnected from Futu OpenD")
+
+        # Shutdown the executor
+        self._executor.shutdown(wait=False)
 
     def is_connected(self) -> bool:
         """Check if connected to Futu OpenD."""
@@ -178,7 +218,7 @@ class FutuAdapter(BrokerAdapter):
             self._connected = False
             if self._trd_ctx:
                 try:
-                    self._trd_ctx.close()
+                    await self._run_blocking(self._trd_ctx.close)
                 except Exception:
                     pass
                 self._trd_ctx = None
@@ -302,7 +342,7 @@ class FutuAdapter(BrokerAdapter):
     # -------------------------------------------------------------------------
 
     async def fetch_positions(self) -> List[Position]:
-        """Fetch positions from Futu OpenD."""
+        """Fetch positions from Futu OpenD (non-blocking)."""
         now = datetime.now()
 
         with self._cache_lock:
@@ -331,7 +371,9 @@ class FutuAdapter(BrokerAdapter):
         try:
             trd_env_enum = getattr(TrdEnv, self.trd_env, TrdEnv.REAL)
 
-            ret, data = self._trd_ctx.position_list_query(
+            # Run blocking position_list_query in executor
+            ret, data = await self._run_blocking(
+                self._trd_ctx.position_list_query,
                 trd_env=trd_env_enum,
                 acc_id=self._acc_id,
                 refresh_cache=False,
@@ -342,7 +384,8 @@ class FutuAdapter(BrokerAdapter):
                     logger.warning("Futu connection issue detected, reconnecting...")
                     self._connected = False
                     await self._ensure_connected()
-                    ret, data = self._trd_ctx.position_list_query(
+                    ret, data = await self._run_blocking(
+                        self._trd_ctx.position_list_query,
                         trd_env=trd_env_enum,
                         acc_id=self._acc_id,
                         refresh_cache=False,
@@ -396,7 +439,7 @@ class FutuAdapter(BrokerAdapter):
     # -------------------------------------------------------------------------
 
     async def fetch_account_info(self) -> AccountInfo:
-        """Fetch account information from Futu OpenD."""
+        """Fetch account information from Futu OpenD (non-blocking)."""
         now = datetime.now()
         if (
             self._account_cache is not None
@@ -413,7 +456,9 @@ class FutuAdapter(BrokerAdapter):
         try:
             trd_env_enum = getattr(TrdEnv, self.trd_env, TrdEnv.REAL)
 
-            ret, data = self._trd_ctx.accinfo_query(
+            # Run blocking accinfo_query in executor
+            ret, data = await self._run_blocking(
+                self._trd_ctx.accinfo_query,
                 trd_env=trd_env_enum,
                 acc_id=self._acc_id,
                 refresh_cache=False,
@@ -425,7 +470,8 @@ class FutuAdapter(BrokerAdapter):
                     logger.warning("Futu connection issue detected, reconnecting...")
                     self._connected = False
                     await self._ensure_connected()
-                    ret, data = self._trd_ctx.accinfo_query(
+                    ret, data = await self._run_blocking(
+                        self._trd_ctx.accinfo_query,
                         trd_env=trd_env_enum,
                         acc_id=self._acc_id,
                         refresh_cache=False,
@@ -520,7 +566,7 @@ class FutuAdapter(BrokerAdapter):
         include_completed: bool = True,
         days_back: int = 30,
     ) -> List[Order]:
-        """Fetch order history from Futu OpenD."""
+        """Fetch order history from Futu OpenD (non-blocking)."""
         await self._ensure_connected()
 
         from futu import RET_OK, TrdEnv
@@ -530,7 +576,9 @@ class FutuAdapter(BrokerAdapter):
 
         try:
             if include_open:
-                ret, data = self._trd_ctx.order_list_query(
+                # Run blocking order_list_query in executor
+                ret, data = await self._run_blocking(
+                    self._trd_ctx.order_list_query,
                     trd_env=trd_env_enum,
                     acc_id=self._acc_id,
                     refresh_cache=False,
@@ -546,7 +594,9 @@ class FutuAdapter(BrokerAdapter):
                 end_date = datetime.now()
                 start_date = end_date - timedelta(days=days_back)
 
-                ret, data = self._trd_ctx.history_order_list_query(
+                # Run blocking history_order_list_query in executor
+                ret, data = await self._run_blocking(
+                    self._trd_ctx.history_order_list_query,
                     trd_env=trd_env_enum,
                     acc_id=self._acc_id,
                     start=start_date.strftime("%Y-%m-%d"),
@@ -574,7 +624,7 @@ class FutuAdapter(BrokerAdapter):
 
     async def fetch_trades(self, days_back: int = 30) -> List[Trade]:
         """
-        Fetch trade/execution history from Futu OpenD.
+        Fetch trade/execution history from Futu OpenD (non-blocking).
 
         Uses a two-step approach:
         1. Fetch filled orders via history_order_list_query with fees from order_fee_query
@@ -596,7 +646,7 @@ class FutuAdapter(BrokerAdapter):
             raise
 
     async def _fetch_filled_orders_with_fees(self, days_back: int) -> List[Dict]:
-        """Fetch filled orders and their associated fees."""
+        """Fetch filled orders and their associated fees (non-blocking)."""
         from futu import RET_OK, TrdEnv, OrderStatus as FutuOrderStatus
 
         trd_env_enum = getattr(TrdEnv, self.trd_env, TrdEnv.REAL)
@@ -605,7 +655,9 @@ class FutuAdapter(BrokerAdapter):
 
         orders_with_fees = []
 
-        ret, data = self._trd_ctx.history_order_list_query(
+        # Run blocking history_order_list_query in executor
+        ret, data = await self._run_blocking(
+            self._trd_ctx.history_order_list_query,
             trd_env=trd_env_enum,
             acc_id=self._acc_id,
             start=start_date.strftime("%Y-%m-%d"),
@@ -628,7 +680,9 @@ class FutuAdapter(BrokerAdapter):
         fees_by_order: Dict[str, float] = {}
         for i in range(0, len(order_ids), 400):
             batch_ids = order_ids[i:i + 400]
-            ret_fee, fee_data = self._trd_ctx.order_fee_query(
+            # Run blocking order_fee_query in executor
+            ret_fee, fee_data = await self._run_blocking(
+                self._trd_ctx.order_fee_query,
                 order_id_list=batch_ids,
                 trd_env=trd_env_enum,
                 acc_id=self._acc_id,
@@ -651,7 +705,7 @@ class FutuAdapter(BrokerAdapter):
         return orders_with_fees
 
     async def _fetch_deals(self, days_back: int) -> List[Dict]:
-        """Fetch deals (executions) from Futu."""
+        """Fetch deals (executions) from Futu (non-blocking)."""
         from futu import RET_OK, TrdEnv
 
         trd_env_enum = getattr(TrdEnv, self.trd_env, TrdEnv.REAL)
@@ -661,7 +715,9 @@ class FutuAdapter(BrokerAdapter):
         deals = []
         seen_deal_ids = set()
 
-        ret, data = self._trd_ctx.deal_list_query(
+        # Run blocking deal_list_query in executor
+        ret, data = await self._run_blocking(
+            self._trd_ctx.deal_list_query,
             trd_env=trd_env_enum,
             acc_id=self._acc_id,
             refresh_cache=False,
@@ -674,7 +730,9 @@ class FutuAdapter(BrokerAdapter):
                     seen_deal_ids.add(deal_id)
             logger.debug(f"Fetched {len(data)} deals (today) from Futu")
 
-        ret, data = self._trd_ctx.history_deal_list_query(
+        # Run blocking history_deal_list_query in executor
+        ret, data = await self._run_blocking(
+            self._trd_ctx.history_deal_list_query,
             trd_env=trd_env_enum,
             acc_id=self._acc_id,
             start=start_date.strftime("%Y-%m-%d"),

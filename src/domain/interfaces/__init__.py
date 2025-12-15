@@ -4,9 +4,25 @@ from .broker_adapter import BrokerAdapter
 from .market_data_provider import MarketDataProvider
 from .event_bus import EventBus, EventType
 
+# New provider protocols (Phase 2)
+from .quote_provider import QuoteProvider
+from .bar_provider import BarProvider
+from .execution_provider import ExecutionProvider, OrderRequest, OrderResult
+from .position_provider import PositionProvider
+from .account_provider import AccountProvider
+
 __all__ = [
+    # Legacy interfaces (kept for compatibility)
     "BrokerAdapter",
     "MarketDataProvider",
     "EventBus",
     "EventType",
+    # New provider protocols
+    "QuoteProvider",
+    "BarProvider",
+    "ExecutionProvider",
+    "OrderRequest",
+    "OrderResult",
+    "PositionProvider",
+    "AccountProvider",
 ]

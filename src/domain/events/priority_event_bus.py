@@ -11,7 +11,8 @@ from abc import ABC
 
 from .event_types import (
     EventType, EventPriority, EVENT_PRIORITY_MAP,
-    FAST_LANE_THRESHOLD, PriorityEventEnvelope, DROPPABLE_EVENTS
+    FAST_LANE_THRESHOLD, PriorityEventEnvelope, DROPPABLE_EVENTS,
+    validate_event_payload,
 )
 from ...utils.logging_setup import get_logger
 
@@ -48,6 +49,7 @@ class PriorityEventBus:
         fast_time_slice_ms: int = 50,
         slow_lane_min_interval_ms: int = 200,
         max_pending_slow: int = 100,
+        validate_payloads: bool = False,
     ):
         """
         Initialize priority event bus.
@@ -60,6 +62,7 @@ class PriorityEventBus:
             fast_time_slice_ms: Max time (ms) before yielding to slow lane
             slow_lane_min_interval_ms: Minimum interval between slow dispatches
             max_pending_slow: Maximum pending slow events before dropping
+            validate_payloads: If True, warn when payloads don't match expected DomainEvent types
         """
         # Queue sizes
         self._fast_lane_max_size = fast_lane_max_size
@@ -92,6 +95,10 @@ class PriorityEventBus:
         self._fast_time_slice_ms = fast_time_slice_ms
         self._slow_lane_min_interval_ms = slow_lane_min_interval_ms
 
+        # Payload validation
+        self._validate_payloads = validate_payloads
+        self._validation_warnings: set = set()  # Track warned event types
+
         # Stats
         self._stats = {
             "fast_published": 0,
@@ -112,9 +119,19 @@ class PriorityEventBus:
 
         Args:
             event_type: Type of event
-            payload: Event data
+            payload: Event data (DomainEvent subclass preferred, dict for backward compat)
             source: Optional source identifier
         """
+        # Validate payload type if enabled
+        if self._validate_payloads and event_type not in self._validation_warnings:
+            if not validate_event_payload(event_type, payload):
+                self._validation_warnings.add(event_type)
+                logger.warning(
+                    f"Payload type mismatch for {event_type.value}: "
+                    f"got {type(payload).__name__}, expected DomainEvent subclass. "
+                    "Consider using typed domain events for type safety."
+                )
+
         priority = EVENT_PRIORITY_MAP.get(event_type, EventPriority.CONTROL)
 
         with self._lock:
