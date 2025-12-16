@@ -1,0 +1,74 @@
+# MA Cross Strategy Backtest Specification
+#
+# This file captures a complete, reproducible backtest definition.
+# Run with: python -m src.runners.backtest_runner --spec config/backtest/ma_cross_example.yaml
+
+# Strategy definition
+strategy:
+  name: ma_cross                      # Strategy name in registry
+  id: ma-cross-aapl-2024              # Unique ID for this run
+  params:
+    short_window: 10                  # Short MA period
+    long_window: 50                   # Long MA period
+    position_size: 100                # Shares per trade
+    use_signals: false                # Submit orders directly
+
+# Universe of symbols
+universe:
+  symbols:
+    - AAPL
+    - TSLA
+
+# Data source configuration
+data:
+  source: ib                          # ib | futu | csv | parquet
+  bar_size: 1d                        # 1m | 5m | 15m | 1h | 1d
+  start_date: "2024-01-01"
+  end_date: "2024-06-30"
+  # Connection details resolved from config/base.yaml (brokers section)
+  # For CSV/Parquet:
+  # data_dir: "./data"
+
+# Execution configuration
+execution:
+  initial_capital: 100000
+  currency: USD
+  allowed_order_types:
+    - MARKET
+    - LIMIT
+
+# Reality model (fees, slippage)
+reality_model:
+  fee_model:
+    type: fixed
+    commission_per_share: 0.005
+    min_commission: 1.0
+  slippage_model:
+    type: constant
+    slippage_bps: 5
+
+# Risk controls
+risk:
+  enabled: false                      # Disable for backtest
+  max_position_size: 1000
+  max_order_size: 500
+
+# Reporting
+reporting:
+  analyzers:
+    - sharpe
+    - drawdown
+    - trades
+  persist_to_db: false
+  output_dir: "results/backtests"
+  plot: false
+
+# Metadata for reproducibility
+metadata:
+  author: "Apex Team"
+  description: "MA crossover strategy backtest on AAPL"
+  version: "1.0"
+  tags:
+    - momentum
+    - equities
+    - example

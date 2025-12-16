@@ -1,0 +1,69 @@
+# Portfolio Rebalancing Strategy Backtest Specification
+#
+# Maintains equal weight allocation across tech stocks with periodic rebalancing.
+# Demonstrates scheduler features for time-based trading.
+# Run with: python -m src.runners.backtest_runner --spec config/backtest/portfolio_rebalance_example.yaml
+
+strategy:
+  name: scheduled_rebalance
+  id: rebalance-tech-2024
+  params:
+    # Target weights (must sum to 1.0) - equal weight across 4 stocks
+    target_weights:
+      AAPL: 0.25
+      MSFT: 0.25
+      GOOGL: 0.25
+      NVDA: 0.25
+    rebalance_threshold: 0.05           # 5% drift triggers rebalance
+    total_capital: 100000               # Portfolio size
+
+# Universe - all symbols in target_weights
+universe:
+  symbols:
+    - AAPL
+    - MSFT
+    - GOOGL
+    - NVDA
+
+# Data source configuration
+data:
+  source: ib
+  bar_size: 1d
+  start_date: "2024-01-01"
+  end_date: "2024-06-30"
+
+# Execution configuration
+execution:
+  initial_capital: 100000
+  currency: USD
+  allowed_order_types:
+    - MARKET
+
+# Reality model
+reality_model:
+  fee_model:
+    type: fixed
+    commission_per_share: 0.005
+    min_commission: 1.0
+  slippage_model:
+    type: constant
+    slippage_bps: 5
+
+# Reporting
+reporting:
+  analyzers:
+    - sharpe
+    - drawdown
+    - trades
+  persist_to_db: false
+  output_dir: "results/backtests"
+
+metadata:
+  author: "Apex Team"
+  description: "Equal weight portfolio rebalancing across tech stocks"
+  version: "1.0"
+  tags:
+    - portfolio
+    - rebalancing
+    - multi_asset
+    - scheduler
