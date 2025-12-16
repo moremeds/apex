@@ -88,7 +88,7 @@ class SyncStateRepository(BaseRepository[SyncState]):
             "broker": entity.broker,
             "account_id": entity.account_id,
             "data_type": entity.data_type,
-            "market": entity.market,
+            "market": entity.market or "",  # Convert None to '' for UNIQUE constraint
             "last_sync_time": entity.last_sync_time,
             "last_record_time": entity.last_record_time,
             "records_synced": entity.records_synced,
@@ -123,18 +123,13 @@ class SyncStateRepository(BaseRepository[SyncState]):
         Returns:
             SyncState if found, None otherwise.
         """
-        if market:
-            query = """
-                SELECT * FROM sync_state
-                WHERE broker = $1 AND account_id = $2 AND data_type = $3 AND market = $4
-            """
-            record = await self._db.fetchrow(query, broker, account_id, data_type, market)
-        else:
-            query = """
-                SELECT * FROM sync_state
-                WHERE broker = $1 AND account_id = $2 AND data_type = $3 AND market IS NULL
-            """
-            record = await self._db.fetchrow(query, broker, account_id, data_type)
+        # Use empty string for None market to match UNIQUE constraint behavior
+        market_value = market or ""
+        query = """
+            SELECT * FROM sync_state
+            WHERE broker = $1 AND account_id = $2 AND data_type = $3 AND market = $4
+        """
+        record = await self._db.fetchrow(query, broker, account_id, data_type, market_value)
 
         return self._to_entity(record) if record else None
 

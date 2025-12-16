@@ -35,7 +35,7 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from config.loader import load_config
+from config.config_manager import ConfigManager
 from config.models import DatabaseConfig
 from src.infrastructure.persistence.database import Database
 from src.services.history_loader_service import HistoryLoaderService
@@ -162,8 +162,9 @@ async def main() -> int:
 
     # Load configuration
     try:
-        config = load_config(args.config)
-        db_config = config.database or DatabaseConfig()
+        config_manager = ConfigManager(config_dir="config", env="dev")
+        config = config_manager.load()
+        db_config = config.database if config.database else DatabaseConfig()
     except Exception as e:
         logger.error(f"Failed to load config: {e}")
         return 1

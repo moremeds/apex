@@ -132,7 +132,11 @@ def parse_timestamp(
         return None
 
 
-def parse_futu_timestamp(time_str: str, market: str = "US") -> Optional[datetime]:
+def parse_futu_timestamp(
+    time_str: Optional[str],
+    market: str = "US",
+    fallback: Optional[datetime] = None,
+) -> datetime:
     """
     Parse Futu timestamp string to UTC datetime.
 
@@ -144,27 +148,35 @@ def parse_futu_timestamp(time_str: str, market: str = "US") -> Optional[datetime
     Supports formats:
     - "YYYY-MM-DD HH:MM:SS" (standard)
     - "YYYY-MM-DD HH:MM:SS.mmm" (with milliseconds)
+    - "YYYY-MM-DD" (date only)
 
     Args:
         time_str: Timestamp string from Futu API.
         market: Trading market code (US, HK, CN, SG, JP, AU).
+        fallback: Fallback datetime if parsing fails. Defaults to now_utc().
 
     Returns:
-        Timezone-aware datetime in UTC, or None if parsing fails.
+        Timezone-aware datetime in UTC. Never returns None.
     """
-    if not time_str:
-        return None
+    # Use fallback if no input or invalid input
+    if fallback is None:
+        fallback = now_utc()
 
-    # Try formats: with milliseconds first, then without
-    for fmt in ["%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"]:
+    if not time_str or time_str in ('N/A', '', 'None', None):
+        return fallback
+
+    # Try formats: with milliseconds first, then without, then date-only
+    for fmt in ["%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"]:
         try:
             naive_dt = datetime.strptime(str(time_str), fmt)
             break
         except ValueError:
             continue
     else:
-        # No format matched
-        return None
+        # No format matched - return fallback
+        import logging
+        logging.getLogger(__name__).warning(f"Could not parse Futu timestamp: {time_str}")
+        return fallback
 
     # Apply exchange timezone
     exchange_tz = MARKET_TIMEZONE.get(market, MARKET_TIMEZONE["US"])

@@ -48,6 +48,8 @@ from .async_event_bus import AsyncEventBus
 if TYPE_CHECKING:
     from ..infrastructure.observability import RiskMetrics, HealthMetrics
     from .readiness_manager import ReadinessManager
+    from ..services.snapshot_service import SnapshotService
+    from ..services.warm_start_service import WarmStartService
 
 
 logger = get_logger(__name__)
@@ -86,6 +88,8 @@ class Orchestrator:
         risk_metrics: Optional["RiskMetrics"] = None,
         health_metrics: Optional["HealthMetrics"] = None,
         readiness_manager: Optional["ReadinessManager"] = None,
+        snapshot_service: Optional["SnapshotService"] = None,
+        warm_start_service: Optional["WarmStartService"] = None,
     ):
         """
         Initialize orchestrator with all dependencies.
@@ -110,6 +114,8 @@ class Orchestrator:
             risk_metrics: Optional RiskMetrics for Prometheus observability.
             health_metrics: Optional HealthMetrics for Prometheus observability.
             readiness_manager: Optional ReadinessManager for event-driven readiness gating.
+            snapshot_service: Optional SnapshotService for periodic state snapshots.
+            warm_start_service: Optional WarmStartService for loading state on startup.
         """
         self.broker_manager = broker_manager
         self.market_data_manager = market_data_manager
@@ -130,6 +136,8 @@ class Orchestrator:
         self._risk_metrics = risk_metrics
         self._health_metrics = health_metrics
         self._readiness_manager = readiness_manager
+        self._snapshot_service = snapshot_service
+        self._warm_start_service = warm_start_service
 
         dashboard_cfg = config.get("dashboard", {})
         self.refresh_interval_sec = dashboard_cfg.get("refresh_interval_sec", 2)
@@ -166,11 +174,19 @@ class Orchestrator:
 
         logger.info("Starting orchestrator (event-driven mode)...")
 
+        # Warm-start: Load state from snapshots before connecting to brokers
+        await self._perform_warm_start()
+
         # Connect to data sources
         await self._connect_providers()
 
         # Start watchdog
         await self.watchdog.start()
+
+        # Start snapshot service for periodic state capture
+        if self._snapshot_service:
+            await self._snapshot_service.start()
+            logger.info("Snapshot service started")
 
         self._running = True
 
@@ -218,6 +234,11 @@ class Orchestrator:
         # Signal shutdown to ReadinessManager
         if self._readiness_manager:
             self._readiness_manager.shutdown()
+
+        # Stop snapshot service (captures final snapshots if configured)
+        if self._snapshot_service:
+            await self._snapshot_service.stop()
+            logger.info("Snapshot service stopped")
 
         # Stop async event bus
         if isinstance(self.event_bus, (AsyncEventBus, PriorityEventBus)):
@@ -389,13 +410,12 @@ class Orchestrator:
         })
 
         # Notify ReadinessManager of positions loaded per broker
+        # IMPORTANT: Always notify even for empty lists (0 positions) to mark broker as "loaded"
+        # Without this, the state machine waits forever for brokers with no positions
         if self._readiness_manager:
-            if ib_positions:
-                self._readiness_manager.on_positions_loaded("ib", len(ib_positions))
-            if futu_positions:
-                self._readiness_manager.on_positions_loaded("futu", len(futu_positions))
-            if manual_positions:
-                self._readiness_manager.on_positions_loaded("manual", len(manual_positions))
+            self._readiness_manager.on_positions_loaded("ib", len(ib_positions))
+            self._readiness_manager.on_positions_loaded("futu", len(futu_positions))
+            self._readiness_manager.on_positions_loaded("manual", len(manual_positions))
 
         # Log position counts prominently (both to file and console if enabled)
         position_msg = (
@@ -947,4 +967,179 @@ class Orchestrator:
         preview.is_preview = True  # Custom flag for dashboard to show "Loading..." indicator
 
         return preview
+
+    # ========== Warm Start / Snapshot Service Integration ==========
+
+    async def _perform_warm_start(self) -> None:
+        """
+        Perform warm start by loading state from database snapshots.
+
+        This is called before connecting to brokers to provide immediate
+        position visibility while waiting for live data.
+
+        The warm-start service:
+        1. Loads latest position snapshots per broker/account
+        2. Loads latest account snapshots per broker/account
+        3. Validates snapshot age (rejects stale data)
+        4. Populates stores with restored data
+        """
+        if not self._warm_start_service:
+            logger.debug("No warm-start service configured - skipping")
+            return
+
+        if is_console_enabled():
+            print("🔄 Loading cached state from database...", flush=True)
+
+        try:
+            # Get broker configurations for warm-start
+            brokers_config = self.config.get("brokers", {})
+            broker_list = []
+
+            # Build broker list from config
+            for broker_name, broker_cfg in brokers_config.items():
+                if isinstance(broker_cfg, dict) and broker_cfg.get("enabled", True):
+                    broker_list.append({
+                        "name": broker_name.upper(),
+                        "account_id": broker_cfg.get("account_id", ""),
+                    })
+
+            if not broker_list:
+                logger.info("No brokers configured for warm-start")
+                return
+
+            # Perform warm start with callbacks to populate stores
+            result = await self._warm_start_service.warm_start(
+                brokers=broker_list,
+                on_positions_loaded=self._on_warm_start_positions,
+                on_account_loaded=self._on_warm_start_account,
+                on_risk_loaded=None,  # Risk snapshots are informational, don't restore
+            )
+
+            if result.success:
+                msg = (
+                    f"✓ Warm start: {result.positions_loaded} positions, "
+                    f"{result.accounts_loaded} accounts"
+                )
+                if result.snapshot_age_seconds:
+                    msg += f" (age: {result.snapshot_age_seconds:.0f}s)"
+                logger.info(msg)
+                if is_console_enabled():
+                    print(msg, flush=True)
+            else:
+                logger.warning(f"Warm start partial failure: {result.error}")
+                if is_console_enabled():
+                    print(f"⚠ Warm start: {result.error}", flush=True)
+
+        except Exception as e:
+            logger.error(f"Warm start failed: {e}")
+            if is_console_enabled():
+                print(f"✗ Warm start failed: {e}", flush=True)
+
+    def _on_warm_start_positions(
+        self,
+        broker_name: str,
+        account_id: str,
+        position_dicts: list,
+    ) -> None:
+        """
+        Handle positions loaded during warm-start.
+
+        Deserializes position dicts back to Position objects and
+        populates the position store.
+        """
+        if not self._warm_start_service or not position_dicts:
+            return
+
+        # Reconstruct Position objects from serialized data
+        positions = self._warm_start_service.deserialize_positions(position_dicts)
+
+        if positions:
+            # Mark source as CACHED for warm-start positions
+            from ..models.position import PositionSource
+            for pos in positions:
+                pos.source = PositionSource.CACHED
+
+            # Publish event for store to update
+            self.event_bus.publish(EventType.POSITIONS_BATCH, {
+                "positions": positions,
+                "source": "warm_start",
+                "broker": broker_name,
+                "timestamp": datetime.now(),
+            })
+
+            logger.info(f"Warm-start: loaded {len(positions)} positions for {broker_name}/{account_id}")
+
+    def _on_warm_start_account(
+        self,
+        broker_name: str,
+        account_id: str,
+        account_dict: dict,
+    ) -> None:
+        """
+        Handle account info loaded during warm-start.
+
+        Deserializes account dict back to AccountInfo object and
+        populates the account store.
+        """
+        if not self._warm_start_service or not account_dict:
+            return
+
+        # Reconstruct AccountInfo from serialized data
+        account_info = self._warm_start_service.deserialize_account(account_dict)
+
+        if account_info:
+            # Publish event for store to update
+            self.event_bus.publish(EventType.ACCOUNT_UPDATED, {
+                "account_info": account_info,
+                "source": "warm_start",
+                "broker": broker_name,
+                "timestamp": datetime.now(),
+            })
+
+            logger.info(
+                f"Warm-start: loaded account for {broker_name}/{account_id} "
+                f"(NetLiq: ${account_info.net_liquidation:,.2f})"
+            )
+
+    def _get_positions_for_snapshot(self) -> Dict[tuple, list]:
+        """
+        Get current positions grouped by (broker, account_id) for snapshot capture.
+
+        Returns dict keyed by (broker, account_id) with list of positions.
+        """
+        positions = self.position_store.get_all()
+        result = {}
+
+        for pos in positions:
+            broker = pos.source.value if pos.source else "UNKNOWN"
+            account_id = pos.account_id or ""
+            key = (broker, account_id)
+
+            if key not in result:
+                result[key] = []
+            result[key].append(pos)
+
+        return result
+
+    def _get_accounts_for_snapshot(self) -> Dict[tuple, AccountInfo]:
+        """
+        Get current account info grouped by (broker, account_id) for snapshot capture.
+
+        Returns dict keyed by (broker, account_id) with AccountInfo.
+        """
+        # For now, we have a single aggregated account
+        # Future: support multiple broker accounts
+        account_info = self.account_store.get()
+        if not account_info:
+            return {}
+
+        # Use account_id from the AccountInfo if available
+        broker = "AGGREGATED"
+        account_id = account_info.account_id or ""
+
+        return {(broker, account_id): account_info}
+
+    def _get_risk_snapshot_for_capture(self) -> Optional[RiskSnapshot]:
+        """Get current risk snapshot for snapshot capture."""
+        return self._latest_snapshot
 

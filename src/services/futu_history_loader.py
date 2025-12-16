@@ -26,6 +26,11 @@ from src.utils.timezone import now_utc
 
 logger = logging.getLogger(__name__)
 
+# Maximum days per query (Futu SDK limitation)
+MAX_DAYS_PER_QUERY = 90
+# Maximum order IDs per fee query (Futu SDK limitation)
+MAX_FEE_BATCH_SIZE = 400
+
 
 class RateLimiter:
     """Simple rate limiter for API calls."""
@@ -107,6 +112,36 @@ class FutuHistoryLoader:
 
         self._rate_limiter = RateLimiter(requests_per_window, window_seconds)
         self._futu_client = None  # Lazy initialization
+        self._trd_env = None  # Set during client initialization
+
+    def _chunk_date_range(
+        self,
+        from_date: date,
+        to_date: date,
+        max_days: int = MAX_DAYS_PER_QUERY,
+    ) -> List[tuple]:
+        """
+        Split a date range into chunks of max_days.
+
+        Futu SDK limits queries to 90-day windows.
+
+        Args:
+            from_date: Start date.
+            to_date: End date.
+            max_days: Maximum days per chunk.
+
+        Returns:
+            List of (start_date, end_date) tuples.
+        """
+        chunks = []
+        current_start = from_date
+
+        while current_start <= to_date:
+            current_end = min(current_start + timedelta(days=max_days - 1), to_date)
+            chunks.append((current_start, current_end))
+            current_start = current_end + timedelta(days=1)
+
+        return chunks
 
     async def _get_futu_client(self):
         """Get or create Futu client connection."""
@@ -116,7 +151,7 @@ class FutuHistoryLoader:
                 from futu import OpenSecTradeContext, TrdEnv, TrdMarket, SecurityFirm
 
                 # Map config values to Futu enums
-                trd_env = TrdEnv.REAL if self._futu_config.trd_env == "REAL" else TrdEnv.SIMULATE
+                self._trd_env = TrdEnv.REAL if self._futu_config.trd_env == "REAL" else TrdEnv.SIMULATE
                 security_firm_map = {
                     "FUTUSECURITIES": SecurityFirm.FUTUSECURITIES,
                     "FUTUINC": SecurityFirm.FUTUINC,
@@ -310,7 +345,7 @@ class FutuHistoryLoader:
         market: str,
     ) -> int:
         """
-        Load fees for filled orders.
+        Load fees for filled orders using batch queries.
 
         Args:
             account_id: Futu account ID.
@@ -350,18 +385,30 @@ class FutuHistoryLoader:
             return len(missing_ids)
 
         total_loaded = 0
-        for order_id in missing_ids:
-            try:
-                # Rate limit before API call
-                await self._rate_limiter.acquire()
 
-                fee_data = await self._fetch_order_fee(account_id, order_id)
-                if fee_data:
-                    entity = FutuFeeRepository.from_futu_fee(fee_data, order_id, account_id)
-                    await self._fee_repo.upsert(entity)
-                    total_loaded += 1
+        # Process in batches (SDK limit is 400 per call)
+        for i in range(0, len(missing_ids), MAX_FEE_BATCH_SIZE):
+            batch_ids = missing_ids[i:i + MAX_FEE_BATCH_SIZE]
+
+            await self._rate_limiter.acquire()
+
+            try:
+                fee_records = await self._fetch_order_fees_batch(batch_ids)
+
+                for fee_data in fee_records:
+                    try:
+                        order_id = str(fee_data.get("order_id", ""))
+                        if not order_id:
+                            continue
+
+                        entity = FutuFeeRepository.from_futu_fee(fee_data, order_id, account_id)
+                        await self._fee_repo.upsert(entity)
+                        total_loaded += 1
+                    except Exception as e:
+                        logger.warning(f"Failed to save fee record: {e}")
+
             except Exception as e:
-                logger.warning(f"Failed to load fee for order {order_id}: {e}")
+                logger.warning(f"Failed to fetch fee batch: {e}")
 
         logger.info(f"Loaded {total_loaded} fee records")
         return total_loaded
@@ -373,43 +420,51 @@ class FutuHistoryLoader:
         from_date: Optional[date],
         to_date: Optional[date],
     ) -> List[Dict[str, Any]]:
-        """Fetch orders from Futu API."""
-        await self._rate_limiter.acquire()
+        """
+        Fetch orders from Futu API with date chunking.
+
+        Handles the 90-day query limit by splitting into chunks.
+        """
+        # Default dates if not provided
+        if from_date is None:
+            from_date = date.today() - timedelta(days=30)
+        if to_date is None:
+            to_date = date.today()
+
+        all_orders = []
+        chunks = self._chunk_date_range(from_date, to_date)
 
         try:
-            from futu import TrdMarket
-
-            market_map = {
-                "US": TrdMarket.US,
-                "HK": TrdMarket.HK,
-                "CN": TrdMarket.CN,
-                "SG": TrdMarket.SG,
-                "JP": TrdMarket.JP,
-                "AU": TrdMarket.AU,
-            }
-            trd_market = market_map.get(market, TrdMarket.US)
-
             client = await self._get_futu_client()
 
-            # Format dates for Futu API (YYYY-MM-DD)
-            start_str = from_date.strftime("%Y-%m-%d") if from_date else None
-            end_str = to_date.strftime("%Y-%m-%d") if to_date else None
+            for chunk_start, chunk_end in chunks:
+                await self._rate_limiter.acquire()
 
-            ret, data = client.history_order_list_query(
-                filter_conditions={
-                    "trd_market": trd_market,
-                },
-                start=start_str,
-                end=end_str,
-            )
+                start_str = chunk_start.strftime("%Y-%m-%d")
+                end_str = chunk_end.strftime("%Y-%m-%d")
 
-            if ret != 0:
-                raise RuntimeError(f"Futu API error: {data}")
+                logger.debug(f"Fetching orders for {chunk_start} to {chunk_end}")
 
-            # Convert DataFrame to list of dicts
-            if data is not None and not data.empty:
-                return data.to_dict("records")
-            return []
+                # Use correct SDK signature (positional args, not filter_conditions)
+                ret, data = client.history_order_list_query(
+                    status_filter_list=[],  # Empty = all statuses
+                    code='',                 # Empty = all symbols
+                    start=start_str,
+                    end=end_str,
+                    trd_env=self._trd_env,
+                    acc_id=0,
+                    acc_index=0,
+                )
+
+                if ret != 0:
+                    logger.warning(f"Futu API error for orders {chunk_start}-{chunk_end}: {data}")
+                    continue
+
+                # Convert DataFrame to list of dicts
+                if data is not None and not data.empty:
+                    all_orders.extend(data.to_dict("records"))
+
+            return all_orders
 
         except ImportError:
             logger.warning("Futu API not available, returning empty list")
@@ -422,64 +477,90 @@ class FutuHistoryLoader:
         from_date: Optional[date],
         to_date: Optional[date],
     ) -> List[Dict[str, Any]]:
-        """Fetch deals from Futu API."""
-        await self._rate_limiter.acquire()
+        """
+        Fetch deals from Futu API with date chunking.
+
+        Handles the 90-day query limit by splitting into chunks.
+        """
+        # Default dates if not provided
+        if from_date is None:
+            from_date = date.today() - timedelta(days=30)
+        if to_date is None:
+            to_date = date.today()
+
+        all_deals = []
+        chunks = self._chunk_date_range(from_date, to_date)
 
         try:
-            from futu import TrdMarket
-
-            market_map = {
-                "US": TrdMarket.US,
-                "HK": TrdMarket.HK,
-                "CN": TrdMarket.CN,
-            }
-            trd_market = market_map.get(market, TrdMarket.US)
-
             client = await self._get_futu_client()
 
-            start_str = from_date.strftime("%Y-%m-%d") if from_date else None
-            end_str = to_date.strftime("%Y-%m-%d") if to_date else None
+            for chunk_start, chunk_end in chunks:
+                await self._rate_limiter.acquire()
 
-            ret, data = client.history_deal_list_query(
-                filter_conditions={
-                    "trd_market": trd_market,
-                },
-                start=start_str,
-                end=end_str,
+                start_str = chunk_start.strftime("%Y-%m-%d")
+                end_str = chunk_end.strftime("%Y-%m-%d")
+
+                logger.debug(f"Fetching deals for {chunk_start} to {chunk_end}")
+
+                # Use correct SDK signature (positional args)
+                ret, data = client.history_deal_list_query(
+                    code='',                 # Empty = all symbols
+                    start=start_str,
+                    end=end_str,
+                    trd_env=self._trd_env,
+                    acc_id=0,
+                    acc_index=0,
+                )
+
+                if ret != 0:
+                    logger.warning(f"Futu API error for deals {chunk_start}-{chunk_end}: {data}")
+                    continue
+
+                if data is not None and not data.empty:
+                    all_deals.extend(data.to_dict("records"))
+
+            return all_deals
+
+        except ImportError:
+            logger.warning("Futu API not available, returning empty list")
+            return []
+
+    async def _fetch_order_fees_batch(
+        self,
+        order_ids: List[str],
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetch fee details for a batch of orders.
+
+        SDK expects order_id_list parameter (max 400 per call).
+        """
+        if not order_ids:
+            return []
+
+        try:
+            client = await self._get_futu_client()
+
+            # SDK expects order_id_list as a list
+            ret, data = client.order_fee_query(
+                order_id_list=order_ids,
+                trd_env=self._trd_env,
+                acc_id=0,
+                acc_index=0,
             )
 
             if ret != 0:
-                raise RuntimeError(f"Futu API error: {data}")
+                logger.warning(f"Failed to get fees for batch: {data}")
+                return []
 
             if data is not None and not data.empty:
                 return data.to_dict("records")
             return []
 
         except ImportError:
-            logger.warning("Futu API not available, returning empty list")
             return []
-
-    async def _fetch_order_fee(
-        self,
-        account_id: str,
-        order_id: str,
-    ) -> Optional[Dict[str, Any]]:
-        """Fetch fee details for a specific order."""
-        try:
-            client = await self._get_futu_client()
-
-            ret, data = client.order_fee_query(order_id)
-
-            if ret != 0:
-                logger.warning(f"Failed to get fee for order {order_id}: {data}")
-                return None
-
-            if data is not None and not data.empty:
-                return data.to_dict("records")[0] if len(data) > 0 else None
-            return None
-
-        except ImportError:
-            return None
+        except Exception as e:
+            logger.warning(f"Error fetching fees: {e}")
+            return []
 
     def close(self):
         """Close Futu client connection."""

@@ -21,6 +21,50 @@ from src.utils.timezone import parse_futu_timestamp
 logger = logging.getLogger(__name__)
 
 
+# =============================================================================
+# Futu Value Sanitization Helpers
+# =============================================================================
+# Futu SDK returns 'N/A', '', or None for missing values which break type casts.
+
+
+def _sanitize_decimal(value: Any, default: Decimal | None = None) -> Decimal | None:
+    """Convert Futu value to Decimal, handling N/A and empty strings."""
+    if value is None or value == '' or value == 'N/A' or str(value).upper() == 'N/A':
+        return default
+    try:
+        return Decimal(str(value))
+    except Exception:
+        return default
+
+
+def _sanitize_int(value: Any, default: int = 0) -> int:
+    """Convert Futu value to int, handling N/A and empty strings."""
+    if value is None or value == '' or value == 'N/A' or str(value).upper() == 'N/A':
+        return default
+    try:
+        return int(float(value))  # Handle "123.0" strings
+    except Exception:
+        return default
+
+
+def _sanitize_bool(value: Any, default: bool | None = None) -> bool | None:
+    """Convert Futu value to bool, handling N/A and empty strings."""
+    if value is None or value == '' or value == 'N/A' or str(value).upper() == 'N/A':
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.lower() in ('true', '1', 'yes', 'y')
+    return bool(value)
+
+
+def _sanitize_str(value: Any, default: str | None = None) -> str | None:
+    """Convert Futu value to string, handling N/A."""
+    if value is None or value == 'N/A' or str(value).upper() == 'N/A':
+        return default
+    return str(value) if value != '' else default
+
+
 @dataclass
 class FutuRawOrder:
     """Futu raw order entity."""
@@ -344,6 +388,8 @@ class FutuOrderRepository(BaseRepository[FutuRawOrder]):
         """
         Convert Futu API order data to FutuRawOrder entity.
 
+        Uses sanitization helpers to handle Futu's 'N/A' and '' values.
+
         Args:
             order_data: Raw order dict from Futu API.
             account_id: Futu account ID.
@@ -356,42 +402,26 @@ class FutuOrderRepository(BaseRepository[FutuRawOrder]):
             order_id=str(order_data.get("order_id", "")),
             account_id=account_id,
             market=market,
-            code=order_data.get("code", ""),
-            stock_name=order_data.get("stock_name"),
-            trd_side=order_data.get("trd_side", ""),
-            order_type=order_data.get("order_type", ""),
-            order_status=order_data.get("order_status", ""),
-            qty=Decimal(str(order_data.get("qty", 0))),
-            price=Decimal(str(order_data["price"])) if order_data.get("price") else None,
-            currency=order_data.get("currency"),
-            dealt_qty=Decimal(str(order_data.get("dealt_qty", 0))),
-            dealt_avg_price=(
-                Decimal(str(order_data["dealt_avg_price"]))
-                if order_data.get("dealt_avg_price")
-                else None
-            ),
-            time_in_force=order_data.get("time_in_force"),
-            fill_outside_rth=order_data.get("fill_outside_rth"),
-            session=order_data.get("session"),
-            aux_price=(
-                Decimal(str(order_data["aux_price"]))
-                if order_data.get("aux_price")
-                else None
-            ),
-            trail_type=order_data.get("trail_type"),
-            trail_value=(
-                Decimal(str(order_data["trail_value"]))
-                if order_data.get("trail_value")
-                else None
-            ),
-            trail_spread=(
-                Decimal(str(order_data["trail_spread"]))
-                if order_data.get("trail_spread")
-                else None
-            ),
-            remark=order_data.get("remark"),
-            last_err_msg=order_data.get("last_err_msg"),
-            create_time=parse_futu_timestamp(order_data.get("create_time", ""), market),
-            updated_time=parse_futu_timestamp(order_data.get("updated_time", ""), market),
+            code=_sanitize_str(order_data.get("code"), "") or "",
+            stock_name=_sanitize_str(order_data.get("stock_name")),
+            trd_side=_sanitize_str(order_data.get("trd_side"), "UNKNOWN") or "UNKNOWN",
+            order_type=_sanitize_str(order_data.get("order_type"), "UNKNOWN") or "UNKNOWN",
+            order_status=_sanitize_str(order_data.get("order_status"), "UNKNOWN") or "UNKNOWN",
+            qty=_sanitize_decimal(order_data.get("qty"), Decimal("0")) or Decimal("0"),
+            price=_sanitize_decimal(order_data.get("price")),
+            currency=_sanitize_str(order_data.get("currency")),
+            dealt_qty=_sanitize_decimal(order_data.get("dealt_qty"), Decimal("0")) or Decimal("0"),
+            dealt_avg_price=_sanitize_decimal(order_data.get("dealt_avg_price")),
+            time_in_force=_sanitize_str(order_data.get("time_in_force")),
+            fill_outside_rth=_sanitize_bool(order_data.get("fill_outside_rth")),
+            session=_sanitize_str(order_data.get("session")),
+            aux_price=_sanitize_decimal(order_data.get("aux_price")),
+            trail_type=_sanitize_str(order_data.get("trail_type")),
+            trail_value=_sanitize_decimal(order_data.get("trail_value")),
+            trail_spread=_sanitize_decimal(order_data.get("trail_spread")),
+            remark=_sanitize_str(order_data.get("remark")),
+            last_err_msg=_sanitize_str(order_data.get("last_err_msg")),
+            create_time=parse_futu_timestamp(order_data.get("create_time"), market),
+            updated_time=parse_futu_timestamp(order_data.get("updated_time"), market),
             raw_data=order_data,
         )

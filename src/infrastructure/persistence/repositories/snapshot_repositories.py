@@ -406,6 +406,15 @@ class RiskSnapshotRepository(BaseRepository[RiskSnapshotRecord]):
         """
         Convert a domain RiskSnapshot to a RiskSnapshotRecord for persistence.
 
+        Maps domain model fields to database columns:
+        - Domain: total_net_liquidation → DB: portfolio_value
+        - Domain: portfolio_delta → DB: total_delta
+        - Domain: portfolio_gamma → DB: total_gamma
+        - Domain: portfolio_vega → DB: total_vega
+        - Domain: portfolio_theta → DB: total_theta
+        - Domain: total_unrealized_pnl → DB: unrealized_pnl
+        - Domain: total_daily_pnl → DB: daily_pnl
+
         Args:
             snapshot: Domain RiskSnapshot object.
             snapshot_time: Time of the snapshot.
@@ -413,28 +422,38 @@ class RiskSnapshotRepository(BaseRepository[RiskSnapshotRecord]):
         Returns:
             RiskSnapshotRecord ready for persistence.
         """
+        # Extract values using correct domain model field names
+        portfolio_value = getattr(snapshot, "total_net_liquidation", None)
+        total_delta = getattr(snapshot, "portfolio_delta", None)
+        total_gamma = getattr(snapshot, "portfolio_gamma", None)
+        total_vega = getattr(snapshot, "portfolio_vega", None)
+        total_theta = getattr(snapshot, "portfolio_theta", None)
+        unrealized_pnl = getattr(snapshot, "total_unrealized_pnl", None)
+        daily_pnl = getattr(snapshot, "total_daily_pnl", None)
+        position_risks = getattr(snapshot, "position_risks", [])
+
         # Serialize the full snapshot to dict
         snapshot_dict = {
             "timestamp": str(snapshot.timestamp) if hasattr(snapshot, "timestamp") else str(snapshot_time),
-            "portfolio_value": float(snapshot.portfolio_value) if hasattr(snapshot, "portfolio_value") else None,
-            "unrealized_pnl": float(snapshot.unrealized_pnl) if hasattr(snapshot, "unrealized_pnl") else None,
-            "daily_pnl": float(snapshot.daily_pnl) if hasattr(snapshot, "daily_pnl") else None,
-            "total_delta": float(snapshot.total_delta) if hasattr(snapshot, "total_delta") else None,
-            "total_gamma": float(snapshot.total_gamma) if hasattr(snapshot, "total_gamma") else None,
-            "total_vega": float(snapshot.total_vega) if hasattr(snapshot, "total_vega") else None,
-            "total_theta": float(snapshot.total_theta) if hasattr(snapshot, "total_theta") else None,
-            "position_count": len(snapshot.position_risks) if hasattr(snapshot, "position_risks") else 0,
+            "total_net_liquidation": float(portfolio_value) if portfolio_value else None,
+            "total_unrealized_pnl": float(unrealized_pnl) if unrealized_pnl else None,
+            "total_daily_pnl": float(daily_pnl) if daily_pnl else None,
+            "portfolio_delta": float(total_delta) if total_delta else None,
+            "portfolio_gamma": float(total_gamma) if total_gamma else None,
+            "portfolio_vega": float(total_vega) if total_vega else None,
+            "portfolio_theta": float(total_theta) if total_theta else None,
+            "position_count": len(position_risks),
         }
 
         return RiskSnapshotRecord(
             snapshot_time=snapshot_time,
             snapshot_data=snapshot_dict,
-            portfolio_value=Decimal(str(snapshot.portfolio_value)) if hasattr(snapshot, "portfolio_value") and snapshot.portfolio_value else None,
-            total_delta=Decimal(str(snapshot.total_delta)) if hasattr(snapshot, "total_delta") and snapshot.total_delta else None,
-            total_gamma=Decimal(str(snapshot.total_gamma)) if hasattr(snapshot, "total_gamma") and snapshot.total_gamma else None,
-            total_vega=Decimal(str(snapshot.total_vega)) if hasattr(snapshot, "total_vega") and snapshot.total_vega else None,
-            total_theta=Decimal(str(snapshot.total_theta)) if hasattr(snapshot, "total_theta") and snapshot.total_theta else None,
-            unrealized_pnl=Decimal(str(snapshot.unrealized_pnl)) if hasattr(snapshot, "unrealized_pnl") and snapshot.unrealized_pnl else None,
-            daily_pnl=Decimal(str(snapshot.daily_pnl)) if hasattr(snapshot, "daily_pnl") and snapshot.daily_pnl else None,
-            position_count=len(snapshot.position_risks) if hasattr(snapshot, "position_risks") else 0,
+            portfolio_value=Decimal(str(portfolio_value)) if portfolio_value else None,
+            total_delta=Decimal(str(total_delta)) if total_delta else None,
+            total_gamma=Decimal(str(total_gamma)) if total_gamma else None,
+            total_vega=Decimal(str(total_vega)) if total_vega else None,
+            total_theta=Decimal(str(total_theta)) if total_theta else None,
+            unrealized_pnl=Decimal(str(unrealized_pnl)) if unrealized_pnl else None,
+            daily_pnl=Decimal(str(daily_pnl)) if daily_pnl else None,
+            position_count=len(position_risks),
         )

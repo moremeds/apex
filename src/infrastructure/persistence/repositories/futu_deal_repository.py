@@ -21,6 +21,39 @@ from src.utils.timezone import parse_futu_timestamp
 logger = logging.getLogger(__name__)
 
 
+# =============================================================================
+# Futu Value Sanitization Helpers
+# =============================================================================
+# Futu SDK returns 'N/A', '', or None for missing values which break type casts.
+
+
+def _sanitize_decimal(value: Any, default: Decimal | None = None) -> Decimal | None:
+    """Convert Futu value to Decimal, handling N/A and empty strings."""
+    if value is None or value == '' or value == 'N/A' or str(value).upper() == 'N/A':
+        return default
+    try:
+        return Decimal(str(value))
+    except Exception:
+        return default
+
+
+def _sanitize_int(value: Any, default: int | None = None) -> int | None:
+    """Convert Futu value to int, handling N/A and empty strings."""
+    if value is None or value == '' or value == 'N/A' or str(value).upper() == 'N/A':
+        return default
+    try:
+        return int(float(value))
+    except Exception:
+        return default
+
+
+def _sanitize_str(value: Any, default: str | None = None) -> str | None:
+    """Convert Futu value to string, handling N/A."""
+    if value is None or value == 'N/A' or str(value).upper() == 'N/A':
+        return default
+    return str(value) if value != '' else default
+
+
 @dataclass
 class FutuRawDeal:
     """Futu raw deal (execution) entity."""
@@ -349,14 +382,14 @@ class FutuDealRepository(BaseRepository[FutuRawDeal]):
             order_id=str(deal_data.get("order_id", "")),
             account_id=account_id,
             market=market,
-            code=deal_data.get("code", ""),
-            stock_name=deal_data.get("stock_name"),
-            trd_side=deal_data.get("trd_side", ""),
-            qty=Decimal(str(deal_data.get("qty", 0))),
-            price=Decimal(str(deal_data.get("price", 0))),
-            status=deal_data.get("status"),
-            counter_broker_id=deal_data.get("counter_broker_id"),
-            counter_broker_name=deal_data.get("counter_broker_name"),
-            create_time=parse_futu_timestamp(deal_data.get("create_time", ""), market),
+            code=_sanitize_str(deal_data.get("code"), "") or "",
+            stock_name=_sanitize_str(deal_data.get("stock_name")),
+            trd_side=_sanitize_str(deal_data.get("trd_side"), "UNKNOWN") or "UNKNOWN",
+            qty=_sanitize_decimal(deal_data.get("qty"), Decimal("0")) or Decimal("0"),
+            price=_sanitize_decimal(deal_data.get("price"), Decimal("0")) or Decimal("0"),
+            status=_sanitize_str(deal_data.get("status")),
+            counter_broker_id=_sanitize_int(deal_data.get("counter_broker_id")),
+            counter_broker_name=_sanitize_str(deal_data.get("counter_broker_name")),
+            create_time=parse_futu_timestamp(deal_data.get("create_time"), market),
             raw_data=deal_data,
         )

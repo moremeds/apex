@@ -281,22 +281,56 @@ class SnapshotService:
                 await asyncio.sleep(5)
 
     def _serialize_position(self, position: Any) -> Dict[str, Any]:
-        """Serialize a Position object to dictionary."""
+        """
+        Serialize a Position object to dictionary.
+
+        Preserves types for proper reconstruction:
+        - bools stay as bools (not converted to 1.0)
+        - ints stay as ints
+        - floats/Decimals become floats
+        - datetimes become ISO strings
+        - lists are preserved as lists
+        """
+        from decimal import Decimal
+
         # Handle both dataclass and dict
         if hasattr(position, "__dict__"):
             data = {}
             for key, value in position.__dict__.items():
-                if isinstance(value, datetime):
-                    data[key] = str(value)
-                elif hasattr(value, "__dict__"):
-                    data[key] = self._serialize_position(value)
-                else:
-                    try:
-                        data[key] = float(value) if isinstance(value, (int, float)) else str(value)
-                    except (TypeError, ValueError):
-                        data[key] = str(value)
+                data[key] = self._serialize_value(value)
             return data
-        return dict(position) if isinstance(position, dict) else {"value": str(position)}
+        elif isinstance(position, dict):
+            return {k: self._serialize_value(v) for k, v in position.items()}
+        else:
+            return {"value": str(position)}
+
+    def _serialize_value(self, value: Any) -> Any:
+        """Serialize a single value preserving types."""
+        from decimal import Decimal
+
+        if value is None:
+            return None
+        elif isinstance(value, bool):
+            # Must check bool before int (bool is subclass of int)
+            return value
+        elif isinstance(value, datetime):
+            return {"__type__": "datetime", "value": value.isoformat()}
+        elif isinstance(value, Decimal):
+            return {"__type__": "Decimal", "value": str(value)}
+        elif isinstance(value, (int, float)):
+            return value
+        elif isinstance(value, (list, tuple)):
+            return [self._serialize_value(item) for item in value]
+        elif isinstance(value, dict):
+            return {k: self._serialize_value(v) for k, v in value.items()}
+        elif hasattr(value, "__dict__"):
+            # Nested dataclass/object
+            return {
+                "__type__": type(value).__name__,
+                **self._serialize_position(value)
+            }
+        else:
+            return str(value)
 
     def _serialize_account(self, account_info: Any) -> Dict[str, Any]:
         """Serialize an AccountInfo object to dictionary."""

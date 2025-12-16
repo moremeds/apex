@@ -10,7 +10,8 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Callable, Dict, List, Optional
+from decimal import Decimal
+from typing import Any, Callable, Dict, List, Optional, Type, TypeVar
 
 from src.infrastructure.persistence.database import Database
 from src.infrastructure.persistence.repositories import (
@@ -21,7 +22,11 @@ from src.infrastructure.persistence.repositories import (
     RiskSnapshotRecord,
     RiskSnapshotRepository,
 )
+from src.models.account import AccountInfo
+from src.models.position import AssetType, Position, PositionSource
 from src.utils.timezone import now_utc
+
+T = TypeVar("T")
 
 logger = logging.getLogger(__name__)
 
@@ -298,3 +303,213 @@ class WarmStartService:
         results["risk"] = await self._risk_repo.delete_where()
 
         return results
+
+    # -------------------------------------------------------------------------
+    # Typed Object Reconstruction
+    # -------------------------------------------------------------------------
+
+    def deserialize_positions(
+        self,
+        position_dicts: List[Dict[str, Any]],
+    ) -> List[Position]:
+        """
+        Reconstruct Position objects from serialized snapshot data.
+
+        Handles the typed markers from SnapshotService serialization:
+        - {"__type__": "datetime", "value": "ISO"} → datetime
+        - {"__type__": "Decimal", "value": "str"} → float (Position uses float)
+        - {"__type__": "AssetType", "value": "..."} → AssetType enum
+        - {"__type__": "PositionSource", "value": "..."} → PositionSource enum
+
+        Args:
+            position_dicts: List of position data dicts from snapshot.
+
+        Returns:
+            List of reconstructed Position objects.
+        """
+        positions = []
+        for pos_dict in position_dicts:
+            try:
+                pos = self._reconstruct_position(pos_dict)
+                if pos:
+                    positions.append(pos)
+            except Exception as e:
+                logger.warning(f"Failed to reconstruct position: {e}")
+        return positions
+
+    def deserialize_account(
+        self,
+        account_dict: Dict[str, Any],
+    ) -> Optional[AccountInfo]:
+        """
+        Reconstruct AccountInfo object from serialized snapshot data.
+
+        Args:
+            account_dict: Account data dict from snapshot.
+
+        Returns:
+            Reconstructed AccountInfo or None if invalid.
+        """
+        try:
+            return self._reconstruct_account(account_dict)
+        except Exception as e:
+            logger.warning(f"Failed to reconstruct account: {e}")
+            return None
+
+    def _deserialize_value(self, value: Any) -> Any:
+        """
+        Deserialize a single value, reversing SnapshotService serialization.
+
+        Handles:
+        - {"__type__": "datetime", "value": "ISO"} → datetime
+        - {"__type__": "Decimal", "value": "str"} → Decimal
+        - {"__type__": "AssetType", ...} → AssetType enum
+        - {"__type__": "PositionSource", ...} → PositionSource enum
+        - Lists → recursively deserialized lists
+        - Dicts → recursively deserialized dicts
+        - Primitives → returned as-is
+        """
+        if value is None:
+            return None
+
+        if isinstance(value, dict):
+            # Check for typed markers
+            type_marker = value.get("__type__")
+
+            if type_marker == "datetime":
+                try:
+                    return datetime.fromisoformat(value["value"])
+                except Exception:
+                    return None
+
+            elif type_marker == "Decimal":
+                try:
+                    return Decimal(value["value"])
+                except Exception:
+                    return Decimal(0)
+
+            elif type_marker == "AssetType":
+                try:
+                    return AssetType(value.get("value") or value.get("asset_type", "STOCK"))
+                except Exception:
+                    return AssetType.STOCK
+
+            elif type_marker == "PositionSource":
+                try:
+                    return PositionSource(value.get("value") or value.get("source", "CACHED"))
+                except Exception:
+                    return PositionSource.CACHED
+
+            elif type_marker:
+                # Unknown typed object - return dict without __type__ key
+                return {k: self._deserialize_value(v) for k, v in value.items() if k != "__type__"}
+
+            else:
+                # Regular dict - recursively deserialize values
+                return {k: self._deserialize_value(v) for k, v in value.items()}
+
+        elif isinstance(value, list):
+            return [self._deserialize_value(item) for item in value]
+
+        # Primitives (bool, int, float, str) - return as-is
+        return value
+
+    def _reconstruct_position(self, data: Dict[str, Any]) -> Optional[Position]:
+        """Reconstruct a Position object from deserialized data."""
+        # Deserialize all values first
+        deserialized = {k: self._deserialize_value(v) for k, v in data.items()}
+
+        # Handle asset_type enum
+        asset_type = deserialized.get("asset_type")
+        if isinstance(asset_type, str):
+            try:
+                asset_type = AssetType(asset_type)
+            except Exception:
+                asset_type = AssetType.STOCK
+        elif not isinstance(asset_type, AssetType):
+            asset_type = AssetType.STOCK
+
+        # Handle source enum
+        source = deserialized.get("source")
+        if isinstance(source, str):
+            try:
+                source = PositionSource(source)
+            except Exception:
+                source = PositionSource.CACHED
+        elif not isinstance(source, PositionSource):
+            source = PositionSource.CACHED
+
+        # Handle all_sources list
+        all_sources_raw = deserialized.get("all_sources", [])
+        all_sources = []
+        for s in all_sources_raw:
+            if isinstance(s, str):
+                try:
+                    all_sources.append(PositionSource(s))
+                except Exception:
+                    pass
+            elif isinstance(s, PositionSource):
+                all_sources.append(s)
+
+        # Convert Decimal to float for Position fields
+        def to_float(val: Any, default: float = 0.0) -> float:
+            if val is None:
+                return default
+            if isinstance(val, Decimal):
+                return float(val)
+            try:
+                return float(val)
+            except Exception:
+                return default
+
+        return Position(
+            symbol=deserialized.get("symbol", "UNKNOWN"),
+            underlying=deserialized.get("underlying", deserialized.get("symbol", "UNKNOWN")),
+            asset_type=asset_type,
+            quantity=to_float(deserialized.get("quantity"), 0.0),
+            avg_price=to_float(deserialized.get("avg_price"), 0.0),
+            multiplier=int(deserialized.get("multiplier", 1) or 1),
+            expiry=deserialized.get("expiry"),
+            strike=to_float(deserialized.get("strike")) if deserialized.get("strike") else None,
+            right=deserialized.get("right"),
+            source=source,
+            all_sources=all_sources,
+            strategy_tag=deserialized.get("strategy_tag"),
+            last_updated=deserialized.get("last_updated") or datetime.now(),
+            account_id=deserialized.get("account_id"),
+            entry_timestamp=deserialized.get("entry_timestamp"),
+            max_profit_reached=to_float(deserialized.get("max_profit_reached")) if deserialized.get("max_profit_reached") else None,
+            strategy_label=deserialized.get("strategy_label"),
+            related_position_ids=deserialized.get("related_position_ids", []),
+        )
+
+    def _reconstruct_account(self, data: Dict[str, Any]) -> Optional[AccountInfo]:
+        """Reconstruct an AccountInfo object from deserialized data."""
+        # Deserialize all values first
+        deserialized = {k: self._deserialize_value(v) for k, v in data.items()}
+
+        # Convert Decimal to float for AccountInfo fields
+        def to_float(val: Any, default: float = 0.0) -> float:
+            if val is None:
+                return default
+            if isinstance(val, Decimal):
+                return float(val)
+            try:
+                return float(val)
+            except Exception:
+                return default
+
+        return AccountInfo(
+            net_liquidation=to_float(deserialized.get("net_liquidation"), 0.0),
+            total_cash=to_float(deserialized.get("total_cash"), 0.0),
+            buying_power=to_float(deserialized.get("buying_power"), 0.0),
+            margin_used=to_float(deserialized.get("margin_used"), 0.0),
+            margin_available=to_float(deserialized.get("margin_available"), 0.0),
+            maintenance_margin=to_float(deserialized.get("maintenance_margin"), 0.0),
+            init_margin_req=to_float(deserialized.get("init_margin_req"), 0.0),
+            excess_liquidity=to_float(deserialized.get("excess_liquidity"), 0.0),
+            realized_pnl=to_float(deserialized.get("realized_pnl"), 0.0),
+            unrealized_pnl=to_float(deserialized.get("unrealized_pnl"), 0.0),
+            timestamp=deserialized.get("timestamp"),
+            account_id=deserialized.get("account_id"),
+        )

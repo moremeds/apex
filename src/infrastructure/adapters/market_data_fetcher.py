@@ -138,6 +138,7 @@ class MarketDataFetcher:
 
         try:
             # Phase 1: Subscribe ALL stocks immediately (non-blocking)
+            new_tickers = []  # Only new subscriptions need waiting
             for contract, pos in contract_pos_pairs:
                 try:
                     # Store position mapping for streaming callbacks
@@ -146,11 +147,13 @@ class MarketDataFetcher:
                     # Check if already subscribed
                     if pos.symbol in self._active_tickers:
                         ticker = self._active_tickers[pos.symbol]
+                        # Already subscribed - no need to wait again
                     else:
                         # Subscribe to streaming data (no special generic ticks for stocks)
                         ticker = self.ib.reqMktData(contract, '', False, False)
                         self._active_tickers[pos.symbol] = ticker
                         self._ticker_to_symbol[id(ticker)] = pos.symbol
+                        new_tickers.append(ticker)  # Track new subscriptions
 
                     tickers_with_pos.append((ticker, pos))
 
@@ -158,13 +161,15 @@ class MarketDataFetcher:
                     logger.warning(f"Failed to subscribe stock {pos.symbol}: {e}")
                     continue
 
-            # Phase 2: Wait for batch population (aggregate timeout, not per-symbol)
-            if tickers_with_pos:
+            # Phase 2: Wait ONLY for NEW subscriptions (skip if all cached)
+            if new_tickers:
                 populated_count = await self._wait_for_batch_population(
-                    [t for t, _ in tickers_with_pos],
+                    new_tickers,
                     timeout=self.data_timeout
                 )
-                logger.info(f"Stock data populated: {populated_count}/{len(tickers_with_pos)} symbols")
+                logger.info(f"New stock subscriptions populated: {populated_count}/{len(new_tickers)}")
+            elif tickers_with_pos:
+                logger.debug(f"All {len(tickers_with_pos)} stocks using cached subscriptions (no wait)")
 
             # Phase 3: Extract data from all tickers (mark missing as data_missing)
             for ticker, pos in tickers_with_pos:
@@ -374,6 +379,7 @@ class MarketDataFetcher:
 
             # Request streaming data with Greeks (generic tick 106)
             tickers = []
+            new_tickers = []  # Only new subscriptions need waiting
             for i, contract in enumerate(contracts):
                 _, pos = contract_pos_pairs[i]
 
@@ -385,16 +391,22 @@ class MarketDataFetcher:
                 existing = self._active_tickers.get(pos.symbol)
                 if existing:
                     tickers.append(existing)
+                    # Already subscribed - no need to wait
                 else:
                     ticker = self.ib.reqMktData(contract, '106', False, False)
                     tickers.append(ticker)
+                    new_tickers.append(ticker)  # Track new subscriptions
                     self._active_tickers[pos.symbol] = ticker
                     self._ticker_to_symbol[id(ticker)] = pos.symbol  # Reverse lookup for O(1) streaming
                     logger.debug(f"Requested streaming data with Greeks for option {i+1}/{len(contracts)}")
 
-            # Wait for data to populate using robust polling mechanism
-            logger.debug(f"Polling for option data population (timeout={self.data_timeout}s)...")
-            populated_count = await self._wait_for_data_population(tickers, timeout=self.data_timeout)
+            # Wait ONLY for NEW subscriptions (skip if all cached)
+            if new_tickers:
+                logger.debug(f"Waiting for {len(new_tickers)} new option subscriptions (timeout={self.data_timeout}s)...")
+                populated_count = await self._wait_for_data_population(new_tickers, timeout=self.data_timeout)
+                logger.info(f"New option subscriptions populated: {populated_count}/{len(new_tickers)}")
+            elif tickers:
+                logger.debug(f"All {len(tickers)} options using cached subscriptions (no wait)")
 
             # Log results
             empty_count = len(tickers) - populated_count

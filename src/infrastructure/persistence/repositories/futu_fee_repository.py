@@ -275,8 +275,12 @@ class FutuFeeRepository(BaseRepository[FutuRawFee]):
         """
         Convert Futu API fee data to FutuRawFee entity.
 
-        Futu returns fees as a list of fee items with fee_type and fee_value.
-        This method maps common fee types to dedicated columns.
+        Futu SDK returns fee_details as a list of tuples: [(title, value), ...]
+        Example: [("Commission", "1.50"), ("SEC Fee", "0.02"), ...]
+
+        This method handles both:
+        - Old format: fee_list with dicts {fee_type, fee_value}
+        - New format: fee_details as list of (title, value) tuples
 
         Args:
             fee_data: Raw fee dict from Futu API (order_fee_query result).
@@ -302,8 +306,9 @@ class FutuFeeRepository(BaseRepository[FutuRawFee]):
             "frc_levy": Decimal(0),
         }
 
-        # Map Futu fee types to our columns
-        fee_type_mapping = {
+        # Map Futu fee names to our columns (handles both uppercase enum and display names)
+        fee_name_mapping = {
+            # Uppercase enum style
             "COMMISSION": "commission",
             "PLATFORM_FEE": "platform_fee",
             "SETTLEMENT_FEE": "settlement_fee",
@@ -316,21 +321,77 @@ class FutuFeeRepository(BaseRepository[FutuRawFee]):
             "TRANSACTION_LEVY": "transaction_levy",
             "SFC_LEVY": "sfc_levy",
             "FRC_LEVY": "frc_levy",
+            # Display name style (from fee_details tuples)
+            "Commission": "commission",
+            "Platform Fee": "platform_fee",
+            "Settlement Fee": "settlement_fee",
+            "SEC Fee": "sec_fee",
+            "TAF Fee": "taf_fee",
+            "ORF Fee": "orf_fee",
+            "OCC Fee": "occ_fee",
+            "Stamp Duty": "stamp_duty",
+            "Trading Fee": "trading_fee",
+            "Transaction Levy": "transaction_levy",
+            "SFC Levy": "sfc_levy",
+            "FRC Levy": "frc_levy",
         }
 
-        # Parse fee items
-        fee_items = fee_data.get("fee_list", [])
         total_fee = Decimal(0)
+        raw_fee_details = {}
 
-        for item in fee_items:
-            fee_type = item.get("fee_type", "")
-            fee_value = Decimal(str(item.get("fee_value", 0)))
-            total_fee += fee_value
+        # Try to get fee_details (new SDK format - list of tuples)
+        fee_details_raw = fee_data.get("fee_details", [])
 
-            # Map to column if known type
-            if fee_type in fee_type_mapping:
-                col_name = fee_type_mapping[fee_type]
-                fee_map[col_name] = fee_value
+        if isinstance(fee_details_raw, list) and fee_details_raw:
+            # New format: [(title, value), ...]
+            for item in fee_details_raw:
+                if isinstance(item, (list, tuple)) and len(item) >= 2:
+                    fee_name = str(item[0])
+                    try:
+                        # Handle N/A and empty values
+                        fee_val_str = str(item[1])
+                        if fee_val_str in ('N/A', '', 'None'):
+                            fee_value = Decimal(0)
+                        else:
+                            fee_value = Decimal(fee_val_str)
+                    except Exception:
+                        fee_value = Decimal(0)
+
+                    total_fee += fee_value
+                    raw_fee_details[fee_name] = str(fee_value)
+
+                    # Map to column if known name
+                    if fee_name in fee_name_mapping:
+                        col_name = fee_name_mapping[fee_name]
+                        fee_map[col_name] = fee_value
+
+        # Fallback: try fee_list (old format - list of dicts)
+        fee_items = fee_data.get("fee_list", [])
+        if fee_items and not fee_details_raw:
+            for item in fee_items:
+                if isinstance(item, dict):
+                    fee_type = item.get("fee_type", "")
+                    try:
+                        fee_value = Decimal(str(item.get("fee_value", 0)))
+                    except Exception:
+                        fee_value = Decimal(0)
+
+                    total_fee += fee_value
+                    raw_fee_details[fee_type] = str(fee_value)
+
+                    # Map to column if known type
+                    if fee_type in fee_name_mapping:
+                        col_name = fee_name_mapping[fee_type]
+                        fee_map[col_name] = fee_value
+
+        # Also check for direct fee_amount field
+        if "fee_amount" in fee_data and total_fee == Decimal(0):
+            try:
+                fee_val_str = str(fee_data["fee_amount"])
+                if fee_val_str not in ('N/A', '', 'None'):
+                    total_fee = Decimal(fee_val_str)
+            except Exception:
+                pass
 
         return FutuRawFee(
             order_id=order_id,
@@ -348,5 +409,5 @@ class FutuFeeRepository(BaseRepository[FutuRawFee]):
             transaction_levy=fee_map["transaction_levy"],
             sfc_levy=fee_map["sfc_levy"],
             frc_levy=fee_map["frc_levy"],
-            fee_details=fee_data,
+            fee_details=raw_fee_details if raw_fee_details else fee_data,
         )
