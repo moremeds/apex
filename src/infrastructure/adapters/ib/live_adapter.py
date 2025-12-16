@@ -63,6 +63,12 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
         self._position_callback: Optional[Callable[[List[PositionSnapshot]], None]] = None
         self._position_subscription_active: bool = False
 
+        # Guard to prevent concurrent market data fetches
+        self._market_data_fetch_in_progress: bool = False
+
+        # Cache for qualified contracts - keyed by position symbol
+        self._qualified_contract_cache: Dict[str, object] = {}
+
         # Account cache
         self._account_cache: Optional[AccountInfo] = None
         self._account_cache_time: Optional[datetime] = None
@@ -423,66 +429,124 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
 
     async def fetch_market_data(self, positions: List[Position]) -> List[MarketData]:
         """Fetch market data for positions (legacy method)."""
+        import asyncio
+
         if not self.is_connected():
             raise ConnectionError("Not connected to IB")
 
         if not positions or not self._market_data_fetcher:
             return []
 
-        from ib_async import Stock, Option
+        # Guard against concurrent fetches
+        if self._market_data_fetch_in_progress:
+            logger.debug("Market data fetch already in progress, returning cached data")
+            return list(self._market_data_cache.values())
 
-        contracts = []
-        positions_for_contracts = []
+        self._market_data_fetch_in_progress = True
 
-        for pos in positions:
-            try:
-                if pos.asset_type == AssetType.OPTION:
-                    expiry_str = self.format_expiry_for_ib(pos.expiry)
-                    if not expiry_str:
-                        continue
-                    contract = Option(
-                        symbol=pos.underlying,
-                        lastTradeDateOrContractMonth=expiry_str,
-                        strike=pos.strike,
-                        right=str(pos.right),
-                        exchange="SMART",
-                        multiplier=str(pos.multiplier),
-                        currency="USD",
-                    )
-                else:
-                    contract = Stock(pos.symbol, 'SMART', currency="USD")
-
-                contracts.append(contract)
-                positions_for_contracts.append(pos)
-            except Exception as e:
-                logger.warning(f"Failed to create contract for {pos.symbol}: {e}")
-
-        if not contracts:
-            return []
-
-        qualified = []
-        pos_map = {}
         try:
-            qualified_raw = await self.ib.qualifyContractsAsync(*contracts)
-            for i, qc in enumerate(qualified_raw):
-                if qc is not None:
-                    qualified.append(qc)
-                    pos_map[id(qc)] = positions_for_contracts[i]
-        except Exception as e:
-            logger.error(f"Error qualifying contracts: {e}")
-            return []
+            from ib_async import Stock, Option
 
-        if not qualified:
-            return []
+            # Separate positions into cached (already qualified) and new (need qualification)
+            cached_qualified = []
+            cached_positions = []
+            new_contracts = []
+            new_positions = []
 
-        market_data_list = await self._market_data_fetcher.fetch_market_data(
-            positions, qualified, pos_map
-        )
+            for pos in positions:
+                # Check if we have a cached qualified contract
+                if pos.symbol in self._qualified_contract_cache:
+                    cached_qualified.append(self._qualified_contract_cache[pos.symbol])
+                    cached_positions.append(pos)
+                    continue
 
-        for md in market_data_list:
-            self._market_data_cache[md.symbol] = md
+                # Need to build and qualify this contract
+                try:
+                    if pos.asset_type == AssetType.OPTION:
+                        expiry_str = self.format_expiry_for_ib(pos.expiry)
+                        if not expiry_str:
+                            continue
+                        contract = Option(
+                            symbol=pos.underlying,
+                            lastTradeDateOrContractMonth=expiry_str,
+                            strike=pos.strike,
+                            right=str(pos.right),
+                            exchange="SMART",
+                            multiplier=str(pos.multiplier),
+                            currency="USD",
+                        )
+                    else:
+                        contract = Stock(pos.symbol, 'SMART', currency="USD")
 
-        return market_data_list
+                    new_contracts.append(contract)
+                    new_positions.append(pos)
+                except Exception as e:
+                    logger.warning(f"Failed to create contract for {pos.symbol}: {e}")
+
+            # Build pos_map for market data fetcher
+            pos_map = {}
+
+            # Add cached contracts to pos_map
+            for qc, pos in zip(cached_qualified, cached_positions):
+                pos_map[id(qc)] = pos
+
+            # Qualify only NEW contracts (not in cache)
+            newly_qualified = []
+            if new_contracts:
+                try:
+                    logger.info(f"Qualifying {len(new_contracts)} new contracts...")
+                    qualified_raw = await asyncio.wait_for(
+                        self.ib.qualifyContractsAsync(*new_contracts),
+                        timeout=30.0
+                    )
+
+                    for i, qualified_contract in enumerate(qualified_raw):
+                        if qualified_contract is not None:
+                            newly_qualified.append(qualified_contract)
+                            # Cache the qualified contract
+                            symbol = new_positions[i].symbol
+                            self._qualified_contract_cache[symbol] = qualified_contract
+                            # Add to pos_map
+                            pos_map[id(qualified_contract)] = new_positions[i]
+
+                    failed_count = len(new_contracts) - len(newly_qualified)
+                    if failed_count > 0:
+                        logger.warning(f"Failed to qualify {failed_count}/{len(new_contracts)} contracts")
+
+                    logger.info(f"Qualified {len(newly_qualified)}/{len(new_contracts)} new contracts")
+                except asyncio.TimeoutError:
+                    logger.error(f"Timeout qualifying {len(new_contracts)} contracts after 30s")
+                    # Continue with cached contracts if available
+                except Exception as e:
+                    logger.error(f"Error qualifying contracts: {e}")
+
+            # Combine cached and newly qualified contracts
+            qualified = cached_qualified + newly_qualified
+
+            if not qualified:
+                return []
+
+            if cached_qualified:
+                logger.debug(f"Using {len(cached_qualified)} cached + {len(newly_qualified)} new = {len(qualified)} total contracts")
+
+            try:
+                # Add timeout to market data fetch
+                market_data_list = await asyncio.wait_for(
+                    self._market_data_fetcher.fetch_market_data(
+                        positions, qualified, pos_map
+                    ),
+                    timeout=60.0
+                )
+            except asyncio.TimeoutError:
+                logger.error(f"Timeout fetching market data after 60s")
+                return []
+
+            for md in market_data_list:
+                self._market_data_cache[md.symbol] = md
+
+            return market_data_list
+        finally:
+            self._market_data_fetch_in_progress = False
 
     async def fetch_market_indicators(self, symbols: List[str]) -> Dict[str, MarketData]:
         """Fetch market indicators."""

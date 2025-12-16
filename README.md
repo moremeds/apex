@@ -33,8 +33,13 @@ The project follows a Hexagonal (Ports and Adapters) architecture, which separat
 apex/
 ├── config/               # Configuration files
 │   ├── risk_config.yaml  # Main configuration
-│   ├── base.yaml         # Base config (future)
+│   ├── base.yaml         # Base config with database/snapshot settings
 │   └── dev.yaml          # Dev overrides (future)
+├── migrations/           # Database schema migrations
+│   ├── 001_initial_schema.sql
+│   └── runner.py         # Migration runner
+├── scripts/              # CLI tools
+│   └── history_loader.py # Load historical data from brokers
 ├── src/
 │   ├── models/           # Data models (Position, MarketData, RiskSnapshot)
 │   ├── domain/
@@ -42,14 +47,23 @@ apex/
 │   │   └── services/     # Domain services (RiskEngine, MDQC, RuleEngine)
 │   ├── infrastructure/
 │   │   ├── adapters/     # IB adapter, file loader
+│   │   ├── persistence/  # PostgreSQL/TimescaleDB layer
+│   │   │   ├── database.py      # Connection manager (asyncpg)
+│   │   │   └── repositories/    # Repository pattern implementations
 │   │   ├── stores/       # Thread-safe data stores
 │   │   └── monitoring/   # Health monitor, watchdog
+│   ├── services/         # Business logic services
+│   │   ├── history_loader_service.py  # History loading orchestrator
+│   │   ├── snapshot_service.py        # Periodic snapshot capture
+│   │   └── warm_start_service.py      # Startup state restoration
 │   ├── application/      # Orchestrator, event bus
 │   ├── presentation/     # Terminal dashboard
 │   └── utils/            # Structured logger
 ├── data/
 │   ├── positions/        # Manual position files
 │   └── logs/             # Log output
+├── docs/                 # Documentation
+│   └── PERSISTENCE_LAYER.md  # Detailed persistence layer docs
 ├── tests/
 │   ├── unit/             # Unit tests
 │   └── integration/      # Integration tests
@@ -71,6 +85,8 @@ apex/
 
 - **Python 3.10+**
 - **Interactive Brokers** TWS or IB Gateway (Paper Trading or Live)
+- **PostgreSQL 14+** (optional, for persistence layer)
+- **TimescaleDB** extension (optional, for time-series optimization)
 - **uv** package manager (recommended) or pip
 
 ## Installation
@@ -135,7 +151,26 @@ risk_limits:
   max_margin_utilization: 0.60
 ```
 
-### 3. Manual Positions (Optional)
+### 3. Database (Optional)
+
+Configure in `config/base.yaml`:
+
+```yaml
+database:
+  dsn: "postgresql://user:password@localhost:5432/apex_risk"
+  min_pool_size: 2
+  max_pool_size: 10
+  command_timeout: 30
+
+snapshots:
+  position_interval_sec: 60      # Capture positions every minute
+  account_interval_sec: 60       # Capture account state every minute
+  risk_interval_sec: 300         # Capture risk metrics every 5 minutes
+  capture_on_shutdown: true      # Save final snapshot on shutdown
+  retention_days: 30             # Keep snapshots for 30 days
+```
+
+### 4. Manual Positions (Optional)
 
 Edit `data/positions/manual.yaml` to add manual positions:
 
@@ -257,6 +292,59 @@ Validates:
 - **Hard breach**: Critical alert when limit exceeded
 - **Events published** to event bus for alerts
 
+### Persistence Layer
+
+PostgreSQL/TimescaleDB storage for historical data and warm-start capability.
+
+**Features:**
+- **Historical Data Storage**: Futu orders/deals/fees, IB executions/commissions
+- **Incremental Sync**: Track sync state per broker/account for efficient updates
+- **Warm-Start**: Restore positions and account state from database snapshots on startup
+- **Periodic Snapshots**: Capture positions, accounts, and risk metrics at configurable intervals
+
+**History Loading CLI:**
+
+```bash
+# Load Futu historical data (last 30 days)
+python scripts/history_loader.py --broker futu --account YOUR_ACC --days 30
+
+# Load IB historical data
+python scripts/history_loader.py --broker ib --account YOUR_ACC --days 30
+
+# Load from all brokers
+python scripts/history_loader.py --broker all --days 30
+
+# Dry run (show what would be loaded)
+python scripts/history_loader.py --broker futu --dry-run
+```
+
+**Database Setup:**
+
+```bash
+# Create database
+createdb apex_risk
+
+# Enable TimescaleDB extension (optional, for time-series optimization)
+psql apex_risk -c "CREATE EXTENSION IF NOT EXISTS timescaledb;"
+
+# Run migrations
+python -c "
+import asyncio
+from src.infrastructure.persistence import get_database
+from migrations.runner import MigrationRunner
+
+async def migrate():
+    db = await get_database('postgresql://user:pass@localhost/apex_risk')
+    runner = MigrationRunner(db)
+    await runner.run()
+    await db.close()
+
+asyncio.run(migrate())
+"
+```
+
+See `docs/PERSISTENCE_LAYER.md` for comprehensive documentation.
+
 ## Performance Targets
 
 - **< 100ms** refresh for < 100 positions
@@ -328,17 +416,29 @@ Categories: `SYSTEM`, `RISK`, `TRADING`, `DATA`, `ALERT`
 
 MIT License - see LICENSE file
 
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [docs/USER_MANUAL.md](docs/USER_MANUAL.md) | Complete user guide with CLI reference |
+| [docs/PERSISTENCE_LAYER.md](docs/PERSISTENCE_LAYER.md) | Database setup and API reference |
+| [docs/OBSERVABILITY_SETUP.md](docs/OBSERVABILITY_SETUP.md) | Prometheus, Grafana, and alerting setup |
+| [CLAUDE.md](CLAUDE.md) | Development guidelines |
+
 ## Support
 
 For issues and questions:
 - File an issue on GitHub
-- Review `CLAUDE.md` for implementation guidance
-- Check `PRD_v1.1_Suggestions_and_Improvements.md` for detailed requirements
+- Review `docs/USER_MANUAL.md` for usage instructions
+- See `docs/PERSISTENCE_LAYER.md` for database setup
+- Check `CLAUDE.md` for implementation guidance
 
 ## Acknowledgments
 
 Built with:
 - [ib_async](https://github.com/ib-api-reloaded/ib_async) - Interactive Brokers API client
+- [futu-api](https://github.com/FutuOpenAPI/py-futu-api) - Futu OpenD API client
+- [asyncpg](https://github.com/MagicStack/asyncpg) - Fast PostgreSQL client for asyncio
 - [rich](https://github.com/Textualize/rich) - Terminal UI library
 - [pytest](https://pytest.org/) - Testing framework
 - [uv](https://github.com/astral-sh/uv) - Fast Python package manager

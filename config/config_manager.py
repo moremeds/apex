@@ -24,6 +24,13 @@ from .models import (
     DashboardConfig,
     WatchdogConfig,
     LoggingConfig,
+    DatabaseConfig,
+    DatabasePoolConfig,
+    TimescaleConfig,
+    DisplayConfig,
+    SnapshotConfig,
+    HistoryLoaderConfig,
+    RateLimitConfig,
 )
 
 
@@ -194,6 +201,58 @@ class ConfigManager:
                 timezone=logging_raw.get("timezone", "local"),  # Default to local time
             )
 
+            # Persistence layer configs (optional - have defaults)
+            db_raw = self.config.get("database", {})
+            pool_raw = db_raw.get("pool", {})
+            ts_raw = db_raw.get("timescale", {})
+            database = DatabaseConfig(
+                type=db_raw.get("type", "timescaledb"),
+                host=db_raw.get("host", "localhost"),
+                port=db_raw.get("port", 5432),
+                database=db_raw.get("database", "apex_risk"),
+                user=db_raw.get("user", "apex"),
+                password=db_raw.get("password", ""),
+                pool=DatabasePoolConfig(
+                    min_connections=pool_raw.get("min_connections", 2),
+                    max_connections=pool_raw.get("max_connections", 10),
+                ),
+                timescale=TimescaleConfig(
+                    enabled=ts_raw.get("enabled", True),
+                    chunk_interval=ts_raw.get("chunk_interval", "1 month"),
+                    compression_enabled=ts_raw.get("compression_enabled", True),
+                    compression_after=ts_raw.get("compression_after", "7 days"),
+                ),
+            ) if db_raw else None
+
+            display_raw = self.config.get("display", {})
+            display = DisplayConfig(
+                timezone=display_raw.get("timezone", "Asia/Hong_Kong"),
+                date_format=display_raw.get("date_format", "%Y-%m-%d"),
+                time_format=display_raw.get("time_format", "%H:%M:%S"),
+                datetime_format=display_raw.get("datetime_format", "%Y-%m-%d %H:%M:%S %Z"),
+            ) if display_raw else None
+
+            snapshots_raw = self.config.get("snapshots", {})
+            snapshots = SnapshotConfig(
+                position_interval_sec=snapshots_raw.get("position_interval_sec", 60),
+                account_interval_sec=snapshots_raw.get("account_interval_sec", 60),
+                risk_interval_sec=snapshots_raw.get("risk_interval_sec", 60),
+                capture_on_shutdown=snapshots_raw.get("capture_on_shutdown", True),
+                retention_days=snapshots_raw.get("retention_days", 365),
+                compression_after_days=snapshots_raw.get("compression_after_days", 7),
+            ) if snapshots_raw else None
+
+            history_raw = self.config.get("history_loader", {})
+            rate_limit_raw = history_raw.get("futu_rate_limit", {})
+            history_loader = HistoryLoaderConfig(
+                default_lookback_days=history_raw.get("default_lookback_days", 30),
+                batch_size=history_raw.get("batch_size", 100),
+                futu_rate_limit=RateLimitConfig(
+                    requests_per_window=rate_limit_raw.get("requests_per_window", 10),
+                    window_seconds=rate_limit_raw.get("window_seconds", 30),
+                ),
+            ) if history_raw else None
+
             return AppConfig(
                 ibkr=ibkr,
                 futu=futu,
@@ -205,6 +264,10 @@ class ConfigManager:
                 watchdog=watchdog,
                 logging=logging_config,
                 raw=self.config,
+                database=database,
+                display=display,
+                snapshots=snapshots,
+                history_loader=history_loader,
             )
 
         except Exception as e:

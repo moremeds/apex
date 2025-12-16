@@ -1,8 +1,8 @@
 """Configuration data models."""
 
 from __future__ import annotations
-from dataclasses import dataclass
-from typing import Dict, Any, List
+from dataclasses import dataclass, field
+from typing import Dict, Any, List, Optional
 
 
 @dataclass
@@ -96,6 +96,75 @@ class LoggingConfig:
 
 
 @dataclass
+class DatabasePoolConfig:
+    """Database connection pool configuration."""
+    min_connections: int = 2
+    max_connections: int = 10
+
+
+@dataclass
+class TimescaleConfig:
+    """TimescaleDB-specific configuration."""
+    enabled: bool = True
+    chunk_interval: str = "1 month"
+    compression_enabled: bool = True
+    compression_after: str = "7 days"
+
+
+@dataclass
+class DatabaseConfig:
+    """Database connection configuration for PostgreSQL/TimescaleDB."""
+    type: str = "timescaledb"
+    host: str = "localhost"
+    port: int = 5432
+    database: str = "apex_risk"
+    user: str = "apex"
+    password: str = ""
+    pool: DatabasePoolConfig = field(default_factory=DatabasePoolConfig)
+    timescale: TimescaleConfig = field(default_factory=TimescaleConfig)
+
+    @property
+    def dsn(self) -> str:
+        """Build PostgreSQL connection string."""
+        return f"postgresql://{self.user}:{self.password}@{self.host}:{self.port}/{self.database}"
+
+
+@dataclass
+class DisplayConfig:
+    """Display timezone and formatting configuration for UI."""
+    timezone: str = "Asia/Hong_Kong"
+    date_format: str = "%Y-%m-%d"
+    time_format: str = "%H:%M:%S"
+    datetime_format: str = "%Y-%m-%d %H:%M:%S %Z"
+
+
+@dataclass
+class SnapshotConfig:
+    """Snapshot persistence configuration for warm-start and history."""
+    position_interval_sec: int = 60
+    account_interval_sec: int = 60
+    risk_interval_sec: int = 60
+    capture_on_shutdown: bool = True
+    retention_days: int = 365
+    compression_after_days: int = 7
+
+
+@dataclass
+class RateLimitConfig:
+    """Rate limit configuration for API calls."""
+    requests_per_window: int = 10
+    window_seconds: int = 30
+
+
+@dataclass
+class HistoryLoaderConfig:
+    """History loader configuration."""
+    default_lookback_days: int = 30
+    batch_size: int = 100
+    futu_rate_limit: RateLimitConfig = field(default_factory=lambda: RateLimitConfig(10, 30))
+
+
+@dataclass
 class AppConfig:
     """Complete application configuration."""
     ibkr: IbConfig
@@ -108,3 +177,20 @@ class AppConfig:
     watchdog: WatchdogConfig
     logging: LoggingConfig
     raw: Dict[str, Any]  # Raw config dict for backward compatibility
+
+    # Persistence layer configs (optional - have defaults)
+    database: Optional[DatabaseConfig] = None
+    display: Optional[DisplayConfig] = None
+    snapshots: Optional[SnapshotConfig] = None
+    history_loader: Optional[HistoryLoaderConfig] = None
+
+    def __post_init__(self):
+        """Initialize optional configs with defaults if not provided."""
+        if self.database is None:
+            self.database = DatabaseConfig()
+        if self.display is None:
+            self.display = DisplayConfig()
+        if self.snapshots is None:
+            self.snapshots = SnapshotConfig()
+        if self.history_loader is None:
+            self.history_loader = HistoryLoaderConfig()
