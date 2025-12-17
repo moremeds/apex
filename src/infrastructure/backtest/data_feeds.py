@@ -6,6 +6,7 @@ Provides historical data loading from various sources:
 - CSV files (for offline testing)
 - Parquet files (for large datasets)
 - JSON fixtures (for unit tests)
+- Multi-timeframe (combines multiple feeds)
 
 All feeds yield BarData or QuoteTick events in chronological order.
 
@@ -518,6 +519,104 @@ class InMemoryDataFeed(DataFeed):
         self._symbols.clear()
 
 
+class MultiTimeframeDataFeed(DataFeed):
+    """
+    Combines multiple data feeds with different timeframes.
+
+    Merges bars from multiple timeframes (e.g., 1m, 1h, 1d) and streams
+    them in chronological order. Strategy receives bars with their
+    timeframe in bar.timeframe field.
+
+    Usage:
+        # Create individual feeds for each timeframe
+        feed_1m = CsvDataFeed(csv_dir="data", symbols=["AAPL"], bar_size="1m")
+        feed_1h = CsvDataFeed(csv_dir="data", symbols=["AAPL"], bar_size="1h")
+        feed_1d = CsvDataFeed(csv_dir="data", symbols=["AAPL"], bar_size="1d")
+
+        # Combine into multi-timeframe feed
+        mtf_feed = MultiTimeframeDataFeed([feed_1m, feed_1h, feed_1d])
+        await mtf_feed.load()
+
+        # Stream all bars interleaved by timestamp
+        async for bar in mtf_feed.stream_bars():
+            if bar.timeframe == "1d":
+                # Daily bar logic
+            elif bar.timeframe == "1h":
+                # Hourly bar logic
+            elif bar.timeframe == "1m":
+                # Minute bar logic
+    """
+
+    def __init__(self, feeds: List[DataFeed]):
+        """
+        Initialize multi-timeframe data feed.
+
+        Args:
+            feeds: List of DataFeed instances, each with a different timeframe.
+        """
+        self._feeds = feeds
+        self._bars: List[BarData] = []
+        self._symbols: List[str] = []
+        self._loaded = False
+
+    async def load(self) -> None:
+        """Load data from all feeds."""
+        self._bars.clear()
+        symbols_set = set()
+
+        for feed in self._feeds:
+            await feed.load()
+            symbols_set.update(feed.get_symbols())
+
+            # Collect bars from each feed
+            async for bar in feed.stream_bars():
+                self._bars.append(bar)
+
+        self._symbols = list(symbols_set)
+
+        # Sort all bars by timestamp (stable sort preserves order for same timestamp)
+        # For same timestamp, larger timeframes come after smaller ones
+        # (so 1d bar at 00:00 comes after all 1m bars for that day)
+        self._bars.sort(key=lambda b: (b.timestamp, self._timeframe_order(b.timeframe)))
+        self._loaded = True
+
+        logger.info(
+            f"MultiTimeframeDataFeed loaded {len(self._bars)} bars "
+            f"across {len(self._feeds)} timeframes for {len(self._symbols)} symbols"
+        )
+
+    @staticmethod
+    def _timeframe_order(timeframe: str) -> int:
+        """Get sort order for timeframe (smaller timeframes first)."""
+        order = {
+            "1m": 1, "5m": 2, "15m": 3, "30m": 4,
+            "1h": 5, "2h": 6, "4h": 7,
+            "1d": 8, "1w": 9, "1M": 10,
+        }
+        return order.get(timeframe, 99)
+
+    async def stream_bars(self) -> AsyncIterator[BarData]:
+        """Stream bars in chronological order across all timeframes."""
+        if not self._loaded:
+            await self.load()
+
+        for bar in self._bars:
+            yield bar
+
+    def get_symbols(self) -> List[str]:
+        """Get list of symbols across all feeds."""
+        return self._symbols
+
+    @property
+    def bar_count(self) -> int:
+        """Get total bar count across all timeframes."""
+        return len(self._bars)
+
+    def get_timeframes(self) -> List[str]:
+        """Get list of timeframes in this feed."""
+        return list(set(bar.timeframe for bar in self._bars))
+
+
 class IbHistoricalDataFeed(DataFeed):
     """
     Load historical data from Interactive Brokers.
@@ -665,3 +764,101 @@ class IbHistoricalDataFeed(DataFeed):
     def bar_count(self) -> int:
         """Get total bar count."""
         return len(self._bars)
+
+
+# Factory functions for multi-timeframe feeds
+
+
+def create_csv_multi_timeframe_feed(
+    csv_dir: str,
+    symbols: List[str],
+    timeframes: List[str],
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+) -> MultiTimeframeDataFeed:
+    """
+    Create a multi-timeframe feed from CSV files.
+
+    Expects CSV files named {symbol}_{timeframe}.csv in the csv_dir.
+    For example: AAPL_1m.csv, AAPL_1h.csv, AAPL_1d.csv
+
+    Args:
+        csv_dir: Directory containing CSV files.
+        symbols: List of symbols to load.
+        timeframes: List of timeframes (e.g., ["1m", "1h", "1d"]).
+        start_date: Start date filter.
+        end_date: End date filter.
+
+    Returns:
+        MultiTimeframeDataFeed combining all timeframes.
+
+    Example:
+        feed = create_csv_multi_timeframe_feed(
+            csv_dir="data/historical",
+            symbols=["AAPL", "MSFT"],
+            timeframes=["1m", "1h", "1d"],
+            start_date=date(2024, 1, 1),
+        )
+    """
+    feeds = []
+    for timeframe in timeframes:
+        # Create a feed for each timeframe
+        # Files should be named {symbol}_{timeframe}.csv
+        feed = CsvDataFeed(
+            csv_dir=csv_dir,
+            symbols=symbols,
+            start_date=start_date,
+            end_date=end_date,
+            bar_size=timeframe,
+        )
+        feeds.append(feed)
+
+    return MultiTimeframeDataFeed(feeds)
+
+
+def create_ib_multi_timeframe_feed(
+    symbols: List[str],
+    timeframes: List[str],
+    start_date: date,
+    end_date: date,
+    host: str = "127.0.0.1",
+    port: int = 7497,
+    client_id: int = 10,
+) -> MultiTimeframeDataFeed:
+    """
+    Create a multi-timeframe feed from IB historical data.
+
+    Args:
+        symbols: List of symbols to load.
+        timeframes: List of timeframes (e.g., ["1m", "1h", "1d"]).
+        start_date: Start date.
+        end_date: End date.
+        host: IB TWS/Gateway host.
+        port: IB TWS/Gateway port.
+        client_id: Base client ID (incremented for each timeframe).
+
+    Returns:
+        MultiTimeframeDataFeed combining all timeframes.
+
+    Example:
+        feed = create_ib_multi_timeframe_feed(
+            symbols=["AAPL", "MSFT"],
+            timeframes=["1m", "1h", "1d"],
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 6, 30),
+        )
+    """
+    feeds = []
+    for i, timeframe in enumerate(timeframes):
+        feed = IbHistoricalDataFeed(
+            symbols=symbols,
+            start_date=start_date,
+            end_date=end_date,
+            bar_size=timeframe,
+            host=host,
+            port=port,
+            client_id=client_id + i,  # Use different client IDs
+        )
+        feeds.append(feed)
+
+    return MultiTimeframeDataFeed(feeds)

@@ -44,50 +44,90 @@ except ImportError:
 
 from ...domain.clock import BacktraderClock
 from ...domain.strategy.base import Strategy, StrategyContext
-from ...domain.strategy.scheduler import NullScheduler
+from ...domain.strategy.scheduler import (
+    Scheduler,
+    ScheduledAction,
+    ScheduleFrequency,
+)
 from ...domain.events.domain_events import QuoteTick, BarData, PositionSnapshot
 from ...domain.interfaces.execution_provider import OrderRequest
 
 if TYPE_CHECKING:
-    pass
+    from datetime import time as time_type
 
 logger = logging.getLogger(__name__)
 
 
-class BacktraderScheduler:
+class BacktraderScheduler(Scheduler):
     """
     Scheduler implementation for Backtrader integration.
 
-    Maps Apex scheduler calls to Backtrader's timer system.
-    Scheduled actions are triggered via notify_timer and next() methods.
+    Maps Apex scheduler calls to Backtrader's execution model.
+    Since Backtrader runs bar-by-bar synchronously, time-based actions
+    are checked on each bar against the bar's timestamp.
     """
 
-    def __init__(self, bt_strategy: "bt.Strategy"):
+    def __init__(self, bt_strategy: Optional["bt.Strategy"] = None):
         """
         Initialize Backtrader scheduler.
 
         Args:
-            bt_strategy: Backtrader strategy instance.
+            bt_strategy: Backtrader strategy instance (optional).
         """
         self._bt = bt_strategy
-        self._bar_close_callbacks: List[callable] = []
-        self._timer_callbacks: Dict[str, callable] = {}
+        self._actions: Dict[str, ScheduledAction] = {}
+        self._last_checked_date: Optional[datetime] = None
+
+    def schedule_once(
+        self,
+        action_id: str,
+        callback: callable,
+        at_time: datetime,
+    ) -> None:
+        """Schedule a one-time action at a specific datetime."""
+        action = ScheduledAction(
+            action_id=action_id,
+            callback=callback,
+            frequency=ScheduleFrequency.ONCE,
+        )
+        self._actions[action_id] = action
+        # Store target time in metadata
+        action.time_of_day = at_time.time()
+        logger.debug(f"BT Scheduled once: {action_id} at {at_time}")
 
     def schedule_daily(
         self,
         action_id: str,
         callback: callable,
-        time_of_day: "datetime.time",
+        time_of_day: "time_type",
     ) -> None:
-        """Schedule daily action using Backtrader's timer."""
-        if not BACKTRADER_AVAILABLE:
-            return
+        """Schedule daily action."""
+        action = ScheduledAction(
+            action_id=action_id,
+            callback=callback,
+            frequency=ScheduleFrequency.DAILY,
+            time_of_day=time_of_day,
+        )
+        self._actions[action_id] = action
+        logger.debug(f"BT Scheduled daily: {action_id} at {time_of_day}")
 
-        self._timer_callbacks[action_id] = callback
-
-        # Note: Backtrader timer setup would go here
-        # self._bt.add_timer(...)
-        logger.debug(f"Scheduled daily action: {action_id} at {time_of_day}")
+    def schedule_weekly(
+        self,
+        action_id: str,
+        callback: callable,
+        day_of_week: int,
+        time_of_day: "time_type",
+    ) -> None:
+        """Schedule weekly action."""
+        action = ScheduledAction(
+            action_id=action_id,
+            callback=callback,
+            frequency=ScheduleFrequency.WEEKLY,
+            day_of_week=day_of_week,
+            time_of_day=time_of_day,
+        )
+        self._actions[action_id] = action
+        logger.debug(f"BT Scheduled weekly: {action_id} day={day_of_week}")
 
     def schedule_on_bar_close(
         self,
@@ -95,8 +135,13 @@ class BacktraderScheduler:
         callback: callable,
     ) -> None:
         """Schedule action for bar close."""
-        self._bar_close_callbacks.append(callback)
-        logger.debug(f"Scheduled on_bar_close: {action_id}")
+        action = ScheduledAction(
+            action_id=action_id,
+            callback=callback,
+            frequency=ScheduleFrequency.ON_BAR,
+        )
+        self._actions[action_id] = action
+        logger.debug(f"BT Scheduled on_bar_close: {action_id}")
 
     def schedule_before_close(
         self,
@@ -105,16 +150,96 @@ class BacktraderScheduler:
         minutes_before: int = 5,
     ) -> None:
         """Schedule action before market close."""
-        # In Backtrader, this would use add_timer with session offset
-        logger.debug(f"Scheduled before_close: {action_id}")
+        action = ScheduledAction(
+            action_id=action_id,
+            callback=callback,
+            frequency=ScheduleFrequency.ON_SESSION_CLOSE,
+            minutes_before_close=minutes_before,
+        )
+        self._actions[action_id] = action
+        logger.debug(f"BT Scheduled before_close: {action_id}")
 
-    def trigger_bar_close(self) -> None:
-        """Trigger all bar close callbacks."""
-        for callback in self._bar_close_callbacks:
-            try:
-                callback()
-            except Exception as e:
-                logger.error(f"Bar close callback error: {e}")
+    def cancel(self, action_id: str) -> bool:
+        """Cancel a scheduled action."""
+        if action_id in self._actions:
+            del self._actions[action_id]
+            return True
+        return False
+
+    def get_scheduled_actions(self) -> List[ScheduledAction]:
+        """Get all scheduled actions."""
+        return list(self._actions.values())
+
+    def check_triggers(self, bar_datetime: datetime) -> None:
+        """
+        Check and trigger actions based on bar datetime.
+
+        Called on each bar by the strategy wrapper.
+
+        Args:
+            bar_datetime: Datetime of current bar.
+        """
+        bar_time = bar_datetime.time()
+        bar_date = bar_datetime.date()
+
+        for action in list(self._actions.values()):
+            if not action.enabled:
+                continue
+
+            triggered = False
+
+            if action.frequency == ScheduleFrequency.DAILY:
+                # Trigger if bar time matches (or just passed) the scheduled time
+                # and we haven't triggered today
+                if action.time_of_day and bar_time >= action.time_of_day:
+                    if action.last_triggered is None or action.last_triggered.date() < bar_date:
+                        triggered = True
+
+            elif action.frequency == ScheduleFrequency.WEEKLY:
+                if (
+                    action.day_of_week is not None
+                    and action.time_of_day
+                    and bar_datetime.weekday() == action.day_of_week
+                    and bar_time >= action.time_of_day
+                ):
+                    if action.last_triggered is None or (bar_date - action.last_triggered.date()).days >= 7:
+                        triggered = True
+
+            elif action.frequency == ScheduleFrequency.ON_SESSION_CLOSE:
+                # Check if we're within minutes_before of market close (16:00 default)
+                market_close_minutes = 16 * 60  # 4:00 PM
+                bar_minutes = bar_time.hour * 60 + bar_time.minute
+                if action.minutes_before_close:
+                    trigger_minutes = market_close_minutes - action.minutes_before_close
+                    if bar_minutes >= trigger_minutes:
+                        if action.last_triggered is None or action.last_triggered.date() < bar_date:
+                            triggered = True
+
+            elif action.frequency == ScheduleFrequency.ONCE:
+                # One-time action - check if time has passed
+                if action.time_of_day and bar_time >= action.time_of_day:
+                    if action.last_triggered is None:
+                        triggered = True
+                        # Remove one-time actions after triggering
+                        self._actions.pop(action.action_id, None)
+
+            if triggered:
+                try:
+                    action.callback()
+                    action.last_triggered = bar_datetime
+                    action.trigger_count += 1
+                except Exception as e:
+                    logger.error(f"BT Scheduler action {action.action_id} error: {e}")
+
+    def trigger_bar_close_actions(self) -> None:
+        """Trigger all ON_BAR actions."""
+        for action in self._actions.values():
+            if action.enabled and action.frequency == ScheduleFrequency.ON_BAR:
+                try:
+                    action.callback()
+                    action.trigger_count += 1
+                except Exception as e:
+                    logger.error(f"BT Bar close action {action.action_id} error: {e}")
 
 
 if BACKTRADER_AVAILABLE:
@@ -217,8 +342,12 @@ if BACKTRADER_AVAILABLE:
                 # Feed to Apex strategy
                 self._apex.on_bar(bar)
 
-            # Trigger scheduled bar close actions
-            self._scheduler.trigger_bar_close()
+            # Check time-based scheduled actions
+            bar_datetime = self.datas[0].datetime.datetime(0)
+            self._scheduler.check_triggers(bar_datetime)
+
+            # Trigger bar close actions
+            self._scheduler.trigger_bar_close_actions()
 
         def notify_order(self, order):
             """Called when order status changes."""

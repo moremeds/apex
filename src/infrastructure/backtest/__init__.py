@@ -15,6 +15,9 @@ from .data_feeds import (
     FixtureDataFeed,
     InMemoryDataFeed,
     IbHistoricalDataFeed,
+    MultiTimeframeDataFeed,
+    create_csv_multi_timeframe_feed,
+    create_ib_multi_timeframe_feed,
 )
 from .backtest_engine import BacktestEngine, BacktestConfig
 from .backtrader_adapter import ApexStrategyWrapper, run_backtest_with_backtrader
@@ -29,6 +32,9 @@ __all__ = [
     "ParquetDataFeed",
     "FixtureDataFeed",
     "InMemoryDataFeed",
+    "MultiTimeframeDataFeed",  # Combine multiple timeframes
+    "create_csv_multi_timeframe_feed",
+    "create_ib_multi_timeframe_feed",
     # Backtest engine
     "BacktestEngine",
     "BacktestConfig",

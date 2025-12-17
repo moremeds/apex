@@ -94,6 +94,18 @@ class IbAdapter(BrokerAdapter, MarketDataProvider):
         # Avoids re-qualifying same contracts every fetch cycle
         self._qualified_contract_cache: Dict[str, object] = {}
 
+        # Contract qualification retry settings
+        self._qualify_max_retries: int = 3
+        self._qualify_retry_delay: float = 1.0  # seconds
+        self._qualify_retry_backoff: float = 2.0
+
+        # IB maintenance window detection (ET timezone)
+        # IB typically has maintenance 23:45-00:45 ET
+        self._maintenance_start_hour: int = 23
+        self._maintenance_start_minute: int = 45
+        self._maintenance_end_hour: int = 0
+        self._maintenance_end_minute: int = 45
+
     # -------------------------------------------------------------------------
     # Connection Management
     # -------------------------------------------------------------------------
@@ -130,6 +142,114 @@ class IbAdapter(BrokerAdapter, MarketDataProvider):
     def is_connected(self) -> bool:
         """Check if connected to IB."""
         return self._connected and self.ib is not None and self.ib.isConnected()
+
+    def _is_ib_maintenance_window(self) -> bool:
+        """
+        Check if current time is within IB maintenance window.
+
+        IB typically has scheduled maintenance from 23:45 to 00:45 ET.
+        During this window, contract qualification often fails.
+
+        Returns:
+            True if within maintenance window, False otherwise.
+        """
+        try:
+            from zoneinfo import ZoneInfo
+            et = ZoneInfo("America/New_York")
+            now_et = datetime.now(et)
+            hour, minute = now_et.hour, now_et.minute
+
+            # Check if in maintenance window (23:45 - 00:45 ET)
+            if hour == self._maintenance_start_hour and minute >= self._maintenance_start_minute:
+                return True
+            if hour == self._maintenance_end_hour and minute <= self._maintenance_end_minute:
+                return True
+            return False
+        except Exception:
+            # If timezone detection fails, assume not in maintenance
+            return False
+
+    async def _qualify_contracts_with_retry(
+        self,
+        contracts: List,
+        positions: List
+    ) -> List:
+        """
+        Qualify contracts with retry logic and graceful degradation.
+
+        Handles IB maintenance window and transient failures gracefully.
+
+        Args:
+            contracts: List of IB contracts to qualify.
+            positions: Corresponding positions (for logging and cache).
+
+        Returns:
+            List of qualified contracts (may be partial on failure).
+        """
+        import asyncio
+
+        if not contracts:
+            return []
+
+        # Check if in maintenance window - warn and use shorter timeout
+        in_maintenance = self._is_ib_maintenance_window()
+        if in_maintenance:
+            logger.warning("IB maintenance window detected - contract qualification may be degraded")
+
+        qualified = []
+        retry_delay = self._qualify_retry_delay
+        last_error = None
+
+        for attempt in range(self._qualify_max_retries):
+            try:
+                # Use shorter timeout during maintenance window
+                timeout = 15.0 if in_maintenance else 30.0
+
+                qualified_raw = await asyncio.wait_for(
+                    self.ib.qualifyContractsAsync(*contracts),
+                    timeout=timeout
+                )
+
+                # Filter out None results and cache successful qualifications
+                for i, qc in enumerate(qualified_raw):
+                    if qc is not None:
+                        qualified.append(qc)
+                        if i < len(positions):
+                            self._qualified_contract_cache[positions[i].symbol] = qc
+
+                if qualified:
+                    if attempt > 0:
+                        logger.info(f"Contract qualification succeeded on retry {attempt + 1}")
+                    return qualified
+
+            except asyncio.TimeoutError:
+                last_error = f"Timeout after {timeout}s"
+                logger.warning(f"Contract qualification timeout (attempt {attempt + 1}/{self._qualify_max_retries})")
+            except Exception as e:
+                last_error = str(e)
+                logger.warning(f"Contract qualification failed (attempt {attempt + 1}/{self._qualify_max_retries}): {e}")
+
+            # Don't retry if in maintenance window (it will likely fail anyway)
+            if in_maintenance:
+                logger.info("Skipping retries during IB maintenance window")
+                break
+
+            # Exponential backoff before retry
+            if attempt < self._qualify_max_retries - 1:
+                await asyncio.sleep(retry_delay)
+                retry_delay *= self._qualify_retry_backoff
+
+        # All retries exhausted - log final error
+        failed_count = len(contracts) - len(qualified)
+        if failed_count > 0:
+            msg = f"Failed to qualify {failed_count}/{len(contracts)} contracts"
+            if in_maintenance:
+                msg += " (IB maintenance window)"
+            else:
+                msg += f" after {self._qualify_max_retries} attempts: {last_error}"
+            logger.error(msg)
+
+        return qualified
 
     # -------------------------------------------------------------------------
     # Position Fetching
@@ -404,34 +524,26 @@ class IbAdapter(BrokerAdapter, MarketDataProvider):
             for qc, pos in zip(cached_qualified, cached_positions):
                 pos_map[id(qc)] = pos
 
-            # Qualify only NEW contracts (not in cache)
+            # Qualify only NEW contracts (not in cache) - with retry logic
             newly_qualified = []
             if new_contracts:
-                try:
-                    logger.info(f"Qualifying {len(new_contracts)} new contracts...")
-                    qualified_raw = await asyncio.wait_for(
-                        self.ib.qualifyContractsAsync(*new_contracts),
-                        timeout=30.0
-                    )
+                logger.info(f"Qualifying {len(new_contracts)} new contracts...")
 
-                    for i, qualified_contract in enumerate(qualified_raw):
-                        if qualified_contract is not None:
-                            newly_qualified.append(qualified_contract)
-                            # Cache the qualified contract for future use
-                            symbol = new_positions[i].symbol
-                            self._qualified_contract_cache[symbol] = qualified_contract
-                            # Add to pos_map
-                            pos_map[id(qualified_contract)] = new_positions[i]
+                # Use retry-capable qualification (handles IB maintenance window)
+                newly_qualified = await self._qualify_contracts_with_retry(
+                    new_contracts, new_positions
+                )
 
-                    failed_count = len(new_contracts) - len(newly_qualified)
-                    if failed_count > 0:
-                        logger.warning(f"Failed to qualify {failed_count}/{len(new_contracts)} contracts")
+                # Add successfully qualified contracts to pos_map
+                for qc in newly_qualified:
+                    # Find the matching position by symbol from cache
+                    for pos in new_positions:
+                        if pos.symbol in self._qualified_contract_cache:
+                            if self._qualified_contract_cache[pos.symbol] == qc:
+                                pos_map[id(qc)] = pos
+                                break
 
-                    logger.info(f"Qualified {len(newly_qualified)}/{len(new_contracts)} new contracts")
-                except asyncio.TimeoutError:
-                    logger.error(f"Timeout qualifying {len(new_contracts)} contracts after 30s")
-                except Exception as e:
-                    logger.error(f"Error qualifying contracts: {e}")
+                logger.info(f"Qualified {len(newly_qualified)}/{len(new_contracts)} new contracts")
 
             # Combine cached and newly qualified contracts
             qualified = cached_qualified + newly_qualified

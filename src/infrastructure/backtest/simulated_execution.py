@@ -7,9 +7,21 @@ Supports different fill models:
 - NEXT_BAR: Fill at next bar's open
 - SLIPPAGE: Fill with configurable slippage
 
+Can also use RealityModelPack for more realistic simulation with:
+- FeeModel: Transaction cost calculation
+- SlippageModel: Price impact simulation
+- FillModel: Order matching logic
+- LatencyModel: Execution delay (optional)
+
 Usage:
     clock = SimulatedClock(start_time)
+
+    # Simple mode
     execution = SimulatedExecution(clock, fill_model=FillModel.IMMEDIATE)
+
+    # Realistic mode with reality pack
+    from domain.reality import create_ib_pack
+    execution = SimulatedExecution(clock, reality_pack=create_ib_pack())
 
     # Update with market data
     execution.update_price(tick)
@@ -26,7 +38,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional, Callable
+from typing import Dict, List, Optional, Callable, TYPE_CHECKING
 from enum import Enum
 import uuid
 import logging
@@ -34,6 +46,20 @@ import logging
 from ...domain.clock import Clock
 from ...domain.events.domain_events import QuoteTick, TradeFill
 from ...domain.interfaces.execution_provider import OrderRequest, OrderResult
+
+# Reality models (optional)
+from ...domain.reality import (
+    RealityModelPack,
+    FeeModel as RealityFeeModel,
+    SlippageModel,
+    FillModel as RealityFillModel,
+    LatencyModel,
+    FeeBreakdown,
+    SlippageResult,
+    FillResult,
+    OrderType as RealityOrderType,
+    AssetType,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -85,18 +111,25 @@ class SimulatedExecution:
         slippage_bps: float = 5.0,
         commission_per_share: float = 0.005,
         min_commission: float = 1.0,
+        reality_pack: Optional[RealityModelPack] = None,
     ):
         """
         Initialize simulated execution.
 
         Args:
             clock: Clock instance for timestamps.
-            fill_model: How orders are filled.
-            slippage_bps: Slippage in basis points (for SLIPPAGE model).
-            commission_per_share: Commission per share.
-            min_commission: Minimum commission per order.
+            fill_model: How orders are filled (legacy mode, ignored if reality_pack provided).
+            slippage_bps: Slippage in basis points (legacy mode).
+            commission_per_share: Commission per share (legacy mode).
+            min_commission: Minimum commission per order (legacy mode).
+            reality_pack: Optional RealityModelPack for realistic simulation.
+                         When provided, uses FeeModel, SlippageModel, FillModel
+                         from the pack instead of legacy parameters.
         """
         self._clock = clock
+        self._reality_pack = reality_pack
+
+        # Legacy parameters (used when reality_pack is None)
         self._fill_model = fill_model
         self._slippage_bps = slippage_bps
         self._commission_per_share = commission_per_share
@@ -118,6 +151,16 @@ class SimulatedExecution:
 
         # Callbacks
         self._fill_callback: Optional[Callable[[TradeFill], None]] = None
+
+    @property
+    def reality_pack(self) -> Optional[RealityModelPack]:
+        """Get the reality model pack if configured."""
+        return self._reality_pack
+
+    @reality_pack.setter
+    def reality_pack(self, pack: Optional[RealityModelPack]) -> None:
+        """Set the reality model pack."""
+        self._reality_pack = pack
 
     def update_price(self, tick: QuoteTick) -> None:
         """
@@ -240,6 +283,11 @@ class SimulatedExecution:
 
     def _should_fill(self, order: OrderRequest, tick: QuoteTick) -> bool:
         """Determine if order should be filled at current tick."""
+        # If using reality pack with fill model, delegate to it
+        if self._reality_pack:
+            return self._should_fill_reality(order, tick)
+
+        # Legacy behavior
         if order.order_type == "MARKET":
             return True
 
@@ -259,6 +307,37 @@ class SimulatedExecution:
 
         return False
 
+    def _should_fill_reality(self, order: OrderRequest, tick: QuoteTick) -> bool:
+        """Check if order should fill using reality pack fill model."""
+        fill_model = self._reality_pack.fill_model
+
+        # Map order type to reality OrderType
+        order_type_map = {
+            "MARKET": RealityOrderType.MARKET,
+            "LIMIT": RealityOrderType.LIMIT,
+            "STOP": RealityOrderType.STOP,
+            "STOP_LIMIT": RealityOrderType.STOP_LIMIT,
+        }
+        order_type = order_type_map.get(order.order_type, RealityOrderType.MARKET)
+
+        current_price = tick.last or tick.mid or 0
+
+        # Simulate fill to check if it would succeed
+        result = fill_model.simulate_fill(
+            symbol=order.symbol,
+            side=order.side,
+            quantity=order.quantity,
+            order_type=order_type,
+            limit_price=order.limit_price,
+            stop_price=order.stop_price,
+            current_price=current_price,
+            bid=tick.bid,
+            ask=tick.ask,
+            volume=tick.volume,
+        )
+
+        return result.filled
+
     def _fill_order(self, order: SimulatedOrder) -> None:
         """Execute fill for an order."""
         tick = self._latest_prices.get(order.request.symbol)
@@ -266,6 +345,16 @@ class SimulatedExecution:
             logger.warning(f"No price for {order.request.symbol}, cannot fill")
             return
 
+        # Use reality pack if available
+        if self._reality_pack:
+            self._fill_order_reality(order, tick)
+            return
+
+        # Legacy fill logic
+        self._fill_order_legacy(order, tick)
+
+    def _fill_order_legacy(self, order: SimulatedOrder, tick: QuoteTick) -> None:
+        """Legacy fill logic without reality pack."""
         # Determine fill price
         if order.request.side == "BUY":
             base_price = tick.ask or tick.last or 0
@@ -292,32 +381,138 @@ class SimulatedExecution:
             self._min_commission,
         )
 
+        self._create_and_record_fill(order, fill_price, order.request.quantity, commission)
+
+    def _fill_order_reality(self, order: SimulatedOrder, tick: QuoteTick) -> None:
+        """Fill order using reality pack models."""
+        req = order.request
+        symbol = req.symbol
+        side = req.side
+        quantity = req.quantity
+
+        # Get mid/reference price
+        mid_price = tick.mid or tick.last or 0
+        if mid_price <= 0:
+            logger.warning(f"Invalid price for {symbol}, cannot fill")
+            return
+
+        # Map order type
+        order_type_map = {
+            "MARKET": RealityOrderType.MARKET,
+            "LIMIT": RealityOrderType.LIMIT,
+            "STOP": RealityOrderType.STOP,
+            "STOP_LIMIT": RealityOrderType.STOP_LIMIT,
+        }
+        order_type = order_type_map.get(req.order_type, RealityOrderType.MARKET)
+
+        # 1. Use FillModel to simulate fill
+        fill_result = self._reality_pack.fill_model.simulate_fill(
+            symbol=symbol,
+            side=side,
+            quantity=quantity,
+            order_type=order_type,
+            limit_price=req.limit_price,
+            stop_price=req.stop_price,
+            current_price=mid_price,
+            bid=tick.bid,
+            ask=tick.ask,
+            volume=tick.volume,
+        )
+
+        if not fill_result.filled:
+            logger.debug(f"Order not filled: {fill_result.reject_reason}")
+            return
+
+        filled_qty = fill_result.filled_quantity
+        base_fill_price = fill_result.fill_price
+
+        # 2. Apply SlippageModel to adjust price
+        slippage_result = self._reality_pack.slippage_model.calculate(
+            symbol=symbol,
+            side=side,
+            quantity=filled_qty,
+            price=base_fill_price,
+            bid=tick.bid,
+            ask=tick.ask,
+            volume=tick.volume,
+        )
+        fill_price = slippage_result.adjusted_price
+
+        # 3. Calculate fees using FeeModel
+        asset_type_map = {
+            "stock": AssetType.STOCK,
+            "STK": AssetType.STOCK,
+            "STOCK": AssetType.STOCK,
+            "option": AssetType.OPTION,
+            "OPT": AssetType.OPTION,
+            "OPTION": AssetType.OPTION,
+            "future": AssetType.FUTURE,
+            "FUT": AssetType.FUTURE,
+            "FUTURE": AssetType.FUTURE,
+        }
+        asset_type = asset_type_map.get(req.asset_type or "stock", AssetType.STOCK)
+
+        fee_breakdown = self._reality_pack.fee_model.calculate(
+            symbol=symbol,
+            quantity=filled_qty,
+            price=fill_price,
+            side=side,
+            asset_type=asset_type,
+        )
+        commission = fee_breakdown.total
+
+        # Create and record the fill
+        self._create_and_record_fill(
+            order, fill_price, filled_qty, commission, partial=fill_result.partial
+        )
+
+        # If partial fill, update remaining quantity
+        if fill_result.partial and fill_result.remaining_quantity > 0:
+            # Create a new pending order for remaining quantity
+            logger.info(
+                f"Partial fill: {filled_qty} filled, {fill_result.remaining_quantity} remaining"
+            )
+
+    def _create_and_record_fill(
+        self,
+        order: SimulatedOrder,
+        fill_price: float,
+        filled_qty: float,
+        commission: float,
+        partial: bool = False,
+    ) -> None:
+        """Create fill event and update internal state."""
+        req = order.request
+
         # Create fill
         fill = TradeFill(
-            symbol=order.request.symbol,
-            underlying=order.request.underlying or order.request.symbol,
-            side=order.request.side,
-            quantity=order.request.quantity,
+            symbol=req.symbol,
+            underlying=req.underlying or req.symbol,
+            side=req.side,
+            quantity=filled_qty,
             price=fill_price,
             commission=commission,
             exec_id=f"EXEC-{uuid.uuid4().hex[:8]}",
             order_id=order.broker_order_id,
-            asset_type=order.request.asset_type,
-            multiplier=order.request.multiplier,
+            asset_type=req.asset_type,
+            multiplier=req.multiplier,
             source="SIMULATED",
             timestamp=self._clock.now(),
         )
 
         # Update order state
-        order.status = "filled"
-        order.filled_quantity = order.request.quantity
+        order.filled_quantity += filled_qty
         order.avg_fill_price = fill_price
-        order.commission = commission
+        order.commission += commission
 
-        # Move to filled orders
-        client_id = order.request.client_order_id or order.broker_order_id
-        self._pending_orders.pop(client_id, None)
-        self._filled_orders[client_id] = order
+        if order.filled_quantity >= req.quantity:
+            order.status = "filled"
+            # Move to filled orders
+            client_id = req.client_order_id or order.broker_order_id
+            self._pending_orders.pop(client_id, None)
+            self._filled_orders[client_id] = order
+        elif partial:
+            order.status = "partial"
 
         # Update position
         self._update_position(fill)
@@ -333,9 +528,9 @@ class SimulatedExecution:
                 logger.error(f"Fill callback error: {e}")
 
         logger.info(
-            f"Order filled: {order.request.client_order_id} "
-            f"{order.request.side} {order.request.quantity} {order.request.symbol} "
-            f"@ {fill_price:.4f}"
+            f"Order filled: {req.client_order_id} "
+            f"{req.side} {filled_qty} {req.symbol} "
+            f"@ {fill_price:.4f} (comm: {commission:.2f})"
         )
 
     def _update_position(self, fill: TradeFill) -> None:

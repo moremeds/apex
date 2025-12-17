@@ -74,7 +74,10 @@ class ExecutionSpecConfig:
     currency: str = "USD"
     allowed_order_types: List[str] = field(default_factory=lambda: ["MARKET", "LIMIT"])
 
-    # Latency model
+    # Reality model pack (e.g., "ib", "futu_us", "simple", "zero_cost", "conservative")
+    reality_pack: Optional[str] = None
+
+    # Latency model (legacy - superseded by reality_pack)
     latency_model: Optional[Dict[str, Any]] = None
 
 
@@ -162,6 +165,7 @@ class BacktestSpec:
             initial_capital=exec_raw.get("initial_capital", 100000),
             currency=exec_raw.get("currency", "USD"),
             allowed_order_types=exec_raw.get("allowed_order_types", ["MARKET", "LIMIT"]),
+            reality_pack=exec_raw.get("reality_pack"),
             latency_model=exec_raw.get("latency_model"),
         )
 
@@ -210,6 +214,7 @@ class BacktestSpec:
                 "initial_capital": self.execution.initial_capital,
                 "currency": self.execution.currency,
                 "allowed_order_types": self.execution.allowed_order_types,
+                "reality_pack": self.execution.reality_pack,
             },
             "reality_model": self.reality_model,
             "risk": self.risk,

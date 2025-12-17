@@ -35,7 +35,8 @@ class MarketDataFetcher:
     def __init__(
         self,
         ib,
-        data_timeout: float = 3.0,
+        data_timeout: float = 5.0,  # Increased from 3.0s for stocks
+        option_data_timeout: float = 10.0,  # Separate timeout for options (Greeks take longer)
         poll_interval: float = 0.1,
         on_price_update: Optional[Callable[[str, MarketData], None]] = None,
     ):
@@ -44,7 +45,8 @@ class MarketDataFetcher:
 
         Args:
             ib: ib_async.IB instance
-            data_timeout: Maximum time to wait for data population (seconds)
+            data_timeout: Maximum time to wait for stock data population (seconds)
+            option_data_timeout: Maximum time to wait for option data with Greeks (seconds)
             poll_interval: Interval between data availability checks (seconds)
             on_price_update: Callback when streaming price updates (symbol, MarketData)
         """
@@ -53,6 +55,7 @@ class MarketDataFetcher:
         self._ticker_to_symbol: Dict[int, str] = {}  # id(ticker) -> symbol for O(1) streaming lookup
         self._ticker_positions: Dict[str, Position] = {}  # symbol -> Position mapping
         self.data_timeout = data_timeout
+        self.option_data_timeout = option_data_timeout
         self.poll_interval = poll_interval
         self._on_price_update = on_price_update
         self._streaming_enabled = False
@@ -401,9 +404,10 @@ class MarketDataFetcher:
                     logger.debug(f"Requested streaming data with Greeks for option {i+1}/{len(contracts)}")
 
             # Wait ONLY for NEW subscriptions (skip if all cached)
+            # Use longer timeout for options since Greeks take time to populate
             if new_tickers:
-                logger.debug(f"Waiting for {len(new_tickers)} new option subscriptions (timeout={self.data_timeout}s)...")
-                populated_count = await self._wait_for_data_population(new_tickers, timeout=self.data_timeout)
+                logger.debug(f"Waiting for {len(new_tickers)} new option subscriptions (timeout={self.option_data_timeout}s)...")
+                populated_count = await self._wait_for_data_population(new_tickers, timeout=self.option_data_timeout)
                 logger.info(f"New option subscriptions populated: {populated_count}/{len(new_tickers)}")
             elif tickers:
                 logger.debug(f"All {len(tickers)} options using cached subscriptions (no wait)")

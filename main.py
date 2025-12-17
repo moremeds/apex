@@ -600,9 +600,43 @@ async def run_trading(args: argparse.Namespace) -> int:
     Returns:
         Exit code.
     """
-    print("Trading mode not yet implemented.")
-    print("Use --mode monitor for risk monitoring or --mode backtest for backtesting.")
-    return 1
+    from src.runners.trading_runner import TradingRunner
+    from src.domain.strategy.registry import list_strategies
+
+    # Configure logging
+    import logging
+    level = logging.DEBUG if args.verbose else logging.INFO
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+
+    # Validate required args
+    if not args.strategy:
+        print("Error: --strategy required for trading mode")
+        print(f"Available strategies: {list_strategies()}")
+        return 1
+    if not args.symbols:
+        print("Error: --symbols required for trading mode")
+        return 1
+
+    try:
+        # Default to dry-run unless explicitly disabled
+        dry_run = not getattr(args, "live", False)
+
+        runner = TradingRunner(
+            strategy_name=args.strategy,
+            symbols=[s.strip() for s in args.symbols.split(",")],
+            broker=getattr(args, "broker", "ib"),
+            dry_run=dry_run,
+        )
+        return await runner.run()
+    except Exception as e:
+        print(f"Trading failed: {e}")
+        if args.verbose:
+            import traceback
+            traceback.print_exc()
+        return 1
 
 
 def create_runner(mode: str):

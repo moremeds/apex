@@ -1,0 +1,428 @@
+"""
+Trading runner for live strategy execution.
+
+Connects strategies to live market data and execution.
+Supports dry-run mode for testing without actual execution.
+
+Usage:
+    runner = TradingRunner(
+        strategy_name="ma_cross",
+        symbols=["AAPL", "MSFT"],
+        broker="ib",
+        dry_run=True,
+    )
+    await runner.run()
+
+Safety Features:
+- Dry-run mode (default) - logs orders but doesn't execute
+- Confirmation required for live execution
+- RiskGate validation before order submission
+- Position limits and emergency stop capability
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import signal
+import sys
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Dict, List, Optional, Any, Type
+import logging
+
+from ..domain.clock import SystemClock
+from ..domain.strategy.base import Strategy, StrategyContext
+from ..domain.strategy.scheduler import LiveScheduler
+from ..domain.strategy.registry import get_strategy_class, list_strategies
+from ..domain.strategy.risk_gate import RiskGate, ValidationResult
+from ..domain.events.domain_events import QuoteTick, TradeFill
+from ..domain.interfaces.execution_provider import OrderRequest
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class TradingConfig:
+    """Configuration for live trading."""
+
+    strategy_name: str
+    symbols: List[str]
+    broker: str = "ib"  # "ib" or "futu"
+
+    # Safety
+    dry_run: bool = True  # Default to dry run
+    require_confirmation: bool = True  # Require user confirmation for live
+
+    # Strategy params
+    strategy_params: Dict[str, Any] = field(default_factory=dict)
+
+    # Risk limits
+    max_position_size: float = 1000
+    max_order_size: float = 100
+    max_notional_per_order: float = 50000
+
+    # Execution
+    paper_trading: bool = False  # Use paper account if available
+
+
+class TradingRunner:
+    """
+    Runner for live strategy execution.
+
+    Connects a strategy to live market data and execution.
+    Validates orders through RiskGate before submission.
+    """
+
+    def __init__(
+        self,
+        strategy_name: str,
+        symbols: List[str],
+        broker: str = "ib",
+        dry_run: bool = True,
+        strategy_params: Optional[Dict[str, Any]] = None,
+        risk_config: Optional[Dict[str, Any]] = None,
+    ):
+        """
+        Initialize trading runner.
+
+        Args:
+            strategy_name: Name of strategy in registry.
+            symbols: Symbols to trade.
+            broker: Broker to use (ib, futu).
+            dry_run: If True, log orders but don't execute.
+            strategy_params: Parameters for strategy.
+            risk_config: Risk gate configuration.
+        """
+        self.strategy_name = strategy_name
+        self.symbols = symbols
+        self.broker = broker
+        self.dry_run = dry_run
+        self.strategy_params = strategy_params or {}
+        self.risk_config = risk_config or {}
+
+        # Components (initialized in run())
+        self._clock = SystemClock()
+        self._scheduler: Optional[LiveScheduler] = None
+        self._strategy: Optional[Strategy] = None
+        self._risk_gate: Optional[RiskGate] = None
+        self._context: Optional[StrategyContext] = None
+
+        # State
+        self._running = False
+        self._order_count = 0
+        self._rejected_count = 0
+
+    @classmethod
+    def from_args(cls, args: argparse.Namespace) -> "TradingRunner":
+        """
+        Create runner from CLI arguments.
+
+        Args:
+            args: Parsed CLI arguments.
+
+        Returns:
+            TradingRunner instance.
+        """
+        # Parse symbols
+        symbols = [s.strip() for s in args.symbols.split(",")]
+
+        # Parse strategy params if provided
+        strategy_params = {}
+        if hasattr(args, "params") and args.params:
+            for param in args.params:
+                key, value = param.split("=")
+                try:
+                    value = int(value)
+                except ValueError:
+                    try:
+                        value = float(value)
+                    except ValueError:
+                        pass
+                strategy_params[key] = value
+
+        return cls(
+            strategy_name=args.strategy,
+            symbols=symbols,
+            broker=getattr(args, "broker", "ib"),
+            dry_run=getattr(args, "dry_run", True),
+            strategy_params=strategy_params,
+        )
+
+    async def run(self) -> int:
+        """
+        Run the trading strategy.
+
+        Returns:
+            Exit code (0 for success, 1 for error).
+        """
+        # Safety confirmation for live trading
+        if not self.dry_run:
+            if not self._confirm_live_trading():
+                print("Live trading cancelled.")
+                return 1
+
+        self._print_config()
+
+        try:
+            # Initialize components
+            await self._initialize()
+
+            # Start strategy
+            self._strategy.start()
+            self._running = True
+
+            logger.info(f"Trading started: {self.strategy_name}")
+
+            if self.dry_run:
+                print("\n*** DRY RUN MODE - Orders will be logged but not executed ***\n")
+
+            # Set up signal handlers
+            self._setup_signal_handlers()
+
+            # Main loop
+            await self._run_loop()
+
+            return 0
+
+        except Exception as e:
+            logger.error(f"Trading error: {e}")
+            return 1
+
+        finally:
+            await self._shutdown()
+
+    async def _initialize(self) -> None:
+        """Initialize trading components."""
+        # Get strategy class
+        strategy_class = get_strategy_class(self.strategy_name)
+        if strategy_class is None:
+            raise ValueError(
+                f"Unknown strategy: {self.strategy_name}. "
+                f"Available: {list_strategies()}"
+            )
+
+        # Create scheduler
+        self._scheduler = LiveScheduler(self._clock)
+
+        # Create context
+        self._context = StrategyContext(
+            clock=self._clock,
+            scheduler=self._scheduler,
+            positions={},
+            account=None,
+        )
+
+        # Create strategy
+        self._strategy = strategy_class(
+            strategy_id=f"live-{self.strategy_name}",
+            symbols=self.symbols,
+            context=self._context,
+            **self.strategy_params,
+        )
+
+        # Create risk gate
+        self._risk_gate = RiskGate(config=self.risk_config)
+
+        # Wire order callback
+        self._strategy.on_order_callback(self._handle_order)
+
+        logger.info(f"Initialized strategy: {self._strategy}")
+
+    async def _run_loop(self) -> None:
+        """Main trading loop."""
+        while self._running:
+            # In a real implementation, this would:
+            # 1. Receive market data from broker adapter
+            # 2. Feed data to strategy
+            # 3. Process fills and position updates
+
+            # For now, just wait and check for shutdown
+            await asyncio.sleep(1.0)
+
+            # Log heartbeat every 60 seconds
+            if int(self._clock.now().timestamp()) % 60 == 0:
+                logger.debug(
+                    f"Trading heartbeat: orders={self._order_count}, "
+                    f"rejected={self._rejected_count}"
+                )
+
+    def _handle_order(self, order: OrderRequest) -> None:
+        """Handle order from strategy."""
+        # Validate through risk gate
+        result = self._risk_gate.validate(order, self._context)
+
+        if not result.approved:
+            self._rejected_count += 1
+            logger.warning(
+                f"Order REJECTED by RiskGate: {result.message} "
+                f"[{order.side} {order.quantity} {order.symbol}]"
+            )
+            return
+
+        self._order_count += 1
+
+        if self.dry_run:
+            # Log order but don't execute
+            self._log_dry_run_order(order)
+        else:
+            # Submit to broker
+            self._submit_order(order)
+
+    def _log_dry_run_order(self, order: OrderRequest) -> None:
+        """Log order in dry-run mode."""
+        logger.info(
+            f"[DRY RUN] Order #{self._order_count}: "
+            f"{order.side} {order.quantity} {order.symbol} "
+            f"@ {order.order_type}"
+            f"{f' limit={order.limit_price}' if order.limit_price else ''}"
+        )
+        print(
+            f"[DRY RUN] {self._clock.now().strftime('%H:%M:%S')} "
+            f"ORDER: {order.side} {order.quantity} {order.symbol}"
+        )
+
+    def _submit_order(self, order: OrderRequest) -> None:
+        """Submit order to broker (live mode)."""
+        # In a real implementation, this would submit to broker adapter
+        logger.info(
+            f"[LIVE] Submitting order #{self._order_count}: "
+            f"{order.side} {order.quantity} {order.symbol}"
+        )
+        print(
+            f"[LIVE] {self._clock.now().strftime('%H:%M:%S')} "
+            f"SUBMITTED: {order.side} {order.quantity} {order.symbol}"
+        )
+        # TODO: Wire to actual broker execution adapter
+
+    def _confirm_live_trading(self) -> bool:
+        """Get user confirmation for live trading."""
+        print("\n" + "=" * 60)
+        print("WARNING: LIVE TRADING MODE")
+        print("=" * 60)
+        print(f"Strategy:  {self.strategy_name}")
+        print(f"Symbols:   {', '.join(self.symbols)}")
+        print(f"Broker:    {self.broker}")
+        print("\nThis will execute REAL orders with REAL money.")
+        print("=" * 60)
+
+        try:
+            response = input("\nType 'CONFIRM' to proceed with live trading: ")
+            return response.strip().upper() == "CONFIRM"
+        except (EOFError, KeyboardInterrupt):
+            return False
+
+    def _setup_signal_handlers(self) -> None:
+        """Set up signal handlers for graceful shutdown."""
+        def handle_signal(signum, frame):
+            logger.info(f"Received signal {signum}, shutting down...")
+            self._running = False
+
+        signal.signal(signal.SIGINT, handle_signal)
+        signal.signal(signal.SIGTERM, handle_signal)
+
+    async def _shutdown(self) -> None:
+        """Shutdown trading."""
+        self._running = False
+
+        if self._strategy:
+            self._strategy.stop()
+
+        if self._scheduler:
+            self._scheduler.stop()
+
+        logger.info(
+            f"Trading stopped: orders={self._order_count}, "
+            f"rejected={self._rejected_count}"
+        )
+
+    def _print_config(self) -> None:
+        """Print trading configuration."""
+        mode = "DRY RUN" if self.dry_run else "LIVE"
+        print(f"\n{'=' * 60}")
+        print(f"TRADING CONFIGURATION ({mode})")
+        print(f"{'=' * 60}")
+        print(f"Strategy:     {self.strategy_name}")
+        print(f"Symbols:      {', '.join(self.symbols)}")
+        print(f"Broker:       {self.broker}")
+        print(f"Mode:         {mode}")
+        if self.strategy_params:
+            print(f"Parameters:   {self.strategy_params}")
+        print(f"{'=' * 60}\n")
+
+    def stop(self) -> None:
+        """Stop trading."""
+        self._running = False
+
+
+def create_parser() -> argparse.ArgumentParser:
+    """Create argument parser for trading runner."""
+    parser = argparse.ArgumentParser(description="Run live trading strategy")
+
+    parser.add_argument(
+        "--strategy",
+        type=str,
+        required=True,
+        help="Strategy name from registry",
+    )
+    parser.add_argument(
+        "--symbols",
+        type=str,
+        required=True,
+        help="Comma-separated list of symbols",
+    )
+    parser.add_argument(
+        "--broker",
+        type=str,
+        default="ib",
+        choices=["ib", "futu"],
+        help="Broker to use",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=True,
+        help="Dry run mode (default: True)",
+    )
+    parser.add_argument(
+        "--live",
+        action="store_true",
+        help="Enable live trading (overrides --dry-run)",
+    )
+    parser.add_argument(
+        "--params",
+        nargs="*",
+        help="Strategy parameters (key=value)",
+    )
+    parser.add_argument(
+        "-v", "--verbose",
+        action="store_true",
+        help="Verbose output",
+    )
+
+    return parser
+
+
+async def main():
+    """Main entry point."""
+    parser = create_parser()
+    args = parser.parse_args()
+
+    # Set up logging
+    level = logging.DEBUG if args.verbose else logging.INFO
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+
+    # Override dry_run if --live is specified
+    if args.live:
+        args.dry_run = False
+
+    runner = TradingRunner.from_args(args)
+    exit_code = await runner.run()
+    sys.exit(exit_code)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

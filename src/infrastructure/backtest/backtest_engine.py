@@ -49,6 +49,9 @@ from ...domain.events.domain_events import BarData, QuoteTick, PositionSnapshot
 
 from .simulated_execution import SimulatedExecution, FillModel
 from .data_feeds import DataFeed, CsvDataFeed
+from .trade_tracker import TradeTracker
+
+from ...domain.reality import RealityModelPack, get_preset_pack
 
 logger = logging.getLogger(__name__)
 
@@ -66,18 +69,36 @@ class BacktestConfig:
     data_type: str = "bars"  # "bars" or "ticks"
     bar_size: str = "1d"
 
-    # Execution settings
+    # Execution settings (legacy - used when reality_pack is None)
     fill_model: FillModel = FillModel.IMMEDIATE
     slippage_bps: float = 5.0
     commission_per_share: float = 0.005
+
+    # Reality modeling (preferred over legacy execution settings)
+    # Can be a RealityModelPack instance or a preset name string
+    reality_pack: Optional[RealityModelPack] = None
+    reality_pack_name: Optional[str] = None  # e.g., "ib", "futu_us", "simple"
 
     # Strategy
     strategy_name: Optional[str] = None
     strategy_params: Dict[str, Any] = field(default_factory=dict)
 
+    def get_reality_pack(self) -> Optional[RealityModelPack]:
+        """Get the reality pack, resolving from name if needed."""
+        if self.reality_pack is not None:
+            return self.reality_pack
+        if self.reality_pack_name:
+            return get_preset_pack(self.reality_pack_name)
+        return None
+
     @classmethod
     def from_spec(cls, spec: BacktestSpec) -> "BacktestConfig":
         """Create config from BacktestSpec."""
+        # Check if spec has reality pack settings
+        reality_pack_name = None
+        if hasattr(spec.execution, 'reality_pack') and spec.execution.reality_pack:
+            reality_pack_name = spec.execution.reality_pack
+
         return cls(
             start_date=spec.data.start_date or date(2024, 1, 1),
             end_date=spec.data.end_date or date(2024, 12, 31),
@@ -86,6 +107,7 @@ class BacktestConfig:
             bar_size=spec.data.bar_size,
             strategy_name=spec.strategy.name,
             strategy_params=spec.strategy.params,
+            reality_pack_name=reality_pack_name,
         )
 
 
@@ -118,12 +140,18 @@ class BacktestEngine:
         self._scheduler = SimulatedScheduler(self._clock)
 
         # Initialize simulated execution
+        # Use reality pack if configured, otherwise use legacy parameters
+        reality_pack = config.get_reality_pack()
         self._execution = SimulatedExecution(
             clock=self._clock,
             fill_model=config.fill_model,
             slippage_bps=config.slippage_bps,
             commission_per_share=config.commission_per_share,
+            reality_pack=reality_pack,
         )
+
+        if reality_pack:
+            logger.info(f"Using reality pack: {reality_pack.name}")
 
         # Initialize context
         self._context = StrategyContext(
@@ -143,6 +171,9 @@ class BacktestEngine:
         self._equity_curve: List[Dict[str, Any]] = []
         self._trades: List[TradeRecord] = []
         self._running = False
+
+        # Trade tracker for entry/exit matching
+        self._trade_tracker = TradeTracker(matching_method="FIFO")
 
     @property
     def clock(self) -> SimulatedClock:
@@ -306,8 +337,9 @@ class BacktestEngine:
         fills = self._execution.get_pending_fills()
 
         for fill in fills:
-            # Update cash
-            cost = fill.quantity * fill.price
+            # Update cash (with multiplier for options/futures)
+            multiplier = getattr(fill, 'multiplier', 1) or 1
+            cost = fill.quantity * fill.price * multiplier
             if fill.side == "BUY":
                 self._cash -= cost + fill.commission
             else:
@@ -331,7 +363,11 @@ class BacktestEngine:
             # Route fill to strategy
             self._strategy.on_fill(fill)
 
-            # Record trade (simplified - would need entry/exit matching for full trade log)
+            # Track fill for entry/exit matching
+            trade = self._trade_tracker.record_fill(fill)
+            if trade:
+                self._trades.append(trade)
+
             logger.debug(f"Fill processed: {fill.side} {fill.quantity} {fill.symbol}")
 
     def _calculate_equity(self) -> float:
@@ -391,14 +427,9 @@ class BacktestEngine:
             sharpe_ratio=self._calculate_sharpe(),
         )
 
-        # Trade metrics
-        filled_orders = list(self._execution._filled_orders.values())
-        total_trades = len(filled_orders) // 2  # Approximate round trips
-        total_commission = sum(o.commission for o in filled_orders)
-
-        trades = TradeMetrics(
-            total_trades=total_trades,
-        )
+        # Trade metrics from tracker
+        trade_metrics = self._trade_tracker.calculate_metrics()
+        total_commission = sum(t.commission for t in self._trades)
 
         # Cost metrics
         costs = CostMetrics(
@@ -417,9 +448,10 @@ class BacktestEngine:
             symbols=self._config.symbols,
             performance=performance,
             risk=risk,
-            trades=trades,
+            trades=trade_metrics,
             costs=costs,
             equity_curve=self._equity_curve,
+            trade_log=self._trades,
             run_duration_seconds=run_duration,
             engine="apex",
         )
