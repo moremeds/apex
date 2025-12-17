@@ -156,3 +156,5 @@ test_output/
 tmp/
 temp/
 *.tmp
+/docs/design/
+/docs/reviews/
