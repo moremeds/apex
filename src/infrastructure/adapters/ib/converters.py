@@ -38,12 +38,19 @@ def convert_position(ib_pos) -> Position:
     """
     contract = ib_pos.contract
 
-    # Determine asset type
-    if contract.secType == "STK":
+    # Null check for contract - can happen during off-hours or disconnection
+    if contract is None:
+        logger.warning(f"Position has no contract: {ib_pos}")
+        raise ValueError("Position has no contract")
+
+    sec_type = getattr(contract, 'secType', None)
+
+    # Determine asset type with null-safe check
+    if sec_type == "STK":
         asset_type = AssetType.STOCK
-    elif contract.secType == "OPT":
+    elif sec_type == "OPT":
         asset_type = AssetType.OPTION
-    elif contract.secType == "FUT":
+    elif sec_type == "FUT":
         asset_type = AssetType.FUTURE
     else:
         asset_type = AssetType.CASH
@@ -105,15 +112,22 @@ def convert_order(ib_order_wrapper) -> Optional[Order]:
         order = ib_order_wrapper.order
         order_status = ib_order_wrapper.orderStatus
 
-        # Determine asset type
-        if contract.secType == "STK":
+        # Null check for contract
+        if contract is None:
+            logger.warning(f"Order wrapper has no contract: {ib_order_wrapper}")
+            return None
+
+        sec_type = getattr(contract, 'secType', None)
+
+        # Determine asset type with null-safe check
+        if sec_type == "STK":
             asset_type = "STOCK"
-        elif contract.secType == "OPT":
+        elif sec_type == "OPT":
             asset_type = "OPTION"
-        elif contract.secType == "FUT":
+        elif sec_type == "FUT":
             asset_type = "FUTURE"
         else:
-            asset_type = contract.secType
+            asset_type = sec_type or "UNKNOWN"
 
         # Map IB order type
         order_type_map = {
@@ -195,15 +209,22 @@ def convert_fill(ib_fill) -> Optional[Trade]:
         execution = ib_fill.execution
         commission_report = ib_fill.commissionReport
 
-        # Determine asset type
-        if contract.secType == "STK":
+        # Null check for contract
+        if contract is None:
+            logger.warning(f"Fill has no contract: {ib_fill}")
+            return None
+
+        sec_type = getattr(contract, 'secType', None)
+
+        # Determine asset type with null-safe check
+        if sec_type == "STK":
             asset_type = "STOCK"
-        elif contract.secType == "OPT":
+        elif sec_type == "OPT":
             asset_type = "OPTION"
-        elif contract.secType == "FUT":
+        elif sec_type == "FUT":
             asset_type = "FUTURE"
         else:
-            asset_type = contract.secType
+            asset_type = sec_type or "UNKNOWN"
 
         # Determine side
         side = OrderSide.BUY if execution.side == "BOT" else OrderSide.SELL

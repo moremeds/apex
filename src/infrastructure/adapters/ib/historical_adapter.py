@@ -10,7 +10,7 @@ Uses client_id = base + 1.
 
 from __future__ import annotations
 from typing import List, Optional, Callable, Dict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 
 from ....utils.logging_setup import get_logger
 from ....domain.interfaces.bar_provider import BarProvider
@@ -133,6 +133,12 @@ class IbHistoricalAdapter(IbBaseAdapter, BarProvider):
 
             result = []
             for bar in bars:
+                # IB returns date for daily bars, datetime for intraday
+                bar_ts = bar.date if hasattr(bar, 'date') else datetime.now()
+                # Ensure timestamp is always datetime for consistent comparison
+                if isinstance(bar_ts, date) and not isinstance(bar_ts, datetime):
+                    bar_ts = datetime.combine(bar_ts, datetime.min.time())
+
                 bar_data = BarData(
                     symbol=symbol,
                     timeframe=timeframe,
@@ -141,15 +147,17 @@ class IbHistoricalAdapter(IbBaseAdapter, BarProvider):
                     low=float(bar.low),
                     close=float(bar.close),
                     volume=int(bar.volume) if bar.volume else None,
-                    bar_start=bar.date if hasattr(bar, 'date') else None,
+                    bar_start=bar_ts,
                     source="IB",
-                    timestamp=bar.date if hasattr(bar, 'date') else datetime.now(),
+                    timestamp=bar_ts,
                 )
                 result.append(bar_data)
 
             # Filter by start if provided
             if start:
-                result = [b for b in result if b.timestamp >= start]
+                # Ensure start is datetime for comparison
+                start_dt = start if isinstance(start, datetime) else datetime.combine(start, datetime.min.time())
+                result = [b for b in result if b.timestamp >= start_dt]
 
             # Apply limit
             if limit and len(result) > limit:

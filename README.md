@@ -44,9 +44,23 @@ apex/
 │   ├── models/           # Data models (Position, MarketData, RiskSnapshot)
 │   ├── domain/
 │   │   ├── interfaces/   # Provider interfaces (DI)
-│   │   └── services/     # Domain services (RiskEngine, MDQC, RuleEngine)
+│   │   ├── services/     # Domain services (RiskEngine, MDQC, RuleEngine)
+│   │   ├── clock.py      # Clock abstraction (System/Simulated)
+│   │   ├── strategy/     # Strategy framework
+│   │   │   ├── base.py       # Base Strategy class
+│   │   │   ├── scheduler.py  # Live/Simulated schedulers
+│   │   │   ├── registry.py   # Strategy discovery
+│   │   │   └── examples/     # Example strategies
+│   │   └── backtest/     # Backtest domain
+│   │       ├── backtest_spec.py    # YAML config schema
+│   │       └── backtest_result.py  # Metrics & reporting
 │   ├── infrastructure/
 │   │   ├── adapters/     # IB adapter, file loader
+│   │   ├── backtest/     # Backtest infrastructure
+│   │   │   ├── backtest_engine.py      # Orchestrator
+│   │   │   ├── data_feeds.py           # CSV/Parquet/IB feeds
+│   │   │   ├── simulated_execution.py  # Order matching
+│   │   │   └── backtrader_adapter.py   # Backtrader integration
 │   │   ├── persistence/  # PostgreSQL/TimescaleDB layer
 │   │   │   ├── database.py      # Connection manager (asyncpg)
 │   │   │   └── repositories/    # Repository pattern implementations
@@ -56,6 +70,8 @@ apex/
 │   │   ├── history_loader_service.py  # History loading orchestrator
 │   │   ├── snapshot_service.py        # Periodic snapshot capture
 │   │   └── warm_start_service.py      # Startup state restoration
+│   ├── runners/          # CLI runners
+│   │   └── backtest_runner.py  # Backtest CLI
 │   ├── application/      # Orchestrator, event bus
 │   ├── presentation/     # Terminal dashboard
 │   └── utils/            # Structured logger
@@ -345,6 +361,131 @@ asyncio.run(migrate())
 
 See `docs/PERSISTENCE_LAYER.md` for comprehensive documentation.
 
+## Strategy & Backtest Framework
+
+APEX includes a production-ready strategy development and backtesting framework with **live/backtest parity** - the same strategy code runs identically in both modes.
+
+### Quick Start
+
+```bash
+# List available strategies
+python -m src.runners.backtest_runner --list-strategies
+
+# Run a backtest with IB historical data
+python -m src.runners.backtest_runner --strategy ma_cross --symbols AAPL \
+    --start 2024-01-01 --end 2024-06-30
+
+# Run from spec file
+python -m src.runners.backtest_runner --spec config/backtest/ma_cross_example.yaml
+```
+
+### Available Strategies
+
+| Strategy | Registry Name | Description |
+|----------|---------------|-------------|
+| Moving Average Cross | `ma_cross` | Classic MA crossover trend following |
+| Buy and Hold | `buy_and_hold` | Passive benchmark strategy |
+| RSI Mean Reversion | `rsi_reversion` | RSI-based with limit orders |
+| Momentum Breakout | `momentum_breakout` | ATR-based with trailing stops |
+| Pairs Trading | `pairs_trading` | Statistical arbitrage (2 symbols) |
+| Scheduled Rebalance | `scheduled_rebalance` | Time-based portfolio rebalancing |
+
+### Creating a Strategy
+
+```python
+from src.domain.strategy.base import Strategy, StrategyContext
+from src.domain.strategy.registry import register_strategy
+from src.domain.events.domain_events import BarData
+from src.domain.interfaces.execution_provider import OrderRequest
+
+@register_strategy("my_strategy", description="My custom strategy")
+class MyStrategy(Strategy):
+    def __init__(self, strategy_id, symbols, context, **params):
+        super().__init__(strategy_id, symbols, context)
+        self.lookback = params.get("lookback", 20)
+
+    def on_start(self):
+        # Initialize on strategy start
+        pass
+
+    def on_bar(self, bar: BarData):
+        # Process each bar
+        if self._should_buy(bar):
+            self.request_order(OrderRequest(
+                symbol=bar.symbol,
+                side="BUY",
+                quantity=100,
+                order_type="MARKET",
+            ))
+
+    def on_fill(self, fill):
+        # Handle execution fills
+        pass
+```
+
+### Backtest Specification (YAML)
+
+```yaml
+# config/backtest/my_strategy.yaml
+strategy:
+  name: my_strategy
+  id: my-strategy-2024
+  params:
+    lookback: 20
+
+universe:
+  symbols:
+    - AAPL
+    - MSFT
+
+data:
+  source: ib          # ib | csv | parquet
+  bar_size: 1d
+  start_date: "2024-01-01"
+  end_date: "2024-06-30"
+
+execution:
+  initial_capital: 100000
+```
+
+### Architecture: Live/Backtest Parity
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    STRATEGY CODE                            │
+│  (identical in both modes - uses abstract interfaces)       │
+└─────────────────────────────────────────────────────────────┘
+                            │
+            ┌───────────────┴───────────────┐
+            ▼                               ▼
+┌───────────────────────┐       ┌───────────────────────┐
+│     LIVE MODE         │       │    BACKTEST MODE      │
+├───────────────────────┤       ├───────────────────────┤
+│ SystemClock           │       │ SimulatedClock        │
+│ LiveScheduler         │       │ SimulatedScheduler    │
+│ IB ExecutionAdapter   │       │ SimulatedExecution    │
+│ IB Live Data Feed     │       │ IB Historical Feed    │
+└───────────────────────┘       └───────────────────────┘
+```
+
+Key abstractions enabling parity:
+- **Clock**: `SystemClock` (real time) vs `SimulatedClock` (deterministic replay)
+- **Scheduler**: Time-based actions work identically in both modes
+- **Execution**: Order matching with configurable fill models
+- **Data Feeds**: Multiple sources (IB, CSV, Parquet)
+
+### Backtest Results
+
+The framework calculates comprehensive metrics:
+
+- **Performance**: Total return, CAGR, best/worst day
+- **Risk**: Sharpe ratio, Sortino ratio, max drawdown, volatility
+- **Trading**: Win rate, profit factor, average trade
+- **Costs**: Commission, slippage analysis
+- **Exposure**: Time in market, position count
+
+See `docs/STRATEGY_GUIDE.md` for complete documentation.
+
 ## Performance Targets
 
 - **< 100ms** refresh for < 100 positions
@@ -421,6 +562,7 @@ MIT License - see LICENSE file
 | Document | Description |
 |----------|-------------|
 | [docs/USER_MANUAL.md](docs/USER_MANUAL.md) | Complete user guide with CLI reference |
+| [docs/STRATEGY_GUIDE.md](docs/STRATEGY_GUIDE.md) | Strategy development & backtest guide |
 | [docs/PERSISTENCE_LAYER.md](docs/PERSISTENCE_LAYER.md) | Database setup and API reference |
 | [docs/OBSERVABILITY_SETUP.md](docs/OBSERVABILITY_SETUP.md) | Prometheus, Grafana, and alerting setup |
 | [CLAUDE.md](CLAUDE.md) | Development guidelines |

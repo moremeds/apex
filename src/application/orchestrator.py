@@ -146,6 +146,7 @@ class Orchestrator:
         self._latest_snapshot: RiskSnapshot | None = None
         self._latest_market_alerts: list[dict[str, Any]] = []
         self._latest_risk_signals: List[RiskSignal] = []
+        self._last_reconciliation_issue_count: int = 0  # Track to log only on change
 
         # Event to signal when new snapshot is ready (for dashboard sync)
         self._snapshot_ready: asyncio.Event = asyncio.Event()
@@ -366,16 +367,28 @@ class Orchestrator:
         cycle_id = get_cycle_id()
         logger.debug(f"[{cycle_id}] Starting data fetch and reconciliation")
 
-        # 1. Fetch positions AND accounts concurrently (don't wait serially)
+        # 1. Fetch positions AND accounts concurrently with timeout (don't wait serially)
+        # Timeout of 45s prevents >1s spikes from propagating to the timer loop
+        fetch_timeout = 45.0  # Max time for parallel fetch
         positions_task = asyncio.create_task(self.broker_manager.fetch_positions_by_broker())
         accounts_task = asyncio.create_task(self.broker_manager.fetch_account_info_by_broker())
 
-        # Wait for both to complete
-        positions_by_broker, accounts_by_broker = await asyncio.gather(
-            positions_task, accounts_task, return_exceptions=True
-        )
+        try:
+            # Wait for both to complete with timeout
+            positions_by_broker, accounts_by_broker = await asyncio.wait_for(
+                asyncio.gather(positions_task, accounts_task, return_exceptions=True),
+                timeout=fetch_timeout
+            )
+        except asyncio.TimeoutError:
+            logger.error(f"Data fetch timeout after {fetch_timeout}s - using cached data")
+            # Cancel pending tasks
+            positions_task.cancel()
+            accounts_task.cancel()
+            # Use cached/empty data
+            positions_by_broker = {}
+            accounts_by_broker = {}
 
-        # Handle exceptions
+        # Handle exceptions from individual tasks
         if isinstance(positions_by_broker, Exception):
             logger.error(f"Failed to fetch positions: {positions_by_broker}")
             positions_by_broker = {}
@@ -393,8 +406,15 @@ class Orchestrator:
         issues = self.reconciler.reconcile(
             ib_positions, manual_positions, cached_positions, futu_positions
         )
+        issue_count = len(issues) if issues else 0
+        # Only log on state change to avoid warning storm
+        if issue_count != self._last_reconciliation_issue_count:
+            if issue_count > 0:
+                logger.warning(f"Reconciliation issues changed: {self._last_reconciliation_issue_count} -> {issue_count}")
+            elif self._last_reconciliation_issue_count > 0:
+                logger.info(f"Reconciliation issues resolved (was {self._last_reconciliation_issue_count})")
+            self._last_reconciliation_issue_count = issue_count
         if issues:
-            logger.warning(f"Found {len(issues)} reconciliation issues")
             for issue in issues:
                 self.event_bus.publish(EventType.RECONCILIATION_ISSUE, issue)
 
@@ -426,8 +446,14 @@ class Orchestrator:
         if is_console_enabled():
             print(position_msg, flush=True)
 
-        # 3. Publish account info (already fetched concurrently above)
-        account_info = await self._fetch_account_info_cached()
+        # 3. Publish account info (use already-fetched data, DON'T re-fetch)
+        # Aggregate account info from all brokers that were fetched in parallel above
+        account_info = self._aggregate_account_info(accounts_by_broker)
+
+        # Update cache to avoid redundant fetches
+        self._cached_account_info = account_info
+        self._last_account_fetch = datetime.now()
+
         self.event_bus.publish(EventType.ACCOUNT_UPDATED, {
             "account_info": account_info,
             "accounts_by_broker": accounts_by_broker,
@@ -436,7 +462,8 @@ class Orchestrator:
 
         account_msg = f"💰 Account: Total=${account_info.net_liquidation:,.0f}"
         for broker_name, acc in accounts_by_broker.items():
-            account_msg += f", {broker_name.upper()}=${acc.net_liquidation:,.0f}"
+            if acc:
+                account_msg += f", {broker_name.upper()}=${acc.net_liquidation:,.0f}"
         logger.info(account_msg)
         if is_console_enabled():
             print(account_msg, flush=True)
@@ -558,6 +585,70 @@ class Orchestrator:
     def get_latest_risk_signals(self) -> List[RiskSignal]:
         """Get the latest risk signals."""
         return self._latest_risk_signals
+
+    def _aggregate_account_info(self, accounts_by_broker: Dict[str, AccountInfo]) -> AccountInfo:
+        """
+        Aggregate account info from multiple brokers.
+
+        Args:
+            accounts_by_broker: Dict mapping broker name to AccountInfo.
+
+        Returns:
+            Aggregated AccountInfo with totals from all brokers.
+        """
+        from ..models.account import AccountInfo
+
+        if not accounts_by_broker:
+            return AccountInfo(
+                net_liquidation=0.0,
+                total_cash=0.0,
+                buying_power=0.0,
+                margin_used=0.0,
+                margin_available=0.0,
+                maintenance_margin=0.0,
+                init_margin_req=0.0,
+                excess_liquidity=0.0,
+                timestamp=datetime.now(),
+            )
+
+        # Aggregate values from all brokers
+        total_net_liq = 0.0
+        total_cash = 0.0
+        total_buying_power = 0.0
+        total_margin_used = 0.0
+        total_margin_available = 0.0
+        total_maintenance_margin = 0.0
+        total_init_margin_req = 0.0
+        total_excess_liquidity = 0.0
+        total_realized_pnl = 0.0
+        total_unrealized_pnl = 0.0
+
+        for broker_name, acc in accounts_by_broker.items():
+            if acc:
+                total_net_liq += acc.net_liquidation or 0.0
+                total_cash += acc.total_cash or 0.0
+                total_buying_power += acc.buying_power or 0.0
+                total_margin_used += acc.margin_used or 0.0
+                total_margin_available += acc.margin_available or 0.0
+                total_maintenance_margin += acc.maintenance_margin or 0.0
+                total_init_margin_req += acc.init_margin_req or 0.0
+                total_excess_liquidity += acc.excess_liquidity or 0.0
+                total_realized_pnl += acc.realized_pnl or 0.0
+                total_unrealized_pnl += acc.unrealized_pnl or 0.0
+
+        return AccountInfo(
+            net_liquidation=total_net_liq,
+            total_cash=total_cash,
+            buying_power=total_buying_power,
+            margin_used=total_margin_used,
+            margin_available=total_margin_available,
+            maintenance_margin=total_maintenance_margin,
+            init_margin_req=total_init_margin_req,
+            excess_liquidity=total_excess_liquidity,
+            realized_pnl=total_realized_pnl,
+            unrealized_pnl=total_unrealized_pnl,
+            timestamp=datetime.now(),
+        )
 
     async def _fetch_account_info_cached(self) -> AccountInfo:
         """
@@ -861,7 +952,7 @@ class Orchestrator:
                             level = 2 if signal.severity.value == "CRITICAL" else (
                                 1 if signal.severity.value == "WARNING" else 0
                             )
-                            self._risk_metrics.record_breach(signal.signal_type.value, level)
+                            self._risk_metrics.record_breach(signal.trigger_rule, level)
 
                 # Log alerts to audit trail
                 if self.risk_alert_logger:
