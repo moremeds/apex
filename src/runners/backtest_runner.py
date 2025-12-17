@@ -49,6 +49,14 @@ from ..infrastructure.backtest.simulated_execution import FillModel
 # Import example strategies to register them
 from ..domain.strategy.examples import MovingAverageCrossStrategy, BuyAndHoldStrategy  # noqa
 
+# Check if backtrader is available
+try:
+    import backtrader as bt
+    BACKTRADER_AVAILABLE = True
+except ImportError:
+    BACKTRADER_AVAILABLE = False
+    bt = None
+
 logger = logging.getLogger(__name__)
 
 # Default config path
@@ -344,6 +352,304 @@ class BacktestRunner:
         """Save result to database."""
         # TODO: Implement persistence via BacktestRepository
         logger.info(f"Backtest result saved: {result.backtest_id}")
+
+
+class BacktraderRunner:
+    """
+    Backtest runner using Backtrader engine.
+
+    Provides the same interface as BacktestRunner but executes
+    using Backtrader's engine for comparison or alternative execution.
+
+    Requires: pip install backtrader
+    """
+
+    def __init__(
+        self,
+        strategy_name: str,
+        symbols: List[str],
+        start_date: date,
+        end_date: date,
+        initial_capital: float = 100000.0,
+        data_source: str = "csv",
+        data_dir: str = "./data",
+        bar_size: str = "1d",
+        strategy_params: Optional[Dict[str, Any]] = None,
+        commission: float = 0.001,
+    ):
+        """
+        Initialize Backtrader runner.
+
+        Args:
+            strategy_name: Name of strategy in registry.
+            symbols: List of symbols to trade.
+            start_date: Backtest start date.
+            end_date: Backtest end date.
+            initial_capital: Starting capital.
+            data_source: Data source (csv, parquet, yahoo).
+            data_dir: Directory containing data files.
+            bar_size: Bar size (1d, 1h, etc.).
+            strategy_params: Strategy parameters.
+            commission: Commission rate.
+        """
+        if not BACKTRADER_AVAILABLE:
+            raise ImportError("backtrader not installed. Run: pip install backtrader")
+
+        self.strategy_name = strategy_name
+        self.symbols = symbols
+        self.start_date = start_date
+        self.end_date = end_date
+        self.initial_capital = initial_capital
+        self.data_source = data_source
+        self.data_dir = data_dir
+        self.bar_size = bar_size
+        self.strategy_params = strategy_params or {}
+        self.commission = commission
+
+    @classmethod
+    def from_args(cls, args: argparse.Namespace) -> "BacktraderRunner":
+        """
+        Create runner from CLI arguments.
+
+        Args:
+            args: Parsed CLI arguments.
+
+        Returns:
+            BacktraderRunner instance.
+        """
+        # Check if spec file provided
+        if hasattr(args, "spec") and args.spec:
+            spec = BacktestSpec.from_yaml(args.spec)
+            errors = spec.validate()
+            if errors:
+                raise ValueError(f"Invalid spec: {errors}")
+
+            return cls(
+                strategy_name=spec.strategy.name,
+                symbols=spec.get_symbols(),
+                start_date=spec.data.start_date or date(2024, 1, 1),
+                end_date=spec.data.end_date or date(2024, 12, 31),
+                initial_capital=spec.execution.initial_capital,
+                data_source=spec.data.source,
+                data_dir=spec.data.csv_dir or spec.data.parquet_dir or "./data",
+                bar_size=spec.data.bar_size,
+                strategy_params=spec.strategy.params,
+            )
+
+        # Parse dates
+        start_date = datetime.strptime(args.start, "%Y-%m-%d").date()
+        end_date = datetime.strptime(args.end, "%Y-%m-%d").date()
+
+        # Parse symbols
+        symbols = [s.strip() for s in args.symbols.split(",")]
+
+        # Parse strategy params if provided
+        strategy_params = {}
+        if hasattr(args, "params") and args.params:
+            for param in args.params:
+                key, value = param.split("=")
+                try:
+                    value = int(value)
+                except ValueError:
+                    try:
+                        value = float(value)
+                    except ValueError:
+                        pass
+                strategy_params[key] = value
+
+        return cls(
+            strategy_name=args.strategy,
+            symbols=symbols,
+            start_date=start_date,
+            end_date=end_date,
+            initial_capital=getattr(args, "capital", 100000),
+            data_source=getattr(args, "data_source", "csv"),
+            data_dir=getattr(args, "data_dir", "./data"),
+            bar_size=getattr(args, "bar_size", "1d"),
+            strategy_params=strategy_params,
+            commission=getattr(args, "commission", 0.001),
+        )
+
+    async def run(self) -> BacktestResult:
+        """
+        Run the backtest using Backtrader engine.
+
+        Returns:
+            BacktestResult with metrics (converted from Backtrader analyzers).
+        """
+        import time
+        from ..infrastructure.backtest.backtrader_adapter import (
+            ApexStrategyWrapper,
+            run_backtest_with_backtrader,
+        )
+
+        # Print configuration
+        self._print_config()
+
+        start_time = time.time()
+
+        # Get strategy class
+        strategy_class = get_strategy_class(self.strategy_name)
+        if strategy_class is None:
+            raise ValueError(
+                f"Unknown strategy: {self.strategy_name}. "
+                f"Available: {list_strategies()}"
+            )
+
+        # Create data feeds
+        data_feeds = self._create_data_feeds()
+
+        # Run backtest
+        results = run_backtest_with_backtrader(
+            apex_strategy_class=strategy_class,
+            data_feeds=data_feeds,
+            initial_cash=self.initial_capital,
+            commission=self.commission,
+            strategy_params=self.strategy_params,
+        )
+
+        run_duration = time.time() - start_time
+
+        # Convert to BacktestResult
+        result = self._convert_result(results, run_duration)
+
+        # Print results
+        result.print_summary()
+
+        return result
+
+    def _create_data_feeds(self) -> List[Any]:
+        """Create Backtrader data feeds."""
+        feeds = []
+
+        for symbol in self.symbols:
+            if self.data_source == "csv":
+                # Look for CSV file
+                csv_path = Path(self.data_dir) / f"{symbol}.csv"
+                if not csv_path.exists():
+                    raise FileNotFoundError(f"CSV file not found: {csv_path}")
+
+                feed = bt.feeds.GenericCSVData(
+                    dataname=str(csv_path),
+                    dtformat="%Y-%m-%d",
+                    fromdate=datetime.combine(self.start_date, datetime.min.time()),
+                    todate=datetime.combine(self.end_date, datetime.max.time()),
+                    datetime=0,
+                    open=1,
+                    high=2,
+                    low=3,
+                    close=4,
+                    volume=5,
+                    openinterest=-1,
+                )
+                feed._name = symbol
+                feeds.append(feed)
+
+            elif self.data_source == "yahoo":
+                # Use Yahoo Finance data feed
+                feed = bt.feeds.YahooFinanceData(
+                    dataname=symbol,
+                    fromdate=datetime.combine(self.start_date, datetime.min.time()),
+                    todate=datetime.combine(self.end_date, datetime.max.time()),
+                )
+                feed._name = symbol
+                feeds.append(feed)
+
+            else:
+                raise ValueError(
+                    f"Unsupported data source for Backtrader: {self.data_source}. "
+                    "Use 'csv' or 'yahoo'."
+                )
+
+        return feeds
+
+    def _convert_result(self, bt_results: Dict[str, Any], run_duration: float) -> BacktestResult:
+        """Convert Backtrader results to BacktestResult."""
+        from ..domain.backtest.backtest_result import (
+            PerformanceMetrics,
+            RiskMetrics,
+            TradeMetrics,
+            CostMetrics,
+        )
+
+        initial = self.initial_capital
+        final = bt_results.get('final_value', initial)
+        total_return = (final - initial) / initial if initial > 0 else 0
+
+        # Calculate trading days
+        trading_days = (self.end_date - self.start_date).days * 252 // 365
+
+        # Performance metrics
+        performance = PerformanceMetrics(
+            total_return=total_return,
+            total_return_pct=total_return * 100,
+            cagr=self._calculate_cagr(initial, final, trading_days),
+            annualized_return=total_return * 252 / max(trading_days, 1),
+        )
+
+        # Risk metrics
+        sharpe = bt_results.get('sharpe_ratio') or 0.0
+        max_dd = bt_results.get('max_drawdown') or 0.0
+
+        risk = RiskMetrics(
+            max_drawdown=max_dd,
+            max_drawdown_duration_days=0,  # Not easily available from Backtrader
+            sharpe_ratio=sharpe,
+        )
+
+        # Trade metrics
+        total_trades = bt_results.get('total_trades', 0)
+        trades = TradeMetrics(total_trades=total_trades)
+
+        # Cost metrics (estimated from commission rate)
+        estimated_commission = total_trades * 2 * 100 * self.commission  # Rough estimate
+        costs = CostMetrics(
+            total_commission=estimated_commission,
+            cost_pct_of_capital=(estimated_commission / initial * 100) if initial > 0 else 0,
+        )
+
+        return BacktestResult(
+            strategy_name=self.strategy_name,
+            strategy_id=f"backtrader-{self.strategy_name}",
+            start_date=self.start_date,
+            end_date=self.end_date,
+            trading_days=trading_days,
+            initial_capital=initial,
+            final_capital=final,
+            symbols=self.symbols,
+            performance=performance,
+            risk=risk,
+            trades=trades,
+            costs=costs,
+            equity_curve=[],  # Backtrader doesn't easily expose this
+            run_duration_seconds=run_duration,
+            engine="backtrader",
+        )
+
+    def _calculate_cagr(self, initial: float, final: float, days: int) -> float:
+        """Calculate Compound Annual Growth Rate."""
+        if initial <= 0 or days <= 0:
+            return 0.0
+        years = days / 252
+        if years <= 0:
+            return 0.0
+        return ((final / initial) ** (1 / years) - 1) * 100
+
+    def _print_config(self) -> None:
+        """Print backtest configuration."""
+        print(f"\n{'=' * 60}")
+        print("BACKTEST CONFIGURATION (Backtrader Engine)")
+        print(f"{'=' * 60}")
+        print(f"Strategy:     {self.strategy_name}")
+        print(f"Symbols:      {', '.join(self.symbols)}")
+        print(f"Period:       {self.start_date} to {self.end_date}")
+        print(f"Capital:      ${self.initial_capital:,.2f}")
+        print(f"Data Source:  {self.data_source}")
+        print(f"Bar Size:     {self.bar_size}")
+        print(f"Commission:   {self.commission * 100:.2f}%")
+        if self.strategy_params:
+            print(f"Parameters:   {self.strategy_params}")
+        print(f"{'=' * 60}\n")
 
 
 def create_parser() -> argparse.ArgumentParser:

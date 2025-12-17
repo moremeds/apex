@@ -535,11 +535,16 @@ class IbExecutionAdapter(IbBaseAdapter, ExecutionProvider):
     # Converters
     # -------------------------------------------------------------------------
 
-    def _trade_to_order_update(self, trade) -> OrderUpdate:
+    def _trade_to_order_update(self, trade) -> Optional[OrderUpdate]:
         """Convert IB trade to OrderUpdate domain event."""
         contract = trade.contract
         order = trade.order
         status = trade.orderStatus
+
+        # Null check for contract
+        if contract is None:
+            logger.warning(f"Trade has no contract: {trade}")
+            return None
 
         # Map IB status to our status
         status_map = {
@@ -565,7 +570,7 @@ class IbExecutionAdapter(IbBaseAdapter, ExecutionProvider):
             limit_price=order.lmtPrice if hasattr(order, 'lmtPrice') else None,
             stop_price=order.auxPrice if hasattr(order, 'auxPrice') else None,
             avg_fill_price=float(status.avgFillPrice) if status.avgFillPrice else None,
-            asset_type=contract.secType,
+            asset_type=getattr(contract, 'secType', None) or "UNKNOWN",
             source="IB",
             timestamp=datetime.now(),
         )
@@ -576,6 +581,11 @@ class IbExecutionAdapter(IbBaseAdapter, ExecutionProvider):
             execution = fill.execution
             contract = fill.contract
 
+            # Null check for contract
+            if contract is None:
+                logger.warning(f"Fill has no contract: {fill}")
+                return None
+
             return TradeFill(
                 symbol=contract.symbol,
                 underlying=contract.symbol,
@@ -585,7 +595,7 @@ class IbExecutionAdapter(IbBaseAdapter, ExecutionProvider):
                 commission=float(fill.commissionReport.commission) if fill.commissionReport else 0.0,
                 exec_id=execution.execId,
                 order_id=str(execution.orderId),
-                asset_type=contract.secType,
+                asset_type=getattr(contract, 'secType', None) or "UNKNOWN",
                 multiplier=int(contract.multiplier) if contract.multiplier else 1,
                 source="IB",
                 timestamp=datetime.now(),

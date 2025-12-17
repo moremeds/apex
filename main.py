@@ -54,10 +54,20 @@ def parse_args() -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python main.py --env dev              # Run in development mode
-  python main.py --env prod             # Run in production mode
-  python main.py --config custom.yaml   # Use custom config file
+  python main.py --env dev              # Run in development mode (monitor)
+  python main.py --mode monitor         # Explicit monitor mode
+  python main.py --mode backtest --spec config/backtest/ma_cross.yaml
+  python main.py --mode backtest --engine backtrader --strategy ma_cross
         """
+    )
+
+    # Mode selection
+    parser.add_argument(
+        "--mode",
+        type=str,
+        default="monitor",
+        choices=["monitor", "backtest", "trading"],
+        help="Operational mode: monitor (default), backtest, or trading"
     )
 
     parser.add_argument(
@@ -99,6 +109,55 @@ Examples:
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="Set log level (default: INFO, ignored if --verbose is set)"
+    )
+
+    # Backtest mode options
+    backtest_group = parser.add_argument_group("Backtest Mode")
+    backtest_group.add_argument(
+        "--engine",
+        type=str,
+        default="apex",
+        choices=["apex", "backtrader"],
+        help="Backtest engine: apex (default) or backtrader"
+    )
+    backtest_group.add_argument(
+        "--spec",
+        type=str,
+        help="Path to backtest spec YAML file (e.g., config/backtest/ma_cross.yaml)"
+    )
+    backtest_group.add_argument(
+        "--strategy",
+        type=str,
+        help="Strategy name (if not using --spec)"
+    )
+    backtest_group.add_argument(
+        "--symbols",
+        type=str,
+        help="Comma-separated symbols (if not using --spec)"
+    )
+    backtest_group.add_argument(
+        "--start",
+        type=str,
+        help="Start date YYYY-MM-DD (if not using --spec)"
+    )
+    backtest_group.add_argument(
+        "--end",
+        type=str,
+        help="End date YYYY-MM-DD (if not using --spec)"
+    )
+    backtest_group.add_argument(
+        "--capital",
+        type=float,
+        default=100000.0,
+        help="Initial capital (default: 100000)"
+    )
+
+    # Trading mode options
+    trading_group = parser.add_argument_group("Trading Mode")
+    trading_group.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Paper trading mode (log orders but don't execute)"
     )
 
     return parser.parse_args()
@@ -473,12 +532,114 @@ async def main_async(args: argparse.Namespace) -> None:
         flush_all_loggers()
 
 
+async def run_backtest(args: argparse.Namespace) -> int:
+    """
+    Run backtest mode.
+
+    Args:
+        args: Parsed CLI arguments.
+
+    Returns:
+        Exit code (0 for success/profitable, 1 for failure/unprofitable).
+    """
+    from src.runners.backtest_runner import BacktestRunner, BacktraderRunner, BACKTRADER_AVAILABLE
+    from src.domain.strategy.registry import list_strategies
+
+    # Configure logging
+    import logging
+    level = logging.DEBUG if args.verbose else logging.INFO
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+
+    # Validate required args (if not using spec file)
+    if not args.spec:
+        if not args.strategy:
+            print("Error: --strategy or --spec required for backtest mode")
+            print(f"Available strategies: {list_strategies()}")
+            return 1
+        if not args.symbols:
+            print("Error: --symbols required for backtest mode")
+            return 1
+        if not args.start or not args.end:
+            print("Error: --start and --end required for backtest mode")
+            return 1
+
+    try:
+        # Handle engine selection
+        if args.engine == "backtrader":
+            if not BACKTRADER_AVAILABLE:
+                print("Error: backtrader not installed. Run: pip install backtrader")
+                print("Falling back to apex engine.")
+                runner = BacktestRunner.from_args(args)
+            else:
+                print("Using Backtrader engine")
+                runner = BacktraderRunner.from_args(args)
+        else:
+            # Default: apex engine
+            runner = BacktestRunner.from_args(args)
+
+        result = await runner.run()
+        return 0 if result.is_profitable else 1
+    except Exception as e:
+        print(f"Backtest failed: {e}")
+        if args.verbose:
+            import traceback
+            traceback.print_exc()
+        return 1
+
+
+async def run_trading(args: argparse.Namespace) -> int:
+    """
+    Run trading mode.
+
+    Args:
+        args: Parsed CLI arguments.
+
+    Returns:
+        Exit code.
+    """
+    print("Trading mode not yet implemented.")
+    print("Use --mode monitor for risk monitoring or --mode backtest for backtesting.")
+    return 1
+
+
+def create_runner(mode: str):
+    """
+    Factory function to create the appropriate runner for the given mode.
+
+    Args:
+        mode: Operational mode (monitor, backtest, trading).
+
+    Returns:
+        Async function to run the mode.
+    """
+    runners = {
+        "monitor": main_async,
+        "backtest": run_backtest,
+        "trading": run_trading,
+    }
+    return runners.get(mode, main_async)
+
+
 def main() -> None:
     """Main entry point."""
     args = parse_args()
 
+    # Get the appropriate runner for the mode
+    runner = create_runner(args.mode)
+
     try:
-        asyncio.run(main_async(args))
+        if args.mode == "backtest":
+            exit_code = asyncio.run(runner(args))
+            sys.exit(exit_code)
+        elif args.mode == "trading":
+            exit_code = asyncio.run(runner(args))
+            sys.exit(exit_code)
+        else:
+            # Default: monitor mode
+            asyncio.run(runner(args))
     except KeyboardInterrupt:
         print("Shutdown requested")
         sys.exit(0)

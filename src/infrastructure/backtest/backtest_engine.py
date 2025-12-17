@@ -340,26 +340,38 @@ class BacktestEngine:
 
     def _generate_result(self, run_duration: float) -> BacktestResult:
         """Generate backtest result with metrics."""
+        from datetime import date
+
         final_equity = self._calculate_equity()
         initial = self._config.initial_capital
 
         total_return = (final_equity - initial) / initial if initial > 0 else 0
 
-        # Calculate max drawdown
+        # Calculate max drawdown with proper calendar day duration
         peak = initial
         max_drawdown = 0.0
-        max_drawdown_duration = 0
-        current_drawdown_start = 0
+        max_drawdown_duration_days = 0
+        peak_date = None
+        max_drawdown_peak_date = None
+        max_drawdown_trough_date = None
 
-        for i, point in enumerate(self._equity_curve):
+        for point in self._equity_curve:
             equity = point["equity"]
+            point_date = date.fromisoformat(point["date"])
+
             if equity > peak:
                 peak = equity
-                current_drawdown_start = i
+                peak_date = point_date
+
             drawdown = (peak - equity) / peak if peak > 0 else 0
             if drawdown > max_drawdown:
                 max_drawdown = drawdown
-                max_drawdown_duration = i - current_drawdown_start
+                max_drawdown_peak_date = peak_date
+                max_drawdown_trough_date = point_date
+
+        # Calculate actual calendar days in max drawdown
+        if max_drawdown_peak_date and max_drawdown_trough_date:
+            max_drawdown_duration_days = (max_drawdown_trough_date - max_drawdown_peak_date).days
 
         # Count trading days
         trading_days = len(set(p["date"] for p in self._equity_curve))
@@ -375,7 +387,7 @@ class BacktestEngine:
         # Risk metrics
         risk = RiskMetrics(
             max_drawdown=max_drawdown * 100,
-            max_drawdown_duration_days=max_drawdown_duration,
+            max_drawdown_duration_days=max_drawdown_duration_days,
             sharpe_ratio=self._calculate_sharpe(),
         )
 
@@ -422,33 +434,46 @@ class BacktestEngine:
         return ((final / initial) ** (1 / years) - 1) * 100
 
     def _calculate_sharpe(self, risk_free_rate: float = 0.0) -> float:
-        """Calculate Sharpe ratio from equity curve."""
+        """
+        Calculate Sharpe ratio from equity curve.
+
+        For intraday bars, aggregates to daily returns first to ensure
+        correct annualization (252 trading days).
+        """
         if len(self._equity_curve) < 2:
             return 0.0
 
-        # Calculate daily returns
-        returns = []
-        for i in range(1, len(self._equity_curve)):
-            prev_eq = self._equity_curve[i - 1]["equity"]
-            curr_eq = self._equity_curve[i]["equity"]
-            if prev_eq > 0:
-                returns.append((curr_eq - prev_eq) / prev_eq)
-
-        if not returns:
-            return 0.0
-
         import statistics
+        from collections import defaultdict
 
-        mean_return = statistics.mean(returns)
-        if len(returns) > 1:
-            std_return = statistics.stdev(returns)
-        else:
+        # Aggregate equity by day (take last equity of each day)
+        daily_equity: dict[str, float] = {}
+        for point in self._equity_curve:
+            day = point["date"]
+            daily_equity[day] = point["equity"]  # Last value for each day wins
+
+        # Sort by date and calculate daily returns
+        sorted_days = sorted(daily_equity.keys())
+        if len(sorted_days) < 2:
             return 0.0
+
+        daily_returns = []
+        for i in range(1, len(sorted_days)):
+            prev_eq = daily_equity[sorted_days[i - 1]]
+            curr_eq = daily_equity[sorted_days[i]]
+            if prev_eq > 0:
+                daily_returns.append((curr_eq - prev_eq) / prev_eq)
+
+        if not daily_returns or len(daily_returns) < 2:
+            return 0.0
+
+        mean_return = statistics.mean(daily_returns)
+        std_return = statistics.stdev(daily_returns)
 
         if std_return == 0:
             return 0.0
 
-        # Annualize
+        # Annualize using 252 trading days
         daily_rf = risk_free_rate / 252
         sharpe = (mean_return - daily_rf) / std_return * (252 ** 0.5)
         return sharpe

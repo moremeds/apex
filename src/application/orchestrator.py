@@ -146,6 +146,7 @@ class Orchestrator:
         self._latest_snapshot: RiskSnapshot | None = None
         self._latest_market_alerts: list[dict[str, Any]] = []
         self._latest_risk_signals: List[RiskSignal] = []
+        self._last_reconciliation_issue_count: int = 0  # Track to log only on change
 
         # Event to signal when new snapshot is ready (for dashboard sync)
         self._snapshot_ready: asyncio.Event = asyncio.Event()
@@ -393,8 +394,15 @@ class Orchestrator:
         issues = self.reconciler.reconcile(
             ib_positions, manual_positions, cached_positions, futu_positions
         )
+        issue_count = len(issues) if issues else 0
+        # Only log on state change to avoid warning storm
+        if issue_count != self._last_reconciliation_issue_count:
+            if issue_count > 0:
+                logger.warning(f"Reconciliation issues changed: {self._last_reconciliation_issue_count} -> {issue_count}")
+            elif self._last_reconciliation_issue_count > 0:
+                logger.info(f"Reconciliation issues resolved (was {self._last_reconciliation_issue_count})")
+            self._last_reconciliation_issue_count = issue_count
         if issues:
-            logger.warning(f"Found {len(issues)} reconciliation issues")
             for issue in issues:
                 self.event_bus.publish(EventType.RECONCILIATION_ISSUE, issue)
 
@@ -861,7 +869,7 @@ class Orchestrator:
                             level = 2 if signal.severity.value == "CRITICAL" else (
                                 1 if signal.severity.value == "WARNING" else 0
                             )
-                            self._risk_metrics.record_breach(signal.signal_type.value, level)
+                            self._risk_metrics.record_breach(signal.trigger_rule, level)
 
                 # Log alerts to audit trail
                 if self.risk_alert_logger:

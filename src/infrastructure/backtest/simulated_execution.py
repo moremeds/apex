@@ -67,6 +67,7 @@ class SimulatedPosition:
     quantity: float = 0.0
     avg_price: float = 0.0
     realized_pnl: float = 0.0
+    multiplier: int = 1  # Contract multiplier (100 for options, 1 for stocks)
 
 
 class SimulatedExecution:
@@ -340,11 +341,16 @@ class SimulatedExecution:
     def _update_position(self, fill: TradeFill) -> None:
         """Update position from fill."""
         symbol = fill.symbol
+        multiplier = getattr(fill, 'multiplier', 1) or 1
 
         if symbol not in self._positions:
-            self._positions[symbol] = SimulatedPosition(symbol=symbol)
+            self._positions[symbol] = SimulatedPosition(symbol=symbol, multiplier=multiplier)
 
         pos = self._positions[symbol]
+        # Update multiplier if not set (first trade for this symbol)
+        if pos.multiplier == 1 and multiplier > 1:
+            pos.multiplier = multiplier
+
         qty_delta = fill.quantity if fill.side == "BUY" else -fill.quantity
 
         if pos.quantity == 0:
@@ -359,10 +365,10 @@ class SimulatedExecution:
             pos.quantity += qty_delta
             pos.avg_price = total_cost / pos.quantity if pos.quantity != 0 else 0
         else:
-            # Reducing or closing position
+            # Reducing or closing position - P&L includes multiplier
             if abs(qty_delta) >= abs(pos.quantity):
                 # Closing or reversing
-                pnl = pos.quantity * (fill.price - pos.avg_price)
+                pnl = pos.quantity * (fill.price - pos.avg_price) * pos.multiplier
                 pos.realized_pnl += pnl
                 remaining = qty_delta + pos.quantity
                 if abs(remaining) > 0.0001:
@@ -372,8 +378,8 @@ class SimulatedExecution:
                     pos.quantity = 0
                     pos.avg_price = 0
             else:
-                # Partial close
-                pnl = (-qty_delta) * (fill.price - pos.avg_price)
+                # Partial close - P&L includes multiplier
+                pnl = (-qty_delta) * (fill.price - pos.avg_price) * pos.multiplier
                 pos.realized_pnl += pnl
                 pos.quantity += qty_delta
 
@@ -382,17 +388,17 @@ class SimulatedExecution:
         return sum(pos.realized_pnl for pos in self._positions.values())
 
     def get_position_value(self, symbol: str) -> float:
-        """Get current market value of a position."""
+        """Get current market value of a position (includes multiplier for options/futures)."""
         pos = self._positions.get(symbol)
         if not pos or pos.quantity == 0:
             return 0.0
 
         tick = self._latest_prices.get(symbol)
         if not tick:
-            return pos.quantity * pos.avg_price
+            return pos.quantity * pos.avg_price * pos.multiplier
 
         price = tick.mid or tick.last or pos.avg_price
-        return pos.quantity * price
+        return pos.quantity * price * pos.multiplier
 
     def get_total_position_value(self) -> float:
         """Get total market value of all positions."""
