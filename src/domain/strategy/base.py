@@ -60,6 +60,8 @@ from ..interfaces.execution_provider import OrderRequest
 if TYPE_CHECKING:
     from ..clock import Clock
     from .scheduler import Scheduler
+    from .cost_estimator import CostEstimator
+    from .risk_gate import RiskGate
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +119,8 @@ class StrategyContext:
     - account: Account balances and margin
     - execution: Order submission (optional)
     - market_data: Latest quotes (optional)
+    - cost_estimator: Pre-trade cost estimation (optional)
+    - risk_gate: Pre-trade risk validation (optional)
 
     The context is injected by the runner and provides a consistent
     interface regardless of whether the strategy is running live or
@@ -129,6 +133,8 @@ class StrategyContext:
     account: Optional[AccountSnapshot] = None
     execution: Optional[Any] = None  # ExecutionProvider
     market_data: Dict[str, QuoteTick] = field(default_factory=dict)
+    cost_estimator: Optional["CostEstimator"] = None
+    risk_gate: Optional["RiskGate"] = None
 
     def now(self) -> datetime:
         """Get current time (live or simulated)."""

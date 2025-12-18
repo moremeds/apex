@@ -405,6 +405,7 @@ class BacktraderRunner:
         self.bar_size = bar_size
         self.strategy_params = strategy_params or {}
         self.commission = commission
+        self._spec: Optional[BacktestSpec] = None
 
     @classmethod
     def from_args(cls, args: argparse.Namespace) -> "BacktraderRunner":
@@ -424,7 +425,7 @@ class BacktraderRunner:
             if errors:
                 raise ValueError(f"Invalid spec: {errors}")
 
-            return cls(
+            runner = cls(
                 strategy_name=spec.strategy.name,
                 symbols=spec.get_symbols(),
                 start_date=spec.data.start_date or date(2024, 1, 1),
@@ -435,6 +436,8 @@ class BacktraderRunner:
                 bar_size=spec.data.bar_size,
                 strategy_params=spec.strategy.params,
             )
+            runner._spec = spec
+            return runner
 
         # Parse dates
         start_date = datetime.strptime(args.start, "%Y-%m-%d").date()
@@ -482,9 +485,25 @@ class BacktraderRunner:
             ApexStrategyWrapper,
             run_backtest_with_backtrader,
         )
+        from ..domain.reality import RealityModelPack, get_preset_pack
 
         # Print configuration
         self._print_config()
+
+        # Resolve reality pack
+        reality_pack = None
+        if self._spec:
+            if self._spec.reality_model:
+                try:
+                    reality_pack = RealityModelPack.from_config(self._spec.reality_model)
+                except Exception as e:
+                    logger.error(f"Failed to load reality_model from spec: {e}")
+            
+            if reality_pack is None and hasattr(self._spec.execution, 'reality_pack') and self._spec.execution.reality_pack:
+                try:
+                    reality_pack = get_preset_pack(self._spec.execution.reality_pack)
+                except Exception as e:
+                    logger.error(f"Failed to load reality_pack preset {self._spec.execution.reality_pack}: {e}")
 
         start_time = time.time()
 
@@ -506,6 +525,7 @@ class BacktraderRunner:
             initial_cash=self.initial_capital,
             commission=self.commission,
             strategy_params=self.strategy_params,
+            reality_pack=reality_pack,
         )
 
         run_duration = time.time() - start_time

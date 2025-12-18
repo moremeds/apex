@@ -36,6 +36,7 @@ from ..domain.strategy.base import Strategy, StrategyContext
 from ..domain.strategy.scheduler import LiveScheduler
 from ..domain.strategy.registry import get_strategy_class, list_strategies
 from ..domain.strategy.risk_gate import RiskGate, ValidationResult
+from ..domain.strategy.cost_estimator import create_ib_cost_estimator, create_futu_cost_estimator, create_zero_cost_estimator
 from ..domain.events.domain_events import QuoteTick, TradeFill
 from ..domain.interfaces.execution_provider import OrderRequest
 
@@ -205,12 +206,25 @@ class TradingRunner:
         # Create scheduler
         self._scheduler = LiveScheduler(self._clock)
 
+        # Create cost estimator based on broker
+        if self.broker == "ib":
+            cost_estimator = create_ib_cost_estimator()
+        elif self.broker == "futu":
+            cost_estimator = create_futu_cost_estimator()
+        else:
+            cost_estimator = create_zero_cost_estimator()
+
+        # Create risk gate
+        self._risk_gate = RiskGate(config=self.risk_config)
+
         # Create context
         self._context = StrategyContext(
             clock=self._clock,
             scheduler=self._scheduler,
             positions={},
             account=None,
+            cost_estimator=cost_estimator,
+            risk_gate=self._risk_gate,
         )
 
         # Create strategy
@@ -231,21 +245,32 @@ class TradingRunner:
 
     async def _run_loop(self) -> None:
         """Main trading loop."""
+        logger.info("Main trading loop started")
         while self._running:
-            # In a real implementation, this would:
-            # 1. Receive market data from broker adapter
-            # 2. Feed data to strategy
-            # 3. Process fills and position updates
+            try:
+                # 1. Receive market data from broker adapter
+                # TODO: Implement actual market data reception and delivery to strategy
+                
+                # 2. Monitor strategy health
+                if self._strategy.state.value == "error":
+                    logger.error(f"Strategy entered error state: {self._strategy._error_message}")
+                    self._running = False
+                    break
 
-            # For now, just wait and check for shutdown
-            await asyncio.sleep(1.0)
+                # For now, just wait and check for shutdown
+                await asyncio.sleep(1.0)
 
-            # Log heartbeat every 60 seconds
-            if int(self._clock.now().timestamp()) % 60 == 0:
-                logger.debug(
-                    f"Trading heartbeat: orders={self._order_count}, "
-                    f"rejected={self._rejected_count}"
-                )
+                # Log heartbeat every 60 seconds
+                if int(self._clock.now().timestamp()) % 60 == 0:
+                    logger.info(
+                        f"Trading heartbeat: orders={self._order_count}, "
+                        f"rejected={self._rejected_count}, state={self._strategy.state.value}"
+                    )
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Error in trading loop: {e}")
+                await asyncio.sleep(5.0)  # Cool down on error
 
     def _handle_order(self, order: OrderRequest) -> None:
         """Handle order from strategy."""

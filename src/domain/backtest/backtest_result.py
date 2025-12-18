@@ -126,7 +126,8 @@ class CostMetrics:
 
     total_commission: float = 0.0  # Sum of all commissions
     total_slippage: float = 0.0  # Estimated slippage impact
-    total_costs: float = 0.0  # commission + slippage
+    total_admin_fees: float = 0.0  # Management, margin, borrow fees
+    total_costs: float = 0.0  # commission + slippage + admin_fees
     cost_pct_of_capital: float = 0.0  # total_costs / initial_capital (%)
     cost_pct_of_gross_profit: float = 0.0  # total_costs / gross_profit (%)
     avg_commission_per_trade: float = 0.0
@@ -137,6 +138,7 @@ class CostMetrics:
         return {
             "total_commission": self.total_commission,
             "total_slippage": self.total_slippage,
+            "total_admin_fees": self.total_admin_fees,
             "total_costs": self.total_costs,
             "cost_pct_of_capital": self.cost_pct_of_capital,
             "cost_pct_of_gross_profit": self.cost_pct_of_gross_profit,
@@ -357,6 +359,7 @@ class BacktestResult:
                     "--- COSTS ---",
                     f"Total Commission: ${self.costs.total_commission:,.2f}",
                     f"Total Slippage:   ${self.costs.total_slippage:,.2f}",
+                    f"Total Admin Fees: ${self.costs.total_admin_fees:,.2f}",
                     f"Cost % of Capital:{self.costs.cost_pct_of_capital:.2f}%",
                     "",
                 ]
