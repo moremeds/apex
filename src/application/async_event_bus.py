@@ -83,6 +83,7 @@ class AsyncEventBus(EventBus):
         Publish an event (non-blocking, thread-safe).
 
         Can be called from any thread (e.g., adapter callbacks).
+        Uses call_soon_threadsafe when called from non-loop threads.
 
         Args:
             event_type: Type of event
@@ -97,36 +98,62 @@ class AsyncEventBus(EventBus):
         with self._lock:
             self._stats["published"] += 1
 
-            # If running async, put in queue
-            if self._running and self._queue is not None:
-                try:
-                    # Use put_nowait for non-blocking
-                    self._queue.put_nowait(envelope)
+        # If not running async, dispatch synchronously
+        if not self._running or self._queue is None:
+            self._dispatch_sync(envelope)
+            return
 
-                    # Track queue depth metrics
-                    current_depth = self._queue.qsize()
-                    if current_depth > self._stats["high_water_mark"]:
-                        self._stats["high_water_mark"] = current_depth
+        # Determine if we're on the event loop thread
+        try:
+            running_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            running_loop = None
 
-                    # Warn at 80% capacity (once per threshold crossing)
-                    if current_depth >= self._queue_warning_threshold:
-                        if not self._queue_warning_logged:
-                            logger.warning(
-                                f"Event queue at {current_depth}/{self._max_queue_size} "
-                                f"({100 * current_depth // self._max_queue_size}%) - "
-                                "consider increasing queue size or reducing event rate"
-                            )
-                            self._queue_warning_logged = True
-                    else:
-                        # Reset warning flag when queue drops below threshold
-                        self._queue_warning_logged = False
-
-                except asyncio.QueueFull:
-                    self._stats["dropped"] += 1
-                    logger.warning(f"Event queue full, dropping {event_type.value}")
+        # If on the same loop, use put_nowait directly
+        if running_loop is self._loop:
+            self._enqueue_direct(envelope)
+        else:
+            # Cross-thread: use call_soon_threadsafe for thread safety
+            if self._loop is not None:
+                self._loop.call_soon_threadsafe(self._enqueue_direct, envelope)
             else:
-                # Sync fallback: dispatch immediately (like SimpleEventBus)
+                # Fallback if loop not available
                 self._dispatch_sync(envelope)
+
+    def _enqueue_direct(self, envelope: EventEnvelope) -> None:
+        """
+        Enqueue event directly (must be called from loop thread).
+
+        This method is called either directly from the loop thread,
+        or via call_soon_threadsafe from other threads.
+        """
+        try:
+            # Use put_nowait for non-blocking
+            self._queue.put_nowait(envelope)
+
+            # Track queue depth metrics
+            current_depth = self._queue.qsize()
+            with self._lock:
+                if current_depth > self._stats["high_water_mark"]:
+                    self._stats["high_water_mark"] = current_depth
+
+            # Warn at 80% capacity (once per threshold crossing)
+            if current_depth >= self._queue_warning_threshold:
+                if not self._queue_warning_logged:
+                    logger.warning(
+                        f"Event queue at {current_depth}/{self._max_queue_size} "
+                        f"({100 * current_depth // self._max_queue_size}%) - "
+                        "consider increasing queue size or reducing event rate"
+                    )
+                    self._queue_warning_logged = True
+            else:
+                # Reset warning flag when queue drops below threshold
+                self._queue_warning_logged = False
+
+        except asyncio.QueueFull:
+            with self._lock:
+                self._stats["dropped"] += 1
+            logger.warning(f"Event queue full, dropping {envelope.event_type.value}")
 
     def _dispatch_sync(self, envelope: EventEnvelope) -> None:
         """Synchronous dispatch for non-async mode."""
@@ -178,7 +205,8 @@ class AsyncEventBus(EventBus):
             logger.warning("AsyncEventBus already running")
             return
 
-        self._loop = asyncio.get_event_loop()
+        # Use get_running_loop() for Python 3.10+ compatibility
+        self._loop = asyncio.get_running_loop()
         self._queue = asyncio.Queue(maxsize=self._max_queue_size)
         self._running = True
         self._task = asyncio.create_task(self._dispatch_loop())

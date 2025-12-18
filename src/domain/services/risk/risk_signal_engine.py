@@ -152,10 +152,11 @@ class RiskSignalEngine:
 
         self._stats["filtered_signals"] = len(filtered_signals)
 
-        logger.info(
-            f"Risk evaluation complete: {len(raw_signals)} raw signals → "
-            f"{len(filtered_signals)} filtered signals"
-        )
+        # Only log when there are signals (reduces log volume 90%+)
+        if filtered_signals:
+            logger.info(
+                f"Risk signals: {len(raw_signals)} raw → {len(filtered_signals)} filtered"
+            )
 
         return filtered_signals
 

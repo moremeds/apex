@@ -79,10 +79,15 @@ class Reconciler:
             cached_pos = cached_map.get(key)
             futu_pos = futu_map.get(key)
 
-            # Detect MISSING: position in only one broker source (IB xor Futu)
+            # Detect MISSING: position exists in one broker but not another
+            # Only applies in multi-broker mode (both IB and Futu have positions)
             # Note: manual-only positions are intentional overrides, not issues
-            broker_sources = sum([ib_pos is not None, futu_pos is not None])
-            if broker_sources == 1 and not manual_pos:
+            has_ib = ib_pos is not None
+            has_futu = futu_pos is not None
+            is_multi_broker = bool(ib_positions) and bool(futu_positions or [])
+
+            # Only flag MISSING when multi-broker AND position is in exactly one broker
+            if is_multi_broker and (has_ib != has_futu) and not manual_pos:
                 issue = ReconciliationIssue(
                     issue_type=IssueType.MISSING,
                     symbol=key[0],

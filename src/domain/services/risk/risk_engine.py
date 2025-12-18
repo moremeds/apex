@@ -36,9 +36,9 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-# Constants for near-term Greeks concentration thresholds
-NEAR_TERM_GAMMA_DTE = 7  # Days to expiry threshold for near-term gamma
-NEAR_TERM_VEGA_DTE = 30  # Days to expiry threshold for near-term vega
+# Defaults for near-term Greeks concentration thresholds (overridable via config)
+DEFAULT_NEAR_TERM_GAMMA_DTE = 7  # Days to expiry threshold for near-term gamma
+DEFAULT_NEAR_TERM_VEGA_DTE = 30  # Days to expiry threshold for near-term vega
 GAMMA_NOTIONAL_FACTOR = 0.01  # Multiplier for gamma notional calculation
 
 
@@ -100,6 +100,15 @@ class RiskEngine:
         self._yahoo_adapter = yahoo_adapter
         self._risk_metrics = risk_metrics
 
+        # Extract near-term DTE thresholds from config (with defaults)
+        risk_engine_cfg = config.get("risk_engine", {})
+        self.near_term_gamma_dte = risk_engine_cfg.get("near_term_gamma_dte", DEFAULT_NEAR_TERM_GAMMA_DTE)
+        self.near_term_vega_dte = risk_engine_cfg.get("near_term_vega_dte", DEFAULT_NEAR_TERM_VEGA_DTE)
+
+        # Persistent executor for parallel position metrics calculation
+        # Created once and reused across snapshots (not per-call)
+        self._executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="risk_")
+
         # Event-driven state tracking
         self._lock = Lock()
         self._needs_rebuild = False
@@ -156,13 +165,16 @@ class RiskEngine:
             unique_underlyings = list(set(pos.underlying for pos in positions))
             beta_cache = self._yahoo_adapter.get_betas(unique_underlyings)
 
+        # Cache market status once per snapshot (avoid repeated calls per-position)
+        market_status = MarketHours.get_market_status()
+
         # Choose processing strategy based on portfolio size
         if len(positions) < self.parallel_threshold:
             # Sequential processing for small portfolios (lower overhead)
-            metrics_list = [self._calculate_position_metrics(pos, market_data) for pos in positions]
+            metrics_list = [self._calculate_position_metrics(pos, market_data, market_status) for pos in positions]
         else:
             # Parallel processing for large portfolios
-            metrics_list = self._calculate_metrics_parallel(positions, market_data)
+            metrics_list = self._calculate_metrics_parallel(positions, market_data, market_status)
 
         # Create PositionRisk objects for each position (single source of truth)
         position_risks = []
@@ -186,7 +198,7 @@ class RiskEngine:
         return snapshot
 
     def _calculate_position_metrics(
-        self, pos: Position, market_data: Dict[str, MarketData]
+        self, pos: Position, market_data: Dict[str, MarketData], market_status: str
     ) -> PositionMetrics | None:
         """
         Calculate metrics for a single position.
@@ -270,26 +282,25 @@ class RiskEngine:
         notional = mark * pos.quantity * pos.multiplier
 
         # Aggregate Greeks (use IBKR only, but still calculate P&L even if Greeks missing)
-        # When md is None (using fallback), we have no Greeks data
+        qty_mult = pos.quantity * pos.multiplier
         if md is not None and md.has_greeks():
-            delta_contribution = (md.delta or 0.0) * pos.quantity * pos.multiplier
-            gamma_contribution = (md.gamma or 0.0) * pos.quantity * pos.multiplier
-            vega_contribution = (md.vega or 0.0) * pos.quantity * pos.multiplier
-            theta_contribution = (md.theta or 0.0) * pos.quantity * pos.multiplier
+            delta_contribution = (md.delta or 0.0) * qty_mult
+            gamma_contribution = (md.gamma or 0.0) * qty_mult
+            vega_contribution = (md.vega or 0.0) * qty_mult
+            theta_contribution = (md.theta or 0.0) * qty_mult
+        elif pos.asset_type.value == "STOCK":
+            # Stocks without Greeks: delta = 1.0
+            delta_contribution = qty_mult
+            gamma_contribution = 0.0
+            vega_contribution = 0.0
+            theta_contribution = 0.0
         else:
-            # For stocks without Greeks, delta = 1.0
-            if pos.asset_type.value == "STOCK":
-                delta_contribution = 1.0 * pos.quantity * pos.multiplier
-                gamma_contribution = 0.0
-                vega_contribution = 0.0
-                theta_contribution = 0.0
-            else:
-                # Options can trade without Greeks during off-hours; keep P&L but flag missing Greeks
-                delta_contribution = 0.0
-                gamma_contribution = 0.0
-                vega_contribution = 0.0
-                theta_contribution = 0.0
-                has_missing_greeks = True
+            # Options without Greeks during off-hours: flag missing
+            delta_contribution = 0.0
+            gamma_contribution = 0.0
+            vega_contribution = 0.0
+            theta_contribution = 0.0
+            has_missing_greeks = True
 
         # Near-term Greeks concentration
         dte = pos.days_to_expiry()
@@ -297,40 +308,25 @@ class RiskEngine:
         vega_notional_near_term = 0.0
 
         if dte is not None and md is not None:
-            if dte <= NEAR_TERM_GAMMA_DTE:
+            if dte <= self.near_term_gamma_dte:
                 # Gamma notional = gamma * mark^2 * factor * qty * mult
                 gamma_notional_near_term = abs((md.gamma or 0.0) * (mark ** 2) * GAMMA_NOTIONAL_FACTOR * pos.quantity * pos.multiplier)
-            if dte <= NEAR_TERM_VEGA_DTE:
+            if dte <= self.near_term_vega_dte:
                 vega_notional_near_term = abs((md.vega or 0.0) * pos.quantity * pos.multiplier)
 
         # P&L calculation with market hours logic
-        # Market status determines which price to use for unrealized P&L
-        market_status = MarketHours.get_market_status()
-
-        # Get yesterday's close (may be None if using fallback)
         yesterday_close = md.yesterday_close if md is not None else None
+        is_stock = pos.asset_type.value == "STOCK"
 
-        # Determine price to use for unrealized P&L
-        if market_status == "OPEN":
-            # Regular hours: use current mark
-            pnl_price = mark
-        elif market_status == "EXTENDED":
-            # Extended hours: stocks use current price, options use yesterday close
-            if pos.asset_type.value == "STOCK":
-                pnl_price = mark  # Stocks trade in extended hours
-            else:
-                pnl_price = yesterday_close if yesterday_close is not None else mark  # Options don't trade extended hours
-        else:
-            # Market closed: use yesterday close for all assets
-            pnl_price = yesterday_close if yesterday_close is not None else mark
+        # Use current mark when market is open, or extended hours for stocks
+        # Otherwise use yesterday's close (options don't trade extended hours)
+        use_live_price = market_status == "OPEN" or (market_status == "EXTENDED" and is_stock)
+        pnl_price = mark if use_live_price else (yesterday_close or mark)
 
-        unrealized = (pnl_price - pos.avg_price) * pos.quantity * pos.multiplier
+        unrealized = (pnl_price - pos.avg_price) * qty_mult
 
-        # Daily P&L: always calculate change from yesterday's close (regardless of market hours)
-        # This represents the position's gain/loss since the previous trading day's close
-        daily_pnl = 0.0
-        if yesterday_close and yesterday_close > 0:
-            daily_pnl = (mark - yesterday_close) * pos.quantity * pos.multiplier
+        # Daily P&L: change from yesterday's close
+        daily_pnl = (mark - yesterday_close) * qty_mult if yesterday_close and yesterday_close > 0 else 0.0
 
         return PositionMetrics(
             symbol=pos.symbol,
@@ -346,43 +342,43 @@ class RiskEngine:
             days_to_expiry=dte,
             gamma_notional_near_term=gamma_notional_near_term,
             vega_notional_near_term=vega_notional_near_term,
-            has_missing_md=False,
+            has_missing_md=has_missing_md,
             has_missing_greeks=has_missing_greeks,
         )
 
     def _calculate_metrics_parallel(
-        self, positions: List[Position], market_data: Dict[str, MarketData]
+        self, positions: List[Position], market_data: Dict[str, MarketData], market_status: str
     ) -> List[PositionMetrics | None]:
         """
-        Calculate position metrics in parallel using ThreadPoolExecutor.
+        Calculate position metrics in parallel using persistent ThreadPoolExecutor.
 
         Args:
             positions: List of positions to calculate.
             market_data: Market data dictionary.
+            market_status: Market status string (cached once per snapshot).
 
         Returns:
             List of PositionMetrics.
         """
         metrics_list: List[PositionMetrics | None] = [None] * len(positions)
 
-        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            # Submit all tasks and track original position index to preserve order
-            future_to_idx = {
-                executor.submit(self._calculate_position_metrics, pos, market_data): idx
-                for idx, pos in enumerate(positions)
-            }
+        # Use persistent executor (created in __init__, not per-call)
+        # Submit all tasks and track original position index to preserve order
+        future_to_idx = {
+            self._executor.submit(self._calculate_position_metrics, pos, market_data, market_status): idx
+            for idx, pos in enumerate(positions)
+        }
 
-            # Collect results as they complete
-            for future in as_completed(future_to_idx):
-                idx = future_to_idx[future]
-                try:
-                    metrics = future.result()
-                    metrics_list[idx] = metrics
-                except Exception as e:
-                    pos = positions[idx]
-                    # Log error and leave placeholder None so downstream logic can skip
-                    logger.error(f"Error calculating metrics for {pos.symbol}: {e}")
-                    metrics_list[idx] = None
+        # Collect results as they complete
+        for future in as_completed(future_to_idx):
+            idx = future_to_idx[future]
+            try:
+                metrics = future.result()
+                metrics_list[idx] = metrics
+            except Exception as e:
+                pos = positions[idx]
+                logger.error(f"Error calculating metrics for {pos.symbol}: {e}")
+                metrics_list[idx] = None
 
         return metrics_list
 
@@ -427,7 +423,7 @@ class RiskEngine:
 
             iv = md.iv
             has_greeks = md.has_greeks()
-            is_stale = md.is_stale() if hasattr(md, 'is_stale') else False
+            is_stale = md.is_stale()
 
         # Calculate delta dollars (delta * underlying_price * quantity * multiplier)
         delta_dollars = 0.0
@@ -694,3 +690,9 @@ class RiskEngine:
         """
         self._risk_metrics = risk_metrics
         logger.info("RiskMetrics attached to RiskEngine")
+
+    def close(self) -> None:
+        """Shutdown the persistent executor."""
+        if self._executor:
+            self._executor.shutdown(wait=True, cancel_futures=True)
+            logger.info("RiskEngine executor shutdown complete")

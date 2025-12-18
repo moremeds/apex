@@ -263,52 +263,76 @@ class BrokerManager(BrokerAdapter):
 
     async def fetch_positions_by_broker(self) -> Dict[str, List[Position]]:
         """
-        Fetch positions grouped by broker.
+        Fetch positions grouped by broker (parallel).
 
         Returns:
             Dict mapping broker name to list of positions.
         """
-        positions_by_broker: Dict[str, List[Position]] = {}
+        positions_by_broker: Dict[str, List[Position]] = {
+            name: [] for name in self._adapters
+        }
 
-        for name, adapter in self._adapters.items():
-            if not self._status[name].connected:
-                positions_by_broker[name] = []
-                continue
+        # Identify connected adapters
+        connected = [
+            (name, adapter) for name, adapter in self._adapters.items()
+            if self._status[name].connected
+        ]
 
+        if not connected:
+            return positions_by_broker
+
+        # Fetch in parallel
+        async def fetch_one(name: str, adapter: BrokerAdapter) -> tuple[str, List[Position]]:
             try:
                 positions = await adapter.fetch_positions()
-                positions_by_broker[name] = positions
                 self._status[name].position_count = len(positions)
+                return name, positions
             except Exception as e:
                 logger.error(f"Failed to fetch positions from {name}: {e}")
-                positions_by_broker[name] = []
+                return name, []
+
+        tasks = [fetch_one(name, adapter) for name, adapter in connected]
+        results = await asyncio.gather(*tasks)
+
+        for name, positions in results:
+            positions_by_broker[name] = positions
 
         return positions_by_broker
 
     async def fetch_account_info_by_broker(self) -> Dict[str, AccountInfo]:
         """
-        Fetch account info grouped by broker.
+        Fetch account info grouped by broker (parallel).
 
         Returns:
             Dict mapping broker name to AccountInfo.
         """
-        accounts_by_broker: Dict[str, AccountInfo] = {}
+        # Identify connected adapters
+        connected = [
+            (name, adapter) for name, adapter in self._adapters.items()
+            if self._status[name].connected
+        ]
 
-        for name, adapter in self._adapters.items():
-            if not self._status[name].connected:
-                continue
+        if not connected:
+            return {}
 
+        # Fetch in parallel
+        async def fetch_one(name: str, adapter: BrokerAdapter) -> tuple[str, Optional[AccountInfo]]:
             try:
                 account = await adapter.fetch_account_info()
-                accounts_by_broker[name] = account
                 self._update_health(name, "HEALTHY", f"Account: ${account.net_liquidation:,.0f}")
+                return name, account
             except NotImplementedError:
                 logger.debug(f"{name} adapter does not support account info")
+                return name, None
             except Exception as e:
                 logger.error(f"Failed to fetch account info from {name}: {e}")
                 self._update_health(name, "DEGRADED", f"Account fetch failed: {str(e)[:50]}")
+                return name, None
 
-        return accounts_by_broker
+        tasks = [fetch_one(name, adapter) for name, adapter in connected]
+        results = await asyncio.gather(*tasks)
+
+        return {name: account for name, account in results if account is not None}
 
     def _update_health(
         self, broker_name: str, status: str, message: str, metadata: Optional[Dict] = None

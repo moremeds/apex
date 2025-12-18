@@ -111,6 +111,9 @@ class FutuAdapter(BrokerAdapter):
         # Callback for position updates (subscription-based)
         self._on_position_update: Optional[Callable[[List[Position]], None]] = None
 
+        # Event loop reference (captured during connect for cross-thread ops)
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+
     # -------------------------------------------------------------------------
     # Async Wrapper for Blocking Calls
     # -------------------------------------------------------------------------
@@ -129,8 +132,8 @@ class FutuAdapter(BrokerAdapter):
         Returns:
             The result of the blocking function.
         """
-        loop = asyncio.get_event_loop()
-        # Use functools.partial to bind arguments
+        # Use stored loop reference (captured during connect)
+        loop = self._loop or asyncio.get_running_loop()
         partial_func = functools.partial(func, *args, **kwargs)
         return await loop.run_in_executor(self._executor, partial_func)
 
@@ -140,6 +143,9 @@ class FutuAdapter(BrokerAdapter):
 
     async def connect(self) -> None:
         """Connect to Futu OpenD gateway."""
+        # Capture event loop for cross-thread operations
+        self._loop = asyncio.get_running_loop()
+
         try:
             from futu import (
                 OpenSecTradeContext,
@@ -204,8 +210,8 @@ class FutuAdapter(BrokerAdapter):
             self._acc_id = None
             logger.info("Disconnected from Futu OpenD")
 
-        # Shutdown the executor
-        self._executor.shutdown(wait=False)
+        # Shutdown the executor (wait for pending tasks)
+        self._executor.shutdown(wait=True, cancel_futures=True)
 
     def is_connected(self) -> bool:
         """Check if connected to Futu OpenD."""
@@ -279,16 +285,14 @@ class FutuAdapter(BrokerAdapter):
 
     def _trigger_position_refresh(self) -> None:
         """Trigger async position refresh from sync callback context."""
+        if self._loop is None:
+            logger.debug("No event loop captured, skipping position refresh")
+            return
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # Schedule the async refresh on the running loop
-                asyncio.run_coroutine_threadsafe(self._refresh_and_notify_positions(), loop)
-            else:
-                # No running loop - skip (positions will refresh on next poll)
-                logger.debug("No running event loop, skipping position refresh")
+            # Use stored loop reference (captured during connect)
+            asyncio.run_coroutine_threadsafe(self._refresh_and_notify_positions(), self._loop)
         except RuntimeError:
-            logger.debug("Could not get event loop for position refresh")
+            logger.debug("Could not schedule position refresh")
 
     async def _refresh_and_notify_positions(self) -> None:
         """Fetch fresh positions and notify callback."""

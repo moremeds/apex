@@ -18,6 +18,29 @@ Usage:
     @timed("position_reconcile")
     def reconcile_positions(...):
         ...
+
+Guidelines:
+    GOOD patterns - use @log_timing for:
+    - Cycle-level operations (snapshot_build, fetch_and_reconcile)
+    - I/O operations (market_data_fetch, position_fetch)
+    - Operations that run less frequently than once per second
+    - Operations where you need latency visibility
+
+    ANTI-patterns - DO NOT use @log_timing for:
+    - Per-tick operations (onBarUpdate, onPendingTickers callbacks)
+    - Per-position calculations in hot loops
+    - Any operation called >100x per second
+    - Simple getters/setters or cache lookups
+
+    Why: log_timing has ~50-100μs overhead per call, which is
+    negligible for cycle-level operations but accumulates
+    significantly in per-tick hot paths.
+
+    Threshold guidelines:
+    - Snapshot builds: warn=250ms, error=1000ms
+    - Market data fetches: warn=1000ms, error=5000ms
+    - Position fetches: warn=500ms, error=2000ms
+    - Reconciliation: warn=100ms, error=500ms
 """
 
 from __future__ import annotations

@@ -26,6 +26,7 @@ import sys
 import os
 import re
 import json
+from queue import Queue
 from pathlib import Path
 from typing import Optional, Dict, List
 from datetime import datetime
@@ -56,6 +57,9 @@ _log_level_override: Optional[str] = None
 
 # Configured category loggers
 _category_loggers: Dict[str, logging.Logger] = {}
+
+# Queue listeners for async file logging (one per category)
+_queue_listeners: List[logging.handlers.QueueListener] = []
 
 # =============================================================================
 # LOG CATEGORIES AND ROUTING
@@ -426,7 +430,20 @@ def setup_category_logging(
     Returns:
         Dict mapping category name to logger.
     """
-    global _category_loggers
+    global _category_loggers, _queue_listeners
+
+    # Clean up existing handlers and listeners before reconfiguration
+    # to avoid file handle leaks (HYG-006)
+    for listener in _queue_listeners:
+        listener.stop()
+    _queue_listeners.clear()
+
+    for category in CATEGORIES:
+        logger_name = f"apex.{category}"
+        logger = logging.getLogger(logger_name)
+        for handler in logger.handlers[:]:  # Copy list to avoid mutation during iteration
+            handler.close()
+            logger.removeHandler(handler)
 
     # Set global flags
     set_verbose_mode(verbose)
@@ -451,13 +468,12 @@ def setup_category_logging(
         logger_name = f"apex.{category}"
         logger = logging.getLogger(logger_name)
         logger.setLevel(getattr(logging, effective_level, logging.INFO))
-        logger.handlers.clear()
-        logger.propagate = False
+        logger.propagate = False  # Handlers already cleaned up at start of function
 
         # JSON formatter for files
         json_formatter = JSONFormatter()
 
-        # File handler
+        # File handler (actual disk writer)
         file_path = str(log_path / filename)
         file_handler = logging.FileHandler(
             filename=file_path,
@@ -466,21 +482,27 @@ def setup_category_logging(
         )
         file_handler.setFormatter(json_formatter)
         file_handler.setLevel(getattr(logging, effective_level, logging.INFO))
-        logger.addHandler(file_handler)
+
+        # Use QueueHandler for async file logging (non-blocking writes)
+        log_queue: Queue = Queue(-1)  # Unbounded queue
+        queue_handler = logging.handlers.QueueHandler(log_queue)
+        logger.addHandler(queue_handler)
+
+        # Start QueueListener to process queue -> file handler
+        listener = logging.handlers.QueueListener(
+            log_queue, file_handler, respect_handler_level=True
+        )
+        listener.start()
+        _queue_listeners.append(listener)
 
         # Console handler (only when dashboard is disabled)
-        # Verbose mode controls file log level, not console output
         if console:
             console_handler = logging.StreamHandler(sys.stderr)
             console_formatter = ConsoleFormatter(use_colors=True)
             console_handler.setFormatter(console_formatter)
-            # Console shows WARNING+ by default, DEBUG if verbose
             console_level = logging.DEBUG if verbose else logging.WARNING
             console_handler.setLevel(console_level)
             logger.addHandler(console_handler)
-
-        # Flush to ensure file is created
-        file_handler.flush()
 
         _category_loggers[category] = logger
 
@@ -505,6 +527,14 @@ def flush_all_loggers() -> None:
         logger = logging.getLogger(logger_name)
         for handler in logger.handlers:
             handler.flush()
+
+
+def shutdown_logging() -> None:
+    """Shutdown all queue listeners (call during application shutdown)."""
+    global _queue_listeners
+    for listener in _queue_listeners:
+        listener.stop()
+    _queue_listeners.clear()
 
 
 # =============================================================================

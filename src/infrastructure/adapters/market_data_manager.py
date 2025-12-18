@@ -10,6 +10,7 @@ from typing import Dict, List, Optional, Any, Callable, TYPE_CHECKING
 from datetime import datetime
 from dataclasses import dataclass, field
 import asyncio
+from threading import Lock
 
 from ...utils.logging_setup import get_logger
 from ...domain.interfaces.market_data_provider import MarketDataProvider
@@ -73,6 +74,12 @@ class MarketDataManager(MarketDataProvider):
         self._streaming_callback: Optional[Callable[[str, MarketData], None]] = None
         self._latest_data: Dict[str, MarketData] = {}
 
+        # Thread-safety: protect _latest_data access from callback threads
+        self._data_lock = Lock()
+
+        # Store loop reference for cross-thread event bus access
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+
     def register_provider(
         self,
         name: str,
@@ -124,6 +131,9 @@ class MarketDataManager(MarketDataProvider):
         Attempts to connect to each provider independently.
         Failures are logged but don't prevent other providers from connecting.
         """
+        # Capture the event loop for cross-thread operations
+        self._loop = asyncio.get_running_loop()
+
         if not self._providers:
             logger.warning("No market data providers registered")
             return
@@ -153,8 +163,9 @@ class MarketDataManager(MarketDataProvider):
                 self._status[name].last_updated = datetime.now()
                 self._update_health(name, "HEALTHY", "Connected (shared)")
 
-                # Set up streaming callback if provider supports it
-                if provider.supports_streaming() and self._streaming_callback:
+                # Always wire provider streaming → MarketDataManager._on_provider_data.
+                # _on_provider_data publishes to EventBus (and optionally forwards to _streaming_callback).
+                if provider.supports_streaming():
                     provider.set_streaming_callback(
                         lambda sym, md, n=name: self._on_provider_data(n, sym, md)
                     )
@@ -170,8 +181,9 @@ class MarketDataManager(MarketDataProvider):
                 logger.info(f"✓ Connected to market data provider: {name}")
                 self._update_health(name, "HEALTHY", "Connected")
 
-                # Set up streaming callback if provider supports it
-                if provider.supports_streaming() and self._streaming_callback:
+                # Always wire provider streaming → MarketDataManager._on_provider_data.
+                # _on_provider_data publishes to EventBus (and optionally forwards to _streaming_callback).
+                if provider.supports_streaming():
                     provider.set_streaming_callback(
                         lambda sym, md, n=name: self._on_provider_data(n, sym, md)
                     )
@@ -361,10 +373,11 @@ class MarketDataManager(MarketDataProvider):
                     logger.error(f"Failed to unsubscribe via {name}: {e}")
 
     def get_latest(self, symbol: str) -> Optional[MarketData]:
-        """Get latest cached market data for a symbol."""
-        # First check our aggregated cache
-        if symbol in self._latest_data:
-            return self._latest_data[symbol]
+        """Get latest cached market data for a symbol (thread-safe)."""
+        # First check our aggregated cache (thread-safe read)
+        with self._data_lock:
+            if symbol in self._latest_data:
+                return self._latest_data[symbol]
 
         # Then check each provider
         for name in self._priority:
@@ -374,7 +387,8 @@ class MarketDataManager(MarketDataProvider):
             provider = self._providers[name]
             md = provider.get_latest(symbol)
             if md:
-                self._latest_data[symbol] = md
+                with self._data_lock:
+                    self._latest_data[symbol] = md
                 return md
 
         return None
@@ -391,15 +405,13 @@ class MarketDataManager(MarketDataProvider):
         """
         self._streaming_callback = callback
 
-        # Update callbacks on all streaming providers
+        # Provider callbacks should always feed into _on_provider_data so EventBus publishing
+        # keeps working even when the optional external callback is unset.
         for name, provider in self._providers.items():
             if provider.supports_streaming() and self._status[name].connected:
-                if callback:
-                    provider.set_streaming_callback(
-                        lambda sym, md, n=name: self._on_provider_data(n, sym, md)
-                    )
-                else:
-                    provider.set_streaming_callback(None)
+                provider.set_streaming_callback(
+                    lambda sym, md, n=name: self._on_provider_data(n, sym, md)
+                )
 
     def enable_streaming(self) -> None:
         """Enable streaming mode on all providers that support it."""
@@ -430,15 +442,19 @@ class MarketDataManager(MarketDataProvider):
 
     def _on_provider_data(self, provider_name: str, symbol: str, md: MarketData) -> None:
         """
-        Handle streaming data from a provider.
+        Handle streaming data from a provider (called from callback threads).
 
         This is the SINGLE path for streaming market data (Phase 4 optimization):
         IB → MarketDataManager → EventBus (skip Orchestrator hop)
-        """
-        # Update cache
-        self._latest_data[symbol] = md
 
-        # Publish to EventBus (single streaming path - replaces IbAdapter direct publish)
+        Thread-safety: This method is called from provider callback threads.
+        We use a lock for _latest_data and rely on the thread-safe event bus.
+        """
+        # Thread-safe cache update
+        with self._data_lock:
+            self._latest_data[symbol] = md
+
+        # Publish to EventBus (thread-safe after P0-001/P0-002 fixes)
         if self._event_bus:
             # Lazy import to avoid circular dependency
             from ...domain.interfaces.event_bus import EventType
@@ -450,6 +466,7 @@ class MarketDataManager(MarketDataProvider):
             })
 
         # Forward to callback (for stores/orchestrator)
+        # Note: Callback should be quick to avoid blocking provider thread
         if self._streaming_callback:
             self._streaming_callback(symbol, md)
 

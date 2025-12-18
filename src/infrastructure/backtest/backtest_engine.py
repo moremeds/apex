@@ -168,9 +168,11 @@ class BacktestEngine:
 
         # Tracking
         self._cash = config.initial_capital
-        self._equity_curve: List[Dict[str, Any]] = []
+        self._equity_curve: List[Dict[str, Any]] = []  # Daily equity only (memory bounded)
         self._trades: List[TradeRecord] = []
         self._running = False
+        self._last_equity_date: Optional[str] = None  # Track last recorded date
+        self._current_day_equity: Optional[Dict[str, Any]] = None  # Buffer for end-of-day
 
         # Trade tracker for entry/exit matching
         self._trade_tracker = TradeTracker(matching_method="FIFO")
@@ -253,6 +255,8 @@ class BacktestEngine:
         self._cash = self._config.initial_capital
         self._equity_curve.clear()
         self._trades.clear()
+        self._last_equity_date = None
+        self._current_day_equity = None
 
         # Load data
         await self._data_feed.load()
@@ -297,15 +301,25 @@ class BacktestEngine:
             # Trigger bar close scheduled actions
             self._scheduler.trigger_bar_close_actions()
 
-            # Record equity
+            # Record equity (daily aggregation to bound memory)
             equity = self._calculate_equity()
-            self._equity_curve.append({
-                "date": bar.timestamp.date().isoformat(),
+            current_date = bar.timestamp.date().isoformat()
+
+            # Store end-of-day equity only (last bar of each day)
+            if self._last_equity_date != current_date:
+                # Flush previous day's equity to curve
+                if self._current_day_equity is not None:
+                    self._equity_curve.append(self._current_day_equity)
+                self._last_equity_date = current_date
+
+            # Update current day's equity (will be flushed at day change or end)
+            self._current_day_equity = {
+                "date": current_date,
                 "timestamp": bar.timestamp.isoformat(),
                 "equity": equity,
                 "cash": self._cash,
                 "position_value": self._execution.get_total_position_value(),
-            })
+            }
 
             bar_count += 1
 
@@ -319,6 +333,11 @@ class BacktestEngine:
 
         # Stop strategy
         self._strategy.stop()
+
+        # Flush final day's equity to curve
+        if self._current_day_equity is not None:
+            self._equity_curve.append(self._current_day_equity)
+            self._current_day_equity = None
 
         run_duration = time.time() - start_time
         logger.info(

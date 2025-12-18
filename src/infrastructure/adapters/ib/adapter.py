@@ -5,6 +5,7 @@ Implements BrokerAdapter and MarketDataProvider interfaces for IBKR TWS/Gateway.
 """
 
 from __future__ import annotations
+from threading import Lock
 from typing import List, Dict, Optional, Callable
 from datetime import datetime, date
 from math import isnan
@@ -93,6 +94,7 @@ class IbAdapter(BrokerAdapter, MarketDataProvider):
         # Cache for qualified contracts - keyed by position symbol
         # Avoids re-qualifying same contracts every fetch cycle
         self._qualified_contract_cache: Dict[str, object] = {}
+        self._contract_cache_lock = Lock()  # Protects cache from concurrent access
 
         # Contract qualification retry settings
         self._qualify_max_retries: int = 3
@@ -215,7 +217,8 @@ class IbAdapter(BrokerAdapter, MarketDataProvider):
                     if qc is not None:
                         qualified.append(qc)
                         if i < len(positions):
-                            self._qualified_contract_cache[positions[i].symbol] = qc
+                            with self._contract_cache_lock:
+                                self._qualified_contract_cache[positions[i].symbol] = qc
 
                 if qualified:
                     if attempt > 0:
@@ -486,8 +489,10 @@ class IbAdapter(BrokerAdapter, MarketDataProvider):
 
             for pos in positions:
                 # Check if we have a cached qualified contract
-                if pos.symbol in self._qualified_contract_cache:
-                    cached_qualified.append(self._qualified_contract_cache[pos.symbol])
+                with self._contract_cache_lock:
+                    cached_contract = self._qualified_contract_cache.get(pos.symbol)
+                if cached_contract is not None:
+                    cached_qualified.append(cached_contract)
                     cached_positions.append(pos)
                     continue
 
@@ -535,11 +540,12 @@ class IbAdapter(BrokerAdapter, MarketDataProvider):
                 )
 
                 # Add successfully qualified contracts to pos_map
-                for qc in newly_qualified:
-                    # Find the matching position by symbol from cache
-                    for pos in new_positions:
-                        if pos.symbol in self._qualified_contract_cache:
-                            if self._qualified_contract_cache[pos.symbol] == qc:
+                with self._contract_cache_lock:
+                    for qc in newly_qualified:
+                        # Find the matching position by symbol from cache
+                        for pos in new_positions:
+                            cached = self._qualified_contract_cache.get(pos.symbol)
+                            if cached is not None and cached == qc:
                                 pos_map[id(qc)] = pos
                                 break
 
