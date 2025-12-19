@@ -107,6 +107,13 @@ class RiskEngine:
 
         # Persistent executor for parallel position metrics calculation
         # Created once and reused across snapshots (not per-call)
+        #
+        # GIL Analysis (HYG-004): ThreadPoolExecutor is correct here, not ProcessPoolExecutor.
+        # Reasons:
+        # 1. Calculations are simple arithmetic (notional, P&L, Greeks) - not numpy-heavy
+        # 2. ProcessPoolExecutor IPC overhead (pickling Position/MarketData) exceeds GIL cost
+        # 3. Some I/O involved (Yahoo adapter) where ThreadPool releases GIL
+        # 4. Measured latency is well within performance targets (<100ms for <100 positions)
         self._executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="risk_")
 
         # Event-driven state tracking

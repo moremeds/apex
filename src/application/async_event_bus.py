@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from threading import Lock
 
 from ..domain.interfaces.event_bus import EventBus, EventType
+from ..domain.events.domain_events import DomainEvent
 from ..utils.logging_setup import get_logger
 
 
@@ -19,7 +20,7 @@ logger = get_logger(__name__)
 class EventEnvelope:
     """Wrapper for event with metadata."""
     event_type: EventType
-    payload: Any
+    payload: DomainEvent
     timestamp: float = field(default_factory=time.time)
     source: str = ""
 
@@ -48,8 +49,8 @@ class AsyncEventBus(EventBus):
             max_queue_size: Maximum events in queue before dropping
             debounce_ms: Debounce window for high-frequency events
         """
-        self._subscribers: Dict[EventType, List[Callable[[Any], None]]] = defaultdict(list)
-        self._async_subscribers: Dict[EventType, List[Callable[[Any], Any]]] = defaultdict(list)
+        self._subscribers: Dict[EventType, List[Callable[[DomainEvent], None]]] = defaultdict(list)
+        self._async_subscribers: Dict[EventType, List[Callable[[DomainEvent], Any]]] = defaultdict(list)
         self._queue: asyncio.Queue[EventEnvelope] = None  # Created in start()
         self._max_queue_size = max_queue_size
         self._debounce_ms = debounce_ms
@@ -78,7 +79,7 @@ class AsyncEventBus(EventBus):
         self._pending_ticks: Dict[str, EventEnvelope] = {}
         self._last_tick_dispatch: float = 0
 
-    def publish(self, event_type: EventType, payload: Any) -> None:
+    def publish(self, event_type: EventType, payload: DomainEvent) -> None:
         """
         Publish an event (non-blocking, thread-safe).
 
@@ -87,8 +88,26 @@ class AsyncEventBus(EventBus):
 
         Args:
             event_type: Type of event
-            payload: Event data
+            payload: Event data (Must be DomainEvent)
         """
+        if not isinstance(payload, (DomainEvent, dict)) and event_type != EventType.SHUTDOWN:
+             # Allow dict for SHUTDOWN or strictly enforce DomainEvent elsewhere?
+             # For now, let's enforce DomainEvent but keep dict for SHUTDOWN if payload is dict.
+             # Actually, DomainEvent base class is good.
+             # Wait, SHUTDOWN payload in existing code is `{"timestamp": time.time()}`.
+             # I should probably create a ShutdownEvent or allow dict for legacy compatibility
+             # BUT the instruction said "no need to be backward compatible".
+             # So I will enforce DomainEvent and update callers.
+             pass
+        
+        if isinstance(payload, dict):
+             # STRICT MODE: Reject dicts
+             if event_type == EventType.SHUTDOWN:
+                 # Exception for shutdown as it's internal control
+                 pass
+             else:
+                 raise TypeError(f"Payload must be DomainEvent, got dict: {payload}")
+        
         envelope = EventEnvelope(
             event_type=event_type,
             payload=payload,

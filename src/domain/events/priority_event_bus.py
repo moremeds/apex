@@ -365,13 +365,13 @@ class PriorityEventBus:
         """
         while self._running:
             try:
-                burst_start = time.time()
+                burst_start = time.perf_counter()
                 burst_count = 0
 
                 # Process fast events with budget/timeslice limit
                 while not self._fast_queue.empty():
                     # Check budget limits
-                    elapsed_ms = (time.time() - burst_start) * 1000
+                    elapsed_ms = (time.perf_counter() - burst_start) * 1000
                     if burst_count >= self._fast_budget or elapsed_ms >= self._fast_time_slice_ms:
                         # Yield to slow lane
                         break

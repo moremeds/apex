@@ -12,12 +12,15 @@ Tracks operational health of the Apex system:
 from __future__ import annotations
 
 import time
-from typing import Dict, Optional
+from typing import Dict, Optional, Set
 
 from opentelemetry import metrics
 from ...utils.logging_setup import get_logger
 
 logger = get_logger(__name__)
+
+# Default threshold for considering a symbol "active" (received tick recently)
+DEFAULT_ACTIVE_THRESHOLD_SECONDS = 30.0
 
 
 class HealthMetrics:
@@ -57,10 +60,10 @@ class HealthMetrics:
             description="Market data coverage ratio (0.0-1.0)",
         )
 
-        # Last tick timestamp per symbol (unix seconds)
+        # Last tick timestamp per provider (unix seconds) - low cardinality
         self._last_tick_timestamp = meter.create_gauge(
             name="apex_last_tick_timestamp",
-            description="Unix timestamp of last tick received",
+            description="Unix timestamp of last tick received by provider",
             unit="seconds",
         )
 
@@ -127,8 +130,24 @@ class HealthMetrics:
             description="Total reconnection events",
         )
 
+        # Subscription coverage metrics (OBS-001)
+        self._subscribed_symbols_count = meter.create_gauge(
+            name="apex_subscribed_symbols",
+            description="Number of symbols with active subscriptions",
+        )
+        self._active_symbols_count = meter.create_gauge(
+            name="apex_active_symbols",
+            description="Symbols with ticks received in the last 30 seconds",
+        )
+        self._tick_reception_coverage = meter.create_gauge(
+            name="apex_tick_reception_coverage",
+            description="Ratio of active symbols to subscribed symbols (0.0-1.0)",
+        )
+
         # Track last tick times for staleness calculation
         self._last_tick_times: Dict[str, float] = {}
+        # Track subscribed symbols (OBS-001)
+        self._subscribed_symbols: Set[str] = set()
 
     def record_broker_status(self, broker: str, connected: bool) -> None:
         """
@@ -162,18 +181,22 @@ class HealthMetrics:
         """
         self._market_data_coverage.set(coverage)
 
-    def record_tick_received(self, symbol: str) -> None:
+    def record_tick_received(self, symbol: str, provider: str = "unknown") -> None:
         """
         Record that a tick was received for a symbol.
 
-        Updates both per-symbol and global last tick timestamps.
+        Note: Metrics are tracked by provider (low cardinality) not symbol (high cardinality).
+        Per-symbol timestamps are kept internally for staleness calculation.
 
         Args:
             symbol: Symbol that received a tick.
+            provider: Data provider name (e.g., "ib", "futu").
         """
         now = time.time()
-        self._last_tick_timestamp.set(now, {"symbol": symbol})
+        # Low-cardinality metric: track by provider, not by symbol (MAJ-007)
+        self._last_tick_timestamp.set(now, {"provider": provider})
         self._last_any_tick_timestamp.set(now)
+        # Keep internal per-symbol tracking for staleness checks
         self._last_tick_times[symbol] = now
 
     def record_tick_latency(self, latency_ms: float) -> None:
@@ -290,3 +313,91 @@ class HealthMetrics:
 
         self.record_market_data_coverage(coverage)
         return coverage
+
+    # =========================================================================
+    # Subscription Coverage (OBS-001)
+    # =========================================================================
+
+    def record_subscriptions(self, symbols: list[str]) -> None:
+        """
+        Record symbols that we have subscribed to for market data.
+
+        Call this when subscribing to market data to track expected symbols.
+
+        Args:
+            symbols: List of symbols being subscribed to.
+        """
+        self._subscribed_symbols.update(symbols)
+        self._subscribed_symbols_count.set(len(self._subscribed_symbols))
+
+    def remove_subscriptions(self, symbols: list[str]) -> None:
+        """
+        Remove symbols from the subscription tracking.
+
+        Call this when unsubscribing from market data.
+
+        Args:
+            symbols: List of symbols being unsubscribed.
+        """
+        for symbol in symbols:
+            self._subscribed_symbols.discard(symbol)
+        self._subscribed_symbols_count.set(len(self._subscribed_symbols))
+
+    def update_tick_reception_coverage(
+        self, active_threshold_seconds: float = DEFAULT_ACTIVE_THRESHOLD_SECONDS
+    ) -> float:
+        """
+        Calculate and record tick reception coverage.
+
+        Coverage = (active symbols) / (subscribed symbols)
+        where "active" means received a tick within threshold.
+
+        Args:
+            active_threshold_seconds: Threshold for considering a symbol active.
+
+        Returns:
+            Coverage ratio (0.0-1.0).
+        """
+        now = time.time()
+
+        # Count symbols that received a tick recently
+        active_count = sum(
+            1 for symbol in self._subscribed_symbols
+            if symbol in self._last_tick_times
+            and (now - self._last_tick_times[symbol]) < active_threshold_seconds
+        )
+
+        subscribed_count = len(self._subscribed_symbols)
+
+        # Record metrics
+        self._active_symbols_count.set(active_count)
+
+        if subscribed_count == 0:
+            coverage = 1.0  # No subscriptions = full coverage by definition
+        else:
+            coverage = active_count / subscribed_count
+
+        self._tick_reception_coverage.set(coverage)
+        return coverage
+
+    def get_inactive_subscribed_symbols(
+        self, threshold_seconds: float = DEFAULT_ACTIVE_THRESHOLD_SECONDS
+    ) -> list[str]:
+        """
+        Get list of subscribed symbols that haven't received ticks recently.
+
+        Useful for diagnosing market data issues.
+
+        Args:
+            threshold_seconds: Threshold for considering a symbol inactive.
+
+        Returns:
+            List of symbol names that are subscribed but inactive.
+        """
+        now = time.time()
+        inactive = []
+        for symbol in self._subscribed_symbols:
+            last_tick = self._last_tick_times.get(symbol)
+            if last_tick is None or (now - last_tick) > threshold_seconds:
+                inactive.append(symbol)
+        return inactive

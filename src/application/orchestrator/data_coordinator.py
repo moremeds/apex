@@ -18,6 +18,8 @@ from ...utils.perf_logger import log_timing_async
 from ...models.position import Position
 from ...models.account import AccountInfo
 from ...infrastructure.monitoring import HealthStatus
+from ...domain.interfaces.event_bus import EventType
+from ...domain.events.domain_events import MDQCValidationTrigger
 
 if TYPE_CHECKING:
     from ...infrastructure.adapters.broker_manager import BrokerManager
@@ -26,6 +28,7 @@ if TYPE_CHECKING:
     from ...domain.services.pos_reconciler import Reconciler
     from ...domain.services.mdqc import MDQC
     from ...infrastructure.monitoring import HealthMonitor
+    from ...domain.interfaces.event_bus import EventBus
 
 logger = get_logger(__name__)
 
@@ -52,6 +55,7 @@ class DataCoordinator:
         mdqc: MDQC,
         health_monitor: HealthMonitor,
         config: Dict[str, Any],
+        event_bus: Optional[EventBus] = None,
     ):
         self.broker_manager = broker_manager
         self.market_data_manager = market_data_manager
@@ -61,6 +65,7 @@ class DataCoordinator:
         self.reconciler = reconciler
         self.mdqc = mdqc
         self.health_monitor = health_monitor
+        self._event_bus = event_bus
 
         # Account TTL caching
         self._account_ttl_sec: float = config.get("account_ttl_sec", 30.0)
@@ -69,6 +74,13 @@ class DataCoordinator:
 
         # Background task tracking
         self._background_tasks: set[asyncio.Task] = set()
+
+        # Subscribe to MDQC validation events (slow lane handler)
+        if self._event_bus is not None:
+            self._event_bus.subscribe(
+                EventType.MDQC_VALIDATION_TRIGGER,
+                self._handle_mdqc_validation
+            )
 
     @log_timing_async("fetch_and_reconcile", warn_threshold_ms=500)
     async def fetch_and_reconcile(
@@ -105,9 +117,18 @@ class DataCoordinator:
         # Subscribe to market data for new symbols
         await self._subscribe_market_data(merged_positions)
 
-        # Validate market data quality
+        # Trigger MDQC validation via slow lane (non-blocking)
+        # This decouples quality validation from the fast path
         market_data = self.market_data_store.get_all()
-        self.mdqc.validate_all(market_data)
+        if self._event_bus is not None:
+            event = MDQCValidationTrigger(
+                symbol_count=len(market_data),
+                source="fetch_and_reconcile"
+            )
+            self._event_bus.publish(EventType.MDQC_VALIDATION_TRIGGER, event)
+        else:
+            # Fallback: run synchronously if no event bus
+            self.mdqc.validate_all(market_data)
 
         # Notify dirty callback if provided
         if on_dirty_callback:
@@ -274,3 +295,13 @@ class DataCoordinator:
         if self._background_tasks:
             await asyncio.gather(*self._background_tasks, return_exceptions=True)
             self._background_tasks.clear()
+
+    def _handle_mdqc_validation(self, event: MDQCValidationTrigger) -> None:
+        """
+        Handle MDQC validation trigger from slow lane.
+
+        This runs in the slow lane to avoid blocking tick processing.
+        """
+        market_data = self.market_data_store.get_all()
+        self.mdqc.validate_all(market_data)
+        logger.debug(f"MDQC validation completed for {len(market_data)} symbols")

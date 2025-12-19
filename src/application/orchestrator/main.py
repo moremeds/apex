@@ -18,6 +18,7 @@ from ...utils.trace_context import new_cycle
 from ...utils.market_hours import MarketHours
 from ...domain.interfaces.event_bus import EventBus
 from ...domain.events import PriorityEventBus
+from ...domain.exceptions import RecoverableError, FatalError
 from ...models.risk_snapshot import RiskSnapshot
 from ...models.risk_signal import RiskSignal
 from ...models.account import AccountInfo
@@ -113,6 +114,7 @@ class Orchestrator:
             mdqc=mdqc,
             health_monitor=health_monitor,
             config=config,
+            event_bus=event_bus,  # Enable slow-lane MDQC validation
         )
 
         self._snapshot_coordinator = SnapshotCoordinator(
@@ -262,8 +264,15 @@ class Orchestrator:
 
             except asyncio.CancelledError:
                 break
+            except RecoverableError as e:
+                logger.warning(f"Recoverable error in timer loop: {e}")
+                # Continue loop
+            except FatalError as e:
+                logger.critical(f"Fatal error in timer loop: {e}", exc_info=True)
+                self._running = False
+                break
             except Exception as e:
-                logger.error(f"Timer loop error: {e}", exc_info=True)
+                logger.error(f"Unexpected timer loop error: {e}", exc_info=True)
 
     def _on_broker_position_update(
         self, broker_name: str, positions: List[Position]

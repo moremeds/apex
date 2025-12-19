@@ -20,6 +20,7 @@ from ...utils.perf_logger import log_timing, log_timing_async
 from ...models.risk_snapshot import RiskSnapshot
 from ...models.risk_signal import RiskSignal
 from ...domain.interfaces.event_bus import EventType
+from ...domain.events.domain_events import SnapshotReadyEvent
 
 if TYPE_CHECKING:
     from ...domain.services.risk.risk_engine import RiskEngine
@@ -199,8 +200,15 @@ class SnapshotCoordinator:
         # Check readiness gating
         self._check_snapshot_readiness(snapshot)
 
-        # Publish snapshot ready event
-        self.event_bus.publish(EventType.SNAPSHOT_READY, {"snapshot": snapshot})
+        # Publish snapshot ready event (typed event instead of dict payload)
+        event = SnapshotReadyEvent(
+            snapshot_id=snapshot.snapshot_id if hasattr(snapshot, 'snapshot_id') else "",
+            position_count=snapshot.total_positions,
+            coverage_pct=getattr(snapshot, 'market_data_coverage', 0.0),
+            portfolio_delta=snapshot.portfolio_delta,
+            unrealized_pnl=snapshot.total_unrealized_pnl,
+        )
+        self.event_bus.publish(EventType.SNAPSHOT_READY, event)
         self._snapshot_ready.set()
 
     @log_timing("log_risk_alerts", warn_threshold_ms=50)

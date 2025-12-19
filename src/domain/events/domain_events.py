@@ -530,6 +530,61 @@ class RiskBreachEvent(DomainEvent):
     message: str = ""
 
 
+@dataclass(frozen=True, slots=True)
+class SnapshotReadyEvent(DomainEvent):
+    """
+    Risk snapshot ready event.
+
+    Published on EventType.SNAPSHOT_READY when a new risk snapshot is available.
+    """
+    snapshot_id: str = ""
+    position_count: int = 0
+    coverage_pct: float = 0.0
+    portfolio_delta: float = 0.0
+    unrealized_pnl: float = 0.0
+
+    # Optional: full snapshot object stored separately to avoid serialization overhead
+    # Access via snapshot_coordinator.get_latest_snapshot() instead
+
+
+@dataclass(frozen=True, slots=True)
+class MarketDataTickEvent(DomainEvent):
+    """
+    Market data tick event with full MarketData payload.
+
+    Published on EventType.MARKET_DATA_TICK for streaming updates.
+    Wraps the MarketData model for type-safe event bus transport.
+    """
+    symbol: str = ""
+    source: str = ""  # "ib", "futu", etc.
+
+    # Price data
+    bid: Optional[float] = None
+    ask: Optional[float] = None
+    last: Optional[float] = None
+    mid: Optional[float] = None
+
+    # Greeks (for options)
+    delta: Optional[float] = None
+    gamma: Optional[float] = None
+    vega: Optional[float] = None
+    theta: Optional[float] = None
+    iv: Optional[float] = None
+
+
+@dataclass(frozen=True, slots=True)
+class MDQCValidationTrigger(DomainEvent):
+    """
+    Trigger MDQC validation in slow lane.
+
+    Published on EventType.MDQC_VALIDATION_TRIGGER to decouple market data
+    quality validation from the fast path. MDQC validation runs in the
+    slow lane to avoid blocking tick processing.
+    """
+    symbol_count: int = 0
+    source: str = ""  # Where the trigger came from
+
+
 # =============================================================================
 # Event Registry
 # =============================================================================
@@ -544,6 +599,9 @@ EVENT_REGISTRY: Dict[str, Type[DomainEvent]] = {
     "AccountSnapshot": AccountSnapshot,
     "ConnectionEvent": ConnectionEvent,
     "RiskBreachEvent": RiskBreachEvent,
+    "SnapshotReadyEvent": SnapshotReadyEvent,
+    "MarketDataTickEvent": MarketDataTickEvent,
+    "MDQCValidationTrigger": MDQCValidationTrigger,
 }
 
 
