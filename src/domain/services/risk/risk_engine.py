@@ -28,6 +28,7 @@ from src.models.risk_snapshot import RiskSnapshot
 from src.models.position_risk import PositionRisk
 from src.utils.market_hours import MarketHours
 from src.utils.timezone import now_utc
+from .price_fallback import PriceFallbackChain
 
 if TYPE_CHECKING:
     from src.domain.interfaces.event_bus import EventBus
@@ -115,6 +116,9 @@ class RiskEngine:
         # 3. Some I/O involved (Yahoo adapter) where ThreadPool releases GIL
         # 4. Measured latency is well within performance targets (<100ms for <100 positions)
         self._executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="risk_")
+
+        # Price fallback chain for resolving marks when live data unavailable (ARCH-003)
+        self._price_fallback = PriceFallbackChain(yahoo_adapter=yahoo_adapter)
 
         # Event-driven state tracking
         self._lock = Lock()
@@ -210,60 +214,27 @@ class RiskEngine:
         """
         Calculate metrics for a single position.
 
-        When market data is missing or stale, uses fallback strategies to preserve
-        risk visibility rather than zeroing out exposure (which hides risk).
-
-        Fallback order:
-        1. Live mid/last price from primary provider
-        2. Yesterday's close from market data
-        3. Yesterday's close from Yahoo Finance (stocks only)
-        4. Average cost basis (last resort - preserves notional visibility)
+        Uses PriceFallbackChain to resolve prices when live data is unavailable,
+        preserving risk visibility rather than zeroing out exposure.
 
         Args:
             pos: Position to calculate.
             market_data: Market data dictionary.
+            market_status: Market status string (cached once per snapshot).
 
         Returns:
             PositionMetrics with calculated values. has_missing_md=True when using fallback.
         """
         md = market_data.get(pos.symbol)
-        has_missing_md = False
         has_missing_greeks = False
 
-        # Determine mark price with fallback chain
-        mark = None
-        fallback_source = None
+        # Resolve mark price using fallback chain (ARCH-003)
+        price_result = self._price_fallback.resolve_with_logging(pos, market_data)
+        mark = price_result.price
+        has_missing_md = price_result.is_fallback
 
-        if md is not None:
-            # Try live price first
-            if md.has_live_price():
-                mark = md.effective_mid()
-            # Fall back to yesterday's close from market data
-            elif md.yesterday_close is not None and md.yesterday_close > 0:
-                mark = md.yesterday_close
-                has_missing_md = True
-                fallback_source = "md_yesterday_close"
-
-        # If still no mark, try Yahoo Finance for yesterday's close (stocks only)
-        if mark is None and self._yahoo_adapter is not None:
-            # For stocks, try to get yesterday's close from Yahoo
-            if pos.asset_type.value == "STOCK":
-                yahoo_md = self._yahoo_adapter.get_latest(pos.symbol)
-                if yahoo_md and yahoo_md.yesterday_close and yahoo_md.yesterday_close > 0:
-                    mark = yahoo_md.yesterday_close
-                    has_missing_md = True
-                    fallback_source = "yahoo_yesterday_close"
-
-        # Last resort: use average cost basis to preserve notional visibility
-        # This ensures risk doesn't silently disappear when data is unavailable
-        if mark is None and pos.avg_price and pos.avg_price > 0:
-            mark = pos.avg_price
-            has_missing_md = True
-            fallback_source = "avg_cost_basis"
-
-        # If still no mark, return with explicit missing data flag
-        # but calculate what we can (expiry bucket, DTE)
-        if mark is None:
+        # If no price available, return with explicit missing data flag
+        if not price_result.has_price:
             return PositionMetrics(
                 symbol=pos.symbol,
                 underlying=pos.underlying,
@@ -281,9 +252,6 @@ class RiskEngine:
                 has_missing_md=True,
                 has_missing_greeks=True,
             )
-
-        if fallback_source:
-            logger.debug(f"Using fallback price for {pos.symbol}: {fallback_source}=${mark:.2f}")
 
         # Calculate position notional
         notional = mark * pos.quantity * pos.multiplier

@@ -33,7 +33,7 @@ import time
 import logging
 
 from ...domain.clock import SimulatedClock
-from ...domain.strategy.base import Strategy, StrategyContext
+from ...domain.strategy.base import Strategy, StrategyContext, StrategyProtocol
 from ...domain.strategy.scheduler import SimulatedScheduler
 from ...domain.strategy.registry import get_strategy_class
 from ...domain.backtest.backtest_result import (
