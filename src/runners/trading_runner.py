@@ -36,6 +36,7 @@ from ..domain.strategy.base import Strategy, StrategyContext
 from ..domain.strategy.scheduler import LiveScheduler
 from ..domain.strategy.registry import get_strategy_class, list_strategies
 from ..domain.strategy.risk_gate import RiskGate, ValidationResult
+from ..domain.strategy.cost_estimator import create_ib_cost_estimator, create_futu_cost_estimator, create_zero_cost_estimator
 from ..domain.events.domain_events import QuoteTick, TradeFill
 from ..domain.interfaces.execution_provider import OrderRequest
 
@@ -205,12 +206,25 @@ class TradingRunner:
         # Create scheduler
         self._scheduler = LiveScheduler(self._clock)
 
+        # Create cost estimator based on broker
+        if self.broker == "ib":
+            cost_estimator = create_ib_cost_estimator()
+        elif self.broker == "futu":
+            cost_estimator = create_futu_cost_estimator()
+        else:
+            cost_estimator = create_zero_cost_estimator()
+
+        # Create risk gate
+        self._risk_gate = RiskGate(config=self.risk_config)
+
         # Create context
         self._context = StrategyContext(
             clock=self._clock,
             scheduler=self._scheduler,
             positions={},
             account=None,
+            cost_estimator=cost_estimator,
+            risk_gate=self._risk_gate,
         )
 
         # Create strategy
@@ -230,22 +244,75 @@ class TradingRunner:
         logger.info(f"Initialized strategy: {self._strategy}")
 
     async def _run_loop(self) -> None:
-        """Main trading loop."""
+        """
+        Main trading loop.
+
+        LIVE-001: This loop needs broker adapter integration to be production-ready.
+        Currently implements:
+        - Strategy health monitoring
+        - Heartbeat logging
+        - Graceful shutdown
+
+        TODO for production readiness:
+        1. Initialize broker adapter (IB/Futu) for market data
+        2. Subscribe to market data for strategy symbols
+        3. Deliver QuoteTick events to strategy.on_quote()
+        4. Wire order execution to broker adapter
+        5. Monitor broker connection health and reconnect
+        6. Handle broker disconnection gracefully
+        """
+        logger.info("Main trading loop started")
+
+        # Health tracking
+        last_heartbeat = 0
+        heartbeat_interval = 60  # seconds
+        loop_count = 0
+        consecutive_errors = 0
+        max_consecutive_errors = 10
+
         while self._running:
-            # In a real implementation, this would:
-            # 1. Receive market data from broker adapter
-            # 2. Feed data to strategy
-            # 3. Process fills and position updates
+            try:
+                loop_count += 1
 
-            # For now, just wait and check for shutdown
-            await asyncio.sleep(1.0)
+                # 1. Check strategy health
+                if self._strategy.state.value == "error":
+                    logger.error(f"Strategy entered error state: {self._strategy._error_message}")
+                    self._running = False
+                    break
 
-            # Log heartbeat every 60 seconds
-            if int(self._clock.now().timestamp()) % 60 == 0:
-                logger.debug(
-                    f"Trading heartbeat: orders={self._order_count}, "
-                    f"rejected={self._rejected_count}"
-                )
+                # 2. Check for stuck loop (no progress)
+                # TODO: Add actual market data check when broker integration is added
+
+                # 3. Log heartbeat periodically
+                now = int(self._clock.now().timestamp())
+                if now - last_heartbeat >= heartbeat_interval:
+                    last_heartbeat = now
+                    logger.info(
+                        f"Trading heartbeat: loop={loop_count}, orders={self._order_count}, "
+                        f"rejected={self._rejected_count}, state={self._strategy.state.value}"
+                    )
+
+                # 4. Wait for next iteration
+                # TODO: Replace with event-driven market data reception
+                await asyncio.sleep(1.0)
+
+                # Reset error counter on successful iteration
+                consecutive_errors = 0
+
+            except asyncio.CancelledError:
+                logger.info("Trading loop cancelled")
+                break
+            except Exception as e:
+                consecutive_errors += 1
+                logger.error(f"Error in trading loop (count={consecutive_errors}): {e}")
+
+                # Stop if too many consecutive errors
+                if consecutive_errors >= max_consecutive_errors:
+                    logger.error(f"Too many consecutive errors ({consecutive_errors}), stopping")
+                    self._running = False
+                    break
+
+                await asyncio.sleep(5.0)  # Cool down on error
 
     def _handle_order(self, order: OrderRequest) -> None:
         """Handle order from strategy."""

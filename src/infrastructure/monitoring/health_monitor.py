@@ -5,6 +5,7 @@ Tracks health status of all system components (IB connection, data freshness, et
 """
 
 from __future__ import annotations
+import logging
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Dict, List
@@ -15,6 +16,7 @@ from ...utils.logging_setup import get_logger
 
 
 logger = get_logger(__name__)
+_DEBUG_ENABLED = logger.isEnabledFor(logging.DEBUG)
 
 
 class HealthStatus(Enum):
@@ -80,8 +82,8 @@ class HealthMonitor:
             last_check=now_utc(),
             metadata=metadata or {},
         )
-        logger.debug(f"{component_name} health updated: {status.value} - {message}")
-        logger.debug(f"Total health components in monitor: {len(self._component_health)}")
+        if _DEBUG_ENABLED:
+            logger.debug("%s health: %s - %s", component_name, status.value, message)
 
     def get_component_health(self, component_name: str) -> ComponentHealth | None:
         """Get health status for a component."""

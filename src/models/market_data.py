@@ -27,7 +27,7 @@ class DataQuality(Enum):
     ZERO_QUOTE = "ZERO_QUOTE"  # Zero bid or ask
 
 
-@dataclass
+@dataclass(slots=True)
 class MarketData:
     """Market data with prices, Greeks, and quality metadata."""
 

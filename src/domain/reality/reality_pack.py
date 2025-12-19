@@ -36,6 +36,11 @@ from .latency_model import (
     RandomLatencyModel,
     VenueLatencyModel,
 )
+from .admin_fee_model import (
+    AdminFeeModel,
+    ZeroAdminFeeModel,
+    ConstantAdminFeeModel,
+)
 
 
 @dataclass
@@ -48,6 +53,7 @@ class RealityModelPack:
     - SlippageModel: Execution price impact
     - FillModel: Fill behavior
     - LatencyModel: Execution delays
+    - AdminFeeModel: Time-based administrative costs
 
     Use factory functions for pre-configured packs.
     """
@@ -56,11 +62,126 @@ class RealityModelPack:
     slippage_model: SlippageModel
     fill_model: FillModel
     latency_model: LatencyModel
+    admin_fee_model: AdminFeeModel = field(default_factory=ZeroAdminFeeModel)
 
     # Metadata
     name: str = "custom"
     description: str = ""
     config: Dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_config(cls, config: Dict[str, Any]) -> RealityModelPack:
+        """
+        Create a reality pack from a configuration dictionary.
+
+        Args:
+            config: Configuration dictionary with keys:
+                - fee_model: dict with 'type' and 'params' (or flat params)
+                - slippage_model: dict with 'type' and 'params' (or flat params)
+                - fill_model: dict with 'type' and 'params' (or flat params)
+                - latency_model: dict with 'type' and 'params' (or flat params)
+
+        Returns:
+            RealityModelPack instance.
+        """
+        # Helper to get params from config dict (either nested in 'params' or flat)
+        def get_params(cfg):
+            if not isinstance(cfg, dict):
+                return {}
+            params = dict(cfg.get("params", {}))
+            # Include other keys as params too (flat structure)
+            for k, v in cfg.items():
+                if k not in ["type", "params"]:
+                    params[k] = v
+            return params
+
+        # Fee model
+        fee_cfg = config.get("fee_model", {"type": "zero"})
+        fee_type = fee_cfg.get("type", "zero").lower()
+        fee_params = get_params(fee_cfg)
+        
+        # Mapping aliases
+        if fee_type == "fixed":
+            fee_type = "per_share"
+        elif fee_type == "none":
+            fee_type = "zero"
+            
+        fee_map = {
+            "zero": ZeroFeeModel,
+            "constant": ConstantFeeModel,
+            "per_share": PerShareFeeModel,
+            "ib": IBFeeModel,
+            "futu": FutuFeeModel,
+        }
+        
+        # Handle param name differences (commission_per_share -> per_share)
+        if "commission_per_share" in fee_params and "per_share" not in fee_params:
+            fee_params["per_share"] = fee_params.pop("commission_per_share")
+        if "min_commission" in fee_params and "minimum" not in fee_params:
+            fee_params["minimum"] = fee_params.pop("min_commission")
+
+        fee_model = fee_map.get(fee_type, ZeroFeeModel)(**fee_params)
+
+        # Slippage model
+        slip_cfg = config.get("slippage_model", {"type": "zero"})
+        slip_type = slip_cfg.get("type", "zero").lower()
+        slip_params = get_params(slip_cfg)
+        
+        slip_map = {
+            "zero": ZeroSlippageModel,
+            "constant": ConstantSlippageModel,
+            "spread": SpreadSlippageModel,
+            "volume": VolumeSlippageModel,
+            "random": RandomSlippageModel,
+        }
+        slippage_model = slip_map.get(slip_type, ZeroSlippageModel)(**slip_params)
+
+        # Fill model
+        fill_cfg = config.get("fill_model", {"type": "immediate"})
+        fill_type = fill_cfg.get("type", "immediate").lower()
+        fill_params = get_params(fill_cfg)
+        
+        fill_map = {
+            "immediate": ImmediateFillModel,
+            "next_bar": NextBarFillModel,
+            "probabilistic": ProbabilisticFillModel,
+        }
+        fill_model = fill_map.get(fill_type, ImmediateFillModel)(**fill_params)
+
+        # Latency model
+        lat_cfg = config.get("latency_model", {"type": "zero"})
+        lat_type = lat_cfg.get("type", "zero").lower()
+        lat_params = get_params(lat_cfg)
+        
+        lat_map = {
+            "zero": ZeroLatencyModel,
+            "constant": ConstantLatencyModel,
+            "random": RandomLatencyModel,
+            "venue": VenueLatencyModel,
+        }
+        latency_model = lat_map.get(lat_type, ZeroLatencyModel)(**lat_params)
+
+        # Admin fee model
+        adm_cfg = config.get("admin_fee_model", {"type": "zero"})
+        adm_type = adm_cfg.get("type", "zero").lower()
+        adm_params = get_params(adm_cfg)
+
+        adm_map = {
+            "zero": ZeroAdminFeeModel,
+            "constant": ConstantAdminFeeModel,
+        }
+        admin_fee_model = adm_map.get(adm_type, ZeroAdminFeeModel)(**adm_params)
+
+        return cls(
+            fee_model=fee_model,
+            slippage_model=slippage_model,
+            fill_model=fill_model,
+            latency_model=latency_model,
+            admin_fee_model=admin_fee_model,
+            name=config.get("name", "custom"),
+            description=config.get("description", "Custom configured pack"),
+            config=config,
+        )
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert pack configuration to dictionary."""
@@ -71,6 +192,7 @@ class RealityModelPack:
             "slippage_model": type(self.slippage_model).__name__,
             "fill_model": type(self.fill_model).__name__,
             "latency_model": type(self.latency_model).__name__,
+            "admin_fee_model": type(self.admin_fee_model).__name__,
             "config": self.config,
         }
 

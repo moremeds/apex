@@ -446,6 +446,7 @@ if BACKTRADER_AVAILABLE:
         initial_cash: float = 100000.0,
         commission: float = 0.001,
         strategy_params: Optional[Dict[str, Any]] = None,
+        reality_pack: Optional[RealityModelPack] = None,
     ) -> Dict[str, Any]:
         """
         Run backtest using Backtrader engine with Apex strategy.
@@ -454,8 +455,9 @@ if BACKTRADER_AVAILABLE:
             apex_strategy_class: Apex strategy class to run.
             data_feeds: List of Backtrader data feeds.
             initial_cash: Starting capital.
-            commission: Commission rate.
+            commission: Commission rate (legacy, used if reality_pack is None).
             strategy_params: Parameters for Apex strategy.
+            reality_pack: Reality model pack for fees and slippage.
 
         Returns:
             Dictionary with results including analyzers.
@@ -475,7 +477,29 @@ if BACKTRADER_AVAILABLE:
 
         # Set broker settings
         cerebro.broker.setcash(initial_cash)
-        cerebro.broker.setcommission(commission=commission)
+        
+        if reality_pack:
+            # Wire fees (approximate using Backtrader's commission model)
+            # For stocks, we use per-share if available in fee model
+            # This is a simplification as Backtrader's model is less flexible
+            # than Apex's internal reality models.
+            comm = 0.0
+            if hasattr(reality_pack.fee_model, 'per_share'):
+                comm = reality_pack.fee_model.per_share
+            elif hasattr(reality_pack.fee_model, 'stock_per_share'):
+                comm = reality_pack.fee_model.stock_per_share
+            else:
+                # Fallback to commission parameter
+                comm = commission
+                
+            cerebro.broker.setcommission(commission=comm, margin=None, mult=1.0)
+            
+            # Wire slippage
+            if hasattr(reality_pack.slippage_model, 'slippage_bps'):
+                slippage_pct = reality_pack.slippage_model.slippage_bps / 10000.0
+                cerebro.broker.set_slippage_perc(slippage_pct)
+        else:
+            cerebro.broker.setcommission(commission=commission)
 
         # Add analyzers
         cerebro.addanalyzer(bt.analyzers.SharpeRatio, _name='sharpe')

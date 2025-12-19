@@ -10,9 +10,11 @@ Uses client_id = base + 0.
 """
 
 from __future__ import annotations
+from threading import Lock
 from typing import List, Dict, Optional, Callable
 from datetime import datetime
 from math import isnan
+import asyncio
 
 from ....utils.logging_setup import get_logger
 from ....domain.interfaces.event_bus import EventType
@@ -63,11 +65,12 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
         self._position_callback: Optional[Callable[[List[PositionSnapshot]], None]] = None
         self._position_subscription_active: bool = False
 
-        # Guard to prevent concurrent market data fetches
-        self._market_data_fetch_in_progress: bool = False
+        # Lock to prevent concurrent market data fetches
+        self._market_data_fetch_lock: asyncio.Lock = asyncio.Lock()
 
         # Cache for qualified contracts - keyed by position symbol
         self._qualified_contract_cache: Dict[str, object] = {}
+        self._contract_cache_lock = Lock()  # Protects cache from concurrent access
 
         # Account cache
         self._account_cache: Optional[AccountInfo] = None
@@ -429,22 +432,18 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
 
     async def fetch_market_data(self, positions: List[Position]) -> List[MarketData]:
         """Fetch market data for positions (legacy method)."""
-        import asyncio
-
         if not self.is_connected():
             raise ConnectionError("Not connected to IB")
 
         if not positions or not self._market_data_fetcher:
             return []
 
-        # Guard against concurrent fetches
-        if self._market_data_fetch_in_progress:
+        # Use lock to prevent concurrent fetches (try_lock returns immediately if locked)
+        if self._market_data_fetch_lock.locked():
             logger.debug("Market data fetch already in progress, returning cached data")
             return list(self._market_data_cache.values())
 
-        self._market_data_fetch_in_progress = True
-
-        try:
+        async with self._market_data_fetch_lock:
             from ib_async import Stock, Option
 
             # Separate positions into cached (already qualified) and new (need qualification)
@@ -455,8 +454,10 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
 
             for pos in positions:
                 # Check if we have a cached qualified contract
-                if pos.symbol in self._qualified_contract_cache:
-                    cached_qualified.append(self._qualified_contract_cache[pos.symbol])
+                with self._contract_cache_lock:
+                    cached_contract = self._qualified_contract_cache.get(pos.symbol)
+                if cached_contract is not None:
+                    cached_qualified.append(cached_contract)
                     cached_positions.append(pos)
                     continue
 
@@ -505,7 +506,8 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
                             newly_qualified.append(qualified_contract)
                             # Cache the qualified contract
                             symbol = new_positions[i].symbol
-                            self._qualified_contract_cache[symbol] = qualified_contract
+                            with self._contract_cache_lock:
+                                self._qualified_contract_cache[symbol] = qualified_contract
                             # Add to pos_map
                             pos_map[id(qualified_contract)] = new_positions[i]
 
@@ -545,8 +547,6 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
                 self._market_data_cache[md.symbol] = md
 
             return market_data_list
-        finally:
-            self._market_data_fetch_in_progress = False
 
     async def fetch_market_indicators(self, symbols: List[str]) -> Dict[str, MarketData]:
         """Fetch market indicators."""
@@ -576,10 +576,19 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
         market_data: Dict[str, MarketData] = {}
 
         try:
-            qualified = await self.ib.qualifyContractsAsync(*contracts)
+            qualified_raw = await self.ib.qualifyContractsAsync(*contracts)
+            # Filter None contracts and track which symbols succeeded
+            qualified_with_syms = [
+                (sym, c) for sym, c in zip(symbols, qualified_raw) if c is not None
+            ]
+            if not qualified_with_syms:
+                logger.warning("No contracts qualified for market indicators")
+                return market_data
+
+            valid_symbols, qualified = zip(*qualified_with_syms)
             tickers = await self.ib.reqTickersAsync(*qualified)
 
-            for sym, ticker in zip(symbols, tickers):
+            for sym, ticker in zip(valid_symbols, tickers):
                 try:
                     md = MarketData(
                         symbol=sym,

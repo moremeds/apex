@@ -10,8 +10,11 @@ from typing import Dict, List, Optional, Any, Callable, TYPE_CHECKING
 from datetime import datetime
 from dataclasses import dataclass, field
 import asyncio
+import time
+from threading import Lock
 
 from ...utils.logging_setup import get_logger
+from ...utils.timezone import age_seconds
 from ...domain.interfaces.market_data_provider import MarketDataProvider
 from ...models.position import Position
 from ...models.market_data import MarketData
@@ -51,10 +54,16 @@ class MarketDataManager(MarketDataProvider):
     secondary providers when the primary fails.
     """
 
+    # Default cache eviction settings (mirror MarketDataStore)
+    DEFAULT_MAX_SYMBOLS = 10000
+    DEFAULT_EVICTION_AGE_SECONDS = 86400  # 24 hours
+
     def __init__(
         self,
         health_monitor: Optional["HealthMonitor"] = None,
         event_bus: Optional["EventBusProtocol"] = None,
+        max_cache_symbols: int = DEFAULT_MAX_SYMBOLS,
+        cache_eviction_age_seconds: int = DEFAULT_EVICTION_AGE_SECONDS,
     ):
         """
         Initialize market data manager with empty provider list.
@@ -62,6 +71,8 @@ class MarketDataManager(MarketDataProvider):
         Args:
             health_monitor: Optional HealthMonitor for reporting provider health.
             event_bus: Optional EventBus for publishing streaming market data.
+            max_cache_symbols: Maximum symbols to cache before evicting oldest.
+            cache_eviction_age_seconds: Evict entries older than this age.
         """
         self._providers: Dict[str, MarketDataProvider] = {}
         self._provider_priorities: Dict[str, int] = {}  # name -> priority (lower = higher)
@@ -72,6 +83,17 @@ class MarketDataManager(MarketDataProvider):
         self._event_bus = event_bus
         self._streaming_callback: Optional[Callable[[str, MarketData], None]] = None
         self._latest_data: Dict[str, MarketData] = {}
+
+        # Thread-safety: protect _latest_data access from callback threads
+        self._data_lock = Lock()
+
+        # Store loop reference for cross-thread event bus access
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+
+        # Cache eviction settings (mirror MarketDataStore behavior)
+        self._max_cache_symbols = max_cache_symbols
+        self._cache_eviction_age_seconds = cache_eviction_age_seconds
+        self._last_cache_eviction_time = 0.0
 
     def register_provider(
         self,
@@ -124,6 +146,9 @@ class MarketDataManager(MarketDataProvider):
         Attempts to connect to each provider independently.
         Failures are logged but don't prevent other providers from connecting.
         """
+        # Capture the event loop for cross-thread operations
+        self._loop = asyncio.get_running_loop()
+
         if not self._providers:
             logger.warning("No market data providers registered")
             return
@@ -153,8 +178,9 @@ class MarketDataManager(MarketDataProvider):
                 self._status[name].last_updated = datetime.now()
                 self._update_health(name, "HEALTHY", "Connected (shared)")
 
-                # Set up streaming callback if provider supports it
-                if provider.supports_streaming() and self._streaming_callback:
+                # Always wire provider streaming → MarketDataManager._on_provider_data.
+                # _on_provider_data publishes to EventBus (and optionally forwards to _streaming_callback).
+                if provider.supports_streaming():
                     provider.set_streaming_callback(
                         lambda sym, md, n=name: self._on_provider_data(n, sym, md)
                     )
@@ -170,8 +196,9 @@ class MarketDataManager(MarketDataProvider):
                 logger.info(f"✓ Connected to market data provider: {name}")
                 self._update_health(name, "HEALTHY", "Connected")
 
-                # Set up streaming callback if provider supports it
-                if provider.supports_streaming() and self._streaming_callback:
+                # Always wire provider streaming → MarketDataManager._on_provider_data.
+                # _on_provider_data publishes to EventBus (and optionally forwards to _streaming_callback).
+                if provider.supports_streaming():
                     provider.set_streaming_callback(
                         lambda sym, md, n=name: self._on_provider_data(n, sym, md)
                     )
@@ -361,10 +388,11 @@ class MarketDataManager(MarketDataProvider):
                     logger.error(f"Failed to unsubscribe via {name}: {e}")
 
     def get_latest(self, symbol: str) -> Optional[MarketData]:
-        """Get latest cached market data for a symbol."""
-        # First check our aggregated cache
-        if symbol in self._latest_data:
-            return self._latest_data[symbol]
+        """Get latest cached market data for a symbol (thread-safe)."""
+        # First check our aggregated cache (thread-safe read)
+        with self._data_lock:
+            if symbol in self._latest_data:
+                return self._latest_data[symbol]
 
         # Then check each provider
         for name in self._priority:
@@ -374,7 +402,8 @@ class MarketDataManager(MarketDataProvider):
             provider = self._providers[name]
             md = provider.get_latest(symbol)
             if md:
-                self._latest_data[symbol] = md
+                with self._data_lock:
+                    self._latest_data[symbol] = md
                 return md
 
         return None
@@ -391,15 +420,13 @@ class MarketDataManager(MarketDataProvider):
         """
         self._streaming_callback = callback
 
-        # Update callbacks on all streaming providers
+        # Provider callbacks should always feed into _on_provider_data so EventBus publishing
+        # keeps working even when the optional external callback is unset.
         for name, provider in self._providers.items():
             if provider.supports_streaming() and self._status[name].connected:
-                if callback:
-                    provider.set_streaming_callback(
-                        lambda sym, md, n=name: self._on_provider_data(n, sym, md)
-                    )
-                else:
-                    provider.set_streaming_callback(None)
+                provider.set_streaming_callback(
+                    lambda sym, md, n=name: self._on_provider_data(n, sym, md)
+                )
 
     def enable_streaming(self) -> None:
         """Enable streaming mode on all providers that support it."""
@@ -430,26 +457,43 @@ class MarketDataManager(MarketDataProvider):
 
     def _on_provider_data(self, provider_name: str, symbol: str, md: MarketData) -> None:
         """
-        Handle streaming data from a provider.
+        Handle streaming data from a provider (called from callback threads).
 
         This is the SINGLE path for streaming market data (Phase 4 optimization):
         IB → MarketDataManager → EventBus (skip Orchestrator hop)
-        """
-        # Update cache
-        self._latest_data[symbol] = md
 
-        # Publish to EventBus (single streaming path - replaces IbAdapter direct publish)
+        Thread-safety: This method is called from provider callback threads.
+        We use a lock for _latest_data and rely on the thread-safe event bus.
+        """
+        # Thread-safe cache update with periodic eviction
+        with self._data_lock:
+            self._latest_data[symbol] = md
+            self._maybe_evict_cache()
+
+        # Publish to EventBus (thread-safe after P0-001/P0-002 fixes)
         if self._event_bus:
-            # Lazy import to avoid circular dependency
+            # Lazy imports to avoid circular dependency
             from ...domain.interfaces.event_bus import EventType
-            self._event_bus.publish(EventType.MARKET_DATA_TICK, {
-                "symbol": symbol,
-                "data": md,
-                "source": provider_name,
-                "timestamp": datetime.now(),
-            })
+            from ...domain.events.domain_events import MarketDataTickEvent
+
+            # Create typed event (MAJ-018: no dict payloads)
+            event = MarketDataTickEvent(
+                symbol=symbol,
+                source=provider_name,
+                bid=md.bid,
+                ask=md.ask,
+                last=md.last,
+                mid=md.effective_mid(),
+                delta=md.delta,
+                gamma=md.gamma,
+                vega=md.vega,
+                theta=md.theta,
+                iv=md.iv,
+            )
+            self._event_bus.publish(EventType.MARKET_DATA_TICK, event)
 
         # Forward to callback (for stores/orchestrator)
+        # Note: Callback should be quick to avoid blocking provider thread
         if self._streaming_callback:
             self._streaming_callback(symbol, md)
 
@@ -548,3 +592,43 @@ class MarketDataManager(MarketDataProvider):
             name for name, provider in self._providers.items()
             if provider.supports_streaming() and self._status[name].connected
         ]
+
+    def _maybe_evict_cache(self) -> None:
+        """
+        Periodically evict stale entries from _latest_data cache.
+
+        Called from _handle_streaming_data. Mirrors MarketDataStore eviction
+        to prevent unbounded memory growth.
+
+        Must be called with _data_lock held.
+        """
+        now = time.time()
+        # Check every 60 seconds to avoid overhead
+        if now - self._last_cache_eviction_time < 60:
+            return
+
+        self._last_cache_eviction_time = now
+
+        # Evict by age first
+        stale_symbols = []
+        for symbol, md in self._latest_data.items():
+            if md.timestamp and age_seconds(md.timestamp) > self._cache_eviction_age_seconds:
+                stale_symbols.append(symbol)
+
+        for symbol in stale_symbols:
+            del self._latest_data[symbol]
+
+        if stale_symbols:
+            logger.debug(f"Evicted {len(stale_symbols)} stale entries from MarketDataManager cache")
+
+        # Evict by count if still over limit (oldest first)
+        if len(self._latest_data) > self._max_cache_symbols:
+            # Sort by timestamp and remove oldest
+            sorted_items = sorted(
+                self._latest_data.items(),
+                key=lambda x: x[1].timestamp if x[1].timestamp else datetime.min
+            )
+            excess = len(self._latest_data) - self._max_cache_symbols
+            for symbol, _ in sorted_items[:excess]:
+                del self._latest_data[symbol]
+            logger.debug(f"Evicted {excess} excess entries from MarketDataManager cache")

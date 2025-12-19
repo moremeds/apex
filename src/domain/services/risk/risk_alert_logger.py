@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import logging.handlers
+from queue import Queue
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Any, Optional
@@ -148,7 +149,11 @@ class RiskAlertLogger:
         # Track current date for log file naming
         self._current_date = datetime.now().strftime("%Y-%m-%d")
 
-        # Set up dedicated logger
+        # Async logging: QueueListener handles writing in background thread
+        self._log_queue: Queue = Queue(-1)  # Unbounded queue
+        self._queue_listener: Optional[logging.handlers.QueueListener] = None
+
+        # Set up dedicated logger with async queue
         self._logger = self._setup_logger()
 
         # Cache for market indicators (updated each cycle)
@@ -158,7 +163,13 @@ class RiskAlertLogger:
         logger.info(f"RiskAlertLogger initialized: {self.log_dir}/{log_filename}")
 
     def _setup_logger(self) -> logging.Logger:
-        """Set up dedicated file logger for risk alerts with date-based naming."""
+        """
+        Set up dedicated file logger for risk alerts with async queue.
+
+        Uses QueueHandler + QueueListener pattern to prevent file I/O
+        from blocking the event loop. Log records are queued immediately
+        and written to disk in a background thread.
+        """
         alert_logger = logging.getLogger(f"apex.risk_alerts.{self.env}")
         alert_logger.setLevel(logging.INFO)
         alert_logger.handlers.clear()
@@ -181,9 +192,32 @@ class RiskAlertLogger:
 
         # Simple formatter - we'll write JSON directly
         file_handler.setFormatter(logging.Formatter('%(message)s'))
-        alert_logger.addHandler(file_handler)
+
+        # Async logging setup: QueueHandler -> queue -> QueueListener -> file_handler
+        # This ensures log calls return immediately without blocking on file I/O
+        queue_handler = logging.handlers.QueueHandler(self._log_queue)
+        alert_logger.addHandler(queue_handler)
+
+        # Start QueueListener in background thread to process queue
+        self._queue_listener = logging.handlers.QueueListener(
+            self._log_queue,
+            file_handler,
+            respect_handler_level=True
+        )
+        self._queue_listener.start()
 
         return alert_logger
+
+    def stop(self) -> None:
+        """
+        Stop the async logging queue listener.
+
+        Should be called during shutdown to ensure all logs are flushed.
+        """
+        if self._queue_listener:
+            self._queue_listener.stop()
+            self._queue_listener = None
+            logger.debug("RiskAlertLogger queue listener stopped")
 
     def _log_namer(self, default_name: str) -> str:
         """

@@ -8,6 +8,7 @@ Supports event-driven streaming updates and fallback to snapshot data.
 from __future__ import annotations
 from typing import List, Dict, Optional, Tuple, Callable, TYPE_CHECKING
 from math import isnan
+from threading import Lock
 import asyncio
 
 from ...models.position import Position, AssetType
@@ -54,11 +55,39 @@ class MarketDataFetcher:
         self._active_tickers: Dict[str, object] = {}  # symbol -> ticker
         self._ticker_to_symbol: Dict[int, str] = {}  # id(ticker) -> symbol for O(1) streaming lookup
         self._ticker_positions: Dict[str, Position] = {}  # symbol -> Position mapping
+        self._ticker_lock = Lock()  # Protects all ticker dicts from cross-thread access
         self.data_timeout = data_timeout
         self.option_data_timeout = option_data_timeout
         self.poll_interval = poll_interval
         self._on_price_update = on_price_update
         self._streaming_enabled = False
+
+    def unsubscribe_symbol(self, symbol: str) -> None:
+        """Unsubscribe from market data for a single symbol and clean up maps."""
+        with self._ticker_lock:
+            ticker = self._active_tickers.pop(symbol, None)
+            self._ticker_positions.pop(symbol, None)
+            if ticker:
+                self._ticker_to_symbol.pop(id(ticker), None)
+
+        if ticker:
+            try:
+                self.ib.cancelMktData(ticker.contract)
+            except Exception as e:
+                logger.warning(f"Error cancelling market data for {symbol}: {e}")
+
+    def prune_stale_subscriptions(self, current_symbols: set[str]) -> int:
+        """Remove subscriptions for symbols no longer in the portfolio."""
+        with self._ticker_lock:
+            stale_symbols = set(self._active_tickers.keys()) - current_symbols
+
+        for symbol in stale_symbols:
+            self.unsubscribe_symbol(symbol)
+
+        if stale_symbols:
+            logger.debug(f"Pruned {len(stale_symbols)} stale subscriptions: {stale_symbols}")
+
+        return len(stale_symbols)
 
     async def fetch_market_data(
         self,
@@ -79,6 +108,10 @@ class MarketDataFetcher:
         """
         if not qualified_contracts:
             return []
+
+        # Prune subscriptions for symbols no longer in portfolio
+        current_symbols = {p.symbol for p in positions}
+        self.prune_stale_subscriptions(current_symbols)
 
         # Separate stocks and options
         stock_contracts = []
@@ -144,19 +177,20 @@ class MarketDataFetcher:
             new_tickers = []  # Only new subscriptions need waiting
             for contract, pos in contract_pos_pairs:
                 try:
-                    # Store position mapping for streaming callbacks
-                    self._ticker_positions[pos.symbol] = pos
+                    with self._ticker_lock:
+                        # Store position mapping for streaming callbacks
+                        self._ticker_positions[pos.symbol] = pos
 
-                    # Check if already subscribed
-                    if pos.symbol in self._active_tickers:
-                        ticker = self._active_tickers[pos.symbol]
-                        # Already subscribed - no need to wait again
-                    else:
-                        # Subscribe to streaming data (no special generic ticks for stocks)
-                        ticker = self.ib.reqMktData(contract, '', False, False)
-                        self._active_tickers[pos.symbol] = ticker
-                        self._ticker_to_symbol[id(ticker)] = pos.symbol
-                        new_tickers.append(ticker)  # Track new subscriptions
+                        # Check if already subscribed
+                        if pos.symbol in self._active_tickers:
+                            ticker = self._active_tickers[pos.symbol]
+                            # Already subscribed - no need to wait again
+                        else:
+                            # Subscribe to streaming data (no special generic ticks for stocks)
+                            ticker = self.ib.reqMktData(contract, '', False, False)
+                            self._active_tickers[pos.symbol] = ticker
+                            self._ticker_to_symbol[id(ticker)] = pos.symbol
+                            new_tickers.append(ticker)  # Track new subscriptions
 
                     tickers_with_pos.append((ticker, pos))
 
@@ -369,16 +403,20 @@ class MarketDataFetcher:
         try:
             requested_symbols = {pos.symbol for _, pos in contract_pos_pairs}
 
-            # Cancel subscriptions that are no longer needed
-            for symbol, old_ticker in list(self._active_tickers.items()):
-                if symbol not in requested_symbols:
-                    try:
-                        self.ib.cancelMktData(old_ticker.contract)
-                    except Exception as e:
-                        logger.debug(f"Error cancelling old subscription for {symbol}: {e}")
-                    # Clean up both forward and reverse lookups
-                    self._ticker_to_symbol.pop(id(old_ticker), None)
-                    self._active_tickers.pop(symbol, None)
+            # Cancel subscriptions that are no longer needed (collect under lock, cancel outside)
+            to_cancel = []
+            with self._ticker_lock:
+                for symbol, old_ticker in list(self._active_tickers.items()):
+                    if symbol not in requested_symbols:
+                        to_cancel.append((symbol, old_ticker))
+                        self._ticker_to_symbol.pop(id(old_ticker), None)
+                        self._active_tickers.pop(symbol, None)
+
+            for symbol, old_ticker in to_cancel:
+                try:
+                    self.ib.cancelMktData(old_ticker.contract)
+                except Exception as e:
+                    logger.debug(f"Error cancelling old subscription for {symbol}: {e}")
 
             # Request streaming data with Greeks (generic tick 106)
             tickers = []
@@ -386,28 +424,29 @@ class MarketDataFetcher:
             for i, contract in enumerate(contracts):
                 _, pos = contract_pos_pairs[i]
 
-                # Store position mapping for streaming callbacks
-                self._ticker_positions[pos.symbol] = pos
+                with self._ticker_lock:
+                    # Store position mapping for streaming callbacks
+                    self._ticker_positions[pos.symbol] = pos
 
-                # Generic tick type 106 enables option computations (Greeks + IV)
-                # This requests: delta, gamma, vega, theta, implied volatility, and live prices
-                existing = self._active_tickers.get(pos.symbol)
-                if existing:
-                    tickers.append(existing)
-                    # Already subscribed - no need to wait
-                else:
-                    ticker = self.ib.reqMktData(contract, '106', False, False)
-                    tickers.append(ticker)
-                    new_tickers.append(ticker)  # Track new subscriptions
-                    self._active_tickers[pos.symbol] = ticker
-                    self._ticker_to_symbol[id(ticker)] = pos.symbol  # Reverse lookup for O(1) streaming
-                    logger.debug(f"Requested streaming data with Greeks for option {i+1}/{len(contracts)}")
+                    # Generic tick type 106 enables option computations (Greeks + IV)
+                    existing = self._active_tickers.get(pos.symbol)
+                    if existing:
+                        tickers.append(existing)
+                    else:
+                        ticker = self.ib.reqMktData(contract, '106', False, False)
+                        tickers.append(ticker)
+                        new_tickers.append(ticker)
+                        self._active_tickers[pos.symbol] = ticker
+                        self._ticker_to_symbol[id(ticker)] = pos.symbol
 
             # Wait ONLY for NEW subscriptions (skip if all cached)
             # Use longer timeout for options since Greeks take time to populate
+            populated_count = len(tickers)  # Assume all populated for cached path
             if new_tickers:
                 logger.debug(f"Waiting for {len(new_tickers)} new option subscriptions (timeout={self.option_data_timeout}s)...")
                 populated_count = await self._wait_for_data_population(new_tickers, timeout=self.option_data_timeout)
+                # Adjust count to include cached tickers
+                populated_count += len(tickers) - len(new_tickers)
                 logger.info(f"New option subscriptions populated: {populated_count}/{len(new_tickers)}")
             elif tickers:
                 logger.debug(f"All {len(tickers)} options using cached subscriptions (no wait)")
@@ -521,9 +560,6 @@ class MarketDataFetcher:
         # Extract IV first (available directly on ticker)
         if hasattr(ticker, 'impliedVolatility') and ticker.impliedVolatility and not isnan(ticker.impliedVolatility):
             md.iv = float(ticker.impliedVolatility)
-            logger.debug(f"✓ IV for {pos.symbol}: {md.iv:.3f} ({md.iv*100:.1f}%)")
-        else:
-            logger.debug(f"No IV available for {pos.symbol}")
 
         # Extract Greeks from modelGreeks
         if hasattr(ticker, 'modelGreeks') and ticker.modelGreeks:
@@ -537,14 +573,6 @@ class MarketDataFetcher:
             # Extract underlying price (critical for delta dollars calculation)
             if hasattr(greeks, 'undPrice') and greeks.undPrice and not isnan(greeks.undPrice):
                 md.underlying_price = float(greeks.undPrice)
-                logger.debug(f"✓ Underlying price for {pos.underlying}: ${md.underlying_price:.2f}")
-
-            if md.delta:
-                logger.debug(f"✓ Greeks for {pos.symbol}: Δ={md.delta:.3f}, γ={md.gamma:.4f}, ν={md.vega:.2f}, θ={md.theta:.2f}")
-            else:
-                logger.debug(f"Greeks for {pos.symbol}: values are None")
-        else:
-            logger.debug(f"No modelGreeks available for {pos.symbol}")
 
     def enable_streaming(self) -> None:
         """
@@ -580,16 +608,16 @@ class MarketDataFetcher:
 
         for ticker in tickers:
             try:
-                # O(1) lookup using ticker id (instead of O(n) linear search)
-                symbol = self._ticker_to_symbol.get(id(ticker))
-                if not symbol:
-                    continue
+                # O(1) lookup using ticker id (protected by lock)
+                with self._ticker_lock:
+                    symbol = self._ticker_to_symbol.get(id(ticker))
+                    if not symbol:
+                        continue
+                    pos = self._ticker_positions.get(symbol)
+                    if not pos:
+                        continue
 
-                pos = self._ticker_positions.get(symbol)
-                if not pos:
-                    continue
-
-                # Extract updated market data
+                # Extract updated market data (outside lock - no shared state mutation)
                 md = self._extract_market_data(ticker, pos)
 
                 # Extract Greeks if available (for options)
@@ -608,13 +636,14 @@ class MarketDataFetcher:
         """Cancel all active market data subscriptions."""
         self.disable_streaming()
 
-        for symbol, ticker in self._active_tickers.items():
+        with self._ticker_lock:
+            tickers_to_cancel = list(self._active_tickers.items())
+            self._active_tickers.clear()
+            self._ticker_to_symbol.clear()
+            self._ticker_positions.clear()
+
+        for symbol, ticker in tickers_to_cancel:
             try:
                 self.ib.cancelMktData(ticker.contract)
-                logger.debug(f"Cancelled market data for {symbol}")
             except Exception as e:
                 logger.warning(f"Error cancelling market data for {symbol}: {e}")
-
-        self._active_tickers.clear()
-        self._ticker_to_symbol.clear()
-        self._ticker_positions.clear()

@@ -109,13 +109,20 @@ class PriorityEventBus:
             "errors": 0,
             "fast_high_water": 0,  # Peak fast queue depth
             "slow_high_water": 0,  # Peak slow pending depth
+            "heavy_callbacks_offloaded": 0,  # Callbacks offloaded to thread
         }
+
+        # Heavy callback protection: callbacks registered here run in thread pool
+        self._heavy_callbacks: set[Callable] = set()
+        self._heavy_semaphore: Optional[asyncio.Semaphore] = None
+        self._max_concurrent_heavy: int = 4  # Max concurrent heavy callbacks
 
     def publish(self, event_type: EventType, payload: Any, source: str = "") -> None:
         """
         Publish event to appropriate lane based on priority.
 
         Thread-safe, can be called from any context.
+        Uses call_soon_threadsafe when called from non-loop threads.
 
         Args:
             event_type: Type of event
@@ -149,7 +156,33 @@ class PriorityEventBus:
             self._dispatch_sync(envelope)
             return
 
-        # Route to appropriate lane
+        # Determine if we're on the event loop thread
+        try:
+            running_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            running_loop = None
+
+        # Route to appropriate lane with thread-safety
+        if running_loop is self._loop:
+            # On loop thread: enqueue directly
+            self._enqueue_to_lane(envelope, priority)
+        else:
+            # Cross-thread: use call_soon_threadsafe
+            if self._loop is not None:
+                self._loop.call_soon_threadsafe(
+                    self._enqueue_to_lane, envelope, priority
+                )
+            else:
+                # Fallback if loop not available
+                self._dispatch_sync(envelope)
+
+    def _enqueue_to_lane(self, envelope: PriorityEventEnvelope, priority: EventPriority) -> None:
+        """
+        Enqueue to appropriate lane (must be called from loop thread).
+
+        This method is called either directly from the loop thread,
+        or via call_soon_threadsafe from other threads.
+        """
         if priority < FAST_LANE_THRESHOLD:
             self._enqueue_fast(envelope)
         else:
@@ -199,15 +232,58 @@ class PriorityEventBus:
 
     def _apply_drop_policy(self) -> None:
         """Apply drop policy when slow queue is overloaded."""
-        # Find and remove droppable events in priority order
-        for event_type, _ in sorted(DROPPABLE_EVENTS.items(), key=lambda x: x[1]):
-            prefix = event_type.value
-            drop_keys = [k for k in self._pending_slow if k.startswith(prefix)]
-            for key in drop_keys:
-                if len(self._pending_slow) <= self._max_pending_slow:
-                    return
-                del self._pending_slow[key]
-                self._stats["dropped"] += 1
+        # Calculate how many to drop
+        excess = len(self._pending_slow) - self._max_pending_slow
+        if excess <= 0:
+            return
+
+        # Optimization: Pre-compute prefixes to drop in priority order
+        # Sort droppable events by priority (lower value = higher priority, but here we want to drop low priority first)
+        # Wait, DROPPABLE_EVENTS values are: DASHBOARD_UPDATE=1 (First to drop).
+        # So we want to drop keys starting with prefixes having lower sort order in DROPPABLE_EVENTS.
+        
+        # Build a list of prefixes to drop in order
+        drop_order = [e.value for e, _ in sorted(DROPPABLE_EVENTS.items(), key=lambda x: x[1])]
+        
+        # We need to drop 'excess' items.
+        # Strategy: Iterate through drop_order (types), and for each type, scan keys.
+        # This IS O(N*M).
+        
+        # To make it O(N):
+        # Iterate keys once, categorize them into "buckets" by type.
+        # Then empty buckets in drop_order.
+        
+        to_drop = []
+        buckets = defaultdict(list)
+        
+        # Scan once - O(N)
+        for key in self._pending_slow:
+            # key format is "event_type:symbol"
+            type_prefix = key.split(':')[0]
+            buckets[type_prefix].append(key)
+            
+        # Select keys to drop based on priority - O(M)
+        for prefix in drop_order:
+            keys = buckets.get(prefix, [])
+            if not keys:
+                continue
+                
+            # Take as many as needed from this bucket
+            count = len(keys)
+            if count >= excess:
+                to_drop.extend(keys[:excess])
+                excess = 0
+                break
+            else:
+                to_drop.extend(keys)
+                excess -= count
+        
+        # If we still have excess (non-droppable types filling queue?), 
+        # we might need to force drop oldest or just warn.
+        # For now, just execute the drops.
+        for key in to_drop:
+            del self._pending_slow[key]
+            self._stats["dropped"] += 1
 
     async def start(self) -> None:
         """Start both dispatch loops."""
@@ -215,9 +291,11 @@ class PriorityEventBus:
             logger.warning("PriorityEventBus already running")
             return
 
-        self._loop = asyncio.get_event_loop()
+        # Use get_running_loop() for Python 3.10+ compatibility
+        self._loop = asyncio.get_running_loop()
         self._fast_queue = asyncio.PriorityQueue(maxsize=self._fast_lane_max_size)
         self._slow_queue = asyncio.Queue(maxsize=self._slow_lane_max_size)
+        self._heavy_semaphore = asyncio.Semaphore(self._max_concurrent_heavy)
         self._running = True
 
         self._fast_task = asyncio.create_task(self._fast_dispatch_loop())
@@ -287,13 +365,13 @@ class PriorityEventBus:
         """
         while self._running:
             try:
-                burst_start = time.time()
+                burst_start = time.perf_counter()
                 burst_count = 0
 
                 # Process fast events with budget/timeslice limit
                 while not self._fast_queue.empty():
                     # Check budget limits
-                    elapsed_ms = (time.time() - burst_start) * 1000
+                    elapsed_ms = (time.perf_counter() - burst_start) * 1000
                     if burst_count >= self._fast_budget or elapsed_ms >= self._fast_time_slice_ms:
                         # Yield to slow lane
                         break
@@ -308,7 +386,7 @@ class PriorityEventBus:
                         break
 
                 # Allow slow lane to run (even when fast events pending)
-                await asyncio.sleep(0.001)  # 1ms yield
+                await asyncio.sleep(0)  # yield without latency tax
 
             except asyncio.CancelledError:
                 break
@@ -319,25 +397,15 @@ class PriorityEventBus:
 
     async def _slow_dispatch_loop(self) -> None:
         """
-        Slow lane dispatch - debounced, runs on timer even when fast lane busy.
+        Slow lane dispatch - guaranteed minimum interval regardless of fast lane.
 
         Ensures slow lane runs on a timer even when fast lane is busy.
         This prevents dashboard/health from appearing dead.
         """
-        last_slow_dispatch = time.time()
-
         while self._running:
             try:
-                # Wait for debounce window
-                await asyncio.sleep(self._slow_lane_debounce_ms / 1000)
-
-                # Run slow lane periodically regardless of fast lane state
-                time_since_last = (time.time() - last_slow_dispatch) * 1000
-
-                # Skip only if within min interval AND fast queue is busy
-                if time_since_last < self._slow_lane_min_interval_ms:
-                    if self._fast_queue and not self._fast_queue.empty():
-                        continue
+                # Wait for minimum interval (guaranteed processing)
+                await asyncio.sleep(self._slow_lane_min_interval_ms / 1000)
 
                 # Flush pending slow events (coalesce by event_type + symbol)
                 with self._lock:
@@ -349,8 +417,6 @@ class PriorityEventBus:
                     with self._lock:
                         self._stats["slow_dispatched"] += 1
 
-                last_slow_dispatch = time.time()
-
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -359,14 +425,23 @@ class PriorityEventBus:
                 logger.error(f"Slow dispatch error: {e}", exc_info=True)
 
     async def _dispatch(self, envelope: PriorityEventEnvelope) -> None:
-        """Dispatch to all subscribers."""
+        """
+        Dispatch to all subscribers.
+
+        Heavy callbacks (registered via register_heavy_callback) are offloaded
+        to a thread pool to prevent blocking the event loop.
+        """
         event_type = envelope.event_type
         payload = envelope.payload
 
         # Sync subscribers
         for cb in self._subscribers.get(event_type, []):
             try:
-                cb(payload)
+                if cb in self._heavy_callbacks:
+                    # Offload heavy callback to thread pool (fire-and-forget with semaphore)
+                    asyncio.create_task(self._run_heavy_callback(cb, payload))
+                else:
+                    cb(payload)
             except Exception as e:
                 with self._lock:
                     self._stats["errors"] += 1
@@ -382,6 +457,18 @@ class PriorityEventBus:
                 with self._lock:
                     self._stats["errors"] += 1
                 logger.error(f"Async subscriber error for {event_type.value}: {e}")
+
+    async def _run_heavy_callback(self, cb: Callable, payload: Any) -> None:
+        """Run a heavy callback in thread pool with semaphore protection."""
+        async with self._heavy_semaphore:
+            try:
+                await asyncio.to_thread(cb, payload)
+                with self._lock:
+                    self._stats["heavy_callbacks_offloaded"] += 1
+            except Exception as e:
+                with self._lock:
+                    self._stats["errors"] += 1
+                logger.error(f"Heavy callback error: {e}")
 
     def _dispatch_sync(self, envelope: PriorityEventEnvelope) -> None:
         """Sync dispatch fallback (when not running)."""
@@ -412,6 +499,32 @@ class PriorityEventBus:
             if callback in self._async_subscribers.get(event_type, []):
                 self._async_subscribers[event_type].remove(callback)
                 logger.debug(f"Async unsubscribed from {event_type.value}")
+            # Also remove from heavy callbacks if registered
+            self._heavy_callbacks.discard(callback)
+
+    def register_heavy_callback(self, callback: Callable) -> None:
+        """
+        Register a callback as "heavy" (will be offloaded to thread pool).
+
+        Heavy callbacks are those that may take >1ms to execute, such as:
+        - File I/O (logging, persistence)
+        - Database writes
+        - Complex computations
+        - External API calls
+
+        These will be run in a thread pool to prevent blocking market data processing.
+
+        Args:
+            callback: The callback function to mark as heavy
+        """
+        with self._lock:
+            self._heavy_callbacks.add(callback)
+        logger.debug(f"Registered heavy callback: {callback.__name__ if hasattr(callback, '__name__') else callback}")
+
+    def unregister_heavy_callback(self, callback: Callable) -> None:
+        """Unregister a callback from the heavy callback set."""
+        with self._lock:
+            self._heavy_callbacks.discard(callback)
 
     def get_stats(self) -> Dict[str, Any]:
         """Get bus statistics."""

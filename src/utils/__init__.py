@@ -26,6 +26,13 @@ from .perf_logger import (
     log_timing_async,
     timed,
 )
+from .result import (
+    Result,
+    Ok,
+    Err,
+    try_result,
+    collect_results,
+)
 
 __all__ = [
     # Logging setup
@@ -51,4 +58,10 @@ __all__ = [
     "log_timing",
     "log_timing_async",
     "timed",
+    # Result type
+    "Result",
+    "Ok",
+    "Err",
+    "try_result",
+    "collect_results",
 ]

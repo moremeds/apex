@@ -33,7 +33,7 @@ import time
 import logging
 
 from ...domain.clock import SimulatedClock
-from ...domain.strategy.base import Strategy, StrategyContext
+from ...domain.strategy.base import Strategy, StrategyContext, StrategyProtocol
 from ...domain.strategy.scheduler import SimulatedScheduler
 from ...domain.strategy.registry import get_strategy_class
 from ...domain.backtest.backtest_result import (
@@ -52,6 +52,8 @@ from .data_feeds import DataFeed, CsvDataFeed
 from .trade_tracker import TradeTracker
 
 from ...domain.reality import RealityModelPack, get_preset_pack
+from ...domain.strategy.cost_estimator import CostEstimator, SimpleFeeSchedule
+from ...domain.strategy.risk_gate import RiskGate
 
 logger = logging.getLogger(__name__)
 
@@ -94,10 +96,22 @@ class BacktestConfig:
     @classmethod
     def from_spec(cls, spec: BacktestSpec) -> "BacktestConfig":
         """Create config from BacktestSpec."""
-        # Check if spec has reality pack settings
+        # Check for reality pack settings
+        reality_pack = None
         reality_pack_name = None
-        if hasattr(spec.execution, 'reality_pack') and spec.execution.reality_pack:
-            reality_pack_name = spec.execution.reality_pack
+
+        # 1. Prefer explicit reality_model config if provided
+        if spec.reality_model:
+            try:
+                reality_pack = RealityModelPack.from_config(spec.reality_model)
+                logger.info(f"Loaded explicit reality_model from spec: {reality_pack.name}")
+            except Exception as e:
+                logger.error(f"Failed to load reality_model from spec: {e}")
+
+        # 2. Fallback to preset reality_pack name if no explicit config
+        if reality_pack is None:
+            if hasattr(spec.execution, 'reality_pack') and spec.execution.reality_pack:
+                reality_pack_name = spec.execution.reality_pack
 
         return cls(
             start_date=spec.data.start_date or date(2024, 1, 1),
@@ -107,6 +121,7 @@ class BacktestConfig:
             bar_size=spec.data.bar_size,
             strategy_name=spec.strategy.name,
             strategy_params=spec.strategy.params,
+            reality_pack=reality_pack,
             reality_pack_name=reality_pack_name,
         )
 
@@ -153,6 +168,10 @@ class BacktestEngine:
         if reality_pack:
             logger.info(f"Using reality pack: {reality_pack.name}")
 
+        # Initialize cost estimator and risk gate for strategy context
+        cost_estimator = self._initialize_cost_estimator(reality_pack)
+        risk_gate = RiskGate(config=self._config.strategy_params.get("risk_config", {}))
+
         # Initialize context
         self._context = StrategyContext(
             clock=self._clock,
@@ -160,6 +179,8 @@ class BacktestEngine:
             positions={},
             account=None,
             execution=self._execution,
+            cost_estimator=cost_estimator,
+            risk_gate=risk_gate,
         )
 
         # Components to be set
@@ -168,9 +189,12 @@ class BacktestEngine:
 
         # Tracking
         self._cash = config.initial_capital
-        self._equity_curve: List[Dict[str, Any]] = []
+        self._total_admin_fees = 0.0
+        self._equity_curve: List[Dict[str, Any]] = []  # Daily equity only (memory bounded)
         self._trades: List[TradeRecord] = []
         self._running = False
+        self._last_equity_date: Optional[str] = None  # Track last recorded date
+        self._current_day_equity: Optional[Dict[str, Any]] = None  # Buffer for end-of-day
 
         # Trade tracker for entry/exit matching
         self._trade_tracker = TradeTracker(matching_method="FIFO")
@@ -231,6 +255,19 @@ class BacktestEngine:
         self._data_feed = data_feed
         logger.info(f"Data feed set: {data_feed.__class__.__name__}")
 
+    def _initialize_cost_estimator(self, reality_pack: Optional[RealityModelPack]) -> CostEstimator:
+        """Initialize cost estimator based on reality pack."""
+        if not reality_pack:
+            return CostEstimator(
+                slippage_bps=self._config.slippage_bps,
+            )
+            
+        # Try to map fee model to fee schedule for estimator
+        # For now, use simple mapping
+        return CostEstimator(
+            slippage_bps=getattr(reality_pack.slippage_model, 'slippage_bps', 5.0),
+        )
+
     async def run(self) -> BacktestResult:
         """
         Run the backtest.
@@ -253,6 +290,8 @@ class BacktestEngine:
         self._cash = self._config.initial_capital
         self._equity_curve.clear()
         self._trades.clear()
+        self._last_equity_date = None
+        self._current_day_equity = None
 
         # Load data
         await self._data_feed.load()
@@ -297,15 +336,31 @@ class BacktestEngine:
             # Trigger bar close scheduled actions
             self._scheduler.trigger_bar_close_actions()
 
-            # Record equity
+            # Record equity (daily aggregation to bound memory)
+            current_date = bar.timestamp.date().isoformat()
+
+            # Detect day change
+            if self._last_equity_date is not None and self._last_equity_date != current_date:
+                # Accrue admin fees for the day that just ended
+                # We use the previous day's final state for calculation
+                if self._current_day_equity:
+                    self._accrue_admin_fees(bar.timestamp)
+                
+                # Flush previous day's equity to curve
+                if self._current_day_equity is not None:
+                    self._equity_curve.append(self._current_day_equity)
+
+            self._last_equity_date = current_date
             equity = self._calculate_equity()
-            self._equity_curve.append({
-                "date": bar.timestamp.date().isoformat(),
+
+            # Update current day's equity (will be flushed at day change or end)
+            self._current_day_equity = {
+                "date": current_date,
                 "timestamp": bar.timestamp.isoformat(),
                 "equity": equity,
                 "cash": self._cash,
                 "position_value": self._execution.get_total_position_value(),
-            })
+            }
 
             bar_count += 1
 
@@ -319,6 +374,11 @@ class BacktestEngine:
 
         # Stop strategy
         self._strategy.stop()
+
+        # Flush final day's equity to curve
+        if self._current_day_equity is not None:
+            self._equity_curve.append(self._current_day_equity)
+            self._current_day_equity = None
 
         run_duration = time.time() - start_time
         logger.info(
@@ -369,6 +429,27 @@ class BacktestEngine:
                 self._trades.append(trade)
 
             logger.debug(f"Fill processed: {fill.side} {fill.quantity} {fill.symbol}")
+
+    def _accrue_admin_fees(self, timestamp: datetime) -> None:
+        """Accrue daily administrative and financing fees."""
+        reality_pack = self._config.get_reality_pack()
+        if not reality_pack:
+            return
+
+        pos_value = self._execution.get_total_position_value()
+        nav = self._cash + pos_value
+        
+        fees = reality_pack.admin_fee_model.calculate_daily_fees(
+            timestamp=timestamp,
+            cash=self._cash,
+            position_value=pos_value,
+            net_asset_value=nav
+        )
+
+        for fee in fees:
+            self._cash -= fee.amount
+            self._total_admin_fees += fee.amount
+            logger.debug(f"Accrued {fee.fee_type}: ${fee.amount:.2f} ({fee.description})")
 
     def _calculate_equity(self) -> float:
         """Calculate current portfolio equity."""
@@ -432,9 +513,15 @@ class BacktestEngine:
         total_commission = sum(t.commission for t in self._trades)
 
         # Cost metrics
+        total_slippage = sum(t.slippage for t in self._trades)
+        total_costs = total_commission + total_slippage + self._total_admin_fees
+        
         costs = CostMetrics(
             total_commission=total_commission,
-            cost_pct_of_capital=(total_commission / initial * 100) if initial > 0 else 0,
+            total_slippage=total_slippage,
+            total_admin_fees=self._total_admin_fees,
+            total_costs=total_costs,
+            cost_pct_of_capital=(total_costs / initial * 100) if initial > 0 else 0,
         )
 
         return BacktestResult(

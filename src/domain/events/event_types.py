@@ -68,6 +68,7 @@ class EventType(Enum):
 
     # Diagnostic (Priority 80)
     HEALTH_CHECK = "health_check"
+    MDQC_VALIDATION_TRIGGER = "mdqc_validation_trigger"
 
     # UI (Priority 90)
     DASHBOARD_UPDATE = "dashboard_update"
@@ -100,6 +101,7 @@ EVENT_PRIORITY_MAP: dict[EventType, EventPriority] = {
     EventType.BROKER_DISCONNECTED: EventPriority.CONTROL,
     EventType.SNAPSHOT_READY: EventPriority.SNAPSHOT,
     EventType.HEALTH_CHECK: EventPriority.DIAGNOSTIC,
+    EventType.MDQC_VALIDATION_TRIGGER: EventPriority.DIAGNOSTIC,
     EventType.DASHBOARD_UPDATE: EventPriority.UI,
 }
 

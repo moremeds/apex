@@ -35,12 +35,14 @@ execution:
 # Reality model
 reality_model:
   fee_model:
-    type: fixed
-    commission_per_share: 0.005
-    min_commission: 1.0
+    type: per_share
+    params:
+      per_share: 0.005
+      minimum: 1.0
   slippage_model:
     type: constant
-    slippage_bps: 5
+    params:
+      slippage_bps: 5
 
 # Reporting
 reporting:

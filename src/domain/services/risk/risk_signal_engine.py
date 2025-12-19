@@ -18,6 +18,7 @@ from typing import List, Dict, Any
 from src.models.risk_snapshot import RiskSnapshot
 from src.models.risk_signal import RiskSignal
 from src.models.position_risk import PositionRisk
+from src.domain.exceptions import RecoverableError, RiskCheckError
 
 from .rule_engine import RuleEngine
 from .risk_signal_manager import RiskSignalManager
@@ -101,32 +102,32 @@ class RiskSignalEngine:
             layer1_signals = [RiskSignal.from_breach(breach, layer=1) for breach in breaches]
             raw_signals.extend(layer1_signals)
             self._stats["layer1_signals"] += len(layer1_signals)
-        except Exception as e:
-            logger.error(f"Error in Layer 1 (RuleEngine): {e}", exc_info=True)
+        except RecoverableError as e:
+            logger.warning(f"Recoverable error in Layer 1 (RuleEngine): {e}")
 
         # Layer 2a: Position-level rules (uses pre-calculated PositionRisk)
         try:
             position_signals = self._check_position_rules(position_risks)
             raw_signals.extend(position_signals)
             self._stats["layer2_signals"] += len(position_signals)
-        except Exception as e:
-            logger.error(f"Error in Layer 2a (Position rules): {e}", exc_info=True)
+        except RecoverableError as e:
+            logger.warning(f"Recoverable error in Layer 2a (Position rules): {e}")
 
         # Layer 2b: Strategy-level rules (uses pre-calculated PositionRisk)
         try:
             strategy_signals = self._check_strategy_rules(position_risks)
             raw_signals.extend(strategy_signals)
             self._stats["layer2_signals"] += len(strategy_signals)
-        except Exception as e:
-            logger.error(f"Error in Layer 2b (Strategy rules): {e}", exc_info=True)
+        except RecoverableError as e:
+            logger.warning(f"Recoverable error in Layer 2b (Strategy rules): {e}")
 
         # Layer 2c: Correlation & sector concentration
         try:
             correlation_signals = self.correlation_analyzer.check(snapshot)
             raw_signals.extend(correlation_signals)
             self._stats["layer2_signals"] += len(correlation_signals)
-        except Exception as e:
-            logger.error(f"Error in Layer 2c (Correlation): {e}", exc_info=True)
+        except RecoverableError as e:
+            logger.warning(f"Recoverable error in Layer 2c (Correlation): {e}")
 
         # Layer 3: VIX regime (handled by MarketAlertDetector separately)
         # Could integrate here in future
@@ -136,26 +137,25 @@ class RiskSignalEngine:
             event_signals = self.event_detector.check(snapshot)
             raw_signals.extend(event_signals)
             self._stats["layer4_signals"] += len(event_signals)
-        except Exception as e:
-            logger.error(f"Error in Layer 4 (Event risk): {e}", exc_info=True)
+        except RecoverableError as e:
+            logger.warning(f"Recoverable error in Layer 4 (Event risk): {e}")
 
         self._stats["raw_signals"] = len(raw_signals)
 
         # Filter through debounce/cooldown
+        # Note: process() is pure logic (datetime/dict ops) - failures are bugs, not recoverable errors
         filtered_signals = []
         for signal in raw_signals:
-            try:
-                result = self.signal_manager.process(signal)
-                filtered_signals.extend(result)
-            except Exception as e:
-                logger.error(f"Error processing signal {signal.signal_id}: {e}", exc_info=True)
+            result = self.signal_manager.process(signal)
+            filtered_signals.extend(result)
 
         self._stats["filtered_signals"] = len(filtered_signals)
 
-        logger.info(
-            f"Risk evaluation complete: {len(raw_signals)} raw signals → "
-            f"{len(filtered_signals)} filtered signals"
-        )
+        # Only log when there are signals (reduces log volume 90%+)
+        if filtered_signals:
+            logger.info(
+                f"Risk signals: {len(raw_signals)} raw → {len(filtered_signals)} filtered"
+            )
 
         return filtered_signals
 

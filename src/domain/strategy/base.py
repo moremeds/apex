@@ -41,6 +41,8 @@ from typing import (
     Dict,
     List,
     Optional,
+    Protocol,
+    runtime_checkable,
 )
 from enum import Enum
 import uuid
@@ -60,6 +62,8 @@ from ..interfaces.execution_provider import OrderRequest
 if TYPE_CHECKING:
     from ..clock import Clock
     from .scheduler import Scheduler
+    from .cost_estimator import CostEstimator
+    from .risk_gate import RiskGate
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +121,8 @@ class StrategyContext:
     - account: Account balances and margin
     - execution: Order submission (optional)
     - market_data: Latest quotes (optional)
+    - cost_estimator: Pre-trade cost estimation (optional)
+    - risk_gate: Pre-trade risk validation (optional)
 
     The context is injected by the runner and provides a consistent
     interface regardless of whether the strategy is running live or
@@ -129,6 +135,8 @@ class StrategyContext:
     account: Optional[AccountSnapshot] = None
     execution: Optional[Any] = None  # ExecutionProvider
     market_data: Dict[str, QuoteTick] = field(default_factory=dict)
+    cost_estimator: Optional["CostEstimator"] = None
+    risk_gate: Optional["RiskGate"] = None
 
     def now(self) -> datetime:
         """Get current time (live or simulated)."""
@@ -165,6 +173,78 @@ class StrategyContext:
     def is_short(self, symbol: str) -> bool:
         """Check if we are short in symbol."""
         return self.get_position_quantity(symbol) < 0
+
+
+# =============================================================================
+# Strategy Protocol (ARCH-004)
+# =============================================================================
+# This protocol defines the minimal interface required by the backtest engine.
+# It ensures clean separation between backtest infrastructure and strategy domain.
+
+
+@runtime_checkable
+class StrategyProtocol(Protocol):
+    """
+    Protocol defining the strategy interface for backtest and live runners.
+
+    This protocol formalizes the contract between:
+    - BacktestEngine (infrastructure) - consumes strategy via this protocol
+    - TradingRunner (infrastructure) - consumes strategy via this protocol
+    - Strategy (domain) - implements this protocol
+
+    By depending on this protocol rather than the concrete Strategy class,
+    runners can work with any object that implements these methods,
+    enabling easier testing and alternative implementations.
+
+    Usage:
+        def run_strategy(strategy: StrategyProtocol) -> None:
+            strategy.start()
+            strategy.on_bar(bar_data)
+            strategy.stop()
+    """
+
+    @property
+    def strategy_id(self) -> str:
+        """Unique identifier for this strategy instance."""
+        ...
+
+    @property
+    def symbols(self) -> List[str]:
+        """List of symbols this strategy trades."""
+        ...
+
+    @property
+    def state(self) -> StrategyState:
+        """Current lifecycle state."""
+        ...
+
+    def start(self) -> None:
+        """Start the strategy (transitions to RUNNING state)."""
+        ...
+
+    def stop(self) -> None:
+        """Stop the strategy (transitions to STOPPED state)."""
+        ...
+
+    def on_tick(self, tick: QuoteTick) -> None:
+        """Handle incoming tick data."""
+        ...
+
+    def on_bar(self, bar: BarData) -> None:
+        """Handle incoming bar data."""
+        ...
+
+    def on_fill(self, fill: TradeFill) -> None:
+        """Handle order fill notification."""
+        ...
+
+    def on_order_callback(self, callback: Callable[[OrderRequest], None]) -> None:
+        """Register callback for order requests."""
+        ...
+
+    def update_position(self, position: PositionSnapshot) -> None:
+        """Update position state."""
+        ...
 
 
 class Strategy(ABC):

@@ -255,6 +255,20 @@ reconciliation:
 # 90D_PLUS: >90 days
 # NO_EXPIRY: Stocks, futures without expiry
 
+# Risk engine configuration
+risk_engine:
+  # Near-term Greek thresholds (for concentration metrics)
+  near_term_gamma_dte: 7   # Days to expiry threshold for near-term gamma
+  near_term_vega_dte: 30   # Days to expiry threshold for near-term vega
+
+  # Expiry bucket boundaries (for grouping positions)
+  expiry_buckets:
+    dte_0: 0      # 0DTE
+    dte_7: 7      # 1-7 days
+    dte_30: 30    # 8-30 days
+    dte_90: 90    # 31-90 days
+    # >90 = 90D_PLUS, stocks = NO_EXPIRY
+
 # Greeks configuration (MVP uses IBKR Greeks exclusively)
 greeks:
   source: "ibkr"  # Use IBKR Greeks only (no local BSM/Bachelier)

@@ -3,7 +3,7 @@
 from __future__ import annotations
 from typing import Dict, Iterable, List, Optional, TYPE_CHECKING
 from threading import RLock
-from datetime import datetime, timedelta
+import time
 
 from ...utils.logging_setup import get_logger
 from ...models.market_data import MarketData
@@ -13,6 +13,10 @@ if TYPE_CHECKING:
     from ...domain.interfaces.event_bus import EventBus
 
 logger = get_logger(__name__)
+
+# Default eviction settings
+DEFAULT_MAX_SYMBOLS = 10000
+DEFAULT_EVICTION_AGE_SECONDS = 86400  # 24 hours
 
 
 class MarketDataStore:
@@ -29,6 +33,8 @@ class MarketDataStore:
         self,
         price_ttl_seconds: int = 5,
         greeks_ttl_seconds: int = 60,
+        max_symbols: int = DEFAULT_MAX_SYMBOLS,
+        eviction_age_seconds: int = DEFAULT_EVICTION_AGE_SECONDS,
     ) -> None:
         """
         Initialize market data store.
@@ -40,11 +46,18 @@ class MarketDataStore:
             greeks_ttl_seconds: Time-to-live for Greeks cache in seconds.
                                 Greeks older than this will be considered stale.
                                 Default: 60 seconds (Greeks change slowly for most instruments).
+            max_symbols: Maximum number of symbols to cache before evicting oldest.
+                        Default: 10,000 symbols.
+            eviction_age_seconds: Evict entries older than this age (seconds).
+                                  Default: 86400 (24 hours).
         """
         self._market_data: Dict[str, MarketData] = {}
         self._lock = RLock()
         self._price_ttl_seconds = price_ttl_seconds
         self._greeks_ttl_seconds = greeks_ttl_seconds
+        self._max_symbols = max_symbols
+        self._eviction_age_seconds = eviction_age_seconds
+        self._last_eviction_time = time.time()
 
     def upsert(self, market_data: Iterable[MarketData]) -> None:
         """
@@ -56,6 +69,44 @@ class MarketDataStore:
         with self._lock:
             for md in market_data:
                 self._market_data[md.symbol] = md
+
+            # Periodic eviction check (every 60 seconds to avoid overhead)
+            now = time.time()
+            if now - self._last_eviction_time > 60:
+                self._evict_stale_locked()
+                self._last_eviction_time = now
+
+    def _evict_stale_locked(self) -> None:
+        """
+        Evict stale entries (must be called with lock held).
+
+        Evicts:
+        1. Entries older than eviction_age_seconds
+        2. Oldest entries if over max_symbols
+        """
+        # Evict by age first
+        stale_symbols = []
+        for symbol, md in self._market_data.items():
+            if md.timestamp and age_seconds(md.timestamp) > self._eviction_age_seconds:
+                stale_symbols.append(symbol)
+
+        for symbol in stale_symbols:
+            del self._market_data[symbol]
+
+        if stale_symbols:
+            logger.debug(f"Evicted {len(stale_symbols)} stale market data entries")
+
+        # Evict by count if still over limit
+        if len(self._market_data) > self._max_symbols:
+            excess = len(self._market_data) - self._max_symbols
+            # Sort by timestamp (oldest first)
+            sorted_entries = sorted(
+                self._market_data.items(),
+                key=lambda x: x[1].timestamp.timestamp() if x[1].timestamp else 0
+            )
+            for symbol, _ in sorted_entries[:excess]:
+                del self._market_data[symbol]
+            logger.debug(f"Evicted {excess} oldest market data entries (over max {self._max_symbols})")
 
     def get(self, symbol: str) -> Optional[MarketData]:
         """
@@ -206,4 +257,3 @@ class MarketDataStore:
         data = payload.get("data")
         if data:
             self.upsert([data])
-            logger.debug(f"MarketDataStore tick: {payload.get('symbol', 'unknown')}")
