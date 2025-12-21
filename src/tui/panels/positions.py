@@ -152,15 +152,18 @@ def render_consolidated_positions(
 def render_broker_positions(
     position_risks: List[PositionRisk],
     broker: str,
+    selected_index: Optional[int] = None,
 ) -> Panel:
     """
     Render detailed positions for a specific broker (Tab 3 & 4).
 
     Shows full position details filtered by source (IB or FUTU).
+    Supports selection highlighting for ATR level display.
 
     Args:
         position_risks: List of all position risk objects.
         broker: Broker name ("IB" or "FUTU").
+        selected_index: Index of selected underlying (0-based), or None.
 
     Returns:
         Panel containing the broker positions table.
@@ -240,6 +243,9 @@ def render_broker_positions(
         underlying_values[underlying] = sum(abs(pr.market_value) for pr in prs)
     sorted_underlyings = sorted(by_underlying.keys(), key=lambda u: underlying_values[u], reverse=True)
 
+    # Track current underlying index for selection highlighting
+    underlying_index = 0
+
     for underlying in sorted_underlyings:
         prs = by_underlying[underlying]
 
@@ -256,8 +262,18 @@ def render_broker_positions(
         # Get beta
         beta_str = f"{prs[0].beta:.2f}" if prs and prs[0].beta is not None else ""
 
+        # Selection highlighting: use different style for selected row
+        is_selected = selected_index is not None and underlying_index == selected_index
+        if is_selected:
+            # Selected row: bright background with indicator
+            underlying_style = "bold white on rgb(50,100,150)"
+            prefix = "> "
+        else:
+            underlying_style = "bold white"
+            prefix = "  "
+
         table.add_row(
-            f">> {underlying}",
+            f"{prefix}{underlying}",
             "",
             "",
             "",
@@ -270,8 +286,10 @@ def render_broker_positions(
             format_number(underlying_gamma, color=False),
             format_number(underlying_vega, color=False),
             format_number(underlying_theta, color=False),
-            style="bold white",
+            style=underlying_style,
         )
+
+        underlying_index += 1
 
         # Sort positions: stocks first, then by expiry
         stocks = [pr for pr in prs if not pr.expiry]
@@ -299,6 +317,53 @@ def render_broker_positions(
             )
 
     return Panel(table, title=f"{broker} Positions ({len(filtered_risks)})", border_style="blue")
+
+
+def get_broker_underlyings(
+    position_risks: List[PositionRisk],
+    broker: str,
+) -> List[str]:
+    """
+    Get sorted list of underlyings for a broker.
+
+    Returns underlyings in the same order as they appear in render_broker_positions,
+    which is sorted by absolute market value (descending).
+
+    Args:
+        position_risks: List of all position risk objects.
+        broker: Broker name ("IB" or "FUTU").
+
+    Returns:
+        List of underlying symbols in display order.
+    """
+    from ...models.position import PositionSource
+    broker_source = PositionSource.IB if broker == "IB" else PositionSource.FUTU
+
+    # Filter positions for this broker
+    filtered_risks = []
+    for pr in position_risks:
+        pos = pr.position
+        if pos.all_sources and broker_source in pos.all_sources:
+            filtered_risks.append(pr)
+        elif pos.source == broker_source:
+            filtered_risks.append(pr)
+
+    if not filtered_risks:
+        return []
+
+    # Group by underlying
+    by_underlying: Dict[str, List[PositionRisk]] = {}
+    for pos_risk in filtered_risks:
+        if pos_risk.underlying not in by_underlying:
+            by_underlying[pos_risk.underlying] = []
+        by_underlying[pos_risk.underlying].append(pos_risk)
+
+    # Sort by absolute market value (same as render function)
+    underlying_values = {}
+    for underlying, prs in by_underlying.items():
+        underlying_values[underlying] = sum(abs(pr.market_value) for pr in prs)
+
+    return sorted(by_underlying.keys(), key=lambda u: underlying_values[u], reverse=True)
 
 
 def render_positions_profile(position_risks: List[PositionRisk]) -> Panel:

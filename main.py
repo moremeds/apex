@@ -24,7 +24,7 @@ from src.domain.services.risk.rule_engine import RuleEngine
 from src.domain.services.risk.risk_signal_manager import RiskSignalManager
 from src.domain.services.risk.risk_signal_engine import RiskSignalEngine
 from src.domain.services.risk.risk_alert_logger import RiskAlertLogger
-from src.application import Orchestrator, AsyncEventBus, ReadinessManager
+from src.application import Orchestrator, ReadinessManager
 from src.domain.events import PriorityEventBus
 from src.tui import TerminalDashboard
 from src.models.risk_snapshot import RiskSnapshot
@@ -166,6 +166,7 @@ Examples:
 async def main_async(args: argparse.Namespace) -> None:
     """Main async entry point."""
     # Load configuration first to get timezone setting
+    global metrics_manager
     config_manager = ConfigManager(config_dir="config", env=args.env)
     config = config_manager.load()
 
@@ -263,6 +264,7 @@ async def main_async(args: argparse.Namespace) -> None:
         )
 
         # Register adapters with BrokerManager
+        ib_historical_adapter = None  # For ATR calculation
         if config.ibkr.enabled:
             ib_adapter = IbAdapter(
                 host=config.ibkr.host,
@@ -280,6 +282,7 @@ async def main_async(args: argparse.Namespace) -> None:
                 "streaming": ib_adapter.supports_streaming(),
                 "greeks": ib_adapter.supports_greeks(),
             })
+
         else:
             system_structured.info(LogCategory.SYSTEM, "IB adapter DISABLED (demo mode)")
 
@@ -289,7 +292,7 @@ async def main_async(args: argparse.Namespace) -> None:
                 port=config.futu.port,
                 security_firm=config.futu.security_firm,
                 trd_env=config.futu.trd_env,
-                filter_trdmarket=config.futu.filter_trdmarket,
+                filter_trading_market=config.futu.filter_trdmarket,
                 event_bus=event_bus,
             )
             broker_manager.register_adapter("futu", futu_adapter)
@@ -522,6 +525,7 @@ async def main_async(args: argparse.Namespace) -> None:
         if orchestrator:
             await orchestrator.stop()
             system_structured.info(LogCategory.SYSTEM, "Orchestrator stopped")
+
 
         # Shutdown metrics server
         if metrics_manager:
