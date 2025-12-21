@@ -43,7 +43,7 @@ def create_layout_broker_positions() -> Layout:
     """
     Create broker positions view layout (Tab 3 & 4).
 
-    Positions on left, ATR levels + history on right.
+    Positions on left, ATR levels + orders on right.
 
     Layout:
     ┌─────────────────────────────────────────────────────────┐
@@ -51,10 +51,10 @@ def create_layout_broker_positions() -> Layout:
     ├───────────────────────────┬─────────────────────────────┤
     │ Positions (60%)           │ Right Panel (40%)           │
     │ > AAPL  100  $150.25     │ ┌─────────────────────────┐ │
-    │   TSLA   50  $245.80     │ │ ATR Analysis (40%)      │ │
-    │   MSFT  200  $380.50     │ └─────────────────────────┘ │
-    │                           │ Today's Trades              │
-    │                           │ Open Orders                 │
+    │   TSLA   50  $245.80     │ │ ATR Analysis (70%)      │ │
+    │   MSFT  200  $380.50     │ │ R-Targets + Trailing    │ │
+    │                           │ └─────────────────────────┘ │
+    │                           │ Open Orders (30%)           │
     └───────────────────────────┴─────────────────────────────┘
     """
     layout = Layout()
@@ -67,12 +67,10 @@ def create_layout_broker_positions() -> Layout:
         Layout(name="positions", ratio=3),  # Current positions (left 60%)
         Layout(name="history_panel", ratio=2),  # Right panel (40%)
     )
-    # Split right panel into ATR/history sections
-    # ATR panel takes 40% of right panel height (ratio=4), rest split between trades/orders
+    # Split right panel: ATR takes 70%, Open Orders takes 30%
     layout["body"]["history_panel"].split_column(
-        Layout(name="atr_levels", ratio=4),     # ATR analysis panel (40% of right panel)
-        Layout(name="history_today", ratio=3),  # Today's trades
-        Layout(name="open_orders", ratio=3),    # Open/pending orders
+        Layout(name="atr_levels", ratio=7),     # ATR analysis panel (70% of right panel)
+        Layout(name="open_orders", ratio=3),    # Open/pending orders (30%)
     )
     return layout
 

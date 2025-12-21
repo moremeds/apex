@@ -25,6 +25,7 @@ from .atr_levels import (
     render_atr_loading,
     render_atr_empty,
     render_atr_compact,
+    render_atr_help,
 )
 from .strategies import (
     render_strategy_list,
@@ -61,6 +62,7 @@ __all__ = [
     "render_atr_loading",
     "render_atr_empty",
     "render_atr_compact",
+    "render_atr_help",
     # Strategies / Lab
     "render_strategy_list",
     "render_strategy_params",

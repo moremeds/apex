@@ -264,6 +264,7 @@ async def main_async(args: argparse.Namespace) -> None:
         )
 
         # Register adapters with BrokerManager
+        ib_historical_adapter = None  # For ATR calculation
         if config.ibkr.enabled:
             ib_adapter = IbAdapter(
                 host=config.ibkr.host,
@@ -281,6 +282,7 @@ async def main_async(args: argparse.Namespace) -> None:
                 "streaming": ib_adapter.supports_streaming(),
                 "greeks": ib_adapter.supports_greeks(),
             })
+
         else:
             system_structured.info(LogCategory.SYSTEM, "IB adapter DISABLED (demo mode)")
 
@@ -523,6 +525,7 @@ async def main_async(args: argparse.Namespace) -> None:
         if orchestrator:
             await orchestrator.stop()
             system_structured.info(LogCategory.SYSTEM, "Orchestrator stopped")
+
 
         # Shutdown metrics server
         if metrics_manager:

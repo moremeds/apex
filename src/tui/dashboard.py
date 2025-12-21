@@ -60,7 +60,6 @@ from .panels import (
     render_consolidated_positions,
     render_broker_positions,
     render_health,
-    render_position_history_today,
     render_open_orders,
     render_atr_levels,
     render_atr_empty,
@@ -172,6 +171,8 @@ class TerminalDashboard:
         self._futu_selected_index: Optional[int] = None
         self._atr_cache = ATRCache()
         self._atr_period: int = 14  # Default ATR period
+        self._atr_timeframe: str = "Daily"  # Daily, 4H, 1H
+        self._atr_help_mode: bool = False  # Toggle help overlay
 
     def start(self) -> None:
         """Start live dashboard (blocking)."""
@@ -394,34 +395,52 @@ class TerminalDashboard:
         if not underlyings:
             return
 
-        # Initialize selection if not set
-        if selected_index is None:
-            selected_index = 0
-
         logger.debug(f"Broker keypress: {repr(char)}, broker={broker}, selected={selected_index}, count={len(underlyings)}")
 
-        new_index = selected_index
-
-        # s/Down: select next underlying (go down)
-        if char in ('s', 'DOWN'):
-            new_index = min(selected_index + 1, len(underlyings) - 1)
-        # w/Up: select previous underlying (go up)
-        elif char in ('w', 'UP'):
-            new_index = max(selected_index - 1, 0)
-        # +: increase ATR period
-        elif char == '+':
-            if self._atr_period < 50:
-                self._atr_period += 1
-                self._recalculate_atr_for_selected()
-        # -: decrease ATR period
-        elif char == '-':
-            if self._atr_period > 5:
-                self._atr_period -= 1
-                self._recalculate_atr_for_selected()
-        # r: reset ATR period to default
-        elif char == 'r':
-            self._atr_period = 14
-            self._recalculate_atr_for_selected()
+        # Handle first selection - if None, first keypress selects first item
+        if selected_index is None:
+            if char in ('s', 'DOWN', 'w', 'UP'):
+                new_index = 0  # First selection starts at index 0
+            else:
+                return  # Other keys don't work until something is selected
+        else:
+            new_index = selected_index
+            # s/Down: select next underlying (go down)
+            if char in ('s', 'DOWN'):
+                new_index = min(selected_index + 1, len(underlyings) - 1)
+            # w/Up: select previous underlying (go up)
+            elif char in ('w', 'UP'):
+                new_index = max(selected_index - 1, 0)
+            # +: increase ATR period
+            elif char == '+':
+                if self._atr_period < 50:
+                    self._atr_period += 1
+                    self._refresh_broker_positions_view()
+                return
+            # -: decrease ATR period
+            elif char == '-':
+                if self._atr_period > 5:
+                    self._atr_period -= 1
+                    self._refresh_broker_positions_view()
+                return
+            # t: cycle timeframe (Daily -> 4H -> 1H -> Daily)
+            elif char == 't':
+                timeframes = ["Daily", "4H", "1H"]
+                idx = timeframes.index(self._atr_timeframe)
+                self._atr_timeframe = timeframes[(idx + 1) % len(timeframes)]
+                self._refresh_broker_positions_view()
+                return
+            # h: toggle help overlay
+            elif char == 'h':
+                self._atr_help_mode = not self._atr_help_mode
+                self._refresh_broker_positions_view()
+                return
+            # r: reset ATR period to default
+            elif char == 'r':
+                self._atr_period = 14
+                self._atr_timeframe = "Daily"
+                self._refresh_broker_positions_view()
+                return
 
         # Update selection if changed
         if new_index != selected_index:
@@ -432,30 +451,6 @@ class TerminalDashboard:
             logger.info(f"Selected {broker} underlying: {underlyings[new_index]} (index {new_index})")
             # Only refresh if selection actually changed
             self._refresh_broker_positions_view()
-
-    def _recalculate_atr_for_selected(self) -> None:
-        """Recalculate ATR with current period for the selected underlying."""
-        if not self._last_snapshot:
-            return
-
-        if self._current_view == DashboardView.IB_POSITIONS:
-            broker = "IB"
-            selected_index = self._ib_selected_index
-        else:
-            broker = "FUTU"
-            selected_index = self._futu_selected_index
-
-        if selected_index is None:
-            return
-
-        underlyings = get_broker_underlyings(self._last_snapshot.position_risks, broker)
-        if selected_index >= len(underlyings):
-            return
-
-        symbol = underlyings[selected_index]
-        # Recalculate using cached bars
-        self._atr_cache.recalculate(symbol, self._atr_period)
-        self._refresh_broker_positions_view()
 
     def _refresh_broker_positions_view(self) -> None:
         """Refresh broker positions view after state change."""
@@ -608,9 +603,6 @@ class TerminalDashboard:
         atr_panel = self._get_atr_panel_for_selection(snapshot, broker, selected_index)
         layout["body"]["history_panel"]["atr_levels"].update(atr_panel)
 
-        layout["body"]["history_panel"]["history_today"].update(
-            render_position_history_today(broker)
-        )
         layout["body"]["history_panel"]["open_orders"].update(
             render_open_orders(broker)
         )
@@ -669,11 +661,13 @@ class TerminalDashboard:
         if atr_data is None and stock_position and stock_position.mark_price:
             # Use the STOCK spot price for ATR calculation
             spot_price = stock_position.mark_price
-            # Estimate ATR based on period (longer periods = smoother/higher ATR)
-            # Base: 2.5% of price for 14-period ATR, scales with sqrt(period/14)
-            base_atr_pct = 0.025  # 2.5% for 14-period
+            # Estimate ATR based on period and timeframe
+            # Base: 2.5% of price for Daily 14-period ATR
+            # Timeframe scaling: 4H ~50%, 1H ~25% of daily ATR
+            base_atr_pct = 0.025  # 2.5% for Daily 14-period
             period_factor = math.sqrt(self._atr_period / 14.0)
-            estimated_atr = spot_price * base_atr_pct * period_factor
+            timeframe_factor = {"Daily": 1.0, "4H": 0.5, "1H": 0.25}.get(self._atr_timeframe, 1.0)
+            estimated_atr = spot_price * base_atr_pct * period_factor * timeframe_factor
             atr_data = ATRCalculator.calculate_levels(
                 symbol=symbol,
                 entry_price=spot_price,
@@ -684,12 +678,18 @@ class TerminalDashboard:
             # No stock position, show empty
             return render_atr_empty(f"No spot price for {symbol}")
 
+        # If help mode is active, show help overlay instead
+        if self._atr_help_mode:
+            from .panels.atr_levels import render_atr_help
+            return render_atr_help(atr_data, position)
+
         return render_atr_levels(
             atr_data=atr_data,
             position=position,
             optimization=optimization,
             loading=False,
             current_period=self._atr_period,
+            timeframe=self._atr_timeframe,
         )
 
     def _run_backtest(self, strategy_name: str) -> None:
