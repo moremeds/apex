@@ -1,4 +1,5 @@
 {
+  "includeCoAuthoredBy": false,
   "permissions": {
     "allow": [
       "Bash(tree:*)",
@@ -12,9 +13,10 @@
       "Bash(timeout 12s python:*)",
       "Bash(cat:*)",
       "Bash(git add:*)",
+      "Bash(tail:*)",
+      "Bash(find:*)"
     ],
     "deny": [],
     "ask": []
-  },
-  "includeCoAuthoredBy": false
+  }
 }

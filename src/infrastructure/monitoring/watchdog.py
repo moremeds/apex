@@ -12,6 +12,7 @@ import asyncio
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
+from ...domain.events import PriorityEventBus
 from ...domain.interfaces.broker_adapter import BrokerAdapter
 from ...domain.interfaces.market_data_provider import MarketDataProvider
 from ...domain.interfaces.event_bus import EventBus, EventType
@@ -36,7 +37,7 @@ class Watchdog:
     def __init__(
         self,
         health_monitor: HealthMonitor,
-        event_bus: EventBus,
+        event_bus: PriorityEventBus,
         config: Dict[str, Any],
     ):
         """

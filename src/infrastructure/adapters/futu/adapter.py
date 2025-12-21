@@ -19,6 +19,7 @@ from concurrent.futures import ThreadPoolExecutor
 import threading
 import functools
 
+from ....domain.events import PriorityEventBus
 from ....utils.logging_setup import get_logger
 import asyncio
 
@@ -54,11 +55,11 @@ class FutuAdapter(BrokerAdapter):
         port: int = 11111,
         security_firm: str = "FUTUSECURITIES",
         trd_env: str = "REAL",
-        filter_trdmarket: str = "US",
+        filter_trading_market: str = "US",
         reconnect_backoff_initial: int = 1,
         reconnect_backoff_max: int = 60,
         reconnect_backoff_factor: float = 2.0,
-        event_bus: Optional[EventBus] = None,
+        event_bus: Optional[PriorityEventBus] = None,
     ):
         """
         Initialize Futu adapter.
@@ -68,7 +69,7 @@ class FutuAdapter(BrokerAdapter):
             port: Futu OpenD port (default 11111).
             security_firm: Security firm (FUTUSECURITIES, FUTUINC, etc.).
             trd_env: Trading environment (REAL or SIMULATE).
-            filter_trdmarket: Market filter (US, HK, CN, etc.).
+            filter_trading_market: Market filter (US, HK, CN, etc.).
             reconnect_backoff_initial: Initial reconnect delay (seconds).
             reconnect_backoff_max: Max reconnect delay (seconds).
             reconnect_backoff_factor: Backoff multiplier.
@@ -78,7 +79,7 @@ class FutuAdapter(BrokerAdapter):
         self.port = port
         self.security_firm = security_firm
         self.trd_env = trd_env
-        self.filter_trdmarket = filter_trdmarket
+        self.filter_trading_market = filter_trading_market
         self.reconnect_backoff_initial = reconnect_backoff_initial
         self.reconnect_backoff_max = reconnect_backoff_max
         self.reconnect_backoff_factor = reconnect_backoff_factor
@@ -148,7 +149,7 @@ class FutuAdapter(BrokerAdapter):
                 RET_OK,
             )
 
-            trd_market = getattr(TrdMarket, self.filter_trdmarket, TrdMarket.US)
+            trd_market = getattr(TrdMarket, self.filter_trading_market, TrdMarket.US)
             sec_firm = getattr(SecurityFirm, self.security_firm, SecurityFirm.FUTUSECURITIES)
 
             self._trd_ctx = OpenSecTradeContext(
@@ -179,7 +180,7 @@ class FutuAdapter(BrokerAdapter):
             self._connected = True
             logger.info(
                 f"Connected to Futu OpenD at {self.host}:{self.port}, "
-                f"account={self._acc_id}, market={self.filter_trdmarket}"
+                f"account={self._acc_id}, market={self.filter_trading_market}"
             )
 
             self._setup_push_subscription()

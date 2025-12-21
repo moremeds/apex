@@ -23,7 +23,7 @@ async def test_connection_only():
         port=11111,
         security_firm="FUTUSECURITIES",
         trd_env="REAL",
-        filter_trdmarket="US",
+        filter_trading_market="US",
     )
 
     try:
@@ -51,7 +51,7 @@ async def test_fetch_positions_and_account():
         port=11111,
         security_firm="FUTUSECURITIES",
         trd_env="REAL",
-        filter_trdmarket="US",
+        filter_trading_market="US",
     )
 
     try:

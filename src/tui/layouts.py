@@ -40,21 +40,64 @@ def create_layout_risk_signals() -> Layout:
 
 
 def create_layout_broker_positions() -> Layout:
-    """Create broker positions view layout (Tab 3 & 4) - positions with history on right."""
+    """
+    Create broker positions view layout (Tab 3 & 4).
+
+    Positions on left, ATR levels + history on right.
+
+    Layout:
+    ┌─────────────────────────────────────────────────────────┐
+    │ Header                                                   │
+    ├───────────────────────────┬─────────────────────────────┤
+    │ Positions (60%)           │ Right Panel (40%)           │
+    │ > AAPL  100  $150.25     │ ┌─────────────────────────┐ │
+    │   TSLA   50  $245.80     │ │ ATR Analysis (40%)      │ │
+    │   MSFT  200  $380.50     │ └─────────────────────────┘ │
+    │                           │ Today's Trades              │
+    │                           │ Open Orders                 │
+    └───────────────────────────┴─────────────────────────────┘
+    """
     layout = Layout()
     layout.split_column(
         Layout(name="header", size=3),
         Layout(name="body"),
     )
-    # Split body into positions (left) and history (right)
+    # Split body into positions (left) and right panel
     layout["body"].split_row(
         Layout(name="positions", ratio=3),  # Current positions (left 60%)
-        Layout(name="history_panel", ratio=2),  # Position history panel (right 40%)
+        Layout(name="history_panel", ratio=2),  # Right panel (40%)
     )
-    # Split history panel into today's changes, open orders, and stored positions
+    # Split right panel into ATR/history sections
+    # ATR panel takes 40% of right panel height (ratio=4), rest split between trades/orders
     layout["body"]["history_panel"].split_column(
-        Layout(name="history_today"),       # Today's changes (top)
-        Layout(name="open_orders"),         # Open/pending orders (middle)
-        Layout(name="history_recent"),      # Stored positions (bottom)
+        Layout(name="atr_levels", ratio=4),     # ATR analysis panel (40% of right panel)
+        Layout(name="history_today", ratio=3),  # Today's trades
+        Layout(name="open_orders", ratio=3),    # Open/pending orders
+    )
+    return layout
+
+
+def create_layout_lab() -> Layout:
+    """Create strategy lab view layout (Tab 5).
+
+    Shows:
+    - Left: Backtest strategies with parameters and key metrics
+    - Right: Strategy details and last backtest performance
+    """
+    layout = Layout()
+    layout.split_column(
+        Layout(name="header", size=3),
+        Layout(name="body"),
+        Layout(name="footer", size=3),
+    )
+    # Split body into strategies list (left) and details (right)
+    layout["body"].split_row(
+        Layout(name="strategies", ratio=3),    # Left: Strategy list (60%)
+        Layout(name="details", ratio=2),       # Right: Details panel (40%)
+    )
+    # Split details into strategy info and performance
+    layout["body"]["details"].split_column(
+        Layout(name="params"),          # Top: Strategy parameters
+        Layout(name="performance"),     # Bottom: Last backtest performance
     )
     return layout

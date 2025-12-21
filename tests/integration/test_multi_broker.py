@@ -66,7 +66,7 @@ async def test_multi_broker():
         port=11111,
         security_firm="FUTUSECURITIES",
         trd_env="REAL",
-        filter_trdmarket="US",
+        filter_trading_market="US",
     )
 
     broker_manager.register_adapter("ibkr", ib_adapter)

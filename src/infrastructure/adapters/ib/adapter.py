@@ -10,6 +10,7 @@ from typing import List, Dict, Optional, Callable
 from datetime import datetime, date
 from math import isnan
 
+from ....domain.events import PriorityEventBus
 from ....utils.logging_setup import get_logger
 from ....domain.interfaces.broker_adapter import BrokerAdapter
 from ....domain.interfaces.market_data_provider import MarketDataProvider
@@ -41,7 +42,7 @@ class IbAdapter(BrokerAdapter, MarketDataProvider):
         reconnect_backoff_initial: int = 1,
         reconnect_backoff_max: int = 60,
         reconnect_backoff_factor: float = 2.0,
-        event_bus: Optional[EventBus] = None,
+        event_bus: Optional[PriorityEventBus] = None,
     ):
         """
         Initialize IB adapter.
@@ -53,7 +54,7 @@ class IbAdapter(BrokerAdapter, MarketDataProvider):
             reconnect_backoff_initial: Initial reconnect delay (seconds).
             reconnect_backoff_max: Max reconnect delay (seconds).
             reconnect_backoff_factor: Backoff multiplier.
-            event_bus: Optional event bus for publishing events.
+            event_bus: Optional priority event bus for publishing events.
         """
         self.host = host
         self.port = port
@@ -188,6 +189,7 @@ class IbAdapter(BrokerAdapter, MarketDataProvider):
         Returns:
             List of qualified contracts (may be partial on failure).
         """
+        global timeout
         import asyncio
 
         if not contracts:
@@ -324,6 +326,7 @@ class IbAdapter(BrokerAdapter, MarketDataProvider):
                     account_id = av.account
 
             def safe_float(tag: str, default: float = 0.0) -> float:
+                global value
                 try:
                     value = account_data.get(tag, default)
                     return float(value) if value else default

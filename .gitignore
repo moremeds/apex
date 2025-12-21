@@ -158,3 +158,5 @@ temp/
 *.tmp
 /docs/design/
 /docs/reviews/
+/docs/plans/
+/.claude/
