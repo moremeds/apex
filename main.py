@@ -15,6 +15,8 @@ import sys
 from config.config_manager import ConfigManager
 from src.domain.services import MarketAlertDetector
 from src.infrastructure.adapters import IbAdapter, FutuAdapter, FileLoader, BrokerManager, MarketDataManager, YahooFinanceAdapter
+from src.infrastructure.adapters.ib import IbConnectionPool, ConnectionPoolConfig
+from src.services import HistoricalDataService, TAService, BarPeriod
 from src.infrastructure.stores import PositionStore, MarketDataStore, AccountStore
 from src.infrastructure.monitoring import HealthMonitor, Watchdog
 from src.domain.services.risk.risk_engine import RiskEngine
@@ -263,13 +265,17 @@ async def main_async(args: argparse.Namespace) -> None:
             event_bus=event_bus,
         )
 
+        # IB Connection Pool for historical data (ATR, TA indicators)
+        ib_pool = None
+        historical_service = None
+        ta_service = None
+
         # Register adapters with BrokerManager
-        ib_historical_adapter = None  # For ATR calculation
         if config.ibkr.enabled:
             ib_adapter = IbAdapter(
                 host=config.ibkr.host,
                 port=config.ibkr.port,
-                client_id=config.ibkr.client_id,
+                client_id=config.ibkr.client_ids.monitoring,
                 event_bus=event_bus,
             )
             broker_manager.register_adapter("ib", ib_adapter)
@@ -282,6 +288,15 @@ async def main_async(args: argparse.Namespace) -> None:
                 "streaming": ib_adapter.supports_streaming(),
                 "greeks": ib_adapter.supports_greeks(),
             })
+
+            # Create IB Connection Pool for historical data (separate IB connection)
+            # Uses same event loop - no threading issues
+            pool_config = ConnectionPoolConfig(
+                host=config.ibkr.host,
+                port=config.ibkr.port,
+                client_ids=config.ibkr.client_ids,
+            )
+            ib_pool = IbConnectionPool(pool_config)
 
         else:
             system_structured.info(LogCategory.SYSTEM, "IB adapter DISABLED (demo mode)")
@@ -457,6 +472,64 @@ async def main_async(args: argparse.Namespace) -> None:
             {"components": [h.component_name for h in initial_health]}
         )
 
+        # Connect historical IB and pre-fetch daily bars (non-blocking background task)
+        prefetch_task = None
+        if ib_pool:
+            async def connect_historical_and_prefetch():
+                """Background task to connect historical IB and pre-fetch bars."""
+                try:
+                    # Connect historical IB connection (on same event loop)
+                    await ib_pool.connect_historical()
+                    system_structured.info(
+                        LogCategory.SYSTEM,
+                        "IB historical connection established",
+                        {"client_id": config.ibkr.client_ids.historical_pool[0]}
+                    )
+
+                    # Create services
+                    nonlocal historical_service, ta_service
+                    historical_service = HistoricalDataService(
+                        ib_historical=ib_pool.historical,
+                        cache_size=512,
+                        default_daily_lookback=60,
+                    )
+                    ta_service = TAService(historical_service)
+
+                    # Inject TAService into dashboard for ATR panel
+                    if dashboard:
+                        event_loop = asyncio.get_event_loop()
+                        dashboard.set_ta_service(ta_service, event_loop)
+
+                    # Get symbols from positions for pre-fetch
+                    positions = position_store.get_all()
+                    underlyings = set()
+                    for pos in positions:
+                        # Use underlying for options, symbol for stocks
+                        sym = pos.underlying if pos.underlying else pos.symbol
+                        if sym:
+                            underlyings.add(sym)
+
+                    if underlyings:
+                        symbols = list(underlyings)
+                        system_structured.info(
+                            LogCategory.DATA,
+                            f"Pre-fetching 60d daily bars for {len(symbols)} symbols",
+                            {"symbols": symbols[:10]}  # Log first 10
+                        )
+                        await historical_service.prefetch_daily_bars(symbols, lookback_days=60)
+                        system_structured.info(
+                            LogCategory.DATA,
+                            "Daily bars pre-fetch complete"
+                        )
+                except Exception as e:
+                    system_structured.warning(
+                        LogCategory.SYSTEM,
+                        f"Historical data setup failed: {e}"
+                    )
+
+            # Start pre-fetch in background (non-blocking)
+            prefetch_task = asyncio.create_task(connect_historical_and_prefetch())
+
         # Update loop - event-driven sync with orchestrator
         if dashboard:
             try:
@@ -526,6 +599,10 @@ async def main_async(args: argparse.Namespace) -> None:
             await orchestrator.stop()
             system_structured.info(LogCategory.SYSTEM, "Orchestrator stopped")
 
+        # Disconnect IB connection pool
+        if ib_pool:
+            await ib_pool.disconnect()
+            system_structured.info(LogCategory.SYSTEM, "IB connection pool disconnected")
 
         # Shutdown metrics server
         if metrics_manager:

@@ -6,12 +6,21 @@ from typing import Dict, Any, List, Optional
 
 
 @dataclass
+class IbClientIdsConfig:
+    """Reserved IB client IDs per adapter type."""
+
+    execution: int = 1
+    monitoring: int = 2
+    historical_pool: List[int] = field(default_factory=lambda: [3, 4, 5, 6, 7, 8, 9, 10])
+
+
+@dataclass
 class IbConfig:
     """Interactive Brokers configuration."""
     enabled: bool
     host: str
     port: int
-    client_id: int
+    client_ids: IbClientIdsConfig = field(default_factory=IbClientIdsConfig)
     provides_market_data: bool = True
 
 
@@ -165,6 +174,23 @@ class HistoryLoaderConfig:
 
 
 @dataclass
+class BarCacheConfig:
+    """Bar cache service configuration."""
+
+    host: str = "127.0.0.1"
+    port: int = 9001
+    timeout_sec: int = 30
+    max_cache_entries: int = 512
+
+
+@dataclass
+class HistoricalDataConfig:
+    """Historical data services configuration."""
+
+    bar_cache: BarCacheConfig = field(default_factory=BarCacheConfig)
+
+
+@dataclass
 class AppConfig:
     """Complete application configuration."""
     ibkr: IbConfig
@@ -183,6 +209,7 @@ class AppConfig:
     display: Optional[DisplayConfig] = None
     snapshots: Optional[SnapshotConfig] = None
     history_loader: Optional[HistoryLoaderConfig] = None
+    historical_data: Optional[HistoricalDataConfig] = None
 
     def __post_init__(self):
         """Initialize optional configs with defaults if not provided."""
@@ -194,3 +221,5 @@ class AppConfig:
             self.snapshots = SnapshotConfig()
         if self.history_loader is None:
             self.history_loader = HistoryLoaderConfig()
+        if self.historical_data is None:
+            self.historical_data = HistoricalDataConfig()

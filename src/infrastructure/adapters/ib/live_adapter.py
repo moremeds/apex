@@ -6,7 +6,7 @@ Handles:
 - Position data (implements PositionProvider)
 - Account data (implements AccountProvider)
 
-Uses client_id = base + 0.
+Uses reserved monitoring client ID.
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
     - PositionProvider: Position data and updates
     - AccountProvider: Account balances and margin
 
-    Uses client_id = base_id + 0 (live adapter offset).
+    Uses reserved monitoring client ID.
     """
 
     ADAPTER_TYPE = "live"

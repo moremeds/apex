@@ -55,7 +55,7 @@ class StrategySpecConfig:
 class DataSpecConfig:
     """Data source configuration from spec."""
 
-    source: str = "csv"  # csv, parquet, ib_historical
+    source: str = "csv"  # historical, csv, parquet
     bar_size: str = "1d"  # 1m, 5m, 15m, 1h, 1d
     start_date: Optional[date] = None
     end_date: Optional[date] = None

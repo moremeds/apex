@@ -81,6 +81,29 @@ External Sources (IBKR/Manual YAML)
 - **Market Data Fallback:** `MarketData.effective_mid()` returns mid if available, else last
 - **Error Handling:** Missing market data doesn't crash - positions are skipped gracefully
 
+## Critical Library Notes
+
+### IB Connection Library
+**USE `ib_async` - NOT `ib_insync`!**
+- This project uses the `ib_async` library for Interactive Brokers connections
+- DO NOT search for or reference `ib_insync` solutions - it's a different library
+- `ib_async` is the async-native fork, `ib_insync` is the older sync-wrapper library
+
+### Technical Analysis
+**USE TA-Lib for all technical analysis calculations**
+- Install: `pip install TA-Lib` (requires system libta-lib)
+- Use for: ATR, RSI, MACD, Bollinger Bands, moving averages, etc.
+- DO NOT implement TA indicators from scratch - TA-Lib is battle-tested and optimized
+
+### Don't Reinvent Wheels
+**Prefer established open-source libraries over custom implementations:**
+- Technical Analysis: TA-Lib
+- DataFrames: pandas, polars
+- Numerical: numpy
+- Date/Time: python-dateutil, pendulum
+- HTTP: httpx, aiohttp
+- Only write custom code when no suitable library exists or integration overhead is too high
+
 ## Development Status & Roadmap
 
 This is currently a **skeleton implementation**. The PRD (v1.1) outlines a comprehensive system with the following components to be implemented:

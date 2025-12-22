@@ -2,7 +2,7 @@
 Data feeds for backtesting.
 
 Provides historical data loading from various sources:
-- IB Historical (production - uses IB API)
+- Bar cache service (production - IB-backed daemon)
 - CSV files (for offline testing)
 - Parquet files (for large datasets)
 - JSON fixtures (for unit tests)
@@ -11,13 +11,12 @@ Provides historical data loading from various sources:
 All feeds yield BarData or QuoteTick events in chronological order.
 
 Usage:
-    # Load from IB (recommended for real backtests)
-    feed = IbHistoricalDataFeed(
+    # Load from bar cache (recommended for real backtests)
+    feed = BarCacheDataFeed(
         symbols=["AAPL", "MSFT"],
         start_date=date(2024, 1, 1),
         end_date=date(2024, 6, 30),
-        host="127.0.0.1",
-        port=7497,
+        bar_size="1d",
     )
     await feed.load()
 
@@ -33,11 +32,13 @@ from dataclasses import dataclass
 from datetime import datetime, date
 from pathlib import Path
 from typing import List, Optional, AsyncIterator, Dict, Any
+import asyncio
 import csv
 import json
 import logging
 
 from ...domain.events.domain_events import QuoteTick, BarData
+from ...services.bar_cache_service import BarPeriod
 
 logger = logging.getLogger(__name__)
 
@@ -617,11 +618,74 @@ class MultiTimeframeDataFeed(DataFeed):
         return list(set(bar.timeframe for bar in self._bars))
 
 
+class BarCacheDataFeed(DataFeed):
+    """
+    Load historical data from IB for backtesting.
+
+    For standalone backtests, this wraps IbHistoricalDataFeed.
+    For in-process backtests (Lab panel), use HistoricalDataService (TODO).
+
+    Note: This is a thin wrapper that delegates to IbHistoricalDataFeed.
+    Standalone backtests run in their own process, so no event loop conflicts.
+    """
+
+    def __init__(
+        self,
+        symbols: List[str],
+        start_date: date,
+        end_date: date,
+        bar_size: str = "1d",
+        host: str = "127.0.0.1",
+        port: int = 7497,
+        client_id: int = 10,
+    ):
+        """
+        Initialize bar cache data feed.
+
+        Args:
+            symbols: List of symbols to load.
+            start_date: Start date (inclusive).
+            end_date: End date (inclusive).
+            bar_size: Bar size (1d, 4h, 1h, etc.).
+            host: IB TWS/Gateway host.
+            port: IB TWS/Gateway port.
+            client_id: IB client ID for historical requests.
+        """
+        # Delegate to IbHistoricalDataFeed
+        self._delegate = IbHistoricalDataFeed(
+            symbols=symbols,
+            start_date=start_date,
+            end_date=end_date,
+            bar_size=bar_size,
+            host=host,
+            port=port,
+            client_id=client_id,
+        )
+
+    async def load(self) -> None:
+        """Load data from IB."""
+        await self._delegate.load()
+
+    async def stream_bars(self) -> AsyncIterator[BarData]:
+        """Stream bars in chronological order."""
+        async for bar in self._delegate.stream_bars():
+            yield bar
+
+    def get_symbols(self) -> List[str]:
+        """Get list of symbols."""
+        return self._delegate.get_symbols()
+
+    @property
+    def bar_count(self) -> int:
+        """Get total bar count."""
+        return self._delegate.bar_count
+
+
 class IbHistoricalDataFeed(DataFeed):
     """
-    Load historical data from Interactive Brokers.
+    Load historical data from Interactive Brokers (legacy).
 
-    This is the recommended data feed for production backtests.
+    Prefer BarCacheDataFeed for production backtests.
     Uses the IbHistoricalAdapter to fetch real market data.
 
     Requirements:

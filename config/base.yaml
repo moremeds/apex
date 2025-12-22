@@ -8,7 +8,10 @@ brokers:
     enabled: true
     host: 127.0.0.1
     port: 4001  # 7497 for TWS Paper, 7496 for TWS Live, 4000 for IB Gateway Paper, 4001 for Live
-    client_id: 1
+    client_ids:
+      execution: 1
+      monitoring: 2
+      historical_pool: [3, 4, 5, 6, 7, 8, 9, 10]
     # IBKR provides: positions, account info, market data (prices + Greeks)
     provides_market_data: true
 
@@ -239,6 +242,14 @@ history_loader:
   futu_rate_limit:
     requests_per_window: 10
     window_seconds: 30
+
+# Historical data services (bar cache + IB historical pool)
+historical_data:
+  bar_cache:
+    host: 127.0.0.1
+    port: 9001
+    timeout_sec: 30
+    max_cache_entries: 512
 
 # Position reconciliation settings
 reconciliation:

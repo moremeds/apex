@@ -16,6 +16,7 @@ import logging
 from .models import (
     AppConfig,
     IbConfig,
+    IbClientIdsConfig,
     FutuConfig,
     ManualPositionsConfig,
     RiskLimitsConfig,
@@ -31,6 +32,8 @@ from .models import (
     SnapshotConfig,
     HistoryLoaderConfig,
     RateLimitConfig,
+    BarCacheConfig,
+    HistoricalDataConfig,
 )
 
 
@@ -122,11 +125,19 @@ class ConfigManager:
             ibkr_raw = brokers_raw.get("ibkr", self.config.get("ibkr", {}))
             futu_raw = brokers_raw.get("futu", self.config.get("futu", {}))
 
+            client_ids_raw = ibkr_raw.get("client_ids", {})
             ibkr = IbConfig(
                 enabled=ibkr_raw.get("enabled", True),
                 host=ibkr_raw.get("host", "127.0.0.1"),
                 port=ibkr_raw.get("port", 4001),
-                client_id=ibkr_raw.get("client_id", 1),
+                client_ids=IbClientIdsConfig(
+                    execution=client_ids_raw.get("execution", 1),
+                    monitoring=client_ids_raw.get("monitoring", 2),
+                    historical_pool=client_ids_raw.get(
+                        "historical_pool",
+                        [3, 4, 5, 6, 7, 8, 9, 10],
+                    ),
+                ),
                 provides_market_data=ibkr_raw.get("provides_market_data", True),
             )
 
@@ -253,6 +264,17 @@ class ConfigManager:
                 ),
             ) if history_raw else None
 
+            historical_raw = self.config.get("historical_data", {})
+            bar_cache_raw = historical_raw.get("bar_cache", {})
+            historical_data = HistoricalDataConfig(
+                bar_cache=BarCacheConfig(
+                    host=bar_cache_raw.get("host", "127.0.0.1"),
+                    port=bar_cache_raw.get("port", 9001),
+                    timeout_sec=bar_cache_raw.get("timeout_sec", 30),
+                    max_cache_entries=bar_cache_raw.get("max_cache_entries", 512),
+                )
+            ) if historical_raw else None
+
             return AppConfig(
                 ibkr=ibkr,
                 futu=futu,
@@ -268,6 +290,7 @@ class ConfigManager:
                 display=display,
                 snapshots=snapshots,
                 history_loader=history_loader,
+                historical_data=historical_data,
             )
 
         except Exception as e:
