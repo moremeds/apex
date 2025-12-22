@@ -78,7 +78,7 @@ class IbHistoryLoader:
                 await self._ib_client.connectAsync(
                     host=self._ib_config.host,
                     port=self._ib_config.port,
-                    clientId=self._ib_config.client_id + 100,  # Use different client ID
+                    clientId=self._ib_config.client_ids.historical_pool[0],
                 )
             except ImportError:
                 logger.error("ib_async package not installed")

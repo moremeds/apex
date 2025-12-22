@@ -47,7 +47,7 @@ class IbBaseAdapter(ABC):
         Args:
             host: IB TWS/Gateway host.
             port: IB TWS/Gateway port (7497 for TWS, 4001 for Gateway).
-            client_id: Client ID for connection (will be adjusted by adapter type).
+            client_id: Reserved IB client ID for this adapter.
             reconnect_backoff_initial: Initial reconnect delay (seconds).
             reconnect_backoff_max: Max reconnect delay (seconds).
             reconnect_backoff_factor: Backoff multiplier.
@@ -55,7 +55,7 @@ class IbBaseAdapter(ABC):
         """
         self.host = host
         self.port = port
-        self._base_client_id = client_id
+        self._client_id = client_id
         self.reconnect_backoff_initial = reconnect_backoff_initial
         self.reconnect_backoff_max = reconnect_backoff_max
         self.reconnect_backoff_factor = reconnect_backoff_factor
@@ -74,11 +74,9 @@ class IbBaseAdapter(ABC):
         """
         Get the actual client ID used for connection.
 
-        Override in subclasses to use different IDs per adapter type.
+        Override in subclasses if a dynamic ID is required.
         """
-        from .client_manager import get_client_id_manager
-        manager = get_client_id_manager(self._base_client_id)
-        return manager.get_client_id(self.ADAPTER_TYPE)
+        return self._client_id
 
     # -------------------------------------------------------------------------
     # Connection Management
@@ -130,11 +128,6 @@ class IbBaseAdapter(ABC):
 
             self.ib.disconnect()
             self._connected = False
-
-            # Release client ID
-            from .client_manager import get_client_id_manager
-            manager = get_client_id_manager(self._base_client_id)
-            manager.release_client_id(self.ADAPTER_TYPE)
 
             logger.info(f"Disconnected from IB (type={self.ADAPTER_TYPE})")
 
@@ -212,7 +205,7 @@ class IbBaseAdapter(ABC):
             "adapter_type": self.ADAPTER_TYPE,
             "host": self.host,
             "port": self.port,
-            "client_id": self._base_client_id,
+            "client_id": self._client_id,
             "connected": self.is_connected(),
             "connect_time": self._connect_time.isoformat() if self._connect_time else None,
             "reconnect_count": self._reconnect_count,

@@ -14,7 +14,10 @@
       "Bash(cat:*)",
       "Bash(git add:*)",
       "Bash(tail:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(mkdir:*)",
+      "WebSearch",
+      "Bash(grep:*)"
     ],
     "deny": [],
     "ask": []

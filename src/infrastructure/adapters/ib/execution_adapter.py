@@ -6,7 +6,7 @@ Handles:
 - Trade/fill notifications
 - Order status tracking
 
-Uses client_id = base + 2.
+Uses reserved execution client ID.
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ class IbExecutionAdapter(IbBaseAdapter, ExecutionProvider):
     IB adapter for order execution.
 
     Implements ExecutionProvider for order submission and management.
-    Uses client_id = base_id + 2 (execution adapter offset).
+    Uses reserved execution client ID.
 
     Includes safety features:
     - Trading enable/disable (kill switch)

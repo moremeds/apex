@@ -40,7 +40,7 @@ class StrategyItem:
 
     # Execution settings (from spec or defaults)
     initial_capital: float = 100000.0
-    data_source: str = "ib"
+    data_source: str = "historical"
     bar_size: str = "1d"
     start_date: Optional[date] = None
     end_date: Optional[date] = None

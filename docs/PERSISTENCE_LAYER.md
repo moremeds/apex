@@ -630,7 +630,7 @@ class WarmStartResult:
 
 ## Related Documentation
 
-- [05_persistence_layer.md](design/05_persistence_layer.md) - Design document
-- [05a_persistence_sql.md](design/05a_persistence_sql.md) - SQL schema reference
-- [05b_persistence_repositories.md](design/05b_persistence_repositories.md) - Repository implementations
-- [05c_persistence_loaders.md](design/05c_persistence_loaders.md) - History loader details
+- [05_persistence_layer.md](design/uplifting/05_persistence_layer.md) - Design document
+- [05a_persistence_sql.md](design/uplifting/05a_persistence_sql.md) - SQL schema reference
+- [05b_persistence_repositories.md](design/uplifting/05b_persistence_repositories.md) - Repository implementations
+- [05c_persistence_loaders.md](design/uplifting/05c_persistence_loaders.md) - History loader details

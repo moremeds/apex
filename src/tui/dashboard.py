@@ -33,7 +33,6 @@ from typing import List, Optional, Dict, Any
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from enum import Enum
-import math
 import threading
 import asyncio
 import sys
@@ -62,10 +61,14 @@ from .panels import (
     render_health,
     render_open_orders,
     render_atr_levels,
+    render_atr_loading,
     render_atr_empty,
 )
 from .panels.positions import get_broker_underlyings
 from ..domain.indicators.atr import ATRCache, ATRCalculator, ATRData
+from ..services.bar_cache_service import BarPeriod
+from ..services.ta_service import TAService
+from ..services.historical_data_service import HistoricalDataService
 from .panels.strategies import _update_lab_view
 
 from ..models.risk_snapshot import RiskSnapshot
@@ -98,7 +101,7 @@ class BacktestConfig:
     start_date: date = field(default_factory=lambda: date.today() - timedelta(days=365))
     end_date: date = field(default_factory=lambda: date.today() - timedelta(days=1))
     initial_capital: float = 100_000.0
-    data_source: str = "ib"  # ib for IB historical, csv for offline
+    data_source: str = "historical"  # historical (bar cache) | csv
 
 
 @dataclass
@@ -123,7 +126,11 @@ class TerminalDashboard:
     - Position details (if enabled)
     """
 
-    def __init__(self, config: dict, env: str = "dev"):
+    def __init__(
+        self,
+        config: dict,
+        env: str = "dev",
+    ):
         """
         Initialize dashboard.
 
@@ -173,6 +180,36 @@ class TerminalDashboard:
         self._atr_period: int = 14  # Default ATR period
         self._atr_timeframe: str = "Daily"  # Daily, 4H, 1H
         self._atr_help_mode: bool = False  # Toggle help overlay
+
+        # ATR fetching state
+        self._atr_fetch_inflight: set[str] = set()
+        self._atr_fetch_lock = threading.Lock()
+
+        # TA Service for ATR calculation (injected after startup via set_ta_service)
+        self._ta_service: Optional[TAService] = None
+        self._historical_service: Optional[HistoricalDataService] = None
+        self._event_loop: Optional[asyncio.AbstractEventLoop] = None
+
+    def set_ta_service(
+        self,
+        ta_service: TAService,
+        event_loop: asyncio.AbstractEventLoop,
+        historical_service: Optional[HistoricalDataService] = None,
+    ) -> None:
+        """
+        Inject TA service for ATR calculation.
+
+        Called after startup when historical connection is established.
+
+        Args:
+            ta_service: TAService instance for ATR calculation.
+            event_loop: Main event loop for scheduling async operations.
+            historical_service: HistoricalDataService for backtest data.
+        """
+        self._ta_service = ta_service
+        self._event_loop = event_loop
+        self._historical_service = historical_service
+        logger.info("TAService injected into dashboard")
 
     def start(self) -> None:
         """Start live dashboard (blocking)."""
@@ -625,6 +662,8 @@ class TerminalDashboard:
             return render_atr_empty("No positions to select")
 
         symbol = underlyings[selected_index]
+        timeframe = {"Daily": "1d", "4H": "4h", "1H": "1h"}.get(self._atr_timeframe, "1d")
+        cache_key = f"{symbol}:{timeframe}"
 
         # Find the STOCK position for spot price (not options)
         # Stock positions have no expiry
@@ -653,30 +692,27 @@ class TerminalDashboard:
         position = stock_position or any_position
 
         # Check if we have cached ATR data
-        atr_data = self._atr_cache.get(symbol)
-        cache_entry = self._atr_cache.get_entry(symbol)
+        cache_entry = self._atr_cache.get_entry(cache_key)
+        atr_data = cache_entry.data if cache_entry else None
         optimization = cache_entry.optimization_result if cache_entry else None
+        spot_price = stock_position.mark_price if stock_position else None
 
-        # If no cached data, calculate from spot price
-        if atr_data is None and stock_position and stock_position.mark_price:
-            # Use the STOCK spot price for ATR calculation
-            spot_price = stock_position.mark_price
-            # Estimate ATR based on period and timeframe
-            # Base: 2.5% of price for Daily 14-period ATR
-            # Timeframe scaling: 4H ~50%, 1H ~25% of daily ATR
-            base_atr_pct = 0.025  # 2.5% for Daily 14-period
-            period_factor = math.sqrt(self._atr_period / 14.0)
-            timeframe_factor = {"Daily": 1.0, "4H": 0.5, "1H": 0.25}.get(self._atr_timeframe, 1.0)
-            estimated_atr = spot_price * base_atr_pct * period_factor * timeframe_factor
-            atr_data = ATRCalculator.calculate_levels(
-                symbol=symbol,
-                entry_price=spot_price,
-                atr_value=estimated_atr,
-                period=self._atr_period,
-            )
-        elif atr_data is None:
-            # No stock position, show empty
-            return render_atr_empty(f"No spot price for {symbol}")
+        if cache_entry and atr_data and atr_data.period != self._atr_period:
+            if len(cache_entry.bars) >= self._atr_period + 1:
+                atr_data = ATRCalculator.from_bars(
+                    symbol=symbol,
+                    bars=cache_entry.bars,
+                    period=self._atr_period,
+                    entry_price=spot_price,
+                )
+                if atr_data:
+                    self._atr_cache.set(cache_key, atr_data, cache_entry.bars, optimization)
+            else:
+                atr_data = None
+
+        if atr_data is None:
+            self._queue_atr_fetch(cache_key, symbol, timeframe, spot_price)
+            return render_atr_loading()
 
         # If help mode is active, show help overlay instead
         if self._atr_help_mode:
@@ -692,6 +728,80 @@ class TerminalDashboard:
             timeframe=self._atr_timeframe,
         )
 
+    def _queue_atr_fetch(
+        self,
+        cache_key: str,
+        symbol: str,
+        timeframe: str,
+        spot_price: Optional[float],
+    ) -> None:
+        """Queue ATR fetch request using TAService.
+
+        Schedules async ATR fetch on the main event loop.
+        Results are stored in ATR cache and UI is refreshed.
+        """
+        # Check if TAService is available
+        if not self._ta_service or not self._event_loop:
+            logger.debug(f"ATR fetch skipped for {symbol} - TAService not available yet")
+            return
+
+        # Avoid duplicate fetches
+        with self._atr_fetch_lock:
+            if cache_key in self._atr_fetch_inflight:
+                return
+            self._atr_fetch_inflight.add(cache_key)
+
+        async def fetch_atr():
+            try:
+                # Get ATR levels from TAService
+                atr_levels = await self._ta_service.get_atr_levels(
+                    symbol=symbol,
+                    spot_price=spot_price or 0.0,
+                    period=self._atr_period,
+                    timeframe=timeframe,
+                )
+
+                if atr_levels:
+                    # Convert to ATRData format for cache
+                    # Levels use spot (current price for today's stops/targets)
+                    sp = atr_levels.spot
+                    atr_data = ATRData(
+                        symbol=symbol,
+                        current_price=spot_price or sp,
+                        atr_value=atr_levels.atr,
+                        atr_percent=atr_levels.atr_pct,  # ATR% based on prev_close
+                        period=atr_levels.period,
+                        # Stop/profit levels based on spot price
+                        stop_loss_1x=atr_levels.level_1_dn,
+                        stop_loss_1_5x=sp - (atr_levels.atr * 1.5),
+                        stop_loss_2x=atr_levels.level_2_dn,
+                        take_profit_7x=sp + (atr_levels.atr * 7),
+                        take_profit_8x=sp + (atr_levels.atr * 8),
+                        take_profit_9x=sp + (atr_levels.atr * 9),
+                        take_profit_10x=sp + (atr_levels.atr * 10),
+                        take_profit_11x=sp + (atr_levels.atr * 11),
+                    )
+                    # Store in cache
+                    self._atr_cache.set(cache_key, atr_data, bars=[], optimization=None)
+                    logger.debug(f"ATR fetched for {symbol}: {atr_levels.atr:.2f}")
+
+                    # Trigger UI refresh
+                    self._refresh_broker_positions_view()
+
+            except Exception as e:
+                logger.warning(f"ATR fetch failed for {symbol}: {e}")
+            finally:
+                with self._atr_fetch_lock:
+                    self._atr_fetch_inflight.discard(cache_key)
+
+        # Schedule async fetch on main event loop
+        try:
+            asyncio.run_coroutine_threadsafe(fetch_atr(), self._event_loop)
+        except Exception as e:
+            logger.error(f"Failed to schedule ATR fetch for {symbol}: {e}")
+            with self._atr_fetch_lock:
+                self._atr_fetch_inflight.discard(cache_key)
+
     def _run_backtest(self, strategy_name: str) -> None:
         """Run backtest for a strategy in background thread."""
         if self._backtest_state.status == BacktestStatus.RUNNING:
@@ -704,11 +814,26 @@ class TerminalDashboard:
         self._backtest_state.running_strategy = strategy_name
         self._refresh_lab_view()
 
+        # Pre-fetch bars from HistoricalDataService if available
+        cached_bars = None
+        if self._historical_service and self._event_loop:
+            try:
+                config = self._backtest_state.config
+                # Schedule fetch on main event loop and wait for result
+                future = asyncio.run_coroutine_threadsafe(
+                    self._prefetch_backtest_bars(config.symbols, config.start_date, config.end_date),
+                    self._event_loop,
+                )
+                cached_bars = future.result(timeout=60.0)  # Wait up to 60s
+                logger.info(f"Pre-fetched bars for backtest: {len(cached_bars)} symbols")
+            except Exception as e:
+                logger.warning(f"Failed to pre-fetch bars, will use IB connection: {e}")
+                cached_bars = None
+
         def run_in_thread():
             try:
                 # Use asyncio.run() which properly manages the event loop lifecycle
-                # This ensures ib_async creates connections on the correct loop
-                result = asyncio.run(self._execute_backtest(strategy_name))
+                result = asyncio.run(self._execute_backtest(strategy_name, cached_bars))
                 self._backtest_state.results[strategy_name] = result
                 self._backtest_state.status = BacktestStatus.COMPLETED
                 logger.info(f"Backtest completed for {strategy_name}: {result.total_return_pct:.2f}%")
@@ -724,17 +849,48 @@ class TerminalDashboard:
         self._backtest_thread.start()
         logger.info(f"Started backtest for {strategy_name}")
 
-    async def _execute_backtest(self, strategy_name: str) -> BacktestResult:
-        """Execute the actual backtest using custom Apex engine with ib_async."""
+    async def _prefetch_backtest_bars(
+        self,
+        symbols: List[str],
+        start_date: date,
+        end_date: date,
+    ) -> Dict[str, List]:
+        """Pre-fetch bars from HistoricalDataService for backtest."""
+        from datetime import datetime, timedelta
+
+        # Calculate lookback - need enough bars for the date range
+        days_needed = (end_date - start_date).days + 30  # Extra buffer
+
+        requests = [
+            {"symbol": sym, "timeframe": "1d", "period": BarPeriod.bars(days_needed)}
+            for sym in symbols
+        ]
+
+        return await self._historical_service.fetch_bars_batch(requests, use_cache=True)
+
+    async def _execute_backtest(
+        self,
+        strategy_name: str,
+        cached_bars: Optional[Dict[str, List]] = None,
+    ) -> BacktestResult:
+        """Execute the actual backtest using custom Apex engine."""
         from src.runners.backtest_runner import BacktestRunner
 
         config = self._backtest_state.config
+
+        # Use cached bars if available, otherwise fall back to IB
+        if cached_bars:
+            data_source = "cached"
+        else:
+            data_source = config.data_source
+
         runner = BacktestRunner(
             strategy_name=strategy_name,
             symbols=config.symbols,
             start_date=config.start_date,
             end_date=config.end_date,
             initial_capital=config.initial_capital,
-            data_source=config.data_source,
+            data_source=data_source,
+            cached_bars=cached_bars,
         )
         return await runner.run()

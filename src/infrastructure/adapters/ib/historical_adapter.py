@@ -5,7 +5,7 @@ Handles:
 - Historical bar/candle data (implements BarProvider)
 - Batch historical requests
 
-Uses client_id = base + 1.
+Uses reserved historical client IDs.
 """
 
 from __future__ import annotations
@@ -62,7 +62,7 @@ class IbHistoricalAdapter(IbBaseAdapter, BarProvider):
     IB adapter for historical data requests.
 
     Implements BarProvider for fetching historical bars.
-    Uses client_id = base_id + 1 (historical adapter offset).
+    Uses a reserved historical client ID.
 
     Note: Historical data requests can be slow and rate-limited by IB.
     Use a separate client ID to avoid blocking live data streams.

@@ -228,7 +228,7 @@ class MomentumBreakoutStrategy(Strategy):
 
         logger.info(
             f"[{self.strategy_id}] EXIT {reason}: {symbol} @ {price:.2f} "
-            f"(entry={pos.entry_price:.2f if pos else 0}, pnl=${pnl:.2f})"
+            f"(entry={(pos.entry_price if pos else 0):.2f}, pnl=${pnl:.2f})"
         )
 
         order = OrderRequest(

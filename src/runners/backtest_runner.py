@@ -15,7 +15,7 @@ Usage:
         start_date=date(2024, 1, 1),
         end_date=date(2024, 6, 30),
         initial_capital=100000,
-        data_source="ib",  # Uses connection from config/base.yaml
+        data_source="historical",  # Uses bar cache service from config/base.yaml
     )
     result = await runner.run()
 
@@ -40,11 +40,13 @@ from ..domain.backtest.backtest_result import BacktestResult
 from ..domain.strategy.registry import get_strategy_class, list_strategies
 from ..infrastructure.backtest.backtest_engine import BacktestEngine, BacktestConfig
 from ..infrastructure.backtest.data_feeds import (
-    IbHistoricalDataFeed,
+    BarCacheDataFeed,
+    CachedBarDataFeed,
     CsvDataFeed,
     ParquetDataFeed,
 )
 from ..infrastructure.backtest.simulated_execution import FillModel
+from config.models import IbConfig, IbClientIdsConfig
 
 # Import example strategies to register them
 from ..domain.strategy.examples import MovingAverageCrossStrategy, BuyAndHoldStrategy  # noqa
@@ -63,39 +65,46 @@ logger = logging.getLogger(__name__)
 DEFAULT_CONFIG_PATH = Path(__file__).parent.parent.parent / "config" / "base.yaml"
 
 
-def load_broker_config(broker: str, config_path: Optional[Path] = None) -> Dict[str, Any]:
+def load_ib_config(config_path: Optional[Path] = None) -> Optional[IbConfig]:
     """
-    Load broker connection settings from base.yaml.
-
-    Args:
-        broker: Broker name (ib, futu).
-        config_path: Path to config file. Defaults to config/base.yaml.
+    Load IB config from base.yaml.
 
     Returns:
-        Dict with broker connection settings.
+        IbConfig if available, None otherwise.
     """
     path = config_path or DEFAULT_CONFIG_PATH
 
-    # Broker name mapping
-    broker_keys = {
-        "ib": "ibkr",
-        "ibkr": "ibkr",
-        "futu": "futu",
-    }
-
     if not path.exists():
         logger.warning(f"Config file not found: {path}")
-        return {}
+        return None
 
     try:
         with open(path) as f:
             config = yaml.safe_load(f)
 
-        broker_key = broker_keys.get(broker, broker)
-        return config.get("brokers", {}).get(broker_key, {})
+        ib_cfg = config.get("brokers", {}).get("ibkr", {})
+        if not ib_cfg.get("enabled"):
+            logger.warning("IB not enabled in config")
+            return None
+
+        # Build IbClientIdsConfig from config
+        client_ids_cfg = ib_cfg.get("client_ids", {})
+        client_ids = IbClientIdsConfig(
+            execution=client_ids_cfg.get("execution", 1),
+            monitoring=client_ids_cfg.get("monitoring", 2),
+            historical_pool=client_ids_cfg.get("historical_pool", [3, 4, 5, 6, 7, 8, 9, 10]),
+        )
+
+        return IbConfig(
+            enabled=True,
+            host=ib_cfg.get("host", "127.0.0.1"),
+            port=ib_cfg.get("port", 7497),
+            client_ids=client_ids,
+            provides_market_data=ib_cfg.get("provides_market_data", True),
+        )
     except Exception as e:
-        logger.warning(f"Failed to load broker config: {e}")
-        return {}
+        logger.warning(f"Failed to load IB config: {e}")
+        return None
 
 
 class BacktestRunner:
@@ -117,13 +126,14 @@ class BacktestRunner:
         start_date: date,
         end_date: date,
         initial_capital: float = 100000.0,
-        data_source: str = "ib",
+        data_source: str = "historical",
         data_dir: str = "./data",
         bar_size: str = "1d",
         strategy_params: Optional[Dict[str, Any]] = None,
         fill_model: str = "immediate",
         slippage_bps: float = 5.0,
         commission_per_share: float = 0.005,
+        cached_bars: Optional[Dict[str, List]] = None,
     ):
         """
         Initialize backtest runner.
@@ -134,14 +144,17 @@ class BacktestRunner:
             start_date: Backtest start date.
             end_date: Backtest end date.
             initial_capital: Starting capital.
-            data_source: Broker/data source (ib, futu, csv, parquet).
-                         Connection details loaded from config/base.yaml.
+            data_source: Data source (historical, csv, parquet, cached).
+                         Historical uses bar cache from config/base.yaml.
+                         Cached uses pre-fetched bars from cached_bars param.
             data_dir: Directory containing data files (for csv/parquet).
             bar_size: Bar size (1m, 5m, 1h, 1d).
             strategy_params: Strategy parameters.
             fill_model: Fill model (immediate, slippage).
             slippage_bps: Slippage in basis points.
             commission_per_share: Commission per share.
+            cached_bars: Pre-fetched bars (Dict[symbol, List[BarData]]).
+                        Use with data_source="cached" for in-process backtests.
         """
         self.strategy_name = strategy_name
         self.symbols = symbols
@@ -155,6 +168,7 @@ class BacktestRunner:
         self.fill_model = FillModel(fill_model)
         self.slippage_bps = slippage_bps
         self.commission_per_share = commission_per_share
+        self.cached_bars = cached_bars
 
         self._spec: Optional[BacktestSpec] = None
 
@@ -232,7 +246,7 @@ class BacktestRunner:
             start_date=start_date,
             end_date=end_date,
             initial_capital=getattr(args, "capital", 100000),
-            data_source=getattr(args, "data_source", "ib"),
+            data_source=getattr(args, "data_source", "historical"),
             data_dir=getattr(args, "data_dir", "./data"),
             bar_size=getattr(args, "bar_size", "1d"),
             strategy_params=strategy_params,
@@ -298,17 +312,35 @@ class BacktestRunner:
 
         Broker connection details are loaded from config/base.yaml.
         """
-        if self.data_source in ("ib", "ibkr"):
-            # Load IB config from base.yaml
-            broker_config = load_broker_config("ib")
-            return IbHistoricalDataFeed(
+        if self.data_source == "cached":
+            # Use pre-fetched bars (for in-process backtests from Lab panel)
+            if not self.cached_bars:
+                raise RuntimeError(
+                    "'cached' data source requires cached_bars parameter. "
+                    "Use HistoricalDataService to pre-fetch bars."
+                )
+            return CachedBarDataFeed(
+                bars_by_symbol=self.cached_bars,
+                start_date=self.start_date,
+                end_date=self.end_date,
+            )
+        elif self.data_source == "historical":
+            ib_config = load_ib_config()
+            if not ib_config:
+                raise RuntimeError(
+                    "IB config required for 'historical' data source. "
+                    "Check config/base.yaml brokers.ibkr settings."
+                )
+            # Use first historical client ID for standalone backtest
+            client_id = ib_config.client_ids.historical_pool[0] if ib_config.client_ids.historical_pool else 10
+            return BarCacheDataFeed(
                 symbols=self.symbols,
                 start_date=self.start_date,
                 end_date=self.end_date,
                 bar_size=self.bar_size,
-                host=broker_config.get("host", "127.0.0.1"),
-                port=broker_config.get("port", 4001),
-                client_id= broker_config.get("client_id", 1),
+                host=ib_config.host,
+                port=ib_config.port,
+                client_id=client_id,
             )
         elif self.data_source == "csv":
             return CsvDataFeed(
@@ -327,7 +359,10 @@ class BacktestRunner:
                 bar_size=self.bar_size,
             )
         else:
-            raise ValueError(f"Unknown data source: {self.data_source}. Use 'ib', 'csv', or 'parquet'.")
+            raise ValueError(
+                f"Unknown data source: {self.data_source}. "
+                f"Use 'cached', 'historical', 'csv', or 'parquet'."
+            )
 
     def _print_config(self) -> None:
         """Print backtest configuration."""
@@ -339,9 +374,10 @@ class BacktestRunner:
         print(f"Period:       {self.start_date} to {self.end_date}")
         print(f"Capital:      ${self.initial_capital:,.2f}")
         print(f"Data Source:  {self.data_source}")
-        if self.data_source in ("ib", "ibkr"):
-            broker_config = load_broker_config("ib")
-            print(f"IB Gateway:   {broker_config.get('host', '127.0.0.1')}:{broker_config.get('port', 4001)}")
+        if self.data_source == "historical":
+            ib_config = load_ib_config()
+            if ib_config:
+                print(f"IB Gateway:   {ib_config.host}:{ib_config.port}")
         print(f"Bar Size:     {self.bar_size}")
         print(f"Fill Model:   {self.fill_model.value}")
         if self.strategy_params:
@@ -726,9 +762,9 @@ Note: Broker connection settings are loaded from config/base.yaml (brokers secti
     parser.add_argument(
         "--data-source",
         type=str,
-        default="ib",
-        choices=["ib", "csv", "parquet"],
-        help="Data source/broker (default: ib). Connection from config/base.yaml",
+        default="historical",
+        choices=["historical", "csv", "parquet"],
+        help="Data source (default: historical). Bar cache config from config/base.yaml",
     )
     parser.add_argument(
         "--data-dir",

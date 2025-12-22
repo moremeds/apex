@@ -21,11 +21,11 @@ universe:
 
 # Data source configuration
 data:
-  source: ib                          # ib | futu | csv | parquet
+  source: historical                  # historical | csv | parquet
   bar_size: 1d                        # 1m | 5m | 15m | 1h | 1d
   start_date: "2024-01-01"
   end_date: "2024-06-30"
-  # Connection details resolved from config/base.yaml (brokers section)
+  # Connection details resolved from config/base.yaml (historical_data.bar_cache)
   # For CSV/Parquet:
   # data_dir: "./data"
 
