@@ -41,6 +41,7 @@ from ..domain.strategy.registry import get_strategy_class, list_strategies
 from ..infrastructure.backtest.backtest_engine import BacktestEngine, BacktestConfig
 from ..infrastructure.backtest.data_feeds import (
     BarCacheDataFeed,
+    CachedBarDataFeed,
     CsvDataFeed,
     ParquetDataFeed,
 )
@@ -81,7 +82,7 @@ def load_ib_config(config_path: Optional[Path] = None) -> Optional[IbConfig]:
         with open(path) as f:
             config = yaml.safe_load(f)
 
-        ib_cfg = config.get("brokers", {}).get("ib", {})
+        ib_cfg = config.get("brokers", {}).get("ibkr", {})
         if not ib_cfg.get("enabled"):
             logger.warning("IB not enabled in config")
             return None
@@ -132,6 +133,7 @@ class BacktestRunner:
         fill_model: str = "immediate",
         slippage_bps: float = 5.0,
         commission_per_share: float = 0.005,
+        cached_bars: Optional[Dict[str, List]] = None,
     ):
         """
         Initialize backtest runner.
@@ -142,14 +144,17 @@ class BacktestRunner:
             start_date: Backtest start date.
             end_date: Backtest end date.
             initial_capital: Starting capital.
-            data_source: Data source (historical, csv, parquet).
+            data_source: Data source (historical, csv, parquet, cached).
                          Historical uses bar cache from config/base.yaml.
+                         Cached uses pre-fetched bars from cached_bars param.
             data_dir: Directory containing data files (for csv/parquet).
             bar_size: Bar size (1m, 5m, 1h, 1d).
             strategy_params: Strategy parameters.
             fill_model: Fill model (immediate, slippage).
             slippage_bps: Slippage in basis points.
             commission_per_share: Commission per share.
+            cached_bars: Pre-fetched bars (Dict[symbol, List[BarData]]).
+                        Use with data_source="cached" for in-process backtests.
         """
         self.strategy_name = strategy_name
         self.symbols = symbols
@@ -163,6 +168,7 @@ class BacktestRunner:
         self.fill_model = FillModel(fill_model)
         self.slippage_bps = slippage_bps
         self.commission_per_share = commission_per_share
+        self.cached_bars = cached_bars
 
         self._spec: Optional[BacktestSpec] = None
 
@@ -306,12 +312,24 @@ class BacktestRunner:
 
         Broker connection details are loaded from config/base.yaml.
         """
-        if self.data_source == "historical":
+        if self.data_source == "cached":
+            # Use pre-fetched bars (for in-process backtests from Lab panel)
+            if not self.cached_bars:
+                raise RuntimeError(
+                    "'cached' data source requires cached_bars parameter. "
+                    "Use HistoricalDataService to pre-fetch bars."
+                )
+            return CachedBarDataFeed(
+                bars_by_symbol=self.cached_bars,
+                start_date=self.start_date,
+                end_date=self.end_date,
+            )
+        elif self.data_source == "historical":
             ib_config = load_ib_config()
             if not ib_config:
                 raise RuntimeError(
                     "IB config required for 'historical' data source. "
-                    "Check config/base.yaml brokers.ib settings."
+                    "Check config/base.yaml brokers.ibkr settings."
                 )
             # Use first historical client ID for standalone backtest
             client_id = ib_config.client_ids.historical_pool[0] if ib_config.client_ids.historical_pool else 10
@@ -343,7 +361,7 @@ class BacktestRunner:
         else:
             raise ValueError(
                 f"Unknown data source: {self.data_source}. "
-                f"Use 'historical', 'csv', or 'parquet'."
+                f"Use 'cached', 'historical', 'csv', or 'parquet'."
             )
 
     def _print_config(self) -> None:

@@ -55,9 +55,10 @@ except ImportError:
 class ATRLevels:
     """ATR-based price levels for a symbol."""
     symbol: str
-    spot: float
+    spot: float  # Current spot price (used for levels)
+    prev_close: float  # Previous bar close (used for ATR%)
     atr: float
-    atr_pct: float  # ATR as percentage of spot
+    atr_pct: float  # ATR as percentage of prev_close
     level_1_up: float  # spot + 1 ATR
     level_1_dn: float  # spot - 1 ATR
     level_2_up: float  # spot + 2 ATR
@@ -218,36 +219,76 @@ class TAService:
         Get ATR-based price levels for a symbol.
 
         Calculates support/resistance levels based on ATR multiples.
+        Uses PREVIOUS bar's close for level calculations (not spot price).
 
         Args:
             symbol: Stock symbol.
-            spot_price: Current spot price.
+            spot_price: Current spot price (for display only).
             period: ATR period (default: 14).
             timeframe: Bar timeframe (default: "1d").
 
         Returns:
             ATRLevels dataclass or None if calculation fails.
         """
-        period = period or self._default_atr_period
-        atr = await self.get_atr(symbol, period, timeframe)
-
-        if atr is None or spot_price <= 0:
+        if not TALIB_AVAILABLE:
             return None
 
-        atr_pct = (atr / spot_price) * 100
+        period = period or self._default_atr_period
+        lookback = period + self._lookback_buffer
 
-        return ATRLevels(
-            symbol=symbol,
-            spot=spot_price,
-            atr=atr,
-            atr_pct=atr_pct,
-            level_1_up=spot_price + atr,
-            level_1_dn=spot_price - atr,
-            level_2_up=spot_price + (2 * atr),
-            level_2_dn=spot_price - (2 * atr),
-            timeframe=timeframe,
-            period=period,
-        )
+        try:
+            bars = await self._historical.fetch_bars(
+                symbol,
+                timeframe,
+                BarPeriod.bars(lookback),
+            )
+
+            if len(bars) < period:
+                logger.warning(
+                    f"Insufficient data for {symbol} ATR levels: "
+                    f"got {len(bars)} bars, need {period}"
+                )
+                return None
+
+            high = np.array([b.high for b in bars], dtype=np.float64)
+            low = np.array([b.low for b in bars], dtype=np.float64)
+            close = np.array([b.close for b in bars], dtype=np.float64)
+
+            atr_array = talib.ATR(high, low, close, timeperiod=period)
+            atr = atr_array[-1]
+
+            if np.isnan(atr):
+                return None
+
+            atr = float(atr)
+
+            # Use PREVIOUS bar's close for ATR level calculations
+            prev_close = float(close[-1])
+
+            if prev_close <= 0:
+                return None
+
+            # ATR% uses prev_close (ATR normalized to completed bar)
+            atr_pct = (atr / prev_close) * 100
+
+            # Levels use spot_price (current price for today's stops/targets)
+            return ATRLevels(
+                symbol=symbol,
+                spot=spot_price,
+                prev_close=prev_close,
+                atr=atr,
+                atr_pct=atr_pct,
+                level_1_up=spot_price + atr,
+                level_1_dn=spot_price - atr,
+                level_2_up=spot_price + (2 * atr),
+                level_2_dn=spot_price - (2 * atr),
+                timeframe=timeframe,
+                period=period,
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to calculate ATR levels for {symbol}: {e}")
+            return None
 
     async def get_atr_levels_batch(
         self,
@@ -258,39 +299,78 @@ class TAService:
         """
         Get ATR levels for multiple symbols efficiently.
 
+        Uses PREVIOUS bar's close for level calculations (not spot price).
+
         Args:
-            symbols_with_spots: Dict mapping symbol to spot price.
+            symbols_with_spots: Dict mapping symbol to spot price (for display).
             period: ATR period (default: 14).
             timeframe: Bar timeframe.
 
         Returns:
             Dict mapping symbol to ATRLevels (or None).
         """
+        if not TALIB_AVAILABLE:
+            return {sym: None for sym in symbols_with_spots}
+
         period = period or self._default_atr_period
+        lookback = period + self._lookback_buffer
         symbols = list(symbols_with_spots.keys())
 
-        atrs = await self.get_atr_batch(symbols, period, timeframe)
+        # Batch fetch all bars
+        requests = [
+            {"symbol": sym, "timeframe": timeframe, "period": BarPeriod.bars(lookback)}
+            for sym in symbols
+        ]
+        bars_by_symbol = await self._historical.fetch_bars_batch(requests)
 
+        # Calculate ATR levels for each symbol
         results: Dict[str, Optional[ATRLevels]] = {}
-        for symbol, atr in atrs.items():
+        for symbol in symbols:
+            bars = bars_by_symbol.get(symbol, [])
             spot = symbols_with_spots.get(symbol, 0)
-            if atr is None or spot <= 0:
+
+            if len(bars) < period:
                 results[symbol] = None
                 continue
 
-            atr_pct = (atr / spot) * 100
-            results[symbol] = ATRLevels(
-                symbol=symbol,
-                spot=spot,
-                atr=atr,
-                atr_pct=atr_pct,
-                level_1_up=spot + atr,
-                level_1_dn=spot - atr,
-                level_2_up=spot + (2 * atr),
-                level_2_dn=spot - (2 * atr),
-                timeframe=timeframe,
-                period=period,
-            )
+            try:
+                high = np.array([b.high for b in bars], dtype=np.float64)
+                low = np.array([b.low for b in bars], dtype=np.float64)
+                close = np.array([b.close for b in bars], dtype=np.float64)
+
+                atr_array = talib.ATR(high, low, close, timeperiod=period)
+                atr = atr_array[-1]
+
+                if np.isnan(atr):
+                    results[symbol] = None
+                    continue
+
+                atr = float(atr)
+                prev_close = float(close[-1])
+
+                if prev_close <= 0:
+                    results[symbol] = None
+                    continue
+
+                # ATR% uses prev_close, levels use spot
+                atr_pct = (atr / prev_close) * 100
+                results[symbol] = ATRLevels(
+                    symbol=symbol,
+                    spot=spot,
+                    prev_close=prev_close,
+                    atr=atr,
+                    atr_pct=atr_pct,
+                    level_1_up=spot + atr,
+                    level_1_dn=spot - atr,
+                    level_2_up=spot + (2 * atr),
+                    level_2_dn=spot - (2 * atr),
+                    timeframe=timeframe,
+                    period=period,
+                )
+
+            except Exception as e:
+                logger.warning(f"ATR levels calculation failed for {symbol}: {e}")
+                results[symbol] = None
 
         return results
 

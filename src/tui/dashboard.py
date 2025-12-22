@@ -187,9 +187,15 @@ class TerminalDashboard:
 
         # TA Service for ATR calculation (injected after startup via set_ta_service)
         self._ta_service: Optional[TAService] = None
+        self._historical_service: Optional[HistoricalDataService] = None
         self._event_loop: Optional[asyncio.AbstractEventLoop] = None
 
-    def set_ta_service(self, ta_service: TAService, event_loop: asyncio.AbstractEventLoop) -> None:
+    def set_ta_service(
+        self,
+        ta_service: TAService,
+        event_loop: asyncio.AbstractEventLoop,
+        historical_service: Optional[HistoricalDataService] = None,
+    ) -> None:
         """
         Inject TA service for ATR calculation.
 
@@ -198,9 +204,11 @@ class TerminalDashboard:
         Args:
             ta_service: TAService instance for ATR calculation.
             event_loop: Main event loop for scheduling async operations.
+            historical_service: HistoricalDataService for backtest data.
         """
         self._ta_service = ta_service
         self._event_loop = event_loop
+        self._historical_service = historical_service
         logger.info("TAService injected into dashboard")
 
     def start(self) -> None:
@@ -755,21 +763,23 @@ class TerminalDashboard:
 
                 if atr_levels:
                     # Convert to ATRData format for cache
+                    # Levels use spot (current price for today's stops/targets)
+                    sp = atr_levels.spot
                     atr_data = ATRData(
                         symbol=symbol,
-                        current_price=spot_price or atr_levels.spot,
+                        current_price=spot_price or sp,
                         atr_value=atr_levels.atr,
-                        atr_percent=atr_levels.atr_pct,
+                        atr_percent=atr_levels.atr_pct,  # ATR% based on prev_close
                         period=atr_levels.period,
-                        # Calculate stop/profit levels from ATR
+                        # Stop/profit levels based on spot price
                         stop_loss_1x=atr_levels.level_1_dn,
-                        stop_loss_1_5x=atr_levels.spot - (atr_levels.atr * 1.5),
+                        stop_loss_1_5x=sp - (atr_levels.atr * 1.5),
                         stop_loss_2x=atr_levels.level_2_dn,
-                        take_profit_7x=atr_levels.spot + (atr_levels.atr * 7),
-                        take_profit_8x=atr_levels.spot + (atr_levels.atr * 8),
-                        take_profit_9x=atr_levels.spot + (atr_levels.atr * 9),
-                        take_profit_10x=atr_levels.spot + (atr_levels.atr * 10),
-                        take_profit_11x=atr_levels.spot + (atr_levels.atr * 11),
+                        take_profit_7x=sp + (atr_levels.atr * 7),
+                        take_profit_8x=sp + (atr_levels.atr * 8),
+                        take_profit_9x=sp + (atr_levels.atr * 9),
+                        take_profit_10x=sp + (atr_levels.atr * 10),
+                        take_profit_11x=sp + (atr_levels.atr * 11),
                     )
                     # Store in cache
                     self._atr_cache.set(cache_key, atr_data, bars=[], optimization=None)
@@ -804,11 +814,26 @@ class TerminalDashboard:
         self._backtest_state.running_strategy = strategy_name
         self._refresh_lab_view()
 
+        # Pre-fetch bars from HistoricalDataService if available
+        cached_bars = None
+        if self._historical_service and self._event_loop:
+            try:
+                config = self._backtest_state.config
+                # Schedule fetch on main event loop and wait for result
+                future = asyncio.run_coroutine_threadsafe(
+                    self._prefetch_backtest_bars(config.symbols, config.start_date, config.end_date),
+                    self._event_loop,
+                )
+                cached_bars = future.result(timeout=60.0)  # Wait up to 60s
+                logger.info(f"Pre-fetched bars for backtest: {len(cached_bars)} symbols")
+            except Exception as e:
+                logger.warning(f"Failed to pre-fetch bars, will use IB connection: {e}")
+                cached_bars = None
+
         def run_in_thread():
             try:
                 # Use asyncio.run() which properly manages the event loop lifecycle
-                # This ensures ib_async creates connections on the correct loop
-                result = asyncio.run(self._execute_backtest(strategy_name))
+                result = asyncio.run(self._execute_backtest(strategy_name, cached_bars))
                 self._backtest_state.results[strategy_name] = result
                 self._backtest_state.status = BacktestStatus.COMPLETED
                 logger.info(f"Backtest completed for {strategy_name}: {result.total_return_pct:.2f}%")
@@ -824,17 +849,48 @@ class TerminalDashboard:
         self._backtest_thread.start()
         logger.info(f"Started backtest for {strategy_name}")
 
-    async def _execute_backtest(self, strategy_name: str) -> BacktestResult:
-        """Execute the actual backtest using custom Apex engine with ib_async."""
+    async def _prefetch_backtest_bars(
+        self,
+        symbols: List[str],
+        start_date: date,
+        end_date: date,
+    ) -> Dict[str, List]:
+        """Pre-fetch bars from HistoricalDataService for backtest."""
+        from datetime import datetime, timedelta
+
+        # Calculate lookback - need enough bars for the date range
+        days_needed = (end_date - start_date).days + 30  # Extra buffer
+
+        requests = [
+            {"symbol": sym, "timeframe": "1d", "period": BarPeriod.bars(days_needed)}
+            for sym in symbols
+        ]
+
+        return await self._historical_service.fetch_bars_batch(requests, use_cache=True)
+
+    async def _execute_backtest(
+        self,
+        strategy_name: str,
+        cached_bars: Optional[Dict[str, List]] = None,
+    ) -> BacktestResult:
+        """Execute the actual backtest using custom Apex engine."""
         from src.runners.backtest_runner import BacktestRunner
 
         config = self._backtest_state.config
+
+        # Use cached bars if available, otherwise fall back to IB
+        if cached_bars:
+            data_source = "cached"
+        else:
+            data_source = config.data_source
+
         runner = BacktestRunner(
             strategy_name=strategy_name,
             symbols=config.symbols,
             start_date=config.start_date,
             end_date=config.end_date,
             initial_capital=config.initial_capital,
-            data_source=config.data_source,
+            data_source=data_source,
+            cached_bars=cached_bars,
         )
         return await runner.run()

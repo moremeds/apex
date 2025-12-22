@@ -618,12 +618,95 @@ class MultiTimeframeDataFeed(DataFeed):
         return list(set(bar.timeframe for bar in self._bars))
 
 
+class CachedBarDataFeed(DataFeed):
+    """
+    Data feed using pre-fetched bars from HistoricalDataService.
+
+    For in-process backtests (Lab panel) where bars are already cached.
+    No IB connection required - uses bars passed at construction.
+
+    Usage:
+        # Fetch bars from HistoricalDataService on main loop
+        bars_by_symbol = await historical_service.fetch_bars_batch([...])
+
+        # Pass to backtest (can run in separate thread)
+        feed = CachedBarDataFeed(
+            bars_by_symbol=bars_by_symbol,
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 6, 30),
+        )
+        await feed.load()  # Just filters and sorts, no I/O
+    """
+
+    def __init__(
+        self,
+        bars_by_symbol: Dict[str, List[BarData]],
+        start_date: date,
+        end_date: date,
+    ):
+        """
+        Initialize cached bar data feed.
+
+        Args:
+            bars_by_symbol: Dict mapping symbol to list of BarData.
+            start_date: Start date (inclusive).
+            end_date: End date (inclusive).
+        """
+        self._bars_by_symbol = bars_by_symbol
+        self._start_date = start_date
+        self._end_date = end_date
+        self._symbols = list(bars_by_symbol.keys())
+        self._bars: List[BarData] = []
+        self._loaded = False
+
+    async def load(self) -> None:
+        """Load and filter bars (no I/O - just filters pre-fetched data)."""
+        if self._loaded:
+            return
+
+        start_dt = datetime.combine(self._start_date, datetime.min.time())
+        end_dt = datetime.combine(self._end_date, datetime.max.time())
+
+        all_bars = []
+        for symbol, bars in self._bars_by_symbol.items():
+            for bar in bars:
+                if bar.timestamp and start_dt <= bar.timestamp <= end_dt:
+                    all_bars.append(bar)
+
+        # Sort by timestamp
+        all_bars.sort(key=lambda b: (b.timestamp or datetime.min, b.symbol))
+        self._bars = all_bars
+        self._loaded = True
+
+        logger.info(
+            f"CachedBarDataFeed loaded {len(self._bars)} bars "
+            f"for {len(self._symbols)} symbols"
+        )
+
+    async def stream_bars(self) -> AsyncIterator[BarData]:
+        """Stream bars in chronological order."""
+        if not self._loaded:
+            await self.load()
+
+        for bar in self._bars:
+            yield bar
+
+    def get_symbols(self) -> List[str]:
+        """Get list of symbols."""
+        return self._symbols
+
+    @property
+    def bar_count(self) -> int:
+        """Get total bar count."""
+        return len(self._bars)
+
+
 class BarCacheDataFeed(DataFeed):
     """
     Load historical data from IB for backtesting.
 
     For standalone backtests, this wraps IbHistoricalDataFeed.
-    For in-process backtests (Lab panel), use HistoricalDataService (TODO).
+    For in-process backtests (Lab panel), use CachedBarDataFeed instead.
 
     Note: This is a thin wrapper that delegates to IbHistoricalDataFeed.
     Standalone backtests run in their own process, so no event loop conflicts.

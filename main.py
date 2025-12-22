@@ -495,10 +495,10 @@ async def main_async(args: argparse.Namespace) -> None:
                     )
                     ta_service = TAService(historical_service)
 
-                    # Inject TAService into dashboard for ATR panel
+                    # Inject TAService and HistoricalDataService into dashboard
                     if dashboard:
                         event_loop = asyncio.get_event_loop()
-                        dashboard.set_ta_service(ta_service, event_loop)
+                        dashboard.set_ta_service(ta_service, event_loop, historical_service)
 
                     # Get symbols from positions for pre-fetch
                     positions = position_store.get_all()
