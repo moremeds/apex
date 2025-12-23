@@ -63,6 +63,7 @@ class YahooFinanceAdapter(MarketDataProvider):
         self,
         price_ttl_seconds: int = 30,
         beta_ttl_hours: int = 24,
+        max_cache_size: int = 500,  # m6: Bounded cache size
     ):
         """
         Initialize Yahoo Finance adapter.
@@ -70,9 +71,11 @@ class YahooFinanceAdapter(MarketDataProvider):
         Args:
             price_ttl_seconds: Cache TTL for price data (default: 30s)
             beta_ttl_hours: Cache TTL for beta values (default: 24h)
+            max_cache_size: Maximum number of symbols to cache (default: 500)
         """
         self._price_ttl = timedelta(seconds=price_ttl_seconds)
         self._beta_ttl = timedelta(hours=beta_ttl_hours)
+        self._max_cache_size = max_cache_size
 
         self._cache: Dict[str, CachedData] = {}
         self._lock = RLock()
@@ -99,6 +102,33 @@ class YahooFinanceAdapter(MarketDataProvider):
     def is_connected(self) -> bool:
         """Check if connected."""
         return self._connected
+
+    def _cache_put(self, symbol: str, data: CachedData) -> None:
+        """
+        Put entry in cache with LRU-style eviction.
+
+        m6: Bounded cache - evicts oldest entries when over max_cache_size.
+        Must be called with self._lock held.
+        """
+        # If symbol already in cache, just update (no size change)
+        if symbol in self._cache:
+            self._cache[symbol] = data
+            return
+
+        # Check if we need to evict before adding new entry
+        if len(self._cache) >= self._max_cache_size:
+            # Evict oldest entries (by fetched_at timestamp)
+            sorted_entries = sorted(
+                self._cache.items(),
+                key=lambda x: x[1].fetched_at
+            )
+            # Evict 10% of cache to avoid frequent eviction
+            evict_count = max(1, self._max_cache_size // 10)
+            for sym, _ in sorted_entries[:evict_count]:
+                del self._cache[sym]
+            logger.debug("m6: Evicted %d oldest cache entries", evict_count)
+
+        self._cache[symbol] = data
 
     async def fetch_market_data(self, positions: List[Position]) -> List[MarketData]:
         """
@@ -207,24 +237,24 @@ class YahooFinanceAdapter(MarketDataProvider):
                     md = self._parse_ticker_info(symbol, info)
                     market_data_list.append(md)
 
-                    # Cache the result
+                    # Cache the result (m6: bounded cache with eviction)
                     with self._lock:
-                        self._cache[symbol] = CachedData(
+                        self._cache_put(symbol, CachedData(
                             data=md,
                             beta=info.get("beta"),
                             fetched_at=now_utc(),
-                        )
+                        ))
             except Exception as e:
                 logger.warning(f"Failed to fetch {symbol}: {e}")
                 # On rate limit, cache default to avoid retry storm
                 if "Too Many Requests" in str(e) or "Rate limited" in str(e):
                     with self._lock:
                         if symbol not in self._cache:
-                            self._cache[symbol] = CachedData(
+                            self._cache_put(symbol, CachedData(
                                 data=MarketData(symbol=symbol, timestamp=now_utc()),
                                 beta=self.DEFAULT_BETA,
                                 fetched_at=now_utc(),
-                            )
+                            ))
 
         return market_data_list
 
@@ -417,7 +447,7 @@ class YahooFinanceAdapter(MarketDataProvider):
             info = ticker.info
             beta = info.get("beta")
 
-            # Cache the result
+            # Cache the result (m6: bounded cache with eviction)
             with self._lock:
                 if symbol in self._cache:
                     self._cache[symbol].beta = float(beta) if beta else None
@@ -425,11 +455,11 @@ class YahooFinanceAdapter(MarketDataProvider):
                 else:
                     # Create minimal cache entry for beta
                     md = MarketData(symbol=symbol, timestamp=now_utc())
-                    self._cache[symbol] = CachedData(
+                    self._cache_put(symbol, CachedData(
                         data=md,
                         beta=float(beta) if beta else None,
                         fetched_at=now_utc(),
-                    )
+                    ))
 
             if beta is not None:
                 logger.debug(f"Fetched beta for {symbol}: {beta:.2f}")
@@ -442,11 +472,11 @@ class YahooFinanceAdapter(MarketDataProvider):
             if "Too Many Requests" in str(e) or "Rate limited" in str(e):
                 with self._lock:
                     if symbol not in self._cache:
-                        self._cache[symbol] = CachedData(
+                        self._cache_put(symbol, CachedData(
                             data=MarketData(symbol=symbol, timestamp=now_utc()),
                             beta=self.DEFAULT_BETA,
                             fetched_at=now_utc(),
-                        )
+                        ))
             return None
 
     # -------------------------------------------------------------------------

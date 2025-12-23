@@ -39,6 +39,8 @@ class MarketDataFetcher:
         data_timeout: float = 5.0,  # Increased from 3.0s for stocks
         option_data_timeout: float = 10.0,  # Separate timeout for options (Greeks take longer)
         poll_interval: float = 0.1,
+        poll_interval_max: float = 0.5,  # m1/m8: Max backoff interval
+        poll_backoff_factor: float = 1.5,  # m1/m8: Exponential backoff multiplier
         on_price_update: Optional[Callable[[str, MarketData], None]] = None,
     ):
         """
@@ -48,7 +50,9 @@ class MarketDataFetcher:
             ib: ib_async.IB instance
             data_timeout: Maximum time to wait for stock data population (seconds)
             option_data_timeout: Maximum time to wait for option data with Greeks (seconds)
-            poll_interval: Interval between data availability checks (seconds)
+            poll_interval: Initial interval between data availability checks (seconds)
+            poll_interval_max: Maximum backoff interval for polling (seconds)
+            poll_backoff_factor: Multiplier for exponential backoff (default: 1.5x)
             on_price_update: Callback when streaming price updates (symbol, MarketData)
         """
         self.ib = ib
@@ -59,6 +63,8 @@ class MarketDataFetcher:
         self.data_timeout = data_timeout
         self.option_data_timeout = option_data_timeout
         self.poll_interval = poll_interval
+        self._poll_interval_max = poll_interval_max
+        self._poll_backoff_factor = poll_backoff_factor
         self._on_price_update = on_price_update
         self._streaming_enabled = False
 
@@ -256,6 +262,8 @@ class MarketDataFetcher:
 
         target_count = int(len(tickers) * target_ratio)
         start = asyncio.get_event_loop().time()
+        # m1/m8: Exponential backoff for polling
+        current_interval = self.poll_interval
 
         while asyncio.get_event_loop().time() - start < timeout:
             populated = sum(1 for t in tickers if self._has_valid_price(t))
@@ -263,7 +271,12 @@ class MarketDataFetcher:
             if populated >= target_count:
                 return populated
 
-            await asyncio.sleep(self.poll_interval)
+            await asyncio.sleep(current_interval)
+            # m1/m8: Exponential backoff - increase interval up to max
+            current_interval = min(
+                current_interval * self._poll_backoff_factor,
+                self._poll_interval_max
+            )
 
         # Return final count on timeout
         return sum(1 for t in tickers if self._has_valid_price(t))
@@ -291,11 +304,19 @@ class MarketDataFetcher:
             True if data received, False if timeout
         """
         start = asyncio.get_event_loop().time()
+        # m1/m8: Exponential backoff for polling
+        current_interval = self.poll_interval
+
         while asyncio.get_event_loop().time() - start < timeout:
             # Check if we have valid price data (including previous close for market closed)
             if self._has_valid_price(ticker):
                 return True
-            await asyncio.sleep(self.poll_interval)
+            await asyncio.sleep(current_interval)
+            # m1/m8: Exponential backoff - increase interval up to max
+            current_interval = min(
+                current_interval * self._poll_backoff_factor,
+                self._poll_interval_max
+            )
         return False
 
     async def _fetch_option_streaming_with_fallback(
@@ -365,6 +386,8 @@ class MarketDataFetcher:
         """
         start_time = asyncio.get_event_loop().time()
         last_populated_count = 0
+        # m1/m8: Exponential backoff for polling
+        current_interval = self.poll_interval
 
         while True:
             # Check how many tickers have data (including previous close for market closed)
@@ -374,6 +397,8 @@ class MarketDataFetcher:
             if populated_count > last_populated_count:
                 logger.debug(f"Data population progress: {populated_count}/{len(tickers)} tickers")
                 last_populated_count = populated_count
+                # Reset backoff on progress (data is arriving)
+                current_interval = self.poll_interval
 
             # Exit early if all data populated
             if populated_count == len(tickers):
@@ -387,8 +412,13 @@ class MarketDataFetcher:
                 logger.warning(f"Data population timeout ({timeout}s): {populated_count}/{len(tickers)} populated")
                 return populated_count
 
-            # Wait before next poll
-            await asyncio.sleep(self.poll_interval)
+            # Wait before next poll with exponential backoff
+            await asyncio.sleep(current_interval)
+            # m1/m8: Exponential backoff - increase interval up to max
+            current_interval = min(
+                current_interval * self._poll_backoff_factor,
+                self._poll_interval_max
+            )
 
     async def _fetch_option_streaming(
         self,
