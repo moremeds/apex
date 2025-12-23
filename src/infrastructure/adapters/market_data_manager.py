@@ -257,9 +257,10 @@ class MarketDataManager(MarketDataProvider):
             name, provider = connected_providers[0]
             try:
                 market_data_list = await provider.fetch_market_data(positions)
-                # Update cache in bulk
-                for md in market_data_list:
-                    self._latest_data[md.symbol] = md
+                # Update cache in bulk (M5: use lock for thread safety)
+                with self._data_lock:
+                    for md in market_data_list:
+                        self._latest_data[md.symbol] = md
                 self._status[name].symbols_fetched += len(market_data_list)
                 self._status[name].last_updated = datetime.now()
                 self._status[name].last_error = None
@@ -293,7 +294,9 @@ class MarketDataManager(MarketDataProvider):
                     if md.symbol in symbols_needed:
                         result[md.symbol] = md
                         symbols_needed.discard(md.symbol)
-                        self._latest_data[md.symbol] = md
+                        # M5: use lock for thread safety
+                        with self._data_lock:
+                            self._latest_data[md.symbol] = md
 
                 self._status[name].symbols_fetched += len(market_data_list)
                 self._status[name].last_updated = datetime.now()
@@ -349,7 +352,9 @@ class MarketDataManager(MarketDataProvider):
                     if symbol in symbols_needed:
                         result[symbol] = md
                         symbols_needed.discard(symbol)
-                        self._latest_data[symbol] = md
+                        # M5: use lock for thread safety
+                        with self._data_lock:
+                            self._latest_data[symbol] = md
 
                 if not symbols_needed:
                     break  # Got all data
@@ -494,8 +499,12 @@ class MarketDataManager(MarketDataProvider):
 
         # Forward to callback (for stores/orchestrator)
         # Note: Callback should be quick to avoid blocking provider thread
+        # M6: Guard against exceptions to prevent crashing provider thread
         if self._streaming_callback:
-            self._streaming_callback(symbol, md)
+            try:
+                self._streaming_callback(symbol, md)
+            except Exception as e:
+                logger.error(f"Streaming callback error for {symbol}: {e}", exc_info=True)
 
     def _update_health(
         self, provider_name: str, status: str, message: str, metadata: Optional[Dict] = None

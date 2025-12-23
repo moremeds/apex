@@ -362,14 +362,21 @@ class PriorityEventBus:
         Continuous ticks can freeze slow-path (dashboard/health) and can look like a
         dead process to monitoring. We add a budget (500 events or 50ms) before yielding
         to slow lane.
+
+        M3 fix: Use adaptive backoff - longer sleep when idle to reduce CPU burn.
         """
+        idle_backoff_ms = 10  # Sleep longer when queue is empty (saves CPU)
+        busy_yield_ms = 2     # Short yield when more events are pending
+
         while self._running:
             try:
                 burst_start = time.perf_counter()
                 burst_count = 0
+                queue_was_empty = True
 
                 # Process fast events with budget/timeslice limit
                 while not self._fast_queue.empty():
+                    queue_was_empty = False
                     # Check budget limits
                     elapsed_ms = (time.perf_counter() - burst_start) * 1000
                     if burst_count >= self._fast_budget or elapsed_ms >= self._fast_time_slice_ms:
@@ -385,8 +392,13 @@ class PriorityEventBus:
                     except asyncio.QueueEmpty:
                         break
 
-                # Allow slow lane to run (even when fast events pending)
-                await asyncio.sleep(0)  # yield without latency tax
+                # C8 + M3: Adaptive backoff to balance latency vs CPU usage
+                # - When idle (queue empty): longer sleep to save CPU
+                # - When busy (budget hit): short yield to let slow lane run
+                if queue_was_empty:
+                    await asyncio.sleep(idle_backoff_ms / 1000)
+                else:
+                    await asyncio.sleep(busy_yield_ms / 1000)
 
             except asyncio.CancelledError:
                 break

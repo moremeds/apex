@@ -56,8 +56,9 @@ class IbConnectionPool:
     Pool of IB connections for different purposes on the same event loop.
 
     Manages:
-    - monitoring: For positions, quotes, orders (client_id from config)
+    - monitoring: For positions, quotes, market data (client_id from config)
     - historical: For bar data requests, ATR (client_id from config)
+    - execution: For order submission/management (A4: isolated from data ops)
 
     All connections run on the SAME event loop - no threading, no loop conflicts.
     """
@@ -72,6 +73,7 @@ class IbConnectionPool:
         self._config = config
         self._monitoring: Optional[IB] = None
         self._historical: Optional[IB] = None
+        self._execution: Optional[IB] = None  # A4: Dedicated execution connection
         self._connected = False
 
     @property
@@ -84,6 +86,16 @@ class IbConnectionPool:
         """Get historical IB connection (bar data, ATR)."""
         return self._historical
 
+    @property
+    def execution(self) -> Optional["IB"]:
+        """
+        Get execution IB connection (order submission/management).
+
+        A4: Dedicated connection for execution ensures order operations
+        are never blocked by data operations (streaming, historical fetches).
+        """
+        return self._execution
+
     def is_connected(self) -> bool:
         """Check if all pool connections are alive."""
         if not self._connected:
@@ -91,7 +103,8 @@ class IbConnectionPool:
 
         mon_ok = self._monitoring is not None and self._monitoring.isConnected()
         hist_ok = self._historical is not None and self._historical.isConnected()
-        return mon_ok and hist_ok
+        exec_ok = self._execution is not None and self._execution.isConnected()
+        return mon_ok and hist_ok and exec_ok
 
     def is_monitoring_connected(self) -> bool:
         """Check if monitoring connection is alive."""
@@ -100,6 +113,10 @@ class IbConnectionPool:
     def is_historical_connected(self) -> bool:
         """Check if historical connection is alive."""
         return self._historical is not None and self._historical.isConnected()
+
+    def is_execution_connected(self) -> bool:
+        """Check if execution connection is alive (A4)."""
+        return self._execution is not None and self._execution.isConnected()
 
     async def connect(self) -> None:
         """
@@ -142,8 +159,21 @@ class IbConnectionPool:
                 f"(client_id={hist_client_id})"
             )
 
+            # A4: Execution connection (order submission/management)
+            # Isolated from data operations to ensure orders are never blocked
+            self._execution = IB()
+            await self._execution.connectAsync(
+                host, port,
+                clientId=client_ids.execution,
+                timeout=timeout,
+            )
+            logger.info(
+                f"IB pool: execution connected "
+                f"(client_id={client_ids.execution})"
+            )
+
             self._connected = True
-            logger.info(f"IB connection pool ready at {host}:{port}")
+            logger.info(f"IB connection pool ready at {host}:{port} (3 connections)")
 
         except Exception as e:
             logger.error(f"Failed to connect IB pool: {e}")
@@ -206,6 +236,15 @@ class IbConnectionPool:
 
     async def disconnect(self) -> None:
         """Disconnect all IB instances."""
+        # A4: Disconnect execution first (active orders should be handled)
+        if self._execution:
+            try:
+                self._execution.disconnect()
+                logger.info("IB pool: execution disconnected")
+            except Exception as e:
+                logger.warning(f"Error disconnecting execution: {e}")
+            self._execution = None
+
         if self._historical:
             try:
                 self._historical.disconnect()
@@ -225,6 +264,37 @@ class IbConnectionPool:
         self._connected = False
         logger.info("IB connection pool disconnected")
 
+    async def connect_execution(self) -> None:
+        """
+        Connect the execution connection (A4: if not already connected).
+
+        Dedicated connection for order operations, isolated from data operations.
+        """
+        if self._execution is not None and self._execution.isConnected():
+            return
+
+        from ib_async import IB
+
+        host = self._config.host
+        port = self._config.port
+        timeout = self._config.connect_timeout
+        client_ids = self._config.client_ids
+
+        try:
+            self._execution = IB()
+            await self._execution.connectAsync(
+                host, port,
+                clientId=client_ids.execution,
+                timeout=timeout,
+            )
+            logger.info(
+                f"IB pool: execution connected "
+                f"(client_id={client_ids.execution})"
+            )
+        except Exception as e:
+            logger.error(f"Failed to connect execution: {e}")
+            raise ConnectionError(f"IB execution connection failed: {e}")
+
     async def ensure_connected(self) -> None:
         """Ensure all connections are alive, reconnect if needed."""
         if not self.is_connected():
@@ -235,6 +305,11 @@ class IbConnectionPool:
         """Ensure historical connection is alive."""
         if not self.is_historical_connected():
             await self.connect_historical()
+
+    async def ensure_execution_connected(self) -> None:
+        """Ensure execution connection is alive (A4)."""
+        if not self.is_execution_connected():
+            await self.connect_execution()
 
     def get_status(self) -> dict:
         """Get pool connection status."""
@@ -251,6 +326,10 @@ class IbConnectionPool:
                     if self._config.client_ids.historical_pool
                     else None
                 ),
+            },
+            "execution": {  # A4: Execution connection status
+                "connected": self.is_execution_connected(),
+                "client_id": self._config.client_ids.execution,
             },
             "host": self._config.host,
             "port": self._config.port,

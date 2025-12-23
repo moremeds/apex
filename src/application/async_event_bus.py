@@ -79,6 +79,10 @@ class AsyncEventBus(EventBus):
         self._pending_ticks: Dict[str, EventEnvelope] = {}
         self._last_tick_dispatch: float = 0
 
+        # M2: Heavy callback support - callbacks that should run in thread pool
+        self._heavy_callbacks: set[Callable] = set()
+        self._heavy_semaphore = asyncio.Semaphore(4)  # Limit concurrent heavy callbacks
+
     def publish(self, event_type: EventType, payload: DomainEvent) -> None:
         """
         Publish an event (non-blocking, thread-safe).
@@ -311,8 +315,16 @@ class AsyncEventBus(EventBus):
         Handle market data tick with debouncing.
 
         Coalesces multiple ticks for the same symbol within debounce window.
+        C3: Updated to handle both typed events and dicts.
         """
-        symbol = envelope.payload.get("symbol", "unknown")
+        # C3: Handle both typed events (with .symbol attr) and dicts
+        payload = envelope.payload
+        if hasattr(payload, "symbol"):
+            symbol = payload.symbol
+        elif isinstance(payload, dict):
+            symbol = payload.get("symbol", "unknown")
+        else:
+            symbol = "unknown"
 
         # Store latest tick per symbol
         self._pending_ticks[symbol] = envelope
@@ -342,7 +354,11 @@ class AsyncEventBus(EventBus):
         # Dispatch to sync subscribers
         for callback in self._subscribers.get(event_type, []):
             try:
-                callback(payload)
+                # M2: Offload heavy callbacks to thread pool
+                if callback in self._heavy_callbacks:
+                    asyncio.create_task(self._run_heavy_callback(callback, payload))
+                else:
+                    callback(payload)
                 self._stats["dispatched"] += 1
             except Exception as e:
                 self._stats["errors"] += 1
@@ -358,6 +374,25 @@ class AsyncEventBus(EventBus):
             except Exception as e:
                 self._stats["errors"] += 1
                 logger.error(f"Error in async subscriber for {event_type.value}: {e}", exc_info=True)
+
+    async def _run_heavy_callback(self, callback: Callable, payload: Any) -> None:
+        """Run heavy callback in thread pool with semaphore limiting."""
+        async with self._heavy_semaphore:
+            try:
+                await asyncio.to_thread(callback, payload)
+            except Exception as e:
+                self._stats["errors"] += 1
+                logger.error(f"Error in heavy callback: {e}", exc_info=True)
+
+    def register_heavy_callback(self, callback: Callable) -> None:
+        """Register a callback as heavy (will run in thread pool)."""
+        with self._lock:
+            self._heavy_callbacks.add(callback)
+
+    def unregister_heavy_callback(self, callback: Callable) -> None:
+        """Unregister a heavy callback."""
+        with self._lock:
+            self._heavy_callbacks.discard(callback)
 
     def get_stats(self) -> Dict[str, Any]:
         """Get event bus statistics."""

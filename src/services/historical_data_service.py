@@ -74,6 +74,9 @@ class HistoricalDataService:
         """
         Initialize historical data service.
 
+        Note: Rate limiting moved to HistoricalRequestScheduler (A1).
+        This service now focuses on fetch + cache only.
+
         Args:
             ib_historical: Dedicated IB connection for historical data.
             cache_size: Max entries in LRU cache.
@@ -83,7 +86,7 @@ class HistoricalDataService:
         self._cache = BarCacheStore(max_entries=cache_size)
         self._default_daily_lookback = default_daily_lookback
 
-        # Track pending fetches to avoid duplicate requests
+        # Track pending fetches to avoid duplicate in-flight requests
         self._pending_fetches: Dict[str, asyncio.Future] = {}
 
     @property
@@ -127,8 +130,11 @@ class HistoricalDataService:
             logger.debug(f"Waiting for pending fetch: {cache_key}")
             return await self._pending_fetches[cache_key]
 
-        # Create future for this fetch
-        future = asyncio.get_event_loop().create_future()
+        # C4: Use get_running_loop() instead of deprecated get_event_loop()
+        # This prevents "Future attached to a different loop" errors
+        # when called from TUI/backtest contexts
+        loop = asyncio.get_running_loop()
+        future = loop.create_future()
         self._pending_fetches[cache_key] = future
 
         try:
@@ -196,7 +202,8 @@ class HistoricalDataService:
         logger.info(f"Batch: fetching {len(to_fetch)} symbols from IB "
                    f"({len(results)} from cache)")
 
-        # Fetch remaining symbols concurrently
+        # Note: Rate limiting moved to HistoricalRequestScheduler (A1)
+        # This service now does simple concurrent fetch
         tasks = [
             self._fetch_from_ib(req["symbol"], req["timeframe"], req["period"])
             for req in to_fetch
@@ -255,14 +262,55 @@ class HistoricalDataService:
         symbol: str,
         timeframe: str,
         period: BarPeriod,
+        max_retries: int = 3,
     ) -> List[BarData]:
         """
-        Fetch bars from IB API.
+        Fetch bars from IB API with retry logic.
 
+        M12: Added exponential backoff retry for connection errors.
         Internal method - use fetch_bars() for caching.
         """
-        if not self.is_connected():
-            raise ConnectionError("Historical IB connection not available")
+        last_error = None
+        base_delay = 1.0  # Start with 1 second delay
+
+        for attempt in range(max_retries):
+            if not self.is_connected():
+                if attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)  # Exponential backoff
+                    logger.warning(
+                        f"IB not connected for {symbol}, retry {attempt + 1}/{max_retries} in {delay}s"
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                raise ConnectionError("Historical IB connection not available")
+
+            try:
+                return await self._fetch_from_ib_impl(symbol, timeframe, period)
+            except Exception as e:
+                last_error = e
+                error_str = str(e).lower()
+                # M12: Retry on connection-related errors
+                if "disconnect" in error_str or "not connected" in error_str or "timeout" in error_str:
+                    if attempt < max_retries - 1:
+                        delay = base_delay * (2 ** attempt)
+                        logger.warning(
+                            f"IB connection error for {symbol}: {e}, retry {attempt + 1}/{max_retries} in {delay}s"
+                        )
+                        await asyncio.sleep(delay)
+                        continue
+                raise  # Non-retryable error
+
+        raise last_error or ConnectionError("Failed after retries")
+
+    async def _fetch_from_ib_impl(
+        self,
+        symbol: str,
+        timeframe: str,
+        period: BarPeriod,
+    ) -> List[BarData]:
+        """
+        Actual IB fetch implementation (called by _fetch_from_ib with retry wrapper).
+        """
 
         bar_size = TIMEFRAME_TO_IB_BAR_SIZE.get(timeframe)
         if not bar_size:

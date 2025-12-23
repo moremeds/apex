@@ -102,6 +102,11 @@ class SnapshotCoordinator:
                 await self._dispatcher_task
             except asyncio.CancelledError:
                 pass
+
+        # M7: Stop risk alert logger to flush remaining logs
+        if self.risk_alert_logger:
+            self.risk_alert_logger.stop()
+
         logger.info("SnapshotCoordinator stopped")
 
     async def _dispatch_loop(self) -> None:

@@ -204,7 +204,8 @@ class RiskEngine:
             duration_ms = (time.perf_counter() - start_time) * 1000
             self._risk_metrics.record_snapshot_build_duration(duration_ms)
             self._risk_metrics.record_snapshot(snapshot)
-            logger.debug(f"Snapshot build completed in {duration_ms:.2f}ms")
+            # M17: Use lazy formatting to avoid overhead when debug disabled
+            logger.debug("Snapshot build completed in %.2fms", duration_ms)
 
         return snapshot
 
@@ -327,6 +328,8 @@ class RiskEngine:
         """
         Calculate position metrics in parallel using persistent ThreadPoolExecutor.
 
+        M10: Uses chunked batches (50 positions per task) to reduce context switching.
+
         Args:
             positions: List of positions to calculate.
             market_data: Market data dictionary.
@@ -337,23 +340,52 @@ class RiskEngine:
         """
         metrics_list: List[PositionMetrics | None] = [None] * len(positions)
 
-        # Use persistent executor (created in __init__, not per-call)
-        # Submit all tasks and track original position index to preserve order
-        future_to_idx = {
-            self._executor.submit(self._calculate_position_metrics, pos, market_data, market_status): idx
-            for idx, pos in enumerate(positions)
-        }
+        # M10: Chunk positions into batches to reduce context switching
+        # 1000 positions = 20 tasks instead of 1000 tasks
+        CHUNK_SIZE = 50
 
-        # Collect results as they complete
-        for future in as_completed(future_to_idx):
-            idx = future_to_idx[future]
+        def process_chunk(chunk_positions: List[Tuple[int, Position]]) -> List[Tuple[int, PositionMetrics | None, str | None]]:
+            """Process a chunk of positions, returning (idx, metrics, error) tuples."""
+            results = []
+            for idx, pos in chunk_positions:
+                try:
+                    metrics = self._calculate_position_metrics(pos, market_data, market_status)
+                    results.append((idx, metrics, None))
+                except Exception as e:
+                    results.append((idx, None, f"{pos.symbol}: {e}"))
+            return results
+
+        # Build indexed chunks
+        indexed_positions = list(enumerate(positions))
+        chunks = [
+            indexed_positions[i:i + CHUNK_SIZE]
+            for i in range(0, len(indexed_positions), CHUNK_SIZE)
+        ]
+
+        # Submit chunked tasks
+        futures = [self._executor.submit(process_chunk, chunk) for chunk in chunks]
+
+        # C7: Aggregate errors instead of logging each one
+        errors: List[str] = []
+
+        # Collect results from all chunks
+        for future in as_completed(futures):
             try:
-                metrics = future.result()
-                metrics_list[idx] = metrics
+                chunk_results = future.result()
+                for idx, metrics, error in chunk_results:
+                    metrics_list[idx] = metrics
+                    if error:
+                        errors.append(error)
             except Exception as e:
-                pos = positions[idx]
-                logger.error(f"Error calculating metrics for {pos.symbol}: {e}")
-                metrics_list[idx] = None
+                errors.append(f"Chunk failed: {e}")
+
+        # C7: Log aggregated errors once after loop (if any)
+        if errors:
+            sample = errors[:5]  # Show first 5 errors
+            logger.error(
+                f"Failed to calculate metrics for {len(errors)} positions. "
+                f"Examples: {sample}"
+            )
 
         return metrics_list
 
@@ -586,19 +618,32 @@ class RiskEngine:
         """
         with self._lock:
             self._needs_rebuild = True
-        logger.debug(f"RiskEngine marked dirty: {payload.get('source', 'unknown')} data changed")
+        # M17: Use lazy formatting for hot path
+        logger.debug("RiskEngine marked dirty: %s data changed", payload.get('source', 'unknown'))
 
-    def _on_market_tick(self, payload: dict) -> None:
+    def _on_market_tick(self, payload: Any) -> None:
         """
         Handle single market data tick (from streaming).
 
         Only marks the affected underlying as dirty for incremental rebuild.
 
+        C3: Updated to handle MarketDataTickEvent (typed) instead of dict.
+
         Args:
-            payload: Event payload with 'symbol' and 'data'.
+            payload: MarketDataTickEvent or legacy dict with 'symbol' and 'data'.
         """
-        symbol = payload.get("symbol", "")
-        data = payload.get("data")
+        from src.domain.events.domain_events import MarketDataTickEvent
+
+        # Handle typed MarketDataTickEvent (new standard)
+        if isinstance(payload, MarketDataTickEvent):
+            symbol = payload.symbol
+            data = payload  # The tick itself contains the data
+        elif isinstance(payload, dict):
+            # Legacy dict handling
+            symbol = payload.get("symbol", "")
+            data = payload.get("data")
+        else:
+            return
 
         # Get underlying from market data or symbol
         underlying = symbol

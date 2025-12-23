@@ -638,13 +638,29 @@ class Strategy(ABC):
         if self._state != StrategyState.RUNNING:
             return
 
-        # Handle both dict payload (legacy) and typed event
-        if isinstance(payload, dict):
-            tick = payload.get("tick")
+        from ..events.domain_events import MarketDataTickEvent
+
+        # C3: Handle MarketDataTickEvent (new standard), QuoteTick, or legacy dict
+        tick: Optional[QuoteTick] = None
+        if isinstance(payload, MarketDataTickEvent):
+            # Convert MarketDataTickEvent to QuoteTick for strategy API
+            tick = QuoteTick(
+                symbol=payload.symbol,
+                bid=payload.bid,
+                ask=payload.ask,
+                last=payload.last,
+                delta=payload.delta,
+                gamma=payload.gamma,
+                vega=payload.vega,
+                theta=payload.theta,
+                iv=payload.iv,
+                source=payload.source,
+            )
         elif isinstance(payload, QuoteTick):
             tick = payload
-        else:
-            return
+        elif isinstance(payload, dict):
+            # Legacy dict handling
+            tick = payload.get("tick")
 
         if isinstance(tick, QuoteTick) and tick.symbol in self.symbols:
             # Update market data cache

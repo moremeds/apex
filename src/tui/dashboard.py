@@ -753,10 +753,15 @@ class TerminalDashboard:
 
         async def fetch_atr():
             try:
+                # Skip if no valid spot price (e.g., option-only position)
+                if not spot_price or spot_price <= 0:
+                    logger.debug(f"ATR fetch skipped for {symbol}: no valid spot price")
+                    return
+
                 # Get ATR levels from TAService
                 atr_levels = await self._ta_service.get_atr_levels(
                     symbol=symbol,
-                    spot_price=spot_price or 0.0,
+                    spot_price=spot_price,
                     period=self._atr_period,
                     timeframe=timeframe,
                 )
