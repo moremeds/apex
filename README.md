@@ -1,160 +1,261 @@
-# Live Risk Management System (APEX)
+# APEX - Live Risk Management & Backtesting System
 
-**Real-time portfolio risk monitoring for options and derivatives trading**
+**Production-grade portfolio risk monitoring and strategy backtesting for options and derivatives trading**
 
 [![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Code Style](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+
+---
 
 ## Overview
 
-APEX is a real-time risk management system for monitoring options and derivatives portfolios. It provides:
+APEX is a comprehensive risk management and backtesting platform designed for active traders managing options and derivatives portfolios. Built with a hexagonal architecture and event-driven patterns, it provides:
 
-- **Real-time P&L calculation** (unrealized & daily)
-- **Greeks aggregation** (delta, gamma, vega, theta) using IBKR Greeks
-- **Position reconciliation** across multiple sources (IBKR vs manual YAML)
-- **Market data quality control** (staleness, bid/ask validation)
-- **Risk limit monitoring** with soft/hard breach detection
-- **Spot shock scenarios** for stress testing
-- **Terminal dashboard** with rich UI
-- **Health monitoring** and auto-reconnect
+### Core Features
+
+| Feature | Description |
+|---------|-------------|
+| **Real-time Risk Monitoring** | P&L (unrealized/daily), Greeks aggregation, concentration limits |
+| **Multi-Broker Support** | Interactive Brokers, Futu OpenD with auto-reconnect |
+| **Strategy Backtesting** | Live/backtest parity - same code runs in both modes |
+| **Terminal Dashboard** | Rich TUI with multiple views, keyboard navigation |
+| **Event-Driven Architecture** | Priority event bus with fast/slow lanes |
+| **Persistence Layer** | DuckDB/PostgreSQL with TimescaleDB support |
+| **Observability** | Prometheus metrics, Grafana dashboards |
+
+### Technical Highlights
+
+- **46,000+ lines** of production Python code across 172 modules
+- **Async-first** design using `asyncio` and `ib_async`
+- **Thread-safe** in-memory stores with `RLock`
+- **Hexagonal architecture** with clear domain/infrastructure separation
+- **Comprehensive test suite** with unit, integration, and partial tests
+
+---
 
 ## Architecture
 
-The project follows a Hexagonal (Ports and Adapters) architecture, which separates the core business logic from external concerns like data sources and user interfaces. This makes the system modular and easier to maintain.
-
-*   **Domain (`src/domain`):** Contains the core business logic, including services for risk calculation (`RiskEngine`), data validation (`MDQC`), and rule checking (`RuleEngine`).
-*   **Application (`src/application`):** The `Orchestrator` acts as the central coordinator, managing the flow of data between the domain and infrastructure layers.
-*   **Infrastructure (`src/infrastructure`):** Handles all external interactions. This includes adapters for connecting to external systems (like Interactive Brokers) and in-memory stores for managing application state.
-*   **Presentation (`src/presentation`):** The `TerminalDashboard` provides a text-based UI to display risk information.
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     PRESENTATION LAYER                          │
+│  Terminal Dashboard (rich)  │  CLI Runners  │  Metrics Endpoint │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+┌─────────────────────────────────────────────────────────────────┐
+│                    APPLICATION LAYER                            │
+│  Orchestrator  │  ReadinessManager  │  PriorityEventBus        │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+┌─────────────────────────────────────────────────────────────────┐
+│                      DOMAIN LAYER                               │
+│  RiskEngine  │  RuleEngine  │  Strategy Framework  │  MDQC      │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+┌─────────────────────────────────────────────────────────────────┐
+│                  INFRASTRUCTURE LAYER                           │
+│  IB Adapter  │  Futu Adapter  │  Backtest Engine  │  Stores     │
+└─────────────────────────────────────────────────────────────────┘
+```
 
 ### Directory Structure
 
 ```
 apex/
-├── config/               # Configuration files
-│   ├── risk_config.yaml  # Main configuration
-│   ├── base.yaml         # Base config with database/snapshot settings
-│   └── dev.yaml          # Dev overrides (future)
-├── migrations/           # Database schema migrations
-│   ├── 001_initial_schema.sql
-│   └── runner.py         # Migration runner
-├── scripts/              # CLI tools
-│   └── history_loader.py # Load historical data from brokers
-├── src/
-│   ├── models/           # Data models (Position, MarketData, RiskSnapshot)
-│   ├── domain/
-│   │   ├── interfaces/   # Provider interfaces (DI)
-│   │   ├── services/     # Domain services (RiskEngine, MDQC, RuleEngine)
-│   │   ├── clock.py      # Clock abstraction (System/Simulated)
-│   │   ├── strategy/     # Strategy framework
-│   │   │   ├── base.py       # Base Strategy class
-│   │   │   ├── scheduler.py  # Live/Simulated schedulers
-│   │   │   ├── registry.py   # Strategy discovery
-│   │   │   └── examples/     # Example strategies
-│   │   └── backtest/     # Backtest domain
-│   │       ├── backtest_spec.py    # YAML config schema
-│   │       └── backtest_result.py  # Metrics & reporting
-│   ├── infrastructure/
-│   │   ├── adapters/     # IB adapter, file loader
-│   │   ├── backtest/     # Backtest infrastructure
-│   │   │   ├── backtest_engine.py      # Orchestrator
-│   │   │   ├── data_feeds.py           # CSV/Parquet/IB feeds
-│   │   │   ├── simulated_execution.py  # Order matching
-│   │   │   └── backtrader_adapter.py   # Backtrader integration
-│   │   ├── persistence/  # PostgreSQL/TimescaleDB layer
-│   │   │   ├── database.py      # Connection manager (asyncpg)
-│   │   │   └── repositories/    # Repository pattern implementations
-│   │   ├── stores/       # Thread-safe data stores
-│   │   └── monitoring/   # Health monitor, watchdog
-│   ├── services/         # Business logic services
-│   │   ├── history_loader_service.py  # History loading orchestrator
-│   │   ├── snapshot_service.py        # Periodic snapshot capture
-│   │   └── warm_start_service.py      # Startup state restoration
-│   ├── runners/          # CLI runners
-│   │   └── backtest_runner.py  # Backtest CLI
-│   ├── application/      # Orchestrator, event bus
-│   ├── presentation/     # Terminal dashboard
-│   └── utils/            # Structured logger
+├── config/               # Configuration files (YAML)
+│   ├── base.yaml         # Main configuration
+│   ├── backtest/         # Strategy backtest specs
+│   └── prometheus/       # Alerting rules
 ├── data/
 │   ├── positions/        # Manual position files
-│   └── logs/             # Log output
+│   └── logs/             # Structured log output
 ├── docs/                 # Documentation
-│   └── PERSISTENCE_LAYER.md  # Detailed persistence layer docs
-├── tests/
-│   ├── unit/             # Unit tests
-│   └── integration/      # Integration tests
-├── legacy/               # Old implementation (reference)
+├── migrations/           # Database migrations
+├── scripts/              # CLI tools
+├── src/
+│   ├── application/      # Orchestrator, event bus
+│   ├── domain/           # Business logic
+│   │   ├── events/       # PriorityEventBus
+│   │   ├── services/     # RiskEngine, MDQC, RuleEngine
+│   │   ├── strategy/     # Strategy framework
+│   │   └── interfaces/   # Port definitions (DI)
+│   ├── infrastructure/   # External integrations
+│   │   ├── adapters/     # IB, Futu, Yahoo
+│   │   ├── backtest/     # Backtest engine
+│   │   └── persistence/  # Database repositories
+│   ├── models/           # Data models
+│   ├── runners/          # CLI runners
+│   ├── services/         # Application services
+│   └── tui/              # Terminal dashboard
+├── tests/                # Test suites
 ├── main.py               # Entry point
-└── pyproject.toml        # uv project config
+└── pyproject.toml        # Package config
 ```
 
-### Data Flow
-
-1.  The `Orchestrator` fetches position data from Interactive Brokers and local files.
-2.  The `Reconciler` service compares this data with the existing positions stored in memory.
-3.  Market data is fetched and stored.
-4.  The `RiskEngine` processes the data to produce a `RiskSnapshot`.
-5.  The `RuleEngine` checks the snapshot for any rule breaches.
-6.  The `TerminalDashboard` displays the final risk snapshot.
+---
 
 ## Prerequisites
 
-- **Python 3.10+**
-- **Interactive Brokers** TWS or IB Gateway (Paper Trading or Live)
-- **PostgreSQL 14+** (optional, for persistence layer)
-- **TimescaleDB** extension (optional, for time-series optimization)
-- **uv** package manager (recommended) or pip
+| Requirement | Version | Notes |
+|-------------|---------|-------|
+| Python | 3.10+ | 3.14 recommended |
+| IBKR TWS/Gateway | Latest | Required for market data |
+| PostgreSQL | 14+ | Optional, for persistence |
+| TimescaleDB | 2.x | Optional, for time-series |
+| Futu OpenD | Latest | Optional, for Futu positions |
+
+---
 
 ## Installation
 
 ### Using uv (Recommended)
 
 ```bash
-# Install uv if not already installed
+# Install uv
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Clone repository
+# Clone and setup
 cd apex
-
-# Create virtual environment and install dependencies
 uv venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
 
-# Install package with dependencies
-uv pip install -e .
-
-# Install development dependencies
-uv pip install -e ".[dev]"
+# Install with all features
+uv pip install -e ".[dev,observability]"
 ```
 
 ### Using pip
 
 ```bash
-# Create virtual environment
 python -m venv .venv
 source .venv/bin/activate
-
-# Install dependencies
-pip install -e .
-
-# Install dev dependencies
 pip install -e ".[dev]"
 ```
 
-## Configuration
+---
 
-Edit `config/risk_config.yaml` to configure:
+## Quick Start
 
-### 1. IBKR Connection
+### 1. Configure Brokers
+
+Edit `config/base.yaml`:
 
 ```yaml
-ibkr:
-  host: 127.0.0.1
-  port: 7497  # 7497=TWS Paper, 7496=TWS Live, 4001=Gateway Paper
-  client_id: 1
+brokers:
+  ibkr:
+    host: 127.0.0.1
+    port: 4001        # 7497=TWS Paper, 4001=Gateway Paper
+    client_id: 1
 ```
 
-### 2. Risk Limits
+### 2. Start IB Gateway/TWS
+
+Ensure API connections are enabled in settings.
+
+### 3. Run APEX
+
+```bash
+# Development mode
+python main.py --env dev
+
+# Production mode
+python main.py --env prod
+
+# Demo mode (offline, sample data)
+python main.py --env demo
+```
+
+### 4. Terminal Dashboard
+
+The TUI displays real-time risk metrics:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ APEX Risk Monitor │ dev │ 2024-03-15 10:30:45 HKT │ IB:● FU:○  │
+├─────────────────────────────────────────────────────────────────┤
+│ Portfolio Summary                                               │
+│   NAV: $1,234,567    Unrealized P&L: +$12,345   Daily: +$5,678 │
+│   Delta: 25,000      Gamma: 1,234    Vega: 8,765  Theta: -567  │
+├─────────────────────────────────────────────────────────────────┤
+│ Risk Signals                                                    │
+│   ⚠ SOFT: Portfolio delta at 82% of limit                      │
+│   ● HARD: TSLA notional exceeds limit                          │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Keyboard:** `1-6` switch views, `q` quit, `Ctrl+C` graceful shutdown
+
+---
+
+## Strategy Backtesting
+
+APEX includes a production-ready strategy framework with **live/backtest parity**.
+
+### Available Strategies
+
+| Strategy | Registry Name | Description |
+|----------|---------------|-------------|
+| Moving Average Cross | `ma_cross` | Classic MA crossover |
+| Buy and Hold | `buy_and_hold` | Passive benchmark |
+| RSI Mean Reversion | `rsi_reversion` | RSI with limit orders |
+| Momentum Breakout | `momentum_breakout` | ATR-based with trailing stops |
+| Pairs Trading | `pairs_trading` | Statistical arbitrage |
+| Scheduled Rebalance | `scheduled_rebalance` | Time-based rebalancing |
+
+### Running Backtests
+
+```bash
+# List strategies
+python -m src.runners.backtest_runner --list-strategies
+
+# CLI backtest
+python -m src.runners.backtest_runner --strategy ma_cross --symbols AAPL \
+    --start 2024-01-01 --end 2024-06-30
+
+# From YAML spec
+python -m src.runners.backtest_runner --spec config/backtest/ma_cross_example.yaml
+```
+
+### Creating Custom Strategies
+
+```python
+from src.domain.strategy.base import Strategy
+from src.domain.strategy.registry import register_strategy
+
+@register_strategy("my_strategy", description="My custom strategy")
+class MyStrategy(Strategy):
+    def on_bar(self, bar: BarData):
+        if self.should_buy(bar):
+            self.request_order(OrderRequest(
+                symbol=bar.symbol,
+                side="BUY",
+                quantity=100,
+                order_type="MARKET",
+            ))
+```
+
+See [docs/STRATEGY_GUIDE.md](docs/STRATEGY_GUIDE.md) for complete documentation.
+
+---
+
+## Risk Management
+
+### Position Reconciliation
+
+Compares positions across sources:
+- **IBKR** (Interactive Brokers API)
+- **Futu** (OpenD API)
+- **Manual YAML** (`data/positions/manual.yaml`)
+
+Detects: `MISSING`, `DRIFT`, `STALE`
+
+### Market Data Quality Control (MDQC)
+
+- **Staleness:** Flags data older than threshold
+- **Bid/Ask sanity:** Ensures bid <= ask
+- **Zero quotes:** Flags suspicious zero prices
+- **Missing Greeks:** Tracks incomplete data
+
+### Risk Limits
 
 ```yaml
 risk_limits:
@@ -165,397 +266,98 @@ risk_limits:
   portfolio_delta_range: [-50_000, 50_000]
   portfolio_vega_range: [-15_000, 15_000]
   max_margin_utilization: 0.60
+  soft_breach_threshold: 0.80  # Warning at 80%
 ```
-
-### 3. Database (Optional)
-
-Configure in `config/base.yaml`:
-
-```yaml
-database:
-  dsn: "postgresql://user:password@localhost:5432/apex_risk"
-  min_pool_size: 2
-  max_pool_size: 10
-  command_timeout: 30
-
-snapshots:
-  position_interval_sec: 60      # Capture positions every minute
-  account_interval_sec: 60       # Capture account state every minute
-  risk_interval_sec: 300         # Capture risk metrics every 5 minutes
-  capture_on_shutdown: true      # Save final snapshot on shutdown
-  retention_days: 30             # Keep snapshots for 30 days
-```
-
-### 4. Manual Positions (Optional)
-
-Edit `data/positions/manual.yaml` to add manual positions:
-
-```yaml
-positions:
-  - symbol: AAPL
-    underlying: AAPL
-    asset_type: STOCK
-    quantity: 100
-    avg_price: 175.50
-    multiplier: 1
-```
-
-## Usage
-
-### Start the System
-
-```bash
-# Development mode (default)
-python main.py --env dev
-
-# Production mode
-python main.py --env prod
-
-# Headless mode (no dashboard)
-python main.py --no-dashboard
-```
-
-### Terminal Dashboard
-
-The system displays a real-time terminal UI with:
-
-- **Portfolio Summary**: P&L, Greeks, notional exposure, concentration
-- **Limit Breaches**: Soft/hard breach alerts with percentages
-- **Component Health**: Connection status, data quality
-
-Press `Ctrl+C` to shutdown gracefully.
-
-## Testing
-
-```bash
-# Run all tests with coverage
-pytest
-
-# Run specific test file
-pytest tests/unit/test_risk_engine.py
-
-# Run with verbose output
-pytest -v
-
-# Generate HTML coverage report
-pytest --cov-report=html
-open htmlcov/index.html
-```
-
-## Code Quality
-
-```bash
-# Type checking
-mypy src/
-
-# Code formatting
-black src/ tests/
-
-# Import sorting
-isort src/ tests/
-
-# Linting
-flake8 src/ tests/
-```
-
-## Development Workflow
-
-1. **Make changes** to source code
-2. **Run tests**: `pytest`
-3. **Check types**: `mypy src/`
-4. **Format code**: `black .`
-5. **Commit** changes
-
-## Key Features
-
-### Position Reconciliation
-
-Compares positions from:
-- **IBKR** (Interactive Brokers API)
-- **Manual YAML** file (`data/positions/manual.yaml`)
-- **Cached** state (previous snapshot)
-
-Detects:
-- **MISSING**: Position in one source but not another
-- **DRIFT**: Quantity mismatch between sources
-- **STALE**: Position not updated for threshold period
-
-### Market Data Quality Control (MDQC)
-
-Validates:
-- **Staleness**: Flags data older than 10 seconds
-- **Bid/Ask sanity**: Ensures bid ≤ ask
-- **Zero quotes**: Flags suspicious zero prices
-- **Missing Greeks**: Tracks positions without Greeks
-
-### Greeks Handling (MVP)
-
-- **IBKR Greeks only** (no local BSM/Bachelier calculation)
-- Mark positions as `DATA_MISSING` when Greeks unavailable
-- Stock delta defaults to 1.0
-
-### Risk Limits
-
-- **Total gross notional**: Portfolio-wide exposure limit
-- **Per-underlying notional**: Single-name concentration limits
-- **Portfolio Greeks ranges**: Delta, vega, theta bounds
-- **Margin utilization**: Max margin usage percentage
-- **Concentration**: Max single-name percentage
 
 ### Breach Detection
 
-- **Soft breach**: Warning at 80% of limit (configurable)
-- **Hard breach**: Critical alert when limit exceeded
-- **Events published** to event bus for alerts
+- **Soft breach:** Warning at configurable threshold (default 80%)
+- **Hard breach:** Critical alert when limit exceeded
+- Events published to event bus for downstream handlers
 
-### Persistence Layer
+---
 
-PostgreSQL/TimescaleDB storage for historical data and warm-start capability.
+## Persistence Layer
 
-**Features:**
-- **Historical Data Storage**: Futu orders/deals/fees, IB executions/commissions
-- **Incremental Sync**: Track sync state per broker/account for efficient updates
-- **Warm-Start**: Restore positions and account state from database snapshots on startup
-- **Periodic Snapshots**: Capture positions, accounts, and risk metrics at configurable intervals
+PostgreSQL/DuckDB storage for historical data and warm-start.
 
-**History Loading CLI:**
+### Features
 
-```bash
-# Load Futu historical data (last 30 days)
-python scripts/history_loader.py --broker futu --account YOUR_ACC --days 30
+- **Historical Data:** Futu orders/deals/fees, IB executions/commissions
+- **Incremental Sync:** Track sync state per broker/account
+- **Warm-Start:** Restore state from database on startup
+- **Periodic Snapshots:** Configurable interval capture
 
-# Load IB historical data
-python scripts/history_loader.py --broker ib --account YOUR_ACC --days 30
-
-# Load from all brokers
-python scripts/history_loader.py --broker all --days 30
-
-# Dry run (show what would be loaded)
-python scripts/history_loader.py --broker futu --dry-run
-```
-
-**Database Setup:**
+### History Loading
 
 ```bash
-# Create database
-createdb apex_risk
+# Load Futu history
+python scripts/history_loader.py --broker futu --days 30
 
-# Enable TimescaleDB extension (optional, for time-series optimization)
-psql apex_risk -c "CREATE EXTENSION IF NOT EXISTS timescaledb;"
+# Load IB history
+python scripts/history_loader.py --broker ib --days 30
 
-# Run migrations
-python -c "
-import asyncio
-from src.infrastructure.persistence import get_database
-from migrations.runner import MigrationRunner
-
-async def migrate():
-    db = await get_database('postgresql://user:pass@localhost/apex_risk')
-    runner = MigrationRunner(db)
-    await runner.run()
-    await db.close()
-
-asyncio.run(migrate())
-"
+# Dry run
+python scripts/history_loader.py --broker all --dry-run
 ```
 
-See `docs/PERSISTENCE_LAYER.md` for comprehensive documentation.
+See [docs/PERSISTENCE_LAYER.md](docs/PERSISTENCE_LAYER.md) for database setup.
 
-## Strategy & Backtest Framework
+---
 
-APEX includes a production-ready strategy development and backtesting framework with **live/backtest parity** - the same strategy code runs identically in both modes.
+## Observability
 
-### Quick Start
+### Prometheus Metrics
+
+Exposed at `http://localhost:8000/metrics`:
+- Risk metrics (P&L, Greeks, breaches)
+- Adapter health (connection state, latency)
+- Event bus performance (queue depths, processing time)
+
+### Grafana Dashboards
+
+Pre-configured dashboards in `config/grafana/`.
+
+See [docs/OBSERVABILITY_SETUP.md](docs/OBSERVABILITY_SETUP.md) for setup.
+
+---
+
+## Development
+
+### Testing
 
 ```bash
-# List available strategies
-python -m src.runners.backtest_runner --list-strategies
+# All tests with coverage
+pytest --cov=src --cov-report=html
 
-# Run a backtest with IB historical data
-python -m src.runners.backtest_runner --strategy ma_cross --symbols AAPL \
-    --start 2024-01-01 --end 2024-06-30
+# Specific test file
+pytest tests/unit/test_risk_engine.py
 
-# Run from spec file
-python -m src.runners.backtest_runner --spec config/backtest/ma_cross_example.yaml
+# Integration tests
+pytest tests/integration/
+
+# Open coverage report
+open htmlcov/index.html
 ```
 
-### Available Strategies
+### Code Quality
 
-| Strategy | Registry Name | Description |
-|----------|---------------|-------------|
-| Moving Average Cross | `ma_cross` | Classic MA crossover trend following |
-| Buy and Hold | `buy_and_hold` | Passive benchmark strategy |
-| RSI Mean Reversion | `rsi_reversion` | RSI-based with limit orders |
-| Momentum Breakout | `momentum_breakout` | ATR-based with trailing stops |
-| Pairs Trading | `pairs_trading` | Statistical arbitrage (2 symbols) |
-| Scheduled Rebalance | `scheduled_rebalance` | Time-based portfolio rebalancing |
-
-### Creating a Strategy
-
-```python
-from src.domain.strategy.base import Strategy, StrategyContext
-from src.domain.strategy.registry import register_strategy
-from src.domain.events.domain_events import BarData
-from src.domain.interfaces.execution_provider import OrderRequest
-
-@register_strategy("my_strategy", description="My custom strategy")
-class MyStrategy(Strategy):
-    def __init__(self, strategy_id, symbols, context, **params):
-        super().__init__(strategy_id, symbols, context)
-        self.lookback = params.get("lookback", 20)
-
-    def on_start(self):
-        # Initialize on strategy start
-        pass
-
-    def on_bar(self, bar: BarData):
-        # Process each bar
-        if self._should_buy(bar):
-            self.request_order(OrderRequest(
-                symbol=bar.symbol,
-                side="BUY",
-                quantity=100,
-                order_type="MARKET",
-            ))
-
-    def on_fill(self, fill):
-        # Handle execution fills
-        pass
+```bash
+mypy src/              # Type checking
+black src/ tests/      # Formatting
+isort src/ tests/      # Import sorting
+flake8 src/ tests/     # Linting
 ```
 
-### Backtest Specification (YAML)
+### Performance Targets
 
-```yaml
-# config/backtest/my_strategy.yaml
-strategy:
-  name: my_strategy
-  id: my-strategy-2024
-  params:
-    lookback: 20
+| Position Count | Target Refresh |
+|----------------|----------------|
+| < 100 | < 100ms |
+| 100-250 | < 250ms |
+| 250-500 | < 500ms |
 
-universe:
-  symbols:
-    - AAPL
-    - MSFT
-
-data:
-  source: ib          # ib | csv | parquet
-  bar_size: 1d
-  start_date: "2024-01-01"
-  end_date: "2024-06-30"
-
-execution:
-  initial_capital: 100000
-```
-
-### Architecture: Live/Backtest Parity
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    STRATEGY CODE                            │
-│  (identical in both modes - uses abstract interfaces)       │
-└─────────────────────────────────────────────────────────────┘
-                            │
-            ┌───────────────┴───────────────┐
-            ▼                               ▼
-┌───────────────────────┐       ┌───────────────────────┐
-│     LIVE MODE         │       │    BACKTEST MODE      │
-├───────────────────────┤       ├───────────────────────┤
-│ SystemClock           │       │ SimulatedClock        │
-│ LiveScheduler         │       │ SimulatedScheduler    │
-│ IB ExecutionAdapter   │       │ SimulatedExecution    │
-│ IB Live Data Feed     │       │ IB Historical Feed    │
-└───────────────────────┘       └───────────────────────┘
-```
-
-Key abstractions enabling parity:
-- **Clock**: `SystemClock` (real time) vs `SimulatedClock` (deterministic replay)
-- **Scheduler**: Time-based actions work identically in both modes
-- **Execution**: Order matching with configurable fill models
-- **Data Feeds**: Multiple sources (IB, CSV, Parquet)
-
-### Backtest Results
-
-The framework calculates comprehensive metrics:
-
-- **Performance**: Total return, CAGR, best/worst day
-- **Risk**: Sharpe ratio, Sortino ratio, max drawdown, volatility
-- **Trading**: Win rate, profit factor, average trade
-- **Costs**: Commission, slippage analysis
-- **Exposure**: Time in market, position count
-
-See `docs/STRATEGY_GUIDE.md` for complete documentation.
-
-## Performance Targets
-
-- **< 100ms** refresh for < 100 positions
-- **< 250ms** for 100-250 positions
-- **< 500ms** for 250-500 positions
-
-## Acceptance Criteria
-
-- ✅ P&L accuracy > 99.9% vs TWS
-- ✅ Auto-reconnect success rate 100%
-- ✅ No crashes during 8-hour run
-- ✅ Memory growth < 20% over 8 hours
-- ✅ Test coverage > 85%
-
-## Project Status
-
-**Current**: Skeleton implementation with complete structure
-**MVP Scope**: Core monitoring features (see CLAUDE.md)
-**Deferred to v1.2**: What-if simulator, IV shocks, hedge optimization
-
-See `CLAUDE.md` for detailed implementation guidelines.
-
-## Logging
-
-Structured JSON logging to `data/logs/live_risk.log`:
-
-```json
-{
-  "timestamp": "2024-03-15T10:30:45.123Z",
-  "level": "INFO",
-  "category": "RISK",
-  "message": "Portfolio delta breach detected",
-  "data": {"delta": 55000, "limit": 50000}
-}
-```
-
-Categories: `SYSTEM`, `RISK`, `TRADING`, `DATA`, `ALERT`
-
-## Troubleshooting
-
-### IB Connection Failed
-
-1. Ensure TWS/Gateway is running
-2. Check port number (7497 for Paper, 7496 for Live)
-3. Enable API connections in TWS settings
-4. Verify client ID is unique
-
-### Missing Market Data
-
-1. Check IBKR market data subscriptions
-2. Verify symbols are correct
-3. Check MDQC logs for staleness alerts
-
-### Position Reconciliation Issues
-
-1. Review `data/positions/manual.yaml` format
-2. Check position keys match: `(symbol, underlying, asset_type, expiry, strike, right)`
-3. Monitor reconciliation alerts in logs
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make changes with tests
-4. Run test suite and code quality checks
-5. Submit pull request
-
-## License
-
-MIT License - see LICENSE file
+---
 
 ## Documentation
 
@@ -564,23 +366,59 @@ MIT License - see LICENSE file
 | [docs/USER_MANUAL.md](docs/USER_MANUAL.md) | Complete user guide with CLI reference |
 | [docs/STRATEGY_GUIDE.md](docs/STRATEGY_GUIDE.md) | Strategy development & backtest guide |
 | [docs/PERSISTENCE_LAYER.md](docs/PERSISTENCE_LAYER.md) | Database setup and API reference |
-| [docs/OBSERVABILITY_SETUP.md](docs/OBSERVABILITY_SETUP.md) | Prometheus, Grafana, and alerting setup |
+| [docs/OBSERVABILITY_SETUP.md](docs/OBSERVABILITY_SETUP.md) | Prometheus, Grafana, alerting |
 | [CLAUDE.md](CLAUDE.md) | Development guidelines |
+| [docs/reviews/](docs/reviews/) | Code reviews |
 
-## Support
+---
 
-For issues and questions:
-- File an issue on GitHub
-- Review `docs/USER_MANUAL.md` for usage instructions
-- See `docs/PERSISTENCE_LAYER.md` for database setup
-- Check `CLAUDE.md` for implementation guidance
+## Troubleshooting
+
+### IB Connection Failed
+
+1. Ensure TWS/Gateway is running
+2. Check port: 7497 (TWS Paper), 7496 (TWS Live), 4001 (Gateway Paper)
+3. Enable API in TWS: File -> Global Configuration -> API
+4. Verify client ID is unique
+
+### Missing Market Data
+
+1. Check IBKR market data subscriptions
+2. Verify symbol format
+3. Review MDQC logs for staleness
+
+### Position Reconciliation
+
+1. Check `data/positions/manual.yaml` format
+2. Verify position keys match across sources
+3. Enable verbose logging: `-v`
+
+---
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make changes with tests
+4. Run test suite and quality checks
+5. Submit pull request
+
+---
+
+## License
+
+MIT License - see [LICENSE](LICENSE) file
+
+---
 
 ## Acknowledgments
 
 Built with:
-- [ib_async](https://github.com/ib-api-reloaded/ib_async) - Interactive Brokers API client
-- [futu-api](https://github.com/FutuOpenAPI/py-futu-api) - Futu OpenD API client
-- [asyncpg](https://github.com/MagicStack/asyncpg) - Fast PostgreSQL client for asyncio
-- [rich](https://github.com/Textualize/rich) - Terminal UI library
+- [ib_async](https://github.com/ib-api-reloaded/ib_async) - Interactive Brokers API
+- [futu-api](https://github.com/FutuOpenAPI/py-futu-api) - Futu OpenD API
+- [rich](https://github.com/Textualize/rich) - Terminal UI
+- [DuckDB](https://duckdb.org/) - Embedded analytics database
+- [asyncpg](https://github.com/MagicStack/asyncpg) - PostgreSQL async client
+- [TA-Lib](https://github.com/mrjbq7/ta-lib) - Technical analysis
 - [pytest](https://pytest.org/) - Testing framework
 - [uv](https://github.com/astral-sh/uv) - Fast Python package manager
