@@ -57,6 +57,15 @@ def render_atr_levels(
     # Calculate values
     atr = atr_data.atr_value
     price = atr_data.current_price
+
+    # Guard against invalid price data
+    if price <= 0:
+        return Panel(
+            Text(f"Invalid price data for {atr_data.symbol} (price=0)", style="yellow"),
+            title="ATR Analysis",
+            border_style="yellow",
+        )
+
     risk = atr * 1.5  # 1.5x ATR stop
 
     # SMA21 estimate (slightly below current price for uptrend)
@@ -122,6 +131,8 @@ def render_atr_levels(
 
     # Percent row
     def pct(p):
+        if price == 0:
+            return "—"
         return f"{(p - price) / price * 100:+.0f}%" if p != price else "—"
 
     bar.add_row(

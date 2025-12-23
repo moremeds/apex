@@ -147,10 +147,19 @@ class Orchestrator:
 
         logger.info("Starting orchestrator...")
 
+        # Start event bus FIRST - must be running before any streaming/callbacks
+        # that might publish events (C1: event bus start order fix)
+        if isinstance(self.event_bus, (AsyncEventBus, PriorityEventBus)):
+            await self.event_bus.start()
+            logger.debug("Event bus started before providers")
+
+        # Subscribe components to events (before streaming starts)
+        self._subscribe_components_to_events()
+
         # Warm-start: Load state from snapshots
         await self._perform_warm_start()
 
-        # Connect to data sources
+        # Connect to data sources (streaming callbacks now have event bus ready)
         await self._connect_providers()
 
         # Start watchdog
@@ -161,13 +170,6 @@ class Orchestrator:
             await self._snapshot_service.start()
 
         self._running = True
-
-        # Start event bus
-        if isinstance(self.event_bus, (AsyncEventBus, PriorityEventBus)):
-            await self.event_bus.start()
-
-        # Subscribe components to events
-        self._subscribe_components_to_events()
 
         # Start coordinators
         await self._snapshot_coordinator.start()

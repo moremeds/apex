@@ -233,6 +233,11 @@ class TAService:
         if not TALIB_AVAILABLE:
             return None
 
+        # Guard against invalid spot price
+        if spot_price <= 0:
+            logger.warning(f"Invalid spot price for {symbol}: {spot_price}")
+            return None
+
         period = period or self._default_atr_period
         lookback = period + self._lookback_buffer
 
@@ -330,6 +335,11 @@ class TAService:
             spot = symbols_with_spots.get(symbol, 0)
 
             if len(bars) < period:
+                results[symbol] = None
+                continue
+
+            # Guard against invalid spot price
+            if spot <= 0:
                 results[symbol] = None
                 continue
 

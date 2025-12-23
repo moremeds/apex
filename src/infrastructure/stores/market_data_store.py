@@ -1,7 +1,7 @@
 """Thread-safe in-memory market data store with separate price/Greeks caching."""
 
 from __future__ import annotations
-from typing import Dict, Iterable, List, Optional, TYPE_CHECKING
+from typing import Any, Dict, Iterable, List, Optional, Union, TYPE_CHECKING
 from threading import RLock
 import time
 
@@ -247,13 +247,51 @@ class MarketDataStore:
             self.upsert(market_data_list)
             logger.debug(f"MarketDataStore updated from batch: {len(market_data_list)} symbols")
 
-    def _on_market_data_tick(self, payload: dict) -> None:
+    def _on_market_data_tick(self, payload: Any) -> None:
         """
         Handle single market data tick event (from streaming).
 
+        C3: Updated to handle MarketDataTickEvent (typed) instead of dict.
+
         Args:
-            payload: Event payload with 'symbol' and 'data'.
+            payload: MarketDataTickEvent or legacy dict with 'symbol' and 'data'.
         """
-        data = payload.get("data")
-        if data:
-            self.upsert([data])
+        from ...domain.events.domain_events import MarketDataTickEvent
+
+        # Handle typed MarketDataTickEvent (new standard)
+        if isinstance(payload, MarketDataTickEvent):
+            # Update existing market data or create new entry
+            symbol = payload.symbol
+            existing = self.get(symbol)
+            if existing:
+                # Merge tick data into existing MarketData
+                existing.bid = payload.bid if payload.bid is not None else existing.bid
+                existing.ask = payload.ask if payload.ask is not None else existing.ask
+                existing.last = payload.last if payload.last is not None else existing.last
+                existing.delta = payload.delta if payload.delta is not None else existing.delta
+                existing.gamma = payload.gamma if payload.gamma is not None else existing.gamma
+                existing.vega = payload.vega if payload.vega is not None else existing.vega
+                existing.theta = payload.theta if payload.theta is not None else existing.theta
+                existing.iv = payload.iv if payload.iv is not None else existing.iv
+                self.upsert([existing])
+            else:
+                # Create new MarketData from tick
+                md = MarketData(
+                    symbol=symbol,
+                    bid=payload.bid,
+                    ask=payload.ask,
+                    last=payload.last,
+                    delta=payload.delta,
+                    gamma=payload.gamma,
+                    vega=payload.vega,
+                    theta=payload.theta,
+                    iv=payload.iv,
+                )
+                self.upsert([md])
+            return
+
+        # Legacy dict handling (for backward compatibility during transition)
+        if isinstance(payload, dict):
+            data = payload.get("data")
+            if data:
+                self.upsert([data])

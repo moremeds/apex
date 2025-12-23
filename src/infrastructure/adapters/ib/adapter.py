@@ -5,6 +5,7 @@ Implements BrokerAdapter and MarketDataProvider interfaces for IBKR TWS/Gateway.
 """
 
 from __future__ import annotations
+from collections import OrderedDict
 from threading import Lock
 from typing import List, Dict, Optional, Callable
 from datetime import datetime, date
@@ -66,7 +67,9 @@ class IbAdapter(BrokerAdapter, MarketDataProvider):
         self.ib = None  # ib_async.IB instance (lazy init)
         self._connected = False
         self._subscribed_symbols: List[str] = []
-        self._market_data_cache: Dict[str, MarketData] = {}
+        # C11: Use OrderedDict for LRU eviction with bounded size
+        self._market_data_cache: OrderedDict[str, MarketData] = OrderedDict()
+        self._market_data_cache_max_size: int = 1000  # C11: Prevent unbounded growth
         self._market_data_fetcher: Optional[MarketDataFetcher] = None
 
         # Event bus for publishing events
@@ -108,6 +111,25 @@ class IbAdapter(BrokerAdapter, MarketDataProvider):
         self._maintenance_start_minute: int = 45
         self._maintenance_end_hour: int = 0
         self._maintenance_end_minute: int = 45
+
+    # -------------------------------------------------------------------------
+    # Cache Helpers
+    # -------------------------------------------------------------------------
+
+    def _update_market_data_cache(self, symbol: str, md: MarketData) -> None:
+        """
+        C11: Update market data cache with LRU eviction.
+
+        Maintains bounded cache size to prevent memory leaks during long sessions.
+        """
+        # Move existing entry to end (LRU) or add new
+        if symbol in self._market_data_cache:
+            self._market_data_cache.move_to_end(symbol)
+        self._market_data_cache[symbol] = md
+
+        # Evict oldest entries if over limit
+        while len(self._market_data_cache) > self._market_data_cache_max_size:
+            self._market_data_cache.popitem(last=False)
 
     # -------------------------------------------------------------------------
     # Connection Management
@@ -189,7 +211,6 @@ class IbAdapter(BrokerAdapter, MarketDataProvider):
         Returns:
             List of qualified contracts (may be partial on failure).
         """
-        global timeout
         import asyncio
 
         if not contracts:
@@ -206,21 +227,36 @@ class IbAdapter(BrokerAdapter, MarketDataProvider):
 
         for attempt in range(self._qualify_max_retries):
             try:
-                # Use shorter timeout during maintenance window
-                timeout = 15.0 if in_maintenance else 30.0
+                # Use shorter timeout during maintenance window (C2: removed global)
+                qualify_timeout = 15.0 if in_maintenance else 30.0
 
                 qualified_raw = await asyncio.wait_for(
                     self.ib.qualifyContractsAsync(*contracts),
-                    timeout=timeout
+                    timeout=qualify_timeout
                 )
 
                 # Filter out None results and cache successful qualifications
+                failed_contracts = []
                 for i, qc in enumerate(qualified_raw):
                     if qc is not None:
                         qualified.append(qc)
                         if i < len(positions):
                             with self._contract_cache_lock:
                                 self._qualified_contract_cache[positions[i].symbol] = qc
+                    else:
+                        # Track failed contracts for detailed logging
+                        if i < len(positions):
+                            failed_contracts.append((positions[i].symbol, contracts[i]))
+                        else:
+                            failed_contracts.append((f"contract_{i}", contracts[i]))
+
+                # Log details of failed contracts (may be ambiguous or invalid)
+                if failed_contracts:
+                    for symbol, contract in failed_contracts:
+                        logger.warning(
+                            f"Contract qualification failed for {symbol}: {contract} "
+                            f"(may be ambiguous - check IB for multiple matches)"
+                        )
 
                 if qualified:
                     if attempt > 0:
@@ -228,7 +264,7 @@ class IbAdapter(BrokerAdapter, MarketDataProvider):
                     return qualified
 
             except asyncio.TimeoutError:
-                last_error = f"Timeout after {timeout}s"
+                last_error = f"Timeout after {qualify_timeout}s"
                 logger.warning(f"Contract qualification timeout (attempt {attempt + 1}/{self._qualify_max_retries})")
             except Exception as e:
                 last_error = str(e)
@@ -326,12 +362,12 @@ class IbAdapter(BrokerAdapter, MarketDataProvider):
                     account_id = av.account
 
             def safe_float(tag: str, default: float = 0.0) -> float:
-                global value
+                # C2: removed global, use local variable
                 try:
-                    value = account_data.get(tag, default)
-                    return float(value) if value else default
+                    raw_value = account_data.get(tag, default)
+                    return float(raw_value) if raw_value else default
                 except (ValueError, TypeError):
-                    logger.warning(f"Failed to parse account tag '{tag}': {value}")
+                    logger.warning(f"Failed to parse account tag '{tag}': {account_data.get(tag)}")
                     return default
 
             net_liquidation = safe_float('NetLiquidation')
@@ -575,7 +611,7 @@ class IbAdapter(BrokerAdapter, MarketDataProvider):
                     )
 
                     for md in market_data_list:
-                        self._market_data_cache[md.symbol] = md
+                        self._update_market_data_cache(md.symbol, md)
 
                 except asyncio.TimeoutError:
                     logger.error(f"Timeout fetching market data after 60s")
@@ -687,7 +723,7 @@ class IbAdapter(BrokerAdapter, MarketDataProvider):
                         timestamp=datetime.now(),
                     )
                     market_data[sym] = md
-                    self._market_data_cache[sym] = md
+                    self._update_market_data_cache(sym, md)
                 except Exception as e:
                     logger.warning(f"Failed to parse indicator data for {sym}: {e}")
 
@@ -734,7 +770,7 @@ class IbAdapter(BrokerAdapter, MarketDataProvider):
         Note: EventBus publishing moved to MarketDataManager (Phase 4 single streaming path).
         IbAdapter only updates cache and forwards to callback.
         """
-        self._market_data_cache[symbol] = market_data
+        self._update_market_data_cache(symbol, market_data)
 
         # Forward to callback (MarketDataManager handles EventBus publish)
         if self._on_market_data_update:

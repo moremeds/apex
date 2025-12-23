@@ -385,8 +385,10 @@ class PriorityEventBus:
                     except asyncio.QueueEmpty:
                         break
 
-                # Allow slow lane to run (even when fast events pending)
-                await asyncio.sleep(0)  # yield without latency tax
+                # C8: Allow slow lane to run (even when fast events pending)
+                # Use small sleep (2ms) instead of sleep(0) to give slow lane CPU time
+                # when fast queue is continuously refilling
+                await asyncio.sleep(0.002)  # 2ms minimum yield to slow lane
 
             except asyncio.CancelledError:
                 break

@@ -602,9 +602,13 @@ class MarketDataFetcher:
 
         Called by IB when any subscribed ticker has new data.
         Uses O(1) reverse lookup for performance (critical for high-frequency streaming).
+        C6: Aggregates errors and logs summary once (not per-tick).
         """
         if not self._on_price_update:
             return
+
+        # C6: Aggregate errors instead of logging each one
+        errors: list = []
 
         for ticker in tickers:
             try:
@@ -630,7 +634,12 @@ class MarketDataFetcher:
                 self._on_price_update(symbol, md)
 
             except Exception as e:
-                logger.warning(f"Error processing streaming update: {e}")
+                # C6: Collect errors, don't log each one
+                errors.append(str(e))
+
+        # C6: Log aggregated errors once after loop (if any)
+        if errors:
+            logger.warning(f"Streaming update errors: {len(errors)} failures. First: {errors[0]}")
 
     def cleanup(self) -> None:
         """Cancel all active market data subscriptions."""

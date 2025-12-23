@@ -311,8 +311,16 @@ class AsyncEventBus(EventBus):
         Handle market data tick with debouncing.
 
         Coalesces multiple ticks for the same symbol within debounce window.
+        C3: Updated to handle both typed events and dicts.
         """
-        symbol = envelope.payload.get("symbol", "unknown")
+        # C3: Handle both typed events (with .symbol attr) and dicts
+        payload = envelope.payload
+        if hasattr(payload, "symbol"):
+            symbol = payload.symbol
+        elif isinstance(payload, dict):
+            symbol = payload.get("symbol", "unknown")
+        else:
+            symbol = "unknown"
 
         # Store latest tick per symbol
         self._pending_ticks[symbol] = envelope

@@ -70,6 +70,8 @@ class HistoricalDataService:
         ib_historical: "IB",
         cache_size: int = 512,
         default_daily_lookback: int = 60,
+        max_concurrent_requests: int = 6,  # C5: IB rate limiting
+        request_delay_ms: int = 100,  # C5: delay between requests
     ):
         """
         Initialize historical data service.
@@ -78,10 +80,16 @@ class HistoricalDataService:
             ib_historical: Dedicated IB connection for historical data.
             cache_size: Max entries in LRU cache.
             default_daily_lookback: Default days for daily bars (60 = ~3 months).
+            max_concurrent_requests: Max concurrent IB historical requests (C5).
+            request_delay_ms: Delay between requests in ms (C5).
         """
         self._ib = ib_historical
         self._cache = BarCacheStore(max_entries=cache_size)
         self._default_daily_lookback = default_daily_lookback
+
+        # C5: Rate limiting for IB historical requests
+        self._semaphore = asyncio.Semaphore(max_concurrent_requests)
+        self._request_delay = request_delay_ms / 1000.0  # Convert to seconds
 
         # Track pending fetches to avoid duplicate requests
         self._pending_fetches: Dict[str, asyncio.Future] = {}
@@ -127,8 +135,11 @@ class HistoricalDataService:
             logger.debug(f"Waiting for pending fetch: {cache_key}")
             return await self._pending_fetches[cache_key]
 
-        # Create future for this fetch
-        future = asyncio.get_event_loop().create_future()
+        # C4: Use get_running_loop() instead of deprecated get_event_loop()
+        # This prevents "Future attached to a different loop" errors
+        # when called from TUI/backtest contexts
+        loop = asyncio.get_running_loop()
+        future = loop.create_future()
         self._pending_fetches[cache_key] = future
 
         try:
@@ -196,9 +207,9 @@ class HistoricalDataService:
         logger.info(f"Batch: fetching {len(to_fetch)} symbols from IB "
                    f"({len(results)} from cache)")
 
-        # Fetch remaining symbols concurrently
+        # C5: Fetch with rate limiting - use throttled wrapper
         tasks = [
-            self._fetch_from_ib(req["symbol"], req["timeframe"], req["period"])
+            self._fetch_from_ib_throttled(req["symbol"], req["timeframe"], req["period"])
             for req in to_fetch
         ]
 
@@ -249,6 +260,23 @@ class HistoricalDataService:
         logger.info(f"Pre-fetch complete: {success_count}/{len(symbols)} symbols loaded")
 
         return success_count
+
+    async def _fetch_from_ib_throttled(
+        self,
+        symbol: str,
+        timeframe: str,
+        period: BarPeriod,
+    ) -> List[BarData]:
+        """
+        C5: Rate-limited fetch from IB API.
+
+        Wraps _fetch_from_ib with semaphore and delay for IB pacing compliance.
+        """
+        async with self._semaphore:
+            # Add delay to prevent burst requests
+            if self._request_delay > 0:
+                await asyncio.sleep(self._request_delay)
+            return await self._fetch_from_ib(symbol, timeframe, period)
 
     async def _fetch_from_ib(
         self,

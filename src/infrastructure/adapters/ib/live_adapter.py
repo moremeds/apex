@@ -10,6 +10,7 @@ Uses reserved monitoring client ID.
 """
 
 from __future__ import annotations
+from collections import OrderedDict
 from threading import Lock
 from typing import List, Dict, Optional, Callable
 from datetime import datetime
@@ -52,9 +53,10 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
         """Initialize live adapter."""
         super().__init__(*args, **kwargs)
 
-        # Market data
+        # Market data - C11: Use OrderedDict for LRU eviction
         self._market_data_fetcher: Optional[MarketDataFetcher] = None
-        self._market_data_cache: Dict[str, MarketData] = {}
+        self._market_data_cache: OrderedDict[str, MarketData] = OrderedDict()
+        self._market_data_cache_max_size: int = 1000
         self._subscribed_symbols: List[str] = []
         self._quote_callback: Optional[Callable[[QuoteTick], None]] = None
 
@@ -77,6 +79,20 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
         self._account_cache_time: Optional[datetime] = None
         self._account_cache_ttl_sec: int = 10
         self._account_callback: Optional[Callable[[AccountSnapshot], None]] = None
+
+    # -------------------------------------------------------------------------
+    # Cache Helpers
+    # -------------------------------------------------------------------------
+
+    def _update_market_data_cache(self, symbol: str, md: MarketData) -> None:
+        """
+        C11: Update market data cache with LRU eviction.
+        """
+        if symbol in self._market_data_cache:
+            self._market_data_cache.move_to_end(symbol)
+        self._market_data_cache[symbol] = md
+        while len(self._market_data_cache) > self._market_data_cache_max_size:
+            self._market_data_cache.popitem(last=False)
 
     # -------------------------------------------------------------------------
     # Connection Hooks
@@ -167,7 +183,7 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
 
     def _handle_streaming_update(self, symbol: str, market_data: MarketData) -> None:
         """Handle streaming market data update."""
-        self._market_data_cache[symbol] = market_data
+        self._update_market_data_cache(symbol, market_data)
 
         if self._quote_callback:
             quote_tick = self._market_data_to_quote_tick(market_data)
@@ -501,6 +517,7 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
                         timeout=30.0
                     )
 
+                    failed_contracts = []
                     for i, qualified_contract in enumerate(qualified_raw):
                         if qualified_contract is not None:
                             newly_qualified.append(qualified_contract)
@@ -510,10 +527,20 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
                                 self._qualified_contract_cache[symbol] = qualified_contract
                             # Add to pos_map
                             pos_map[id(qualified_contract)] = new_positions[i]
+                        else:
+                            # Track which contracts failed for detailed logging
+                            pos = new_positions[i]
+                            contract = new_contracts[i]
+                            failed_contracts.append((pos.symbol, contract))
 
-                    failed_count = len(new_contracts) - len(newly_qualified)
-                    if failed_count > 0:
-                        logger.warning(f"Failed to qualify {failed_count}/{len(new_contracts)} contracts")
+                    if failed_contracts:
+                        # Log details of each failed contract (may be ambiguous or invalid)
+                        for symbol, contract in failed_contracts:
+                            logger.warning(
+                                f"Contract qualification failed for {symbol}: {contract} "
+                                f"(may be ambiguous - check IB for multiple matches)"
+                            )
+                        logger.warning(f"Failed to qualify {len(failed_contracts)}/{len(new_contracts)} contracts total")
 
                     logger.info(f"Qualified {len(newly_qualified)}/{len(new_contracts)} new contracts")
                 except asyncio.TimeoutError:
@@ -544,7 +571,7 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
                 return []
 
             for md in market_data_list:
-                self._market_data_cache[md.symbol] = md
+                self._update_market_data_cache(md.symbol, md)
 
             return market_data_list
 
@@ -600,7 +627,7 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
                         timestamp=datetime.now(),
                     )
                     market_data[sym] = md
-                    self._market_data_cache[sym] = md
+                    self._update_market_data_cache(sym, md)
                 except Exception as e:
                     logger.warning(f"Failed to parse data for {sym}: {e}")
 

@@ -181,11 +181,12 @@ def get_event_type_mapping() -> Dict[EventType, Type["DomainEvent"]]:
     from .domain_events import (
         QuoteTick, BarData, TradeFill, OrderUpdate,
         PositionSnapshot, AccountSnapshot, ConnectionEvent, RiskBreachEvent,
+        MarketDataTickEvent,  # C3: Added for tick event standardization
     )
 
     return {
-        # Market Data Events
-        EventType.MARKET_DATA_TICK: QuoteTick,
+        # Market Data Events - C3: Use MarketDataTickEvent (what's actually published)
+        EventType.MARKET_DATA_TICK: MarketDataTickEvent,
         EventType.MARKET_DATA_BATCH: BarData,
 
         # Trading Events

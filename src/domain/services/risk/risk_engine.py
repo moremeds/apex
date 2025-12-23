@@ -344,6 +344,9 @@ class RiskEngine:
             for idx, pos in enumerate(positions)
         }
 
+        # C7: Aggregate errors instead of logging each one
+        errors: List[Tuple[str, str]] = []
+
         # Collect results as they complete
         for future in as_completed(future_to_idx):
             idx = future_to_idx[future]
@@ -352,8 +355,17 @@ class RiskEngine:
                 metrics_list[idx] = metrics
             except Exception as e:
                 pos = positions[idx]
-                logger.error(f"Error calculating metrics for {pos.symbol}: {e}")
+                # C7: Collect error, don't log each one
+                errors.append((pos.symbol, str(e)))
                 metrics_list[idx] = None
+
+        # C7: Log aggregated errors once after loop (if any)
+        if errors:
+            sample = errors[:5]  # Show first 5 errors
+            logger.error(
+                f"Failed to calculate metrics for {len(errors)} positions. "
+                f"Examples: {[f'{sym}: {err}' for sym, err in sample]}"
+            )
 
         return metrics_list
 
@@ -588,17 +600,29 @@ class RiskEngine:
             self._needs_rebuild = True
         logger.debug(f"RiskEngine marked dirty: {payload.get('source', 'unknown')} data changed")
 
-    def _on_market_tick(self, payload: dict) -> None:
+    def _on_market_tick(self, payload: Any) -> None:
         """
         Handle single market data tick (from streaming).
 
         Only marks the affected underlying as dirty for incremental rebuild.
 
+        C3: Updated to handle MarketDataTickEvent (typed) instead of dict.
+
         Args:
-            payload: Event payload with 'symbol' and 'data'.
+            payload: MarketDataTickEvent or legacy dict with 'symbol' and 'data'.
         """
-        symbol = payload.get("symbol", "")
-        data = payload.get("data")
+        from src.domain.events.domain_events import MarketDataTickEvent
+
+        # Handle typed MarketDataTickEvent (new standard)
+        if isinstance(payload, MarketDataTickEvent):
+            symbol = payload.symbol
+            data = payload  # The tick itself contains the data
+        elif isinstance(payload, dict):
+            # Legacy dict handling
+            symbol = payload.get("symbol", "")
+            data = payload.get("data")
+        else:
+            return
 
         # Get underlying from market data or symbol
         underlying = symbol
