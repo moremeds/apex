@@ -204,7 +204,8 @@ class RiskEngine:
             duration_ms = (time.perf_counter() - start_time) * 1000
             self._risk_metrics.record_snapshot_build_duration(duration_ms)
             self._risk_metrics.record_snapshot(snapshot)
-            logger.debug(f"Snapshot build completed in {duration_ms:.2f}ms")
+            # M17: Use lazy formatting to avoid overhead when debug disabled
+            logger.debug("Snapshot build completed in %.2fms", duration_ms)
 
         return snapshot
 
@@ -617,7 +618,8 @@ class RiskEngine:
         """
         with self._lock:
             self._needs_rebuild = True
-        logger.debug(f"RiskEngine marked dirty: {payload.get('source', 'unknown')} data changed")
+        # M17: Use lazy formatting for hot path
+        logger.debug("RiskEngine marked dirty: %s data changed", payload.get('source', 'unknown'))
 
     def _on_market_tick(self, payload: Any) -> None:
         """

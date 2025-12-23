@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any, Callable, Dict, List, Optional, Type, TypeVar
 
 from src.infrastructure.persistence.database import Database
@@ -379,25 +379,33 @@ class WarmStartService:
             if type_marker == "datetime":
                 try:
                     return datetime.fromisoformat(value["value"])
-                except Exception:
+                except (KeyError, ValueError, TypeError) as e:
+                    # M15: Log and return None for malformed datetime
+                    logger.warning(f"Malformed datetime in snapshot: {value}, error: {e}")
                     return None
 
             elif type_marker == "Decimal":
                 try:
                     return Decimal(value["value"])
-                except Exception:
+                except (KeyError, ValueError, TypeError, InvalidOperation) as e:
+                    # M15: Log and return 0 for malformed decimal
+                    logger.warning(f"Malformed Decimal in snapshot: {value}, error: {e}")
                     return Decimal(0)
 
             elif type_marker == "AssetType":
                 try:
                     return AssetType(value.get("value") or value.get("asset_type", "STOCK"))
-                except Exception:
+                except (KeyError, ValueError) as e:
+                    # M15: Log and return default for malformed enum
+                    logger.warning(f"Malformed AssetType in snapshot: {value}, error: {e}")
                     return AssetType.STOCK
 
             elif type_marker == "PositionSource":
                 try:
                     return PositionSource(value.get("value") or value.get("source", "CACHED"))
-                except Exception:
+                except (KeyError, ValueError) as e:
+                    # M15: Log and return default for malformed enum
+                    logger.warning(f"Malformed PositionSource in snapshot: {value}, error: {e}")
                     return PositionSource.CACHED
 
             elif type_marker:

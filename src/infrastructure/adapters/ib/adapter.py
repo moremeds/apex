@@ -197,8 +197,9 @@ class IbAdapter(BrokerAdapter, MarketDataProvider):
             if hour == self._maintenance_end_hour and minute <= self._maintenance_end_minute:
                 return True
             return False
-        except Exception:
-            # If timezone detection fails, assume not in maintenance
+        except (ImportError, KeyError) as e:
+            # M16: Specific exceptions - ImportError if zoneinfo missing, KeyError if tz data missing
+            logger.debug(f"Timezone detection failed, assuming not in maintenance: {e}")
             return False
 
     async def _qualify_contracts_with_retry(

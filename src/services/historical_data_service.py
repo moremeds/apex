@@ -207,23 +207,29 @@ class HistoricalDataService:
         logger.info(f"Batch: fetching {len(to_fetch)} symbols from IB "
                    f"({len(results)} from cache)")
 
-        # C5: Fetch with rate limiting - use throttled wrapper
-        tasks = [
-            self._fetch_from_ib_throttled(req["symbol"], req["timeframe"], req["period"])
-            for req in to_fetch
-        ]
+        # M13: Chunk requests to bound memory from futures (8 symbols per chunk)
+        CHUNK_SIZE = 8
 
-        fetched = await asyncio.gather(*tasks, return_exceptions=True)
+        for chunk_start in range(0, len(to_fetch), CHUNK_SIZE):
+            chunk = to_fetch[chunk_start:chunk_start + CHUNK_SIZE]
 
-        for req, bars in zip(to_fetch, fetched):
-            symbol = req["symbol"]
-            if isinstance(bars, Exception):
-                logger.warning(f"Failed to fetch {symbol}: {bars}")
-                results[symbol] = []
-            else:
-                results[symbol] = bars
-                if use_cache and bars:
-                    self._cache.put(symbol, req["timeframe"], bars)
+            # C5: Fetch with rate limiting - use throttled wrapper
+            tasks = [
+                self._fetch_from_ib_throttled(req["symbol"], req["timeframe"], req["period"])
+                for req in chunk
+            ]
+
+            fetched = await asyncio.gather(*tasks, return_exceptions=True)
+
+            for req, bars in zip(chunk, fetched):
+                symbol = req["symbol"]
+                if isinstance(bars, Exception):
+                    logger.warning(f"Failed to fetch {symbol}: {bars}")
+                    results[symbol] = []
+                else:
+                    results[symbol] = bars
+                    if use_cache and bars:
+                        self._cache.put(symbol, req["timeframe"], bars)
 
         return results
 

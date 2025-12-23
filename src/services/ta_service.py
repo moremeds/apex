@@ -25,6 +25,7 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import List, Dict, Optional, TYPE_CHECKING
 
@@ -135,22 +136,32 @@ class TAService:
                 )
                 return None
 
-            high = np.array([b.high for b in bars], dtype=np.float64)
-            low = np.array([b.low for b in bars], dtype=np.float64)
-            close = np.array([b.close for b in bars], dtype=np.float64)
-
-            atr = talib.ATR(high, low, close, timeperiod=period)
-
-            # Return the latest ATR value
-            latest = atr[-1]
-            if np.isnan(latest):
-                return None
-
-            return float(latest)
+            # M22: Run CPU-bound TA-Lib computation in thread pool
+            return await asyncio.to_thread(
+                self._compute_atr_sync, bars, period
+            )
 
         except Exception as e:
             logger.error(f"Failed to calculate ATR for {symbol}: {e}")
             return None
+
+    def _compute_atr_sync(self, bars: list, period: int) -> Optional[float]:
+        """
+        Synchronous ATR computation (runs in thread pool via asyncio.to_thread).
+
+        M22: Separated from async method to avoid blocking the event loop
+        with CPU-bound numpy/talib operations.
+        """
+        high = np.array([b.high for b in bars], dtype=np.float64)
+        low = np.array([b.low for b in bars], dtype=np.float64)
+        close = np.array([b.close for b in bars], dtype=np.float64)
+
+        atr = talib.ATR(high, low, close, timeperiod=period)
+        latest = atr[-1]
+
+        if np.isnan(latest):
+            return None
+        return float(latest)
 
     async def get_atr_batch(
         self,
@@ -184,7 +195,22 @@ class TAService:
         ]
         bars_by_symbol = await self._historical.fetch_bars_batch(requests)
 
-        # Calculate ATR for each symbol
+        # M22: Run CPU-bound batch computation in thread pool
+        return await asyncio.to_thread(
+            self._compute_atr_batch_sync, symbols, bars_by_symbol, period
+        )
+
+    def _compute_atr_batch_sync(
+        self,
+        symbols: List[str],
+        bars_by_symbol: Dict[str, list],
+        period: int,
+    ) -> Dict[str, Optional[float]]:
+        """
+        Synchronous batch ATR computation (runs in thread pool).
+
+        M22: Separated from async method to avoid blocking event loop.
+        """
         results: Dict[str, Optional[float]] = {}
         for symbol in symbols:
             bars = bars_by_symbol.get(symbol, [])
@@ -255,45 +281,64 @@ class TAService:
                 )
                 return None
 
-            high = np.array([b.high for b in bars], dtype=np.float64)
-            low = np.array([b.low for b in bars], dtype=np.float64)
-            close = np.array([b.close for b in bars], dtype=np.float64)
-
-            atr_array = talib.ATR(high, low, close, timeperiod=period)
-            atr = atr_array[-1]
-
-            if np.isnan(atr):
-                return None
-
-            atr = float(atr)
-
-            # Use PREVIOUS bar's close for ATR level calculations
-            prev_close = float(close[-1])
-
-            if prev_close <= 0:
-                return None
-
-            # ATR% uses prev_close (ATR normalized to completed bar)
-            atr_pct = (atr / prev_close) * 100
-
-            # Levels use spot_price (current price for today's stops/targets)
-            return ATRLevels(
-                symbol=symbol,
-                spot=spot_price,
-                prev_close=prev_close,
-                atr=atr,
-                atr_pct=atr_pct,
-                level_1_up=spot_price + atr,
-                level_1_dn=spot_price - atr,
-                level_2_up=spot_price + (2 * atr),
-                level_2_dn=spot_price - (2 * atr),
-                timeframe=timeframe,
-                period=period,
+            # M22: Run CPU-bound computation in thread pool
+            return await asyncio.to_thread(
+                self._compute_atr_levels_sync,
+                symbol, spot_price, bars, period, timeframe
             )
 
         except Exception as e:
             logger.error(f"Failed to calculate ATR levels for {symbol}: {e}")
             return None
+
+    def _compute_atr_levels_sync(
+        self,
+        symbol: str,
+        spot_price: float,
+        bars: list,
+        period: int,
+        timeframe: str,
+    ) -> Optional[ATRLevels]:
+        """
+        Synchronous ATR levels computation (runs in thread pool).
+
+        M22: Separated from async method to avoid blocking event loop.
+        """
+        high = np.array([b.high for b in bars], dtype=np.float64)
+        low = np.array([b.low for b in bars], dtype=np.float64)
+        close = np.array([b.close for b in bars], dtype=np.float64)
+
+        atr_array = talib.ATR(high, low, close, timeperiod=period)
+        atr = atr_array[-1]
+
+        if np.isnan(atr):
+            return None
+
+        atr = float(atr)
+
+        # Use PREVIOUS bar's close for ATR level calculations
+        prev_close = float(close[-1])
+
+        if prev_close <= 0:
+            return None
+
+        # ATR% uses prev_close (ATR normalized to completed bar)
+        atr_pct = (atr / prev_close) * 100
+
+        # Levels use spot_price (current price for today's stops/targets)
+        return ATRLevels(
+            symbol=symbol,
+            spot=spot_price,
+            prev_close=prev_close,
+            atr=atr,
+            atr_pct=atr_pct,
+            level_1_up=spot_price + atr,
+            level_1_dn=spot_price - atr,
+            level_2_up=spot_price + (2 * atr),
+            level_2_dn=spot_price - (2 * atr),
+            timeframe=timeframe,
+            period=period,
+        )
 
     async def get_atr_levels_batch(
         self,
@@ -328,7 +373,25 @@ class TAService:
         ]
         bars_by_symbol = await self._historical.fetch_bars_batch(requests)
 
-        # Calculate ATR levels for each symbol
+        # M22: Run CPU-bound batch computation in thread pool
+        return await asyncio.to_thread(
+            self._compute_atr_levels_batch_sync,
+            symbols, symbols_with_spots, bars_by_symbol, period, timeframe
+        )
+
+    def _compute_atr_levels_batch_sync(
+        self,
+        symbols: List[str],
+        symbols_with_spots: Dict[str, float],
+        bars_by_symbol: Dict[str, list],
+        period: int,
+        timeframe: str,
+    ) -> Dict[str, Optional[ATRLevels]]:
+        """
+        Synchronous batch ATR levels computation (runs in thread pool).
+
+        M22: Separated from async method to avoid blocking event loop.
+        """
         results: Dict[str, Optional[ATRLevels]] = {}
         for symbol in symbols:
             bars = bars_by_symbol.get(symbol, [])
@@ -410,9 +473,13 @@ class TAService:
         if len(bars) < period:
             return None
 
+        # M22: Run CPU-bound computation in thread pool
+        return await asyncio.to_thread(self._compute_rsi_sync, bars, period)
+
+    def _compute_rsi_sync(self, bars: list, period: int) -> Optional[float]:
+        """Synchronous RSI computation (runs in thread pool)."""
         close = np.array([b.close for b in bars], dtype=np.float64)
         rsi = talib.RSI(close, timeperiod=period)
-
         latest = rsi[-1]
         return None if np.isnan(latest) else float(latest)
 
@@ -437,8 +504,12 @@ class TAService:
         if len(bars) < period:
             return None
 
+        # M22: Run CPU-bound computation in thread pool
+        return await asyncio.to_thread(self._compute_sma_sync, bars, period)
+
+    def _compute_sma_sync(self, bars: list, period: int) -> Optional[float]:
+        """Synchronous SMA computation (runs in thread pool)."""
         close = np.array([b.close for b in bars], dtype=np.float64)
         sma = talib.SMA(close, timeperiod=period)
-
         latest = sma[-1]
         return None if np.isnan(latest) else float(latest)

@@ -254,10 +254,11 @@ class MarketDataStore:
         """
         Handle single market data tick event (from streaming).
 
-        C3: Updated to handle MarketDataTickEvent (typed) instead of dict.
+        C3: Updated to handle MarketDataTickEvent (typed).
+        M14: Removed legacy dict handling.
 
         Args:
-            payload: MarketDataTickEvent or legacy dict with 'symbol' and 'data'.
+            payload: MarketDataTickEvent (typed event).
         """
         from ...domain.events.domain_events import MarketDataTickEvent
 
@@ -293,8 +294,5 @@ class MarketDataStore:
                 self.upsert([md])
             return
 
-        # Legacy dict handling (for backward compatibility during transition)
-        if isinstance(payload, dict):
-            data = payload.get("data")
-            if data:
-                self.upsert([data])
+        # M14: Removed legacy dict handling - all callers now use typed events
+        logger.warning(f"Unexpected payload type in _on_market_data_tick: {type(payload)}")
