@@ -150,7 +150,8 @@ class RiskAlertLogger:
         self._current_date = datetime.now().strftime("%Y-%m-%d")
 
         # Async logging: QueueListener handles writing in background thread
-        self._log_queue: Queue = Queue(-1)  # Unbounded queue
+        # M7: Bounded queue to prevent memory leak under heavy alert load
+        self._log_queue: Queue = Queue(maxsize=1000)
         self._queue_listener: Optional[logging.handlers.QueueListener] = None
 
         # Set up dedicated logger with async queue

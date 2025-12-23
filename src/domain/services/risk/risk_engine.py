@@ -327,6 +327,8 @@ class RiskEngine:
         """
         Calculate position metrics in parallel using persistent ThreadPoolExecutor.
 
+        M10: Uses chunked batches (50 positions per task) to reduce context switching.
+
         Args:
             positions: List of positions to calculate.
             market_data: Market data dictionary.
@@ -337,34 +339,51 @@ class RiskEngine:
         """
         metrics_list: List[PositionMetrics | None] = [None] * len(positions)
 
-        # Use persistent executor (created in __init__, not per-call)
-        # Submit all tasks and track original position index to preserve order
-        future_to_idx = {
-            self._executor.submit(self._calculate_position_metrics, pos, market_data, market_status): idx
-            for idx, pos in enumerate(positions)
-        }
+        # M10: Chunk positions into batches to reduce context switching
+        # 1000 positions = 20 tasks instead of 1000 tasks
+        CHUNK_SIZE = 50
+
+        def process_chunk(chunk_positions: List[Tuple[int, Position]]) -> List[Tuple[int, PositionMetrics | None, str | None]]:
+            """Process a chunk of positions, returning (idx, metrics, error) tuples."""
+            results = []
+            for idx, pos in chunk_positions:
+                try:
+                    metrics = self._calculate_position_metrics(pos, market_data, market_status)
+                    results.append((idx, metrics, None))
+                except Exception as e:
+                    results.append((idx, None, f"{pos.symbol}: {e}"))
+            return results
+
+        # Build indexed chunks
+        indexed_positions = list(enumerate(positions))
+        chunks = [
+            indexed_positions[i:i + CHUNK_SIZE]
+            for i in range(0, len(indexed_positions), CHUNK_SIZE)
+        ]
+
+        # Submit chunked tasks
+        futures = [self._executor.submit(process_chunk, chunk) for chunk in chunks]
 
         # C7: Aggregate errors instead of logging each one
-        errors: List[Tuple[str, str]] = []
+        errors: List[str] = []
 
-        # Collect results as they complete
-        for future in as_completed(future_to_idx):
-            idx = future_to_idx[future]
+        # Collect results from all chunks
+        for future in as_completed(futures):
             try:
-                metrics = future.result()
-                metrics_list[idx] = metrics
+                chunk_results = future.result()
+                for idx, metrics, error in chunk_results:
+                    metrics_list[idx] = metrics
+                    if error:
+                        errors.append(error)
             except Exception as e:
-                pos = positions[idx]
-                # C7: Collect error, don't log each one
-                errors.append((pos.symbol, str(e)))
-                metrics_list[idx] = None
+                errors.append(f"Chunk failed: {e}")
 
         # C7: Log aggregated errors once after loop (if any)
         if errors:
             sample = errors[:5]  # Show first 5 errors
             logger.error(
                 f"Failed to calculate metrics for {len(errors)} positions. "
-                f"Examples: {[f'{sym}: {err}' for sym, err in sample]}"
+                f"Examples: {sample}"
             )
 
         return metrics_list

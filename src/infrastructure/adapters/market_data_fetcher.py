@@ -62,6 +62,13 @@ class MarketDataFetcher:
         self._on_price_update = on_price_update
         self._streaming_enabled = False
 
+        # M4: Optional event loop for non-blocking callback dispatch
+        self._event_loop: Optional[asyncio.AbstractEventLoop] = None
+
+    def set_event_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+        """Set event loop for non-blocking callback dispatch (M4 fix)."""
+        self._event_loop = loop
+
     def unsubscribe_symbol(self, symbol: str) -> None:
         """Unsubscribe from market data for a single symbol and clean up maps."""
         with self._ticker_lock:
@@ -630,8 +637,14 @@ class MarketDataFetcher:
                 else:
                     md.delta = 1.0  # Stocks have delta of 1
 
-                # Fire callback
-                self._on_price_update(symbol, md)
+                # M4: Fire callback - use call_soon_threadsafe if event loop available
+                # to avoid blocking IB's callback thread
+                if self._event_loop and self._event_loop.is_running():
+                    self._event_loop.call_soon_threadsafe(
+                        self._on_price_update, symbol, md
+                    )
+                else:
+                    self._on_price_update(symbol, md)
 
             except Exception as e:
                 # C6: Collect errors, don't log each one

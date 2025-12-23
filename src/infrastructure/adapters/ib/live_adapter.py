@@ -104,6 +104,12 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
             self.ib,
             on_price_update=self._handle_streaming_update,
         )
+        # M4: Set event loop for non-blocking callback dispatch
+        try:
+            loop = asyncio.get_running_loop()
+            self._market_data_fetcher.set_event_loop(loop)
+        except RuntimeError:
+            pass  # No running loop, will use sync dispatch
         logger.debug("IbLiveAdapter: Market data fetcher initialized")
 
     async def _on_disconnecting(self) -> None:

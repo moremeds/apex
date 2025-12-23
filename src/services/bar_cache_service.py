@@ -11,6 +11,7 @@ which uses the monitoring adapter on the main event loop.
 
 from __future__ import annotations
 
+import time
 from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -56,16 +57,29 @@ def _as_datetime(value: datetime | date) -> datetime:
 
 
 class BarCacheStore:
-    """In-memory LRU cache for bar data."""
+    """In-memory LRU cache for bar data with TTL support."""
 
-    def __init__(self, max_entries: int = 512) -> None:
+    def __init__(self, max_entries: int = 512, ttl_seconds: int = 86400) -> None:
         self._max_entries = max_entries
-        self._cache: OrderedDict[Tuple[str, str], List[BarData]] = OrderedDict()
+        self._ttl_seconds = ttl_seconds  # M11: Default 24 hour TTL
+        # Cache stores (bars, timestamp) tuples for TTL tracking
+        self._cache: OrderedDict[Tuple[str, str], Tuple[List[BarData], float]] = OrderedDict()
+
+    def _is_expired(self, cached_time: float) -> bool:
+        """Check if a cache entry has expired based on TTL."""
+        return time.time() - cached_time > self._ttl_seconds
 
     def get_last(self, key: Tuple[str, str], count: int) -> Optional[List[BarData]]:
-        """Get last N bars for key. Returns None if not enough bars cached."""
-        bars = self._cache.get(key)
-        if not bars or len(bars) < count:
+        """Get last N bars for key. Returns None if not enough bars cached or expired."""
+        entry = self._cache.get(key)
+        if not entry:
+            return None
+        bars, cached_time = entry
+        # M11: Check TTL - expired entries are treated as cache miss
+        if self._is_expired(cached_time):
+            del self._cache[key]
+            return None
+        if len(bars) < count:
             return None
         self._cache.move_to_end(key)
         return bars[-count:]
@@ -76,9 +90,14 @@ class BarCacheStore:
         start: datetime,
         end: datetime,
     ) -> Optional[List[BarData]]:
-        """Get bars in date range. Returns None if range not fully covered."""
-        bars = self._cache.get(key)
-        if not bars:
+        """Get bars in date range. Returns None if range not fully covered or expired."""
+        entry = self._cache.get(key)
+        if not entry:
+            return None
+        bars, cached_time = entry
+        # M11: Check TTL - expired entries are treated as cache miss
+        if self._is_expired(cached_time):
+            del self._cache[key]
             return None
         if not bars[0].timestamp or not bars[-1].timestamp:
             return None
@@ -88,8 +107,9 @@ class BarCacheStore:
         return [bar for bar in bars if bar.timestamp and start <= bar.timestamp <= end]
 
     def set(self, key: Tuple[str, str], bars: List[BarData]) -> None:
-        """Cache bars for key with LRU eviction."""
-        self._cache[key] = bars
+        """Cache bars for key with LRU eviction and TTL tracking."""
+        # M11: Store (bars, timestamp) for TTL tracking
+        self._cache[key] = (bars, time.time())
         self._cache.move_to_end(key)
         if len(self._cache) > self._max_entries:
             self._cache.popitem(last=False)

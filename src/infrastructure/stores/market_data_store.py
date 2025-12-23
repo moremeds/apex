@@ -66,9 +66,12 @@ class MarketDataStore:
         Args:
             market_data: Iterable of MarketData objects.
         """
+        # M8: Copy-on-write pattern - build updates dict outside lock
+        # to minimize lock contention
+        updates = {md.symbol: md for md in market_data}
+
         with self._lock:
-            for md in market_data:
-                self._market_data[md.symbol] = md
+            self._market_data.update(updates)
 
             # Periodic eviction check (every 60 seconds to avoid overhead)
             now = time.time()

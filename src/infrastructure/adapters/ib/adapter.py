@@ -5,6 +5,7 @@ Implements BrokerAdapter and MarketDataProvider interfaces for IBKR TWS/Gateway.
 """
 
 from __future__ import annotations
+import asyncio
 from collections import OrderedDict
 from threading import Lock
 from typing import List, Dict, Optional, Callable
@@ -146,6 +147,12 @@ class IbAdapter(BrokerAdapter, MarketDataProvider):
                 self.ib,
                 on_price_update=self._handle_streaming_update,
             )
+            # M4: Set event loop for non-blocking callback dispatch
+            try:
+                loop = asyncio.get_running_loop()
+                self._market_data_fetcher.set_event_loop(loop)
+            except RuntimeError:
+                pass  # No running loop, will use sync dispatch
             logger.info(f"Connected to IB at {self.host}:{self.port}")
         except ImportError:
             logger.error("ib_async library not installed. Install with: pip install ib_async")
@@ -578,15 +585,18 @@ class IbAdapter(BrokerAdapter, MarketDataProvider):
                     new_contracts, new_positions
                 )
 
-                # Add successfully qualified contracts to pos_map
+                # M9: Add successfully qualified contracts to pos_map
+                # Copy cache snapshot under lock, then match outside to reduce contention
                 with self._contract_cache_lock:
-                    for qc in newly_qualified:
-                        # Find the matching position by symbol from cache
-                        for pos in new_positions:
-                            cached = self._qualified_contract_cache.get(pos.symbol)
-                            if cached is not None and cached == qc:
-                                pos_map[id(qc)] = pos
-                                break
+                    cache_snapshot = dict(self._qualified_contract_cache)
+
+                # Match outside the lock (O(n) instead of O(n*m))
+                symbol_to_pos = {pos.symbol: pos for pos in new_positions}
+                for qc in newly_qualified:
+                    for symbol, cached in cache_snapshot.items():
+                        if cached == qc and symbol in symbol_to_pos:
+                            pos_map[id(qc)] = symbol_to_pos[symbol]
+                            break
 
                 logger.info(f"Qualified {len(newly_qualified)}/{len(new_contracts)} new contracts")
 
