@@ -14,7 +14,7 @@ from typing import Any, List
 from textual.widget import Widget
 from textual.reactive import reactive
 from textual.widgets import Static
-from textual.containers import Horizontal
+from textual.containers import HorizontalScroll
 from textual.app import ComposeResult
 
 
@@ -26,7 +26,11 @@ class HealthBar(Widget):
 
     def compose(self) -> ComposeResult:
         """Compose the health bar layout."""
-        yield Horizontal(id="health-content")
+        yield HorizontalScroll(id="health-content")
+
+    def on_mount(self) -> None:
+        """Render initial state on mount."""
+        self._render_health(self.health or [])
 
     def watch_health(self, health: List[Any]) -> None:
         """Update display when health changes."""
@@ -35,7 +39,7 @@ class HealthBar(Widget):
     def _render_health(self, health: List[Any]) -> None:
         """Render health components."""
         try:
-            content = self.query_one("#health-content", Horizontal)
+            content = self.query_one("#health-content", HorizontalScroll)
 
             # Clear existing children
             for child in list(content.children):
@@ -77,10 +81,20 @@ class HealthBar(Widget):
                     else:
                         detail = f"All {total} OK" if total > 0 else "No positions"
 
+                name_display = self._truncate(str(name), 18)
+                detail_display = self._truncate(str(detail), 18)
+
                 # Create component widget
-                component_text = f"{icon}\n[cyan]{name}[/]\n[dim]{detail}[/]"
+                component_text = f"{icon}\n[cyan]{name_display}[/]\n[dim]{detail_display}[/]"
                 component = Static(component_text, classes="health-component")
                 content.mount(component)
 
         except Exception:
             pass
+
+    @staticmethod
+    def _truncate(text: str, max_len: int) -> str:
+        """Truncate text to fit within the health tile."""
+        if len(text) <= max_len:
+            return text
+        return text[: max_len - 3] + "..."

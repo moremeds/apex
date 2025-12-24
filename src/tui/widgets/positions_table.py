@@ -29,9 +29,10 @@ class PositionsTable(DataTable):
     class PositionSelected(Message):
         """Posted when a position row is selected."""
 
-        def __init__(self, symbol: str, underlying: str) -> None:
+        def __init__(self, symbol: str, underlying: str, position: Any) -> None:
             self.symbol = symbol
             self.underlying = underlying
+            self.position = position
             super().__init__()
 
     # Column definitions for consolidated view (Summary)
@@ -91,6 +92,11 @@ class PositionsTable(DataTable):
         self.consolidated = consolidated
         self._position_map: Dict[str, Any] = {}
         self._underlying_list: List[str] = []
+        self._row_keys: List[str] = []  # Track row keys in order for cursor lookup
+        self._selected_row_key: Optional[str] = None
+        self._selected_role: Optional[str] = None
+        self._selected_display_name: Optional[str] = None
+        self._selected_underlying: Optional[str] = None
 
     def on_mount(self) -> None:
         """Set up columns when widget is mounted."""
@@ -111,11 +117,14 @@ class PositionsTable(DataTable):
 
     def watch_positions(self, positions: List[Any]) -> None:
         """React to position changes by rebuilding the table."""
+        selected_key = self._selected_row_key or self._get_cursor_row_key()
         self.clear()
         self._position_map.clear()
         self._underlying_list.clear()
+        self._row_keys.clear()
 
         if not positions:
+            self._clear_selection()
             return
 
         # Filter by broker if specified
@@ -127,12 +136,15 @@ class PositionsTable(DataTable):
             ]
 
         if not filtered:
+            self._clear_selection()
             return
 
         if self.consolidated:
             self._render_consolidated(filtered)
         else:
             self._render_detailed(filtered)
+
+        self._restore_cursor(selected_key)
 
     def _render_consolidated(self, positions: List[Any]) -> None:
         """Render consolidated view grouped by underlying."""
@@ -171,6 +183,7 @@ class PositionsTable(DataTable):
                 format_number(total_theta),
                 key="__portfolio__",
             )
+            self._row_keys.append("__portfolio__")
 
         # Sort underlyings by absolute market value
         sorted_underlyings = sorted(
@@ -226,6 +239,7 @@ class PositionsTable(DataTable):
                 format_number(theta),
                 key=row_key,
             )
+            self._row_keys.append(row_key)
 
     def _render_detailed(self, positions: List[Any]) -> None:
         """Render detailed view with individual positions under underlying headers."""
@@ -267,6 +281,7 @@ class PositionsTable(DataTable):
                 format_number(total_theta),
                 key="__total__",
             )
+            self._row_keys.append("__total__")
 
         # Sort underlyings by absolute market value
         sorted_underlyings = sorted(
@@ -315,6 +330,7 @@ class PositionsTable(DataTable):
                 format_number(theta),
                 key=header_key,
             )
+            self._row_keys.append(header_key)
 
             # Sort: stocks first, then options by expiry
             stocks = [p for p in prs if not getattr(p, "expiry", None)]
@@ -354,6 +370,7 @@ class PositionsTable(DataTable):
                     format_number(getattr(pos, "theta", 0) or 0),
                     key=row_key,
                 )
+                self._row_keys.append(row_key)
 
     def _get_display_name(self, pos: Any) -> str:
         """Get display name for a position (e.g., 'QQQ 20251226P615.0')."""
@@ -393,15 +410,29 @@ class PositionsTable(DataTable):
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         """Handle row selection."""
         if event.row_key is not None:
-            key = str(event.row_key.value)
-            if key in ("__portfolio__", "__total__"):
-                return
+            self._emit_position_selected(event.row_key)
 
-            if key in self._position_map:
-                pos = self._position_map[key]
-                underlying = getattr(pos, "underlying", None) or getattr(pos, "symbol", "?")
-                symbol = getattr(pos, "symbol", underlying)
-                self.post_message(self.PositionSelected(symbol=symbol, underlying=underlying))
+    def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        """Handle row highlight to keep selection in sync with cursor."""
+        if event.row_key is not None:
+            self._emit_position_selected(event.row_key)
+
+    def _emit_position_selected(self, row_key) -> None:
+        """Post selection message for a row key."""
+        key = str(row_key.value)
+        if key in ("__portfolio__", "__total__"):
+            return
+        if key in self._position_map:
+            pos = self._position_map[key]
+            underlying = getattr(pos, "underlying", None) or getattr(pos, "symbol", "?")
+            symbol = getattr(pos, "symbol", underlying)
+            self._selected_row_key = key
+            self._selected_role = self._row_role_from_key(key)
+            self._selected_display_name = self._position_display_name(pos)
+            self._selected_underlying = underlying
+            self.post_message(
+                self.PositionSelected(symbol=symbol, underlying=underlying, position=pos)
+            )
 
     def get_selected_underlying(self) -> Optional[str]:
         """Get the underlying of the currently selected row."""
@@ -409,9 +440,8 @@ class PositionsTable(DataTable):
             return None
 
         try:
-            row_key = self.get_row_at(self.cursor_row)
-            if row_key:
-                key = str(self.get_row_key(self.cursor_row))
+            if 0 <= self.cursor_row < len(self._row_keys):
+                key = self._row_keys[self.cursor_row]
                 if key in self._position_map:
                     pos = self._position_map[key]
                     return getattr(pos, "underlying", None) or getattr(pos, "symbol", None)
@@ -419,6 +449,78 @@ class PositionsTable(DataTable):
             pass
         return None
 
+    def get_selected_position(self) -> Optional[Any]:
+        """Get the position object for the currently selected row."""
+        if self.cursor_row is None:
+            return None
+        try:
+            if 0 <= self.cursor_row < len(self._row_keys):
+                key = self._row_keys[self.cursor_row]
+                return self._position_map.get(key)
+        except Exception:
+            pass
+        return None
+
     def get_underlyings(self) -> List[str]:
         """Get list of underlyings in display order."""
         return self._underlying_list.copy()
+
+    def _get_cursor_row_key(self) -> Optional[str]:
+        """Get row key from current cursor position."""
+        if self.cursor_row is None:
+            return None
+        if 0 <= self.cursor_row < len(self._row_keys):
+            return self._row_keys[self.cursor_row]
+        return None
+
+    def _restore_cursor(self, row_key: Optional[str]) -> None:
+        """Restore cursor to a previously selected row key if present."""
+        candidate_key = row_key if row_key in self._row_keys else None
+        if candidate_key is None:
+            candidate_key = self._find_row_key_for_selection()
+        if candidate_key and candidate_key in self._row_keys:
+            row_index = self._row_keys.index(candidate_key)
+            self.move_cursor(row=row_index, column=0, scroll=False)
+            self._selected_row_key = candidate_key
+
+    def _find_row_key_for_selection(self) -> Optional[str]:
+        """Find a matching row key based on the last selection details."""
+        if self._selected_role == "pos" and self._selected_display_name:
+            for key, pos in self._position_map.items():
+                if not key.startswith("pos-"):
+                    continue
+                if self._position_display_name(pos) == self._selected_display_name:
+                    return key
+
+        if self._selected_underlying:
+            header_key = f"header-{self._selected_underlying}"
+            if header_key in self._position_map:
+                return header_key
+            underlying_key = f"underlying-{self._selected_underlying}"
+            if underlying_key in self._position_map:
+                return underlying_key
+
+        return None
+
+    def _position_display_name(self, pos: Any) -> str:
+        """Return a stable display name for a position."""
+        if hasattr(pos, "get_display_name"):
+            return pos.get_display_name()
+        return getattr(pos, "symbol", "?")
+
+    def _row_role_from_key(self, row_key: str) -> Optional[str]:
+        """Classify row key for selection restore."""
+        if row_key.startswith("pos-"):
+            return "pos"
+        if row_key.startswith("header-"):
+            return "header"
+        if row_key.startswith("underlying-"):
+            return "underlying"
+        return None
+
+    def _clear_selection(self) -> None:
+        """Clear selection tracking when no positions are available."""
+        self._selected_row_key = None
+        self._selected_role = None
+        self._selected_display_name = None
+        self._selected_underlying = None

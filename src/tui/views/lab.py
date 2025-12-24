@@ -14,12 +14,14 @@ Keyboard shortcuts:
 
 from __future__ import annotations
 
+from datetime import date
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from textual.containers import Container, Horizontal, Vertical
 from textual.widgets import Static
 from textual.app import ComposeResult
 from textual.binding import Binding
+from textual import work
 
 from ..widgets.strategy_list import StrategyList
 from ..widgets.strategy_config import StrategyConfigPanel
@@ -30,10 +32,14 @@ if TYPE_CHECKING:
     from ...domain.backtest.backtest_result import BacktestResult
 
 
-class LabView(Container):
+class LabView(Container, can_focus=True):
     """Strategy lab view for backtesting."""
 
     DEFAULT_CSS = """
+    LabView:focus {
+        border: solid cyan;
+    }
+
     LabView {
         height: 1fr;
         width: 1fr;
@@ -78,17 +84,20 @@ class LabView(Container):
     """
 
     BINDINGS = [
-        Binding("w", "move_up", "Up", show=True),
-        Binding("s", "move_down", "Down", show=True),
+        Binding("up", "move_up", "Up", show=False),
+        Binding("down", "move_down", "Down", show=False),
         Binding("enter", "run_backtest", "Run Backtest", show=True),
     ]
+
+    def on_show(self) -> None:
+        """Focus this view when it becomes visible."""
+        self.focus()
 
     def compose(self) -> ComposeResult:
         """Compose the lab view layout."""
         with Horizontal(id="lab-main"):
             # Left side - Strategy list (35%)
             with Vertical(id="lab-left"):
-                yield Static("Strategy Lab", classes="panel-title")
                 yield StrategyList(id="lab-strategies")
 
             # Right side - Config + Results (65%)
@@ -116,12 +125,18 @@ class LabView(Container):
         except Exception:
             pass
 
+    def on_strategy_list_strategy_activated(
+        self, event: StrategyList.StrategyActivated
+    ) -> None:
+        """Handle strategy activation (run backtest)."""
+        self._execute_backtest(event.strategy_name)
+
     def action_move_up(self) -> None:
         """Move selection up in the strategy list."""
         try:
             strategy_list = self.query_one("#lab-strategies", StrategyList)
             if strategy_list.cursor_row is not None and strategy_list.cursor_row > 0:
-                strategy_list.cursor_coordinate = (strategy_list.cursor_row - 1, 0)
+                strategy_list.move_cursor(row=strategy_list.cursor_row - 1)
         except Exception:
             pass
 
@@ -130,7 +145,7 @@ class LabView(Container):
         try:
             strategy_list = self.query_one("#lab-strategies", StrategyList)
             if strategy_list.cursor_row is not None and strategy_list.cursor_row < strategy_list.row_count - 1:
-                strategy_list.cursor_coordinate = (strategy_list.cursor_row + 1, 0)
+                strategy_list.move_cursor(row=strategy_list.cursor_row + 1)
         except Exception:
             pass
 
@@ -146,8 +161,102 @@ class LabView(Container):
 
     def _execute_backtest(self, strategy_name: str) -> None:
         """Execute backtest in background."""
-        # TODO: Implement backtest execution using @work decorator
-        pass
+        # Mark strategy as running
+        try:
+            strategy_list = self.query_one("#lab-strategies", StrategyList)
+            strategy_list.set_running_strategy(strategy_name)
+        except Exception:
+            pass
+
+        # Run backtest in background worker
+        self._run_backtest_worker(strategy_name)
+
+    @work(exclusive=True)
+    async def _run_backtest_worker(self, strategy_name: str) -> None:
+        """Run backtest as async task on main event loop."""
+        try:
+            import yaml
+            from pathlib import Path
+            from ...infrastructure.backtest.backtest_engine import BacktestEngine, BacktestConfig
+            from ...infrastructure.backtest.data_feeds import BarCacheDataFeed
+
+            # Load config from base.yaml
+            config_path = Path("config/base.yaml")
+            ib_host = "127.0.0.1"
+            ib_port = 4001
+            ib_client_id = 10  # Use last client from historical_pool
+
+            if config_path.exists():
+                with open(config_path) as f:
+                    cfg = yaml.safe_load(f)
+                    ibkr = cfg.get("brokers", {}).get("ibkr", {})
+                    ib_host = ibkr.get("host", ib_host)
+                    ib_port = ibkr.get("port", ib_port)
+                    historical_pool = ibkr.get("client_ids", {}).get("historical_pool", [10])
+                    if historical_pool:
+                        ib_client_id = historical_pool[-1]  # Use last client ID
+
+            # Default backtest configuration
+            config = BacktestConfig(
+                start_date=date(2024, 1, 1),
+                end_date=date(2024, 6, 30),
+                symbols=["AAPL", "MSFT"],
+                initial_capital=100000.0,
+                strategy_name=strategy_name,
+            )
+
+            # Create engine
+            engine = BacktestEngine(config)
+            engine.set_strategy(strategy_name=strategy_name)
+
+            # Use IB historical data with config from base.yaml
+            feed = BarCacheDataFeed(
+                symbols=config.symbols,
+                start_date=config.start_date,
+                end_date=config.end_date,
+                host=ib_host,
+                port=ib_port,
+                client_id=ib_client_id,
+            )
+
+            engine.set_data_feed(feed)
+
+            # Run backtest (async on main loop)
+            result = await engine.run()
+            self._on_backtest_complete(strategy_name, result)
+
+        except Exception as e:
+            self._on_backtest_error(strategy_name, str(e))
+
+    def _on_backtest_complete(self, strategy_name: str, result: "BacktestResult") -> None:
+        """Handle backtest completion."""
+        try:
+            strategy_list = self.query_one("#lab-strategies", StrategyList)
+            strategy_list.set_running_strategy(None)
+            strategy_list.set_backtest_result(strategy_name, result)
+        except Exception:
+            pass
+
+        try:
+            results_panel = self.query_one("#lab-results", BacktestResultsPanel)
+            results_panel.result = result
+        except Exception:
+            pass
+
+    def _on_backtest_error(self, strategy_name: str, error: str) -> None:
+        """Handle backtest error."""
+        try:
+            strategy_list = self.query_one("#lab-strategies", StrategyList)
+            strategy_list.set_running_strategy(None)
+            strategy_list.set_backtest_failure(strategy_name, error)
+        except Exception:
+            pass
+
+        try:
+            results_panel = self.query_one("#lab-results", BacktestResultsPanel)
+            results_panel.error_message = error
+        except Exception:
+            pass
 
     def update_health(self, health: List[Any]) -> None:
         """Update health bar."""

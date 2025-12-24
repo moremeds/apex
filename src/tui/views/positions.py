@@ -31,10 +31,14 @@ if TYPE_CHECKING:
     from ...models.risk_snapshot import RiskSnapshot
 
 
-class PositionsView(Container):
+class PositionsView(Container, can_focus=True):
     """Broker-specific positions view with ATR analysis."""
 
     DEFAULT_CSS = """
+    PositionsView:focus {
+        border: solid cyan;
+    }
+
     PositionsView {
         height: 1fr;
         width: 1fr;
@@ -76,6 +80,8 @@ class PositionsView(Container):
     BINDINGS = [
         Binding("w", "move_up", "Up", show=True),
         Binding("s", "move_down", "Down", show=True),
+        Binding("up", "move_up", "Up", show=False),
+        Binding("down", "move_down", "Down", show=False),
         Binding("+", "increase_atr_period", "+ATR", show=True),
         Binding("-", "decrease_atr_period", "-ATR", show=True),
         Binding("t", "cycle_timeframe", "Timeframe", show=True),
@@ -93,6 +99,10 @@ class PositionsView(Container):
         super().__init__(**kwargs)
         self.broker = broker
         self.broker_display = broker.upper()
+
+    def on_show(self) -> None:
+        """Focus this view when it becomes visible."""
+        self.focus()
 
     def compose(self) -> ComposeResult:
         """Compose the positions view layout."""
@@ -117,6 +127,7 @@ class PositionsView(Container):
         """Handle position selection from the table."""
         try:
             atr_panel = self.query_one(f"#{self.broker}-atr", ATRPanel)
+            atr_panel.position = event.position
             atr_panel.selected_symbol = event.underlying
         except Exception:
             pass
@@ -140,7 +151,7 @@ class PositionsView(Container):
         try:
             table = self.query_one(f"#{self.broker}-positions", PositionsTable)
             if table.cursor_row is not None and table.cursor_row > 0:
-                table.cursor_coordinate = (table.cursor_row - 1, 0)
+                table.move_cursor(row=table.cursor_row - 1)
                 self._on_selection_change()
         except Exception:
             pass
@@ -150,7 +161,7 @@ class PositionsView(Container):
         try:
             table = self.query_one(f"#{self.broker}-positions", PositionsTable)
             if table.cursor_row is not None and table.cursor_row < table.row_count - 1:
-                table.cursor_coordinate = (table.cursor_row + 1, 0)
+                table.move_cursor(row=table.cursor_row + 1)
                 self._on_selection_change()
         except Exception:
             pass
@@ -199,9 +210,11 @@ class PositionsView(Container):
         """Handle selection change in the table."""
         try:
             table = self.query_one(f"#{self.broker}-positions", PositionsTable)
+            pos = table.get_selected_position()
             symbol = table.get_selected_underlying()
             if symbol:
                 atr_panel = self.query_one(f"#{self.broker}-atr", ATRPanel)
+                atr_panel.position = pos
                 atr_panel.selected_symbol = symbol
         except Exception:
             pass

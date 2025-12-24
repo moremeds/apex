@@ -30,6 +30,14 @@ class StrategyList(DataTable):
             self.strategy_info = strategy_info
             super().__init__()
 
+    class StrategyActivated(Message):
+        """Message sent when a strategy is activated (run requested)."""
+
+        def __init__(self, strategy_name: str, strategy_info: dict) -> None:
+            self.strategy_name = strategy_name
+            self.strategy_info = strategy_info
+            super().__init__()
+
     # Column definitions matching original Rich layout
     COLUMNS = [
         ("", 2),  # Selection indicator
@@ -52,6 +60,7 @@ class StrategyList(DataTable):
         super().__init__(cursor_type="row", zebra_stripes=True, **kwargs)
         self._strategy_map: Dict[str, dict] = {}
         self._strategy_list: List[str] = []
+        self._selected_strategy: Optional[str] = None
 
     def on_mount(self) -> None:
         """Set up columns when widget is mounted."""
@@ -64,6 +73,8 @@ class StrategyList(DataTable):
     def _load_strategies(self) -> None:
         """Load strategies from the StrategyRegistry."""
         try:
+            # Import example strategies to ensure they're registered
+            from ...domain.strategy import examples  # noqa: F401
             from ...domain.strategy.registry import StrategyRegistry, get_strategy_info
 
             self._strategy_list = sorted(StrategyRegistry.list_strategies())
@@ -100,6 +111,11 @@ class StrategyList(DataTable):
 
     def _rebuild_table(self) -> None:
         """Rebuild the table with current data."""
+        selected_name = self._selected_strategy
+        if not selected_name and self.cursor_row is not None and self._strategy_list:
+            if 0 <= self.cursor_row < len(self._strategy_list):
+                selected_name = self._strategy_list[self.cursor_row]
+
         self.clear()
 
         if not self._strategy_list:
@@ -114,7 +130,11 @@ class StrategyList(DataTable):
 
         results = self.backtest_results or {}
         failures = self.backtest_failures or {}
-        selected_idx = self.cursor_row if self.cursor_row is not None else 0
+        selected_idx = (
+            self._strategy_list.index(selected_name)
+            if selected_name in self._strategy_list
+            else 0
+        )
 
         for idx, name in enumerate(self._strategy_list):
             info = self._strategy_map.get(name, {})
@@ -176,6 +196,10 @@ class StrategyList(DataTable):
                 key=name,
             )
 
+        if self.row_count > 0:
+            selected_idx = min(selected_idx, self.row_count - 1)
+            self.move_cursor(row=selected_idx, column=0, scroll=False)
+
     def watch_backtest_results(self, results: Dict[str, Any]) -> None:
         """Update display when backtest results change."""
         self._rebuild_table()
@@ -193,6 +217,17 @@ class StrategyList(DataTable):
         if event.row_key is not None:
             key = str(event.row_key.value)
             if key != "__empty__" and key in self._strategy_map:
+                self._selected_strategy = key
+                self.post_message(
+                    self.StrategyActivated(key, self._strategy_map[key])
+                )
+
+    def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        """Handle row highlight to update selection state."""
+        if event.row_key is not None:
+            key = str(event.row_key.value)
+            if key != "__empty__" and key in self._strategy_map:
+                self._selected_strategy = key
                 self.post_message(
                     self.StrategySelected(key, self._strategy_map[key])
                 )

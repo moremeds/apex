@@ -76,6 +76,13 @@ Vertical {
     dock: bottom;
 }
 
+HealthBar .health-component {
+    width: 20;
+    height: 3;
+    content-align: center middle;
+    text-align: center;
+}
+
 /* ===== Widget borders ===== */
 PositionsTable {
     border: solid $primary;

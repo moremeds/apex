@@ -60,10 +60,34 @@ class ATRPanel(Widget):
     @work(exclusive=True)
     async def _fetch_atr_data(self, symbol: str) -> None:
         """Fetch ATR data in background."""
-        # TODO: Integrate with TAService
-        # For now, just clear loading state
-        self._loading = False
-        self._update_display()
+        ta_service = getattr(self.app, "ta_service", None)
+        if ta_service is None:
+            self.atr_data = None
+            self._loading = False
+            self._update_display()
+            return
+
+        spot_price = self._resolve_spot_price(symbol)
+        if spot_price is None or spot_price <= 0:
+            self.atr_data = None
+            self._loading = False
+            self._update_display()
+            return
+
+        timeframe = self._timeframe_key()
+        try:
+            levels = await ta_service.get_atr_levels(
+                symbol,
+                spot_price=spot_price,
+                period=self._period,
+                timeframe=timeframe,
+            )
+            self.atr_data = levels
+        except Exception:
+            self.atr_data = None
+        finally:
+            self._loading = False
+            self._update_display()
 
     def _update_display(self) -> None:
         """Update the panel display based on current state."""
@@ -102,8 +126,8 @@ class ATRPanel(Widget):
             return "[bold]ATR Analysis[/]"
 
         symbol = getattr(self.atr_data, "symbol", self.selected_symbol or "?")
-        atr = getattr(self.atr_data, "atr_value", 0)
-        atr_pct = getattr(self.atr_data, "atr_percent", 0)
+        atr = getattr(self.atr_data, "atr_value", getattr(self.atr_data, "atr", 0))
+        atr_pct = getattr(self.atr_data, "atr_percent", getattr(self.atr_data, "atr_pct", 0))
 
         return f"[bold blue]ATR: {symbol} | {self._timeframe} ATR({self._period})=${atr:.2f} ({atr_pct:.1f}%)[/]"
 
@@ -112,8 +136,8 @@ class ATRPanel(Widget):
         if self.atr_data is None:
             return "[dim]No ATR data[/]"
 
-        atr = getattr(self.atr_data, "atr_value", 0)
-        price = getattr(self.atr_data, "current_price", 0)
+        atr = getattr(self.atr_data, "atr_value", getattr(self.atr_data, "atr", 0))
+        price = getattr(self.atr_data, "current_price", getattr(self.atr_data, "spot", 0))
         symbol = getattr(self.atr_data, "symbol", "?")
 
         if price <= 0:
@@ -254,3 +278,33 @@ class ATRPanel(Widget):
             self._fetch_atr_data(self.selected_symbol)
         else:
             self._update_display()
+
+    def _timeframe_key(self) -> str:
+        """Map UI timeframe label to historical data timeframe."""
+        mapping = {
+            "Daily": "1d",
+            "4H": "4h",
+            "1H": "1h",
+        }
+        return mapping.get(self._timeframe, "1d")
+
+    def _resolve_spot_price(self, symbol: str) -> Optional[float]:
+        """Resolve spot price for ATR levels."""
+        try:
+            snapshot = getattr(self.app, "snapshot", None)
+            position_risks = getattr(snapshot, "position_risks", []) if snapshot else []
+            for pr in position_risks:
+                pr_symbol = getattr(pr, "symbol", None)
+                if pr_symbol == symbol and not getattr(pr, "expiry", None):
+                    price = getattr(pr, "mark_price", None)
+                    if price:
+                        return price
+        except Exception:
+            pass
+
+        if self.position:
+            price = getattr(self.position, "mark_price", None)
+            if price:
+                return price
+
+        return None
