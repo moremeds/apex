@@ -3,19 +3,22 @@ Risk signals table widget for full-screen display.
 
 Shows all risk signals with detailed information:
 - Status, Severity, Symbol, Layer, Rule, Current, Limit, Breach %, Action, Times
+
+Uses SignalViewModel for persistence tracking and incremental updates.
 """
 
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional
 
 from textual.widgets import DataTable
 from textual.reactive import reactive
 
+from ..viewmodels.signal_vm import SignalViewModel
+
 
 class SignalsTable(DataTable):
-    """Full-screen risk signals display."""
+    """Full-screen risk signals display with incremental updates."""
 
     COLUMNS = [
         ("Status", 10),
@@ -37,163 +40,78 @@ class SignalsTable(DataTable):
 
     def __init__(self, **kwargs):
         super().__init__(cursor_type="row", **kwargs)
-        self._persistent_signals: Dict[str, Dict] = {}
-        self._alert_retention_seconds = 300
+
+        # ViewModel for persistence tracking and diff computation
+        self._view_model = SignalViewModel(retention_seconds=300)
+
+        # Column key mapping for update_cell
+        self._column_keys: List[str] = []
+
+        # Row tracking
+        self._row_keys: List[str] = []
 
     def on_mount(self) -> None:
         """Set up columns when mounted."""
-        for name, width in self.COLUMNS:
-            self.add_column(name, width=width)
+        self._column_keys.clear()
+        for idx, (name, width) in enumerate(self.COLUMNS):
+            col_key = f"col-{idx}"
+            self.add_column(name, width=width, key=col_key)
+            self._column_keys.append(col_key)
 
     def watch_signals(self, signals: List[Any]) -> None:
         """Update display when signals change."""
-        display_signals = self._update_persistent_signals(signals)
-        self._render_signals(display_signals)
+        if self._view_model.full_refresh_needed(signals):
+            self._full_rebuild(signals)
+        else:
+            self._incremental_update(signals)
 
-    def _update_persistent_signals(self, current_signals: List[Any]) -> List[Dict]:
-        """Update persistent signal tracking."""
-        now = datetime.now()
-        current_keys = set()
-
-        for signal in current_signals:
-            signal_key = f"{getattr(signal, 'symbol', 'PORTFOLIO') or 'PORTFOLIO'}_{getattr(signal, 'trigger_rule', '')}_{getattr(signal, 'severity', 'INFO')}"
-            current_keys.add(signal_key)
-
-            if signal_key in self._persistent_signals:
-                self._persistent_signals[signal_key]["signal"] = signal
-                self._persistent_signals[signal_key]["last_seen"] = now
-                self._persistent_signals[signal_key]["is_active"] = True
-            else:
-                self._persistent_signals[signal_key] = {
-                    "signal": signal,
-                    "first_seen": now,
-                    "last_seen": now,
-                    "is_active": True,
-                }
-
-        for signal_key in self._persistent_signals:
-            if signal_key not in current_keys:
-                self._persistent_signals[signal_key]["is_active"] = False
-
-        display_signals = []
-        expired_keys = []
-
-        for signal_key, signal_info in self._persistent_signals.items():
-            age_seconds = (now - signal_info["last_seen"]).total_seconds()
-
-            if signal_info["is_active"]:
-                display_signals.append({
-                    "signal": signal_info["signal"],
-                    "first_seen": signal_info["first_seen"],
-                    "last_seen": signal_info["last_seen"],
-                    "is_active": True,
-                })
-            elif age_seconds <= self._alert_retention_seconds:
-                display_signals.append({
-                    "signal": signal_info["signal"],
-                    "first_seen": signal_info["first_seen"],
-                    "last_seen": signal_info["last_seen"],
-                    "is_active": False,
-                })
-            else:
-                expired_keys.append(signal_key)
-
-        for key in expired_keys:
-            del self._persistent_signals[key]
-
-        return display_signals
-
-    def _render_signals(self, display_signals: List[Dict]) -> None:
-        """Render signal rows."""
+    def _full_rebuild(self, signals: List[Any]) -> None:
+        """Full table rebuild."""
         self.clear()
+        self._row_keys.clear()
 
-        if not display_signals:
-            self.add_row(
-                "[green][OK][/]",
-                "",
-                "PORTFOLIO",
-                "",
-                "[green]All risk limits within acceptable range[/]",
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-                key="__all_clear__",
-            )
-            return
+        # Get display data from ViewModel
+        display_data = self._view_model.compute_display_data(signals)
+        row_order = self._view_model.get_row_order(signals)
 
-        # Sort by active first, then severity
-        sorted_signals = sorted(
-            display_signals,
-            key=lambda s: (
-                0 if s["is_active"] else 1,
-                {"CRITICAL": 0, "WARNING": 1, "INFO": 2}.get(
-                    getattr(s["signal"], "severity", "INFO").value
-                    if hasattr(getattr(s["signal"], "severity", None), "value")
-                    else str(getattr(s["signal"], "severity", "INFO")),
-                    2
-                )
-            )
-        )
+        # Add rows in order
+        for row_key in row_order:
+            if row_key in display_data:
+                values = display_data[row_key]
+                self.add_row(*values, key=row_key)
+                self._row_keys.append(row_key)
 
-        for idx, signal_info in enumerate(sorted_signals):
-            signal = signal_info["signal"]
-            is_active = signal_info["is_active"]
-            first_seen = signal_info["first_seen"]
-            last_seen = signal_info["last_seen"]
+    def _incremental_update(self, signals: List[Any]) -> None:
+        """Incremental cell-level updates."""
+        row_ops, cell_updates, new_order = self._view_model.compute_updates(signals)
 
-            first_str = first_seen.strftime("%H:%M:%S") if first_seen else ""
-            last_str = last_seen.strftime("%H:%M:%S") if last_seen else ""
+        # Handle row removals first
+        for row_op in row_ops:
+            if row_op.action == "remove":
+                try:
+                    self.remove_row(row_op.row_key)
+                    if row_op.row_key in self._row_keys:
+                        self._row_keys.remove(row_op.row_key)
+                except Exception:
+                    pass
 
-            severity = getattr(signal, "severity", "INFO")
-            severity_val = severity.value if hasattr(severity, "value") else str(severity)
+        # Handle row additions
+        for row_op in row_ops:
+            if row_op.action == "add" and row_op.values:
+                try:
+                    self.add_row(*row_op.values, key=row_op.row_key)
+                    self._row_keys.append(row_op.row_key)
+                except Exception:
+                    pass
 
-            if is_active:
-                status = "[green]* ACTIVE[/]"
-            else:
-                status = "[dim]o CLEARED[/]"
+        # Handle cell updates
+        for cell in cell_updates:
+            try:
+                if cell.column_index < len(self._column_keys):
+                    col_key = self._column_keys[cell.column_index]
+                    self.update_cell(cell.row_key, col_key, cell.value)
+            except Exception:
+                pass
 
-            if not is_active:
-                severity_style = "dim"
-                icon = "o"
-            elif severity_val == "CRITICAL":
-                severity_style = "bold red"
-                icon = "[!]"
-            elif severity_val == "WARNING":
-                severity_style = "bold yellow"
-                icon = "[W]"
-            else:
-                severity_style = "cyan"
-                icon = "[i]"
-
-            symbol = getattr(signal, "symbol", None) or "PORTFOLIO"
-            layer = getattr(signal, "layer", None)
-            layer_str = f"L{layer}" if layer else "-"
-            rule = getattr(signal, "trigger_rule", "-")
-            current = getattr(signal, "current_value", None)
-            current_str = f"{current:,.2f}" if current is not None else "-"
-            limit = getattr(signal, "threshold", None)
-            limit_str = f"{limit:,.2f}" if limit is not None else "-"
-            breach = getattr(signal, "breach_pct", None)
-            breach_str = f"{breach:.1f}%" if breach is not None else "-"
-            action = getattr(signal, "suggested_action", None)
-            action_str = action.value if hasattr(action, "value") else str(action) if action else "-"
-
-            style = severity_style if not is_active else "white"
-
-            self.add_row(
-                status,
-                f"[{severity_style}]{icon} {severity_val}[/]",
-                symbol,
-                layer_str,
-                f"[{style}]{rule}[/]",
-                f"[{style}]{current_str}[/]",
-                f"[dim]{limit_str}[/]",
-                f"[{severity_style}]{breach_str}[/]" if is_active else f"[dim]{breach_str}[/]",
-                f"[yellow]{action_str}[/]" if is_active else f"[dim]{action_str}[/]",
-                f"[dim]{first_str}[/]",
-                f"[dim]{last_str}[/]",
-                key=f"signal-{idx}",
-            )
+        # Update row order
+        self._row_keys = [k for k in new_order if k in self._row_keys]

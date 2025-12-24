@@ -78,18 +78,23 @@ class ApexApp(App):
         self.set_interval(0.1, self._poll_updates)
 
     def _poll_updates(self) -> None:
-        """Poll the update queue and apply updates."""
+        """Poll the update queue with conflation - only process latest update."""
+        latest_update = None
         try:
+            # Drain queue but only keep the latest update (conflation)
             while True:
-                update = self._update_queue.get_nowait()
-                self.update_data(
-                    update.snapshot,
-                    update.signals,
-                    update.health,
-                    update.alerts,
-                )
+                latest_update = self._update_queue.get_nowait()
         except queue.Empty:
             pass
+
+        # Only process the latest update
+        if latest_update is not None:
+            self.update_data(
+                latest_update.snapshot,
+                latest_update.signals,
+                latest_update.health,
+                latest_update.alerts,
+            )
 
     def queue_update(self, snapshot, signals, health, alerts) -> None:
         """Queue a data update (thread-safe)."""
@@ -216,7 +221,7 @@ class ApexApp(App):
         except Exception:
             pass
 
-    def watch_snapshot(self, snapshot: Optional[Any]) -> None:
-        """React to snapshot changes."""
-        if snapshot is not None:
-            self._update_views()
+    # NOTE: watch_snapshot removed to fix double rendering bug.
+    # The update_data() method calls _update_views() directly, so having
+    # watch_snapshot also call _update_views() caused double rendering
+    # on every update cycle.

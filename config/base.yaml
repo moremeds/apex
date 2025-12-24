@@ -105,7 +105,7 @@ dashboard:
   refresh_interval_sec: 2  # UI refresh rate
   show_positions: true  # Display position table
   # Snapshot readiness gating (Phase 3 performance optimization)
-  snapshot_min_interval_sec: 1.0  # Minimum time between snapshots (debounce)
+  snapshot_min_interval_sec: 0.25  # Minimum time between snapshots (4Hz target)
   snapshot_ready_ratio: 0.9       # 90% of symbols must have data before first snapshot
   snapshot_ready_timeout_sec: 30  # Fall back to degraded mode after this timeout
 

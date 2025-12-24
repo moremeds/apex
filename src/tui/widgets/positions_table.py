@@ -4,6 +4,8 @@ Positions table widget for displaying position data.
 Two modes:
 - Consolidated: Groups positions by underlying (for Summary view)
 - Detailed: Shows individual positions under underlying headers (for IB/Futu views)
+
+Uses PositionViewModel for business logic and incremental updates.
 """
 
 from __future__ import annotations
@@ -14,7 +16,7 @@ from textual.widgets import DataTable
 from textual.reactive import reactive
 from textual.message import Message
 
-from ..formatters import format_price, format_quantity, format_number
+from ..viewmodels.position_vm import PositionViewModel
 
 
 class PositionsTable(DataTable):
@@ -24,6 +26,8 @@ class PositionsTable(DataTable):
     Supports two display modes:
     - consolidated=True: Groups by underlying, shows aggregated metrics (Summary view)
     - consolidated=False: Shows individual positions under underlying headers (IB/Futu views)
+
+    Uses PositionViewModel for data transformation and incremental cell updates.
     """
 
     class PositionSelected(Message):
@@ -90,9 +94,19 @@ class PositionsTable(DataTable):
         self.broker_filter = broker_filter
         self.show_portfolio_row = show_portfolio_row
         self.consolidated = consolidated
-        self._position_map: Dict[str, Any] = {}
-        self._underlying_list: List[str] = []
-        self._row_keys: List[str] = []  # Track row keys in order for cursor lookup
+
+        # ViewModel for business logic and diff computation
+        self._view_model = PositionViewModel(
+            broker_filter=broker_filter,
+            consolidated=consolidated,
+            show_portfolio_row=show_portfolio_row,
+        )
+
+        # Column key mapping for update_cell
+        self._column_keys: List[str] = []
+
+        # Row tracking for cursor management
+        self._row_keys: List[str] = []
         self._selected_row_key: Optional[str] = None
         self._selected_role: Optional[str] = None
         self._selected_display_name: Optional[str] = None
@@ -101,311 +115,81 @@ class PositionsTable(DataTable):
     def on_mount(self) -> None:
         """Set up columns when widget is mounted."""
         columns = self.COLUMNS_CONSOLIDATED if self.consolidated else self.COLUMNS_DETAILED
-        for name, width in columns:
-            self.add_column(name, width=width)
-
-    def _get_position_source(self, pos: Any) -> str:
-        """Get the source/broker for a position."""
-        # PositionRisk wraps Position, source is an enum
-        if hasattr(pos, "position") and hasattr(pos.position, "source"):
-            source = pos.position.source
-            return source.value.lower() if hasattr(source, "value") else str(source).lower()
-        if hasattr(pos, "source"):
-            source = pos.source
-            return source.value.lower() if hasattr(source, "value") else str(source).lower()
-        return ""
+        self._column_keys.clear()
+        for idx, (name, width) in enumerate(columns):
+            col_key = f"col-{idx}"
+            self.add_column(name, width=width, key=col_key)
+            self._column_keys.append(col_key)
 
     def watch_positions(self, positions: List[Any]) -> None:
-        """React to position changes by rebuilding the table."""
+        """React to position changes with incremental updates when possible."""
+        if not positions:
+            self._full_rebuild([])
+            return
+
+        if self._view_model.full_refresh_needed(positions):
+            self._full_rebuild(positions)
+        else:
+            self._incremental_update(positions)
+
+    def _full_rebuild(self, positions: List[Any]) -> None:
+        """Full table rebuild (first load or structural change)."""
         selected_key = self._selected_row_key or self._get_cursor_row_key()
         self.clear()
-        self._position_map.clear()
-        self._underlying_list.clear()
         self._row_keys.clear()
 
         if not positions:
             self._clear_selection()
+            self._view_model.invalidate()
             return
 
-        # Filter by broker if specified
-        filtered = positions
-        if self.broker_filter:
-            filtered = [
-                p for p in positions
-                if self._get_position_source(p) == self.broker_filter.lower()
-            ]
+        # Get display data from ViewModel
+        display_data = self._view_model.compute_display_data(positions)
+        row_order = self._view_model.get_row_order(positions)
 
-        if not filtered:
-            self._clear_selection()
-            return
-
-        if self.consolidated:
-            self._render_consolidated(filtered)
-        else:
-            self._render_detailed(filtered)
+        # Add rows in order
+        for row_key in row_order:
+            if row_key in display_data:
+                values = display_data[row_key]
+                self.add_row(*values, key=row_key)
+                self._row_keys.append(row_key)
 
         self._restore_cursor(selected_key)
 
-    def _render_consolidated(self, positions: List[Any]) -> None:
-        """Render consolidated view grouped by underlying."""
-        # Group by underlying
-        by_underlying: Dict[str, List[Any]] = {}
-        for pos in positions:
-            underlying = getattr(pos, "underlying", None) or getattr(pos, "symbol", "?")
-            if underlying not in by_underlying:
-                by_underlying[underlying] = []
-            by_underlying[underlying].append(pos)
+    def _incremental_update(self, positions: List[Any]) -> None:
+        """Incremental cell-level updates (efficient path)."""
+        row_ops, cell_updates, new_order = self._view_model.compute_updates(positions)
 
-        # Calculate portfolio totals
-        total_mkt_value = sum(getattr(p, "market_value", 0) or 0 for p in positions)
-        total_pnl = sum(getattr(p, "daily_pnl", 0) or 0 for p in positions)
-        total_upnl = sum(getattr(p, "unrealized_pnl", 0) or 0 for p in positions)
-        total_delta_dollars = sum(getattr(p, "delta_dollars", 0) or 0 for p in positions)
-        total_delta = sum(getattr(p, "delta", 0) or 0 for p in positions)
-        total_gamma = sum(getattr(p, "gamma", 0) or 0 for p in positions)
-        total_vega = sum(getattr(p, "vega", 0) or 0 for p in positions)
-        total_theta = sum(getattr(p, "theta", 0) or 0 for p in positions)
+        # Handle row removals first
+        for row_op in row_ops:
+            if row_op.action == "remove":
+                try:
+                    self.remove_row(row_op.row_key)
+                    if row_op.row_key in self._row_keys:
+                        self._row_keys.remove(row_op.row_key)
+                except Exception:
+                    pass
 
-        # Add portfolio row
-        if self.show_portfolio_row:
-            self.add_row(
-                "[bold]>> PORTFOLIO[/]",
-                str(len(positions)),
-                "",
-                "",
-                format_number(total_mkt_value),
-                format_number(total_pnl, color=True),
-                format_number(total_upnl, color=True),
-                format_number(total_delta_dollars),
-                format_number(total_delta),
-                format_number(total_gamma),
-                format_number(total_vega),
-                format_number(total_theta),
-                key="__portfolio__",
-            )
-            self._row_keys.append("__portfolio__")
+        # Handle row additions
+        for row_op in row_ops:
+            if row_op.action == "add" and row_op.values:
+                try:
+                    self.add_row(*row_op.values, key=row_op.row_key)
+                    self._row_keys.append(row_op.row_key)
+                except Exception:
+                    pass
 
-        # Sort underlyings by absolute market value
-        sorted_underlyings = sorted(
-            by_underlying.keys(),
-            key=lambda u: sum(abs(getattr(p, "market_value", 0) or 0) for p in by_underlying[u]),
-            reverse=True,
-        )
-        self._underlying_list = sorted_underlyings
+        # Handle cell updates (the efficient path)
+        for cell in cell_updates:
+            try:
+                if cell.column_index < len(self._column_keys):
+                    col_key = self._column_keys[cell.column_index]
+                    self.update_cell(cell.row_key, col_key, cell.value)
+            except Exception:
+                pass
 
-        for underlying in sorted_underlyings:
-            prs = by_underlying[underlying]
-
-            # Calculate underlying totals
-            mkt_value = sum(getattr(p, "market_value", 0) or 0 for p in prs)
-            pnl = sum(getattr(p, "daily_pnl", 0) or 0 for p in prs)
-            upnl = sum(getattr(p, "unrealized_pnl", 0) or 0 for p in prs)
-            delta_dollars = sum(getattr(p, "delta_dollars", 0) or 0 for p in prs)
-            delta = sum(getattr(p, "delta", 0) or 0 for p in prs)
-            gamma = sum(getattr(p, "gamma", 0) or 0 for p in prs)
-            vega = sum(getattr(p, "vega", 0) or 0 for p in prs)
-            theta = sum(getattr(p, "theta", 0) or 0 for p in prs)
-
-            # Get spot price from stock position
-            spot = ""
-            for p in prs:
-                if not getattr(p, "expiry", None):
-                    mark = getattr(p, "mark_price", None)
-                    if mark:
-                        is_close = getattr(p, "is_using_close", False)
-                        spot = format_price(mark, is_close, decimals=2)
-                        break
-
-            # Get beta
-            beta = ""
-            if prs and getattr(prs[0], "beta", None):
-                beta = f"{prs[0].beta:.2f}"
-
-            row_key = f"underlying-{underlying}"
-            self._position_map[row_key] = prs[0]
-
-            self.add_row(
-                f"  {underlying}",
-                str(len(prs)),
-                spot,
-                beta,
-                format_number(mkt_value),
-                format_number(pnl, color=True),
-                format_number(upnl, color=True),
-                format_number(delta_dollars),
-                format_number(delta),
-                format_number(gamma),
-                format_number(vega),
-                format_number(theta),
-                key=row_key,
-            )
-            self._row_keys.append(row_key)
-
-    def _render_detailed(self, positions: List[Any]) -> None:
-        """Render detailed view with individual positions under underlying headers."""
-        # Group by underlying
-        by_underlying: Dict[str, List[Any]] = {}
-        for pos in positions:
-            underlying = getattr(pos, "underlying", None) or getattr(pos, "symbol", "?")
-            if underlying not in by_underlying:
-                by_underlying[underlying] = []
-            by_underlying[underlying].append(pos)
-
-        # Calculate broker totals
-        total_mkt_value = sum(getattr(p, "market_value", 0) or 0 for p in positions)
-        total_pnl = sum(getattr(p, "daily_pnl", 0) or 0 for p in positions)
-        total_upnl = sum(getattr(p, "unrealized_pnl", 0) or 0 for p in positions)
-        total_delta_dollars = sum(getattr(p, "delta_dollars", 0) or 0 for p in positions)
-        total_delta = sum(getattr(p, "delta", 0) or 0 for p in positions)
-        total_gamma = sum(getattr(p, "gamma", 0) or 0 for p in positions)
-        total_vega = sum(getattr(p, "vega", 0) or 0 for p in positions)
-        total_theta = sum(getattr(p, "theta", 0) or 0 for p in positions)
-
-        broker_name = (self.broker_filter or "ALL").upper()
-
-        # Add broker total row
-        if self.show_portfolio_row:
-            self.add_row(
-                f"[bold]>> {broker_name} Total[/]",
-                str(len(positions)),
-                "",
-                "",
-                "",
-                format_number(total_mkt_value),
-                format_number(total_pnl, color=True),
-                format_number(total_upnl, color=True),
-                format_number(total_delta_dollars),
-                format_number(total_delta),
-                format_number(total_gamma),
-                format_number(total_vega),
-                format_number(total_theta),
-                key="__total__",
-            )
-            self._row_keys.append("__total__")
-
-        # Sort underlyings by absolute market value
-        sorted_underlyings = sorted(
-            by_underlying.keys(),
-            key=lambda u: sum(abs(getattr(p, "market_value", 0) or 0) for p in by_underlying[u]),
-            reverse=True,
-        )
-        self._underlying_list = sorted_underlyings
-
-        row_idx = 0
-        for underlying in sorted_underlyings:
-            prs = by_underlying[underlying]
-
-            # Calculate underlying totals
-            mkt_value = sum(getattr(p, "market_value", 0) or 0 for p in prs)
-            pnl = sum(getattr(p, "daily_pnl", 0) or 0 for p in prs)
-            upnl = sum(getattr(p, "unrealized_pnl", 0) or 0 for p in prs)
-            delta_dollars = sum(getattr(p, "delta_dollars", 0) or 0 for p in prs)
-            delta = sum(getattr(p, "delta", 0) or 0 for p in prs)
-            gamma = sum(getattr(p, "gamma", 0) or 0 for p in prs)
-            vega = sum(getattr(p, "vega", 0) or 0 for p in prs)
-            theta = sum(getattr(p, "theta", 0) or 0 for p in prs)
-
-            # Get beta
-            beta = ""
-            if prs and getattr(prs[0], "beta", None):
-                beta = f"{prs[0].beta:.2f}"
-
-            # Add underlying header row
-            header_key = f"header-{underlying}"
-            self._position_map[header_key] = prs[0]
-
-            self.add_row(
-                f"[bold]>> {underlying}[/]",
-                "",
-                "",
-                "",
-                beta,
-                format_number(mkt_value),
-                format_number(pnl, color=True),
-                format_number(upnl, color=True),
-                format_number(delta_dollars),
-                format_number(delta),
-                format_number(gamma),
-                format_number(vega),
-                format_number(theta),
-                key=header_key,
-            )
-            self._row_keys.append(header_key)
-
-            # Sort: stocks first, then options by expiry
-            stocks = [p for p in prs if not getattr(p, "expiry", None)]
-            options = sorted(
-                [p for p in prs if getattr(p, "expiry", None)],
-                key=lambda p: getattr(p, "expiry", "") or "",
-            )
-
-            for pos in stocks + options:
-                row_idx += 1
-                display_name = self._get_display_name(pos)
-                qty = getattr(pos, "quantity", 0)
-                mark = getattr(pos, "mark_price", None)
-                is_close = getattr(pos, "is_using_close", False)
-                iv = getattr(pos, "iv", None)
-                pos_beta = getattr(pos, "beta", None)
-
-                # Determine price decimals (3 for options, 2 for stocks)
-                decimals = 3 if getattr(pos, "expiry", None) else 2
-
-                row_key = f"pos-{row_idx}-{display_name}"
-                self._position_map[row_key] = pos
-
-                self.add_row(
-                    f"  {display_name}",
-                    format_quantity(qty),
-                    format_price(mark, is_close, decimals=decimals),
-                    f"{iv * 100:.1f}%" if iv else "",
-                    f"{pos_beta:.2f}" if pos_beta else "",
-                    format_number(getattr(pos, "market_value", 0) or 0),
-                    format_number(getattr(pos, "daily_pnl", 0) or 0, color=True),
-                    format_number(getattr(pos, "unrealized_pnl", 0) or 0, color=True),
-                    format_number(getattr(pos, "delta_dollars", 0) or 0),
-                    format_number(getattr(pos, "delta", 0) or 0),
-                    format_number(getattr(pos, "gamma", 0) or 0),
-                    format_number(getattr(pos, "vega", 0) or 0),
-                    format_number(getattr(pos, "theta", 0) or 0),
-                    key=row_key,
-                )
-                self._row_keys.append(row_key)
-
-    def _get_display_name(self, pos: Any) -> str:
-        """Get display name for a position (e.g., 'QQQ 20251226P615.0')."""
-        # Try get_display_name method first
-        if hasattr(pos, "get_display_name"):
-            return pos.get_display_name()
-
-        # Build from position attributes
-        symbol = getattr(pos, "symbol", "?")
-        expiry = getattr(pos, "expiry", None)
-
-        if not expiry:
-            # Stock - just return symbol
-            return symbol
-
-        # Option - format as "SYM YYYYMMDD[C/P]STRIKE"
-        strike = getattr(pos, "strike", None)
-        right = getattr(pos, "right", None)
-
-        # Parse expiry to YYYYMMDD
-        if isinstance(expiry, str):
-            if len(expiry) == 8:  # YYYYMMDD
-                expiry_str = expiry
-            elif "-" in expiry:  # YYYY-MM-DD
-                expiry_str = expiry.replace("-", "")
-            else:
-                expiry_str = expiry
-        else:
-            expiry_str = str(expiry)
-
-        underlying = getattr(pos, "underlying", symbol.split()[0] if " " in symbol else symbol)
-
-        if strike and right:
-            return f"{underlying} {expiry_str}{right}{strike:.1f}"
-        return symbol
+        # Update row order if needed
+        self._row_keys = [k for k in new_order if k in self._row_keys]
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         """Handle row selection."""
@@ -422,8 +206,9 @@ class PositionsTable(DataTable):
         key = str(row_key.value)
         if key in ("__portfolio__", "__total__"):
             return
-        if key in self._position_map:
-            pos = self._position_map[key]
+
+        pos = self._view_model.get_position_for_key(key)
+        if pos:
             underlying = getattr(pos, "underlying", None) or getattr(pos, "symbol", "?")
             symbol = getattr(pos, "symbol", underlying)
             self._selected_row_key = key
@@ -442,8 +227,8 @@ class PositionsTable(DataTable):
         try:
             if 0 <= self.cursor_row < len(self._row_keys):
                 key = self._row_keys[self.cursor_row]
-                if key in self._position_map:
-                    pos = self._position_map[key]
+                pos = self._view_model.get_position_for_key(key)
+                if pos:
                     return getattr(pos, "underlying", None) or getattr(pos, "symbol", None)
         except Exception:
             pass
@@ -456,14 +241,14 @@ class PositionsTable(DataTable):
         try:
             if 0 <= self.cursor_row < len(self._row_keys):
                 key = self._row_keys[self.cursor_row]
-                return self._position_map.get(key)
+                return self._view_model.get_position_for_key(key)
         except Exception:
             pass
         return None
 
     def get_underlyings(self) -> List[str]:
         """Get list of underlyings in display order."""
-        return self._underlying_list.copy()
+        return self._view_model.get_underlying_order()
 
     def _get_cursor_row_key(self) -> Optional[str]:
         """Get row key from current cursor position."""
@@ -486,18 +271,19 @@ class PositionsTable(DataTable):
     def _find_row_key_for_selection(self) -> Optional[str]:
         """Find a matching row key based on the last selection details."""
         if self._selected_role == "pos" and self._selected_display_name:
-            for key, pos in self._position_map.items():
+            for key in self._row_keys:
                 if not key.startswith("pos-"):
                     continue
-                if self._position_display_name(pos) == self._selected_display_name:
+                pos = self._view_model.get_position_for_key(key)
+                if pos and self._position_display_name(pos) == self._selected_display_name:
                     return key
 
         if self._selected_underlying:
             header_key = f"header-{self._selected_underlying}"
-            if header_key in self._position_map:
+            if header_key in self._row_keys:
                 return header_key
             underlying_key = f"underlying-{self._selected_underlying}"
-            if underlying_key in self._position_map:
+            if underlying_key in self._row_keys:
                 return underlying_key
 
         return None
