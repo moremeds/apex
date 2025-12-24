@@ -99,10 +99,6 @@ class PositionsView(Container):
         with Horizontal():
             # Left side - Positions table (~65%)
             with Vertical(classes="positions-left"):
-                yield Static(
-                    f"{self.broker_display} Positions",
-                    classes="panel-title"
-                )
                 yield PositionsTable(
                     id=f"{self.broker}-positions",
                     broker_filter=self.broker,

@@ -94,17 +94,6 @@ class HeaderWidget(Widget):
             parts.append("[bold red]CLOSED[/]")
         parts.append("  |  ")
 
-        # Tab hints
-        tabs = [
-            ("1", "Summary"),
-            ("2", "Signals"),
-            ("3", "IB"),
-            ("4", "Futu"),
-            ("5", "Lab"),
-        ]
-        for key, label in tabs:
-            parts.append(f"[dim][{key}]{label}[/]  ")
-
         return "".join(parts)
 
     def refresh_time(self) -> None:

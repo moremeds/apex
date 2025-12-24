@@ -35,7 +35,6 @@ class SummaryView(Container):
         with Horizontal(id="summary-main"):
             # Left side - Positions table (60% via 3fr)
             with Vertical(id="summary-left"):
-                yield Static("Consolidated Positions", classes="panel-title")
                 yield PositionsTable(
                     id="summary-positions",
                     show_portfolio_row=True,

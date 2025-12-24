@@ -36,35 +36,35 @@ class PositionsTable(DataTable):
 
     # Column definitions for consolidated view (Summary)
     COLUMNS_CONSOLIDATED = [
-        ("Underlying", 12),
-        ("Pos", 5),
+        ("Ticker", 12),
+        ("Qty", 5),
         ("Spot", 10),
-        ("Beta", 6),
-        ("Mkt Value", 12),
-        ("P&L", 10),
-        ("UP&L", 10),
-        ("Delta $", 10),
-        ("D(Δ)", 8),
-        ("G(γ)", 8),
-        ("V(ν)", 8),
-        ("Th(Θ)", 8),
+        ("Beta", 5),
+        ("Mkt Value", 11),
+        ("P&L", 9),
+        ("UP&L", 9),
+        ("Delta $", 9),
+        ("D(Δ)", 6),
+        ("G(γ)", 6),
+        ("V(ν)", 6),
+        ("Th(Θ)", 6),
     ]
 
     # Column definitions for detailed view (IB/Futu) with IV
     COLUMNS_DETAILED = [
-        ("Position", 22),
+        ("Ticker", 22),
         ("Qty", 8),
-        ("Price", 10),
+        ("Spot", 7),
         ("IV", 6),
-        ("Beta", 6),
-        ("Mkt Value", 12),
-        ("P&L", 10),
-        ("UP&L", 10),
-        ("Delta $", 10),
-        ("D(Δ)", 8),
-        ("G(γ)", 8),
-        ("V(ν)", 8),
-        ("Th(Θ)", 8),
+        ("Beta", 5),
+        ("Mkt Value", 11),
+        ("P&L", 9),
+        ("UP&L", 9),
+        ("Delta $", 9),
+        ("D(Δ)", 6),
+        ("G(γ)", 6),
+        ("V(ν)", 6),
+        ("Th(Θ)", 6),
     ]
 
     # Reactive properties
