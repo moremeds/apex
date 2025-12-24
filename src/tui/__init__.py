@@ -1,5 +1,5 @@
-"""Presentation layer - Terminal UI."""
+"""Presentation layer - Terminal UI using Textual."""
 
-from .dashboard import TerminalDashboard
+from .textual_dashboard import TextualDashboard, TerminalDashboard
 
-__all__ = ["TerminalDashboard"]
+__all__ = ["TextualDashboard", "TerminalDashboard"]

@@ -2,10 +2,10 @@
 Formatting utilities for the Terminal Dashboard.
 
 Provides consistent number, price, and P&L formatting across all panels.
+Uses Textual markup syntax (same as Rich markup).
 """
 
 from __future__ import annotations
-from rich.text import Text
 
 
 def format_price(price: float | None, is_using_close: bool = False, decimals: int = 2) -> str:
@@ -50,31 +50,54 @@ def format_number(value: float, color: bool = False) -> str:
     if not color:
         return formatted
 
-    # Color coding for P&L
+    # Color coding for P&L (green for positive, red for negative)
     if value > 0:
-        return f"[green]{formatted}[/green]"
+        return f"[green]{formatted}[/]"
     elif value < 0:
-        return f"[red]{formatted}[/red]"
+        return f"[red]{formatted}[/]"
     return formatted
 
 
-def format_pnl(value: float) -> Text:
-    """Format P&L with color."""
+def format_pnl(value: float) -> str:
+    """Format P&L with color markup."""
     if value > 0:
-        return Text(f"+${value:,.2f}", style="green")
+        return f"[green]+${value:,.2f}[/]"
     elif value < 0:
-        return Text(f"-${abs(value):,.2f}", style="red")
+        return f"[red]-${abs(value):,.2f}[/]"
     else:
-        return Text(f"${value:,.2f}", style="dim")
+        return f"[dim]${value:,.2f}[/]"
 
 
-def format_pnl_simple(pnl: float | None) -> Text:
-    """Format P&L value as a Text object with color styling."""
+def format_pnl_simple(pnl: float | None) -> str:
+    """Format P&L value with color markup."""
     if pnl is None:
-        return Text("-", style="dim")
+        return "[dim]-[/]"
     if pnl > 0:
-        return Text(f"+${pnl:,.0f}", style="green")
+        return f"[green]+${pnl:,.0f}[/]"
     elif pnl < 0:
-        return Text(f"-${abs(pnl):,.0f}", style="red")
+        return f"[red]-${abs(pnl):,.0f}[/]"
     else:
-        return Text("$0", style="dim")
+        return "[dim]$0[/]"
+
+
+def fmt_number(value: float, decimals: int = 0) -> str:
+    """Format number with specified decimal places."""
+    if abs(value) < 0.01:
+        return ""
+    return f"{value:,.{decimals}f}"
+
+
+def fmt_pnl(value: float) -> str:
+    """Format P&L with sign and color."""
+    if value > 0:
+        return f"[green]+${value:,.2f}[/]"
+    elif value < 0:
+        return f"[red]-${abs(value):,.2f}[/]"
+    return "[dim]$0.00[/]"
+
+
+def fmt_greek(value: float, decimals: int = 0) -> str:
+    """Format Greek value."""
+    if abs(value) < 0.01:
+        return ""
+    return f"{value:,.{decimals}f}"

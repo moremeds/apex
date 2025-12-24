@@ -1,0 +1,139 @@
+/* Apex Dashboard - Textual CSS */
+/* Using fr units for flexible sizing */
+
+/* ===== Screen Layout ===== */
+Screen {
+    background: $surface;
+    layout: vertical;
+}
+
+/* ===== Header ===== */
+HeaderWidget {
+    height: 3;
+    dock: top;
+}
+
+/* ===== Tab Container ===== */
+TabbedContent {
+    height: 1fr;
+}
+
+ContentSwitcher {
+    height: 1fr;
+}
+
+TabPane {
+    height: 1fr;
+}
+
+/* ===== Views fill their TabPane ===== */
+SummaryView, SignalsView, PositionsView, LabView {
+    height: 1fr;
+    width: 1fr;
+}
+
+/* ===== Horizontal splits ===== */
+Horizontal {
+    height: 1fr;
+    width: 1fr;
+}
+
+/* ===== Vertical containers ===== */
+Vertical {
+    height: 1fr;
+}
+
+/* ===== Summary View specifics ===== */
+#summary-left {
+    width: 3fr;
+}
+
+#summary-right {
+    width: 2fr;
+}
+
+/* ===== Positions View specifics ===== */
+.positions-left {
+    width: 2fr;
+}
+
+.positions-right {
+    width: 1fr;
+}
+
+/* ===== Lab View specifics ===== */
+#lab-left {
+    width: 1fr;
+}
+
+#lab-right {
+    width: 2fr;
+}
+
+/* ===== Health Bar ===== */
+#summary-health, #lab-health {
+    height: 5;
+    dock: bottom;
+}
+
+/* ===== Widget borders ===== */
+PositionsTable {
+    border: solid $primary;
+    height: 1fr;
+}
+
+SummaryPanel {
+    border: solid $success;
+    height: 1fr;
+}
+
+AlertsList {
+    border: solid $warning;
+    height: 1fr;
+}
+
+SignalsTable {
+    border: solid $error;
+    height: 1fr;
+}
+
+ATRPanel {
+    border: solid $accent;
+    height: 2fr;
+}
+
+OrdersPanel {
+    border: solid $surface-darken-1;
+    height: 1fr;
+}
+
+StrategyList {
+    border: solid $primary;
+    height: 1fr;
+}
+
+StrategyConfigPanel {
+    border: solid $success;
+    height: 1fr;
+}
+
+BacktestResultsPanel {
+    border: solid $warning;
+    height: 1fr;
+}
+
+HealthBar {
+    height: 5;
+    border: solid $primary;
+}
+
+/* ===== DataTable ===== */
+DataTable {
+    height: 1fr;
+}
+
+/* ===== Panel title ===== */
+.panel-title {
+    text-style: bold;
+    height: 1;
+}

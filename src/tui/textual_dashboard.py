@@ -1,0 +1,172 @@
+"""
+Textual Dashboard Wrapper.
+
+Provides the same interface as the old Rich-based TerminalDashboard
+for easy integration with main.py.
+
+IMPORTANT: Textual must run in the main thread. This wrapper uses a queue-based
+approach where updates are posted to a queue and processed by the Textual app.
+
+Methods:
+- start(): Does nothing (compatibility shim)
+- stop(): Stop the dashboard
+- update(): Queue data for display
+- set_ta_service(): Inject services for ATR calculation
+- run_async(): Actually runs the app (blocking, must be called from main)
+"""
+
+from __future__ import annotations
+
+import asyncio
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
+
+from .app import ApexApp
+
+if TYPE_CHECKING:
+    from ..models.risk_snapshot import RiskSnapshot
+    from ..models.risk_signal import RiskSignal
+    from ..infrastructure.monitoring import ComponentHealth
+
+
+@dataclass
+class DashboardUpdate:
+    """Data update for the dashboard."""
+    snapshot: Any
+    signals: List[Any]
+    health: List[Any]
+    alerts: List[Dict[str, Any]]
+
+
+class TextualDashboard:
+    """
+    Wrapper around ApexApp to provide the same interface as TerminalDashboard.
+
+    Uses a queue-based approach for thread-safe updates. The app must be run
+    in the main thread using run_async().
+    """
+
+    def __init__(
+        self,
+        config: Optional[Dict[str, Any]] = None,
+        env: str = "dev",
+    ) -> None:
+        """
+        Initialize the Textual dashboard.
+
+        Args:
+            config: Dashboard configuration (unused, kept for compatibility).
+            env: Environment name (dev, demo, prod).
+        """
+        self.env = env
+        self.config = config or {}
+        self._app: Optional[ApexApp] = None
+        # Set _running = True immediately so update_loop doesn't exit early
+        # It will be set to False when the app actually exits
+        self._running = True
+        self._quit_requested = False
+        self._ta_service = None
+        self._event_loop = None
+        self._historical_service = None
+
+    def start(self) -> None:
+        """
+        Compatibility shim - does nothing.
+
+        The actual start happens when run_async() is called.
+        """
+        pass
+
+    def stop(self) -> None:
+        """Stop the dashboard."""
+        self._running = False
+        if self._app:
+            try:
+                self._app.exit()
+            except Exception:
+                pass
+
+    @property
+    def quit_requested(self) -> bool:
+        """Check if user requested quit."""
+        return self._quit_requested
+
+    def update(
+        self,
+        snapshot: "RiskSnapshot",
+        signals: List["RiskSignal"],
+        health: List["ComponentHealth"],
+        alerts: List[Dict[str, Any]],
+    ) -> None:
+        """
+        Queue a data update for the dashboard.
+
+        Thread-safe: can be called from any thread.
+
+        Args:
+            snapshot: Latest risk snapshot.
+            signals: List of risk signals.
+            health: List of component health statuses.
+            alerts: List of market alerts.
+        """
+        if not self._running:
+            return
+
+        if self._app:
+            # Queue update to the app (thread-safe)
+            self._app.queue_update(snapshot, signals, health, alerts)
+
+    def set_ta_service(
+        self,
+        ta_service,
+        event_loop: asyncio.AbstractEventLoop,
+        historical_service=None,
+    ) -> None:
+        """
+        Inject services for ATR calculation and backtesting.
+
+        Args:
+            ta_service: TAService instance.
+            event_loop: Main event loop for async operations.
+            historical_service: HistoricalDataService for backtest data.
+        """
+        self._ta_service = ta_service
+        self._event_loop = event_loop
+        self._historical_service = historical_service
+
+        if self._app:
+            self._app.inject_services(ta_service, event_loop, historical_service)
+
+    async def run_async(
+        self,
+        orchestrator_callback: Optional[Callable] = None,
+    ) -> None:
+        """
+        Run the dashboard asynchronously.
+
+        This is the main entry point that runs in the main thread.
+        The orchestrator callback is called periodically to fetch data.
+
+        Args:
+            orchestrator_callback: Async function that returns (snapshot, signals, health, alerts).
+        """
+        self._app = ApexApp(env=self.env)
+
+        # Inject services if already set
+        if self._ta_service:
+            self._app.inject_services(
+                self._ta_service,
+                self._event_loop,
+                self._historical_service,
+            )
+
+        # Run the app (blocks until user quits)
+        # The app's on_mount sets up the update polling timer
+        await self._app.run_async()
+
+        self._running = False
+        self._quit_requested = True
+
+
+# Alias for backward compatibility
+TerminalDashboard = TextualDashboard
