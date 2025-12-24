@@ -22,17 +22,8 @@ if TYPE_CHECKING:
 class SignalsView(Container):
     """Full-screen risk signals view."""
 
+    # Styles are in css/dashboard.tcss using Rich-matching palette
     DEFAULT_CSS = """
-    SignalsView {
-        height: 1fr;
-        width: 1fr;
-    }
-
-    SignalsView SignalsTable {
-        height: 1fr;
-        width: 1fr;
-        border: solid red;
-    }
     """
 
     def compose(self) -> ComposeResult:

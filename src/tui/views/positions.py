@@ -34,46 +34,13 @@ if TYPE_CHECKING:
 class PositionsView(Container, can_focus=True):
     """Broker-specific positions view with ATR analysis."""
 
+    # Styles are defined in css/dashboard.tcss using the Rich-matching palette:
+    # - PositionsTable: blue border (#2f6fb3)
+    # - ATRPanel: orange border (#f59e0b)
+    # - OrdersPanel: gray border (#3a4148)
     DEFAULT_CSS = """
     PositionsView:focus {
-        border: solid cyan;
-    }
-
-    PositionsView {
-        height: 1fr;
-        width: 1fr;
-    }
-
-    PositionsView > Horizontal {
-        height: 1fr;
-        width: 1fr;
-    }
-
-    PositionsView > Horizontal > Vertical {
-        height: 1fr;
-    }
-
-    PositionsView .positions-left {
-        width: 2fr;
-    }
-
-    PositionsView .positions-right {
-        width: 1fr;
-    }
-
-    PositionsView PositionsTable {
-        height: 1fr;
-        border: solid blue;
-    }
-
-    PositionsView ATRPanel {
-        height: 2fr;
-        border: solid cyan;
-    }
-
-    PositionsView OrdersPanel {
-        height: 1fr;
-        border: solid gray;
+        border: solid #5fd7ff;
     }
     """
 

@@ -21,13 +21,8 @@ from ...utils.market_hours import MarketHours
 class HeaderWidget(Widget):
     """Header bar with market status and navigation hints."""
 
+    # Styles are in css/dashboard.tcss; only layout-specific overrides here
     DEFAULT_CSS = """
-    HeaderWidget {
-        height: 3;
-        background: $surface;
-        border-bottom: solid $primary;
-    }
-
     HeaderWidget #header-content {
         width: 100%;
         height: 100%;
@@ -67,31 +62,31 @@ class HeaderWidget(Widget):
         parts = []
 
         # Title
-        parts.append("[bold cyan]Live Risk Management System[/]")
+        parts.append("[bold #5fd7ff]Live Risk Management System[/]")
         parts.append("  |  ")
 
         # Time
-        parts.append(f"[white]{current_time}[/]")
+        parts.append(f"[#c9d1d9]{current_time}[/]")
         parts.append("  |  ")
 
         # Environment
         env_upper = self.env.upper()
         if self.env == "prod":
-            parts.append(f"[bold red]{env_upper}[/]")
+            parts.append(f"[bold #ff6b6b]{env_upper}[/]")
         elif self.env == "demo":
-            parts.append(f"[bold magenta]{env_upper}[/]")
+            parts.append(f"[bold #d66efd]{env_upper}[/]")
         else:
-            parts.append(f"[bold yellow]{env_upper}[/]")
+            parts.append(f"[bold #f6d365]{env_upper}[/]")
         parts.append("  |  ")
 
         # Market status
         parts.append("Market: ")
         if market_status == "OPEN":
-            parts.append("[bold green]OPEN[/]")
+            parts.append("[bold #7ee787]OPEN[/]")
         elif market_status == "EXTENDED":
-            parts.append("[bold yellow]EXTENDED HOURS[/]")
+            parts.append("[bold #f6d365]EXTENDED HOURS[/]")
         else:
-            parts.append("[bold red]CLOSED[/]")
+            parts.append("[bold #ff6b6b]CLOSED[/]")
         parts.append("  |  ")
 
         return "".join(parts)

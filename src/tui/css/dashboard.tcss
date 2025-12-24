@@ -1,9 +1,16 @@
 /* Apex Dashboard - Textual CSS */
-/* Using fr units for flexible sizing */
+/* Color palette matching Rich Futu dashboard */
+
+/* ===== Color Variables (Rich-matching palette) ===== */
+/* Background: #1f2228 | Panel bg: #23262c | Header bg: #262b31 */
+/* Table border blue: #2f6fb3 | ATR border orange: #f59e0b */
+/* Muted: #8b949e | Main text: #c9d1d9 */
+/* Cyan: #5fd7ff | Green: #7ee787 | Yellow: #f6d365 | Red: #ff6b6b | Magenta: #d66efd */
 
 /* ===== Screen Layout ===== */
 Screen {
-    background: $surface;
+    background: #1f2228;
+    color: #c9d1d9;
     layout: vertical;
 }
 
@@ -11,6 +18,8 @@ Screen {
 HeaderWidget {
     height: 3;
     dock: top;
+    background: #262b31;
+    color: #7ee787;
 }
 
 /* ===== Tab Container ===== */
@@ -24,6 +33,26 @@ ContentSwitcher {
 
 TabPane {
     height: 1fr;
+}
+
+/* Tab bar styling */
+Tabs {
+    background: #262b31;
+}
+
+Tab {
+    background: #262b31;
+    color: #8b949e;
+}
+
+Tab:focus {
+    text-style: bold;
+}
+
+Tab.-active {
+    background: #23262c;
+    color: #c9d1d9;
+    text-style: bold;
 }
 
 /* ===== Views fill their TabPane ===== */
@@ -83,64 +112,101 @@ HealthBar .health-component {
     text-align: center;
 }
 
-/* ===== Widget borders ===== */
+/* ===== Widget borders and backgrounds ===== */
 PositionsTable {
-    border: solid $primary;
+    border: solid #2f6fb3;
+    background: #23262c;
     height: 1fr;
 }
 
 SummaryPanel {
-    border: solid $success;
+    border: solid #7ee787;
+    background: #23262c;
     height: 1fr;
 }
 
 AlertsList {
-    border: solid $warning;
+    border: solid #f6d365;
+    background: #23262c;
     height: 1fr;
 }
 
 SignalsTable {
-    border: solid $error;
+    border: solid #ff6b6b;
+    background: #23262c;
     height: 1fr;
+    width: 1fr;
 }
 
 ATRPanel {
-    border: solid $accent;
+    border: solid #f59e0b;
+    background: #23262c;
+    padding: 1 2;
     height: 2fr;
 }
 
 OrdersPanel {
-    border: solid $surface-darken-1;
+    border: solid #3a4148;
+    background: #23262c;
     height: 1fr;
 }
 
 StrategyList {
-    border: solid $primary;
+    border: solid #2f6fb3;
+    background: #23262c;
     height: 1fr;
 }
 
 StrategyConfigPanel {
-    border: solid $success;
+    border: solid #7ee787;
+    background: #23262c;
     height: 1fr;
 }
 
 BacktestResultsPanel {
-    border: solid $warning;
+    border: solid #f6d365;
+    background: #23262c;
     height: 1fr;
 }
 
 HealthBar {
     height: 5;
-    border: solid $primary;
+    border: solid #2f6fb3;
+    background: #23262c;
 }
 
-/* ===== DataTable ===== */
+/* ===== DataTable styling ===== */
 DataTable {
     height: 1fr;
+    background: #23262c;
+}
+
+DataTable > .datatable--header {
+    background: #262b31;
+    color: #9fb2c6;
+    text-style: bold;
+}
+
+DataTable > .datatable--even-row {
+    background: #20242a;
+}
+
+DataTable > .datatable--odd-row {
+    background: #23262c;
+}
+
+DataTable > .datatable--cursor {
+    background: #2d65c8;
+    color: #e6f1ff;
 }
 
 /* ===== Panel title ===== */
 .panel-title {
     text-style: bold;
     height: 1;
+}
+
+/* ===== Footer ===== */
+Footer {
+    background: #262b31;
 }

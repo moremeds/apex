@@ -35,31 +35,10 @@ if TYPE_CHECKING:
 class LabView(Container, can_focus=True):
     """Strategy lab view for backtesting."""
 
+    # Styles are in css/dashboard.tcss using Rich-matching palette
     DEFAULT_CSS = """
     LabView:focus {
-        border: solid cyan;
-    }
-
-    LabView {
-        height: 1fr;
-        width: 1fr;
-    }
-
-    LabView > Horizontal {
-        height: 1fr;
-        width: 1fr;
-    }
-
-    LabView > Horizontal > Vertical {
-        height: 1fr;
-    }
-
-    LabView #lab-left {
-        width: 1fr;
-    }
-
-    LabView #lab-right {
-        width: 2fr;
+        border: solid #5fd7ff;
     }
 
     LabView #lab-health {
@@ -67,20 +46,6 @@ class LabView(Container, can_focus=True):
         width: 1fr;
     }
 
-    LabView StrategyList {
-        height: 1fr;
-        border: solid blue;
-    }
-
-    LabView StrategyConfigPanel {
-        height: 1fr;
-        border: solid green;
-    }
-
-    LabView BacktestResultsPanel {
-        height: 1fr;
-        border: solid yellow;
-    }
     """
 
     BINDINGS = [
