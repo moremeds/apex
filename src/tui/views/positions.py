@@ -38,11 +38,7 @@ class PositionsView(Container, can_focus=True):
     # - PositionsTable: blue border (#2f6fb3)
     # - ATRPanel: orange border (#f59e0b)
     # - OrdersPanel: gray border (#3a4148)
-    DEFAULT_CSS = """
-    PositionsView:focus {
-        border: solid #5fd7ff;
-    }
-    """
+    DEFAULT_CSS = ""
 
     BINDINGS = [
         Binding("w", "move_up", "Up", show=True),
@@ -96,8 +92,8 @@ class PositionsView(Container, can_focus=True):
             atr_panel = self.query_one(f"#{self.broker}-atr", ATRPanel)
             atr_panel.position = event.position
             atr_panel.selected_symbol = event.underlying
-        except Exception:
-            pass
+        except Exception as e:
+            self.log.error(f"Failed to update ATR panel on selection: {e}")
 
     def update_data(self, snapshot: Optional["RiskSnapshot"]) -> None:
         """
@@ -110,8 +106,8 @@ class PositionsView(Container, can_focus=True):
         try:
             positions_table = self.query_one(f"#{self.broker}-positions", PositionsTable)
             positions_table.positions = position_risks
-        except Exception:
-            pass
+        except Exception as e:
+            self.log.error(f"Failed to update positions table: {e}")
 
     def action_move_up(self) -> None:
         """Move selection up in the positions table."""
@@ -120,8 +116,8 @@ class PositionsView(Container, can_focus=True):
             if table.cursor_row is not None and table.cursor_row > 0:
                 table.move_cursor(row=table.cursor_row - 1)
                 self._on_selection_change()
-        except Exception:
-            pass
+        except Exception as e:
+            self.log.error(f"Failed to move up: {e}")
 
     def action_move_down(self) -> None:
         """Move selection down in the positions table."""
@@ -130,48 +126,48 @@ class PositionsView(Container, can_focus=True):
             if table.cursor_row is not None and table.cursor_row < table.row_count - 1:
                 table.move_cursor(row=table.cursor_row + 1)
                 self._on_selection_change()
-        except Exception:
-            pass
+        except Exception as e:
+            self.log.error(f"Failed to move down: {e}")
 
     def action_increase_atr_period(self) -> None:
         """Increase ATR period."""
         try:
             atr_panel = self.query_one(f"#{self.broker}-atr", ATRPanel)
             atr_panel.adjust_period(1)
-        except Exception:
-            pass
+        except Exception as e:
+            self.log.error(f"Failed to increase ATR period: {e}")
 
     def action_decrease_atr_period(self) -> None:
         """Decrease ATR period."""
         try:
             atr_panel = self.query_one(f"#{self.broker}-atr", ATRPanel)
             atr_panel.adjust_period(-1)
-        except Exception:
-            pass
+        except Exception as e:
+            self.log.error(f"Failed to decrease ATR period: {e}")
 
     def action_cycle_timeframe(self) -> None:
         """Cycle ATR timeframe."""
         try:
             atr_panel = self.query_one(f"#{self.broker}-atr", ATRPanel)
             atr_panel.cycle_timeframe()
-        except Exception:
-            pass
+        except Exception as e:
+            self.log.error(f"Failed to cycle timeframe: {e}")
 
     def action_toggle_help(self) -> None:
         """Toggle ATR help mode."""
         try:
             atr_panel = self.query_one(f"#{self.broker}-atr", ATRPanel)
             atr_panel.toggle_help()
-        except Exception:
-            pass
+        except Exception as e:
+            self.log.error(f"Failed to toggle help: {e}")
 
     def action_reset_atr(self) -> None:
         """Reset ATR period and timeframe to defaults."""
         try:
             atr_panel = self.query_one(f"#{self.broker}-atr", ATRPanel)
             atr_panel.reset()
-        except Exception:
-            pass
+        except Exception as e:
+            self.log.error(f"Failed to reset ATR: {e}")
 
     def _on_selection_change(self) -> None:
         """Handle selection change in the table."""
@@ -183,5 +179,5 @@ class PositionsView(Container, can_focus=True):
                 atr_panel = self.query_one(f"#{self.broker}-atr", ATRPanel)
                 atr_panel.position = pos
                 atr_panel.selected_symbol = symbol
-        except Exception:
-            pass
+        except Exception as e:
+            self.log.error(f"Failed to update selection: {e}")

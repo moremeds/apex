@@ -1,10 +1,12 @@
 """
-Component health bar widget.
+Component health bar widget with widget pooling.
 
 Horizontal display of component health statuses:
 - Status icon ([OK]/[W]/[X]/[?])
 - Component name
 - Detail message
+
+Uses pre-allocated widget pool to avoid DOM thrashing on updates.
 """
 
 from __future__ import annotations
@@ -19,17 +21,23 @@ from textual.app import ComposeResult
 
 
 class HealthBar(Widget):
-    """Horizontal component health display."""
+    """Horizontal component health display with widget pooling."""
 
-    # Reactive state
-    health: reactive[List[Any]] = reactive([], init=False)
+    # Maximum number of health components to display
+    MAX_COMPONENTS = 10
+
+    # Reactive state - use factory to avoid mutable default
+    health: reactive[List[Any]] = reactive(list, init=False)
 
     def compose(self) -> ComposeResult:
-        """Compose the health bar layout."""
-        yield HorizontalScroll(id="health-content")
+        """Pre-allocate pool of health component widgets."""
+        with HorizontalScroll(id="health-content"):
+            # Pre-allocate widget pool - hidden by default
+            for i in range(self.MAX_COMPONENTS):
+                yield Static("", id=f"health-{i}", classes="health-component")
 
     def on_mount(self) -> None:
-        """Render initial state on mount."""
+        """Render initial state and hide unused widgets."""
         self._render_health(self.health or [])
 
     def watch_health(self, health: List[Any]) -> None:
@@ -37,64 +45,57 @@ class HealthBar(Widget):
         self._render_health(health)
 
     def _render_health(self, health: List[Any]) -> None:
-        """Render health components."""
-        try:
-            content = self.query_one("#health-content", HorizontalScroll)
-
-            # Clear existing children
-            for child in list(content.children):
-                child.remove()
-
-            if not health:
-                content.mount(Static("[dim]No health data[/]"))
-                return
-
-            for h in health:
-                status = getattr(h, "status", None)
-                name = getattr(h, "component_name", "Unknown")
-                message = getattr(h, "message", "")
-                metadata = getattr(h, "metadata", {})
-
-                # Determine status styling
-                status_val = status.value if hasattr(status, "value") else str(status)
-
-                if status_val == "HEALTHY":
-                    icon = "[green][OK][/]"
-                    style = "green"
-                elif status_val == "DEGRADED":
-                    icon = "[yellow][W][/]"
-                    style = "yellow"
-                elif status_val == "UNHEALTHY":
-                    icon = "[red][X][/]"
-                    style = "red"
+        """Update pooled widgets instead of DOM manipulation."""
+        for i in range(self.MAX_COMPONENTS):
+            try:
+                component = self.query_one(f"#health-{i}", Static)
+                if i < len(health):
+                    component.update(self._format_component(health[i]))
+                    component.display = True
                 else:
-                    icon = "[dim][?][/]"
-                    style = "dim"
+                    # Hide unused widgets
+                    component.update("")
+                    component.display = False
+            except Exception as e:
+                self.log.error(f"Failed to update health component {i}: {e}")
 
-                # Build detail string
-                detail = message or ""
-                if name == "market_data_coverage" and metadata:
-                    missing = metadata.get("missing_count", 0)
-                    total = metadata.get("total", 0)
-                    if missing > 0:
-                        detail = f"{missing}/{total} missing MD"
-                    else:
-                        detail = f"All {total} OK" if total > 0 else "No positions"
+    def _format_component(self, h: Any) -> str:
+        """Format a single health component."""
+        status = getattr(h, "status", None)
+        name = getattr(h, "component_name", "Unknown")
+        message = getattr(h, "message", "")
+        metadata = getattr(h, "metadata", {})
 
-                name_display = self._truncate(str(name), 18)
-                detail_display = self._truncate(str(detail), 18)
+        # Determine status styling
+        status_val = status.value if hasattr(status, "value") else str(status)
 
-                # Create component widget
-                component_text = f"{icon}\n[cyan]{name_display}[/]\n[dim]{detail_display}[/]"
-                component = Static(component_text, classes="health-component")
-                content.mount(component)
+        if status_val == "HEALTHY":
+            icon = "[green][OK][/]"
+        elif status_val == "DEGRADED":
+            icon = "[yellow][W][/]"
+        elif status_val == "UNHEALTHY":
+            icon = "[red][X][/]"
+        else:
+            icon = "[dim][?][/]"
 
-        except Exception:
-            pass
+        # Build detail string
+        detail = message or ""
+        if name == "market_data_coverage" and metadata:
+            missing = metadata.get("missing_count", 0)
+            total = metadata.get("total", 0)
+            if missing > 0:
+                detail = f"{missing}/{total} missing MD"
+            else:
+                detail = f"All {total} OK" if total > 0 else "No positions"
+
+        name_display = self._truncate(str(name), 18)
+        detail_display = self._truncate(str(detail), 18)
+
+        return f"{icon}\n[cyan]{name_display}[/]\n[dim]{detail_display}[/]"
 
     @staticmethod
     def _truncate(text: str, max_len: int) -> str:
         """Truncate text to fit within the health tile."""
         if len(text) <= max_len:
             return text
-        return text[: max_len - 3] + "..."
+        return text[:max_len - 3] + "..."

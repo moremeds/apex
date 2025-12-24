@@ -19,9 +19,9 @@ class DashboardView(Enum):
 
 # View tabs configuration for header rendering
 VIEW_TABS = [
-    ("1", "Summary", DashboardView.ACCOUNT_SUMMARY),
-    ("2", "Signals", DashboardView.RISK_SIGNALS),
-    ("3", "IB", DashboardView.IB_POSITIONS),
-    ("4", "Futu", DashboardView.FUTU_POSITIONS),
-    ("5", "Lab", DashboardView.LAB),
+    ("1", "Summary", "summary", DashboardView.ACCOUNT_SUMMARY),
+    ("2", "Signals", "signals", DashboardView.RISK_SIGNALS),
+    ("3", "IB", "ib", DashboardView.IB_POSITIONS),
+    ("4", "Futu", "futu", DashboardView.FUTU_POSITIONS),
+    ("5", "Lab", "lab", DashboardView.LAB),
 ]

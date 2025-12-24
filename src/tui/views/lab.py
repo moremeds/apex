@@ -37,10 +37,6 @@ class LabView(Container, can_focus=True):
 
     # Styles are in css/dashboard.tcss using Rich-matching palette
     DEFAULT_CSS = """
-    LabView:focus {
-        border: solid #5fd7ff;
-    }
-
     LabView #lab-health {
         height: 5;
         width: 1fr;
@@ -81,14 +77,14 @@ class LabView(Container, can_focus=True):
             config_panel = self.query_one("#lab-config", StrategyConfigPanel)
             config_panel.strategy_name = event.strategy_name
             config_panel.strategy_info = event.strategy_info
-        except Exception:
-            pass
+        except Exception as e:
+            self.log.error(f"Failed to update config panel: {e}")
 
         try:
             results_panel = self.query_one("#lab-results", BacktestResultsPanel)
             results_panel.strategy_name = event.strategy_name
-        except Exception:
-            pass
+        except Exception as e:
+            self.log.error(f"Failed to update results panel: {e}")
 
     def on_strategy_list_strategy_activated(
         self, event: StrategyList.StrategyActivated
@@ -102,8 +98,8 @@ class LabView(Container, can_focus=True):
             strategy_list = self.query_one("#lab-strategies", StrategyList)
             if strategy_list.cursor_row is not None and strategy_list.cursor_row > 0:
                 strategy_list.move_cursor(row=strategy_list.cursor_row - 1)
-        except Exception:
-            pass
+        except Exception as e:
+            self.log.error(f"Failed to move up in strategy list: {e}")
 
     def action_move_down(self) -> None:
         """Move selection down in the strategy list."""
@@ -111,8 +107,8 @@ class LabView(Container, can_focus=True):
             strategy_list = self.query_one("#lab-strategies", StrategyList)
             if strategy_list.cursor_row is not None and strategy_list.cursor_row < strategy_list.row_count - 1:
                 strategy_list.move_cursor(row=strategy_list.cursor_row + 1)
-        except Exception:
-            pass
+        except Exception as e:
+            self.log.error(f"Failed to move down in strategy list: {e}")
 
     def action_run_backtest(self) -> None:
         """Run backtest for the selected strategy."""
@@ -121,8 +117,8 @@ class LabView(Container, can_focus=True):
             strategy_name = strategy_list.get_selected_strategy()
             if strategy_name:
                 self._execute_backtest(strategy_name)
-        except Exception:
-            pass
+        except Exception as e:
+            self.log.error(f"Failed to run backtest: {e}")
 
     def _execute_backtest(self, strategy_name: str) -> None:
         """Execute backtest in background."""
@@ -130,8 +126,8 @@ class LabView(Container, can_focus=True):
         try:
             strategy_list = self.query_one("#lab-strategies", StrategyList)
             strategy_list.set_running_strategy(strategy_name)
-        except Exception:
-            pass
+        except Exception as e:
+            self.log.error(f"Failed to mark strategy as running: {e}")
 
         # Run backtest in background worker
         self._run_backtest_worker(strategy_name)
@@ -199,49 +195,56 @@ class LabView(Container, can_focus=True):
             strategy_list = self.query_one("#lab-strategies", StrategyList)
             strategy_list.set_running_strategy(None)
             strategy_list.set_backtest_result(strategy_name, result)
-        except Exception:
-            pass
+        except Exception as e:
+            self.log.error(f"Failed to update strategy list on complete: {e}")
 
         try:
             results_panel = self.query_one("#lab-results", BacktestResultsPanel)
             results_panel.result = result
-        except Exception:
-            pass
+        except Exception as e:
+            self.log.error(f"Failed to update results panel on complete: {e}")
 
     def _on_backtest_error(self, strategy_name: str, error: str) -> None:
-        """Handle backtest error."""
+        """Handle backtest error with user notification."""
         try:
             strategy_list = self.query_one("#lab-strategies", StrategyList)
             strategy_list.set_running_strategy(None)
             strategy_list.set_backtest_failure(strategy_name, error)
-        except Exception:
-            pass
+        except Exception as e:
+            self.log.error(f"Failed to update strategy list on error: {e}")
 
         try:
             results_panel = self.query_one("#lab-results", BacktestResultsPanel)
             results_panel.error_message = error
-        except Exception:
-            pass
+        except Exception as e:
+            self.log.error(f"Failed to update results panel on error: {e}")
+
+        # User notification for backtest errors
+        self.notify(
+            f"Backtest failed for {strategy_name}: {error[:100]}",
+            severity="error",
+            timeout=10.0,
+        )
 
     def update_health(self, health: List[Any]) -> None:
         """Update health bar."""
         try:
             health_bar = self.query_one("#lab-health", HealthBar)
             health_bar.health = health
-        except Exception:
-            pass
+        except Exception as e:
+            self.log.error(f"Failed to update health bar: {e}")
 
     def set_backtest_result(self, strategy_name: str, result: "BacktestResult") -> None:
         """Set backtest result for a strategy."""
         try:
             strategy_list = self.query_one("#lab-strategies", StrategyList)
             strategy_list.set_backtest_result(strategy_name, result)
-        except Exception:
-            pass
+        except Exception as e:
+            self.log.error(f"Failed to set backtest result in strategy list: {e}")
 
         try:
             results_panel = self.query_one("#lab-results", BacktestResultsPanel)
             if results_panel.strategy_name == strategy_name:
                 results_panel.result = result
-        except Exception:
-            pass
+        except Exception as e:
+            self.log.error(f"Failed to set backtest result in results panel: {e}")

@@ -167,8 +167,8 @@ class PositionsTable(DataTable):
                     self.remove_row(row_op.row_key)
                     if row_op.row_key in self._row_keys:
                         self._row_keys.remove(row_op.row_key)
-                except Exception:
-                    pass
+                except Exception as e:
+                    self.log.error(f"Failed to remove row {row_op.row_key}: {e}")
 
         # Handle row additions
         for row_op in row_ops:
@@ -176,8 +176,8 @@ class PositionsTable(DataTable):
                 try:
                     self.add_row(*row_op.values, key=row_op.row_key)
                     self._row_keys.append(row_op.row_key)
-                except Exception:
-                    pass
+                except Exception as e:
+                    self.log.error(f"Failed to add row {row_op.row_key}: {e}")
 
         # Handle cell updates (the efficient path)
         for cell in cell_updates:
@@ -185,8 +185,8 @@ class PositionsTable(DataTable):
                 if cell.column_index < len(self._column_keys):
                     col_key = self._column_keys[cell.column_index]
                     self.update_cell(cell.row_key, col_key, cell.value)
-            except Exception:
-                pass
+            except Exception as e:
+                self.log.error(f"Failed to update cell {cell.row_key}: {e}")
 
         # Update row order if needed
         self._row_keys = [k for k in new_order if k in self._row_keys]
@@ -230,8 +230,8 @@ class PositionsTable(DataTable):
                 pos = self._view_model.get_position_for_key(key)
                 if pos:
                     return getattr(pos, "underlying", None) or getattr(pos, "symbol", None)
-        except Exception:
-            pass
+        except Exception as e:
+            self.log.error(f"Failed to get selected underlying: {e}")
         return None
 
     def get_selected_position(self) -> Optional[Any]:
@@ -242,8 +242,8 @@ class PositionsTable(DataTable):
             if 0 <= self.cursor_row < len(self._row_keys):
                 key = self._row_keys[self.cursor_row]
                 return self._view_model.get_position_for_key(key)
-        except Exception:
-            pass
+        except Exception as e:
+            self.log.error(f"Failed to get selected position: {e}")
         return None
 
     def get_underlyings(self) -> List[str]:

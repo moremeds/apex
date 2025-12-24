@@ -12,10 +12,13 @@ Displays:
 from __future__ import annotations
 
 from textual.widget import Widget
-from textual.widgets import Static
+from textual.reactive import reactive
+from textual.widgets import Static, Tabs, Tab
+from textual.containers import Horizontal
 from textual.app import ComposeResult
 
 from ...utils.market_hours import MarketHours
+from ..base import VIEW_TABS
 
 
 class HeaderWidget(Widget):
@@ -26,9 +29,25 @@ class HeaderWidget(Widget):
     HeaderWidget #header-content {
         width: 100%;
         height: 100%;
-        content-align: center middle;
+        layout: horizontal;
+    }
+
+    HeaderWidget #header-right {
+        width: 1fr;
+        min-width: 0;
+        content-align: right middle;
+        text-align: right;
+        margin-right: 1;
+        padding: 0 1;
+    }
+
+    HeaderWidget #header-tabs {
+        width: auto;
+        content-align: left middle;
     }
     """
+
+    active_tab: reactive[str] = reactive("summary", init=False)
 
     def __init__(self, env: str = "dev", **kwargs):
         """
@@ -43,13 +62,17 @@ class HeaderWidget(Widget):
 
     def compose(self) -> ComposeResult:
         """Compose the header layout."""
-        yield Static(self._build_header_text(), id="header-content")
+        with Horizontal(id="header-content"):
+            tabs = [
+                Tab(f"[{key}]{label}", id=tab_id)
+                for key, label, tab_id, _view in VIEW_TABS
+            ]
+            yield Tabs(*tabs, id="header-tabs", active=self.active_tab)
+            yield Static(self._build_header_text(), id="header-right")
 
     def _build_header_text(self) -> str:
         """Build the header text with all components."""
         from ...utils.timezone import DisplayTimezone
-        from datetime import datetime
-
         # Get current time
         if self._display_tz is None:
             self._display_tz = DisplayTimezone("Asia/Hong_Kong")
@@ -58,43 +81,53 @@ class HeaderWidget(Widget):
         # Get market status
         market_status = MarketHours.get_market_status()
 
-        # Build header parts
-        parts = []
-
-        # Title
-        parts.append("[bold #5fd7ff]Live Risk Management System[/]")
-        parts.append("  |  ")
-
-        # Time
-        parts.append(f"[#c9d1d9]{current_time}[/]")
-        parts.append("  |  ")
+        sections = [f"[#c9d1d9]{current_time}[/]"]
 
         # Environment
         env_upper = self.env.upper()
         if self.env == "prod":
-            parts.append(f"[bold #ff6b6b]{env_upper}[/]")
+            sections.append(f"[bold #ff6b6b]{env_upper}[/]")
         elif self.env == "demo":
-            parts.append(f"[bold #d66efd]{env_upper}[/]")
+            sections.append(f"[bold #d66efd]{env_upper}[/]")
         else:
-            parts.append(f"[bold #f6d365]{env_upper}[/]")
-        parts.append("  |  ")
+            sections.append(f"[bold #f6d365]{env_upper}[/]")
 
         # Market status
-        parts.append("Market: ")
         if market_status == "OPEN":
-            parts.append("[bold #7ee787]OPEN[/]")
+            market_text = "[bold #7ee787]OPEN[/]"
         elif market_status == "EXTENDED":
-            parts.append("[bold #f6d365]EXTENDED HOURS[/]")
+            market_text = "[bold #f6d365]EXTENDED HOURS[/]"
         else:
-            parts.append("[bold #ff6b6b]CLOSED[/]")
-        parts.append("  |  ")
+            market_text = "[bold #ff6b6b]CLOSED[/]"
+        sections.append(f"Market: {market_text}")
 
-        return "".join(parts)
+        # Title (rightmost)
+        sections.append("[bold #5fd7ff]Live Risk Management System[/]")
+
+        return " | ".join(sections)
+
+    def watch_active_tab(self, tab_id: str) -> None:
+        """Refresh header when the active tab changes."""
+        self._sync_tabs(tab_id)
+        self._refresh_header()
 
     def refresh_time(self) -> None:
         """Refresh the header to update time display."""
+        self._refresh_header()
+
+    def _refresh_header(self) -> None:
+        """Update header display safely."""
         try:
-            content = self.query_one("#header-content", Static)
+            content = self.query_one("#header-right", Static)
             content.update(self._build_header_text())
-        except Exception:
-            pass
+        except Exception as e:
+            self.log.error(f"Failed to refresh header: {e}")
+
+    def _sync_tabs(self, tab_id: str) -> None:
+        """Sync header tabs with active tab."""
+        try:
+            tabs = self.query_one("#header-tabs", Tabs)
+            if tab_id and tabs.active != tab_id:
+                tabs.active = tab_id
+        except Exception as e:
+            self.log.error(f"Failed to sync tabs: {e}")

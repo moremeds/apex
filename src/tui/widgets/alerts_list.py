@@ -21,8 +21,11 @@ from textual.app import ComposeResult
 class AlertsList(Widget):
     """Market alerts display with persistence."""
 
+    # Maximum number of persistent alerts to prevent memory leak
+    _MAX_PERSISTENT_ALERTS = 100
+
     # Reactive state
-    alerts: reactive[List[Dict[str, Any]]] = reactive([], init=False)
+    alerts: reactive[List[Dict[str, Any]]] = reactive(list, init=False)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -93,6 +96,17 @@ class AlertsList(Widget):
         for key in expired_keys:
             del self._persistent_alerts[key]
 
+        # Enforce maximum alert limit to prevent memory leak
+        if len(self._persistent_alerts) > self._MAX_PERSISTENT_ALERTS:
+            # Sort by (is_active, last_seen) - remove oldest inactive first
+            sorted_alerts = sorted(
+                self._persistent_alerts.items(),
+                key=lambda x: (x[1]["is_active"], x[1]["last_seen"])
+            )
+            excess_count = len(self._persistent_alerts) - self._MAX_PERSISTENT_ALERTS
+            for key, _ in sorted_alerts[:excess_count]:
+                del self._persistent_alerts[key]
+
         return display_alerts
 
     def _render_alerts(self, display_alerts: List[Dict]) -> None:
@@ -134,5 +148,5 @@ class AlertsList(Widget):
                 lines.append(f"[{style}]{icon} {alert_type}: {message}{suffix}[/] [dim]{time_str}[/]")
 
             alerts_list.update("\n".join(lines))
-        except Exception:
-            pass
+        except Exception as e:
+            self.log.error(f"Failed to render alerts: {e}")

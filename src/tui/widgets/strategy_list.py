@@ -1,9 +1,8 @@
 """
 Strategy list widget for the Lab view.
 
+Uses StrategyViewModel for business logic and incremental updates.
 Displays available strategies from the StrategyRegistry with backtest results.
-Matches original Rich layout with columns:
-- Strategy, Description, Return, Sharpe, Max DD, Trades, Win%, Status
 """
 
 from __future__ import annotations
@@ -14,12 +13,15 @@ from textual.widgets import DataTable
 from textual.reactive import reactive
 from textual.message import Message
 
+from ..viewmodels.strategy_vm import StrategyDisplayState, StrategyViewModel
+
 
 class StrategyList(DataTable):
     """
     Strategy list display with selection support.
 
     Shows registered strategies with their last backtest results.
+    Uses StrategyViewModel for incremental updates.
     """
 
     class StrategySelected(Message):
@@ -51,21 +53,27 @@ class StrategyList(DataTable):
         ("Status", 10),
     ]
 
-    # Reactive state
-    backtest_results: reactive[Dict[str, Any]] = reactive({}, init=False)
-    backtest_failures: reactive[Dict[str, str]] = reactive({}, init=False)
-    running_strategy: reactive[Optional[str]] = reactive(None, init=False)
+    # Single combined state reactive - avoids triple rebuild on related changes
+    state: reactive[StrategyDisplayState] = reactive(
+        StrategyDisplayState, init=False
+    )
 
     def __init__(self, **kwargs) -> None:
-        super().__init__(cursor_type="row", zebra_stripes=True, **kwargs)
+        super().__init__(cursor_type="row", zebra_stripes=False, **kwargs)
+        self._view_model = StrategyViewModel()
         self._strategy_map: Dict[str, dict] = {}
         self._strategy_list: List[str] = []
+        self._column_keys: List[str] = []
+        self._row_keys: List[str] = []
         self._selected_strategy: Optional[str] = None
 
     def on_mount(self) -> None:
-        """Set up columns when widget is mounted."""
-        for name, width in self.COLUMNS:
-            self.add_column(name, width=width)
+        """Set up columns with keys for incremental updates."""
+        self._column_keys.clear()
+        for idx, (name, width) in enumerate(self.COLUMNS):
+            col_key = f"col-{idx}"
+            self.add_column(name, width=width, key=col_key)
+            self._column_keys.append(col_key)
 
         # Load strategies from registry
         self._load_strategies()
@@ -97,123 +105,114 @@ class StrategyList(DataTable):
                         "author": "",
                     }
 
-            self._rebuild_table()
-        except Exception:
-            # Registry not available - show empty state
-            self.clear()
-            self.add_row(
-                "",
-                "[dim]No strategies[/]",
-                "[dim]Import strategy modules[/]",
-                "-", "-", "-", "-", "-", "",
-                key="__empty__",
-            )
+            # Update ViewModel with strategy info
+            self._view_model.set_strategies(self._strategy_map)
+            self._full_rebuild()
+        except Exception as e:
+            self.log.error(f"Failed to load strategies: {e}")
+            self._show_empty_state()
 
-    def _rebuild_table(self) -> None:
-        """Rebuild the table with current data."""
+    def _show_empty_state(self) -> None:
+        """Show empty state when no strategies available."""
+        self.clear()
+        self._row_keys.clear()
+        self.add_row(
+            "",
+            "[dim]No strategies[/]",
+            "[dim]Import strategy modules[/]",
+            "-",
+            "-",
+            "-",
+            "-",
+            "-",
+            "",
+            key="__empty__",
+        )
+        self._row_keys.append("__empty__")
+
+    def watch_state(self, state: StrategyDisplayState) -> None:
+        """Single watcher for all state changes."""
+        self._view_model.set_state(state)
+
+        if self._view_model.full_refresh_needed(self._strategy_list):
+            self._full_rebuild()
+        else:
+            self._incremental_update()
+
+    def _full_rebuild(self) -> None:
+        """Full table rebuild - used for structural changes."""
+        # Preserve cursor position
         selected_name = self._selected_strategy
         if not selected_name and self.cursor_row is not None and self._strategy_list:
             if 0 <= self.cursor_row < len(self._strategy_list):
                 selected_name = self._strategy_list[self.cursor_row]
 
+        self._view_model.set_selected(selected_name)
+
         self.clear()
+        self._row_keys.clear()
 
-        if not self._strategy_list:
-            self.add_row(
-                "",
-                "[dim]No strategies[/]",
-                "[dim]Import strategy modules[/]",
-                "-", "-", "-", "-", "-", "",
-                key="__empty__",
-            )
-            return
+        display_data = self._view_model.compute_display_data(self._strategy_list)
+        row_order = self._view_model.get_row_order(self._strategy_list)
 
-        results = self.backtest_results or {}
-        failures = self.backtest_failures or {}
-        selected_idx = (
-            self._strategy_list.index(selected_name)
-            if selected_name in self._strategy_list
-            else 0
+        for row_key in row_order:
+            if row_key in display_data:
+                self.add_row(*display_data[row_key], key=row_key)
+                self._row_keys.append(row_key)
+
+        # Restore cursor
+        if self.row_count > 0 and selected_name:
+            try:
+                selected_idx = self._strategy_list.index(selected_name)
+                selected_idx = min(selected_idx, self.row_count - 1)
+                self.move_cursor(row=selected_idx, column=0, scroll=False)
+            except (ValueError, IndexError):
+                pass
+
+    def _incremental_update(self) -> None:
+        """Incremental cell-level updates - used for value changes."""
+        # Update selected state in ViewModel
+        selected_name = self._selected_strategy
+        if not selected_name and self.cursor_row is not None and self._strategy_list:
+            if 0 <= self.cursor_row < len(self._strategy_list):
+                selected_name = self._strategy_list[self.cursor_row]
+
+        self._view_model.set_selected(selected_name)
+
+        row_ops, cell_updates, new_order = self._view_model.compute_updates(
+            self._strategy_list
         )
 
-        for idx, name in enumerate(self._strategy_list):
-            info = self._strategy_map.get(name, {})
-            result = results.get(name)
+        # Process row removals first
+        for row_op in row_ops:
+            if row_op.action == "remove":
+                try:
+                    self.remove_row(row_op.row_key)
+                    if row_op.row_key in self._row_keys:
+                        self._row_keys.remove(row_op.row_key)
+                except Exception as e:
+                    self.log.error(f"Failed to remove row {row_op.row_key}: {e}")
 
-            # Selection indicator
-            is_selected = idx == selected_idx
-            selector = "[bold cyan]>[/]" if is_selected else ""
+        # Process row additions
+        for row_op in row_ops:
+            if row_op.action == "add" and row_op.values:
+                try:
+                    self.add_row(*row_op.values, key=row_op.row_key)
+                    self._row_keys.append(row_op.row_key)
+                except Exception as e:
+                    self.log.error(f"Failed to add row {row_op.row_key}: {e}")
 
-            # Strategy name with highlight
-            name_display = f"[bold cyan]{name}[/]" if is_selected else name
-
-            # Description (truncated)
-            desc = info.get("description", "-")[:25]
-
-            # Performance metrics from backtest result
-            if result:
-                perf = getattr(result, "performance", None)
-                risk = getattr(result, "risk", None)
-                trades = getattr(result, "trades", None)
-
-                if perf and hasattr(perf, "total_return_pct"):
-                    ret = perf.total_return_pct
-                    ret_str = f"[green]{ret:+.1f}%[/]" if ret >= 0 else f"[red]{ret:+.1f}%[/]"
-                else:
-                    ret_str = "[dim]-[/]"
-
-                sharpe = f"{risk.sharpe_ratio:.2f}" if risk and hasattr(risk, "sharpe_ratio") else "[dim]-[/]"
-                max_dd = f"[red]{risk.max_drawdown:.1f}%[/]" if risk and hasattr(risk, "max_drawdown") else "[dim]-[/]"
-                trade_count = str(trades.total_trades) if trades and hasattr(trades, "total_trades") else "[dim]-[/]"
-                win_rate = f"{trades.win_rate:.0f}%" if trades and hasattr(trades, "win_rate") else "[dim]-[/]"
-            else:
-                ret_str = "[dim]-[/]"
-                sharpe = "[dim]-[/]"
-                max_dd = "[dim]-[/]"
-                trade_count = "[dim]-[/]"
-                win_rate = "[dim]-[/]"
-
-            # Status
-            if self.running_strategy == name:
-                status = "[yellow]Running...[/]"
-            elif name in failures:
-                status = "[red]Failed[/]"
-            elif name in results:
-                status = "[green]Done[/]"
-            else:
-                status = "[dim]-[/]"
-
-            self.add_row(
-                selector,
-                name_display,
-                desc,
-                ret_str,
-                sharpe,
-                max_dd,
-                trade_count,
-                win_rate,
-                status,
-                key=name,
-            )
-
-        if self.row_count > 0:
-            selected_idx = min(selected_idx, self.row_count - 1)
-            self.move_cursor(row=selected_idx, column=0, scroll=False)
-
-    def watch_backtest_results(self, results: Dict[str, Any]) -> None:
-        """Update display when backtest results change."""
-        self._rebuild_table()
-
-    def watch_backtest_failures(self, failures: Dict[str, str]) -> None:
-        """Update display when backtest failures change."""
-        self._rebuild_table()
-
-    def watch_running_strategy(self, strategy: Optional[str]) -> None:
-        """Update display when running strategy changes."""
-        self._rebuild_table()
+        # Process cell updates
+        for cell in cell_updates:
+            try:
+                if cell.column_index < len(self._column_keys):
+                    col_key = self._column_keys[cell.column_index]
+                    self.update_cell(cell.row_key, col_key, cell.value)
+            except Exception as e:
+                self.log.error(f"Failed to update cell: {e}")
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        """Handle row selection."""
+        """Handle row selection (Enter/click)."""
         if event.row_key is not None:
             key = str(event.row_key.value)
             if key != "__empty__" and key in self._strategy_map:
@@ -223,7 +222,7 @@ class StrategyList(DataTable):
                 )
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
-        """Handle row highlight to update selection state."""
+        """Handle row highlight (cursor movement)."""
         if event.row_key is not None:
             key = str(event.row_key.value)
             if key != "__empty__" and key in self._strategy_map:
@@ -238,8 +237,8 @@ class StrategyList(DataTable):
             try:
                 if self.cursor_row < len(self._strategy_list):
                     return self._strategy_list[self.cursor_row]
-            except Exception:
-                pass
+            except Exception as e:
+                self.log.error(f"Failed to get selected strategy: {e}")
         return None
 
     def refresh_strategies(self) -> None:
@@ -248,16 +247,31 @@ class StrategyList(DataTable):
 
     def set_backtest_result(self, strategy_name: str, result: Any) -> None:
         """Set backtest result for a strategy."""
-        results = dict(self.backtest_results) if self.backtest_results else {}
-        results[strategy_name] = result
-        self.backtest_results = results
+        current_state = self.state
+        new_results = dict(current_state.results)
+        new_results[strategy_name] = result
+        self.state = StrategyDisplayState(
+            results=new_results,
+            failures=current_state.failures,
+            running=current_state.running,
+        )
 
     def set_backtest_failure(self, strategy_name: str, error: str) -> None:
         """Set backtest failure for a strategy."""
-        failures = dict(self.backtest_failures) if self.backtest_failures else {}
-        failures[strategy_name] = error
-        self.backtest_failures = failures
+        current_state = self.state
+        new_failures = dict(current_state.failures)
+        new_failures[strategy_name] = error
+        self.state = StrategyDisplayState(
+            results=current_state.results,
+            failures=new_failures,
+            running=current_state.running,
+        )
 
     def set_running_strategy(self, strategy_name: Optional[str]) -> None:
         """Set currently running strategy."""
-        self.running_strategy = strategy_name
+        current_state = self.state
+        self.state = StrategyDisplayState(
+            results=current_state.results,
+            failures=current_state.failures,
+            running=strategy_name,
+        )

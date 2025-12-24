@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.widgets import Footer, TabbedContent, TabPane
+from textual.widgets import Footer, TabbedContent, TabPane, Tabs
 from textual.reactive import reactive
 
 from .views.summary import SummaryView
@@ -54,10 +54,11 @@ class ApexApp(App):
     ]
 
     # Reactive state - changes auto-propagate to widgets
+    # Using callable factories to avoid mutable default sharing
     snapshot: reactive[Optional[Any]] = reactive(None)
-    risk_signals: reactive[List[Any]] = reactive([])
-    health: reactive[List[Any]] = reactive([])
-    market_alerts: reactive[List[Dict[str, Any]]] = reactive([])
+    risk_signals: reactive[List[Any]] = reactive(list)
+    health: reactive[List[Any]] = reactive(list)
+    market_alerts: reactive[List[Dict[str, Any]]] = reactive(list)
 
     def __init__(self, env: str = "dev", **kwargs):
         """
@@ -72,10 +73,17 @@ class ApexApp(App):
         self.historical_service = None
         self._event_loop = None
         self._update_queue: queue.Queue = queue.Queue()
+        self._poll_timer = None
 
     def on_mount(self) -> None:
         """Set up update polling when app is mounted."""
-        self.set_interval(0.1, self._poll_updates)
+        self._poll_timer = self.set_interval(0.1, self._poll_updates)
+        self._sync_header_tab()
+
+    def on_unmount(self) -> None:
+        """Clean up timer on unmount."""
+        if self._poll_timer:
+            self._poll_timer.stop()
 
     def _poll_updates(self) -> None:
         """Poll the update queue with conflation - only process latest update."""
@@ -135,6 +143,22 @@ class ApexApp(App):
         """Switch to a specific tab."""
         tabs = self.query_one("#main-tabs", TabbedContent)
         tabs.active = tab_id
+        self._set_header_tab(tab_id)
+
+    def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
+        """Sync header when tab activation changes."""
+        pane_id = event.pane.id if event.pane else ""
+        if pane_id:
+            self._set_header_tab(pane_id)
+
+    def on_tabs_tab_activated(self, event: Tabs.TabActivated) -> None:
+        """Handle header tab clicks."""
+        tab_id = event.tab.id or ""
+        if tab_id in {"summary", "signals", "ib", "futu", "lab"}:
+            tabs = self.query_one("#main-tabs", TabbedContent)
+            if tabs.active != tab_id:
+                tabs.active = tab_id
+            self._set_header_tab(tab_id)
 
     def inject_services(
         self,
@@ -190,36 +214,53 @@ class ApexApp(App):
                 self.market_alerts,
                 self.health,
             )
-        except Exception:
-            pass
+        except Exception as e:
+            self.log.error(f"Failed to update summary view: {e}")
 
         # Update signals view
         try:
             signals_view = self.query_one("#signals-view", SignalsView)
             signals_view.update_data(self.risk_signals, self.snapshot)
-        except Exception:
-            pass
+        except Exception as e:
+            self.log.error(f"Failed to update signals view: {e}")
 
         # Update IB positions view
         try:
             ib_view = self.query_one("#ib-view", PositionsView)
             ib_view.update_data(self.snapshot)
-        except Exception:
-            pass
+        except Exception as e:
+            self.log.error(f"Failed to update IB positions view: {e}")
 
         # Update Futu positions view
         try:
             futu_view = self.query_one("#futu-view", PositionsView)
             futu_view.update_data(self.snapshot)
-        except Exception:
-            pass
+        except Exception as e:
+            self.log.error(f"Failed to update Futu positions view: {e}")
 
         # Update header
         try:
             header = self.query_one("#header", HeaderWidget)
             header.refresh_time()
-        except Exception:
-            pass
+        except Exception as e:
+            self.log.error(f"Failed to update header: {e}")
+
+    def _sync_header_tab(self) -> None:
+        """Sync header with current active tab."""
+        try:
+            tabs = self.query_one("#main-tabs", TabbedContent)
+            if tabs.active:
+                self._set_header_tab(tabs.active)
+        except Exception as e:
+            self.log.error(f"Failed to sync header tab: {e}")
+
+    def _set_header_tab(self, tab_id: str) -> None:
+        """Set active tab in header."""
+        try:
+            header = self.query_one("#header", HeaderWidget)
+            header.active_tab = tab_id
+        except Exception as e:
+            self.log.error(f"Failed to set header tab: {e}")
 
     # NOTE: watch_snapshot removed to fix double rendering bug.
     # The update_data() method calls _update_views() directly, so having

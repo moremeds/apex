@@ -16,15 +16,31 @@ Screen {
 
 /* ===== Header ===== */
 HeaderWidget {
-    height: 3;
+    height: 1;
     dock: top;
     background: #262b31;
     color: #7ee787;
 }
 
+HeaderWidget #header-content {
+    height: 1;
+}
+
+HeaderWidget #header-left {
+    height: 1;
+}
+
+HeaderWidget #header-tabs {
+    height: 1;
+}
+
 /* ===== Tab Container ===== */
 TabbedContent {
     height: 1fr;
+}
+
+TabbedContent > ContentTabs {
+    display: none;
 }
 
 ContentSwitcher {
@@ -35,23 +51,40 @@ TabPane {
     height: 1fr;
 }
 
-/* Tab bar styling */
-Tabs {
+/* Header tab styling */
+HeaderWidget Tabs {
+    height: 1;
     background: #262b31;
+    min-height: 1;
+    padding: 0 1;
+    width: auto;
 }
 
-Tab {
+HeaderWidget Tabs Underline {
+    display: none;
+}
+
+HeaderWidget Tabs #tabs-scroll {
+    height: 1;
+    width: auto;
+}
+
+HeaderWidget Tabs #tabs-list,
+HeaderWidget Tabs #tabs-list-bar {
+    height: 1;
+    min-width: 0;
+    width: auto;
+}
+
+HeaderWidget Tab {
     background: #262b31;
     color: #8b949e;
+    padding: 0 1;
 }
 
-Tab:focus {
-    text-style: bold;
-}
-
-Tab.-active {
+HeaderWidget Tab.-active {
     background: #23262c;
-    color: #c9d1d9;
+    color: #5fd7ff;
     text-style: bold;
 }
 
@@ -141,8 +174,14 @@ SignalsTable {
 ATRPanel {
     border: solid #f59e0b;
     background: #23262c;
-    padding: 1 2;
+    padding: 0 2;
     height: 2fr;
+}
+
+ATRPanel #atr-title {
+    height: 1;
+    padding: 0;
+    margin: 0;
 }
 
 OrdersPanel {

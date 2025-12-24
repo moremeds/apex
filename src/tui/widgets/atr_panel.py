@@ -85,7 +85,8 @@ class ATRPanel(Widget):
                 timeframe=timeframe,
             )
             self.atr_data = levels
-        except Exception:
+        except Exception as e:
+            self.log.error(f"Failed to fetch ATR data for {symbol}: {e}")
             self.atr_data = None
         finally:
             self._loading = False
@@ -119,8 +120,8 @@ class ATRPanel(Widget):
             body.update(self._render_atr_display())
             title.update(self._render_title())
 
-        except Exception:
-            pass
+        except Exception as e:
+            self.log.error(f"Failed to update ATR display: {e}")
 
     def _render_title(self) -> str:
         """Build ATR panel title."""
@@ -358,8 +359,8 @@ class ATRPanel(Widget):
                     price = getattr(pr, "mark_price", None)
                     if price:
                         return price
-        except Exception:
-            pass
+        except Exception as e:
+            self.log.error(f"Failed to resolve spot price for {symbol}: {e}")
 
         if self.position:
             price = getattr(self.position, "mark_price", None)

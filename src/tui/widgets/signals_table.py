@@ -92,8 +92,8 @@ class SignalsTable(DataTable):
                     self.remove_row(row_op.row_key)
                     if row_op.row_key in self._row_keys:
                         self._row_keys.remove(row_op.row_key)
-                except Exception:
-                    pass
+                except Exception as e:
+                    self.log.error(f"Failed to remove row {row_op.row_key}: {e}")
 
         # Handle row additions
         for row_op in row_ops:
@@ -101,8 +101,8 @@ class SignalsTable(DataTable):
                 try:
                     self.add_row(*row_op.values, key=row_op.row_key)
                     self._row_keys.append(row_op.row_key)
-                except Exception:
-                    pass
+                except Exception as e:
+                    self.log.error(f"Failed to add row {row_op.row_key}: {e}")
 
         # Handle cell updates
         for cell in cell_updates:
@@ -110,8 +110,8 @@ class SignalsTable(DataTable):
                 if cell.column_index < len(self._column_keys):
                     col_key = self._column_keys[cell.column_index]
                     self.update_cell(cell.row_key, col_key, cell.value)
-            except Exception:
-                pass
+            except Exception as e:
+                self.log.error(f"Failed to update cell {cell.row_key}: {e}")
 
         # Update row order
         self._row_keys = [k for k in new_order if k in self._row_keys]
