@@ -41,8 +41,6 @@ class LabView(Container, can_focus=True):
     BINDINGS = [
         Binding("up", "move_up", "Up", show=False),
         Binding("down", "move_down", "Down", show=False),
-        Binding("k", "move_up", "Up", show=False),
-        Binding("j", "move_down", "Down", show=False),
         Binding("enter", "run_backtest", "Run Backtest", show=True),
     ]
 
@@ -59,7 +57,7 @@ class LabView(Container, can_focus=True):
                     yield Static("Strategy Lab", id="lab-left-title", classes="panel-title")
                     yield StrategyList(id="lab-strategies")
                     yield Static(
-                        "Up/Down/j/k: select   Enter: run backtest",
+                        "Up/Down: select   Enter: run backtest",
                         id="lab-hints",
                         classes="panel-hints",
                     )
