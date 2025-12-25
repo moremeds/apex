@@ -10,11 +10,29 @@ requires-python = ">=3.14"
 license = {text = "MIT"}
 
 dependencies = [
+    # Core dependencies
     "ib-async>=2.0.1",         # Interactive Brokers API client (maintained fork of ib_insync)
-    "rich>=13.7.0",            # Terminal UI library
     "pyyaml>=6.0.1",           # YAML configuration parsing
     "pytz>=2024.1",            # Timezone handling for market hours
     "yfinance>=0.2.36",        # Yahoo Finance for fallback market data and beta values
+
+    # TUI and database
+    "textual>=6.11.0",         # TUI framework for terminal dashboard
+    "asyncpg>=0.31.0",         # PostgreSQL async driver for persistence
+
+    # Data science stack
+    "numpy>=2.3.0,<2.4",       # Numerical computing library (capped for numba/vectorbt compat)
+    "pandas>=2.3.3",           # Data manipulation and analysis
+    "scikit-learn>=1.8.0",     # Machine learning library
+
+    # Trading and backtesting
+    "backtrader>=1.9.78.123",  # Backtesting framework
+    "futu-api>=9.4.5408",      # Futu OpenD broker integration
+    "TA-Lib>=0.6.8",           # Technical analysis indicators
+    "vectorbt>=0.28.2",        # Vectorized backtesting and analysis
+
+    # Optimization
+    "optuna>=4.6.0",           # Hyperparameter optimization framework
 ]
 
 [project.optional-dependencies]

@@ -452,13 +452,6 @@ async def main_async(args: argparse.Namespace) -> None:
                 env=args.env,
             )
 
-        # Start dashboard FIRST (non-blocking) so it shows immediately
-        if dashboard:
-            dashboard.start()
-            # Show initial empty state while data loads
-            empty_snapshot = RiskSnapshot()
-            dashboard.update(empty_snapshot, [], [], [])
-
         # Start orchestrator (event-driven mode is the default and only mode)
         # Data fetching happens in background, dashboard updates when ready
         system_structured.info(LogCategory.SYSTEM, "Starting orchestrator")
@@ -530,50 +523,66 @@ async def main_async(args: argparse.Namespace) -> None:
             # Start pre-fetch in background (non-blocking)
             prefetch_task = asyncio.create_task(connect_historical_and_prefetch())
 
-        # Update loop - event-driven sync with orchestrator
+        # Update loop - feeds data from orchestrator to dashboard via queue
+        update_task = None
         if dashboard:
-            try:
-                while True:
-                    # Wait for orchestrator to signal new snapshot (instead of polling)
-                    snapshot = await orchestrator.wait_for_snapshot(timeout=3.0)
-                    health = health_monitor.get_all_health()
+            async def update_loop():
+                """Background task that feeds orchestrator data to dashboard queue."""
+                while dashboard._running:
+                    try:
+                        # Wait for orchestrator to signal new snapshot
+                        snapshot = await orchestrator.wait_for_snapshot(timeout=3.0)
+                        health = health_monitor.get_all_health()
 
-                    # Debug: Log health component count
-                    if len(health) < 4:
+                        if snapshot:
+                            # Get risk signals from orchestrator (multi-layer risk detection)
+                            risk_signals = orchestrator.get_latest_risk_signals()
+
+                            # Use market alert detector output from orchestrator
+                            market_alerts = orchestrator.get_latest_market_alerts()
+
+                            # Queue update to dashboard (thread-safe)
+                            dashboard.update(snapshot, risk_signals, health, market_alerts)
+
+                            # Log market data fetch
+                            data_structured.info(
+                                LogCategory.DATA,
+                                "Risk snapshot refreshed",
+                                {"positions": snapshot.total_positions, "position_risks": len(snapshot.position_risks)}
+                            )
+                        else:
+                            # No full snapshot yet - show positions preview immediately
+                            preview = orchestrator.get_positions_preview()
+                            if preview and preview.total_positions > 0:
+                                dashboard.update(preview, [], health, [])
+                            else:
+                                empty_snapshot = RiskSnapshot()
+                                dashboard.update(empty_snapshot, [], health, [])
+                    except asyncio.CancelledError:
+                        break
+                    except Exception as e:
                         system_structured.warning(
                             LogCategory.SYSTEM,
-                            f"Health components incomplete: {len(health)}/4",
-                            {"components": [h.component_name for h in health]}
+                            f"Update loop error: {e}"
                         )
+                        await asyncio.sleep(1)
 
-                    if snapshot:
-                        # Get risk signals from orchestrator (multi-layer risk detection)
-                        risk_signals = orchestrator.get_latest_risk_signals()
+            # Start update loop as background task
+            update_task = asyncio.create_task(update_loop())
 
-                        # Use market alert detector output from orchestrator
-                        market_alerts = orchestrator.get_latest_market_alerts()
-
-                        # Dashboard now uses pre-calculated data from snapshot.position_risks
-                        # and displays RiskSignals instead of legacy breaches
-                        dashboard.update(snapshot, risk_signals, health, market_alerts)
-
-                        # Log market data fetch
-                        data_structured.info(
-                            LogCategory.DATA,
-                            "Risk snapshot refreshed",
-                            {"positions": snapshot.total_positions, "position_risks": len(snapshot.position_risks)}
-                        )
-                    else:
-                        # No full snapshot yet - show positions preview immediately
-                        # This displays raw positions while waiting for market data
-                        preview = orchestrator.get_positions_preview()
-                        if preview and preview.total_positions > 0:
-                            dashboard.update(preview, [], health, [])
-                        else:
-                            empty_snapshot = RiskSnapshot()
-                            dashboard.update(empty_snapshot, [], health, [])
+            # Run Textual dashboard in main thread (blocks until user quits)
+            # The update_task runs concurrently via asyncio
+            try:
+                await dashboard.run_async()
             except KeyboardInterrupt:
                 system_structured.info(LogCategory.SYSTEM, "Received shutdown signal")
+            finally:
+                if update_task:
+                    update_task.cancel()
+                    try:
+                        await update_task
+                    except asyncio.CancelledError:
+                        pass
         else:
             # Headless mode - just wait for interrupt
             try:

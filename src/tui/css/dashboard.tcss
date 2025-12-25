@@ -1,0 +1,320 @@
+/* Apex Dashboard - Textual CSS */
+/* Color palette matching Rich Futu dashboard */
+
+/* ===== Color Variables (Rich-matching palette) ===== */
+/* Background: #1f2228 | Panel bg: #23262c | Header bg: #262b31 */
+/* Table border blue: #2f6fb3 | ATR border orange: #f59e0b */
+/* Muted: #8b949e | Main text: #c9d1d9 */
+/* Cyan: #5fd7ff | Green: #7ee787 | Yellow: #f6d365 | Red: #ff6b6b | Magenta: #d66efd */
+
+/* ===== Screen Layout ===== */
+Screen {
+    background: #1f2228;
+    color: #c9d1d9;
+    layout: vertical;
+    border: solid #2f6fb3;
+}
+
+/* ===== Header ===== */
+HeaderWidget {
+    height: 1;
+    dock: top;
+    background: #262b31;
+    color: #7ee787;
+}
+
+HeaderWidget #header-content {
+    height: 1;
+}
+
+HeaderWidget #header-left {
+    height: 1;
+}
+
+HeaderWidget #header-tabs {
+    height: 1;
+}
+
+/* ===== Tab Container ===== */
+TabbedContent {
+    height: 1fr;
+    border: none;
+    padding: 0;
+}
+
+TabbedContent > ContentTabs {
+    display: none;
+}
+
+ContentSwitcher {
+    height: 1fr;
+    border: none;
+    padding: 0;
+}
+
+TabPane {
+    height: 1fr;
+    border: none;
+    padding: 0;
+}
+
+/* Header tab styling */
+HeaderWidget Tabs {
+    height: 1;
+    background: #262b31;
+    min-height: 1;
+    padding: 0 0 0 1;
+    width: auto;
+}
+
+HeaderWidget Tabs Underline {
+    display: none;
+}
+
+HeaderWidget Tabs #tabs-scroll {
+    height: 1;
+    width: auto;
+}
+
+HeaderWidget Tabs #tabs-list,
+HeaderWidget Tabs #tabs-list-bar {
+    height: 1;
+    min-width: 0;
+    width: auto;
+}
+
+HeaderWidget Tab {
+    background: #262b31;
+    color: #8b949e;
+    padding: 0 1;
+}
+
+HeaderWidget Tab.-active {
+    background: #262b31;
+    color: #5fd7ff;
+    text-style: bold;
+}
+
+/* ===== Views fill their TabPane ===== */
+SummaryView, SignalsView, PositionsView, LabView {
+    height: 1fr;
+    width: 1fr;
+}
+
+/* ===== Horizontal splits ===== */
+Horizontal {
+    height: 1fr;
+    width: 1fr;
+}
+
+/* ===== Vertical containers ===== */
+Vertical {
+    height: 1fr;
+}
+
+/* ===== Summary View specifics ===== */
+#summary-left {
+    width: 3fr;
+}
+
+#summary-right {
+    width: 2fr;
+}
+
+/* ===== Positions View specifics ===== */
+.positions-left {
+    width: 2fr;
+}
+
+.positions-right {
+    width: 1fr;
+}
+
+/* ===== Lab View specifics ===== */
+#lab-left {
+    width: 2fr;
+}
+
+#lab-right {
+    width: 1fr;
+}
+
+/* ===== Health Bar ===== */
+#summary-health {
+    height: 5;
+    dock: bottom;
+}
+
+
+HealthBar .health-component {
+    width: 20;
+    height: 3;
+    content-align: center middle;
+    text-align: center;
+}
+
+/* ===== Widget borders and backgrounds ===== */
+PositionsTable {
+    border: solid #2f6fb3;
+    background: #23262c;
+    height: 1fr;
+}
+
+SummaryPanel {
+    border: solid #7ee787;
+    background: #23262c;
+    height: 1fr;
+}
+
+AlertsList {
+    border: solid #f6d365;
+    background: #23262c;
+    height: 1fr;
+}
+
+SignalsTable {
+    border: solid #ff6b6b;
+    background: #23262c;
+    height: 1fr;
+    width: 1fr;
+}
+
+ATRPanel {
+    border: solid #f59e0b;
+    background: #23262c;
+    padding: 0 2;
+    height: 2fr;
+}
+
+ATRPanel #atr-title {
+    height: 1;
+    padding: 0;
+    margin: 0;
+}
+
+OrdersPanel {
+    border: solid #3a4148;
+    background: #23262c;
+    height: 1fr;
+}
+
+StrategyList {
+    border: none;
+    background: #23262c;
+    height: 1fr;
+}
+
+StrategyConfigPanel {
+    border: none;
+    background: #23262c;
+    padding: 0 1;
+    height: 1fr;
+}
+
+BacktestResultsPanel {
+    border: none;
+    background: #23262c;
+    padding: 0 1;
+    height: 1fr;
+}
+
+HealthBar {
+    height: 5;
+    border: solid #2f6fb3;
+    background: #23262c;
+}
+
+#lab-health {
+    border: none;
+    height: 1fr;
+    background: #23262c;
+}
+
+HealthBar.compact-health .health-component {
+    width: 8;
+    height: 1;
+    content-align: center middle;
+    text-align: center;
+}
+
+/* ===== DataTable styling ===== */
+DataTable {
+    height: 1fr;
+    background: #23262c;
+}
+
+DataTable > .datatable--header {
+    background: #262b31;
+    color: #9fb2c6;
+    text-style: bold;
+}
+
+DataTable > .datatable--even-row {
+    background: #20242a;
+}
+
+DataTable > .datatable--odd-row {
+    background: #23262c;
+}
+
+DataTable > .datatable--cursor {
+    background: #2d65c8;
+    color: #e6f1ff;
+}
+
+/* ===== Panel title ===== */
+.panel-title {
+    text-style: bold;
+    height: 1;
+    content-align: center middle;
+}
+
+.panel-hints {
+    height: 1;
+    content-align: center middle;
+    color: #8b949e;
+}
+
+/* ===== Lab panel shells ===== */
+#lab-left-panel {
+    border: solid #2f6fb3;
+    background: #23262c;
+    height: 1fr;
+}
+
+#lab-config-panel {
+    border: solid #7ee787;
+    background: #23262c;
+    height: 2fr;
+}
+
+#lab-results-panel {
+    border: solid #7ee787;
+    background: #23262c;
+    height: 1fr;
+}
+
+#lab-health-panel {
+    height: 4;
+    dock: bottom;
+    border: solid #ff6b6b;
+    background: #23262c;
+}
+
+#lab-left-title {
+    color: #9fb2c6;
+}
+
+#lab-config-title,
+#lab-results-title {
+    color: #7ee787;
+}
+
+#lab-health-title {
+    color: #ff6b6b;
+}
+
+/* ===== Footer ===== */
+Footer {
+    background: #262b31;
+}
