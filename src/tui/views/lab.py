@@ -2,8 +2,8 @@
 Lab view for strategy backtesting (Tab 5).
 
 Layout matching original Rich dashboard:
-- Left (35%): Strategy list with columns
-- Right top (65%): Strategy config panel
+- Left (65%): Strategy list with columns
+- Right top (35%): Strategy config panel
 - Right bottom: Last backtest results panel
 - Bottom: Component Health bar
 
@@ -36,17 +36,13 @@ class LabView(Container, can_focus=True):
     """Strategy lab view for backtesting."""
 
     # Styles are in css/dashboard.tcss using Rich-matching palette
-    DEFAULT_CSS = """
-    LabView #lab-health {
-        height: 5;
-        width: 1fr;
-    }
-
-    """
+    DEFAULT_CSS = ""
 
     BINDINGS = [
         Binding("up", "move_up", "Up", show=False),
         Binding("down", "move_down", "Down", show=False),
+        Binding("k", "move_up", "Up", show=False),
+        Binding("j", "move_down", "Down", show=False),
         Binding("enter", "run_backtest", "Run Backtest", show=True),
     ]
 
@@ -57,23 +53,38 @@ class LabView(Container, can_focus=True):
     def compose(self) -> ComposeResult:
         """Compose the lab view layout."""
         with Horizontal(id="lab-main"):
-            # Left side - Strategy list (35%)
+            # Left side - Strategy list (~65%)
             with Vertical(id="lab-left"):
-                yield StrategyList(id="lab-strategies")
+                with Vertical(id="lab-left-panel"):
+                    yield Static("Strategy Lab", id="lab-left-title", classes="panel-title")
+                    yield StrategyList(id="lab-strategies")
+                    yield Static(
+                        "Up/Down/j/k: select   Enter: run backtest",
+                        id="lab-hints",
+                        classes="panel-hints",
+                    )
 
-            # Right side - Config + Results (65%)
+            # Right side - Config + Results (~35%)
             with Vertical(id="lab-right"):
-                yield StrategyConfigPanel(id="lab-config")
-                yield BacktestResultsPanel(id="lab-results")
+                with Vertical(id="lab-config-panel"):
+                    yield Static("Strategy Config", id="lab-config-title", classes="panel-title")
+                    yield StrategyConfigPanel(id="lab-config")
+                with Vertical(id="lab-results-panel"):
+                    yield Static("Last Backtest", id="lab-results-title", classes="panel-title")
+                    yield BacktestResultsPanel(id="lab-results")
 
         # Bottom - Health bar (full width)
-        yield HealthBar(id="lab-health")
+        with Vertical(id="lab-health-panel"):
+            yield Static("Component Health", id="lab-health-title", classes="panel-title")
+            yield HealthBar(id="lab-health", classes="compact-health")
 
     def on_strategy_list_strategy_selected(
         self, event: StrategyList.StrategySelected
     ) -> None:
         """Handle strategy selection."""
         try:
+            config_title = self.query_one("#lab-config-title", Static)
+            config_title.update(f"[bold #7ee787]{event.strategy_name} Config[/]")
             config_panel = self.query_one("#lab-config", StrategyConfigPanel)
             config_panel.strategy_name = event.strategy_name
             config_panel.strategy_info = event.strategy_info

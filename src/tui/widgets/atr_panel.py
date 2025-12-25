@@ -9,6 +9,7 @@ Displays ATR-based stop loss and take profit levels:
 - Summary and keyboard hints
 
 Layout matches original Rich Futu dashboard.
+Uses ATRViewModel for all business logic calculations.
 """
 
 from __future__ import annotations
@@ -21,6 +22,8 @@ from textual.widgets import Static
 from textual.containers import Vertical
 from textual.app import ComposeResult
 from textual import work
+
+from ..viewmodels.atr_vm import ATRViewModel, ATRLevels
 
 
 class ATRPanel(Widget):
@@ -37,6 +40,7 @@ class ATRPanel(Widget):
         self._timeframe = "Daily"
         self._help_mode = False
         self._loading = False
+        self._view_model = ATRViewModel()
 
     def compose(self) -> ComposeResult:
         """Compose the ATR panel layout."""
@@ -136,133 +140,101 @@ class ATRPanel(Widget):
 
     def _render_atr_display(self) -> str:
         """Render full ATR analysis display matching Rich layout."""
-        if self.atr_data is None:
+        # Use ViewModel for all calculations
+        levels = self._view_model.compute_levels(
+            self.atr_data,
+            self.position,
+            self._timeframe,
+            self._period,
+        )
+
+        if levels is None:
+            if self.atr_data is not None:
+                symbol = getattr(self.atr_data, "symbol", "?")
+                return f"[#f6d365]Invalid price data for {symbol}[/]"
             return "[#8b949e]No ATR data[/]"
 
-        atr = getattr(self.atr_data, "atr_value", getattr(self.atr_data, "atr", 0))
-        price = getattr(self.atr_data, "current_price", getattr(self.atr_data, "spot", 0))
-        symbol = getattr(self.atr_data, "symbol", "?")
-        atr_pct = getattr(self.atr_data, "atr_percent", getattr(self.atr_data, "atr_pct", 0))
+        return self._format_levels(levels)
 
-        if price <= 0:
-            return f"[#f6d365]Invalid price data for {symbol}[/]"
-
-        # Calculate values
-        risk = atr * 1.5
-        sma21 = price * 0.97
-        sl_2x = price - (atr * 2)
-        sl_1_5x = price - (atr * 1.5)
-        trail = atr * 2
-
-        # R-levels
-        r1 = price + risk
-        r2 = price + (risk * 2)
-        r3 = price + (risk * 3)
-        r4 = price + (risk * 4)
-        r8 = price + (risk * 8)
-
-        # Position info
-        qty = 0
-        cost_basis = price
-        if self.position:
-            qty = getattr(self.position, "quantity", 0)
-            if hasattr(self.position, "position"):
-                avg_price = getattr(self.position.position, "avg_price", None)
-                if avg_price:
-                    cost_basis = avg_price
-
+    def _format_levels(self, lv: ATRLevels) -> str:
+        """Format ATRLevels into Rich markup for display."""
         lines = []
 
         # Row 1: Header line
+        qty_str = ""
+        if lv.quantity > 0:
+            qty_str = f"  [#7ee787]{lv.quantity:,.0f} sh[/]  [#c9d1d9]Cost: ${lv.cost_basis:,.0f}[/]"
         lines.append(
-            f"[bold #5fd7ff]{symbol}[/] [bold #c9d1d9]${price:,.2f}[/]  "
-            f"[bold #f6d365]ATR ${atr:.2f}[/] [#f6d365]({atr_pct:.1f}%)[/]  "
-            f"[#d66efd][{self._timeframe}][/]"
-            + (f"  [#7ee787]{qty:,.0f} sh[/]  [#c9d1d9]Cost: ${cost_basis:,.0f}[/]" if qty else "")
+            f"[bold #5fd7ff]{lv.symbol}[/] [bold #c9d1d9]${lv.price:,.2f}[/]  "
+            f"[bold #f6d365]ATR ${lv.atr:.2f}[/] [#f6d365]({lv.atr_pct:.1f}%)[/]  "
+            f"[#d66efd][{lv.timeframe}][/]{qty_str}"
         )
         lines.append("")
 
         # Row 2: Price Levels
         lines.append("[bold #c9d1d9]── Price Levels " + "─" * 60 + "[/]")
         lines.append(
-            f"[#ff6b6b]SL-2x:[/][#ff6b6b]{sl_2x:>8.2f}[/]  "
-            f"[#ff6b6b]SL-1.5x:[/][#ff6b6b]{sl_1_5x:>7.2f}[/]  "
-            f"[#5fd7ff]SMA21:[/][#5fd7ff]{sma21:>7.2f}[/]  "
-            f"[bold #c9d1d9]Entry:[/][bold #c9d1d9]{price:>7.2f}[/]"
+            f"[#ff6b6b]SL-2x:[/][#ff6b6b]{lv.sl_2x:>8.2f}[/]  "
+            f"[#ff6b6b]SL-1.5x:[/][#ff6b6b]{lv.sl_1_5x:>7.2f}[/]  "
+            f"[#5fd7ff]SMA21:[/][#5fd7ff]{lv.sma21:>7.2f}[/]  "
+            f"[bold #c9d1d9]Entry:[/][bold #c9d1d9]{lv.price:>7.2f}[/]"
         )
         lines.append(
-            f"[#7ee787]1R:[/][#7ee787]{r1:>7.2f}[/]  "
-            f"[#7ee787]2R:[/][#7ee787]{r2:>7.2f}[/]  "
-            f"[#f6d365]3R:[/][#f6d365]{r3:>7.2f}[/]  "
-            f"[#f6d365]4R:[/][#f6d365]{r4:>7.2f}[/]  "
-            f"[#5fd7ff]8R:[/][#5fd7ff]{r8:>7.2f}[/]"
+            f"[#7ee787]1R:[/][#7ee787]{lv.r1:>7.2f}[/]  "
+            f"[#7ee787]2R:[/][#7ee787]{lv.r2:>7.2f}[/]  "
+            f"[#f6d365]3R:[/][#f6d365]{lv.r3:>7.2f}[/]  "
+            f"[#f6d365]4R:[/][#f6d365]{lv.r4:>7.2f}[/]  "
+            f"[#5fd7ff]8R:[/][#5fd7ff]{lv.r8:>7.2f}[/]"
         )
         lines.append("")
 
         # Row 3: Two-column layout for R-TARGETS and TRAILING STOP
-        # Calculate column width for side-by-side display
         col_width = 38
 
-        # Build left column (R-TARGETS)
         left_lines = [
-            f"[bold #7ee787]R-TARGETS[/]",
-            f"[#8b949e]Risk (1R) = ${risk:.0f} (1.5xATR)[/]",
-            f"[#ff6b6b]Stop[/]  ${sl_1_5x:>6,.0f}  [#ff6b6b]-${risk:>5,.0f}[/]  Exit all",
-            f"[#7ee787]1R[/]    ${r1:>6,.0f}  [#7ee787]+${risk:>5,.0f}[/]  Trail starts",
-            f"[#7ee787]2R[/]    ${r2:>6,.0f}  [#7ee787]+${risk*2:>5,.0f}[/]  Sell 33%",
-            f"[#f6d365]3R[/]    ${r3:>6,.0f}  [#f6d365]+${risk*3:>5,.0f}[/]  Sell 33%",
-            f"[#5fd7ff]8R[/]    ${r8:>6,.0f}  [#5fd7ff]+${risk*8:>5,.0f}[/]  Max target",
+            "[bold #7ee787]R-TARGETS[/]",
+            f"[#8b949e]Risk (1R) = ${lv.risk:.0f} (1.5xATR)[/]",
+            f"[#ff6b6b]Stop[/]  ${lv.sl_1_5x:>6,.0f}  [#ff6b6b]-${lv.risk:>5,.0f}[/]  Exit all",
+            f"[#7ee787]1R[/]    ${lv.r1:>6,.0f}  [#7ee787]+${lv.risk:>5,.0f}[/]  Trail starts",
+            f"[#7ee787]2R[/]    ${lv.r2:>6,.0f}  [#7ee787]+${lv.risk*2:>5,.0f}[/]  Sell 33%",
+            f"[#f6d365]3R[/]    ${lv.r3:>6,.0f}  [#f6d365]+${lv.risk*3:>5,.0f}[/]  Sell 33%",
+            f"[#5fd7ff]8R[/]    ${lv.r8:>6,.0f}  [#5fd7ff]+${lv.risk*8:>5,.0f}[/]  Max target",
         ]
 
-        # Build right column (TRAILING STOP)
-        r2_stop = r2 - trail
-        r4_stop = r4 - trail
         right_lines = [
-            f"[bold #f6d365]TRAILING STOP[/]",
-            f"[#8b949e]Trail = High - 2xATR (${trail:.0f})[/]",
-            f"Activates at 1R: ${r1:>6,.0f}",
-            f"${r2:>6,.0f} -> stop ${r2_stop:>6,.0f}",
-            f"${r4:>6,.0f} -> stop ${r4_stop:>6,.0f}",
+            "[bold #f6d365]TRAILING STOP[/]",
+            f"[#8b949e]Trail = High - 2xATR (${lv.trail:.0f})[/]",
+            f"Activates at 1R: ${lv.r1:>6,.0f}",
+            f"${lv.r2:>6,.0f} -> stop ${lv.r2_stop:>6,.0f}",
+            f"${lv.r4:>6,.0f} -> stop ${lv.r4_stop:>6,.0f}",
             "",
             "",
         ]
 
-        # Merge columns side by side
         for left, right in zip(left_lines, right_lines):
-            # Pad left column to fixed width (strip markup for padding calc)
             lines.append(f"{left:<{col_width}}{right}")
         lines.append("")
 
         # Row 4: Exit Plan (if position)
-        if qty > 0:
-            q3 = int(qty // 3)
-            runners = int(qty - 2 * q3)
-            profit2 = (r2 - cost_basis) * q3
-            profit3 = (r3 - cost_basis) * q3
-            pct2 = (r2 - cost_basis) / cost_basis * 100 if cost_basis else 0
-            pct3 = (r3 - cost_basis) / cost_basis * 100 if cost_basis else 0
-
+        if lv.quantity > 0:
             lines.append("[bold #d66efd]EXIT PLAN[/]")
             lines.append(
-                f"[#7ee787]Sell {q3:,} @ 2R (${r2:,.0f})[/]  "
-                f"[#7ee787]+${profit2:,.0f}[/]  [#7ee787]+{pct2:.1f}%[/]"
+                f"[#7ee787]Sell {lv.q3:,} @ 2R (${lv.r2:,.0f})[/]  "
+                f"[#7ee787]+${lv.profit_2r:,.0f}[/]  [#7ee787]+{lv.pct_2r:.1f}%[/]"
             )
             lines.append(
-                f"[#f6d365]Sell {q3:,} @ 3R (${r3:,.0f})[/]  "
-                f"[#f6d365]+${profit3:,.0f}[/]  [#f6d365]+{pct3:.1f}%[/]"
+                f"[#f6d365]Sell {lv.q3:,} @ 3R (${lv.r3:,.0f})[/]  "
+                f"[#f6d365]+${lv.profit_3r:,.0f}[/]  [#f6d365]+{lv.pct_3r:.1f}%[/]"
             )
             lines.append(
-                f"[#5fd7ff]Trail {runners:,} (2xATR) -> runners 5R-8R[/]"
+                f"[#5fd7ff]Trail {lv.runners:,} (2xATR) -> runners 5R-8R[/]"
             )
             lines.append("")
 
         # Row 5: Summary
-        risk_pct = (risk / price * 100) if price else 0
-        max_gain = r8 - price
-        max_pct = (max_gain / price * 100) if price else 0
         lines.append(
-            f"[#8b949e]Risk: [/][#ff6b6b]${risk:.0f}[/] [#8b949e]({risk_pct:.1f}%)[/]  "
-            f"[#8b949e]Max @8R: [/][#5fd7ff]${max_gain:.0f}[/] [#8b949e]({max_pct:.0f}%)[/]  "
+            f"[#8b949e]Risk: [/][#ff6b6b]${lv.risk:.0f}[/] [#8b949e]({lv.risk_pct:.1f}%)[/]  "
+            f"[#8b949e]Max @8R: [/][#5fd7ff]${lv.max_gain:.0f}[/] [#8b949e]({lv.max_pct:.0f}%)[/]  "
             f"[#8b949e]R:R @8R = [/][bold #5fd7ff]8.0[/]"
         )
         lines.append("")

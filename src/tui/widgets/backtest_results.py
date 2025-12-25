@@ -30,7 +30,6 @@ class BacktestResultsPanel(Widget):
     def compose(self) -> ComposeResult:
         """Compose the results panel layout."""
         with Vertical(id="results-content"):
-            yield Static("[bold]Last Backtest[/]", id="results-title")
             yield Static(self._render_empty(), id="results-body")
 
     def watch_result(self, result: Optional[Any]) -> None:
@@ -56,8 +55,8 @@ class BacktestResultsPanel(Widget):
                 body.update(self._render_result())
             else:
                 body.update(self._render_empty())
-        except Exception:
-            pass
+        except Exception as e:
+            self.log.error(f"Failed to update backtest results display: {e}")
 
     def _render_empty(self) -> str:
         """Render empty state."""
@@ -65,9 +64,7 @@ class BacktestResultsPanel(Widget):
             "[dim]No backtest results available[/]",
             "",
             "[dim]Run a backtest to see performance:[/]",
-            "[dim]  Press Enter on a strategy[/]",
-            "[dim]  or use CLI:[/]",
-            "[dim]  python -m src.runners.backtest_runner <spec.yaml>[/]",
+            "[dim]python -m src.runners.backtest_runner <spec.yaml>[/]",
         ]
         return "\n".join(lines)
 

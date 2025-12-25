@@ -12,6 +12,7 @@ Screen {
     background: #1f2228;
     color: #c9d1d9;
     layout: vertical;
+    border: solid #2f6fb3;
 }
 
 /* ===== Header ===== */
@@ -37,6 +38,8 @@ HeaderWidget #header-tabs {
 /* ===== Tab Container ===== */
 TabbedContent {
     height: 1fr;
+    border: none;
+    padding: 0;
 }
 
 TabbedContent > ContentTabs {
@@ -45,10 +48,14 @@ TabbedContent > ContentTabs {
 
 ContentSwitcher {
     height: 1fr;
+    border: none;
+    padding: 0;
 }
 
 TabPane {
     height: 1fr;
+    border: none;
+    padding: 0;
 }
 
 /* Header tab styling */
@@ -56,7 +63,7 @@ HeaderWidget Tabs {
     height: 1;
     background: #262b31;
     min-height: 1;
-    padding: 0 1;
+    padding: 0 0 0 1;
     width: auto;
 }
 
@@ -83,7 +90,7 @@ HeaderWidget Tab {
 }
 
 HeaderWidget Tab.-active {
-    background: #23262c;
+    background: #262b31;
     color: #5fd7ff;
     text-style: bold;
 }
@@ -125,18 +132,19 @@ Vertical {
 
 /* ===== Lab View specifics ===== */
 #lab-left {
-    width: 1fr;
-}
-
-#lab-right {
     width: 2fr;
 }
 
+#lab-right {
+    width: 1fr;
+}
+
 /* ===== Health Bar ===== */
-#summary-health, #lab-health {
+#summary-health {
     height: 5;
     dock: bottom;
 }
+
 
 HealthBar .health-component {
     width: 20;
@@ -191,20 +199,22 @@ OrdersPanel {
 }
 
 StrategyList {
-    border: solid #2f6fb3;
+    border: none;
     background: #23262c;
     height: 1fr;
 }
 
 StrategyConfigPanel {
-    border: solid #7ee787;
+    border: none;
     background: #23262c;
+    padding: 0 1;
     height: 1fr;
 }
 
 BacktestResultsPanel {
-    border: solid #f6d365;
+    border: none;
     background: #23262c;
+    padding: 0 1;
     height: 1fr;
 }
 
@@ -212,6 +222,19 @@ HealthBar {
     height: 5;
     border: solid #2f6fb3;
     background: #23262c;
+}
+
+#lab-health {
+    border: none;
+    height: 1fr;
+    background: #23262c;
+}
+
+HealthBar.compact-health .health-component {
+    width: 8;
+    height: 1;
+    content-align: center middle;
+    text-align: center;
 }
 
 /* ===== DataTable styling ===== */
@@ -243,6 +266,52 @@ DataTable > .datatable--cursor {
 .panel-title {
     text-style: bold;
     height: 1;
+    content-align: center middle;
+}
+
+.panel-hints {
+    height: 1;
+    content-align: center middle;
+    color: #8b949e;
+}
+
+/* ===== Lab panel shells ===== */
+#lab-left-panel {
+    border: solid #2f6fb3;
+    background: #23262c;
+    height: 1fr;
+}
+
+#lab-config-panel {
+    border: solid #7ee787;
+    background: #23262c;
+    height: 2fr;
+}
+
+#lab-results-panel {
+    border: solid #7ee787;
+    background: #23262c;
+    height: 1fr;
+}
+
+#lab-health-panel {
+    height: 4;
+    dock: bottom;
+    border: solid #ff6b6b;
+    background: #23262c;
+}
+
+#lab-left-title {
+    color: #9fb2c6;
+}
+
+#lab-config-title,
+#lab-results-title {
+    color: #7ee787;
+}
+
+#lab-health-title {
+    color: #ff6b6b;
 }
 
 /* ===== Footer ===== */

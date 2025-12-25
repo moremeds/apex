@@ -19,8 +19,8 @@ from textual.app import ComposeResult
 class OrdersPanel(Widget):
     """Open orders display for a broker."""
 
-    # Reactive state
-    orders: reactive[List[Any]] = reactive([], init=False)
+    # Reactive state - use factory to avoid mutable default sharing
+    orders: reactive[List[Any]] = reactive(list, init=False)
 
     def __init__(self, broker: str = "IB", **kwargs):
         super().__init__(**kwargs)
@@ -60,5 +60,5 @@ class OrdersPanel(Widget):
                 )
 
             orders_list.update("\n".join(lines))
-        except Exception:
-            pass
+        except Exception as e:
+            self.log.error(f"Failed to render orders: {e}")

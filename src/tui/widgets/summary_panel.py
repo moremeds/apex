@@ -85,5 +85,5 @@ class SummaryPanel(Widget):
         """Update a Static widget by ID."""
         try:
             self.query_one(f"#{widget_id}", Static).update(value)
-        except Exception:
-            pass
+        except Exception as e:
+            self.log.error(f"Failed to update summary field {widget_id}: {e}")

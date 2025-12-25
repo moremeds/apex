@@ -14,7 +14,7 @@ from __future__ import annotations
 from textual.widget import Widget
 from textual.reactive import reactive
 from textual.widgets import Static, Tabs, Tab
-from textual.containers import Horizontal
+from textual.containers import Center, Horizontal
 from textual.app import ComposeResult
 
 from ...utils.market_hours import MarketHours
@@ -26,19 +26,20 @@ class HeaderWidget(Widget):
 
     # Styles are in css/dashboard.tcss; only layout-specific overrides here
     DEFAULT_CSS = """
+    HeaderWidget {
+        content-align: center middle;
+    }
+
     HeaderWidget #header-content {
-        width: 100%;
+        width: auto;
         height: 100%;
         layout: horizontal;
     }
 
-    HeaderWidget #header-right {
-        width: 1fr;
-        min-width: 0;
-        content-align: right middle;
-        text-align: right;
-        margin-right: 1;
-        padding: 0 1;
+    HeaderWidget #header-left {
+        width: auto;
+        content-align: left middle;
+        padding: 0 0;
     }
 
     HeaderWidget #header-tabs {
@@ -62,13 +63,14 @@ class HeaderWidget(Widget):
 
     def compose(self) -> ComposeResult:
         """Compose the header layout."""
-        with Horizontal(id="header-content"):
-            tabs = [
-                Tab(f"[{key}]{label}", id=tab_id)
-                for key, label, tab_id, _view in VIEW_TABS
-            ]
-            yield Tabs(*tabs, id="header-tabs", active=self.active_tab)
-            yield Static(self._build_header_text(), id="header-right")
+        with Center():
+            with Horizontal(id="header-content"):
+                yield Static(self._build_header_text(), id="header-left")
+                tabs = [
+                    Tab(f"[{key}]{label}", id=tab_id)
+                    for key, label, tab_id, _view in VIEW_TABS
+                ]
+                yield Tabs(*tabs, id="header-tabs", active=self.active_tab)
 
     def _build_header_text(self) -> str:
         """Build the header text with all components."""
@@ -81,7 +83,10 @@ class HeaderWidget(Widget):
         # Get market status
         market_status = MarketHours.get_market_status()
 
-        sections = [f"[#c9d1d9]{current_time}[/]"]
+        sections = [
+            "[bold #5fd7ff]Live Risk Management System[/]",
+            f"[#c9d1d9]{current_time}[/]",
+        ]
 
         # Environment
         env_upper = self.env.upper()
@@ -101,10 +106,7 @@ class HeaderWidget(Widget):
             market_text = "[bold #ff6b6b]CLOSED[/]"
         sections.append(f"Market: {market_text}")
 
-        # Title (rightmost)
-        sections.append("[bold #5fd7ff]Live Risk Management System[/]")
-
-        return " | ".join(sections)
+        return " | ".join(sections) + " |"
 
     def watch_active_tab(self, tab_id: str) -> None:
         """Refresh header when the active tab changes."""
@@ -118,7 +120,7 @@ class HeaderWidget(Widget):
     def _refresh_header(self) -> None:
         """Update header display safely."""
         try:
-            content = self.query_one("#header-right", Static)
+            content = self.query_one("#header-left", Static)
             content.update(self._build_header_text())
         except Exception as e:
             self.log.error(f"Failed to refresh header: {e}")

@@ -51,6 +51,10 @@ class BaseViewModel(ABC, Generic[T]):
         self._previous_data: Optional[T] = None
         self._row_cache: Dict[str, List[str]] = {}
         self._row_order: List[str] = []
+        # Pending computation cache to avoid double compute
+        self._pending_display: Optional[Dict[str, List[str]]] = None
+        self._pending_order: Optional[List[str]] = None
+        self._pending_data_id: Optional[int] = None
 
     @abstractmethod
     def compute_display_data(self, data: T) -> Dict[str, List[str]]:
@@ -78,6 +82,39 @@ class BaseViewModel(ABC, Generic[T]):
         """
         pass
 
+    def _get_or_compute(self, data: T) -> Tuple[Dict[str, List[str]], List[str]]:
+        """
+        Get cached computation or compute fresh.
+
+        Uses object id to detect if data changed since last computation.
+        This avoids calling compute_display_data twice (once for full_refresh_needed,
+        once for compute_updates).
+
+        Returns:
+            Tuple of (display_data, row_order)
+        """
+        data_id = id(data)
+        if self._pending_data_id == data_id and self._pending_display is not None:
+            # Reuse cached computation
+            return self._pending_display, self._pending_order or []
+
+        # Fresh computation
+        display = self.compute_display_data(data)
+        order = self.get_row_order(data)
+
+        # Cache for potential reuse
+        self._pending_display = display
+        self._pending_order = order
+        self._pending_data_id = data_id
+
+        return display, order
+
+    def _clear_pending(self) -> None:
+        """Clear pending computation cache after use."""
+        self._pending_display = None
+        self._pending_order = None
+        self._pending_data_id = None
+
     def compute_updates(
         self, data: T
     ) -> Tuple[List[RowUpdate], List[CellUpdate], List[str]]:
@@ -87,8 +124,9 @@ class BaseViewModel(ABC, Generic[T]):
         Returns:
             Tuple of (row_operations, cell_updates, new_row_order)
         """
-        new_display = self.compute_display_data(data)
-        new_order = self.get_row_order(data)
+        # Use cached computation if available (from full_refresh_needed check)
+        new_display, new_order = self._get_or_compute(data)
+        self._clear_pending()  # Clear after use
 
         row_ops: List[RowUpdate] = []
         cell_updates: List[CellUpdate] = []
@@ -127,13 +165,16 @@ class BaseViewModel(ABC, Generic[T]):
         """
         Check if a full refresh is needed (e.g., first load or structural change).
 
+        Uses _get_or_compute to cache the result for subsequent compute_updates call,
+        avoiding double computation.
+
         Override in subclasses for custom logic.
         """
         if self._previous_data is None:
             return True
 
-        # Check if row keys changed (structural change)
-        new_display = self.compute_display_data(data)
+        # Compute and cache for potential reuse by compute_updates
+        new_display, _ = self._get_or_compute(data)
         old_keys = set(self._row_cache.keys())
         new_keys = set(new_display.keys())
 
@@ -145,6 +186,7 @@ class BaseViewModel(ABC, Generic[T]):
         self._previous_data = None
         self._row_cache.clear()
         self._row_order.clear()
+        self._clear_pending()
 
     def get_cached_row_order(self) -> List[str]:
         """Get the cached row order."""

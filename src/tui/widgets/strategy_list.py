@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 from textual.widgets import DataTable
 from textual.reactive import reactive
 from textual.message import Message
+from textual import work
 
 from ..viewmodels.strategy_vm import StrategyDisplayState, StrategyViewModel
 
@@ -75,42 +76,79 @@ class StrategyList(DataTable):
             self.add_column(name, width=width, key=col_key)
             self._column_keys.append(col_key)
 
-        # Load strategies from registry
-        self._load_strategies()
+        # Show loading state
+        self._show_loading_state()
 
-    def _load_strategies(self) -> None:
-        """Load strategies from the StrategyRegistry."""
+        # Load strategies in background worker to avoid blocking main thread
+        self._load_strategies_worker()
+
+    def _show_loading_state(self) -> None:
+        """Show loading state while strategies are being loaded."""
+        self.clear()
+        self._row_keys.clear()
+        self.add_row(
+            "",
+            "[dim]Loading...[/]",
+            "[dim]Fetching strategies[/]",
+            "-",
+            "-",
+            "-",
+            "-",
+            "-",
+            "",
+            key="__loading__",
+        )
+        self._row_keys.append("__loading__")
+
+    @work(thread=True)
+    def _load_strategies_worker(self) -> None:
+        """Load strategies in background thread to avoid blocking UI."""
         try:
             # Import example strategies to ensure they're registered
+            # This can be slow due to module loading
             from ...domain.strategy import examples  # noqa: F401
             from ...domain.strategy.registry import StrategyRegistry, get_strategy_info
 
-            self._strategy_list = sorted(StrategyRegistry.list_strategies())
-            self._strategy_map.clear()
+            strategy_list = sorted(StrategyRegistry.list_strategies())
+            strategy_map = {}
 
-            for name in self._strategy_list:
+            for name in strategy_list:
                 info = get_strategy_info(name)
                 if info:
-                    self._strategy_map[name] = {
+                    strategy_map[name] = {
                         "name": name,
                         "description": info.get("description", ""),
                         "version": info.get("version", "1.0"),
                         "author": info.get("author", ""),
                     }
                 else:
-                    self._strategy_map[name] = {
+                    strategy_map[name] = {
                         "name": name,
                         "description": "",
                         "version": "1.0",
                         "author": "",
                     }
 
-            # Update ViewModel with strategy info
-            self._view_model.set_strategies(self._strategy_map)
-            self._full_rebuild()
+            # Marshal back to main thread for UI updates
+            self.app.call_from_thread(self._on_strategies_loaded, strategy_list, strategy_map)
         except Exception as e:
-            self.log.error(f"Failed to load strategies: {e}")
-            self._show_empty_state()
+            self.app.call_from_thread(self._on_strategies_error, str(e))
+
+    def _on_strategies_loaded(
+        self, strategy_list: List[str], strategy_map: Dict[str, dict]
+    ) -> None:
+        """Handle successful strategy load (called from main thread)."""
+        self._strategy_list = strategy_list
+        self._strategy_map = strategy_map
+
+        # Update ViewModel with strategy info
+        self._view_model.set_strategies(self._strategy_map)
+        self._full_rebuild()
+
+    def _on_strategies_error(self, error: str) -> None:
+        """Handle strategy load error (called from main thread)."""
+        self.log.error(f"Failed to load strategies: {error}")
+        self._show_empty_state()
 
     def _show_empty_state(self) -> None:
         """Show empty state when no strategies available."""
@@ -243,7 +281,8 @@ class StrategyList(DataTable):
 
     def refresh_strategies(self) -> None:
         """Reload strategies from registry."""
-        self._load_strategies()
+        self._show_loading_state()
+        self._load_strategies_worker()
 
     def set_backtest_result(self, strategy_name: str, result: Any) -> None:
         """Set backtest result for a strategy."""
