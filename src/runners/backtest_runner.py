@@ -44,6 +44,9 @@ from ..infrastructure.backtest.data_feeds import (
     CachedBarDataFeed,
     CsvDataFeed,
     ParquetDataFeed,
+    # OPT-009: Streaming data feeds (memory efficient)
+    StreamingCsvDataFeed,
+    StreamingParquetDataFeed,
 )
 from ..infrastructure.backtest.simulated_execution import FillModel
 from config.models import IbConfig, IbClientIdsConfig
@@ -134,6 +137,7 @@ class BacktestRunner:
         slippage_bps: float = 5.0,
         commission_per_share: float = 0.005,
         cached_bars: Optional[Dict[str, List]] = None,
+        streaming: bool = True,  # OPT-009: Use streaming data feeds by default
     ):
         """
         Initialize backtest runner.
@@ -155,6 +159,8 @@ class BacktestRunner:
             commission_per_share: Commission per share.
             cached_bars: Pre-fetched bars (Dict[symbol, List[BarData]]).
                         Use with data_source="cached" for in-process backtests.
+            streaming: OPT-009 - Use streaming data feeds (default True).
+                      Memory efficient O(symbols) vs O(bars) for large datasets.
         """
         self.strategy_name = strategy_name
         self.symbols = symbols
@@ -169,6 +175,7 @@ class BacktestRunner:
         self.slippage_bps = slippage_bps
         self.commission_per_share = commission_per_share
         self.cached_bars = cached_bars
+        self.streaming = streaming  # OPT-009
 
         self._spec: Optional[BacktestSpec] = None
 
@@ -189,6 +196,9 @@ class BacktestRunner:
         if errors:
             raise ValueError(f"Invalid spec: {errors}")
 
+        # OPT-009: Get streaming setting from spec, default True
+        streaming = spec.data.streaming if hasattr(spec.data, "streaming") else True
+
         runner = cls(
             strategy_name=spec.strategy.name,
             symbols=spec.get_symbols(),
@@ -199,6 +209,7 @@ class BacktestRunner:
             data_dir=spec.data.csv_dir or spec.data.parquet_dir or "./data",
             bar_size=spec.data.bar_size,
             strategy_params=spec.strategy.params,
+            streaming=streaming,
         )
         runner._spec = spec
         return runner
@@ -253,6 +264,7 @@ class BacktestRunner:
             fill_model=getattr(args, "fill_model", "immediate"),
             slippage_bps=getattr(args, "slippage", 5.0),
             commission_per_share=getattr(args, "commission", 0.005),
+            streaming=getattr(args, "streaming", True),  # OPT-009
         )
 
     async def run(self) -> BacktestResult:
@@ -343,21 +355,41 @@ class BacktestRunner:
                 client_id=client_id,
             )
         elif self.data_source == "csv":
-            return CsvDataFeed(
-                csv_dir=self.data_dir,
-                symbols=self.symbols,
-                start_date=self.start_date,
-                end_date=self.end_date,
-                bar_size=self.bar_size,
-            )
+            # OPT-009: Use streaming feed for memory efficiency on large datasets
+            if self.streaming:
+                return StreamingCsvDataFeed(
+                    csv_dir=self.data_dir,
+                    symbols=self.symbols,
+                    start_date=self.start_date,
+                    end_date=self.end_date,
+                    bar_size=self.bar_size,
+                )
+            else:
+                return CsvDataFeed(
+                    csv_dir=self.data_dir,
+                    symbols=self.symbols,
+                    start_date=self.start_date,
+                    end_date=self.end_date,
+                    bar_size=self.bar_size,
+                )
         elif self.data_source == "parquet":
-            return ParquetDataFeed(
-                parquet_dir=self.data_dir,
-                symbols=self.symbols,
-                start_date=self.start_date,
-                end_date=self.end_date,
-                bar_size=self.bar_size,
-            )
+            # OPT-009: Use streaming feed for memory efficiency on large datasets
+            if self.streaming:
+                return StreamingParquetDataFeed(
+                    parquet_dir=self.data_dir,
+                    symbols=self.symbols,
+                    start_date=self.start_date,
+                    end_date=self.end_date,
+                    bar_size=self.bar_size,
+                )
+            else:
+                return ParquetDataFeed(
+                    parquet_dir=self.data_dir,
+                    symbols=self.symbols,
+                    start_date=self.start_date,
+                    end_date=self.end_date,
+                    bar_size=self.bar_size,
+                )
         else:
             raise ValueError(
                 f"Unknown data source: {self.data_source}. "
@@ -378,6 +410,8 @@ class BacktestRunner:
             ib_config = load_ib_config()
             if ib_config:
                 print(f"IB Gateway:   {ib_config.host}:{ib_config.port}")
+        elif self.data_source in ("csv", "parquet"):
+            print(f"Streaming:    {self.streaming}")  # OPT-009
         print(f"Bar Size:     {self.bar_size}")
         print(f"Fill Model:   {self.fill_model.value}")
         if self.strategy_params:
@@ -802,6 +836,19 @@ Note: Broker connection settings are loaded from config/base.yaml (brokers secti
         type=float,
         default=0.005,
         help="Commission per share (default: 0.005)",
+    )
+    # OPT-009: Streaming data feeds
+    parser.add_argument(
+        "--streaming",
+        action="store_true",
+        default=True,
+        help="Use streaming data feeds (default: True, memory efficient)",
+    )
+    parser.add_argument(
+        "--no-streaming",
+        action="store_false",
+        dest="streaming",
+        help="Use full-load data feeds (load all data to memory)",
     )
     parser.add_argument(
         "--spec",

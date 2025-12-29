@@ -31,9 +31,10 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, date
 from pathlib import Path
-from typing import List, Optional, AsyncIterator, Dict, Any
+from typing import List, Optional, AsyncIterator, Dict, Any, Iterator, Tuple, Generator
 import asyncio
 import csv
+import heapq
 import json
 import logging
 
@@ -238,6 +239,199 @@ class CsvDataFeed(DataFeed):
         return len(self._bars)
 
 
+class StreamingCsvDataFeed(DataFeed):
+    """
+    OPT-009: Streaming data feed that yields bars without loading all to memory.
+
+    Uses heap-based k-way merge sort to combine multiple symbol streams
+    in timestamp order. Memory usage is O(num_symbols) instead of O(total_bars).
+
+    Key differences from CsvDataFeed:
+    - Lazy file reading: Data is read on-demand during stream_bars()
+    - Heap-based merge: Only one bar per symbol in memory at a time
+    - bar_count is -1 until streaming completes (count unknown until end)
+
+    Example:
+        feed = StreamingCsvDataFeed(
+            csv_dir="data/historical",
+            symbols=["AAPL", "MSFT"],
+            start_date=date(2024, 1, 1),
+        )
+        await feed.load()  # Just initializes readers, no data loaded
+
+        # Bars yielded in timestamp order, memory-efficient
+        async for bar in feed.stream_bars():
+            print(bar)
+    """
+
+    def __init__(
+        self,
+        csv_dir: str,
+        symbols: List[str],
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+        date_column: str = "date",
+        date_format: str = "%Y-%m-%d",
+        bar_size: str = "1d",
+    ):
+        """
+        Initialize streaming CSV data feed.
+
+        Args:
+            csv_dir: Directory containing CSV files.
+            symbols: List of symbols to load.
+            start_date: Start date filter (inclusive).
+            end_date: End date filter (inclusive).
+            date_column: Name of date column.
+            date_format: Date format string.
+            bar_size: Bar size string (e.g., "1d", "1h").
+        """
+        self._csv_dir = Path(csv_dir)
+        self._symbols = symbols
+        self._start_date = start_date
+        self._end_date = end_date
+        self._date_column = date_column
+        self._date_format = date_format
+        self._bar_size = bar_size
+        self._bar_count = -1  # Unknown until streaming completes
+        self._loaded = False
+
+    async def load(self) -> None:
+        """
+        Initialize readers (no data loaded yet).
+
+        Unlike CsvDataFeed, this just prepares for streaming.
+        Actual data reading happens during stream_bars().
+        """
+        # Verify files exist
+        missing = []
+        for symbol in self._symbols:
+            csv_path = self._csv_dir / f"{symbol}.csv"
+            if not csv_path.exists():
+                missing.append(symbol)
+
+        if missing:
+            logger.warning(f"CSV files not found for: {missing}")
+
+        self._loaded = True
+        logger.info(
+            f"StreamingCsvDataFeed initialized for {len(self._symbols)} symbols "
+            f"(data will be streamed on demand)"
+        )
+
+    def _create_reader(self, symbol: str) -> Generator[HistoricalBar, None, None]:
+        """
+        Create a streaming reader generator for a symbol.
+
+        Yields bars one at a time from the CSV file, filtering by date range.
+        The generator keeps only one bar in memory at a time.
+        """
+        csv_path = self._csv_dir / f"{symbol}.csv"
+        if not csv_path.exists():
+            return
+
+        try:
+            with open(csv_path, "r") as f:
+                reader = csv.DictReader(f)
+
+                for row in reader:
+                    try:
+                        # Parse date
+                        date_str = row[self._date_column]
+                        try:
+                            timestamp = datetime.strptime(date_str, self._date_format)
+                        except ValueError:
+                            # Try with time
+                            timestamp = datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S")
+
+                        # Apply date filter early (before yielding)
+                        if self._start_date and timestamp.date() < self._start_date:
+                            continue
+                        if self._end_date and timestamp.date() > self._end_date:
+                            continue
+
+                        # Yield bar
+                        yield HistoricalBar(
+                            symbol=symbol,
+                            timestamp=timestamp,
+                            open=float(row.get("open", 0)),
+                            high=float(row.get("high", 0)),
+                            low=float(row.get("low", 0)),
+                            close=float(row.get("close", 0)),
+                            volume=float(row.get("volume", 0)),
+                            bar_size=self._bar_size,
+                        )
+
+                    except (KeyError, ValueError) as e:
+                        logger.warning(f"Error parsing row in {csv_path}: {e}")
+                        continue
+
+        except IOError as e:
+            logger.error(f"Error reading {csv_path}: {e}")
+
+    async def stream_bars(self) -> AsyncIterator[BarData]:
+        """
+        Stream bars in timestamp order using heap-based k-way merge.
+
+        Memory usage: O(num_symbols) instead of O(total_bars).
+        Each symbol's bars are read lazily from its generator.
+
+        The heap contains tuples of (timestamp, symbol_index, bar, generator)
+        to ensure correct ordering even when timestamps are equal.
+        """
+        if not self._loaded:
+            await self.load()
+
+        # Create generators for each symbol
+        generators: List[Generator[HistoricalBar, None, None]] = [
+            self._create_reader(symbol) for symbol in self._symbols
+        ]
+
+        # Initialize min-heap with first bar from each generator
+        # Heap items: (timestamp, index, bar, generator)
+        # Index is used as tiebreaker when timestamps are equal
+        heap: List[Tuple[datetime, int, HistoricalBar, Generator]] = []
+
+        for i, gen in enumerate(generators):
+            try:
+                bar = next(gen)
+                heapq.heappush(heap, (bar.timestamp, i, bar, gen))
+            except StopIteration:
+                # Empty generator (no bars for this symbol in date range)
+                continue
+
+        # Stream bars in sorted order
+        bar_count = 0
+        while heap:
+            timestamp, idx, bar, gen = heapq.heappop(heap)
+            yield bar.to_bar_data(source="csv")
+            bar_count += 1
+
+            # Push next bar from same generator
+            try:
+                next_bar = next(gen)
+                heapq.heappush(heap, (next_bar.timestamp, idx, next_bar, gen))
+            except StopIteration:
+                # This symbol's stream is exhausted
+                continue
+
+        self._bar_count = bar_count
+        logger.info(f"StreamingCsvDataFeed streamed {bar_count} bars")
+
+    def get_symbols(self) -> List[str]:
+        """Get list of symbols."""
+        return self._symbols
+
+    @property
+    def bar_count(self) -> int:
+        """
+        Get total bar count.
+
+        Returns -1 if streaming hasn't completed yet (count unknown).
+        """
+        return self._bar_count
+
+
 class ParquetDataFeed(DataFeed):
     """
     Load historical data from Parquet files.
@@ -352,6 +546,199 @@ class ParquetDataFeed(DataFeed):
     def bar_count(self) -> int:
         """Get total bar count."""
         return len(self._bars)
+
+
+class StreamingParquetDataFeed(DataFeed):
+    """
+    OPT-009: Streaming Parquet data feed using chunked reading.
+
+    Uses PyArrow's batch iterator to read Parquet files in chunks,
+    then applies heap-based merge for multi-symbol timestamp ordering.
+
+    Key benefits:
+    - Chunk-based reading: Only chunk_size rows in memory per symbol at a time
+    - Columnar efficiency: Parquet's columnar format is read efficiently
+    - Memory bounded: Total memory ~= chunk_size × num_symbols × row_size
+
+    Example:
+        feed = StreamingParquetDataFeed(
+            parquet_dir="data/historical",
+            symbols=["AAPL", "MSFT"],
+            chunk_size=10000,
+        )
+        await feed.load()
+
+        async for bar in feed.stream_bars():
+            print(bar)
+    """
+
+    def __init__(
+        self,
+        parquet_dir: str,
+        symbols: List[str],
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+        bar_size: str = "1d",
+        chunk_size: int = 10000,
+    ):
+        """
+        Initialize streaming Parquet data feed.
+
+        Args:
+            parquet_dir: Directory containing Parquet files.
+            symbols: List of symbols to load.
+            start_date: Start date filter.
+            end_date: End date filter.
+            bar_size: Bar size string.
+            chunk_size: Number of rows to read per chunk (default 10000).
+        """
+        self._parquet_dir = Path(parquet_dir)
+        self._symbols = symbols
+        self._start_date = start_date
+        self._end_date = end_date
+        self._bar_size = bar_size
+        self._chunk_size = chunk_size
+        self._bar_count = -1  # Unknown until streaming completes
+        self._loaded = False
+
+    async def load(self) -> None:
+        """
+        Initialize readers (verify files exist, no data loaded).
+        """
+        # Check for pyarrow
+        try:
+            import pyarrow.parquet  # noqa: F401
+        except ImportError:
+            raise ImportError(
+                "pyarrow required for Parquet streaming: pip install pyarrow"
+            )
+
+        # Verify files exist
+        missing = []
+        for symbol in self._symbols:
+            parquet_path = self._parquet_dir / f"{symbol}.parquet"
+            if not parquet_path.exists():
+                missing.append(symbol)
+
+        if missing:
+            logger.warning(f"Parquet files not found for: {missing}")
+
+        self._loaded = True
+        logger.info(
+            f"StreamingParquetDataFeed initialized for {len(self._symbols)} symbols "
+            f"(chunk_size={self._chunk_size})"
+        )
+
+    def _create_reader(self, symbol: str) -> Generator[HistoricalBar, None, None]:
+        """
+        Create a chunked streaming reader for a Parquet file.
+
+        Uses PyArrow's iter_batches for memory-efficient reading.
+        """
+        import pyarrow.parquet as pq
+
+        parquet_path = self._parquet_dir / f"{symbol}.parquet"
+        if not parquet_path.exists():
+            return
+
+        try:
+            parquet_file = pq.ParquetFile(parquet_path)
+
+            for batch in parquet_file.iter_batches(batch_size=self._chunk_size):
+                # Convert batch to pandas for easier row iteration
+                df = batch.to_pandas()
+
+                # Determine timestamp column
+                if "timestamp" in df.columns:
+                    ts_col = "timestamp"
+                elif "date" in df.columns:
+                    ts_col = "date"
+                else:
+                    ts_col = df.columns[0]  # Assume first column
+
+                for idx, row in df.iterrows():
+                    try:
+                        # Parse timestamp
+                        ts_val = row[ts_col]
+                        if hasattr(ts_val, "to_pydatetime"):
+                            timestamp = ts_val.to_pydatetime()
+                        elif isinstance(ts_val, str):
+                            timestamp = datetime.fromisoformat(ts_val)
+                        else:
+                            timestamp = ts_val
+
+                        # Apply date filter
+                        if self._start_date and timestamp.date() < self._start_date:
+                            continue
+                        if self._end_date and timestamp.date() > self._end_date:
+                            continue
+
+                        yield HistoricalBar(
+                            symbol=symbol,
+                            timestamp=timestamp,
+                            open=float(row.get("open", 0)),
+                            high=float(row.get("high", 0)),
+                            low=float(row.get("low", 0)),
+                            close=float(row.get("close", 0)),
+                            volume=float(row.get("volume", 0)),
+                            bar_size=self._bar_size,
+                        )
+
+                    except (KeyError, ValueError, TypeError) as e:
+                        logger.warning(f"Error parsing row in {parquet_path}: {e}")
+                        continue
+
+        except Exception as e:
+            logger.error(f"Error reading {parquet_path}: {e}")
+
+    async def stream_bars(self) -> AsyncIterator[BarData]:
+        """
+        Stream bars in timestamp order using heap-based merge.
+
+        Same algorithm as StreamingCsvDataFeed but with Parquet sources.
+        """
+        if not self._loaded:
+            await self.load()
+
+        # Create generators for each symbol
+        generators: List[Generator[HistoricalBar, None, None]] = [
+            self._create_reader(symbol) for symbol in self._symbols
+        ]
+
+        # Initialize min-heap
+        heap: List[Tuple[datetime, int, HistoricalBar, Generator]] = []
+
+        for i, gen in enumerate(generators):
+            try:
+                bar = next(gen)
+                heapq.heappush(heap, (bar.timestamp, i, bar, gen))
+            except StopIteration:
+                continue
+
+        # Stream in sorted order
+        bar_count = 0
+        while heap:
+            timestamp, idx, bar, gen = heapq.heappop(heap)
+            yield bar.to_bar_data(source="parquet")
+            bar_count += 1
+
+            try:
+                next_bar = next(gen)
+                heapq.heappush(heap, (next_bar.timestamp, idx, next_bar, gen))
+            except StopIteration:
+                continue
+
+        self._bar_count = bar_count
+        logger.info(f"StreamingParquetDataFeed streamed {bar_count} bars")
+
+    def get_symbols(self) -> List[str]:
+        """Get list of symbols."""
+        return self._symbols
+
+    @property
+    def bar_count(self) -> int:
+        """Get total bar count (-1 if not yet streamed)."""
+        return self._bar_count
 
 
 class FixtureDataFeed(DataFeed):
@@ -1009,3 +1396,125 @@ def create_ib_multi_timeframe_feed(
         feeds.append(feed)
 
     return MultiTimeframeDataFeed(feeds)
+
+
+# OPT-009: Factory function for streaming vs full-load feeds
+
+
+def create_data_feed(
+    source: str,
+    symbols: List[str],
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    streaming: bool = True,
+    bar_size: str = "1d",
+    **kwargs,
+) -> DataFeed:
+    """
+    OPT-009: Factory for creating data feeds with streaming support.
+
+    Automatically selects between streaming and full-load implementations
+    based on the source type and streaming parameter.
+
+    Streaming feeds (when streaming=True):
+    - Memory efficient: O(num_symbols) instead of O(total_bars)
+    - Faster startup: No upfront loading, bars yielded on demand
+    - bar_count returns -1 until streaming completes
+
+    Full-load feeds (when streaming=False):
+    - All bars loaded into memory at once
+    - Faster random access (if needed)
+    - bar_count known immediately after load()
+
+    Args:
+        source: Data source path. Can be:
+            - Directory path for CSV files
+            - Directory path for Parquet files (if contains .parquet files)
+            - Single .csv file
+            - Single .parquet file
+        symbols: List of symbols to load.
+        start_date: Start date filter (inclusive).
+        end_date: End date filter (inclusive).
+        streaming: Use streaming implementation (default True).
+        bar_size: Bar size string (e.g., "1d", "1h", "1m").
+        **kwargs: Additional arguments passed to feed constructor.
+
+    Returns:
+        DataFeed instance.
+
+    Examples:
+        # Streaming CSV (memory efficient)
+        feed = create_data_feed(
+            "data/historical",
+            symbols=["AAPL", "MSFT"],
+            streaming=True,
+        )
+
+        # Full-load CSV (for small datasets)
+        feed = create_data_feed(
+            "data/historical",
+            symbols=["AAPL"],
+            streaming=False,
+        )
+
+        # Streaming Parquet with custom chunk size
+        feed = create_data_feed(
+            "data/parquet",
+            symbols=["AAPL", "MSFT"],
+            streaming=True,
+            chunk_size=50000,
+        )
+    """
+    source_path = Path(source)
+
+    # Detect source type
+    is_parquet = False
+    if source_path.is_file():
+        is_parquet = source_path.suffix == ".parquet"
+    elif source_path.is_dir():
+        # Check if directory contains parquet files
+        parquet_files = list(source_path.glob("*.parquet"))
+        csv_files = list(source_path.glob("*.csv"))
+        is_parquet = len(parquet_files) > len(csv_files)
+
+    # Select feed implementation
+    if is_parquet:
+        if streaming:
+            return StreamingParquetDataFeed(
+                parquet_dir=str(source_path if source_path.is_dir() else source_path.parent),
+                symbols=symbols,
+                start_date=start_date,
+                end_date=end_date,
+                bar_size=bar_size,
+                chunk_size=kwargs.get("chunk_size", 10000),
+            )
+        else:
+            return ParquetDataFeed(
+                parquet_dir=str(source_path if source_path.is_dir() else source_path.parent),
+                symbols=symbols,
+                start_date=start_date,
+                end_date=end_date,
+                bar_size=bar_size,
+            )
+    else:
+        # CSV
+        if streaming:
+            return StreamingCsvDataFeed(
+                csv_dir=str(source_path if source_path.is_dir() else source_path.parent),
+                symbols=symbols,
+                start_date=start_date,
+                end_date=end_date,
+                bar_size=bar_size,
+                date_column=kwargs.get("date_column", "date"),
+                date_format=kwargs.get("date_format", "%Y-%m-%d"),
+            )
+        else:
+            return CsvDataFeed(
+                csv_dir=str(source_path if source_path.is_dir() else source_path.parent),
+                symbols=symbols,
+                start_date=start_date,
+                end_date=end_date,
+                bar_size=bar_size,
+                date_column=kwargs.get("date_column", "date"),
+                date_format=kwargs.get("date_format", "%Y-%m-%d"),
+            )
