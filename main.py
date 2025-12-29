@@ -2,9 +2,9 @@
 Live Risk Management System - Main Entry Point
 
 Usage:
-    python main.py --env dev          # Development mode
-    python main.py --env prod         # Production mode
-    python main.py --config custom.yaml  # Custom config file
+    python orchestrator.py --env dev          # Development mode
+    python orchestrator.py --env prod         # Production mode
+    python orchestrator.py --config custom.yaml  # Custom config file
 """
 
 from __future__ import annotations
@@ -56,10 +56,10 @@ def parse_args() -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python main.py --env dev              # Run in development mode (monitor)
-  python main.py --mode monitor         # Explicit monitor mode
-  python main.py --mode backtest --spec config/backtest/ma_cross.yaml
-  python main.py --mode backtest --engine backtrader --strategy ma_cross
+  python orchestrator.py --env dev              # Run in development mode (monitor)
+  python orchestrator.py --mode monitor         # Explicit monitor mode
+  python orchestrator.py --mode backtest --spec config/backtest/ma_cross.yaml
+  python orchestrator.py --mode backtest --engine backtrader --strategy ma_cross
         """
     )
 
@@ -528,7 +528,7 @@ async def main_async(args: argparse.Namespace) -> None:
         if dashboard:
             async def update_loop():
                 """Background task that feeds orchestrator data to dashboard queue."""
-                while dashboard._running:
+                while dashboard.running:
                     try:
                         # Wait for orchestrator to signal new snapshot
                         snapshot = await orchestrator.wait_for_snapshot(timeout=3.0)

@@ -70,11 +70,11 @@ CATEGORIES = ["system", "adapter", "risk", "data", "perf"]
 
 # Category file suffixes
 CATEGORY_SUFFIXES = {
-    "system": "sys",
-    "adapter": "adp",
-    "risk": "rsk",
-    "data": "dat",
-    "perf": "prf",
+    "system": "system",
+    "adapter": "adapter",
+    "risk": "risk",
+    "data": "data",
+    "perf": "performance",
 }
 
 # Module path → category routing

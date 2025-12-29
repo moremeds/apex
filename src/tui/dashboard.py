@@ -1,8 +1,7 @@
 """
 Textual Dashboard Wrapper.
 
-Provides the same interface as the old Rich-based TerminalDashboard
-for easy integration with main.py.
+for easy integration with orchestrator.py.
 
 IMPORTANT: Textual must run in the main thread. This wrapper uses a queue-based
 approach where updates are posted to a queue and processed by the Textual app.
@@ -166,6 +165,10 @@ class TextualDashboard:
 
         self._running = False
         self._quit_requested = True
+
+    @property
+    def running(self):
+        return self._running
 
 
 # Alias for backward compatibility

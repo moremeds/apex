@@ -29,10 +29,10 @@ risk_signals:
 
 ```bash
 # Start with default config
-python main.py --env dev
+python orchestrator.py --env dev
 
 # Or specify custom config
-python main.py --config config/risk_config.yaml
+python orchestrator.py --config config/risk_config.yaml
 ```
 
 The dashboard will now display enhanced risk alerts in the **"Portfolio Risk Alert"** panel!

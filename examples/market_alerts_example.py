@@ -131,14 +131,14 @@ def example_2_dashboard_integration():
 
 
 def example_3_integration_in_main():
-    """Example 3: How to integrate into main.py."""
+    """Example 3: How to integrate into orchestrator.py."""
     print("\n" + "="*80)
-    print("EXAMPLE 3: Integration into main.py")
+    print("EXAMPLE 3: Integration into orchestrator.py")
     print("="*80 + "\n")
 
-    print("To integrate market alerts into main.py:")
+    print("To integrate market alerts into orchestrator.py:")
     print()
-    print("1. Initialize MarketAlertDetector in main.py:")
+    print("1. Initialize MarketAlertDetector in orchestrator.py:")
     print("   ```python")
     print("   # In main_async() function")
     print("   alert_config = config.raw.get('market_alerts', {})")

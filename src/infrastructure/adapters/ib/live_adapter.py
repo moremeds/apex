@@ -566,14 +566,15 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
 
             try:
                 # Add timeout to market data fetch
+                # OPT-004: Reduced from 60s - market data typically arrives in 5-10s
                 market_data_list = await asyncio.wait_for(
                     self._market_data_fetcher.fetch_market_data(
                         positions, qualified, pos_map
                     ),
-                    timeout=60.0
+                    timeout=15.0
                 )
             except asyncio.TimeoutError:
-                logger.error(f"Timeout fetching market data after 60s")
+                logger.error(f"Timeout fetching market data after 15s")
                 return []
 
             for md in market_data_list:

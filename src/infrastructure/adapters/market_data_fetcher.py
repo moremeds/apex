@@ -37,7 +37,7 @@ class MarketDataFetcher:
         self,
         ib,
         data_timeout: float = 5.0,  # Increased from 3.0s for stocks
-        option_data_timeout: float = 10.0,  # Separate timeout for options (Greeks take longer)
+        option_data_timeout: float = 3.0,  # OPT-003: Reduced from 10s - Greeks typically populate in 2-3s
         poll_interval: float = 0.1,
         poll_interval_max: float = 0.5,  # m1/m8: Max backoff interval
         poll_backoff_factor: float = 1.5,  # m1/m8: Exponential backoff multiplier

@@ -336,36 +336,49 @@ class BacktestEngine:
             # Trigger bar close scheduled actions
             self._scheduler.trigger_bar_close_actions()
 
-            # Record equity (daily aggregation to bound memory)
+            # OPT-006: Only calculate equity at day boundaries (not every bar)
+            # This reduces O(bars * positions) to O(days * positions)
             current_date = bar.timestamp.date().isoformat()
-
-            # Detect day change
-            if self._last_equity_date is not None and self._last_equity_date != current_date:
-                # Accrue admin fees for the day that just ended
-                # We use the previous day's final state for calculation
-                if self._current_day_equity:
-                    self._accrue_admin_fees(bar.timestamp)
-                
-                # Flush previous day's equity to curve
-                if self._current_day_equity is not None:
-                    self._equity_curve.append(self._current_day_equity)
-
-            self._last_equity_date = current_date
-            equity = self._calculate_equity()
-
-            # Update current day's equity (will be flushed at day change or end)
-            self._current_day_equity = {
-                "date": current_date,
-                "timestamp": bar.timestamp.isoformat(),
-                "equity": equity,
-                "cash": self._cash,
-                "position_value": self._execution.get_total_position_value(),
-            }
-
+            is_day_change = self._last_equity_date is not None and self._last_equity_date != current_date
             bar_count += 1
 
-            # Progress logging
+            # Detect day change - calculate END-of-previous-day equity, then flush
+            if is_day_change:
+                # Calculate equity for the day that just ended (this is the last bar of that day)
+                # Note: We calculate BEFORE admin fees so admin fees show on the next day
+                if self._current_day_equity is None:
+                    # First bar after a day with no equity calculated - compute now
+                    prev_equity = self._calculate_equity()
+                    self._current_day_equity = {
+                        "date": self._last_equity_date,
+                        "timestamp": bar.timestamp.isoformat(),
+                        "equity": prev_equity,
+                        "cash": self._cash,
+                        "position_value": self._execution.get_total_position_value(),
+                    }
+
+                # Accrue admin fees for the day that just ended
+                self._accrue_admin_fees(bar.timestamp)
+
+                # Flush previous day's equity to curve
+                self._equity_curve.append(self._current_day_equity)
+
+                # Reset for new day
+                self._current_day_equity = None
+
+            self._last_equity_date = current_date
+
+            # Only calculate equity for progress logging (every 1000 bars)
+            # Day-end equity is calculated above when day changes
             if bar_count % 1000 == 0:
+                equity = self._calculate_equity()
+                self._current_day_equity = {
+                    "date": current_date,
+                    "timestamp": bar.timestamp.isoformat(),
+                    "equity": equity,
+                    "cash": self._cash,
+                    "position_value": self._execution.get_total_position_value(),
+                }
                 logger.info(
                     f"Processed {bar_count} bars, "
                     f"time={self._clock.now().date()}, "
@@ -374,6 +387,18 @@ class BacktestEngine:
 
         # Stop strategy
         self._strategy.stop()
+
+        # OPT-006: Calculate final equity before flushing (ensures last bar's equity is captured)
+        if self._current_day_equity is None and self._last_equity_date is not None:
+            # No equity calculated for final day yet - calculate now
+            equity = self._calculate_equity()
+            self._current_day_equity = {
+                "date": self._last_equity_date,
+                "timestamp": self._clock.now().isoformat(),
+                "equity": equity,
+                "cash": self._cash,
+                "position_value": self._execution.get_total_position_value(),
+            }
 
         # Flush final day's equity to curve
         if self._current_day_equity is not None:

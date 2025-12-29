@@ -7,7 +7,7 @@ Split into focused components:
 - SnapshotCoordinator: Risk snapshot building and dispatching
 """
 
-from .main import Orchestrator
+from .orchestrator import Orchestrator
 from .data_coordinator import DataCoordinator
 from .snapshot_coordinator import SnapshotCoordinator
 
