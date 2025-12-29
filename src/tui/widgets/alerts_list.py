@@ -4,6 +4,8 @@ Market alerts list widget.
 Displays market-wide alerts with persistence tracking:
 - Active alerts with severity icons
 - Recently cleared alerts (dimmed)
+
+OPT-011: Uses AlertViewModel for incremental updates.
 """
 
 from __future__ import annotations
@@ -16,6 +18,8 @@ from textual.reactive import reactive
 from textual.widgets import Static
 from textual.containers import Vertical
 from textual.app import ComposeResult
+
+from ..viewmodels.alert_vm import AlertViewModel
 
 
 class AlertsList(Widget):
@@ -31,6 +35,8 @@ class AlertsList(Widget):
         super().__init__(**kwargs)
         self._persistent_alerts: Dict[str, Dict] = {}
         self._alert_retention_seconds = 300
+        # OPT-011: ViewModel for incremental updates
+        self._vm = AlertViewModel()
 
     def compose(self) -> ComposeResult:
         """Compose the alerts list layout."""
@@ -110,43 +116,13 @@ class AlertsList(Widget):
         return display_alerts
 
     def _render_alerts(self, display_alerts: List[Dict]) -> None:
-        """Render alert list."""
+        """Render alert list with incremental updates."""
         try:
             alerts_list = self.query_one("#alerts-list", Static)
 
-            if not display_alerts:
-                alerts_list.update("[dim]No market alerts[/]")
-                return
-
-            lines = []
-            for alert in display_alerts:
-                alert_type = alert.get("type", "UNKNOWN")
-                message = alert.get("message", "")
-                severity = alert.get("severity", "INFO")
-                is_active = alert.get("is_active", True)
-                last_seen = alert.get("last_seen")
-
-                time_str = last_seen.strftime("%H:%M:%S") if last_seen else ""
-
-                if not is_active:
-                    icon = "o"
-                    style = "dim"
-                    suffix = " [cleared]"
-                elif severity == "CRITICAL":
-                    icon = "[!]"
-                    style = "bold red"
-                    suffix = ""
-                elif severity == "WARNING":
-                    icon = "[W]"
-                    style = "bold yellow"
-                    suffix = ""
-                else:
-                    icon = "[i]"
-                    style = "cyan"
-                    suffix = ""
-
-                lines.append(f"[{style}]{icon} {alert_type}: {message}{suffix}[/] [dim]{time_str}[/]")
-
-            alerts_list.update("\n".join(lines))
+            # OPT-011: Use ViewModel to check if update needed
+            needs_update, content = self._vm.needs_update(display_alerts)
+            if needs_update:
+                alerts_list.update(content)
         except Exception as e:
             self.log.error(f"Failed to render alerts: {e}")

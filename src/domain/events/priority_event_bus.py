@@ -22,6 +22,34 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+# OPT-008: Atomic counter for lock-free stats updates
+class AtomicCounter:
+    """Thread-safe counter using fine-grained locking."""
+
+    __slots__ = ('_value', '_lock')
+
+    def __init__(self, initial: int = 0):
+        self._value = initial
+        self._lock = Lock()
+
+    def increment(self, amount: int = 1) -> int:
+        """Atomically increment and return new value."""
+        with self._lock:
+            self._value += amount
+            return self._value
+
+    def max_update(self, value: int) -> None:
+        """Atomically update to max of current and new value."""
+        with self._lock:
+            if value > self._value:
+                self._value = value
+
+    @property
+    def value(self) -> int:
+        """Read current value (lock-free read is safe for int)."""
+        return self._value
+
+
 class PriorityEventBus:
     """
     Priority-based event bus with dual-lane dispatch.
@@ -99,18 +127,17 @@ class PriorityEventBus:
         self._validate_payloads = validate_payloads
         self._validation_warnings: set = set()  # Track warned event types
 
-        # Stats
-        self._stats = {
-            "fast_published": 0,
-            "fast_dispatched": 0,
-            "slow_published": 0,
-            "slow_dispatched": 0,
-            "dropped": 0,
-            "errors": 0,
-            "fast_high_water": 0,  # Peak fast queue depth
-            "slow_high_water": 0,  # Peak slow pending depth
-            "heavy_callbacks_offloaded": 0,  # Callbacks offloaded to thread
-        }
+        # OPT-008: Atomic counters for lock-free stats updates
+        # Each counter has its own lock, eliminating the global stats lock bottleneck
+        self._fast_published = AtomicCounter()
+        self._fast_dispatched = AtomicCounter()
+        self._slow_published = AtomicCounter()
+        self._slow_dispatched = AtomicCounter()
+        self._dropped = AtomicCounter()
+        self._errors = AtomicCounter()
+        self._fast_high_water = AtomicCounter()
+        self._slow_high_water = AtomicCounter()
+        self._heavy_callbacks_offloaded = AtomicCounter()
 
         # Heavy callback protection: callbacks registered here run in thread pool
         self._heavy_callbacks: set[Callable] = set()
@@ -192,14 +219,12 @@ class PriorityEventBus:
         """Enqueue to fast lane (priority queue)."""
         try:
             self._fast_queue.put_nowait(envelope)
-            with self._lock:
-                self._stats["fast_published"] += 1
-                current = self._fast_queue.qsize()
-                if current > self._stats["fast_high_water"]:
-                    self._stats["fast_high_water"] = current
+            # OPT-008: Lock-free stats update
+            self._fast_published.increment()
+            current = self._fast_queue.qsize()
+            self._fast_high_water.max_update(current)
         except asyncio.QueueFull:
-            with self._lock:
-                self._stats["dropped"] += 1
+            self._dropped.increment()
             logger.warning(f"Fast lane full, dropped {envelope.event_type.value}")
 
     def _enqueue_slow(self, envelope: PriorityEventEnvelope) -> None:
@@ -218,17 +243,17 @@ class PriorityEventBus:
 
         key = f"{envelope.event_type.value}:{symbol}"
 
+        # OPT-008: Only hold lock for dict modification, stats are atomic
         with self._lock:
             self._pending_slow[key] = envelope
-            self._stats["slow_published"] += 1
-
             current = len(self._pending_slow)
-            if current > self._stats["slow_high_water"]:
-                self._stats["slow_high_water"] = current
-
             # Drop policy: if too many pending, drop lowest priority events first
             if current > self._max_pending_slow:
                 self._apply_drop_policy()
+
+        # Stats update outside lock
+        self._slow_published.increment()
+        self._slow_high_water.max_update(current)
 
     def _apply_drop_policy(self) -> None:
         """Apply drop policy when slow queue is overloaded."""
@@ -283,7 +308,7 @@ class PriorityEventBus:
         # For now, just execute the drops.
         for key in to_drop:
             del self._pending_slow[key]
-            self._stats["dropped"] += 1
+            self._dropped.increment()
 
     async def start(self) -> None:
         """Start both dispatch loops."""
@@ -325,7 +350,7 @@ class PriorityEventBus:
         # Drain remaining events
         await self._drain_queues()
 
-        logger.info(f"PriorityEventBus stopped. Stats: {self._stats}")
+        logger.info(f"PriorityEventBus stopped. Stats: {self.get_stats()}")
 
     async def _drain_queues(self) -> None:
         """Drain remaining events in both queues."""
@@ -386,8 +411,8 @@ class PriorityEventBus:
                     try:
                         envelope = self._fast_queue.get_nowait()
                         await self._dispatch(envelope)
-                        with self._lock:
-                            self._stats["fast_dispatched"] += 1
+                        # OPT-008: Lock-free stats update
+                        self._fast_dispatched.increment()
                         burst_count += 1
                     except asyncio.QueueEmpty:
                         break
@@ -403,8 +428,7 @@ class PriorityEventBus:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                with self._lock:
-                    self._stats["errors"] += 1
+                self._errors.increment()
                 logger.error(f"Fast dispatch error: {e}", exc_info=True)
 
     async def _slow_dispatch_loop(self) -> None:
@@ -426,14 +450,13 @@ class PriorityEventBus:
 
                 for key, envelope in pending:
                     await self._dispatch(envelope)
-                    with self._lock:
-                        self._stats["slow_dispatched"] += 1
+                    # OPT-008: Lock-free stats update
+                    self._slow_dispatched.increment()
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                with self._lock:
-                    self._stats["errors"] += 1
+                self._errors.increment()
                 logger.error(f"Slow dispatch error: {e}", exc_info=True)
 
     async def _dispatch(self, envelope: PriorityEventEnvelope) -> None:
@@ -455,8 +478,7 @@ class PriorityEventBus:
                 else:
                     cb(payload)
             except Exception as e:
-                with self._lock:
-                    self._stats["errors"] += 1
+                self._errors.increment()
                 logger.error(f"Subscriber error for {event_type.value}: {e}")
 
         # Async subscribers
@@ -466,8 +488,7 @@ class PriorityEventBus:
                 if asyncio.iscoroutine(result):
                     await result
             except Exception as e:
-                with self._lock:
-                    self._stats["errors"] += 1
+                self._errors.increment()
                 logger.error(f"Async subscriber error for {event_type.value}: {e}")
 
     async def _run_heavy_callback(self, cb: Callable, payload: Any) -> None:
@@ -475,11 +496,10 @@ class PriorityEventBus:
         async with self._heavy_semaphore:
             try:
                 await asyncio.to_thread(cb, payload)
-                with self._lock:
-                    self._stats["heavy_callbacks_offloaded"] += 1
+                # OPT-008: Lock-free stats update
+                self._heavy_callbacks_offloaded.increment()
             except Exception as e:
-                with self._lock:
-                    self._stats["errors"] += 1
+                self._errors.increment()
                 logger.error(f"Heavy callback error: {e}")
 
     def _dispatch_sync(self, envelope: PriorityEventEnvelope) -> None:
@@ -539,16 +559,28 @@ class PriorityEventBus:
             self._heavy_callbacks.discard(callback)
 
     def get_stats(self) -> Dict[str, Any]:
-        """Get bus statistics."""
+        """Get bus statistics (OPT-008: mostly lock-free reads)."""
+        # Only lock for pending_slow length check
         with self._lock:
-            return {
-                **self._stats,
-                "fast_queue_size": self._fast_queue.qsize() if self._fast_queue else 0,
-                "fast_queue_max": self._fast_lane_max_size,
-                "slow_pending": len(self._pending_slow),
-                "slow_pending_max": self._max_pending_slow,
-                "running": self._running,
-            }
+            slow_pending = len(self._pending_slow)
+
+        return {
+            # OPT-008: Lock-free counter reads
+            "fast_published": self._fast_published.value,
+            "fast_dispatched": self._fast_dispatched.value,
+            "slow_published": self._slow_published.value,
+            "slow_dispatched": self._slow_dispatched.value,
+            "dropped": self._dropped.value,
+            "errors": self._errors.value,
+            "fast_high_water": self._fast_high_water.value,
+            "slow_high_water": self._slow_high_water.value,
+            "heavy_callbacks_offloaded": self._heavy_callbacks_offloaded.value,
+            "fast_queue_size": self._fast_queue.qsize() if self._fast_queue else 0,
+            "fast_queue_max": self._fast_lane_max_size,
+            "slow_pending": slow_pending,
+            "slow_pending_max": self._max_pending_slow,
+            "running": self._running,
+        }
 
     @property
     def is_running(self) -> bool:
