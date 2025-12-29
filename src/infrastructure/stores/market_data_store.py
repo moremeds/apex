@@ -7,7 +7,7 @@ import time
 
 from ...utils.logging_setup import get_logger
 from ...models.market_data import MarketData
-from ...utils.timezone import age_seconds
+from ...utils.timezone import age_seconds, now_utc
 
 if TYPE_CHECKING:
     from ...domain.interfaces.event_bus import EventBus
@@ -277,19 +277,29 @@ class MarketDataStore:
                 existing.vega = payload.vega if payload.vega is not None else existing.vega
                 existing.theta = payload.theta if payload.theta is not None else existing.theta
                 existing.iv = payload.iv if payload.iv is not None else existing.iv
+                # Recalculate mid when bid/ask update
+                if existing.bid is not None and existing.ask is not None:
+                    existing.mid = (existing.bid + existing.ask) / 2
+                existing.timestamp = now_utc()  # Refresh timestamp on every tick
                 self.upsert([existing])
             else:
                 # Create new MarketData from tick
+                # Calculate mid if we have both bid and ask
+                mid = None
+                if payload.bid is not None and payload.ask is not None:
+                    mid = (payload.bid + payload.ask) / 2
                 md = MarketData(
                     symbol=symbol,
                     bid=payload.bid,
                     ask=payload.ask,
+                    mid=mid,
                     last=payload.last,
                     delta=payload.delta,
                     gamma=payload.gamma,
                     vega=payload.vega,
                     theta=payload.theta,
                     iv=payload.iv,
+                    timestamp=now_utc(),  # Set timestamp on creation
                 )
                 self.upsert([md])
             return

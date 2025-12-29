@@ -18,7 +18,8 @@ from pathlib import Path
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src.infrastructure.adapters import IbAdapter, FutuAdapter, BrokerManager
+from src.infrastructure.adapters import IbCompositeAdapter, FutuAdapter, BrokerManager
+from src.infrastructure.adapters.ib import ConnectionPoolConfig
 from src.infrastructure.monitoring import HealthMonitor, HealthStatus
 from src.domain.services.pos_reconciler import Reconciler
 from src.models.position import PositionSource
@@ -55,11 +56,8 @@ async def test_multi_broker():
     broker_manager = BrokerManager(health_monitor=health_monitor)
 
     # Create and register adapters
-    ib_adapter = IbAdapter(
-        host="127.0.0.1",
-        port=4001,
-        client_id=1,
-    )
+    pool_config = ConnectionPoolConfig(host="127.0.0.1", port=4001)
+    ib_adapter = IbCompositeAdapter(pool_config=pool_config)
 
     futu_adapter = FutuAdapter(
         host="127.0.0.1",

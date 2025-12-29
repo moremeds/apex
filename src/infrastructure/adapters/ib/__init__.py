@@ -2,7 +2,7 @@
 Interactive Brokers adapter package.
 
 Provides multiple specialized IB adapters:
-- IbAdapter: Legacy monolithic adapter (for backward compatibility)
+- IbCompositeAdapter: Main adapter - wraps split adapters via connection pool
 - IbLiveAdapter: Real-time streaming (quotes, positions, account)
 - IbHistoricalAdapter: Historical bar data
 - IbExecutionAdapter: Order submission and management
@@ -11,17 +11,17 @@ Provides multiple specialized IB adapters:
 Each adapter uses a reserved client ID to allow simultaneous connections.
 """
 
-from .adapter import IbAdapter  # Legacy - kept for backward compatibility
 from .base import IbBaseAdapter
 from .live_adapter import IbLiveAdapter
 from .historical_adapter import IbHistoricalAdapter
 from .execution_adapter import IbExecutionAdapter
+from .composite_adapter import IbCompositeAdapter
 from .connection_pool import IbConnectionPool, ConnectionPoolConfig
 
 __all__ = [
-    # Legacy adapter
-    "IbAdapter",
-    # New split adapters (Phase 2)
+    # Main adapter
+    "IbCompositeAdapter",
+    # Split adapters (used internally by composite)
     "IbBaseAdapter",
     "IbLiveAdapter",
     "IbHistoricalAdapter",

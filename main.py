@@ -14,8 +14,8 @@ import sys
 
 from config.config_manager import ConfigManager
 from src.domain.services import MarketAlertDetector
-from src.infrastructure.adapters import IbAdapter, FutuAdapter, FileLoader, BrokerManager, MarketDataManager, YahooFinanceAdapter
-from src.infrastructure.adapters.ib import IbConnectionPool, ConnectionPoolConfig
+from src.infrastructure.adapters import FutuAdapter, FileLoader, BrokerManager, MarketDataManager, YahooFinanceAdapter
+from src.infrastructure.adapters.ib import IbConnectionPool, ConnectionPoolConfig, IbCompositeAdapter
 from src.services import HistoricalDataService, TAService, BarPeriod
 from src.infrastructure.stores import PositionStore, MarketDataStore, AccountStore
 from src.infrastructure.monitoring import HealthMonitor, Watchdog
@@ -272,17 +272,25 @@ async def main_async(args: argparse.Namespace) -> None:
 
         # Register adapters with BrokerManager
         if config.ibkr.enabled:
-            ib_adapter = IbAdapter(
+            # OPT-016: Connection pool config for composite adapter
+            pool_config = ConnectionPoolConfig(
                 host=config.ibkr.host,
                 port=config.ibkr.port,
-                client_id=config.ibkr.client_ids.monitoring,
+                client_ids=config.ibkr.client_ids,
+            )
+
+            # OPT-016: Create composite adapter (single recommended path)
+            ib_adapter = IbCompositeAdapter(
+                pool_config=pool_config,
                 event_bus=event_bus,
             )
-            broker_manager.register_adapter("ib", ib_adapter)
-            system_structured.info(LogCategory.SYSTEM, "IB adapter registered", {
+            system_structured.info(LogCategory.SYSTEM, "IB composite adapter registered", {
                 "host": config.ibkr.host,
                 "port": config.ibkr.port,
+                "adapter_type": "composite",
             })
+
+            broker_manager.register_adapter("ib", ib_adapter)
             market_data_manager.register_provider("ib", ib_adapter, priority=10)
             system_structured.info(LogCategory.SYSTEM, "IB registered as market data provider", {
                 "streaming": ib_adapter.supports_streaming(),
@@ -291,11 +299,7 @@ async def main_async(args: argparse.Namespace) -> None:
 
             # Create IB Connection Pool for historical data (separate IB connection)
             # Uses same event loop - no threading issues
-            pool_config = ConnectionPoolConfig(
-                host=config.ibkr.host,
-                port=config.ibkr.port,
-                client_ids=config.ibkr.client_ids,
-            )
+            # Note: When using composite adapter, historical is handled via pool
             ib_pool = IbConnectionPool(pool_config)
 
         else:

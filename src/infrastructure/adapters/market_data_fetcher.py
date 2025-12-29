@@ -242,9 +242,10 @@ class MarketDataFetcher:
         if not qualified_contracts:
             return []
 
-        # Prune subscriptions for symbols no longer in portfolio
-        current_symbols = {p.symbol for p in positions}
-        self.prune_stale_subscriptions(current_symbols)
+        # NOTE: Do NOT prune subscriptions here - it causes subscription churn.
+        # Subscriptions persist for portfolio lifetime. Pruning should only happen
+        # when positions are explicitly closed, not on every fetch cycle.
+        # The _active_tickers cache already handles subscription reuse.
 
         # Separate stocks and options
         stock_contracts = []
@@ -561,22 +562,10 @@ class MarketDataFetcher:
         market_data_list = []
 
         try:
-            requested_symbols = {pos.symbol for _, pos in contract_pos_pairs}
-
-            # Cancel subscriptions that are no longer needed (collect under lock, cancel outside)
-            to_cancel = []
-            with self._ticker_lock:
-                for symbol, old_ticker in list(self._active_tickers.items()):
-                    if symbol not in requested_symbols:
-                        to_cancel.append((symbol, old_ticker))
-                        self._ticker_to_symbol.pop(id(old_ticker), None)
-                        self._active_tickers.pop(symbol, None)
-
-            for symbol, old_ticker in to_cancel:
-                try:
-                    self.ib.cancelMktData(old_ticker.contract)
-                except Exception as e:
-                    logger.debug(f"Error cancelling old subscription for {symbol}: {e}")
+            # NOTE: Do NOT cancel subscriptions here - it causes subscription churn.
+            # When only options are passed (stocks filtered as "fresh"), this would
+            # incorrectly cancel stock subscriptions. Subscriptions persist for
+            # portfolio lifetime. See CLAUDE.md "Market Data Subscription Lifecycle".
 
             # Request streaming data with Greeks (generic tick 106)
             tickers = []
@@ -787,8 +776,15 @@ class MarketDataFetcher:
                 # Queue update for async processing
                 update = TickerUpdate(symbol=symbol, ticker_id=ticker_id, timestamp=timestamp)
                 try:
-                    self._ticker_queue.put_nowait(update)
-                except asyncio.QueueFull:
+                    # Thread-safe queue put from IB callback thread
+                    if self._event_loop and self._event_loop.is_running():
+                        self._event_loop.call_soon_threadsafe(
+                            self._ticker_queue.put_nowait, update
+                        )
+                    else:
+                        # Fallback for sync context (shouldn't happen in normal operation)
+                        self._ticker_queue.put_nowait(update)
+                except (asyncio.QueueFull, RuntimeError):
                     dropped += 1
 
             except Exception:

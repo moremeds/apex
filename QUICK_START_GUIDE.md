@@ -264,7 +264,7 @@ positions:
     # ... other fields
 ```
 
-2. **Add fake market data** showing -70% loss in IbAdapter
+2. **Add fake market data** showing -70% loss in market data store
 
 3. **Expected:** Should see CRITICAL stop loss signal
 

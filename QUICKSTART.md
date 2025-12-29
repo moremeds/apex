@@ -133,7 +133,7 @@ Check that everything works:
 # Verify imports
 python -c "
 from src.models.position import Position
-from src.infrastructure.adapters import IbAdapter
+from src.infrastructure.adapters import IbCompositeAdapter
 from config.config_manager import ConfigManager
 print('✅ All imports successful!')
 "
@@ -224,7 +224,7 @@ uv pip install -e ".[dev]"
 - SimpleShockEngine (spot shock scenarios)
 
 ✅ **Infrastructure Layer**
-- IbAdapter skeleton (ib_async integration)
+- IbCompositeAdapter (ib_async integration)
 - FileLoader (YAML position loading)
 - Thread-safe stores (Position, MarketData, Account)
 - HealthMonitor (component health tracking)
