@@ -1,4 +1,8 @@
-"""Thread-safe in-memory market data store with separate price/Greeks caching."""
+"""
+Thread-safe in-memory market data store with separate price/Greeks caching.
+
+OPT-014: Uses RCU pattern for lock-free reads on the main data path.
+"""
 
 from __future__ import annotations
 from typing import Any, Dict, Iterable, List, Optional, Union, TYPE_CHECKING
@@ -8,6 +12,7 @@ import time
 from ...utils.logging_setup import get_logger
 from ...models.market_data import MarketData
 from ...utils.timezone import age_seconds, now_utc
+from .rcu_store import RCUDict
 
 if TYPE_CHECKING:
     from ...domain.interfaces.event_bus import EventBus
@@ -51,8 +56,9 @@ class MarketDataStore:
             eviction_age_seconds: Evict entries older than this age (seconds).
                                   Default: 86400 (24 hours).
         """
-        self._market_data: Dict[str, MarketData] = {}
-        self._lock = RLock()
+        # OPT-014: Use RCUDict for lock-free reads
+        self._market_data: RCUDict[str, MarketData] = RCUDict()
+        self._eviction_lock = RLock()  # Only for eviction coordination
         self._price_ttl_seconds = price_ttl_seconds
         self._greeks_ttl_seconds = greeks_ttl_seconds
         self._max_symbols = max_symbols
@@ -63,67 +69,80 @@ class MarketDataStore:
         """
         Insert or update market data.
 
+        OPT-014: RCUDict handles locking internally, so no external lock needed.
+
         Args:
             market_data: Iterable of MarketData objects.
         """
-        # M8: Copy-on-write pattern - build updates dict outside lock
-        # to minimize lock contention
+        # Build updates dict - RCUDict.update() handles atomicity internally
         updates = {md.symbol: md for md in market_data}
+        self._market_data.update(updates)
 
-        with self._lock:
-            self._market_data.update(updates)
+        # Periodic eviction check (every 60 seconds to avoid overhead)
+        # Use eviction lock for coordination only
+        now = time.time()
+        if now - self._last_eviction_time > 60:
+            with self._eviction_lock:
+                # Double-check after acquiring lock
+                if now - self._last_eviction_time > 60:
+                    self._evict_stale()
+                    self._last_eviction_time = now
 
-            # Periodic eviction check (every 60 seconds to avoid overhead)
-            now = time.time()
-            if now - self._last_eviction_time > 60:
-                self._evict_stale_locked()
-                self._last_eviction_time = now
-
-    def _evict_stale_locked(self) -> None:
+    def _evict_stale(self) -> None:
         """
-        Evict stale entries (must be called with lock held).
+        Evict stale entries.
+
+        OPT-014: Uses RCUDict.delete() for atomic removal.
+        Caller must hold _eviction_lock for coordination.
 
         Evicts:
         1. Entries older than eviction_age_seconds
         2. Oldest entries if over max_symbols
         """
+        # Get snapshot for analysis (lock-free read)
+        snapshot = self._market_data.items()
+
         # Evict by age first
         stale_symbols = []
-        for symbol, md in self._market_data.items():
+        for symbol, md in snapshot:
             if md.timestamp and age_seconds(md.timestamp) > self._eviction_age_seconds:
                 stale_symbols.append(symbol)
 
         for symbol in stale_symbols:
-            del self._market_data[symbol]
+            self._market_data.delete(symbol)
 
         if stale_symbols:
             logger.debug(f"Evicted {len(stale_symbols)} stale market data entries")
 
         # Evict by count if still over limit
-        if len(self._market_data) > self._max_symbols:
-            excess = len(self._market_data) - self._max_symbols
-            # Sort by timestamp (oldest first)
+        current_size = len(self._market_data)
+        if current_size > self._max_symbols:
+            excess = current_size - self._max_symbols
+            # Get fresh snapshot and sort by timestamp (oldest first)
             sorted_entries = sorted(
                 self._market_data.items(),
                 key=lambda x: x[1].timestamp.timestamp() if x[1].timestamp else 0
             )
             for symbol, _ in sorted_entries[:excess]:
-                del self._market_data[symbol]
+                self._market_data.delete(symbol)
             logger.debug(f"Evicted {excess} oldest market data entries (over max {self._max_symbols})")
 
     def get(self, symbol: str) -> Optional[MarketData]:
         """
         Get market data for a symbol.
 
+        OPT-014: Lock-free read via RCUDict.
+
         Note: Returns cached data even if Greeks are stale.
         Use is_greeks_stale() to check freshness.
         """
-        with self._lock:
-            return self._market_data.get(symbol)
+        return self._market_data.get(symbol)
 
     def has_fresh_data(self, symbol: str) -> bool:
         """
         Check if we have fresh price data for a symbol.
+
+        OPT-014: Lock-free read via RCUDict.
 
         Used to determine if we need to subscribe to streaming for this symbol.
 
@@ -133,15 +152,16 @@ class MarketDataStore:
         Returns:
             True if we have fresh data (within price TTL), False otherwise.
         """
-        with self._lock:
-            md = self._market_data.get(symbol)
-            if not md or not md.timestamp:
-                return False
-            return age_seconds(md.timestamp) <= self._price_ttl_seconds
+        md = self._market_data.get(symbol)
+        if not md or not md.timestamp:
+            return False
+        return age_seconds(md.timestamp) <= self._price_ttl_seconds
 
     def is_greeks_stale(self, symbol: str) -> bool:
         """
         Check if Greeks data is stale for a symbol.
+
+        OPT-014: Lock-free read via RCUDict.
 
         Args:
             symbol: Symbol to check.
@@ -149,45 +169,52 @@ class MarketDataStore:
         Returns:
             True if Greeks are stale or missing, False if fresh.
         """
-        with self._lock:
-            md = self._market_data.get(symbol)
-            if not md or not md.timestamp:
-                return True
-
-            return age_seconds(md.timestamp) > self._greeks_ttl_seconds
+        md = self._market_data.get(symbol)
+        if not md or not md.timestamp:
+            return True
+        return age_seconds(md.timestamp) > self._greeks_ttl_seconds
 
     def get_stale_symbols(self) -> List[str]:
         """
         Get list of symbols with stale Greeks.
 
+        OPT-014: Lock-free read via RCUDict.items() snapshot.
+
         Returns:
             List of symbols that need Greeks refresh.
         """
-        with self._lock:
-            stale = []
-            for symbol, md in self._market_data.items():
-                if not md.timestamp:
-                    stale.append(symbol)
-                    continue
-
-                if age_seconds(md.timestamp) > self._greeks_ttl_seconds:
-                    stale.append(symbol)
-
-            return stale
+        stale = []
+        for symbol, md in self._market_data.items():
+            if not md.timestamp:
+                stale.append(symbol)
+                continue
+            if age_seconds(md.timestamp) > self._greeks_ttl_seconds:
+                stale.append(symbol)
+        return stale
 
     def get_all(self) -> Dict[str, MarketData]:
-        """Get all market data (thread-safe copy)."""
-        with self._lock:
-            return dict(self._market_data)
+        """
+        Get all market data (thread-safe copy).
+
+        OPT-014: Lock-free read via RCUDict.get_all().
+        Returns a copy for safety.
+        """
+        return dict(self._market_data.get_all())
 
     def get_symbols(self) -> List[str]:
-        """Get all symbols."""
-        with self._lock:
-            return list(self._market_data.keys())
+        """
+        Get all symbols.
+
+        OPT-014: Lock-free read via RCUDict.keys() snapshot.
+        """
+        return self._market_data.keys()
 
     def get_symbols_needing_refresh(self, requested_symbols: List[str]) -> List[str]:
         """
-        Get symbols that need market data refresh (stale price or missing) - atomic operation.
+        Get symbols that need market data refresh (stale price or missing).
+
+        OPT-014: Lock-free read via RCUDict snapshot.
+        Snapshot ensures consistency within this operation.
 
         Uses price_ttl_seconds for staleness check (need real-time prices).
         Greeks staleness is checked separately via is_greeks_stale().
@@ -198,32 +225,40 @@ class MarketDataStore:
         Returns:
             List of symbols that need refresh (price stale or not in cache).
         """
-        with self._lock:
-            stale_set = set()
-            existing_set = set(self._market_data.keys())
+        # Get atomic snapshot of current data
+        snapshot = self._market_data.get_all()
 
-            # Check for stale prices (using price TTL, not Greeks TTL)
-            for symbol, md in self._market_data.items():
-                if not md.timestamp:
-                    stale_set.add(symbol)
-                    continue
-                if age_seconds(md.timestamp) > self._price_ttl_seconds:
-                    stale_set.add(symbol)
+        stale_set = set()
+        existing_set = set(snapshot.keys())
 
-            # Return symbols that are stale OR not in cache
-            requested_set = set(requested_symbols)
-            missing_set = requested_set - existing_set
-            return list(stale_set.union(missing_set) & requested_set)
+        # Check for stale prices (using price TTL, not Greeks TTL)
+        for symbol, md in snapshot.items():
+            if not md.timestamp:
+                stale_set.add(symbol)
+                continue
+            if age_seconds(md.timestamp) > self._price_ttl_seconds:
+                stale_set.add(symbol)
+
+        # Return symbols that are stale OR not in cache
+        requested_set = set(requested_symbols)
+        missing_set = requested_set - existing_set
+        return list(stale_set.union(missing_set) & requested_set)
 
     def clear(self) -> None:
-        """Clear all market data."""
-        with self._lock:
-            self._market_data.clear()
+        """
+        Clear all market data.
+
+        OPT-014: RCUDict.clear() handles atomicity internally.
+        """
+        self._market_data.clear()
 
     def count(self) -> int:
-        """Get market data count."""
-        with self._lock:
-            return len(self._market_data)
+        """
+        Get market data count.
+
+        OPT-014: Lock-free read via RCUDict.__len__().
+        """
+        return len(self._market_data)
 
     def subscribe_to_events(self, event_bus: "EventBus") -> None:
         """

@@ -710,21 +710,35 @@ class MarketDataFetcher:
             return
 
         # Extract IV first (available directly on ticker)
-        if hasattr(ticker, 'impliedVolatility') and ticker.impliedVolatility and not isnan(ticker.impliedVolatility):
-            md.iv = float(ticker.impliedVolatility)
+        iv = self._safe_float(getattr(ticker, 'impliedVolatility', None))
+        if iv is not None:
+            md.iv = iv
 
         # Extract Greeks from modelGreeks
         if hasattr(ticker, 'modelGreeks') and ticker.modelGreeks:
             greeks = ticker.modelGreeks
-            md.delta = float(greeks.delta) if greeks.delta and not isnan(greeks.delta) else None
-            md.gamma = float(greeks.gamma) if greeks.gamma and not isnan(greeks.gamma) else None
-            md.vega = float(greeks.vega) if greeks.vega and not isnan(greeks.vega) else None
-            md.theta = float(greeks.theta) if greeks.theta and not isnan(greeks.theta) else None
-            md.greeks_source = GreeksSource.IBKR
+            md.delta = self._safe_float(getattr(greeks, 'delta', None))
+            md.gamma = self._safe_float(getattr(greeks, 'gamma', None))
+            md.vega = self._safe_float(getattr(greeks, 'vega', None))
+            md.theta = self._safe_float(getattr(greeks, 'theta', None))
+            if any(value is not None for value in (md.delta, md.gamma, md.vega, md.theta)):
+                md.greeks_source = GreeksSource.IBKR
 
             # Extract underlying price (critical for delta dollars calculation)
-            if hasattr(greeks, 'undPrice') and greeks.undPrice and not isnan(greeks.undPrice):
-                md.underlying_price = float(greeks.undPrice)
+            und_price = self._safe_float(getattr(greeks, 'undPrice', None))
+            if und_price is not None:
+                md.underlying_price = und_price
+
+    @staticmethod
+    def _safe_float(value: object) -> Optional[float]:
+        """Convert value to float, treating NaN as None."""
+        if value is None:
+            return None
+        try:
+            value_f = float(value)
+        except (TypeError, ValueError):
+            return None
+        return None if isnan(value_f) else value_f
 
     def enable_streaming(self) -> None:
         """

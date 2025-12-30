@@ -1,11 +1,16 @@
-"""Thread-safe in-memory position store with event subscription."""
+"""
+Thread-safe in-memory position store with event subscription.
+
+OPT-014: Uses RCU pattern for lock-free reads on the main data path.
+"""
 
 from __future__ import annotations
-from typing import Dict, Iterable, List, Optional, TYPE_CHECKING
+from typing import Iterable, List, Optional, TYPE_CHECKING
 from threading import RLock
 
 from ...utils.logging_setup import get_logger
 from ...models.position import Position
+from .rcu_store import RCUDict
 
 if TYPE_CHECKING:
     from ...domain.interfaces.event_bus import EventBus
@@ -14,48 +19,69 @@ logger = get_logger(__name__)
 
 
 class PositionStore:
-    """Thread-safe in-memory position store keyed by Position.key()."""
+    """
+    Thread-safe in-memory position store keyed by Position.key().
+
+    OPT-014: Uses RCU pattern for lock-free reads.
+    """
 
     def __init__(self) -> None:
-        self._positions: Dict[tuple, Position] = {}
-        self._lock = RLock()
+        # OPT-014: Use RCUDict for lock-free reads
+        self._positions: RCUDict[tuple, Position] = RCUDict()
+        self._refresh_lock = RLock()  # Only for refresh flag coordination
         self._needs_refresh = False  # Flag for position update signal
 
     def upsert_positions(self, positions: Iterable[Position]) -> None:
         """
         Insert or update positions.
 
+        OPT-014: RCUDict.update() handles atomicity internally.
+
         Args:
             positions: Iterable of Position objects.
         """
-        with self._lock:
-            for p in positions:
-                self._positions[p.key()] = p
+        updates = {p.key(): p for p in positions}
+        self._positions.update(updates)
 
     def get_all(self) -> List[Position]:
-        """Get all positions (thread-safe copy)."""
-        with self._lock:
-            return list(self._positions.values())
+        """
+        Get all positions (thread-safe copy).
+
+        OPT-014: Lock-free read via RCUDict.values() snapshot.
+        """
+        return self._positions.values()
 
     def get_by_key(self, key: tuple) -> Optional[Position]:
-        """Get position by key."""
-        with self._lock:
-            return self._positions.get(key)
+        """
+        Get position by key.
+
+        OPT-014: Lock-free read via RCUDict.get().
+        """
+        return self._positions.get(key)
 
     def get_by_underlying(self, underlying: str) -> List[Position]:
-        """Get all positions for a specific underlying."""
-        with self._lock:
-            return [p for p in self._positions.values() if p.underlying == underlying]
+        """
+        Get all positions for a specific underlying.
+
+        OPT-014: Lock-free read via RCUDict.values() snapshot.
+        """
+        return [p for p in self._positions.values() if p.underlying == underlying]
 
     def clear(self) -> None:
-        """Clear all positions."""
-        with self._lock:
-            self._positions.clear()
+        """
+        Clear all positions.
+
+        OPT-014: RCUDict.clear() handles atomicity internally.
+        """
+        self._positions.clear()
 
     def count(self) -> int:
-        """Get position count."""
-        with self._lock:
-            return len(self._positions)
+        """
+        Get position count.
+
+        OPT-014: Lock-free read via RCUDict.__len__().
+        """
+        return len(self._positions)
 
     def subscribe_to_events(self, event_bus: "EventBus") -> None:
         """
@@ -91,16 +117,16 @@ class PositionStore:
         Args:
             payload: Event payload with position update info.
         """
-        with self._lock:
+        with self._refresh_lock:
             self._needs_refresh = True
         logger.debug(f"Position update signal: {payload.get('symbol', 'unknown')}")
 
     def needs_refresh(self) -> bool:
         """Check if positions need refresh (trade deal received)."""
-        with self._lock:
+        with self._refresh_lock:
             return self._needs_refresh
 
     def clear_refresh_flag(self) -> None:
         """Clear the refresh flag after positions have been refreshed."""
-        with self._lock:
+        with self._refresh_lock:
             self._needs_refresh = False
