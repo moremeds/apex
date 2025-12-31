@@ -72,7 +72,8 @@ class ApexApp(App):
         self.ta_service = None
         self.historical_service = None
         self._event_loop = None
-        self._update_queue: queue.Queue = queue.Queue()
+        # Bounded queue to prevent memory growth; conflation in _poll_updates keeps only latest
+        self._update_queue: queue.Queue = queue.Queue(maxsize=10)
         self._poll_timer = None
 
     def on_mount(self) -> None:

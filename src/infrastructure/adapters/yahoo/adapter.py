@@ -14,6 +14,7 @@ Limitations:
 """
 
 from __future__ import annotations
+import asyncio
 from typing import List, Dict, Optional, Callable
 from datetime import datetime, timedelta
 from threading import RLock
@@ -198,9 +199,10 @@ class YahooFinanceAdapter(MarketDataProvider):
                         continue
                 stale_symbols.append(symbol)
 
-        # Fetch stale/missing symbols
+        # Fetch stale/missing symbols - run in thread to avoid blocking event loop
+        # (yfinance uses blocking HTTP calls and we have rate limit sleeps)
         if stale_symbols:
-            fetched = self._fetch_from_yahoo(stale_symbols)
+            fetched = await asyncio.to_thread(self._fetch_from_yahoo, stale_symbols)
             fresh_data.extend(fetched)
 
         return fresh_data

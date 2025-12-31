@@ -127,8 +127,10 @@ class DataCoordinator:
             )
             self._event_bus.publish(EventType.MDQC_VALIDATION_TRIGGER, event)
         else:
-            # Fallback: run synchronously if no event bus
-            self.mdqc.validate_all(market_data)
+            # Fallback: run async in thread to avoid blocking event loop
+            asyncio.create_task(
+                asyncio.to_thread(self.mdqc.validate_all, market_data)
+            )
 
         # Notify dirty callback if provided
         if on_dirty_callback:

@@ -1061,3 +1061,11 @@ class RiskEngine:
         if self._executor:
             self._executor.shutdown(wait=True, cancel_futures=True)
             logger.info("RiskEngine executor shutdown complete")
+
+    def __enter__(self) -> "RiskEngine":
+        """Context manager entry - enables 'with RiskEngine(...) as engine:' pattern."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Context manager exit - ensures executor shutdown on scope exit."""
+        self.close()

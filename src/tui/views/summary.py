@@ -69,26 +69,26 @@ class SummaryView(Container):
         try:
             positions_table = self.query_one("#summary-positions", PositionsTable)
             positions_table.positions = position_risks
-        except Exception as e:
-            self.log.error(f"Failed to update positions table: {e}")
+        except Exception:
+            self.log.exception("Failed to update positions table")
 
         # Update summary panel
         try:
             summary_panel = self.query_one("#summary-panel", SummaryPanel)
             summary_panel.snapshot = snapshot
-        except Exception as e:
-            self.log.error(f"Failed to update summary panel: {e}")
+        except Exception:
+            self.log.exception("Failed to update summary panel")
 
         # Update alerts list
         try:
             alerts_list = self.query_one("#summary-alerts", AlertsList)
             alerts_list.alerts = alerts or []
-        except Exception as e:
-            self.log.error(f"Failed to update alerts list: {e}")
+        except Exception:
+            self.log.exception("Failed to update alerts list")
 
         # Update health bar
         try:
             health_bar = self.query_one("#summary-health", HealthBar)
             health_bar.health = health or []
-        except Exception as e:
-            self.log.error(f"Failed to update health bar: {e}")
+        except Exception:
+            self.log.exception("Failed to update health bar")

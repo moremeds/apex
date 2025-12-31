@@ -249,6 +249,10 @@ class StrategyList(DataTable):
             except Exception as e:
                 self.log.error(f"Failed to update cell: {e}")
 
+        # NOTE: new_order from compute_updates() is intentionally not applied.
+        # Textual DataTable doesn't support row reordering natively.
+        # Strategy list order is stable (alphabetical), so this is acceptable.
+
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         """Handle row selection (Enter/click)."""
         if event.row_key is not None:

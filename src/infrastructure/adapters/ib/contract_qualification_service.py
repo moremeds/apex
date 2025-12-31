@@ -249,7 +249,7 @@ class ContractQualificationService:
 
         # Create futures for in-flight tracking
         futures: Dict[str, asyncio.Future] = {}
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         for req in batch:
             key = self._contract_key(req.contract)
             futures[key] = loop.create_future()

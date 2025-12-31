@@ -248,6 +248,7 @@ class HistoricalRequestScheduler:
         self._running = False
         self._processor_task: Optional[asyncio.Task] = None
         self._status_task: Optional[asyncio.Task] = None  # OPT-015
+        self._processing_tasks: set[asyncio.Task] = set()  # Track in-flight request tasks
         self._metrics = SchedulerMetrics()
 
     async def start(self) -> None:
@@ -284,6 +285,13 @@ class HistoricalRequestScheduler:
             except asyncio.CancelledError:
                 pass
             self._status_task = None
+
+        # Cancel in-flight processing tasks
+        if self._processing_tasks:
+            for task in self._processing_tasks:
+                task.cancel()
+            await asyncio.gather(*self._processing_tasks, return_exceptions=True)
+            self._processing_tasks.clear()
 
         logger.info("HistoricalRequestScheduler stopped")
 
@@ -374,8 +382,10 @@ class HistoricalRequestScheduler:
                     await asyncio.sleep(0.01)  # Brief sleep when all queues empty
                     continue
 
-                # Process with concurrency limit
-                asyncio.create_task(self._process_request(request))
+                # Process with concurrency limit - track task for cleanup
+                task = asyncio.create_task(self._process_request(request))
+                self._processing_tasks.add(task)
+                task.add_done_callback(self._processing_tasks.discard)
 
             except asyncio.CancelledError:
                 break
@@ -505,6 +515,7 @@ class HistoricalRequestScheduler:
         Runs as background task, publishes status every STATUS_PUBLISH_INTERVAL seconds.
         """
         from ..domain.interfaces.event_bus import EventType
+        from ..domain.events.domain_events import SchedulerStatusEvent
 
         while self._running:
             try:
@@ -515,21 +526,18 @@ class HistoricalRequestScheduler:
 
                 status = self.get_status()
 
-                # Publish status event
-                self._event_bus.publish(
-                    EventType.HEALTH_CHECK,
-                    {
-                        "source": "historical_scheduler",
-                        "type": "scheduler_status",
-                        "tokens_available": round(status.tokens_available, 1),
-                        "tokens_max": status.tokens_max,
-                        "queue_depth": status.queue_depth,
-                        "total_queued": status.total_queued,
-                        "in_flight": status.in_flight,
-                        "rate_limited": status.rate_limited,
-                        "rate_limit_wait_sec": round(status.rate_limit_wait_sec, 1) if status.rate_limit_wait_sec else None,
-                    }
+                # Publish typed status event (OPT-015 + P2.3: dict → typed event)
+                event = SchedulerStatusEvent(
+                    source="historical_scheduler",
+                    tokens_available=round(status.tokens_available, 1),
+                    tokens_max=status.tokens_max,
+                    queue_depth=status.queue_depth,
+                    total_queued=status.total_queued,
+                    in_flight=status.in_flight,
+                    rate_limited=status.rate_limited,
+                    rate_limit_wait_sec=round(status.rate_limit_wait_sec, 1) if status.rate_limit_wait_sec else None,
                 )
+                self._event_bus.publish(EventType.HEALTH_CHECK, event)
 
                 # Log if rate limited
                 if status.rate_limited:

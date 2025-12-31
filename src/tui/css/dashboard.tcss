@@ -21,18 +21,26 @@ HeaderWidget {
     dock: top;
     background: #262b31;
     color: #7ee787;
+    content-align: center middle;
 }
 
 HeaderWidget #header-content {
-    height: 1;
+    width: auto;
+    height: 100%;
+    layout: horizontal;
 }
 
 HeaderWidget #header-left {
+    width: auto;
     height: 1;
+    content-align: left middle;
+    padding: 0 0;
 }
 
 HeaderWidget #header-tabs {
+    width: auto;
     height: 1;
+    content-align: left middle;
 }
 
 /* ===== Tab Container ===== */
