@@ -72,8 +72,8 @@ class PositionsTable(DataTable):
         ("Th(Θ)", 6),
     ]
 
-    # Reactive properties
-    positions: reactive[List[Any]] = reactive([], init=False)
+    # Reactive properties - use factory to avoid mutable default shared across instances
+    positions: reactive[List[Any]] = reactive(list, init=False)
 
     def __init__(
         self,
@@ -188,7 +188,10 @@ class PositionsTable(DataTable):
             except Exception as e:
                 self.log.error(f"Failed to update cell {cell.row_key}: {e}")
 
-        # Update row order if needed
+        # Update row order tracking
+        # NOTE: Textual DataTable doesn't support row reordering natively.
+        # This updates our internal tracking but displayed rows stay in insertion order.
+        # Full rebuild would be needed for visual reordering (causes flicker).
         self._row_keys = [k for k in new_order if k in self._row_keys]
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:

@@ -24,29 +24,8 @@ from ..base import VIEW_TABS
 class HeaderWidget(Widget):
     """Header bar with market status and navigation hints."""
 
-    # Styles are in css/dashboard.tcss; only layout-specific overrides here
-    DEFAULT_CSS = """
-    HeaderWidget {
-        content-align: center middle;
-    }
-
-    HeaderWidget #header-content {
-        width: auto;
-        height: 100%;
-        layout: horizontal;
-    }
-
-    HeaderWidget #header-left {
-        width: auto;
-        content-align: left middle;
-        padding: 0 0;
-    }
-
-    HeaderWidget #header-tabs {
-        width: auto;
-        content-align: left middle;
-    }
-    """
+    # All styles are in css/dashboard.tcss (P3.7: extracted inline CSS)
+    DEFAULT_CSS = ""
 
     active_tab: reactive[str] = reactive("summary", init=False)
 

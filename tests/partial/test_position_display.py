@@ -177,7 +177,7 @@ def test_position_display():
     print("  - Positions can be passed to dashboard.update()")
     print("  - Position panel renders correctly with positions")
     print("  - Position panel shows 'No positions' when empty")
-    print("\nThe fix in main.py will now display positions correctly!")
+    print("\nThe fix in orchestrator.py will now display positions correctly!")
     print()
 
     return True

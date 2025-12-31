@@ -17,6 +17,8 @@ from .position_vm import PositionViewModel
 from .signal_vm import SignalViewModel
 from .strategy_vm import StrategyDisplayState, StrategyViewModel
 from .summary_vm import SummaryViewModel
+from .alert_vm import AlertViewModel  # OPT-011
+from .order_vm import OrderViewModel  # OPT-011
 
 __all__ = [
     "BaseViewModel",
@@ -27,4 +29,6 @@ __all__ = [
     "StrategyDisplayState",
     "StrategyViewModel",
     "SummaryViewModel",
+    "AlertViewModel",
+    "OrderViewModel",
 ]

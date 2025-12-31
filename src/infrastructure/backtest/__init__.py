@@ -18,6 +18,10 @@ from .data_feeds import (
     MultiTimeframeDataFeed,
     create_csv_multi_timeframe_feed,
     create_ib_multi_timeframe_feed,
+    # OPT-009: Streaming data feeds
+    StreamingCsvDataFeed,
+    StreamingParquetDataFeed,
+    create_data_feed,
 )
 from .backtest_engine import BacktestEngine, BacktestConfig
 from .backtrader_adapter import ApexStrategyWrapper, run_backtest_with_backtrader
@@ -35,6 +39,10 @@ __all__ = [
     "MultiTimeframeDataFeed",  # Combine multiple timeframes
     "create_csv_multi_timeframe_feed",
     "create_ib_multi_timeframe_feed",
+    # OPT-009: Streaming data feeds (memory efficient)
+    "StreamingCsvDataFeed",
+    "StreamingParquetDataFeed",
+    "create_data_feed",  # Factory function
     # Backtest engine
     "BacktestEngine",
     "BacktestConfig",

@@ -29,10 +29,10 @@ risk_signals:
 
 ```bash
 # Start with default config
-python main.py --env dev
+python orchestrator.py --env dev
 
 # Or specify custom config
-python main.py --config config/risk_config.yaml
+python orchestrator.py --config config/risk_config.yaml
 ```
 
 The dashboard will now display enhanced risk alerts in the **"Portfolio Risk Alert"** panel!
@@ -264,7 +264,7 @@ positions:
     # ... other fields
 ```
 
-2. **Add fake market data** showing -70% loss in IbAdapter
+2. **Add fake market data** showing -70% loss in market data store
 
 3. **Expected:** Should see CRITICAL stop loss signal
 

@@ -616,6 +616,8 @@ class Strategy(ABC):
         Subscribe strategy to event bus.
 
         Called by strategy runner to wire up event delivery.
+        OPT-007: Strategy callbacks are registered as "heavy" to offload
+        to thread pool, preventing event loop blocking.
 
         Args:
             event_bus: Event bus to subscribe to.
@@ -624,6 +626,16 @@ class Strategy(ABC):
         event_bus.subscribe(EventType.POSITION_UPDATED, self._handle_position_event)
         event_bus.subscribe(EventType.ORDER_FILLED, self._handle_fill_event)
         event_bus.subscribe(EventType.ACCOUNT_UPDATED, self._handle_account_event)
+
+        # OPT-007: Register callbacks as heavy to offload to thread pool
+        # This prevents user strategy code from blocking the event loop
+        if hasattr(event_bus, 'register_heavy_callback'):
+            event_bus.register_heavy_callback(self._handle_tick_event)
+            event_bus.register_heavy_callback(self._handle_position_event)
+            event_bus.register_heavy_callback(self._handle_fill_event)
+            event_bus.register_heavy_callback(self._handle_account_event)
+            logger.debug(f"Strategy {self.strategy_id} callbacks registered as heavy")
+
         logger.debug(f"Strategy {self.strategy_id} subscribed to events")
 
     def unsubscribe_from_events(self, event_bus: EventBus) -> None:
@@ -632,6 +644,13 @@ class Strategy(ABC):
         event_bus.unsubscribe(EventType.POSITION_UPDATED, self._handle_position_event)
         event_bus.unsubscribe(EventType.ORDER_FILLED, self._handle_fill_event)
         event_bus.unsubscribe(EventType.ACCOUNT_UPDATED, self._handle_account_event)
+
+        # OPT-007: Unregister heavy callbacks
+        if hasattr(event_bus, 'unregister_heavy_callback'):
+            event_bus.unregister_heavy_callback(self._handle_tick_event)
+            event_bus.unregister_heavy_callback(self._handle_position_event)
+            event_bus.unregister_heavy_callback(self._handle_fill_event)
+            event_bus.unregister_heavy_callback(self._handle_account_event)
 
     def _handle_tick_event(self, payload: Any) -> None:
         """Handle tick event from bus."""

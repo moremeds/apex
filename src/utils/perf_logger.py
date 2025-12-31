@@ -48,7 +48,7 @@ from __future__ import annotations
 import time
 import logging
 import functools
-from contextlib import contextmanager, asynccontextmanager
+from contextlib import contextmanager, asynccontextmanager, _GeneratorContextManager, _AsyncGeneratorContextManager
 from typing import Optional, Callable, Any, Generator, AsyncGenerator
 
 from .trace_context import get_cycle_id
@@ -265,21 +265,21 @@ def asyncio_iscoroutinefunction(func: Callable) -> bool:
 
 
 # Convenience timing functions for common operations
-def log_snapshot_timing() -> Generator[dict, None, None]:
+def log_snapshot_timing() -> _GeneratorContextManager[dict, None, None]:
     """Pre-configured timing for snapshot builds."""
     return log_timing("snapshot_build", warn_threshold_ms=250, error_threshold_ms=1000)
 
 
-def log_market_data_timing() -> AsyncGenerator[dict, None]:
+def log_market_data_timing() -> _AsyncGeneratorContextManager[dict, None]:
     """Pre-configured timing for market data fetches."""
     return log_timing_async("market_data_fetch", warn_threshold_ms=1000, error_threshold_ms=5000)
 
 
-def log_position_fetch_timing() -> AsyncGenerator[dict, None]:
+def log_position_fetch_timing() -> _AsyncGeneratorContextManager[dict, None]:
     """Pre-configured timing for position fetches."""
     return log_timing_async("position_fetch", warn_threshold_ms=500, error_threshold_ms=2000)
 
 
-def log_reconcile_timing() -> Generator[dict, None, None]:
+def log_reconcile_timing() -> _GeneratorContextManager[dict, None, None]:
     """Pre-configured timing for position reconciliation."""
     return log_timing("position_reconcile", warn_threshold_ms=100, error_threshold_ms=500)

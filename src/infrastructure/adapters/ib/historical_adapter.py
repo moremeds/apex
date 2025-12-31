@@ -21,7 +21,6 @@ from .base import IbBaseAdapter
 
 logger = get_logger(__name__)
 
-
 # Mapping from our timeframe strings to IB bar sizes
 TIMEFRAME_TO_IB_BAR_SIZE = {
     "1s": "1 secs",

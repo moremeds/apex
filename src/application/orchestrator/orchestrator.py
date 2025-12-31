@@ -135,6 +135,8 @@ class Orchestrator:
         self._running = False
         self._timer_task: Optional[asyncio.Task] = None
         self._latest_market_alerts: List[Dict[str, Any]] = []
+        self._tick_count: int = 0  # For periodic housekeeping
+        self._consecutive_errors: int = 0  # Track timer loop error frequency
 
         # Timer configuration
         self._timer_interval_sec = config.get("timer_interval_sec", 5.0)
@@ -149,7 +151,8 @@ class Orchestrator:
 
         # Start event bus FIRST - must be running before any streaming/callbacks
         # that might publish events (C1: event bus start order fix)
-        if isinstance(self.event_bus, (AsyncEventBus, PriorityEventBus)):
+        # Use duck typing: check for start() method rather than concrete types
+        if hasattr(self.event_bus, 'start'):
             await self.event_bus.start()
             logger.debug("Event bus started before providers")
 
@@ -209,8 +212,8 @@ class Orchestrator:
         if self._snapshot_service:
             await self._snapshot_service.stop()
 
-        # Stop event bus
-        if isinstance(self.event_bus, (AsyncEventBus, PriorityEventBus)):
+        # Stop event bus (duck typing - check for stop() method)
+        if hasattr(self.event_bus, 'stop'):
             await self.event_bus.stop()
 
         # Stop watchdog
@@ -264,6 +267,14 @@ class Orchestrator:
                 # Detect market alerts
                 await self._detect_market_alerts()
 
+                # Periodic housekeeping (every ~5 minutes with 5s interval)
+                self._tick_count += 1
+                if self._tick_count % 60 == 0:
+                    self._periodic_cleanup()
+
+                # Reset consecutive error counter on successful iteration
+                self._consecutive_errors = 0
+
             except asyncio.CancelledError:
                 break
             except RecoverableError as e:
@@ -273,8 +284,17 @@ class Orchestrator:
                 logger.critical(f"Fatal error in timer loop: {e}", exc_info=True)
                 self._running = False
                 break
+            except (ConnectionError, TimeoutError, OSError) as e:
+                # Transient network/IO errors - log and continue
+                logger.warning(f"Transient timer loop error (will retry): {e}")
             except Exception as e:
+                # Log unexpected errors with full traceback for debugging
                 logger.error(f"Unexpected timer loop error: {e}", exc_info=True)
+                # Increment error counter for monitoring (if available)
+                self._consecutive_errors = getattr(self, '_consecutive_errors', 0) + 1
+                if self._consecutive_errors >= 5:
+                    logger.critical("Too many consecutive errors in timer loop")
+                    # Don't break - let the loop continue but alert is logged
 
     def _on_broker_position_update(
         self, broker_name: str, positions: List[Position]
@@ -317,6 +337,17 @@ class Orchestrator:
             self._latest_market_alerts = alerts
         except Exception as e:
             logger.error(f"Market alert detection error: {e}")
+
+    def _periodic_cleanup(self) -> None:
+        """Periodic housekeeping tasks (called every ~5 minutes)."""
+        # Clean up expired cooldowns in RiskSignalManager to prevent memory leak
+        try:
+            risk_signal_engine = self._snapshot_coordinator.risk_signal_engine
+            if risk_signal_engine and hasattr(risk_signal_engine, 'signal_manager'):
+                risk_signal_engine.signal_manager.cleanup_expired()
+                logger.debug("RiskSignalManager cleanup completed")
+        except Exception as e:
+            logger.warning(f"Periodic cleanup error: {e}")
 
     async def _perform_warm_start(self) -> None:
         """Load state from previous snapshots for warm start."""

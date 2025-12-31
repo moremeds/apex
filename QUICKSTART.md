@@ -49,13 +49,13 @@ ibkr:
 
 ```bash
 # Development mode
-python main.py --env dev
+python orchestrator.py --env dev
 
 # Production mode
-python main.py --env prod
+python orchestrator.py --env prod
 
 # Headless mode (no dashboard)
-python main.py --no-dashboard
+python orchestrator.py --no-dashboard
 ```
 
 ## 🧪 Testing
@@ -133,7 +133,7 @@ Check that everything works:
 # Verify imports
 python -c "
 from src.models.position import Position
-from src.infrastructure.adapters import IbAdapter
+from src.infrastructure.adapters import IbCompositeAdapter
 from config.config_manager import ConfigManager
 print('✅ All imports successful!')
 "
@@ -178,7 +178,7 @@ If imports fail, make sure you're using the venv Python:
 source .venv/bin/activate
 
 # Or use venv Python directly
-.venv/bin/python main.py
+.venv/bin/python orchestrator.py
 ```
 
 ### IBKR Connection Issues
@@ -224,7 +224,7 @@ uv pip install -e ".[dev]"
 - SimpleShockEngine (spot shock scenarios)
 
 ✅ **Infrastructure Layer**
-- IbAdapter skeleton (ib_async integration)
+- IbCompositeAdapter (ib_async integration)
 - FileLoader (YAML position loading)
 - Thread-safe stores (Position, MarketData, Account)
 - HealthMonitor (component health tracking)

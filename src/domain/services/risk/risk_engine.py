@@ -63,6 +63,35 @@ class PositionMetrics:
     has_missing_greeks: bool
 
 
+@dataclass
+class CachedRiskState:
+    """
+    OPT-013: Cached risk calculation state for incremental updates.
+
+    Stores position-level metrics and aggregate Greeks to enable
+    incremental rebuilds when only some underlyings change.
+    """
+    # Position metrics by symbol
+    position_metrics: Dict[str, PositionMetrics]
+    # Position risks by symbol (for snapshot)
+    position_risks: Dict[str, PositionRisk]
+    # Mapping of underlying -> position symbols for efficient lookup
+    positions_by_underlying: Dict[str, Set[str]]
+    # Cached aggregate values for delta calculation
+    portfolio_delta: float
+    portfolio_gamma: float
+    portfolio_vega: float
+    portfolio_theta: float
+    total_gross_notional: float
+    total_net_notional: float
+    total_unrealized_pnl: float
+    total_daily_pnl: float
+    gamma_notional_near_term: float
+    vega_notional_near_term: float
+    # Set of symbols currently tracked
+    tracked_symbols: Set[str]
+
+
 class RiskEngine:
     """
     Core risk calculation engine.
@@ -123,13 +152,13 @@ class RiskEngine:
         # Event-driven state tracking
         self._lock = Lock()
         self._needs_rebuild = False
-        # Tracks which underlyings have changed since last rebuild (for future incremental rebuild)
-        # TODO: Phase 2 - Use _dirty_underlyings to scope rebuilds:
-        #   1. Cache previous PositionRisk objects by symbol
-        #   2. Only recalculate positions with dirty underlyings
-        #   3. Merge recalculated with cached results
-        #   Currently, build_snapshot() always recomputes all positions.
+        # OPT-013: Tracks which underlyings have changed since last rebuild
         self._dirty_underlyings: Set[str] = set()
+
+        # OPT-013: Incremental rebuild state
+        self._cached_state: Optional[CachedRiskState] = None
+        # Enable/disable incremental rebuilds (can be set via config)
+        self._incremental_rebuild_enabled = risk_engine_cfg.get("incremental_rebuild", True)
 
     def build_snapshot(
         self,
@@ -142,6 +171,7 @@ class RiskEngine:
         """
         Build complete risk snapshot from current state.
 
+        OPT-013: Uses incremental rebuild when only some underlyings changed.
         Uses parallel processing for portfolios >= parallel_threshold positions.
 
         Args:
@@ -158,6 +188,290 @@ class RiskEngine:
         """
         start_time = time.perf_counter()
 
+        # OPT-013: Get dirty state and decide rebuild strategy
+        with self._lock:
+            dirty_underlyings = self._dirty_underlyings.copy()
+            needs_full_rebuild = self._needs_rebuild
+            self._dirty_underlyings.clear()
+            self._needs_rebuild = False
+
+        # OPT-013: Try incremental rebuild if enabled and conditions are met
+        if (
+            self._incremental_rebuild_enabled
+            and not needs_full_rebuild
+            and dirty_underlyings
+            and self._can_incremental_rebuild(positions)
+        ):
+            snapshot = self._incremental_rebuild(
+                positions, market_data, account_info,
+                dirty_underlyings, ib_account, futu_account
+            )
+            if self._risk_metrics:
+                duration_ms = (time.perf_counter() - start_time) * 1000
+                self._risk_metrics.record_snapshot_build_duration(duration_ms)
+                logger.debug("Incremental rebuild completed in %.2fms for %d underlyings",
+                           duration_ms, len(dirty_underlyings))
+            return snapshot
+
+        # Full rebuild
+        snapshot = self._full_rebuild(
+            positions, market_data, account_info, ib_account, futu_account
+        )
+
+        # Record observability metrics
+        if self._risk_metrics:
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            self._risk_metrics.record_snapshot_build_duration(duration_ms)
+            self._risk_metrics.record_snapshot(snapshot)
+            logger.debug("Full rebuild completed in %.2fms", duration_ms)
+
+        return snapshot
+
+    def _can_incremental_rebuild(self, positions: List[Position]) -> bool:
+        """
+        OPT-013: Check if incremental rebuild is safe.
+
+        Incremental rebuild requires:
+        1. Cached state exists
+        2. Position symbols haven't changed (no adds/removes)
+        """
+        if not self._cached_state:
+            return False
+
+        # Check if position count changed (adds/removes)
+        current_symbols = {p.symbol for p in positions}
+        if current_symbols != self._cached_state.tracked_symbols:
+            logger.debug("Position structure changed, full rebuild required")
+            return False
+
+        return True
+
+    def _incremental_rebuild(
+        self,
+        positions: List[Position],
+        market_data: Dict[str, MarketData],
+        account_info: AccountInfo,
+        dirty_underlyings: Set[str],
+        ib_account: Optional[AccountInfo] = None,
+        futu_account: Optional[AccountInfo] = None,
+    ) -> RiskSnapshot:
+        """
+        OPT-013: Incremental rebuild - only recalculate affected positions.
+
+        Uses cached state and only recalculates positions whose underlying
+        is in dirty_underlyings.
+        """
+        cached = self._cached_state
+        assert cached is not None  # Checked by _can_incremental_rebuild
+
+        # Create snapshot shell
+        snapshot = RiskSnapshot()
+        snapshot.total_positions = len(positions)
+
+        # Store per-broker account info
+        if ib_account:
+            snapshot.ib_net_liquidation = ib_account.net_liquidation
+            snapshot.ib_buying_power = ib_account.buying_power
+        if futu_account:
+            snapshot.futu_net_liquidation = futu_account.net_liquidation
+            snapshot.futu_buying_power = futu_account.buying_power
+        snapshot.total_net_liquidation = account_info.net_liquidation
+
+        # Cache market status
+        market_status = MarketHours.get_market_status()
+
+        # Find affected positions
+        affected_symbols: Set[str] = set()
+        for underlying in dirty_underlyings:
+            affected_symbols.update(
+                cached.positions_by_underlying.get(underlying, set())
+            )
+
+        logger.debug("Incremental rebuild: %d/%d positions affected",
+                    len(affected_symbols), len(positions))
+
+        # Prefetch betas only for affected underlyings
+        beta_cache: Dict[str, float] = {}
+        if self._yahoo_adapter is not None:
+            beta_cache = self._yahoo_adapter.get_betas(list(dirty_underlyings))
+
+        # Start with cached values
+        positions_by_symbol = {p.symbol: p for p in positions}
+        new_metrics = dict(cached.position_metrics)
+        new_risks = dict(cached.position_risks)
+
+        # Track delta changes for aggregate update
+        delta_diff = 0.0
+        gamma_diff = 0.0
+        vega_diff = 0.0
+        theta_diff = 0.0
+        gross_notional_diff = 0.0
+        net_notional_diff = 0.0
+        pnl_diff = 0.0
+        daily_pnl_diff = 0.0
+        gamma_near_term_diff = 0.0
+        vega_near_term_diff = 0.0
+
+        # Recalculate affected positions
+        for symbol in affected_symbols:
+            position = positions_by_symbol.get(symbol)
+            if not position:
+                continue
+
+            # Subtract old values
+            old_metrics = cached.position_metrics.get(symbol)
+            if old_metrics and not old_metrics.has_missing_md:
+                delta_diff -= old_metrics.delta_contribution
+                gamma_diff -= old_metrics.gamma_contribution
+                vega_diff -= old_metrics.vega_contribution
+                theta_diff -= old_metrics.theta_contribution
+                gross_notional_diff -= abs(old_metrics.notional)
+                net_notional_diff -= old_metrics.notional
+                pnl_diff -= old_metrics.unrealized_pnl
+                daily_pnl_diff -= old_metrics.daily_pnl
+                gamma_near_term_diff -= old_metrics.gamma_notional_near_term
+                vega_near_term_diff -= old_metrics.vega_notional_near_term
+
+            # Calculate new metrics
+            new_metric = self._calculate_position_metrics(position, market_data, market_status)
+            if new_metric is None:
+                continue
+
+            new_metrics[symbol] = new_metric
+
+            # Add new values
+            if not new_metric.has_missing_md:
+                delta_diff += new_metric.delta_contribution
+                gamma_diff += new_metric.gamma_contribution
+                vega_diff += new_metric.vega_contribution
+                theta_diff += new_metric.theta_contribution
+                gross_notional_diff += abs(new_metric.notional)
+                net_notional_diff += new_metric.notional
+                pnl_diff += new_metric.unrealized_pnl
+                daily_pnl_diff += new_metric.daily_pnl
+                gamma_near_term_diff += new_metric.gamma_notional_near_term
+                vega_near_term_diff += new_metric.vega_notional_near_term
+
+            # Create new PositionRisk
+            new_risk = self._create_position_risk(
+                position, market_data.get(symbol), new_metric, beta_cache
+            )
+            new_risks[symbol] = new_risk
+
+        # Update cached state with new values
+        self._cached_state = CachedRiskState(
+            position_metrics=new_metrics,
+            position_risks=new_risks,
+            positions_by_underlying=cached.positions_by_underlying,
+            portfolio_delta=cached.portfolio_delta + delta_diff,
+            portfolio_gamma=cached.portfolio_gamma + gamma_diff,
+            portfolio_vega=cached.portfolio_vega + vega_diff,
+            portfolio_theta=cached.portfolio_theta + theta_diff,
+            total_gross_notional=cached.total_gross_notional + gross_notional_diff,
+            total_net_notional=cached.total_net_notional + net_notional_diff,
+            total_unrealized_pnl=cached.total_unrealized_pnl + pnl_diff,
+            total_daily_pnl=cached.total_daily_pnl + daily_pnl_diff,
+            gamma_notional_near_term=cached.gamma_notional_near_term + gamma_near_term_diff,
+            vega_notional_near_term=cached.vega_notional_near_term + vega_near_term_diff,
+            tracked_symbols=cached.tracked_symbols,
+        )
+
+        # Build snapshot from updated cache
+        snapshot.position_risks = list(new_risks.values())
+        snapshot.portfolio_delta = self._cached_state.portfolio_delta
+        snapshot.portfolio_gamma = self._cached_state.portfolio_gamma
+        snapshot.portfolio_vega = self._cached_state.portfolio_vega
+        snapshot.portfolio_theta = self._cached_state.portfolio_theta
+        snapshot.total_gross_notional = self._cached_state.total_gross_notional
+        snapshot.total_net_notional = self._cached_state.total_net_notional
+        snapshot.total_unrealized_pnl = self._cached_state.total_unrealized_pnl
+        snapshot.total_daily_pnl = self._cached_state.total_daily_pnl
+        snapshot.gamma_notional_near_term = self._cached_state.gamma_notional_near_term
+        snapshot.vega_notional_near_term = self._cached_state.vega_notional_near_term
+
+        # Account metrics
+        snapshot.margin_utilization = account_info.margin_utilization()
+        snapshot.buying_power = account_info.buying_power
+
+        # Note: For a complete implementation, expiry_buckets, delta_by_underlying,
+        # and concentration metrics would need incremental updates as well.
+        # For now, these are rebuilt from cached metrics.
+        self._rebuild_aggregate_details(snapshot, new_metrics)
+
+        return snapshot
+
+    def _rebuild_aggregate_details(
+        self, snapshot: RiskSnapshot, metrics_dict: Dict[str, PositionMetrics]
+    ) -> None:
+        """
+        OPT-013: Rebuild aggregate details (expiry buckets, concentrations) from cached metrics.
+
+        This is faster than full recalculation because we already have the metrics.
+        """
+        # Initialize expiry buckets
+        expiry_buckets = {
+            "0DTE": self._empty_bucket(),
+            "1_7D": self._empty_bucket(),
+            "8_30D": self._empty_bucket(),
+            "31_90D": self._empty_bucket(),
+            "90D_PLUS": self._empty_bucket(),
+            "NO_EXPIRY": self._empty_bucket(),
+        }
+
+        by_underlying: Dict[str, Dict[str, float]] = {}
+        positions_with_missing_md = 0
+        missing_greeks_count = 0
+
+        for metrics in metrics_dict.values():
+            if metrics.has_missing_md:
+                positions_with_missing_md += 1
+                continue
+
+            if metrics.has_missing_greeks:
+                missing_greeks_count += 1
+
+            # Group by underlying
+            if metrics.underlying not in by_underlying:
+                by_underlying[metrics.underlying] = {"notional": 0.0, "delta": 0.0}
+            by_underlying[metrics.underlying]["notional"] += metrics.notional
+            by_underlying[metrics.underlying]["delta"] += metrics.delta_contribution
+
+            # Expiry bucket classification
+            bucket = expiry_buckets[metrics.expiry_bucket]
+            bucket["count"] += 1
+            bucket["notional"] += metrics.notional
+            bucket["delta"] += metrics.delta_contribution
+            bucket["gamma"] += metrics.gamma_contribution
+            bucket["vega"] += metrics.vega_contribution
+            bucket["theta"] += metrics.theta_contribution
+
+        snapshot.expiry_buckets = expiry_buckets
+        snapshot.delta_by_underlying = {k: v["delta"] for k, v in by_underlying.items()}
+        snapshot.notional_by_underlying = {k: v["notional"] for k, v in by_underlying.items()}
+        snapshot.positions_with_missing_md = positions_with_missing_md
+        snapshot.missing_greeks_count = missing_greeks_count
+
+        # Concentration metrics
+        if by_underlying:
+            max_underlying = max(by_underlying.items(), key=lambda x: abs(x[1]["notional"]))
+            snapshot.max_underlying_symbol = max_underlying[0]
+            snapshot.max_underlying_notional = abs(max_underlying[1]["notional"])
+            if snapshot.total_gross_notional > 0:
+                snapshot.concentration_pct = (
+                    snapshot.max_underlying_notional / snapshot.total_gross_notional
+                )
+
+    def _full_rebuild(
+        self,
+        positions: List[Position],
+        market_data: Dict[str, MarketData],
+        account_info: AccountInfo,
+        ib_account: Optional[AccountInfo] = None,
+        futu_account: Optional[AccountInfo] = None,
+    ) -> RiskSnapshot:
+        """
+        OPT-013: Full rebuild - calculate all positions and cache the result.
+        """
         snapshot = RiskSnapshot()
         snapshot.total_positions = len(positions)
 
@@ -170,44 +484,75 @@ class RiskEngine:
             snapshot.futu_buying_power = futu_account.buying_power
         snapshot.total_net_liquidation = account_info.net_liquidation
 
-        # Prefetch betas for all unique underlyings (batch fetch to avoid N+1 API calls)
+        # Prefetch betas for all unique underlyings
         beta_cache: Dict[str, float] = {}
         if self._yahoo_adapter is not None:
             unique_underlyings = list(set(pos.underlying for pos in positions))
             beta_cache = self._yahoo_adapter.get_betas(unique_underlyings)
 
-        # Cache market status once per snapshot (avoid repeated calls per-position)
+        # Cache market status once per snapshot
         market_status = MarketHours.get_market_status()
 
         # Choose processing strategy based on portfolio size
         if len(positions) < self.parallel_threshold:
-            # Sequential processing for small portfolios (lower overhead)
             metrics_list = [self._calculate_position_metrics(pos, market_data, market_status) for pos in positions]
         else:
-            # Parallel processing for large portfolios
             metrics_list = self._calculate_metrics_parallel(positions, market_data, market_status)
 
-        # Create PositionRisk objects for each position (single source of truth)
-        position_risks = []
+        # Create PositionRisk objects and build cache mappings
+        position_risks: List[PositionRisk] = []
+        position_metrics_dict: Dict[str, PositionMetrics] = {}
+        position_risks_dict: Dict[str, PositionRisk] = {}
+        positions_by_underlying: Dict[str, Set[str]] = {}
+
         for pos, metrics in zip(positions, metrics_list):
             if metrics is not None:
                 pos_risk = self._create_position_risk(pos, market_data.get(pos.symbol), metrics, beta_cache)
                 position_risks.append(pos_risk)
+
+                # Build cache entries
+                position_metrics_dict[pos.symbol] = metrics
+                position_risks_dict[pos.symbol] = pos_risk
+
+                # Track underlying -> symbols mapping
+                if pos.underlying not in positions_by_underlying:
+                    positions_by_underlying[pos.underlying] = set()
+                positions_by_underlying[pos.underlying].add(pos.symbol)
 
         snapshot.position_risks = position_risks
 
         # Aggregate metrics into snapshot
         self._aggregate_metrics(snapshot, metrics_list, account_info)
 
-        # Record observability metrics
-        if self._risk_metrics:
-            duration_ms = (time.perf_counter() - start_time) * 1000
-            self._risk_metrics.record_snapshot_build_duration(duration_ms)
-            self._risk_metrics.record_snapshot(snapshot)
-            # M17: Use lazy formatting to avoid overhead when debug disabled
-            logger.debug("Snapshot build completed in %.2fms", duration_ms)
+        # OPT-013: Update cache for next incremental rebuild
+        self._cached_state = CachedRiskState(
+            position_metrics=position_metrics_dict,
+            position_risks=position_risks_dict,
+            positions_by_underlying=positions_by_underlying,
+            portfolio_delta=snapshot.portfolio_delta,
+            portfolio_gamma=snapshot.portfolio_gamma,
+            portfolio_vega=snapshot.portfolio_vega,
+            portfolio_theta=snapshot.portfolio_theta,
+            total_gross_notional=snapshot.total_gross_notional,
+            total_net_notional=snapshot.total_net_notional,
+            total_unrealized_pnl=snapshot.total_unrealized_pnl,
+            total_daily_pnl=snapshot.total_daily_pnl,
+            gamma_notional_near_term=snapshot.gamma_notional_near_term,
+            vega_notional_near_term=snapshot.vega_notional_near_term,
+            tracked_symbols={p.symbol for p in positions},
+        )
 
         return snapshot
+
+    def invalidate_cache(self) -> None:
+        """
+        OPT-013: Force full rebuild on next build_snapshot().
+
+        Call this when external state changes that require full recalculation.
+        """
+        with self._lock:
+            self._cached_state = None
+            self._needs_rebuild = True
 
     def _calculate_position_metrics(
         self, pos: Position, market_data: Dict[str, MarketData], market_status: str
@@ -716,3 +1061,11 @@ class RiskEngine:
         if self._executor:
             self._executor.shutdown(wait=True, cancel_futures=True)
             logger.info("RiskEngine executor shutdown complete")
+
+    def __enter__(self) -> "RiskEngine":
+        """Context manager entry - enables 'with RiskEngine(...) as engine:' pattern."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Context manager exit - ensures executor shutdown on scope exit."""
+        self.close()

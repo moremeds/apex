@@ -30,6 +30,7 @@ from ....models.account import AccountInfo
 from ..market_data_fetcher import MarketDataFetcher
 from .base import IbBaseAdapter
 from .converters import convert_position
+from .contract_qualification_service import ContractQualificationService
 
 
 logger = get_logger(__name__)
@@ -57,6 +58,7 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
         self._market_data_fetcher: Optional[MarketDataFetcher] = None
         self._market_data_cache: OrderedDict[str, MarketData] = OrderedDict()
         self._market_data_cache_max_size: int = 1000
+        self._market_data_cache_lock: Lock = Lock()  # Thread-safe cache access
         self._subscribed_symbols: List[str] = []
         self._quote_callback: Optional[Callable[[QuoteTick], None]] = None
 
@@ -70,7 +72,11 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
         # Lock to prevent concurrent market data fetches
         self._market_data_fetch_lock: asyncio.Lock = asyncio.Lock()
 
-        # Cache for qualified contracts - keyed by position symbol
+        # OPT-012: Contract qualification service with batching and caching
+        self._qual_service: Optional[ContractQualificationService] = None
+
+        # Legacy cache for qualified contracts - kept for backward compatibility
+        # but _qual_service is preferred
         self._qualified_contract_cache: Dict[str, object] = {}
         self._contract_cache_lock = Lock()  # Protects cache from concurrent access
 
@@ -87,19 +93,57 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
     def _update_market_data_cache(self, symbol: str, md: MarketData) -> None:
         """
         C11: Update market data cache with LRU eviction.
+        Thread-safe for access from IB callbacks.
         """
-        if symbol in self._market_data_cache:
-            self._market_data_cache.move_to_end(symbol)
-        self._market_data_cache[symbol] = md
-        while len(self._market_data_cache) > self._market_data_cache_max_size:
-            self._market_data_cache.popitem(last=False)
+        with self._market_data_cache_lock:
+            if symbol in self._market_data_cache:
+                self._market_data_cache.move_to_end(symbol)
+            self._market_data_cache[symbol] = md
+            while len(self._market_data_cache) > self._market_data_cache_max_size:
+                self._market_data_cache.popitem(last=False)
+
+    def _contracts_match(self, original: object, qualified: object) -> bool:
+        """
+        OPT-012: Check if an original contract matches a qualified contract.
+
+        After qualification, IB may fill in additional fields (conId, exchange, etc.)
+        so we match on the key identifying fields only.
+
+        Args:
+            original: The original unqualified contract.
+            qualified: The qualified contract from IB.
+
+        Returns:
+            True if contracts represent the same instrument.
+        """
+        # Basic symbol match
+        if getattr(original, 'symbol', None) != getattr(qualified, 'symbol', None):
+            return False
+
+        orig_type = getattr(original, 'secType', 'STK')
+        qual_type = getattr(qualified, 'secType', 'STK')
+
+        if orig_type != qual_type:
+            return False
+
+        # For options, match on expiry, strike, and right
+        if orig_type == 'OPT':
+            if getattr(original, 'lastTradeDateOrContractMonth', '') != \
+               getattr(qualified, 'lastTradeDateOrContractMonth', ''):
+                return False
+            if getattr(original, 'strike', 0) != getattr(qualified, 'strike', 0):
+                return False
+            if getattr(original, 'right', '') != getattr(qualified, 'right', ''):
+                return False
+
+        return True
 
     # -------------------------------------------------------------------------
     # Connection Hooks
     # -------------------------------------------------------------------------
 
     async def _on_connected(self) -> None:
-        """Set up market data fetcher after connection."""
+        """Set up market data fetcher and qualification service after connection."""
         self._market_data_fetcher = MarketDataFetcher(
             self.ib,
             on_price_update=self._handle_streaming_update,
@@ -108,15 +152,32 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
         try:
             loop = asyncio.get_running_loop()
             self._market_data_fetcher.set_event_loop(loop)
+            # Start dispatch loop to process queued tick updates from IB callbacks
+            await self._market_data_fetcher.start_dispatch()
         except RuntimeError:
             pass  # No running loop, will use sync dispatch
-        logger.debug("IbLiveAdapter: Market data fetcher initialized")
+
+        # OPT-012: Initialize contract qualification service
+        self._qual_service = ContractQualificationService(
+            ib=self.ib,
+            debounce_ms=500,
+            max_batch_size=20,
+            cache_ttl_hours=24,
+        )
+
+        logger.debug("IbLiveAdapter: Market data fetcher and qualification service initialized")
 
     async def _on_disconnecting(self) -> None:
         """Clean up before disconnect."""
         if self._market_data_fetcher:
             self._market_data_fetcher.cleanup()
             self._market_data_fetcher = None
+
+        # OPT-012: Log qualification stats before cleanup
+        if self._qual_service:
+            stats = self._qual_service.get_stats()
+            logger.info(f"Contract qualification stats: {stats}")
+            self._qual_service = None
 
         if self._position_subscription_active:
             self.unsubscribe_positions()
@@ -146,16 +207,19 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
 
     def get_latest_quote(self, symbol: str) -> Optional[QuoteTick]:
         """Get latest cached quote."""
-        md = self._market_data_cache.get(symbol)
+        with self._market_data_cache_lock:
+            md = self._market_data_cache.get(symbol)
         if md:
             return self._market_data_to_quote_tick(md)
         return None
 
     def get_all_quotes(self) -> Dict[str, QuoteTick]:
         """Get all cached quotes."""
+        with self._market_data_cache_lock:
+            items = list(self._market_data_cache.items())
         return {
             symbol: self._market_data_to_quote_tick(md)
-            for symbol, md in self._market_data_cache.items()
+            for symbol, md in items
         }
 
     def get_subscribed_symbols(self) -> List[str]:
@@ -463,27 +527,17 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
         # Use lock to prevent concurrent fetches (try_lock returns immediately if locked)
         if self._market_data_fetch_lock.locked():
             logger.debug("Market data fetch already in progress, returning cached data")
-            return list(self._market_data_cache.values())
+            with self._market_data_cache_lock:
+                return list(self._market_data_cache.values())
 
         async with self._market_data_fetch_lock:
             from ib_async import Stock, Option
 
-            # Separate positions into cached (already qualified) and new (need qualification)
-            cached_qualified = []
-            cached_positions = []
-            new_contracts = []
-            new_positions = []
+            # OPT-012: Build contracts for all positions
+            contracts = []
+            contract_to_position = {}
 
             for pos in positions:
-                # Check if we have a cached qualified contract
-                with self._contract_cache_lock:
-                    cached_contract = self._qualified_contract_cache.get(pos.symbol)
-                if cached_contract is not None:
-                    cached_qualified.append(cached_contract)
-                    cached_positions.append(pos)
-                    continue
-
-                # Need to build and qualify this contract
                 try:
                     if pos.asset_type == AssetType.OPTION:
                         expiry_str = self.format_expiry_for_ib(pos.expiry)
@@ -501,79 +555,53 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
                     else:
                         contract = Stock(pos.symbol, 'SMART', currency="USD")
 
-                    new_contracts.append(contract)
-                    new_positions.append(pos)
+                    contracts.append(contract)
+                    # Use a tuple key since contract objects might change after qualification
+                    contract_to_position[id(contract)] = pos
                 except Exception as e:
                     logger.warning(f"Failed to create contract for {pos.symbol}: {e}")
 
-            # Build pos_map for market data fetcher
-            pos_map = {}
+            if not contracts:
+                return []
 
-            # Add cached contracts to pos_map
-            for qc, pos in zip(cached_qualified, cached_positions):
-                pos_map[id(qc)] = pos
-
-            # Qualify only NEW contracts (not in cache)
-            newly_qualified = []
-            if new_contracts:
-                try:
-                    logger.info(f"Qualifying {len(new_contracts)} new contracts...")
-                    qualified_raw = await asyncio.wait_for(
-                        self.ib.qualifyContractsAsync(*new_contracts),
-                        timeout=30.0
-                    )
-
-                    failed_contracts = []
-                    for i, qualified_contract in enumerate(qualified_raw):
-                        if qualified_contract is not None:
-                            newly_qualified.append(qualified_contract)
-                            # Cache the qualified contract
-                            symbol = new_positions[i].symbol
-                            with self._contract_cache_lock:
-                                self._qualified_contract_cache[symbol] = qualified_contract
-                            # Add to pos_map
-                            pos_map[id(qualified_contract)] = new_positions[i]
-                        else:
-                            # Track which contracts failed for detailed logging
-                            pos = new_positions[i]
-                            contract = new_contracts[i]
-                            failed_contracts.append((pos.symbol, contract))
-
-                    if failed_contracts:
-                        # Log details of each failed contract (may be ambiguous or invalid)
-                        for symbol, contract in failed_contracts:
-                            logger.warning(
-                                f"Contract qualification failed for {symbol}: {contract} "
-                                f"(may be ambiguous - check IB for multiple matches)"
-                            )
-                        logger.warning(f"Failed to qualify {len(failed_contracts)}/{len(new_contracts)} contracts total")
-
-                    logger.info(f"Qualified {len(newly_qualified)}/{len(new_contracts)} new contracts")
-                except asyncio.TimeoutError:
-                    logger.error(f"Timeout qualifying {len(new_contracts)} contracts after 30s")
-                    # Continue with cached contracts if available
-                except Exception as e:
-                    logger.error(f"Error qualifying contracts: {e}")
-
-            # Combine cached and newly qualified contracts
-            qualified = cached_qualified + newly_qualified
+            # OPT-012: Use qualification service for batched qualification with caching
+            if self._qual_service:
+                qualified = await self._qual_service.qualify_batch(contracts)
+            else:
+                # Fallback to direct qualification if service not available
+                logger.warning("Qualification service not available, using direct qualification")
+                qualified = await asyncio.wait_for(
+                    self.ib.qualifyContractsAsync(*contracts),
+                    timeout=30.0
+                )
+                qualified = [c for c in qualified if c is not None and c.conId]
 
             if not qualified:
                 return []
 
-            if cached_qualified:
-                logger.debug(f"Using {len(cached_qualified)} cached + {len(newly_qualified)} new = {len(qualified)} total contracts")
+            # Build pos_map for market data fetcher
+            # We need to match qualified contracts back to positions
+            pos_map = {}
+            for qc in qualified:
+                # Match by contract key (symbol + type + details)
+                for orig_contract, pos in zip(contracts, positions):
+                    if self._contracts_match(orig_contract, qc):
+                        pos_map[id(qc)] = pos
+                        break
+
+            logger.debug(f"OPT-012: Qualified {len(qualified)}/{len(contracts)} contracts")
 
             try:
                 # Add timeout to market data fetch
+                # OPT-004: Reduced from 60s - market data typically arrives in 5-10s
                 market_data_list = await asyncio.wait_for(
                     self._market_data_fetcher.fetch_market_data(
                         positions, qualified, pos_map
                     ),
-                    timeout=60.0
+                    timeout=15.0
                 )
             except asyncio.TimeoutError:
-                logger.error(f"Timeout fetching market data after 60s")
+                logger.error(f"Timeout fetching market data after 15s")
                 return []
 
             for md in market_data_list:
@@ -609,17 +637,32 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
         market_data: Dict[str, MarketData] = {}
 
         try:
-            qualified_raw = await self.ib.qualifyContractsAsync(*contracts)
-            # Filter None contracts and track which symbols succeeded
-            qualified_with_syms = [
-                (sym, c) for sym, c in zip(symbols, qualified_raw) if c is not None
-            ]
-            if not qualified_with_syms:
+            # OPT-012: Use qualification service for batched qualification with caching
+            if self._qual_service:
+                qualified = await self._qual_service.qualify_batch(contracts)
+            else:
+                # Fallback to direct qualification if service not available
+                qualified_raw = await self.ib.qualifyContractsAsync(*contracts)
+                qualified = [c for c in qualified_raw if c is not None and c.conId]
+
+            if not qualified:
                 logger.warning("No contracts qualified for market indicators")
                 return market_data
 
-            valid_symbols, qualified = zip(*qualified_with_syms)
-            tickers = await self.ib.reqTickersAsync(*qualified)
+            # Map qualified contracts back to symbols
+            qualified_with_syms = []
+            for qc in qualified:
+                for sym, orig_contract in zip(symbols, contracts):
+                    if self._contracts_match(orig_contract, qc):
+                        qualified_with_syms.append((sym, qc))
+                        break
+
+            if not qualified_with_syms:
+                logger.warning("Could not match qualified contracts to symbols")
+                return market_data
+
+            valid_symbols, valid_contracts = zip(*qualified_with_syms)
+            tickers = await self.ib.reqTickersAsync(*valid_contracts)
 
             for sym, ticker in zip(valid_symbols, tickers):
                 try:
@@ -654,4 +697,5 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
 
     def get_latest(self, symbol: str) -> Optional[MarketData]:
         """Get latest market data (legacy)."""
-        return self._market_data_cache.get(symbol)
+        with self._market_data_cache_lock:
+            return self._market_data_cache.get(symbol)

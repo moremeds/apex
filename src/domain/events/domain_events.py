@@ -531,6 +531,24 @@ class RiskBreachEvent(DomainEvent):
 
 
 @dataclass(frozen=True, slots=True)
+class SchedulerStatusEvent(DomainEvent):
+    """
+    Historical request scheduler status event.
+
+    Published on EventType.HEALTH_CHECK to provide scheduler health metrics.
+    Used for TUI status display and monitoring (OPT-015).
+    """
+    source: str = "historical_scheduler"
+    tokens_available: float = 0.0
+    tokens_max: float = 0.0
+    queue_depth: int = 0
+    total_queued: int = 0
+    in_flight: int = 0
+    rate_limited: bool = False
+    rate_limit_wait_sec: Optional[float] = None
+
+
+@dataclass(frozen=True, slots=True)
 class SnapshotReadyEvent(DomainEvent):
     """
     Risk snapshot ready event.

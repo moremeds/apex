@@ -30,7 +30,7 @@ uv pip install -e .
 # 3. Start IBKR TWS or Gateway
 
 # 4. Run APEX
-python main.py --env dev
+python orchestrator.py --env dev
 
 # 5. (Optional) Load historical data
 python scripts/history_loader.py --broker futu --days 30
@@ -199,7 +199,7 @@ display:
 ### Main Command
 
 ```bash
-python main.py [OPTIONS]
+python orchestrator.py [OPTIONS]
 ```
 
 ### Command Line Options
@@ -217,28 +217,28 @@ python main.py [OPTIONS]
 
 ```bash
 # Development mode (default)
-python main.py --env dev
+python orchestrator.py --env dev
 
 # Production mode
-python main.py --env prod
+python orchestrator.py --env prod
 
 # Demo mode (offline, sample positions)
-python main.py --env demo
+python orchestrator.py --env demo
 
 # Headless mode (no dashboard)
-python main.py --no-dashboard
+python orchestrator.py --no-dashboard
 
 # Custom config file
-python main.py --config /path/to/custom.yaml
+python orchestrator.py --config /path/to/custom.yaml
 
 # Verbose logging
-python main.py -v
+python orchestrator.py -v
 
 # Disable metrics endpoint
-python main.py --metrics-port 0
+python orchestrator.py --metrics-port 0
 
 # Full example with multiple options
-python main.py --env prod --log-level DEBUG --metrics-port 9090
+python orchestrator.py --env prod --log-level DEBUG --metrics-port 9090
 ```
 
 ### Environment Modes
@@ -592,7 +592,7 @@ The TUI displays real-time risk metrics with 5 different views.
 
 ```bash
 # Start with production config
-python main.py --env prod
+python orchestrator.py --env prod
 
 # In another terminal, check metrics
 curl http://localhost:8000/metrics
@@ -604,7 +604,7 @@ curl http://localhost:8000/metrics
 # Connect to TWS Paper (port 7497)
 # Edit config/base.yaml: port: 7497
 
-python main.py --env dev -v
+python orchestrator.py --env dev -v
 ```
 
 ### 3. Backfill Historical Data
@@ -621,31 +621,31 @@ python scripts/history_loader.py --broker all --days 1
 
 ```bash
 # Run with sample positions (no live connection)
-python main.py --env demo
+python orchestrator.py --env demo
 ```
 
 ### 5. Headless Server Mode
 
 ```bash
 # Run without TUI, expose metrics only
-python main.py --env prod --no-dashboard --metrics-port 9090
+python orchestrator.py --env prod --no-dashboard --metrics-port 9090
 ```
 
 ### 6. Debug Connection Issues
 
 ```bash
 # Verbose logging to diagnose issues
-python main.py -v --log-level DEBUG
+python orchestrator.py -v --log-level DEBUG
 ```
 
 ### 7. Multiple Environments
 
 ```bash
 # Terminal 1: Paper trading
-python main.py --env dev --metrics-port 8001
+python orchestrator.py --env dev --metrics-port 8001
 
 # Terminal 2: Production (different port)
-python main.py --env prod --metrics-port 8002
+python orchestrator.py --env prod --metrics-port 8002
 ```
 
 ---

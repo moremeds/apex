@@ -2,9 +2,9 @@
 Live Risk Management System - Main Entry Point
 
 Usage:
-    python main.py --env dev          # Development mode
-    python main.py --env prod         # Production mode
-    python main.py --config custom.yaml  # Custom config file
+    python orchestrator.py --env dev          # Development mode
+    python orchestrator.py --env prod         # Production mode
+    python orchestrator.py --config custom.yaml  # Custom config file
 """
 
 from __future__ import annotations
@@ -14,8 +14,8 @@ import sys
 
 from config.config_manager import ConfigManager
 from src.domain.services import MarketAlertDetector
-from src.infrastructure.adapters import IbAdapter, FutuAdapter, FileLoader, BrokerManager, MarketDataManager, YahooFinanceAdapter
-from src.infrastructure.adapters.ib import IbConnectionPool, ConnectionPoolConfig
+from src.infrastructure.adapters import FutuAdapter, FileLoader, BrokerManager, MarketDataManager, YahooFinanceAdapter
+from src.infrastructure.adapters.ib import IbConnectionPool, ConnectionPoolConfig, IbCompositeAdapter
 from src.services import HistoricalDataService, TAService, BarPeriod
 from src.infrastructure.stores import PositionStore, MarketDataStore, AccountStore
 from src.infrastructure.monitoring import HealthMonitor, Watchdog
@@ -56,10 +56,10 @@ def parse_args() -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python main.py --env dev              # Run in development mode (monitor)
-  python main.py --mode monitor         # Explicit monitor mode
-  python main.py --mode backtest --spec config/backtest/ma_cross.yaml
-  python main.py --mode backtest --engine backtrader --strategy ma_cross
+  python orchestrator.py --env dev              # Run in development mode (monitor)
+  python orchestrator.py --mode monitor         # Explicit monitor mode
+  python orchestrator.py --mode backtest --spec config/backtest/ma_cross.yaml
+  python orchestrator.py --mode backtest --engine backtrader --strategy ma_cross
         """
     )
 
@@ -272,17 +272,25 @@ async def main_async(args: argparse.Namespace) -> None:
 
         # Register adapters with BrokerManager
         if config.ibkr.enabled:
-            ib_adapter = IbAdapter(
+            # OPT-016: Connection pool config for composite adapter
+            pool_config = ConnectionPoolConfig(
                 host=config.ibkr.host,
                 port=config.ibkr.port,
-                client_id=config.ibkr.client_ids.monitoring,
+                client_ids=config.ibkr.client_ids,
+            )
+
+            # OPT-016: Create composite adapter (single recommended path)
+            ib_adapter = IbCompositeAdapter(
+                pool_config=pool_config,
                 event_bus=event_bus,
             )
-            broker_manager.register_adapter("ib", ib_adapter)
-            system_structured.info(LogCategory.SYSTEM, "IB adapter registered", {
+            system_structured.info(LogCategory.SYSTEM, "IB composite adapter registered", {
                 "host": config.ibkr.host,
                 "port": config.ibkr.port,
+                "adapter_type": "composite",
             })
+
+            broker_manager.register_adapter("ib", ib_adapter)
             market_data_manager.register_provider("ib", ib_adapter, priority=10)
             system_structured.info(LogCategory.SYSTEM, "IB registered as market data provider", {
                 "streaming": ib_adapter.supports_streaming(),
@@ -291,11 +299,7 @@ async def main_async(args: argparse.Namespace) -> None:
 
             # Create IB Connection Pool for historical data (separate IB connection)
             # Uses same event loop - no threading issues
-            pool_config = ConnectionPoolConfig(
-                host=config.ibkr.host,
-                port=config.ibkr.port,
-                client_ids=config.ibkr.client_ids,
-            )
+            # Note: When using composite adapter, historical is handled via pool
             ib_pool = IbConnectionPool(pool_config)
 
         else:
@@ -528,7 +532,7 @@ async def main_async(args: argparse.Namespace) -> None:
         if dashboard:
             async def update_loop():
                 """Background task that feeds orchestrator data to dashboard queue."""
-                while dashboard._running:
+                while dashboard.running:
                     try:
                         # Wait for orchestrator to signal new snapshot
                         snapshot = await orchestrator.wait_for_snapshot(timeout=3.0)

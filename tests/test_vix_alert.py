@@ -7,7 +7,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from src.infrastructure.adapters import IbAdapter
+from src.infrastructure.adapters import IbCompositeAdapter
+from src.infrastructure.adapters.ib import ConnectionPoolConfig
 from src.domain.services.market_alert_detector import MarketAlertDetector
 from config.config_manager import ConfigManager
 
@@ -29,11 +30,11 @@ async def test_vix_alert():
 
     # Initialize IB adapter
     print("\n2. Connecting to IBKR...")
-    ib_adapter = IbAdapter(
+    pool_config = ConnectionPoolConfig(
         host=config.ibkr.host,
         port=config.ibkr.port,
-        client_id=999,  # Use different client ID to avoid conflicts
     )
+    ib_adapter = IbCompositeAdapter(pool_config=pool_config)
 
     try:
         await ib_adapter.connect()
@@ -46,7 +47,7 @@ async def test_vix_alert():
     # Fetch VIX data
     print("\n3. Fetching VIX market data...")
     try:
-        market_data = await ib_adapter.fetch_market_indicators(["VIX"])
+        market_data = await ib_adapter.fetch_quotes(["VIX"])
 
         if not market_data:
             print("   ✗ No market data returned!")

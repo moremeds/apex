@@ -3,6 +3,8 @@ Open orders panel widget.
 
 Displays pending/open orders for a broker.
 Currently shows placeholder content as persistence layer is not configured.
+
+OPT-011: Uses OrderViewModel for incremental updates.
 """
 
 from __future__ import annotations
@@ -15,6 +17,8 @@ from textual.widgets import Static
 from textual.containers import Vertical
 from textual.app import ComposeResult
 
+from ..viewmodels.order_vm import OrderViewModel
+
 
 class OrdersPanel(Widget):
     """Open orders display for a broker."""
@@ -25,6 +29,8 @@ class OrdersPanel(Widget):
     def __init__(self, broker: str = "IB", **kwargs):
         super().__init__(**kwargs)
         self.broker = broker
+        # OPT-011: ViewModel for incremental updates
+        self._vm = OrderViewModel()
 
     def compose(self) -> ComposeResult:
         """Compose the orders panel layout."""
@@ -37,28 +43,13 @@ class OrdersPanel(Widget):
         self._render_orders(orders)
 
     def _render_orders(self, orders: List[Any]) -> None:
-        """Render order list."""
+        """Render order list with incremental updates."""
         try:
             orders_list = self.query_one("#orders-list", Static)
 
-            if not orders:
-                orders_list.update("[dim]No orders data[/]")
-                return
-
-            lines = []
-            for order in orders:
-                time_str = getattr(order, "time", "")
-                side = getattr(order, "side", "?")
-                symbol = getattr(order, "symbol", "?")
-                qty = getattr(order, "quantity", 0)
-                price = getattr(order, "price", 0)
-                status = getattr(order, "status", "PENDING")
-
-                side_style = "green" if side == "BUY" else "red"
-                lines.append(
-                    f"[dim]{time_str}[/] [{side_style}]{side}[/] [cyan]{symbol}[/] {qty} @ ${price:.2f} [yellow]{status}[/]"
-                )
-
-            orders_list.update("\n".join(lines))
+            # OPT-011: Use ViewModel to check if update needed
+            needs_update, content = self._vm.needs_update(orders)
+            if needs_update:
+                orders_list.update(content)
         except Exception as e:
             self.log.error(f"Failed to render orders: {e}")

@@ -59,7 +59,9 @@ def _as_datetime(value: datetime | date) -> datetime:
 class BarCacheStore:
     """In-memory LRU cache for bar data with TTL support."""
 
-    def __init__(self, max_entries: int = 512, ttl_seconds: int = 86400) -> None:
+    # OPT-005: Increased from 512 to 2048 entries
+    # 2048 entries * ~50 symbols * 252 days = good coverage for ATR/indicator lookbacks
+    def __init__(self, max_entries: int = 2048, ttl_seconds: int = 86400) -> None:
         self._max_entries = max_entries
         self._ttl_seconds = ttl_seconds  # M11: Default 24 hour TTL
         # Cache stores (bars, timestamp) tuples for TTL tracking

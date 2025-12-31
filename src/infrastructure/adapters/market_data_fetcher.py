@@ -7,9 +7,11 @@ Supports event-driven streaming updates and fallback to snapshot data.
 
 from __future__ import annotations
 from typing import List, Dict, Optional, Tuple, Callable, TYPE_CHECKING
+from dataclasses import dataclass
 from math import isnan
 from threading import Lock
 import asyncio
+import time
 
 from ...models.position import Position, AssetType
 from ...models.market_data import MarketData, GreeksSource
@@ -20,6 +22,15 @@ if TYPE_CHECKING:
     from ...infrastructure.stores.market_data_store import MarketDataStore
 
 logger = get_logger(__name__)
+
+
+# OPT-010: Immutable update for lock-free queue dispatch
+@dataclass(frozen=True, slots=True)
+class TickerUpdate:
+    """Immutable ticker update for queue dispatch."""
+    symbol: str
+    ticker_id: int  # id(ticker) for lookup
+    timestamp: float
 
 
 class MarketDataFetcher:
@@ -37,7 +48,7 @@ class MarketDataFetcher:
         self,
         ib,
         data_timeout: float = 5.0,  # Increased from 3.0s for stocks
-        option_data_timeout: float = 10.0,  # Separate timeout for options (Greeks take longer)
+        option_data_timeout: float = 3.0,  # OPT-003: Reduced from 10s - Greeks typically populate in 2-3s
         poll_interval: float = 0.1,
         poll_interval_max: float = 0.5,  # m1/m8: Max backoff interval
         poll_backoff_factor: float = 1.5,  # m1/m8: Exponential backoff multiplier
@@ -59,7 +70,7 @@ class MarketDataFetcher:
         self._active_tickers: Dict[str, object] = {}  # symbol -> ticker
         self._ticker_to_symbol: Dict[int, str] = {}  # id(ticker) -> symbol for O(1) streaming lookup
         self._ticker_positions: Dict[str, Position] = {}  # symbol -> Position mapping
-        self._ticker_lock = Lock()  # Protects all ticker dicts from cross-thread access
+        self._ticker_lock = Lock()  # Protects writes to ticker dicts during subscription
         self.data_timeout = data_timeout
         self.option_data_timeout = option_data_timeout
         self.poll_interval = poll_interval
@@ -71,9 +82,116 @@ class MarketDataFetcher:
         # M4: Optional event loop for non-blocking callback dispatch
         self._event_loop: Optional[asyncio.AbstractEventLoop] = None
 
+        # OPT-010: Queue-based lock-free dispatch for streaming callbacks
+        self._ticker_queue: asyncio.Queue[TickerUpdate] = asyncio.Queue(maxsize=10000)
+        self._dispatch_task: Optional[asyncio.Task] = None
+        # OPT-010: Snapshot dicts for lock-free reads (copy-on-write)
+        self._ticker_to_symbol_snapshot: Dict[int, str] = {}
+        self._ticker_positions_snapshot: Dict[str, Position] = {}
+
     def set_event_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         """Set event loop for non-blocking callback dispatch (M4 fix)."""
         self._event_loop = loop
+
+    # OPT-010: Queue-based dispatch lifecycle methods
+    async def start_dispatch(self) -> None:
+        """Start the queue-based callback dispatcher."""
+        if self._dispatch_task is None or self._dispatch_task.done():
+            self._dispatch_task = asyncio.create_task(self._dispatch_loop())
+            logger.debug("Started ticker dispatch loop")
+
+    async def stop_dispatch(self) -> None:
+        """Stop the callback dispatcher gracefully."""
+        if self._dispatch_task and not self._dispatch_task.done():
+            self._dispatch_task.cancel()
+            try:
+                await self._dispatch_task
+            except asyncio.CancelledError:
+                pass
+            logger.debug("Stopped ticker dispatch loop")
+
+    def _publish_snapshot(self) -> None:
+        """
+        OPT-010: Publish atomic snapshot for lock-free reads.
+
+        Copy-on-write pattern: streaming callbacks read from snapshot,
+        subscription changes write to main dicts then publish new snapshot.
+        """
+        # Atomic reference swap - no lock needed for readers
+        self._ticker_to_symbol_snapshot = dict(self._ticker_to_symbol)
+        self._ticker_positions_snapshot = dict(self._ticker_positions)
+
+    async def _dispatch_loop(self) -> None:
+        """
+        OPT-010: Process ticker updates from queue with batching.
+
+        Drains queue and processes in batches for efficiency.
+        """
+        while True:
+            try:
+                # Get first update (blocking)
+                update = await self._ticker_queue.get()
+                updates = [update]
+
+                # Drain any additional updates (non-blocking) up to batch limit
+                while len(updates) < 100:
+                    try:
+                        update = self._ticker_queue.get_nowait()
+                        updates.append(update)
+                    except asyncio.QueueEmpty:
+                        break
+
+                # Process batch
+                await self._process_ticker_batch(updates)
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Dispatch loop error: {e}")
+
+    async def _process_ticker_batch(self, updates: List[TickerUpdate]) -> None:
+        """
+        OPT-010: Process a batch of ticker updates.
+
+        Uses lock-free snapshot reads for symbol/position lookup.
+        """
+        if not self._on_price_update:
+            return
+
+        errors: list = []
+
+        for update in updates:
+            try:
+                # OPT-010: Lock-free reads from snapshot
+                symbol = self._ticker_to_symbol_snapshot.get(update.ticker_id)
+                if not symbol:
+                    continue
+                pos = self._ticker_positions_snapshot.get(symbol)
+                if not pos:
+                    continue
+
+                # Get the actual ticker object from active tickers
+                ticker = self._active_tickers.get(symbol)
+                if not ticker:
+                    continue
+
+                # Extract market data (no shared state mutation)
+                md = self._extract_market_data(ticker, pos)
+
+                # Extract Greeks if available (for options)
+                if pos.asset_type == AssetType.OPTION:
+                    self._extract_greeks(ticker, md, pos)
+                else:
+                    md.delta = 1.0  # Stocks have delta of 1
+
+                # Fire callback
+                self._on_price_update(symbol, md)
+
+            except Exception as e:
+                errors.append(str(e))
+
+        if errors:
+            logger.warning(f"Batch processing errors: {len(errors)} failures. First: {errors[0]}")
 
     def unsubscribe_symbol(self, symbol: str) -> None:
         """Unsubscribe from market data for a single symbol and clean up maps."""
@@ -82,6 +200,8 @@ class MarketDataFetcher:
             self._ticker_positions.pop(symbol, None)
             if ticker:
                 self._ticker_to_symbol.pop(id(ticker), None)
+            # OPT-010: Publish snapshot after modification
+            self._publish_snapshot()
 
         if ticker:
             try:
@@ -122,9 +242,10 @@ class MarketDataFetcher:
         if not qualified_contracts:
             return []
 
-        # Prune subscriptions for symbols no longer in portfolio
-        current_symbols = {p.symbol for p in positions}
-        self.prune_stale_subscriptions(current_symbols)
+        # NOTE: Do NOT prune subscriptions here - it causes subscription churn.
+        # Subscriptions persist for portfolio lifetime. Pruning should only happen
+        # when positions are explicitly closed, not on every fetch cycle.
+        # The _active_tickers cache already handles subscription reuse.
 
         # Separate stocks and options
         stock_contracts = []
@@ -211,6 +332,9 @@ class MarketDataFetcher:
                     logger.warning(f"Failed to subscribe stock {pos.symbol}: {e}")
                     continue
 
+            # OPT-010: Publish snapshot after all subscriptions are set up
+            self._publish_snapshot()
+
             # Phase 2: Wait ONLY for NEW subscriptions (skip if all cached)
             if new_tickers:
                 populated_count = await self._wait_for_batch_population(
@@ -261,11 +385,11 @@ class MarketDataFetcher:
             return 0
 
         target_count = int(len(tickers) * target_ratio)
-        start = asyncio.get_event_loop().time()
+        start = asyncio.get_running_loop().time()
         # m1/m8: Exponential backoff for polling
         current_interval = self.poll_interval
 
-        while asyncio.get_event_loop().time() - start < timeout:
+        while asyncio.get_running_loop().time() - start < timeout:
             populated = sum(1 for t in tickers if self._has_valid_price(t))
 
             if populated >= target_count:
@@ -303,11 +427,11 @@ class MarketDataFetcher:
         Returns:
             True if data received, False if timeout
         """
-        start = asyncio.get_event_loop().time()
+        start = asyncio.get_running_loop().time()
         # m1/m8: Exponential backoff for polling
         current_interval = self.poll_interval
 
-        while asyncio.get_event_loop().time() - start < timeout:
+        while asyncio.get_running_loop().time() - start < timeout:
             # Check if we have valid price data (including previous close for market closed)
             if self._has_valid_price(ticker):
                 return True
@@ -384,7 +508,7 @@ class MarketDataFetcher:
         Returns:
             Number of tickers that successfully populated with data
         """
-        start_time = asyncio.get_event_loop().time()
+        start_time = asyncio.get_running_loop().time()
         last_populated_count = 0
         # m1/m8: Exponential backoff for polling
         current_interval = self.poll_interval
@@ -402,12 +526,12 @@ class MarketDataFetcher:
 
             # Exit early if all data populated
             if populated_count == len(tickers):
-                elapsed = asyncio.get_event_loop().time() - start_time
+                elapsed = asyncio.get_running_loop().time() - start_time
                 logger.debug(f"All data populated in {elapsed:.2f}s")
                 return populated_count
 
             # Check timeout
-            elapsed = asyncio.get_event_loop().time() - start_time
+            elapsed = asyncio.get_running_loop().time() - start_time
             if elapsed >= timeout:
                 logger.warning(f"Data population timeout ({timeout}s): {populated_count}/{len(tickers)} populated")
                 return populated_count
@@ -438,22 +562,10 @@ class MarketDataFetcher:
         market_data_list = []
 
         try:
-            requested_symbols = {pos.symbol for _, pos in contract_pos_pairs}
-
-            # Cancel subscriptions that are no longer needed (collect under lock, cancel outside)
-            to_cancel = []
-            with self._ticker_lock:
-                for symbol, old_ticker in list(self._active_tickers.items()):
-                    if symbol not in requested_symbols:
-                        to_cancel.append((symbol, old_ticker))
-                        self._ticker_to_symbol.pop(id(old_ticker), None)
-                        self._active_tickers.pop(symbol, None)
-
-            for symbol, old_ticker in to_cancel:
-                try:
-                    self.ib.cancelMktData(old_ticker.contract)
-                except Exception as e:
-                    logger.debug(f"Error cancelling old subscription for {symbol}: {e}")
+            # NOTE: Do NOT cancel subscriptions here - it causes subscription churn.
+            # When only options are passed (stocks filtered as "fresh"), this would
+            # incorrectly cancel stock subscriptions. Subscriptions persist for
+            # portfolio lifetime. See CLAUDE.md "Market Data Subscription Lifecycle".
 
             # Request streaming data with Greeks (generic tick 106)
             tickers = []
@@ -475,6 +587,9 @@ class MarketDataFetcher:
                         new_tickers.append(ticker)
                         self._active_tickers[pos.symbol] = ticker
                         self._ticker_to_symbol[id(ticker)] = pos.symbol
+
+            # OPT-010: Publish snapshot after all subscriptions are set up
+            self._publish_snapshot()
 
             # Wait ONLY for NEW subscriptions (skip if all cached)
             # Use longer timeout for options since Greeks take time to populate
@@ -595,21 +710,35 @@ class MarketDataFetcher:
             return
 
         # Extract IV first (available directly on ticker)
-        if hasattr(ticker, 'impliedVolatility') and ticker.impliedVolatility and not isnan(ticker.impliedVolatility):
-            md.iv = float(ticker.impliedVolatility)
+        iv = self._safe_float(getattr(ticker, 'impliedVolatility', None))
+        if iv is not None:
+            md.iv = iv
 
         # Extract Greeks from modelGreeks
         if hasattr(ticker, 'modelGreeks') and ticker.modelGreeks:
             greeks = ticker.modelGreeks
-            md.delta = float(greeks.delta) if greeks.delta and not isnan(greeks.delta) else None
-            md.gamma = float(greeks.gamma) if greeks.gamma and not isnan(greeks.gamma) else None
-            md.vega = float(greeks.vega) if greeks.vega and not isnan(greeks.vega) else None
-            md.theta = float(greeks.theta) if greeks.theta and not isnan(greeks.theta) else None
-            md.greeks_source = GreeksSource.IBKR
+            md.delta = self._safe_float(getattr(greeks, 'delta', None))
+            md.gamma = self._safe_float(getattr(greeks, 'gamma', None))
+            md.vega = self._safe_float(getattr(greeks, 'vega', None))
+            md.theta = self._safe_float(getattr(greeks, 'theta', None))
+            if any(value is not None for value in (md.delta, md.gamma, md.vega, md.theta)):
+                md.greeks_source = GreeksSource.IBKR
 
             # Extract underlying price (critical for delta dollars calculation)
-            if hasattr(greeks, 'undPrice') and greeks.undPrice and not isnan(greeks.undPrice):
-                md.underlying_price = float(greeks.undPrice)
+            und_price = self._safe_float(getattr(greeks, 'undPrice', None))
+            if und_price is not None:
+                md.underlying_price = und_price
+
+    @staticmethod
+    def _safe_float(value: object) -> Optional[float]:
+        """Convert value to float, treating NaN as None."""
+        if value is None:
+            return None
+        try:
+            value_f = float(value)
+        except (TypeError, ValueError):
+            return None
+        return None if isnan(value_f) else value_f
 
     def enable_streaming(self) -> None:
         """
@@ -638,54 +767,49 @@ class MarketDataFetcher:
         Handle streaming ticker updates from IB.
 
         Called by IB when any subscribed ticker has new data.
-        Uses O(1) reverse lookup for performance (critical for high-frequency streaming).
-        C6: Aggregates errors and logs summary once (not per-tick).
+        OPT-010: Lock-free implementation using queue dispatch.
+
+        This method is called from IB's callback thread, so we use queue to cross
+        the thread boundary safely without holding locks.
         """
         if not self._on_price_update:
             return
 
-        # C6: Aggregate errors instead of logging each one
-        errors: list = []
+        timestamp = time.time()
+        dropped = 0
 
         for ticker in tickers:
             try:
-                # O(1) lookup using ticker id (protected by lock)
-                with self._ticker_lock:
-                    symbol = self._ticker_to_symbol.get(id(ticker))
-                    if not symbol:
-                        continue
-                    pos = self._ticker_positions.get(symbol)
-                    if not pos:
-                        continue
+                ticker_id = id(ticker)
 
-                # Extract updated market data (outside lock - no shared state mutation)
-                md = self._extract_market_data(ticker, pos)
+                # OPT-010: Lock-free read from snapshot (atomic reference)
+                symbol = self._ticker_to_symbol_snapshot.get(ticker_id)
+                if not symbol:
+                    continue
 
-                # Extract Greeks if available (for options)
-                if pos.asset_type == AssetType.OPTION:
-                    self._extract_greeks(ticker, md, pos)
-                else:
-                    md.delta = 1.0  # Stocks have delta of 1
+                # Queue update for async processing
+                update = TickerUpdate(symbol=symbol, ticker_id=ticker_id, timestamp=timestamp)
+                try:
+                    # Thread-safe queue put from IB callback thread
+                    if self._event_loop and self._event_loop.is_running():
+                        self._event_loop.call_soon_threadsafe(
+                            self._ticker_queue.put_nowait, update
+                        )
+                    else:
+                        # Fallback for sync context (shouldn't happen in normal operation)
+                        self._ticker_queue.put_nowait(update)
+                except (asyncio.QueueFull, RuntimeError):
+                    dropped += 1
 
-                # M4: Fire callback - use call_soon_threadsafe if event loop available
-                # to avoid blocking IB's callback thread
-                if self._event_loop and self._event_loop.is_running():
-                    self._event_loop.call_soon_threadsafe(
-                        self._on_price_update, symbol, md
-                    )
-                else:
-                    self._on_price_update(symbol, md)
+            except Exception:
+                # Silently skip errors in hot path (logged in batch processor)
+                pass
 
-            except Exception as e:
-                # C6: Collect errors, don't log each one
-                errors.append(str(e))
-
-        # C6: Log aggregated errors once after loop (if any)
-        if errors:
-            logger.warning(f"Streaming update errors: {len(errors)} failures. First: {errors[0]}")
+        if dropped > 0:
+            logger.warning(f"Ticker queue full, dropped {dropped} updates")
 
     def cleanup(self) -> None:
-        """Cancel all active market data subscriptions."""
+        """Cancel all active market data subscriptions (sync version)."""
         self.disable_streaming()
 
         with self._ticker_lock:
@@ -693,9 +817,19 @@ class MarketDataFetcher:
             self._active_tickers.clear()
             self._ticker_to_symbol.clear()
             self._ticker_positions.clear()
+            # OPT-010: Clear snapshots
+            self._ticker_to_symbol_snapshot = {}
+            self._ticker_positions_snapshot = {}
 
         for symbol, ticker in tickers_to_cancel:
             try:
                 self.ib.cancelMktData(ticker.contract)
             except Exception as e:
                 logger.warning(f"Error cancelling market data for {symbol}: {e}")
+
+    async def cleanup_async(self) -> None:
+        """Cancel all subscriptions and stop dispatch task (async version)."""
+        # OPT-010: Stop dispatch task first
+        await self.stop_dispatch()
+        # Then run sync cleanup
+        self.cleanup()

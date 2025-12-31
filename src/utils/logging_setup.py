@@ -70,11 +70,11 @@ CATEGORIES = ["system", "adapter", "risk", "data", "perf"]
 
 # Category file suffixes
 CATEGORY_SUFFIXES = {
-    "system": "sys",
-    "adapter": "adp",
-    "risk": "rsk",
-    "data": "dat",
-    "perf": "prf",
+    "system": "system",
+    "adapter": "adapter",
+    "risk": "risk",
+    "data": "data",
+    "perf": "performance",
 }
 
 # Module path → category routing
@@ -368,8 +368,12 @@ def _get_next_run_number(log_dir: str, env: str, date_str: str) -> int:
         return 1
 
     # Pattern: live_risk_{env}_{category}_{date}_{N}.log
+    # Support current category suffixes and legacy short codes.
+    legacy_suffixes = ["sys", "adp", "rsk", "dat", "prf", "mkt"]
+    suffixes = sorted(set(CATEGORY_SUFFIXES.values()) | set(legacy_suffixes))
+    suffix_group = "|".join(re.escape(suffix) for suffix in suffixes)
     pattern = re.compile(
-        rf'^live_risk_{re.escape(env)}_(?:sys|adp|rsk|dat|prf|mkt)_{re.escape(date_str)}_(\d+)\.log$'
+        rf'^live_risk_{re.escape(env)}_(?:{suffix_group})_{re.escape(date_str)}_(\d+)\.log$'
     )
 
     max_num = 0

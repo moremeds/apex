@@ -14,6 +14,8 @@ class MarketHours:
     """
     US market hours detector.
 
+    TODO -> add business day calender but low priority
+
     Regular Hours: 9:30 AM - 4:00 PM ET (Mon-Fri)
     Extended Hours:
     - Pre-market: 4:00 AM - 9:30 AM ET

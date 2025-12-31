@@ -20,7 +20,7 @@ The fastest way to get started with monitoring:
 
 ```bash
 # 1. Start APEX with metrics enabled (default port 8000)
-python main.py --env dev --metrics-port 8000
+python orchestrator.py --env dev --metrics-port 8000
 
 # 2. In another terminal, start the observability stack
 docker-compose -f docker-compose.observability.yml up -d
@@ -495,7 +495,7 @@ groups:
 **Solutions:**
 1. Check APEX is running with metrics enabled:
    ```bash
-   python main.py --metrics-port 8000
+   python orchestrator.py --metrics-port 8000
    ```
 2. Check observability is installed:
    ```bash

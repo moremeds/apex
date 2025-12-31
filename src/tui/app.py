@@ -72,12 +72,14 @@ class ApexApp(App):
         self.ta_service = None
         self.historical_service = None
         self._event_loop = None
-        self._update_queue: queue.Queue = queue.Queue()
+        # Bounded queue to prevent memory growth; conflation in _poll_updates keeps only latest
+        self._update_queue: queue.Queue = queue.Queue(maxsize=10)
         self._poll_timer = None
 
     def on_mount(self) -> None:
         """Set up update polling when app is mounted."""
-        self._poll_timer = self.set_interval(0.1, self._poll_updates)
+        # OPT-001: 4Hz target (0.25s) instead of 10Hz (0.1s) for consistent updates
+        self._poll_timer = self.set_interval(0.25, self._poll_updates)
         self._sync_header_tab()
 
     def on_unmount(self) -> None:
@@ -106,7 +108,7 @@ class ApexApp(App):
 
     def queue_update(self, snapshot, signals, health, alerts) -> None:
         """Queue a data update (thread-safe)."""
-        from .textual_dashboard import DashboardUpdate
+        from .dashboard import DashboardUpdate
         update = DashboardUpdate(
             snapshot=snapshot,
             signals=signals,
@@ -144,6 +146,8 @@ class ApexApp(App):
         tabs = self.query_one("#main-tabs", TabbedContent)
         tabs.active = tab_id
         self._set_header_tab(tab_id)
+        # OPT-002: Immediately update newly visible view with current data
+        self._update_views()
 
     def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
         """Sync header when tab activation changes."""
@@ -205,40 +209,38 @@ class ApexApp(App):
         self._update_views()
 
     def _update_views(self) -> None:
-        """Propagate data updates to all views."""
-        # Update summary view
+        """Propagate data updates to active view only (OPT-002)."""
+        # Get active tab to only update visible view
         try:
-            summary_view = self.query_one("#summary-view", SummaryView)
-            summary_view.update_data(
-                self.snapshot,
-                self.market_alerts,
-                self.health,
-            )
+            tabs = self.query_one("#main-tabs", TabbedContent)
+            active_tab = tabs.active
         except Exception as e:
-            self.log.error(f"Failed to update summary view: {e}")
+            self.log.error(f"Failed to get active tab: {e}")
+            active_tab = "summary"  # Default fallback
 
-        # Update signals view
+        # OPT-002: Only update the active view to reduce overhead
         try:
-            signals_view = self.query_one("#signals-view", SignalsView)
-            signals_view.update_data(self.risk_signals, self.snapshot)
+            if active_tab == "summary":
+                summary_view = self.query_one("#summary-view", SummaryView)
+                summary_view.update_data(
+                    self.snapshot,
+                    self.market_alerts,
+                    self.health,
+                )
+            elif active_tab == "signals":
+                signals_view = self.query_one("#signals-view", SignalsView)
+                signals_view.update_data(self.risk_signals, self.snapshot)
+            elif active_tab == "ib":
+                ib_view = self.query_one("#ib-view", PositionsView)
+                ib_view.update_data(self.snapshot)
+            elif active_tab == "futu":
+                futu_view = self.query_one("#futu-view", PositionsView)
+                futu_view.update_data(self.snapshot)
+            # Lab view updates on-demand, not on polling cycle
         except Exception as e:
-            self.log.error(f"Failed to update signals view: {e}")
+            self.log.error(f"Failed to update {active_tab} view: {e}")
 
-        # Update IB positions view
-        try:
-            ib_view = self.query_one("#ib-view", PositionsView)
-            ib_view.update_data(self.snapshot)
-        except Exception as e:
-            self.log.error(f"Failed to update IB positions view: {e}")
-
-        # Update Futu positions view
-        try:
-            futu_view = self.query_one("#futu-view", PositionsView)
-            futu_view.update_data(self.snapshot)
-        except Exception as e:
-            self.log.error(f"Failed to update Futu positions view: {e}")
-
-        # Update header
+        # Always update header (lightweight operation)
         try:
             header = self.query_one("#header", HeaderWidget)
             header.refresh_time()

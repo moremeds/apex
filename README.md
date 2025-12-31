@@ -155,13 +155,13 @@ Ensure API connections are enabled in settings.
 
 ```bash
 # Development mode
-python main.py --env dev
+python orchestrator.py --env dev
 
 # Production mode
-python main.py --env prod
+python orchestrator.py --env prod
 
 # Demo mode (offline, sample data)
-python main.py --env demo
+python orchestrator.py --env demo
 ```
 
 ### 4. Terminal Dashboard

@@ -151,7 +151,7 @@ class HistoricalDataService:
             future.set_exception(e)
             raise
         finally:
-            self._pending_fetches.pop(cache_key, None)
+            await self._pending_fetches.pop(cache_key, None)
 
     async def fetch_bars_batch(
         self,

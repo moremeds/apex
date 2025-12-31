@@ -34,9 +34,9 @@ class SignalsTable(DataTable):
         ("Last Seen", 10),
     ]
 
-    # Reactive state
-    signals: reactive[List[Any]] = reactive([], init=False)
-    snapshot: reactive[Optional[Any]] = reactive(None, init=False)
+    # Reactive state - use factory to avoid mutable default shared across instances
+    signals: reactive[List[Any]] = reactive(list, init=False)
+    snapshot: reactive[Optional[Any]] = reactive(lambda: None, init=False)
 
     def __init__(self, **kwargs):
         super().__init__(cursor_type="row", **kwargs)
@@ -113,5 +113,8 @@ class SignalsTable(DataTable):
             except Exception as e:
                 self.log.error(f"Failed to update cell {cell.row_key}: {e}")
 
-        # Update row order
+        # Update row order tracking
+        # NOTE: Textual DataTable doesn't support row reordering natively.
+        # This updates our internal tracking but displayed rows stay in insertion order.
+        # Full rebuild would be needed for visual reordering (causes flicker).
         self._row_keys = [k for k in new_order if k in self._row_keys]
