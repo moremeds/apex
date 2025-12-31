@@ -135,6 +135,7 @@ class Orchestrator:
         self._running = False
         self._timer_task: Optional[asyncio.Task] = None
         self._latest_market_alerts: List[Dict[str, Any]] = []
+        self._tick_count: int = 0  # For periodic housekeeping
 
         # Timer configuration
         self._timer_interval_sec = config.get("timer_interval_sec", 5.0)
@@ -264,6 +265,11 @@ class Orchestrator:
                 # Detect market alerts
                 await self._detect_market_alerts()
 
+                # Periodic housekeeping (every ~5 minutes with 5s interval)
+                self._tick_count += 1
+                if self._tick_count % 60 == 0:
+                    self._periodic_cleanup()
+
             except asyncio.CancelledError:
                 break
             except RecoverableError as e:
@@ -317,6 +323,17 @@ class Orchestrator:
             self._latest_market_alerts = alerts
         except Exception as e:
             logger.error(f"Market alert detection error: {e}")
+
+    def _periodic_cleanup(self) -> None:
+        """Periodic housekeeping tasks (called every ~5 minutes)."""
+        # Clean up expired cooldowns in RiskSignalManager to prevent memory leak
+        try:
+            risk_signal_engine = self._snapshot_coordinator.risk_signal_engine
+            if risk_signal_engine and hasattr(risk_signal_engine, 'signal_manager'):
+                risk_signal_engine.signal_manager.cleanup_expired()
+                logger.debug("RiskSignalManager cleanup completed")
+        except Exception as e:
+            logger.warning(f"Periodic cleanup error: {e}")
 
     async def _perform_warm_start(self) -> None:
         """Load state from previous snapshots for warm start."""

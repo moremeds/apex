@@ -143,6 +143,7 @@ class PriorityEventBus:
         self._heavy_callbacks: set[Callable] = set()
         self._heavy_semaphore: Optional[asyncio.Semaphore] = None
         self._max_concurrent_heavy: int = 4  # Max concurrent heavy callbacks
+        self._heavy_tasks: set[asyncio.Task] = set()  # Track tasks for cleanup on shutdown
 
     def publish(self, event_type: EventType, payload: Any, source: str = "") -> None:
         """
@@ -347,6 +348,14 @@ class PriorityEventBus:
                 except asyncio.CancelledError:
                     pass
 
+        # Cancel any outstanding heavy callback tasks
+        if self._heavy_tasks:
+            logger.debug(f"Cancelling {len(self._heavy_tasks)} outstanding heavy callback tasks")
+            for task in list(self._heavy_tasks):
+                task.cancel()
+            await asyncio.gather(*self._heavy_tasks, return_exceptions=True)
+            self._heavy_tasks.clear()
+
         # Drain remaining events
         await self._drain_queues()
 
@@ -473,8 +482,10 @@ class PriorityEventBus:
         for cb in self._subscribers.get(event_type, []):
             try:
                 if cb in self._heavy_callbacks:
-                    # Offload heavy callback to thread pool (fire-and-forget with semaphore)
-                    asyncio.create_task(self._run_heavy_callback(cb, payload))
+                    # Offload heavy callback to thread pool with task tracking
+                    task = asyncio.create_task(self._run_heavy_callback(cb, payload))
+                    self._heavy_tasks.add(task)
+                    task.add_done_callback(self._heavy_tasks.discard)
                 else:
                     cb(payload)
             except Exception as e:

@@ -385,11 +385,11 @@ class MarketDataFetcher:
             return 0
 
         target_count = int(len(tickers) * target_ratio)
-        start = asyncio.get_event_loop().time()
+        start = asyncio.get_running_loop().time()
         # m1/m8: Exponential backoff for polling
         current_interval = self.poll_interval
 
-        while asyncio.get_event_loop().time() - start < timeout:
+        while asyncio.get_running_loop().time() - start < timeout:
             populated = sum(1 for t in tickers if self._has_valid_price(t))
 
             if populated >= target_count:
@@ -427,11 +427,11 @@ class MarketDataFetcher:
         Returns:
             True if data received, False if timeout
         """
-        start = asyncio.get_event_loop().time()
+        start = asyncio.get_running_loop().time()
         # m1/m8: Exponential backoff for polling
         current_interval = self.poll_interval
 
-        while asyncio.get_event_loop().time() - start < timeout:
+        while asyncio.get_running_loop().time() - start < timeout:
             # Check if we have valid price data (including previous close for market closed)
             if self._has_valid_price(ticker):
                 return True
@@ -508,7 +508,7 @@ class MarketDataFetcher:
         Returns:
             Number of tickers that successfully populated with data
         """
-        start_time = asyncio.get_event_loop().time()
+        start_time = asyncio.get_running_loop().time()
         last_populated_count = 0
         # m1/m8: Exponential backoff for polling
         current_interval = self.poll_interval
@@ -526,12 +526,12 @@ class MarketDataFetcher:
 
             # Exit early if all data populated
             if populated_count == len(tickers):
-                elapsed = asyncio.get_event_loop().time() - start_time
+                elapsed = asyncio.get_running_loop().time() - start_time
                 logger.debug(f"All data populated in {elapsed:.2f}s")
                 return populated_count
 
             # Check timeout
-            elapsed = asyncio.get_event_loop().time() - start_time
+            elapsed = asyncio.get_running_loop().time() - start_time
             if elapsed >= timeout:
                 logger.warning(f"Data population timeout ({timeout}s): {populated_count}/{len(tickers)} populated")
                 return populated_count

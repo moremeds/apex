@@ -74,7 +74,8 @@ class HistoricalRequest:
     period: BarPeriod
     priority: RequestPriority
     created_at: float = field(default_factory=time.time)
-    future: asyncio.Future = field(default_factory=lambda: asyncio.get_event_loop().create_future())
+    # Future is created lazily in request() to avoid get_event_loop() deprecation
+    future: Optional[asyncio.Future] = field(default=None)
 
     def cache_key(self) -> str:
         """Generate cache key for deduplication."""
@@ -230,9 +231,9 @@ class HistoricalRequestScheduler:
         self._dedup_window = dedup_window_seconds
         self._event_bus = event_bus  # OPT-015
 
-        # Priority queues (one per priority level)
+        # Priority queues (one per priority level) - bounded to prevent memory growth
         self._queues: Dict[RequestPriority, asyncio.Queue] = {
-            p: asyncio.Queue() for p in RequestPriority
+            p: asyncio.Queue(maxsize=1000) for p in RequestPriority
         }
 
         # Concurrency control
@@ -328,13 +329,15 @@ class HistoricalRequestScheduler:
                     # Wait for existing request to complete
                     return await pending_future
 
-        # Create new request
+        # Create new request with lazily-created future
         request = HistoricalRequest(
             symbol=symbol,
             timeframe=timeframe,
             period=period,
             priority=priority,
         )
+        # Create future using running loop (avoids deprecated get_event_loop)
+        request.future = asyncio.get_running_loop().create_future()
 
         # Register in pending cache
         async with self._pending_lock:

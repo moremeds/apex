@@ -58,6 +58,7 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
         self._market_data_fetcher: Optional[MarketDataFetcher] = None
         self._market_data_cache: OrderedDict[str, MarketData] = OrderedDict()
         self._market_data_cache_max_size: int = 1000
+        self._market_data_cache_lock: Lock = Lock()  # Thread-safe cache access
         self._subscribed_symbols: List[str] = []
         self._quote_callback: Optional[Callable[[QuoteTick], None]] = None
 
@@ -92,12 +93,14 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
     def _update_market_data_cache(self, symbol: str, md: MarketData) -> None:
         """
         C11: Update market data cache with LRU eviction.
+        Thread-safe for access from IB callbacks.
         """
-        if symbol in self._market_data_cache:
-            self._market_data_cache.move_to_end(symbol)
-        self._market_data_cache[symbol] = md
-        while len(self._market_data_cache) > self._market_data_cache_max_size:
-            self._market_data_cache.popitem(last=False)
+        with self._market_data_cache_lock:
+            if symbol in self._market_data_cache:
+                self._market_data_cache.move_to_end(symbol)
+            self._market_data_cache[symbol] = md
+            while len(self._market_data_cache) > self._market_data_cache_max_size:
+                self._market_data_cache.popitem(last=False)
 
     def _contracts_match(self, original: object, qualified: object) -> bool:
         """
@@ -204,16 +207,19 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
 
     def get_latest_quote(self, symbol: str) -> Optional[QuoteTick]:
         """Get latest cached quote."""
-        md = self._market_data_cache.get(symbol)
+        with self._market_data_cache_lock:
+            md = self._market_data_cache.get(symbol)
         if md:
             return self._market_data_to_quote_tick(md)
         return None
 
     def get_all_quotes(self) -> Dict[str, QuoteTick]:
         """Get all cached quotes."""
+        with self._market_data_cache_lock:
+            items = list(self._market_data_cache.items())
         return {
             symbol: self._market_data_to_quote_tick(md)
-            for symbol, md in self._market_data_cache.items()
+            for symbol, md in items
         }
 
     def get_subscribed_symbols(self) -> List[str]:
@@ -521,7 +527,8 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
         # Use lock to prevent concurrent fetches (try_lock returns immediately if locked)
         if self._market_data_fetch_lock.locked():
             logger.debug("Market data fetch already in progress, returning cached data")
-            return list(self._market_data_cache.values())
+            with self._market_data_cache_lock:
+                return list(self._market_data_cache.values())
 
         async with self._market_data_fetch_lock:
             from ib_async import Stock, Option
@@ -690,4 +697,5 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
 
     def get_latest(self, symbol: str) -> Optional[MarketData]:
         """Get latest market data (legacy)."""
-        return self._market_data_cache.get(symbol)
+        with self._market_data_cache_lock:
+            return self._market_data_cache.get(symbol)

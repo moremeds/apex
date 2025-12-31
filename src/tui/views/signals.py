@@ -46,5 +46,5 @@ class SignalsView(Container):
             signals_table = self.query_one("#signals-table", SignalsTable)
             signals_table.signals = signals or []
             signals_table.snapshot = snapshot
-        except Exception:
-            pass
+        except Exception as e:
+            self.log.error(f"Failed to update signals table: {e}")
