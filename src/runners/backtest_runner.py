@@ -40,9 +40,9 @@ from ..domain.backtest.backtest_result import BacktestResult
 from ..domain.strategy.registry import get_strategy_class, list_strategies
 from ..infrastructure.backtest.backtest_engine import BacktestEngine, BacktestConfig
 from ..infrastructure.backtest.data_feeds import (
-    BarCacheDataFeed,
     CachedBarDataFeed,
     CsvDataFeed,
+    HistoricalStoreDataFeed,
     ParquetDataFeed,
     # OPT-009: Streaming data feeds (memory efficient)
     StreamingCsvDataFeed,
@@ -110,6 +110,36 @@ def load_ib_config(config_path: Optional[Path] = None) -> Optional[IbConfig]:
         return None
 
 
+def load_historical_data_config(config_path: Optional[Path] = None) -> Dict[str, Any]:
+    """
+    Load historical data config from base.yaml.
+
+    Returns:
+        Dict with storage.base_dir and source_priority settings.
+    """
+    path = config_path or DEFAULT_CONFIG_PATH
+
+    if not path.exists():
+        logger.warning(f"Config file not found: {path}")
+        return {}
+
+    try:
+        with open(path) as f:
+            config = yaml.safe_load(f)
+
+        historical_cfg = config.get("historical_data", {})
+        storage_cfg = historical_cfg.get("storage", {})
+
+        return {
+            "base_dir": storage_cfg.get("base_dir", "data/historical"),
+            "source_priority": historical_cfg.get("source_priority", ["ib", "yahoo"]),
+            "sources": historical_cfg.get("sources", {}),
+        }
+    except Exception as e:
+        logger.warning(f"Failed to load historical data config: {e}")
+        return {}
+
+
 class BacktestRunner:
     """
     Backtest mode runner.
@@ -138,6 +168,10 @@ class BacktestRunner:
         commission_per_share: float = 0.005,
         cached_bars: Optional[Dict[str, List]] = None,
         streaming: bool = True,  # OPT-009: Use streaming data feeds by default
+        # Historical coverage config
+        coverage_mode: Optional[str] = None,
+        historical_dir: Optional[str] = None,
+        source_priority: Optional[List[str]] = None,
     ):
         """
         Initialize backtest runner.
@@ -149,7 +183,7 @@ class BacktestRunner:
             end_date: Backtest end date.
             initial_capital: Starting capital.
             data_source: Data source (historical, csv, parquet, cached).
-                         Historical uses bar cache from config/base.yaml.
+                         Historical uses coverage-managed Parquet store.
                          Cached uses pre-fetched bars from cached_bars param.
             data_dir: Directory containing data files (for csv/parquet).
             bar_size: Bar size (1m, 5m, 1h, 1d).
@@ -161,6 +195,12 @@ class BacktestRunner:
                         Use with data_source="cached" for in-process backtests.
             streaming: OPT-009 - Use streaming data feeds (default True).
                       Memory efficient O(symbols) vs O(bars) for large datasets.
+            coverage_mode: Historical coverage handling:
+                          - "download" (default): Download missing data
+                          - "check": Fail if any gaps exist
+                          - "off": Skip coverage checks
+            historical_dir: Base directory for historical Parquet store.
+            source_priority: Source priority for downloads (e.g., ["ib", "yahoo"]).
         """
         self.strategy_name = strategy_name
         self.symbols = symbols
@@ -176,6 +216,9 @@ class BacktestRunner:
         self.commission_per_share = commission_per_share
         self.cached_bars = cached_bars
         self.streaming = streaming  # OPT-009
+        self.coverage_mode = coverage_mode
+        self.historical_dir = historical_dir
+        self.source_priority = source_priority
 
         self._spec: Optional[BacktestSpec] = None
 
@@ -210,6 +253,9 @@ class BacktestRunner:
             bar_size=spec.data.bar_size,
             strategy_params=spec.strategy.params,
             streaming=streaming,
+            coverage_mode=spec.data.coverage_mode,
+            historical_dir=spec.data.historical_dir,
+            source_priority=spec.data.source_priority,
         )
         runner._spec = spec
         return runner
@@ -251,6 +297,15 @@ class BacktestRunner:
                         pass
                 strategy_params[key] = value
 
+        # Parse source priority from comma-separated string
+        source_priority = None
+        if getattr(args, "source_priority", None):
+            source_priority = [
+                s.strip().lower()
+                for s in args.source_priority.split(",")
+                if s.strip()
+            ]
+
         return cls(
             strategy_name=args.strategy,
             symbols=symbols,
@@ -265,6 +320,9 @@ class BacktestRunner:
             slippage_bps=getattr(args, "slippage", 5.0),
             commission_per_share=getattr(args, "commission", 0.005),
             streaming=getattr(args, "streaming", True),  # OPT-009
+            coverage_mode=getattr(args, "coverage_mode", None),
+            historical_dir=getattr(args, "historical_dir", None),
+            source_priority=source_priority,
         )
 
     async def run(self) -> BacktestResult:
@@ -276,6 +334,9 @@ class BacktestRunner:
         """
         # Print configuration
         self._print_config()
+
+        # Ensure historical data coverage before running
+        await self._ensure_historical_coverage()
 
         # Create backtest config
         config = BacktestConfig(
@@ -337,22 +398,15 @@ class BacktestRunner:
                 end_date=self.end_date,
             )
         elif self.data_source == "historical":
-            ib_config = load_ib_config()
-            if not ib_config:
-                raise RuntimeError(
-                    "IB config required for 'historical' data source. "
-                    "Check config/base.yaml brokers.ibkr settings."
-                )
-            # Use first historical client ID for standalone backtest
-            client_id = ib_config.client_ids.historical_pool[0] if ib_config.client_ids.historical_pool else 10
-            return BarCacheDataFeed(
+            # Use coverage-managed Parquet store
+            historical_cfg = load_historical_data_config()
+            base_dir = self.historical_dir or historical_cfg.get("base_dir", "data/historical")
+            return HistoricalStoreDataFeed(
+                base_dir=base_dir,
                 symbols=self.symbols,
                 start_date=self.start_date,
                 end_date=self.end_date,
                 bar_size=self.bar_size,
-                host=ib_config.host,
-                port=ib_config.port,
-                client_id=client_id,
             )
         elif self.data_source == "csv":
             # OPT-009: Use streaming feed for memory efficiency on large datasets
@@ -407,9 +461,13 @@ class BacktestRunner:
         print(f"Capital:      ${self.initial_capital:,.2f}")
         print(f"Data Source:  {self.data_source}")
         if self.data_source == "historical":
-            ib_config = load_ib_config()
-            if ib_config:
-                print(f"IB Gateway:   {ib_config.host}:{ib_config.port}")
+            # Show coverage settings
+            historical_cfg = load_historical_data_config()
+            base_dir = self.historical_dir or historical_cfg.get("base_dir", "data/historical")
+            sources = self.source_priority or historical_cfg.get("source_priority", ["ib", "yahoo"])
+            coverage_mode = self.coverage_mode or "download"
+            print(f"Coverage:     mode={coverage_mode}, dir={base_dir}")
+            print(f"Sources:      {', '.join(sources)}")
         elif self.data_source in ("csv", "parquet"):
             print(f"Streaming:    {self.streaming}")  # OPT-009
         print(f"Bar Size:     {self.bar_size}")
@@ -417,6 +475,147 @@ class BacktestRunner:
         if self.strategy_params:
             print(f"Parameters:   {self.strategy_params}")
         print(f"{'=' * 60}\n")
+
+    async def _ensure_historical_coverage(self) -> None:
+        """
+        Ensure historical data coverage before running backtest.
+
+        This method runs before data feed creation and handles:
+        - "download" mode: Download missing data from IB/Yahoo
+        - "check" mode: Fail if any gaps exist
+        - "off" mode: Skip coverage checks entirely
+
+        Only applies when data_source is "historical".
+        """
+        # Only applies to coverage-managed sources
+        if self.data_source != "historical":
+            return
+
+        # Default to "download" if not specified
+        mode = self.coverage_mode or "download"
+
+        if mode == "off":
+            logger.info("Coverage check disabled (mode=off)")
+            return
+
+        # Validate coverage mode
+        valid_modes = {"off", "check", "download"}
+        if mode not in valid_modes:
+            raise ValueError(
+                f"Invalid coverage_mode: {mode}. Must be one of: {valid_modes}"
+            )
+
+        from ..services.historical_data_manager import HistoricalDataManager
+
+        # Load config and resolve settings
+        historical_cfg = load_historical_data_config()
+        base_dir = Path(
+            self.historical_dir or historical_cfg.get("base_dir", "data/historical")
+        )
+        source_priority = (
+            self.source_priority or historical_cfg.get("source_priority", ["ib", "yahoo"])
+        )
+
+        logger.info(
+            f"Coverage check: mode={mode}, base_dir={base_dir}, "
+            f"sources={source_priority}"
+        )
+
+        # Create manager
+        manager = HistoricalDataManager(
+            base_dir=base_dir,
+            source_priority=source_priority,
+        )
+        ib_adapter = None
+
+        try:
+            # Set up IB source if in priority list and download mode
+            # Skip IB connection for check mode (only needs metadata)
+            if "ib" in source_priority and mode == "download":
+                ib_config = load_ib_config()
+                if ib_config:
+                    from ..infrastructure.adapters.ib.historical_adapter import (
+                        IbHistoricalAdapter,
+                    )
+
+                    client_id = (
+                        ib_config.client_ids.historical_pool[0]
+                        if ib_config.client_ids.historical_pool
+                        else 10
+                    )
+                    ib_adapter = IbHistoricalAdapter(
+                        host=ib_config.host,
+                        port=ib_config.port,
+                        client_id=client_id,
+                    )
+                    try:
+                        await ib_adapter.connect()
+                        manager.set_ib_source(ib_adapter)
+                        logger.info(f"IB historical source connected: {ib_config.host}:{ib_config.port}")
+                    except Exception as e:
+                        logger.warning(f"IB connection failed, will use fallback sources: {e}")
+                        ib_adapter = None
+
+            # Convert dates to datetime for manager API
+            start_dt = datetime.combine(self.start_date, datetime.min.time())
+            end_dt = datetime.combine(self.end_date, datetime.max.time())
+
+            if mode == "check":
+                # Just check, raise if gaps found
+                for symbol in self.symbols:
+                    gaps = manager.find_missing_ranges(
+                        symbol, self.bar_size, start_dt, end_dt
+                    )
+                    if gaps:
+                        gap_summary = ", ".join(
+                            f"{g.start.date()}-{g.end.date()}" for g in gaps
+                        )
+                        raise RuntimeError(
+                            f"Missing coverage for {symbol}/{self.bar_size}: "
+                            f"{len(gaps)} gap(s) [{gap_summary}]. "
+                            "Use --coverage-mode download to fetch missing data."
+                        )
+                logger.info(f"Coverage check passed for {len(self.symbols)} symbol(s)")
+
+            elif mode == "download":
+                # Download missing data
+                results = await manager.download_symbols(
+                    symbols=self.symbols,
+                    timeframe=self.bar_size,
+                    start=start_dt,
+                    end=end_dt,
+                )
+
+                # Report results
+                downloaded = [r for r in results if r.bars_downloaded > 0]
+                cached = [r for r in results if r.source == "cached"]
+                failed = [r for r in results if not r.success]
+
+                if downloaded:
+                    total_bars = sum(r.bars_downloaded for r in downloaded)
+                    logger.info(
+                        f"Downloaded {total_bars} bars for {len(downloaded)} symbol(s)"
+                    )
+                if cached:
+                    logger.info(f"{len(cached)} symbol(s) already cached")
+                if failed:
+                    failed_symbols = [r.symbol for r in failed]
+                    raise RuntimeError(
+                        f"Failed to download data for: {', '.join(failed_symbols)}"
+                    )
+
+        finally:
+            # Clean up resources - guard both to ensure cleanup completes
+            try:
+                manager.close()
+            except Exception as e:
+                logger.warning(f"Error closing manager: {e}")
+
+            if ib_adapter:
+                try:
+                    await ib_adapter.disconnect()
+                except Exception:
+                    pass
 
     def _save_result(self, result: BacktestResult) -> None:
         """Save result to database."""
@@ -749,21 +948,30 @@ def create_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-    # Run MA cross strategy on AAPL (uses IB settings from config/base.yaml)
+    # Run MA cross strategy (downloads missing data, caches to Parquet)
     python -m src.runners.backtest_runner --strategy ma_cross --symbols AAPL \\
         --start 2024-01-01 --end 2024-06-30
+
+    # Offline mode (fail if any data gaps - for CI/CD)
+    python -m src.runners.backtest_runner --strategy ma_cross --symbols AAPL \\
+        --start 2024-01-01 --end 2024-06-30 --coverage-mode check
+
+    # Yahoo-only (no IB connection needed)
+    python -m src.runners.backtest_runner --strategy ma_cross --symbols AAPL \\
+        --start 2024-01-01 --end 2024-06-30 --source-priority yahoo
 
     # Run from spec file
     python -m src.runners.backtest_runner --spec config/backtest/my_strategy.yaml
 
-    # Use CSV data instead of IB (for offline testing)
+    # Use CSV data (for offline testing)
     python -m src.runners.backtest_runner --strategy ma_cross --symbols AAPL \\
         --start 2024-01-01 --end 2024-06-30 --data-source csv --data-dir ./data
 
     # List available strategies
     python -m src.runners.backtest_runner --list-strategies
 
-Note: Broker connection settings are loaded from config/base.yaml (brokers section).
+Note: Historical data is cached locally. First run downloads from IB/Yahoo,
+      subsequent runs read from local Parquet store (data/historical/).
         """,
     )
 
@@ -849,6 +1057,29 @@ Note: Broker connection settings are loaded from config/base.yaml (brokers secti
         action="store_false",
         dest="streaming",
         help="Use full-load data feeds (load all data to memory)",
+    )
+    # Historical data coverage options
+    parser.add_argument(
+        "--coverage-mode",
+        type=str,
+        default=None,
+        choices=["download", "check", "off"],
+        help=(
+            "Coverage handling for 'historical' source: "
+            "download (default, fetch missing), "
+            "check (fail if gaps), "
+            "off (skip checks)"
+        ),
+    )
+    parser.add_argument(
+        "--historical-dir",
+        type=str,
+        help="Base directory for Parquet historical store (default: data/historical)",
+    )
+    parser.add_argument(
+        "--source-priority",
+        type=str,
+        help="Data source priority as comma-separated list (e.g., ib,yahoo)",
     )
     parser.add_argument(
         "--spec",

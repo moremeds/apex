@@ -60,10 +60,16 @@ class DataSpecConfig:
     start_date: Optional[date] = None
     end_date: Optional[date] = None
 
+    # Historical store config (for source="historical")
+    coverage_mode: Optional[str] = None  # off, check, download (default: download)
+    historical_dir: Optional[str] = None  # Base dir for Parquet store
+    source_priority: Optional[List[str]] = None  # e.g., ["ib", "yahoo"]
+
     # Source-specific config
     csv_dir: Optional[str] = None
     parquet_dir: Optional[str] = None
     ib_config: Optional[Dict[str, Any]] = None
+    streaming: bool = True  # OPT-009: Use streaming data feeds
 
 
 @dataclass
@@ -149,14 +155,22 @@ class BacktestSpec:
 
         # Parse data
         data_raw = raw.get("data", {})
+        source_priority = data_raw.get("source_priority")
+        if isinstance(source_priority, str):
+            # Support comma-separated string format
+            source_priority = [s.strip() for s in source_priority.split(",") if s.strip()]
         data = DataSpecConfig(
             source=data_raw.get("source", "csv"),
             bar_size=data_raw.get("bar_size", "1d"),
             start_date=cls._parse_date(data_raw.get("start_date")),
             end_date=cls._parse_date(data_raw.get("end_date")),
+            coverage_mode=data_raw.get("coverage_mode"),
+            historical_dir=data_raw.get("historical_dir"),
+            source_priority=source_priority,
             csv_dir=data_raw.get("csv_dir"),
             parquet_dir=data_raw.get("parquet_dir"),
             ib_config=data_raw.get("ib_config"),
+            streaming=data_raw.get("streaming", True),
         )
 
         # Parse execution
@@ -207,8 +221,12 @@ class BacktestSpec:
                 "bar_size": self.data.bar_size,
                 "start_date": str(self.data.start_date) if self.data.start_date else None,
                 "end_date": str(self.data.end_date) if self.data.end_date else None,
+                "coverage_mode": self.data.coverage_mode,
+                "historical_dir": self.data.historical_dir,
+                "source_priority": self.data.source_priority,
                 "csv_dir": self.data.csv_dir,
                 "parquet_dir": self.data.parquet_dir,
+                "streaming": self.data.streaming,
             },
             "execution": {
                 "initial_capital": self.execution.initial_capital,

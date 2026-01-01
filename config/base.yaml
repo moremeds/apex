@@ -251,6 +251,33 @@ historical_data:
     timeout_sec: 30
     max_cache_entries: 512
 
+  # Persistent historical data storage (Parquet + DuckDB)
+  storage:
+    base_dir: "data/historical"       # Directory for Parquet files
+    metadata_db: "_metadata.duckdb"   # Coverage tracking database
+
+  # Data sources for historical downloads
+  sources:
+    yahoo:
+      enabled: true
+      rate_limit_per_sec: 1.0         # Yahoo rate limit (avoid 429)
+
+    ib:
+      enabled: true
+      # Uses historical_pool client_ids from brokers.ibkr config
+
+  # Source priority (IB preferred when available)
+  source_priority: ["ib", "yahoo"]
+
+  # Supported timeframes for backtesting
+  timeframes:
+    - "5min"
+    - "1h"
+    - "1d"
+
+  # Data retention
+  retention_days: 3650  # ~10 years
+
 # Position reconciliation settings
 reconciliation:
   stale_threshold_sec: 300  # Mark position as stale after 5 minutes
