@@ -11,6 +11,7 @@ Available strategies:
 - MomentumBreakoutStrategy: ATR-based breakout with trailing stops
 - PairsTradingStrategy: Statistical arbitrage pairs trading
 - ScheduledRebalanceStrategy: Time-based portfolio rebalancing
+- TAMetricsStrategy: Multi-indicator TA with metrics matrix (MA, RSI, MACD)
 
 Feature coverage by strategy:
 +---------------------------+--------+-------+------+-------+---------+------+
@@ -23,6 +24,7 @@ Feature coverage by strategy:
 | MomentumBreakoutStrategy  |   X    |   -   |  -   |   -   |    -    |  X   |
 | PairsTradingStrategy      |   X    |   -   |  -   |   -   |    X    |  X   |
 | ScheduledRebalanceStrategy|   X    |   X   |  X   |   -   |    X    |  X   |
+| TAMetricsStrategy         |   X    |   -   |  -   |   -   |    X    |  X   |
 +---------------------------+--------+-------+------+-------+---------+------+
 """
 
@@ -32,6 +34,7 @@ from .rsi_mean_reversion import RsiMeanReversionStrategy
 from .momentum_breakout import MomentumBreakoutStrategy
 from .pairs_trading import PairsTradingStrategy
 from .scheduled_rebalance import ScheduledRebalanceStrategy
+from .ta_metrics_strategy import TAMetricsStrategy
 
 __all__ = [
     # Basic strategies
@@ -42,4 +45,6 @@ __all__ = [
     "MomentumBreakoutStrategy",
     "PairsTradingStrategy",
     "ScheduledRebalanceStrategy",
+    # Systematic backtesting strategies
+    "TAMetricsStrategy",
 ]

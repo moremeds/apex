@@ -1,0 +1,114 @@
+# Strict Overfitting Detection Example
+#
+# Demonstrates:
+# - Strict PBO and DSR threshold validation
+# - Multiple validation metrics
+# - Comprehensive constraint checking
+#
+# This configuration is suitable for production strategies where
+# avoiding overfitting is critical. It applies conservative thresholds
+# for statistical validation.
+#
+# Run with:
+#   python -m src.runners.systematic_backtest_runner --spec config/backtest/examples/05_strict_validation.yaml
+
+name: "Strict_Validation_Example"
+description: "Momentum strategy with strict overfitting controls"
+strategy: "momentum"
+
+parameters:
+  lookback_days:
+    type: range
+    min: 20
+    max: 60
+    step: 10
+  holding_period:
+    type: categorical
+    values: [5, 10, 21]
+  top_n_stocks:
+    type: categorical
+    values: [3, 5, 10]
+  rebalance_frequency:
+    type: fixed
+    value: "monthly"
+
+universe:
+  type: static
+  symbols:
+    - AAPL
+    - MSFT
+    - GOOGL
+    - AMZN
+    - META
+    - NVDA
+    - TSLA
+    - AMD
+
+temporal:
+  primary_method: walk_forward
+  train_days: 504           # 2 years
+  test_days: 126            # 6 months
+  folds: 5                  # More folds for robust estimation
+  purge_days: 10            # Conservative purge
+  embargo_days: 5
+
+  # CPCV for robust PBO
+  secondary_method: cpcv
+  cpcv_groups: 10
+  cpcv_test_groups: 2       # C(10,2) = 45 paths
+
+  start_date: "2019-01-01"
+  end_date: "2025-12-30"
+
+optimization:
+  method: grid
+  metric: sharpe
+  direction: maximize
+
+  # Strict overfitting thresholds
+  validation_thresholds:
+    max_pbo: 0.25           # Reject if PBO > 25%
+    min_dsr: 0.95           # Require DSR > 95%
+    max_degradation: 0.40   # Max 40% IS→OOS degradation
+
+  # Comprehensive constraints
+  constraints:
+    # Performance constraints
+    - metric: p10_sharpe
+      operator: ">="
+      value: 0.5            # Even worst case must be decent
+    - metric: median_sharpe
+      operator: ">="
+      value: 1.0            # Median Sharpe at least 1.0
+
+    # Risk constraints
+    - metric: median_max_dd
+      operator: "<="
+      value: 0.15           # Max 15% median drawdown
+    - metric: p90_max_dd
+      operator: "<="
+      value: 0.25           # Even 90th percentile below 25%
+
+    # Statistical significance
+    - metric: total_trades
+      operator: ">="
+      value: 30             # Minimum trades for significance
+
+    # Stability constraints
+    - metric: stability_score
+      operator: ">="
+      value: 0.7            # High stability required
+
+profiles:
+  production:
+    name: production
+    version: v1
+    slippage_bps: 15.0      # Conservative slippage
+    commission_per_share: 0.01
+    min_commission: 1.0
+    fill_model: vwap
+    volume_limit_pct: 0.03  # Low volume participation
+
+reproducibility:
+  random_seed: 42
+  data_version: "apex_2024.12"

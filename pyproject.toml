@@ -24,6 +24,13 @@ dependencies = [
     "numpy>=2.3.0,<2.4",       # Numerical computing library (capped for numba/vectorbt compat)
     "pandas>=2.3.3",           # Data manipulation and analysis
     "scikit-learn>=1.8.0",     # Machine learning library
+    "scipy>=1.11.0",           # Scientific computing (for DSR calculations)
+
+    # Trading calendars and backtesting validation
+    "pandas-market-calendars>=4.3.0",  # Trading calendar support (NYSE, etc.)
+    "pypbo @ git+https://github.com/esvhd/pypbo.git",  # Probability of Backtest Overfit (CSCV method)
+    "duckdb>=0.10.0",          # Embedded analytics database for backtest storage
+    "pydantic>=2.5.0",         # Data validation for backtest specs
 
     # Trading and backtesting
     "backtrader>=1.9.78.123",  # Backtesting framework
