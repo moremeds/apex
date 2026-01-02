@@ -12,9 +12,9 @@ from src.domain.strategy.scheduler import SimulatedScheduler, LiveScheduler
 from src.domain.strategy.registry import StrategyRegistry, register_strategy
 from src.domain.events.domain_events import QuoteTick, BarData
 from src.domain.interfaces.execution_provider import OrderRequest
-from src.infrastructure.backtest.simulated_execution import SimulatedExecution, FillModel
-from src.infrastructure.backtest.data_feeds import InMemoryDataFeed, CsvDataFeed
-from src.infrastructure.backtest.backtest_engine import BacktestEngine, BacktestConfig
+from src.backtest.execution.simulated import SimulatedExecution, FillModel
+from src.backtest.data.feeds import InMemoryDataFeed, CsvDataFeed
+from src.backtest.execution.engines.backtest_engine import BacktestEngine, BacktestConfig
 
 
 class TestSimulatedClock:

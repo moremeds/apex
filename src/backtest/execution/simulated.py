@@ -14,7 +14,7 @@ Can also use RealityModelPack for more realistic simulation with:
 - LatencyModel: Execution delay (optional)
 
 Architecture:
-    - simulated_execution.py: Main coordinator and public interface
+    - simulated.py: Main coordinator and public interface
     - ledger.py: Position tracking and P&L calculations
     - order_matching.py: Order submission, matching, and fill logic
 
@@ -53,7 +53,7 @@ from .order_matching import OrderMatcher, FillModel, SimulatedOrder
 
 logger = logging.getLogger(__name__)
 
-# Re-export for backward compatibility
+# Re-export for convenience
 __all__ = ["SimulatedExecution", "FillModel", "SimulatedOrder", "SimulatedPosition"]
 
 

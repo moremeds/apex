@@ -152,8 +152,8 @@ class LabView(Container, can_focus=True):
         try:
             import yaml
             from pathlib import Path
-            from ...infrastructure.backtest.backtest_engine import BacktestEngine, BacktestConfig
-            from ...infrastructure.backtest.data_feeds import BarCacheDataFeed
+            from ...backtest.execution.engines.backtest_engine import BacktestEngine, BacktestConfig
+            from ...backtest.data.feeds import BarCacheDataFeed
 
             # Load config from base.yaml
             config_path = Path("config/base.yaml")

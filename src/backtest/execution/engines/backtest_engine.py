@@ -26,34 +26,33 @@ Usage:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from datetime import datetime, date
-from typing import Dict, List, Optional, Type, Any
-import time
 import logging
+import statistics
+import time
+from dataclasses import dataclass, field
+from datetime import date, datetime
+from typing import Any, Dict, List, Optional, Type
 
-from ...domain.clock import SimulatedClock
-from ...domain.strategy.base import Strategy, StrategyContext, StrategyProtocol
-from ...domain.strategy.scheduler import SimulatedScheduler
-from ...domain.strategy.registry import get_strategy_class
-from ...domain.backtest.backtest_result import (
+from ....domain.backtest.backtest_result import (
     BacktestResult,
+    CostMetrics,
     PerformanceMetrics,
     RiskMetrics,
     TradeMetrics,
-    CostMetrics,
     TradeRecord,
 )
-from ...domain.backtest.backtest_spec import BacktestSpec
-from ...domain.events.domain_events import BarData, QuoteTick, PositionSnapshot
-
-from .simulated_execution import SimulatedExecution, FillModel
-from .data_feeds import DataFeed, CsvDataFeed
-from .trade_tracker import TradeTracker
-
-from ...domain.reality import RealityModelPack, get_preset_pack
-from ...domain.strategy.cost_estimator import CostEstimator, SimpleFeeSchedule
-from ...domain.strategy.risk_gate import RiskGate
+from ....domain.backtest.backtest_spec import BacktestSpec
+from ....domain.clock import SimulatedClock
+from ....domain.events.domain_events import BarData, PositionSnapshot, QuoteTick
+from ....domain.reality import RealityModelPack, get_preset_pack
+from ....domain.strategy.base import Strategy, StrategyContext, StrategyProtocol
+from ....domain.strategy.cost_estimator import CostEstimator, SimpleFeeSchedule
+from ....domain.strategy.registry import get_strategy_class
+from ....domain.strategy.risk_gate import RiskGate
+from ....domain.strategy.scheduler import SimulatedScheduler
+from ...data.feeds import CsvDataFeed, DataFeed
+from ..simulated import FillModel, SimulatedExecution
+from ..trade_tracker import TradeTracker
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +109,7 @@ class BacktestConfig:
 
         # 2. Fallback to preset reality_pack name if no explicit config
         if reality_pack is None:
-            if hasattr(spec.execution, 'reality_pack') and spec.execution.reality_pack:
+            if hasattr(spec.execution, "reality_pack") and spec.execution.reality_pack:
                 reality_pack_name = spec.execution.reality_pack
 
         return cls(
@@ -261,11 +260,11 @@ class BacktestEngine:
             return CostEstimator(
                 slippage_bps=self._config.slippage_bps,
             )
-            
+
         # Try to map fee model to fee schedule for estimator
         # For now, use simple mapping
         return CostEstimator(
-            slippage_bps=getattr(reality_pack.slippage_model, 'slippage_bps', 5.0),
+            slippage_bps=getattr(reality_pack.slippage_model, "slippage_bps", 5.0),
         )
 
     async def run(self) -> BacktestResult:
@@ -282,9 +281,7 @@ class BacktestEngine:
             raise ValueError("Data feed not set. Call set_data_feed() first.")
 
         start_time = time.time()
-        logger.info(
-            f"Starting backtest: {self._config.start_date} to {self._config.end_date}"
-        )
+        logger.info(f"Starting backtest: {self._config.start_date} to {self._config.end_date}")
 
         self._running = True
         self._cash = self._config.initial_capital
@@ -406,9 +403,7 @@ class BacktestEngine:
             self._current_day_equity = None
 
         run_duration = time.time() - start_time
-        logger.info(
-            f"Backtest complete: {bar_count} bars in {run_duration:.2f}s"
-        )
+        logger.info(f"Backtest complete: {bar_count} bars in {run_duration:.2f}s")
 
         return self._generate_result(run_duration)
 
@@ -423,7 +418,7 @@ class BacktestEngine:
 
         for fill in fills:
             # Update cash (with multiplier for options/futures)
-            multiplier = getattr(fill, 'multiplier', 1) or 1
+            multiplier = getattr(fill, "multiplier", 1) or 1
             cost = fill.quantity * fill.price * multiplier
             if fill.side == "BUY":
                 self._cash -= cost + fill.commission
@@ -463,12 +458,9 @@ class BacktestEngine:
 
         pos_value = self._execution.get_total_position_value()
         nav = self._cash + pos_value
-        
+
         fees = reality_pack.admin_fee_model.calculate_daily_fees(
-            timestamp=timestamp,
-            cash=self._cash,
-            position_value=pos_value,
-            net_asset_value=nav
+            timestamp=timestamp, cash=self._cash, position_value=pos_value, net_asset_value=nav
         )
 
         for fee in fees:
@@ -482,8 +474,6 @@ class BacktestEngine:
 
     def _generate_result(self, run_duration: float) -> BacktestResult:
         """Generate backtest result with metrics."""
-        from datetime import date
-
         final_equity = self._calculate_equity()
         initial = self._config.initial_capital
 
@@ -540,7 +530,7 @@ class BacktestEngine:
         # Cost metrics
         total_slippage = sum(t.slippage for t in self._trades)
         total_costs = total_commission + total_slippage + self._total_admin_fees
-        
+
         costs = CostMetrics(
             total_commission=total_commission,
             total_slippage=total_slippage,
@@ -587,9 +577,6 @@ class BacktestEngine:
         if len(self._equity_curve) < 2:
             return 0.0
 
-        import statistics
-        from collections import defaultdict
-
         # Aggregate equity by day (take last equity of each day)
         daily_equity: dict[str, float] = {}
         for point in self._equity_curve:
@@ -619,7 +606,7 @@ class BacktestEngine:
 
         # Annualize using 252 trading days
         daily_rf = risk_free_rate / 252
-        sharpe = (mean_return - daily_rf) / std_return * (252 ** 0.5)
+        sharpe = (mean_return - daily_rf) / std_return * (252**0.5)
         return sharpe
 
     def stop(self) -> None:

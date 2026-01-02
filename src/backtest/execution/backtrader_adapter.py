@@ -7,7 +7,7 @@ fill simulation, slippage models, and analyzers.
 
 Usage:
     import backtrader as bt
-    from src.infrastructure.backtest.backtrader_adapter import (
+    from src.backtest.execution.backtrader_adapter import (
         ApexStrategyWrapper,
         run_backtest_with_backtrader,
     )
@@ -30,27 +30,25 @@ Note: Requires backtrader package: pip install backtrader
 
 from __future__ import annotations
 
-from datetime import datetime
-from typing import TYPE_CHECKING, Type, Dict, Any, Optional, List
 import logging
+from datetime import datetime
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Type
 
 # Check if backtrader is available
 try:
     import backtrader as bt
+
     BACKTRADER_AVAILABLE = True
 except ImportError:
     BACKTRADER_AVAILABLE = False
     bt = None
 
 from ...domain.clock import BacktraderClock
-from ...domain.strategy.base import Strategy, StrategyContext
-from ...domain.strategy.scheduler import (
-    Scheduler,
-    ScheduledAction,
-    ScheduleFrequency,
-)
-from ...domain.events.domain_events import QuoteTick, BarData, PositionSnapshot
+from ...domain.events.domain_events import BarData, PositionSnapshot, QuoteTick
 from ...domain.interfaces.execution_provider import OrderRequest
+from ...domain.reality import RealityModelPack
+from ...domain.strategy.base import Strategy, StrategyContext
+from ...domain.strategy.scheduler import ScheduledAction, ScheduleFrequency, Scheduler
 
 if TYPE_CHECKING:
     from datetime import time as time_type
@@ -263,9 +261,9 @@ if BACKTRADER_AVAILABLE:
         """
 
         params = (
-            ('apex_strategy_class', None),  # Required: Apex Strategy class
-            ('apex_params', {}),            # Optional: Strategy parameters
-            ('apex_strategy_id', 'bt-apex'), # Optional: Strategy ID
+            ("apex_strategy_class", None),  # Required: Apex Strategy class
+            ("apex_params", {}),  # Optional: Strategy parameters
+            ("apex_strategy_id", "bt-apex"),  # Optional: Strategy ID
         )
 
         def __init__(self):
@@ -303,9 +301,7 @@ if BACKTRADER_AVAILABLE:
             # Track pending orders
             self._pending_orders: Dict[str, bt.Order] = {}
 
-            logger.info(
-                f"ApexStrategyWrapper initialized: {self._apex.__class__.__name__}"
-            )
+            logger.info(f"ApexStrategyWrapper initialized: {self._apex.__class__.__name__}")
 
         def start(self):
             """Called when strategy starts."""
@@ -439,7 +435,6 @@ if BACKTRADER_AVAILABLE:
             }
             return tf_map.get(data._timeframe, "1d")
 
-
     def run_backtest_with_backtrader(
         apex_strategy_class: Type[Strategy],
         data_feeds: List[Any],
@@ -477,35 +472,35 @@ if BACKTRADER_AVAILABLE:
 
         # Set broker settings
         cerebro.broker.setcash(initial_cash)
-        
+
         if reality_pack:
             # Wire fees (approximate using Backtrader's commission model)
             # For stocks, we use per-share if available in fee model
             # This is a simplification as Backtrader's model is less flexible
             # than Apex's internal reality models.
             comm = 0.0
-            if hasattr(reality_pack.fee_model, 'per_share'):
+            if hasattr(reality_pack.fee_model, "per_share"):
                 comm = reality_pack.fee_model.per_share
-            elif hasattr(reality_pack.fee_model, 'stock_per_share'):
+            elif hasattr(reality_pack.fee_model, "stock_per_share"):
                 comm = reality_pack.fee_model.stock_per_share
             else:
                 # Fallback to commission parameter
                 comm = commission
-                
+
             cerebro.broker.setcommission(commission=comm, margin=None, mult=1.0)
-            
+
             # Wire slippage
-            if hasattr(reality_pack.slippage_model, 'slippage_bps'):
+            if hasattr(reality_pack.slippage_model, "slippage_bps"):
                 slippage_pct = reality_pack.slippage_model.slippage_bps / 10000.0
                 cerebro.broker.set_slippage_perc(slippage_pct)
         else:
             cerebro.broker.setcommission(commission=commission)
 
         # Add analyzers
-        cerebro.addanalyzer(bt.analyzers.SharpeRatio, _name='sharpe')
-        cerebro.addanalyzer(bt.analyzers.DrawDown, _name='drawdown')
-        cerebro.addanalyzer(bt.analyzers.TradeAnalyzer, _name='trades')
-        cerebro.addanalyzer(bt.analyzers.Returns, _name='returns')
+        cerebro.addanalyzer(bt.analyzers.SharpeRatio, _name="sharpe")
+        cerebro.addanalyzer(bt.analyzers.DrawDown, _name="drawdown")
+        cerebro.addanalyzer(bt.analyzers.TradeAnalyzer, _name="trades")
+        cerebro.addanalyzer(bt.analyzers.Returns, _name="returns")
 
         # Run backtest
         results = cerebro.run()
@@ -518,17 +513,17 @@ if BACKTRADER_AVAILABLE:
         returns = strategy.analyzers.returns.get_analysis()
 
         return {
-            'initial_cash': initial_cash,
-            'final_value': cerebro.broker.getvalue(),
-            'sharpe_ratio': sharpe.get('sharperatio'),
-            'max_drawdown': drawdown.get('max', {}).get('drawdown'),
-            'total_trades': trades.get('total', {}).get('total', 0),
-            'returns': returns,
-            'analyzers': {
-                'sharpe': sharpe,
-                'drawdown': drawdown,
-                'trades': trades,
-                'returns': returns,
+            "initial_cash": initial_cash,
+            "final_value": cerebro.broker.getvalue(),
+            "sharpe_ratio": sharpe.get("sharperatio"),
+            "max_drawdown": drawdown.get("max", {}).get("drawdown"),
+            "total_trades": trades.get("total", {}).get("total", 0),
+            "returns": returns,
+            "analyzers": {
+                "sharpe": sharpe,
+                "drawdown": drawdown,
+                "trades": trades,
+                "returns": returns,
             },
         }
 
@@ -536,6 +531,7 @@ else:
     # Stub classes when backtrader not available
     class ApexStrategyWrapper:
         """Stub when backtrader not installed."""
+
         def __init__(self, *args, **kwargs):
             raise ImportError("backtrader not installed. Run: pip install backtrader")
 

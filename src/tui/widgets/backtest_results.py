@@ -64,7 +64,7 @@ class BacktestResultsPanel(Widget):
             "[dim]No backtest results available[/]",
             "",
             "[dim]Run a backtest to see performance:[/]",
-            "[dim]python -m src.runners.backtest_runner <spec.yaml>[/]",
+            "[dim]python -m src.backtest.runner <spec.yaml>[/]",
         ]
         return "\n".join(lines)
 

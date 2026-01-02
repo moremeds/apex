@@ -2,22 +2,30 @@
 Backtest execution engines.
 
 Provides:
-- BacktestEngine: Protocol for engine interface
+- BacktestEngine: Protocol for engine interface (RunSpec-based)
 - VectorBTEngine: Fast vectorized backtesting for screening
-- ApexEngine: Event-driven backtesting with full feature support (future)
+- ApexEngine: Event-driven backtesting with full feature support (RunSpec wrapper)
+- EventDrivenEngine: Bar-by-bar event-driven engine (BacktestConfig-based)
 
 Two-Stage Pipeline:
 1. Screening (VectorBT): Fast evaluation of 10,000+ parameter combinations
-2. Validation (Apex): Full-featured validation of top candidates
+2. Validation (Apex/EventDriven): Full-featured validation of top candidates
 
 Example:
-    from src.backtest.execution.engines import VectorBTEngine, VectorBTConfig
+    from src.backtest.execution.engines import VectorBTEngine, ApexEngine
 
+    # Fast screening
     engine = VectorBTEngine(VectorBTConfig(strategy_type="ma_cross"))
     result = engine.run(run_spec)
 
-    # Batch with vectorization
-    results = engine.run_batch(specs)
+    # Full validation (via RunSpec)
+    apex = ApexEngine(ApexEngineConfig(reality_pack_name="ib"))
+    result = apex.run(run_spec)
+
+    # Direct event-driven (via BacktestConfig)
+    from src.backtest.execution.engines import EventDrivenEngine, BacktestConfig
+    engine = EventDrivenEngine(config)
+    result = await engine.run()
 """
 
 from .interface import (
@@ -27,14 +35,24 @@ from .interface import (
     EngineType,
 )
 from .vectorbt_engine import VectorBTEngine, VectorBTConfig
+from .apex_engine import ApexEngine, ApexEngineConfig
+
+# Event-driven engine (bar-by-bar, async) - renamed to avoid Protocol conflict
+from .backtest_engine import BacktestEngine as EventDrivenEngine
+from .backtest_engine import BacktestConfig
 
 __all__ = [
-    # Interface
+    # Interface (Protocol)
     "BacktestEngine",
     "BaseEngine",
     "EngineConfig",
     "EngineType",
-    # Engines
+    # Systematic Engines (RunSpec-based)
     "VectorBTEngine",
     "VectorBTConfig",
+    "ApexEngine",
+    "ApexEngineConfig",
+    # Event-Driven Engine (BacktestConfig-based)
+    "EventDrivenEngine",
+    "BacktestConfig",
 ]
