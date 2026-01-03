@@ -293,8 +293,18 @@ class MetricsCalculator:
                 pass  # Keep defaults if test fails
 
         # Autocorrelation at lag 1
-        if len(returns) > 1:
-            metrics.autocorr_lag1 = float(returns.autocorr(lag=1))
+        clean_returns = returns.dropna()
+        if len(clean_returns) > 1:
+            shifted = clean_returns.shift(1)
+            aligned = pd.concat([clean_returns, shifted], axis=1).dropna()
+            if len(aligned) > 1:
+                x = aligned.iloc[:, 0]
+                y = aligned.iloc[:, 1]
+                if x.std() > 0 and y.std() > 0:
+                    with np.errstate(divide="ignore", invalid="ignore"):
+                        corr = np.corrcoef(x, y)[0, 1]
+                    if np.isfinite(corr):
+                        metrics.autocorr_lag1 = float(corr)
 
     # =========================================================================
     # TIME-BASED METRICS

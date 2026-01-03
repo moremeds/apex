@@ -268,6 +268,8 @@ class MonteCarloSimulator:
     """
     Monte Carlo simulator for trade reshuffling analysis.
 
+    TODO what is this???
+
     Tests whether equity curve could have arisen by chance by
     randomly reshuffling trades and comparing results.
     """

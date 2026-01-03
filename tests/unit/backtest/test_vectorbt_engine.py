@@ -146,15 +146,17 @@ class TestVectorBTEngineRun:
         assert result.is_oos == run_spec.window.is_oos
 
 
-class TestVectorBTStrategies:
-    """Test built-in strategy implementations."""
+class TestSignalGenerators:
+    """Test SignalGenerator implementations used by VectorBT."""
 
     def test_ma_cross_generates_signals(self, sample_data):
-        """MA crossover should generate valid signals."""
-        engine = VectorBTEngine()
-        params = {"fast_period": 5, "slow_period": 20}
+        """MA crossover SignalGenerator should generate valid signals."""
+        from src.domain.strategy.signals import MACrossSignalGenerator
 
-        entries, exits = engine._ma_cross_signals(sample_data, params)
+        generator = MACrossSignalGenerator()
+        params = {"short_window": 5, "long_window": 20}
+
+        entries, exits = generator.generate(sample_data, params)
 
         assert isinstance(entries, pd.Series)
         assert isinstance(exits, pd.Series)
@@ -163,51 +165,78 @@ class TestVectorBTStrategies:
         assert exits.dtype == bool
 
     def test_rsi_generates_signals(self, sample_data):
-        """RSI strategy should generate signals."""
-        engine = VectorBTEngine()
+        """RSI SignalGenerator should generate signals."""
+        from src.domain.strategy.signals import RSIMeanReversionSignalGenerator
+
+        generator = RSIMeanReversionSignalGenerator()
         params = {"rsi_period": 14, "rsi_oversold": 30, "rsi_overbought": 70}
 
-        entries, exits = engine._rsi_signals(sample_data, params)
+        entries, exits = generator.generate(sample_data, params)
 
         assert isinstance(entries, pd.Series)
         assert isinstance(exits, pd.Series)
 
     def test_momentum_generates_signals(self, sample_data):
-        """Momentum strategy should generate signals."""
-        engine = VectorBTEngine()
+        """Momentum SignalGenerator should generate signals."""
+        from src.domain.strategy.signals import MomentumBreakoutSignalGenerator
+
+        generator = MomentumBreakoutSignalGenerator()
         params = {"lookback_days": 20, "momentum_threshold": 0.0}
 
-        entries, exits = engine._momentum_signals(sample_data, params)
+        entries, exits = generator.generate(sample_data, params)
 
         assert isinstance(entries, pd.Series)
         assert isinstance(exits, pd.Series)
 
+    def test_ta_metrics_generates_signals(self, sample_data):
+        """TA Metrics SignalGenerator should generate signals."""
+        from src.domain.strategy.signals import TAMetricsSignalGenerator
+
+        generator = TAMetricsSignalGenerator()
+        params = {"min_score": 3}
+
+        entries, exits = generator.generate(sample_data, params)
+
+        assert isinstance(entries, pd.Series)
+        assert isinstance(exits, pd.Series)
+
+    def test_buy_and_hold_generates_signals(self, sample_data):
+        """Buy and hold SignalGenerator should generate entry on first bar."""
+        from src.domain.strategy.signals import BuyAndHoldSignalGenerator
+
+        generator = BuyAndHoldSignalGenerator()
+        params = {}
+
+        entries, exits = generator.generate(sample_data, params)
+
+        assert entries.iloc[0] is True or entries.iloc[0] == True
+        assert exits.sum() == 0  # No exits
+
     def test_unknown_strategy_fails(self, sample_data, run_spec):
-        """Unknown strategy should return error."""
+        """Unknown strategy should return error from manifest lookup."""
         engine = VectorBTEngine()
         run_spec.params["strategy_type"] = "unknown_strategy"
 
         result = engine.run(run_spec, sample_data)
 
         assert result.status == RunStatus.FAIL_STRATEGY
-        assert "unknown_strategy" in result.error.lower()
+        assert "unknown_strategy" in result.error
 
-    def test_custom_strategy_registration(self, sample_data, run_spec):
-        """Custom strategies should be registerable."""
+    def test_apex_only_strategy_fails(self, sample_data, run_spec):
+        """Apex-only strategies should fail in VectorBT."""
         engine = VectorBTEngine()
 
-        def custom_signals(data, params):
-            close = data["close"]
-            entries = close > close.rolling(10).mean()
-            exits = close < close.rolling(10).mean()
-            return entries, exits
-
-        engine.register_strategy("custom", custom_signals)
-        run_spec.params["strategy_type"] = "custom"
-
+        # Test scheduled_rebalance (portfolio strategy)
+        run_spec.params["strategy_type"] = "scheduled_rebalance"
         result = engine.run(run_spec, sample_data)
+        assert result.status == RunStatus.FAIL_STRATEGY
+        assert "apex_only" in result.error.lower()
 
-        assert result.status == RunStatus.SUCCESS
+        # Test pairs_trading (multi-symbol strategy)
+        run_spec.params["strategy_type"] = "pairs_trading"
+        result = engine.run(run_spec, sample_data)
+        assert result.status == RunStatus.FAIL_STRATEGY
+        assert "apex_only" in result.error.lower()
 
 
 class TestVectorBTBatch:

@@ -10,6 +10,11 @@ Key comparisons:
 - Trade execution: Same fills at same prices?
 - P&L calculation: Final results within tolerance?
 
+Signal Parity (Phase 5):
+- Exact (entries, exits) match between VectorBT SignalGenerator and event-driven Strategy
+- Warmup rule: Skip first `warmup_bars` bars before comparison
+- Both paths must use same TA-Lib indicator wrappers
+
 Usage:
     harness = StrategyParityHarness(
         reference_engine=ApexEngine(),
@@ -19,6 +24,14 @@ Usage:
 
     if not result.is_parity:
         print(f"Parity failed: {result.summary}")
+
+Signal Parity Usage:
+    result = compare_signal_parity(
+        vectorbt_entries, vectorbt_exits,
+        captured_entries, captured_exits,
+        warmup_bars=50,
+    )
+    assert result.passed, result.mismatches
 """
 
 from dataclasses import dataclass, field
@@ -452,3 +465,282 @@ class StrategyParityHarness:
 
         lines.append("=" * 60)
         return "\n".join(lines)
+
+
+# =============================================================================
+# Signal Parity Testing (Phase 5)
+# =============================================================================
+
+
+@dataclass
+class SignalParityResult:
+    """Result of signal-level parity comparison."""
+
+    passed: bool
+    warmup_bars: int
+    total_bars: int
+    compared_bars: int  # total_bars - warmup_bars
+
+    # Match statistics
+    entry_matches: int = 0
+    entry_mismatches: int = 0
+    exit_matches: int = 0
+    exit_mismatches: int = 0
+
+    # First mismatch details (timestamps, not indices)
+    first_entry_mismatch_idx: Optional[datetime] = None
+    first_exit_mismatch_idx: Optional[datetime] = None
+
+    # Detailed mismatches (for debugging)
+    mismatches: List[str] = field(default_factory=list)
+
+    @property
+    def entry_accuracy(self) -> float:
+        """Percentage of matching entry signals."""
+        total = self.entry_matches + self.entry_mismatches
+        return self.entry_matches / total if total > 0 else 1.0
+
+    @property
+    def exit_accuracy(self) -> float:
+        """Percentage of matching exit signals."""
+        total = self.exit_matches + self.exit_mismatches
+        return self.exit_matches / total if total > 0 else 1.0
+
+    def summary(self) -> str:
+        """Human-readable summary."""
+        if self.passed:
+            return (
+                f"PARITY OK: {self.compared_bars} bars compared "
+                f"(skipped {self.warmup_bars} warmup)"
+            )
+        return (
+            f"PARITY FAILED: entries={self.entry_accuracy:.1%}, "
+            f"exits={self.exit_accuracy:.1%} | "
+            f"First mismatch at entry={self.first_entry_mismatch_idx}, "
+            f"exit={self.first_exit_mismatch_idx}"
+        )
+
+
+def compare_signal_parity(
+    vectorbt_entries: pd.Series,
+    vectorbt_exits: pd.Series,
+    captured_entries: pd.Series,
+    captured_exits: pd.Series,
+    warmup_bars: int,
+) -> SignalParityResult:
+    """
+    Compare signals from VectorBT SignalGenerator vs event-driven Strategy.
+
+    Args:
+        vectorbt_entries: Boolean series from SignalGenerator.generate()
+        vectorbt_exits: Boolean series from SignalGenerator.generate()
+        captured_entries: Boolean series captured from event-driven strategy
+        captured_exits: Boolean series captured from event-driven strategy
+        warmup_bars: Number of initial bars to skip (indicator warmup)
+
+    Returns:
+        SignalParityResult with match/mismatch statistics
+
+    Note:
+        - All series must have the same index
+        - Comparison is exact match (True == True, False == False)
+        - NaN values are treated as False
+    """
+    # Ensure all 4 series have the same index
+    indices_match = (
+        vectorbt_entries.index.equals(captured_entries.index)
+        and vectorbt_exits.index.equals(captured_exits.index)
+        and vectorbt_entries.index.equals(vectorbt_exits.index)
+    )
+    if not indices_match:
+        return SignalParityResult(
+            passed=False,
+            warmup_bars=warmup_bars,
+            total_bars=len(vectorbt_entries),
+            compared_bars=0,
+            mismatches=["Index mismatch between signal series - all must have same index"],
+        )
+
+    total_bars = len(vectorbt_entries)
+    compared_bars = total_bars - warmup_bars
+
+    if compared_bars <= 0:
+        return SignalParityResult(
+            passed=True,
+            warmup_bars=warmup_bars,
+            total_bars=total_bars,
+            compared_bars=0,
+            mismatches=["No bars to compare after warmup"],
+        )
+
+    # Skip warmup bars
+    vbt_entries = vectorbt_entries.iloc[warmup_bars:].fillna(False).astype(bool)
+    vbt_exits = vectorbt_exits.iloc[warmup_bars:].fillna(False).astype(bool)
+    cap_entries = captured_entries.iloc[warmup_bars:].fillna(False).astype(bool)
+    cap_exits = captured_exits.iloc[warmup_bars:].fillna(False).astype(bool)
+
+    # Compare entries
+    entry_match = vbt_entries == cap_entries
+    entry_matches = entry_match.sum()
+    entry_mismatches = (~entry_match).sum()
+
+    # Compare exits
+    exit_match = vbt_exits == cap_exits
+    exit_matches = exit_match.sum()
+    exit_mismatches = (~exit_match).sum()
+
+    # Find first mismatches
+    first_entry_mismatch = None
+    first_exit_mismatch = None
+    mismatches = []
+
+    if entry_mismatches > 0:
+        mismatch_idx = entry_match[~entry_match].index
+        first_entry_mismatch = mismatch_idx[0] if len(mismatch_idx) > 0 else None
+        # Report first 5 mismatches
+        for idx in list(mismatch_idx)[:5]:
+            mismatches.append(
+                f"Entry mismatch at {idx}: "
+                f"vectorbt={vbt_entries.loc[idx]}, captured={cap_entries.loc[idx]}"
+            )
+
+    if exit_mismatches > 0:
+        mismatch_idx = exit_match[~exit_match].index
+        first_exit_mismatch = mismatch_idx[0] if len(mismatch_idx) > 0 else None
+        for idx in list(mismatch_idx)[:5]:
+            mismatches.append(
+                f"Exit mismatch at {idx}: "
+                f"vectorbt={vbt_exits.loc[idx]}, captured={cap_exits.loc[idx]}"
+            )
+
+    passed = bool(entry_mismatches == 0 and exit_mismatches == 0)
+
+    return SignalParityResult(
+        passed=passed,
+        warmup_bars=warmup_bars,
+        total_bars=total_bars,
+        compared_bars=compared_bars,
+        entry_matches=int(entry_matches),
+        entry_mismatches=int(entry_mismatches),
+        exit_matches=int(exit_matches),
+        exit_mismatches=int(exit_mismatches),
+        first_entry_mismatch_idx=first_entry_mismatch,
+        first_exit_mismatch_idx=first_exit_mismatch,
+        mismatches=mismatches,
+    )
+
+
+class SignalCapture:
+    """
+    Captures entry/exit signals from event-driven strategy execution.
+
+    Attach to a strategy during backtest to record when orders are placed,
+    then convert to boolean signal series for parity comparison.
+
+    Uses shadow position tracking to correctly classify entry/exit across
+    multiple orders in the same bar.
+
+    Usage:
+        capture = SignalCapture(data.index, symbol="AAPL")
+
+        # During backtest, call on each order
+        capture.record_order(timestamp, symbol, side, quantity)
+
+        # After backtest, get signals
+        entries, exits = capture.get_signals()
+
+    Note:
+        - For parity testing, timestamps must exactly match data.index
+        - Long-only strategies only (short positions treated as flat)
+    """
+
+    def __init__(self, index: pd.DatetimeIndex, symbol: str = ""):
+        """
+        Initialize signal capture.
+
+        Args:
+            index: DatetimeIndex to align signals to (from OHLCV data)
+            symbol: Symbol being tracked (for multi-symbol strategies)
+        """
+        self.index = index
+        self.symbol = symbol
+        self._entries: List[datetime] = []
+        self._exits: List[datetime] = []
+        self._shadow_position: float = 0.0  # Track position state per order
+        self._unmatched_timestamps: List[datetime] = []  # For debugging
+
+    def record_order(
+        self,
+        timestamp: datetime,
+        symbol: str,
+        side: str,
+        quantity: float,
+    ) -> None:
+        """
+        Record an order request as entry/exit signal.
+
+        Uses shadow position to track state across multiple orders in same bar.
+
+        Args:
+            timestamp: Bar timestamp when order was placed
+            symbol: Symbol for the order
+            side: "BUY" or "SELL"
+            quantity: Order quantity (for shadow position update)
+        """
+        if self.symbol and symbol != self.symbol:
+            return
+
+        # Map order to entry/exit based on shadow position state
+        if side.upper() == "BUY":
+            if self._shadow_position == 0:
+                # BUY while flat → entry
+                self._entries.append(timestamp)
+            self._shadow_position += quantity
+
+        elif side.upper() == "SELL":
+            if self._shadow_position > 0:
+                # SELL while long → exit
+                self._exits.append(timestamp)
+            self._shadow_position = max(0, self._shadow_position - quantity)
+
+    def get_signals(self) -> Tuple[pd.Series, pd.Series]:
+        """
+        Convert captured orders to boolean signal series.
+
+        Returns:
+            (entries, exits): Boolean series aligned to self.index
+
+        Note:
+            Timestamps must exactly match index. Unmatched timestamps are logged.
+        """
+        entries = pd.Series(False, index=self.index)
+        exits = pd.Series(False, index=self.index)
+        self._unmatched_timestamps.clear()
+
+        # Mark entry timestamps (exact match only)
+        for ts in self._entries:
+            if ts in entries.index:
+                entries.loc[ts] = True
+            else:
+                self._unmatched_timestamps.append(ts)
+
+        # Mark exit timestamps (exact match only)
+        for ts in self._exits:
+            if ts in exits.index:
+                exits.loc[ts] = True
+            else:
+                self._unmatched_timestamps.append(ts)
+
+        return entries, exits
+
+    @property
+    def unmatched_count(self) -> int:
+        """Number of timestamps that didn't match index."""
+        return len(self._unmatched_timestamps)
+
+    def reset(self) -> None:
+        """Clear captured signals and reset shadow position."""
+        self._entries.clear()
+        self._exits.clear()
+        self._shadow_position = 0.0
+        self._unmatched_timestamps.clear()

@@ -274,11 +274,12 @@ class TAMetricsStrategy(Strategy):
 
         # Check for trade signal
         current_position = self.context.get_position_quantity(symbol)
+        allow_signal = abs(matrix.total_score) >= self.min_score
 
-        if matrix.signal in (Signal.STRONG_BUY, Signal.BUY):
+        if allow_signal and matrix.signal in (Signal.STRONG_BUY, Signal.BUY):
             if current_position <= 0 and self._last_action[symbol] != "BUY":
                 self._execute_buy(symbol, price, matrix)
-        elif matrix.signal in (Signal.STRONG_SELL, Signal.SELL):
+        elif allow_signal and matrix.signal in (Signal.STRONG_SELL, Signal.SELL):
             if current_position > 0 and self._last_action[symbol] != "SELL":
                 self._execute_sell(symbol, price, matrix, current_position)
 

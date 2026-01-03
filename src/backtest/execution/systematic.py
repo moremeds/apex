@@ -102,7 +102,7 @@ class SystematicRunner:
         self._exp_repo.create(spec.experiment_id, spec.model_dump())
 
         # Generate parameter combinations
-        optimizer = GridOptimizer(spec)
+        optimizer = GridOptimizer(spec) # can use bayesian?
         param_combinations = optimizer.generate_params_list()
         logger.info(f"Generated {len(param_combinations)} parameter combinations")
 
@@ -205,6 +205,12 @@ class SystematicRunner:
 
         return spec.experiment_id
 
+    def _build_run_params(self, spec: ExperimentSpec, trial_spec: TrialSpec) -> Dict[str, Any]:
+        params = dict(trial_spec.params)
+        params.setdefault("strategy", spec.strategy)
+        params.setdefault("strategy_type", spec.strategy)
+        return params
+
     def _run_trial(
         self,
         spec: ExperimentSpec,
@@ -239,13 +245,14 @@ class SystematicRunner:
         for symbol in symbols:
             for train_window, test_window in window_pairs:
                 # Create run spec using the test window (for OOS validation)
+                run_params = self._build_run_params(spec, trial_spec)
                 run_spec = RunSpec(
                     trial_id=trial_spec.trial_id,
                     symbol=symbol,
                     window=test_window,  # Use test window for execution
                     profile_version=profile_version,
                     data_version=spec.reproducibility.data_version,
-                    params=trial_spec.params,
+                    params=run_params,
                     run_index=run_index,
                     experiment_id=spec.experiment_id,
                 )
@@ -276,6 +283,7 @@ class SystematicRunner:
                         )
                 else:
                     # Create placeholder result for testing
+                    logger.warning(f"Run {run_spec.run_id}, result is MOCKED!!!!")
                     result = self._create_mock_result(run_spec, test_window)
 
                 runs.append(result)
@@ -338,13 +346,14 @@ class SystematicRunner:
 
         for symbol in symbols:
             for train_window, test_window in window_pairs:
+                run_params = self._build_run_params(spec, trial_spec)
                 run_spec = RunSpec(
                     trial_id=trial_spec.trial_id,
                     symbol=symbol,
                     window=test_window,  # Use test window for execution
                     profile_version=profile_version,
                     data_version=spec.reproducibility.data_version,
-                    params=trial_spec.params,
+                    params=run_params,
                     run_index=run_index,
                     experiment_id=spec.experiment_id,
                 )

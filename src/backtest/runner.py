@@ -61,6 +61,96 @@ logger = logging.getLogger(__name__)
 DEFAULT_CONFIG_PATH = Path(__file__).parent.parent.parent / "config" / "base.yaml"
 
 
+def _normalize_parquet_filter_dt(value: datetime, ts_type: "pa.TimestampType") -> datetime:
+    from datetime import timezone
+
+    if ts_type.tz is None:
+        if value.tzinfo is not None:
+            return value.astimezone(timezone.utc).replace(tzinfo=None)
+        return value
+
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+
+    if ts_type.tz == "UTC":
+        return value.astimezone(timezone.utc)
+
+    try:
+        from zoneinfo import ZoneInfo
+        return value.astimezone(ZoneInfo(ts_type.tz))
+    except Exception:
+        return value.astimezone(timezone.utc)
+
+
+def _build_parquet_timestamp_filters(
+    schema: "pa.Schema",
+    start_dt: datetime,
+    end_dt: datetime,
+) -> Optional[list[tuple[str, str, Any]]]:
+    import pyarrow as pa
+
+    if "timestamp" not in schema.names:
+        return None
+
+    ts_type = schema.field("timestamp").type
+    if not pa.types.is_timestamp(ts_type):
+        return None
+
+    start_value = pa.scalar(_normalize_parquet_filter_dt(start_dt, ts_type), type=ts_type)
+    end_value = pa.scalar(_normalize_parquet_filter_dt(end_dt, ts_type), type=ts_type)
+
+    return [("timestamp", ">=", start_value), ("timestamp", "<=", end_value)]
+
+
+def _to_utc_timestamp(value: datetime) -> "pd.Timestamp":
+    import pandas as pd
+
+    ts = pd.Timestamp(value)
+    if ts.tzinfo is None:
+        return ts.tz_localize("UTC")
+    return ts.tz_convert("UTC")
+
+
+def _read_parquet_cached_data(
+    parquet_path: Path,
+    start_dt: datetime,
+    end_dt: datetime,
+) -> "pd.DataFrame":
+    import pandas as pd
+    import pyarrow.parquet as pq
+
+    filters = None
+    try:
+        schema = pq.read_schema(parquet_path)
+        filters = _build_parquet_timestamp_filters(schema, start_dt, end_dt)
+    except Exception:
+        filters = None
+
+    table = None
+    if filters:
+        try:
+            table = pq.read_table(parquet_path, filters=filters)
+        except Exception:
+            logger.debug(
+                "Filtered Parquet read failed for %s; retrying without filters",
+                parquet_path,
+            )
+            table = None
+
+    if table is None:
+        table = pq.read_table(parquet_path)
+        df = table.to_pandas()
+        if "timestamp" in df.columns and not df.empty:
+            timestamps = pd.to_datetime(df["timestamp"], utc=True)
+            start_ts = _to_utc_timestamp(start_dt)
+            end_ts = _to_utc_timestamp(end_dt)
+            df = df.loc[(timestamps >= start_ts) & (timestamps <= end_ts)].copy()
+            df["timestamp"] = timestamps
+        return df
+
+    return table.to_pandas()
+
+
 def load_ib_config(config_path: Optional[Path] = None):
     """Load IB config from base.yaml."""
     from config.models import IbClientIdsConfig, IbConfig
@@ -469,25 +559,98 @@ class SingleBacktestRunner:
 # =============================================================================
 
 
-async def prefetch_data(symbols: List[str], start_date, end_date, max_retries: int = 3) -> Dict[str, Any]:
-    """Pre-fetch all data from IB once before running the experiment.
+async def prefetch_data(
+    symbols: List[str],
+    start_date,
+    end_date,
+    max_retries: int = 3,
+    timeframe: str = "1d",
+    historical_dir: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Pre-fetch data for systematic experiments, using local cache when available.
 
-    This is an async function to avoid nested event loop issues when called
-    from within an async context (e.g., main_async).
+    First checks the local Parquet store for cached data, then fetches from IB
+    only for symbols that are missing or have incomplete data.
+
+    Args:
+        symbols: List of symbols to fetch
+        start_date: Start date for data
+        end_date: End date for data
+        max_retries: Number of retry attempts for IB fetching
+        timeframe: Bar timeframe (default: 1d)
+        historical_dir: Base directory for historical data (default: data/historical)
+
+    Returns:
+        Dict[symbol, DataFrame] with OHLCV data indexed by timestamp
     """
-    from .data.providers import IbBacktestDataProvider
+    import pandas as pd
+    from pathlib import Path
 
     logger.info(f"Pre-fetching data for {len(symbols)} symbols...")
 
+    # Parse dates - make timezone-aware (UTC) to match Parquet storage format
+    from datetime import timezone
+
     if hasattr(start_date, "isoformat"):
-        start_dt = datetime.combine(start_date, datetime.min.time())
+        start_dt = datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc)
     else:
         start_dt = datetime.fromisoformat(str(start_date)) if start_date else datetime(2020, 1, 1)
+        if start_dt.tzinfo is None:
+            start_dt = start_dt.replace(tzinfo=timezone.utc)
 
     if hasattr(end_date, "isoformat"):
-        end_dt = datetime.combine(end_date, datetime.max.time())
+        end_dt = datetime.combine(end_date, datetime.max.time(), tzinfo=timezone.utc)
     else:
-        end_dt = datetime.fromisoformat(str(end_date)) if end_date else datetime.now()
+        end_dt = datetime.fromisoformat(str(end_date)) if end_date else datetime.now(timezone.utc)
+        if end_dt.tzinfo is None:
+            end_dt = end_dt.replace(tzinfo=timezone.utc)
+
+    # Resolve historical data directory
+    historical_cfg = load_historical_data_config()
+    base_dir = Path(historical_dir or historical_cfg.get("base_dir", "data/historical"))
+
+    results: Dict[str, Any] = {}
+    symbols_to_fetch: List[str] = []
+
+    # Step 1: Check local Parquet cache for each symbol
+    logger.info(f"Checking local cache in {base_dir}...")
+    for symbol in symbols:
+        parquet_path = base_dir / symbol.upper() / f"{timeframe}.parquet"
+        if parquet_path.exists():
+            try:
+                df = _read_parquet_cached_data(parquet_path, start_dt, end_dt)
+
+                if not df.empty:
+                    # Convert timestamp column to index
+                    if "timestamp" in df.columns:
+                        df.set_index("timestamp", inplace=True)
+                    df.sort_index(inplace=True)
+
+                    # Check coverage - we need at least 80% of expected trading days
+                    expected_days = (end_dt - start_dt).days * 252 // 365  # Rough estimate
+                    actual_days = len(df)
+                    coverage = actual_days / expected_days if expected_days > 0 else 0
+
+                    if coverage >= 0.8:
+                        results[symbol] = df
+                        logger.info(f"  {symbol}: loaded {len(df)} bars from cache")
+                        continue
+                    else:
+                        logger.info(f"  {symbol}: cache has {actual_days} bars (coverage {coverage:.0%}), will refresh")
+            except Exception as e:
+                logger.warning(f"  {symbol}: cache read failed ({e}), will fetch")
+
+        symbols_to_fetch.append(symbol)
+
+    # Step 2: Return early if all symbols are cached
+    if not symbols_to_fetch:
+        logger.info(f"All {len(symbols)} symbols loaded from cache")
+        return results
+
+    logger.info(f"Fetching {len(symbols_to_fetch)} symbols from IB: {', '.join(symbols_to_fetch)}")
+
+    # Step 3: Fetch missing symbols from IB
+    from .data.providers import IbBacktestDataProvider
 
     logger.info("Waiting 5s for IB connection readiness...")
     await asyncio.sleep(5)
@@ -507,27 +670,55 @@ async def prefetch_data(symbols: List[str], start_date, end_date, max_retries: i
                 rate_limit=True,
             )
 
-            # Use async method directly - connect, fetch, disconnect
             await provider.connect()
             try:
-                data = await provider.fetch_bars(
-                    symbols=symbols,
+                fetched_data = await provider.fetch_bars(
+                    symbols=symbols_to_fetch,
                     start=start_dt,
                     end=end_dt,
-                    timeframe="1d",
+                    timeframe=timeframe,
                 )
             finally:
                 await provider.disconnect()
 
-            successful = sum(1 for df in data.values() if not df.empty)
-            logger.info(f"Pre-fetch complete: {successful}/{len(symbols)} symbols with data")
-            return data
+            # Step 4: Save fetched data to Parquet cache for future use
+            for symbol, df in fetched_data.items():
+                if not df.empty:
+                    results[symbol] = df
+                    # Save to cache
+                    try:
+                        parquet_path = base_dir / symbol.upper() / f"{timeframe}.parquet"
+                        parquet_path.parent.mkdir(parents=True, exist_ok=True)
+
+                        # Reset index for storage
+                        df_to_save = df.reset_index() if df.index.name else df.copy()
+                        if "timestamp" not in df_to_save.columns and df.index.name == "timestamp":
+                            df_to_save = df.reset_index()
+
+                        df_to_save.to_parquet(parquet_path, compression="snappy")
+                        logger.info(f"  {symbol}: cached {len(df)} bars to {parquet_path}")
+                    except Exception as e:
+                        logger.warning(f"  {symbol}: failed to cache ({e})")
+                else:
+                    results[symbol] = pd.DataFrame()
+
+            break  # Success, exit retry loop
 
         except Exception as e:
             last_error = e
             logger.warning(f"Pre-fetch attempt {attempt + 1} failed: {e}")
+    else:
+        # All retries failed
+        if symbols_to_fetch and not any(s in results for s in symbols_to_fetch):
+            raise RuntimeError(f"Failed to pre-fetch data after {max_retries} attempts: {last_error}")
 
-    raise RuntimeError(f"Failed to pre-fetch data after {max_retries} attempts: {last_error}")
+    successful = sum(1 for df in results.values() if not df.empty)
+    cached_count = len(symbols) - len(symbols_to_fetch)
+    fetched_count = successful - cached_count
+
+    logger.info(f"Pre-fetch complete: {successful}/{len(symbols)} symbols with data "
+                f"({cached_count} cached, {fetched_count} fetched)")
+    return results
 
 
 def create_vectorbt_backtest_fn(cached_data: Optional[Dict[str, Any]] = None):

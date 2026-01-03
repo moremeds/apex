@@ -31,7 +31,7 @@ Usage:
     # Update with market data
     execution.update_price(tick)
 
-    # Submit order
+    # Submit orders
     order = OrderRequest(symbol="AAPL", side="BUY", quantity=100)
     broker_id = await execution.submit_order(order)
 

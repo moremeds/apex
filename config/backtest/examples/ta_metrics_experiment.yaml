@@ -91,4 +91,4 @@ profiles:
 # Reproducibility
 reproducibility:
   random_seed: 42
-  data_version: "apex_2024.12"
+  data_version: "apex_2026.01"

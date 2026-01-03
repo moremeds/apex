@@ -410,16 +410,16 @@ class ATROptimizer:
         for bar in future_bars[:max_bars]:
             # Check if stop loss hit (bar low goes below stop)
             if bar.low <= stop_loss:
-                return (False, True)
+                return False, True
             # Check if take profit hit (bar high goes above take profit)
             if bar.high >= take_profit:
-                return (True, False)
+                return True, False
 
         # Neither hit within max_bars
         return (False, False)
 
     @classmethod
-    def get_recommendation(
+    def get_recommendation( # TODO this is not wired!!!!
         cls,
         bars: List,
     ) -> Optional[ATROptimizationResult]:

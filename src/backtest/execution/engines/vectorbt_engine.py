@@ -20,10 +20,13 @@ Use Apex for: Final validation, complex strategies, realistic execution
 
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Any, Callable, Dict, List, Optional, Tuple, TYPE_CHECKING
+from importlib import import_module
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple, Type
 
 import numpy as np
 import pandas as pd
+import yaml
 
 from ...core import RunSpec, RunResult, RunMetrics, RunStatus
 from ...analysis import MetricsCalculator, Trade
@@ -68,8 +71,7 @@ class VectorBTEngine(BaseEngine):
     def __init__(self, config: Optional[VectorBTConfig] = None):
         super().__init__(config or VectorBTConfig())
         self._vbt_config = config or VectorBTConfig()
-        self._strategy_registry: Dict[str, Callable] = {}
-        self._register_builtin_strategies()
+        self._manifest_cache: Optional[Dict[str, Any]] = None
 
     @property
     def engine_type(self) -> EngineType:
@@ -79,25 +81,51 @@ class VectorBTEngine(BaseEngine):
     def supports_vectorization(self) -> bool:
         return True
 
-    def _register_builtin_strategies(self) -> None:
-        """Register built-in strategy signal generators."""
-        self._strategy_registry["ma_cross"] = self._ma_cross_signals
-        self._strategy_registry["rsi"] = self._rsi_signals
-        self._strategy_registry["momentum"] = self._momentum_signals
+    def _load_manifest(self) -> Dict[str, Any]:
+        """Load and cache strategy manifest.yaml."""
+        if self._manifest_cache is None:
+            manifest_path = Path(__file__).parents[3] / "domain/strategy/manifest.yaml"
+            with manifest_path.open("r", encoding="utf-8") as f:
+                self._manifest_cache = yaml.safe_load(f) or {}
+        return self._manifest_cache
 
-    def register_strategy(
-        self,
-        name: str,
-        signal_fn: Callable[[pd.DataFrame, Dict[str, Any]], Tuple[pd.Series, pd.Series]]
-    ) -> None:
+    def _get_signal_generator(self, strategy_name: str) -> Type:
         """
-        Register a custom strategy signal generator.
+        Lazy import SignalGenerator from manifest.
 
         Args:
-            name: Strategy name for lookup
-            signal_fn: Function that takes (data, params) and returns (entries, exits)
+            strategy_name: Strategy name to look up
+
+        Returns:
+            SignalGenerator class
+
+        Raises:
+            KeyError: If strategy not found in manifest
+            ValueError: If strategy is apex_only or has no signals
         """
-        self._strategy_registry[name] = signal_fn
+        manifest = self._load_manifest()
+        strategies = manifest.get("strategies", {})
+
+        if strategy_name not in strategies:
+            raise KeyError(f"Strategy '{strategy_name}' not found in manifest")
+
+        strategy_entry = strategies[strategy_name]
+
+        if strategy_entry.get("apex_only"):
+            raise ValueError(
+                f"Strategy '{strategy_name}' is apex_only and cannot run in VectorBT"
+            )
+
+        signals_path = strategy_entry.get("signals")
+        if signals_path is None:
+            raise ValueError(
+                f"Strategy '{strategy_name}' has no SignalGenerator defined"
+            )
+
+        # Lazy import: "src.domain.strategy.signals.ma_cross:MACrossSignalGenerator"
+        module_path, class_name = signals_path.rsplit(":", 1)
+        module = import_module(module_path)
+        return getattr(module, class_name)
 
     def run(self, spec: RunSpec, data: Optional[pd.DataFrame] = None) -> RunResult:
         """
@@ -131,18 +159,19 @@ class VectorBTEngine(BaseEngine):
                     spec, RunStatus.FAIL_DATA, "No data in date range", started_at
                 )
 
-            # Get strategy signal generator
+            # Get strategy signal generator from manifest
             strategy_type = spec.params.get("strategy_type", self._vbt_config.strategy_type)
-            signal_fn = self._strategy_registry.get(strategy_type)
 
-            if signal_fn is None:
+            try:
+                signal_generator_cls = self._get_signal_generator(strategy_type)
+                signal_generator = signal_generator_cls()
+            except (KeyError, ValueError) as e:
                 return self._create_error_result(
-                    spec, RunStatus.FAIL_STRATEGY,
-                    f"Unknown strategy: {strategy_type}", started_at
+                    spec, RunStatus.FAIL_STRATEGY, str(e), started_at
                 )
 
             # Generate signals
-            entries, exits = signal_fn(data, spec.params)
+            entries, exits = signal_generator.generate(data, spec.params)
 
             # Run backtest
             close = data["close"]
@@ -318,33 +347,20 @@ class VectorBTEngine(BaseEngine):
         data: pd.DataFrame,
         close: pd.Series
     ) -> List[RunResult]:
-        """Vectorized MA crossover strategy execution."""
+        """Vectorized MA crossover strategy execution using SignalGenerator."""
         import vectorbt as vbt
+        from src.domain.strategy.signals import MACrossSignalGenerator
 
         started_at = datetime.now()
-
-        # Extract unique parameter combinations
-        fast_periods = [spec.params.get("fast_period", 10) for _, spec in indexed_specs]
-        slow_periods = [spec.params.get("slow_period", 50) for _, spec in indexed_specs]
-
-        # Calculate indicators for all periods at once
-        all_fast_periods = sorted(set(fast_periods))
-        all_slow_periods = sorted(set(slow_periods))
-
-        fast_mas = {p: close.rolling(p).mean() for p in all_fast_periods}
-        slow_mas = {p: close.rolling(p).mean() for p in all_slow_periods}
+        signal_generator = MACrossSignalGenerator()
 
         results = []
-        for (idx, spec), fast_p, slow_p in zip(indexed_specs, fast_periods, slow_periods):
-            fast_ma = fast_mas[fast_p]
-            slow_ma = slow_mas[slow_p]
-
-            # Generate signals
-            entries = (fast_ma > slow_ma) & (fast_ma.shift(1) <= slow_ma.shift(1))
-            exits = (fast_ma < slow_ma) & (fast_ma.shift(1) >= slow_ma.shift(1))
-
-            # Run backtest
+        for idx, spec in indexed_specs:
             try:
+                # Generate signals using SignalGenerator (TA-Lib based)
+                entries, exits = signal_generator.generate(data, spec.params)
+
+                # Run backtest
                 pf = vbt.Portfolio.from_signals(
                     close=close,
                     entries=entries,
@@ -381,57 +397,6 @@ class VectorBTEngine(BaseEngine):
                 ))
 
         return results
-
-    def _ma_cross_signals(
-        self, data: pd.DataFrame, params: Dict[str, Any]
-    ) -> Tuple[pd.Series, pd.Series]:
-        """Generate MA crossover signals."""
-        close = data["close"]
-        fast_period = params.get("fast_period", 10)
-        slow_period = params.get("slow_period", 50)
-
-        fast_ma = close.rolling(fast_period).mean()
-        slow_ma = close.rolling(slow_period).mean()
-
-        # Entry: fast crosses above slow
-        entries = (fast_ma > slow_ma) & (fast_ma.shift(1) <= slow_ma.shift(1))
-        # Exit: fast crosses below slow
-        exits = (fast_ma < slow_ma) & (fast_ma.shift(1) >= slow_ma.shift(1))
-
-        return entries, exits
-
-    def _rsi_signals(
-        self, data: pd.DataFrame, params: Dict[str, Any]
-    ) -> Tuple[pd.Series, pd.Series]:
-        """Generate RSI overbought/oversold signals."""
-        import vectorbt as vbt
-
-        close = data["close"]
-        period = params.get("rsi_period", 14)
-        oversold = params.get("rsi_oversold", 30)
-        overbought = params.get("rsi_overbought", 70)
-
-        rsi = vbt.RSI.run(close, window=period).rsi
-
-        entries = rsi < oversold
-        exits = rsi > overbought
-
-        return entries, exits
-
-    def _momentum_signals(
-        self, data: pd.DataFrame, params: Dict[str, Any]
-    ) -> Tuple[pd.Series, pd.Series]:
-        """Generate momentum signals."""
-        close = data["close"]
-        lookback = params.get("lookback_days", 20)
-        threshold = params.get("momentum_threshold", 0.0)
-
-        returns = close.pct_change(lookback)
-
-        entries = returns > threshold
-        exits = returns < 0
-
-        return entries, exits
 
     def _extract_metrics(self, pf, data: pd.DataFrame) -> RunMetrics:
         """

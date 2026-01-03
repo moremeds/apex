@@ -1,0 +1,38 @@
+# Strategy Manifest
+#
+# Maps strategy names to their implementations:
+# - strategy: Event-driven Strategy class (for ApexEngine and live trading)
+# - signals: Vectorized SignalGenerator class (for VectorBT screening)
+#
+# Use colon notation: module.path:ClassName
+
+strategies:
+  buy_and_hold:
+    strategy: src.domain.strategy.examples.buy_and_hold:BuyAndHoldStrategy
+    signals: src.domain.strategy.signals.buy_and_hold:BuyAndHoldSignalGenerator
+
+  ma_cross:
+    strategy: src.domain.strategy.examples.ma_cross:MovingAverageCrossStrategy
+    signals: src.domain.strategy.signals.ma_cross:MACrossSignalGenerator
+
+  pairs_trading:
+    strategy: src.domain.strategy.examples.pairs_trading:PairsTradingStrategy
+    signals: src.domain.strategy.signals.pairs_trading:PairsTradingSignalGenerator
+    apex_only: true  # Requires multi-symbol data; VectorBT needs custom handling
+
+  rsi_reversion:
+    strategy: src.domain.strategy.examples.rsi_mean_reversion:RsiMeanReversionStrategy
+    signals: src.domain.strategy.signals.rsi_mean_reversion:RSIMeanReversionSignalGenerator
+
+  scheduled_rebalance:
+    strategy: src.domain.strategy.examples.scheduled_rebalance:ScheduledRebalanceStrategy
+    signals: null  # Portfolio strategy - no vectorized signals
+    apex_only: true
+
+  momentum_breakout:
+    strategy: src.domain.strategy.examples.momentum_breakout:MomentumBreakoutStrategy
+    signals: src.domain.strategy.signals.momentum_breakout:MomentumBreakoutSignalGenerator
+
+  ta_metrics:
+    strategy: src.domain.strategy.examples.ta_metrics_strategy:TAMetricsStrategy
+    signals: src.domain.strategy.signals.ta_metrics:TAMetricsSignalGenerator

@@ -9,19 +9,16 @@ from typing import Any, Callable, Dict, Iterator, Optional
 
 from ..core import ExperimentSpec, ParameterDef
 
-try:
-    import optuna
-    from optuna.samplers import TPESampler
-    from optuna.pruners import HyperbandPruner
-
-    OPTUNA_AVAILABLE = True
-except ImportError:
-    OPTUNA_AVAILABLE = False
+import optuna
+from optuna.samplers import TPESampler
+from optuna.pruners import HyperbandPruner
 
 
 class BayesianOptimizer:
     """
     Bayesian optimization using Optuna.
+
+    TODO not used!!!
 
     Uses TPE sampler for efficient exploration of large parameter spaces.
     Supports pruning of unpromising trials.
@@ -48,12 +45,6 @@ class BayesianOptimizer:
             n_trials: Maximum number of trials (default from spec)
             seed: Random seed
         """
-        if not OPTUNA_AVAILABLE:
-            raise ImportError(
-                "optuna is required for Bayesian optimization. "
-                "Install with: pip install optuna"
-            )
-
         self.spec = spec
         self.param_defs = spec.get_parameter_defs()
         self.n_trials = n_trials or spec.optimization.n_trials or 100

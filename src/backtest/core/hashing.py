@@ -11,7 +11,7 @@ This module provides content-addressed hashing that ensures:
 Key Functions:
 - canonical_json(): Serialize objects to deterministic JSON
 - content_hash(): Generate SHA-256 hash of content
-- generate_experiment_id(): Create exp_XXXXXX identifiers
+- generate_experiment_id(): Create exp_<name>_dv<version>_<hash> identifiers
 - generate_trial_id(): Create trial_XXXXXX identifiers
 - generate_run_id(): Create run_XXXXXX identifiers
 """
@@ -19,6 +19,7 @@ Key Functions:
 import hashlib
 import json
 import math
+import re
 import subprocess
 from datetime import date, datetime
 from decimal import Decimal
@@ -159,6 +160,16 @@ def canonical_json(obj: Any, sort_keys: bool = True, precision: int = 8) -> str:
     return json.dumps(normalized, sort_keys=sort_keys, separators=(",", ":"))
 
 
+def _slugify(value: str, max_length: int = 40) -> str:
+    slug = re.sub(r"[^A-Za-z0-9]+", "_", value.strip().lower())
+    slug = slug.strip("_")
+    if not slug:
+        slug = "experiment"
+    if len(slug) > max_length:
+        slug = slug[:max_length].rstrip("_")
+    return slug
+
+
 def content_hash(content: str, length: int = 12) -> str:
     """
     Generate SHA-256 hash of content, truncated to specified length.
@@ -212,7 +223,7 @@ def generate_experiment_id(
             explicitly exclude code version from the hash.
 
     Returns:
-        Experiment ID in format "exp_XXXXXXXXXXXX"
+        Experiment ID in format "exp_<name>_dv<version>_<hash>"
     """
     content = {
         "name": name,
@@ -234,7 +245,9 @@ def generate_experiment_id(
 
     json_str = canonical_json(content)
     hash_str = content_hash(json_str)
-    return f"exp_{hash_str}"
+    name_slug = _slugify(name, max_length=48)
+    data_slug = _slugify(data_version or "data", max_length=24)
+    return f"exp_{name_slug}_dv{data_slug}_{hash_str}"
 
 
 def generate_trial_id(experiment_id: str, params: dict) -> str:
