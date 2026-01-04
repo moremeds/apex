@@ -15,11 +15,12 @@ from typing import Any, Callable, Dict, Iterator, List, Optional, Union
 
 from ..core import ExperimentSpec, TrialSpec, RunSpec, TimeWindow
 from ..core import RunResult, RunMetrics, RunStatus, TrialResult, ExperimentResult
+from ..core.hashing import get_next_version
 from ..data import DatabaseManager, ExperimentRepository, TrialRepository, RunRepository
 from ..data import WalkForwardSplitter, SplitConfig
 from ..analysis import Aggregator, AggregationConfig
 from ..analysis import ConstraintValidator, Constraint
-from ..optimization import GridOptimizer
+from ..optimization import GridOptimizer, BayesianOptimizer
 from .parallel import ParallelRunner, ParallelConfig, ExecutionProgress
 
 logger = logging.getLogger(__name__)
@@ -76,35 +77,95 @@ class SystematicRunner:
         """
         Run a complete experiment.
 
+        Each run auto-increments version (v1, v2, v3...) allowing the same
+        experiment config to be executed multiple times.
+
         Args:
             spec: Experiment specification
             backtest_fn: Function to execute a single backtest run
             on_trial_complete: Optional callback after each trial
 
         Returns:
-            Experiment ID
+            Versioned experiment ID (e.g., "exp_name_dv1_abc123_v2")
         """
+        # Generate versioned experiment ID with retry for concurrent runs
+        # Note: We use a local variable instead of mutating spec to avoid issues
+        # when the same ExperimentSpec instance is reused across runs
+        base_experiment_id = spec.experiment_id
         start_time = datetime.now()
-        logger.info(f"Starting experiment: {spec.name} ({spec.experiment_id})")
 
-        # Check if experiment already exists
-        if self._exp_repo.exists(spec.experiment_id):
-            if self.config.skip_existing:
-                logger.info(f"Experiment {spec.experiment_id} already exists, skipping (use skip_existing=False to re-run)")
-                return spec.experiment_id
-            else:
-                raise ValueError(
-                    f"Experiment {spec.experiment_id} already exists. "
-                    "Delete the database file or use a different config to generate a new ID."
+        versioned_experiment_id = ""
+        run_version = 0
+        max_retries = 3
+
+        for attempt in range(max_retries):
+            run_version = get_next_version(self._db, base_experiment_id)
+            versioned_experiment_id = f"{base_experiment_id}_v{run_version}"
+            try:
+                # Create experiment record with version tracking
+                self._exp_repo.create(
+                    versioned_experiment_id,
+                    spec.model_dump(),
+                    base_experiment_id=base_experiment_id,
+                    run_version=run_version,
                 )
+                break
+            except Exception as exc:
+                message = str(exc)
+                is_conflict = any(
+                    token in message
+                    for token in ("Constraint Error", "Duplicate key", "PRIMARY KEY", "UNIQUE")
+                )
+                if is_conflict and attempt < max_retries - 1:
+                    logger.warning(
+                        "Experiment version collision for %s (v%s), retrying...",
+                        base_experiment_id,
+                        run_version,
+                    )
+                    continue
+                raise
 
-        # Create experiment record
-        self._exp_repo.create(spec.experiment_id, spec.model_dump())
+        logger.info(f"Starting experiment: {spec.name} ({versioned_experiment_id}) [v{run_version}]")
 
-        # Generate parameter combinations
-        optimizer = GridOptimizer(spec) # can use bayesian?
-        param_combinations = optimizer.generate_params_list()
-        logger.info(f"Generated {len(param_combinations)} parameter combinations")
+        # Select optimizer based on spec.optimization.method
+        grid_optimizer = GridOptimizer(spec)
+        grid_size = grid_optimizer.get_total_combinations()
+
+        # Determine optimization method (Bayesian is model default)
+        method = spec.optimization.method  # Already defaults to "bayesian" in OptimizationConfig
+
+        # Smart n_trials scaling based on grid size
+        if spec.optimization.n_trials:
+            n_trials = spec.optimization.n_trials
+        else:
+            # Scale based on search space:
+            # - 10% of grid size (reasonable coverage)
+            # - sqrt(grid) × 10 (diminishing returns for huge spaces)
+            # - Capped at 500 (practical limit)
+            # - Minimum 30 (enough for TPE to learn)
+            n_trials = min(
+                max(30, int(grid_size * 0.1)),  # 10% of grid, min 30
+                int(grid_size ** 0.5 * 10),     # sqrt scaling
+                500,                             # upper cap
+            )
+            logger.info(f"Auto-scaled n_trials to {n_trials} (grid_size={grid_size})")
+
+        # Auto-fallback to grid if search space is smaller than n_trials
+        if method == "bayesian" and grid_size <= n_trials:
+            logger.info(f"Auto-fallback: grid size ({grid_size}) <= n_trials ({n_trials}), using grid search")
+            method = "grid"
+
+        if method == "bayesian":
+            seed = spec.reproducibility.random_seed if spec.reproducibility else 42
+            optimizer = BayesianOptimizer(spec, n_trials=n_trials, seed=seed)
+            use_bayesian = True
+            total_trials = n_trials
+            logger.info(f"Using Bayesian optimization (TPE) with {n_trials} trials")
+        else:
+            optimizer = grid_optimizer
+            use_bayesian = False
+            total_trials = grid_size
+            logger.info(f"Using grid search with {grid_size} combinations")
 
         # Create walk-forward splitter
         splitter = WalkForwardSplitter(
@@ -141,9 +202,15 @@ class SystematicRunner:
         # Decide execution mode
         use_parallel = self.config.parallel_workers > 1 and backtest_fn is not None
 
-        for params in param_combinations:
+        # Get parameter iterator (generator for Bayesian, list for Grid)
+        if use_bayesian:
+            param_iterator = optimizer.generate_params()
+        else:
+            param_iterator = optimizer.generate_params_list()
+
+        for params in param_iterator:
             trial_spec = TrialSpec(
-                experiment_id=spec.experiment_id,
+                experiment_id=versioned_experiment_id,
                 params=params,
                 trial_index=trial_count,
             )
@@ -151,7 +218,7 @@ class SystematicRunner:
             # Create trial stub first (for FK constraint)
             self._trial_repo.create_stub(
                 trial_spec.trial_id,
-                spec.experiment_id,
+                versioned_experiment_id,
                 params,
                 trial_count,
             )
@@ -179,6 +246,11 @@ class SystematicRunner:
                 trial_result.constraints_met = passed
                 trial_result.constraint_violations = violations
 
+            # Report result to Bayesian optimizer for learning
+            if use_bayesian:
+                score = trial_result.trial_score or 0.0
+                optimizer.report_result(params, score)
+
             # Update trial with aggregated results
             self._trial_repo.update(trial_result)
             all_trials.append(trial_result)
@@ -188,22 +260,22 @@ class SystematicRunner:
 
             trial_count += 1
             if trial_count % self.config.log_progress_interval == 0:
-                logger.info(f"Completed {trial_count}/{len(param_combinations)} trials")
+                logger.info(f"Completed {trial_count}/{total_trials} trials")
 
         # Complete experiment
         end_time = datetime.now()
         duration = (end_time - start_time).total_seconds()
 
         self._exp_repo.update_status(
-            spec.experiment_id, "completed", completed_at=end_time
+            versioned_experiment_id, "completed", completed_at=end_time
         )
 
         logger.info(
-            f"Experiment complete: {spec.experiment_id} "
+            f"Experiment complete: {versioned_experiment_id} "
             f"({trial_count} trials in {duration:.1f}s)"
         )
 
-        return spec.experiment_id
+        return versioned_experiment_id
 
     def _build_run_params(self, spec: ExperimentSpec, trial_spec: TrialSpec) -> Dict[str, Any]:
         params = dict(trial_spec.params)
@@ -254,7 +326,7 @@ class SystematicRunner:
                     data_version=spec.reproducibility.data_version,
                     params=run_params,
                     run_index=run_index,
-                    experiment_id=spec.experiment_id,
+                    experiment_id=trial_spec.experiment_id,  # Use versioned ID
                 )
 
                 # Check if run already exists
@@ -271,7 +343,7 @@ class SystematicRunner:
                         result = RunResult(
                             run_id=run_spec.run_id,
                             trial_id=trial_spec.trial_id,
-                            experiment_id=spec.experiment_id,
+                            experiment_id=trial_spec.experiment_id,  # Use versioned ID
                             symbol=symbol,
                             window_id=test_window.window_id,
                             profile_version=profile_version,
@@ -295,7 +367,7 @@ class SystematicRunner:
         # Aggregate trial
         trial_result = self._aggregator.aggregate_trial(
             trial_id=trial_spec.trial_id,
-            experiment_id=spec.experiment_id,
+            experiment_id=trial_spec.experiment_id,  # Use versioned ID
             params=trial_spec.params,
             runs=runs,
         )
@@ -355,7 +427,7 @@ class SystematicRunner:
                     data_version=spec.reproducibility.data_version,
                     params=run_params,
                     run_index=run_index,
-                    experiment_id=spec.experiment_id,
+                    experiment_id=trial_spec.experiment_id,  # Use versioned ID
                 )
 
                 # Check if run already exists
@@ -378,7 +450,7 @@ class SystematicRunner:
         # Aggregate trial
         trial_result = self._aggregator.aggregate_trial(
             trial_id=trial_spec.trial_id,
-            experiment_id=spec.experiment_id,
+            experiment_id=trial_spec.experiment_id,  # Use versioned ID
             params=trial_spec.params,
             runs=runs,
         )

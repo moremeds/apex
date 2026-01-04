@@ -651,7 +651,7 @@ Parameters:
 - `long_window`: Long MA period (default: 50)
 - `position_size`: Shares per trade (default: 100)
 
-### 2. RSI Mean Reversion (`rsi_reversion`)
+### 2. RSI Mean Reversion (`rsi_mean_reversion`)
 
 Counter-trend with limit orders.
 

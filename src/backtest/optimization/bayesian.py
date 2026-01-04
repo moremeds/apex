@@ -18,10 +18,11 @@ class BayesianOptimizer:
     """
     Bayesian optimization using Optuna.
 
-    TODO not used!!!
-
     Uses TPE sampler for efficient exploration of large parameter spaces.
     Supports pruning of unpromising trials.
+
+    Now the DEFAULT optimization method - automatically selected when
+    spec.optimization.method is 'bayesian' or not specified.
 
     Example:
         optimizer = BayesianOptimizer(experiment_spec, n_trials=100)

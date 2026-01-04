@@ -140,7 +140,7 @@ class OptimizationConfig(BaseModel):
     """Configuration for optimization/search."""
 
     method: Literal["grid", "bayesian", "random"] = Field(
-        default="grid", description="Optimization method"
+        default="bayesian", description="Optimization method (Bayesian TPE is default)"
     )
 
     # For Bayesian optimization

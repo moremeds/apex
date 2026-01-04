@@ -196,7 +196,7 @@ APEX includes a production-ready strategy framework with **live/backtest parity*
 |----------|---------------|-------------|
 | Moving Average Cross | `ma_cross` | Classic MA crossover |
 | Buy and Hold | `buy_and_hold` | Passive benchmark |
-| RSI Mean Reversion | `rsi_reversion` | RSI with limit orders |
+| RSI Mean Reversion | `rsi_mean_reversion` | RSI with limit orders |
 | Momentum Breakout | `momentum_breakout` | ATR-based with trailing stops |
 | Pairs Trading | `pairs_trading` | Statistical arbitrage |
 | Scheduled Rebalance | `scheduled_rebalance` | Time-based rebalancing |

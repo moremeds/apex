@@ -250,13 +250,45 @@ def generate_experiment_id(
     return f"exp_{name_slug}_dv{data_slug}_{hash_str}"
 
 
-def generate_trial_id(experiment_id: str, params: dict) -> str:
+def get_next_version(db_manager: Any, base_experiment_id: str) -> int:
     """
-    Generate deterministic trial ID from experiment and parameters.
+    Determine the next run version for a base experiment ID.
+
+    Queries the database for existing experiments with the same base_experiment_id
+    and returns the next version number (starting at 1).
+
+    Args:
+        db_manager: DatabaseManager instance with fetchone method
+        base_experiment_id: The versionless experiment ID (content hash)
+
+    Returns:
+        Next integer version (1 for first run, N+1 for subsequent runs)
+    """
+    row = db_manager.fetchone(
+        """
+        SELECT MAX(COALESCE(run_version, 1))
+        FROM experiments
+        WHERE base_experiment_id = ?
+        """,
+        (base_experiment_id,),
+    )
+    max_version = row[0] if row and row[0] is not None else 0
+    return int(max_version) + 1
+
+
+def generate_trial_id(
+    experiment_id: str,
+    params: dict,
+    trial_index: Optional[int] = None,
+) -> str:
+    """
+    Generate deterministic trial ID from experiment, parameters, and index.
 
     Args:
         experiment_id: Parent experiment ID
         params: Trial-specific parameter values
+        trial_index: Optional trial index (required for Bayesian optimization
+                     which may suggest duplicate params)
 
     Returns:
         Trial ID in format "trial_XXXXXXXXXXXX"
@@ -265,6 +297,10 @@ def generate_trial_id(experiment_id: str, params: dict) -> str:
         "experiment_id": experiment_id,
         "params": params,
     }
+    # Include trial_index if provided (Bayesian can suggest duplicates)
+    if trial_index is not None:
+        content["trial_index"] = trial_index
+
     json_str = canonical_json(content)
     hash_str = content_hash(json_str)
     return f"trial_{hash_str}"

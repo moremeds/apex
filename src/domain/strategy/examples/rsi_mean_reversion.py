@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 
 @register_strategy(
-    "rsi_reversion",
+    "rsi_mean_reversion",
     description="RSI Mean Reversion Strategy with Limit Orders",
     author="Apex",
     version="1.0",

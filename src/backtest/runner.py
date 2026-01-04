@@ -438,29 +438,32 @@ class SingleBacktestRunner:
             raise ValueError(f"Unknown data source: {self.data_source}. Use 'cached', 'historical', 'csv', or 'parquet'.")
 
     def _print_config(self) -> None:
-        """Print backtest configuration."""
-        print(f"\n{'=' * 60}")
-        print("BACKTEST CONFIGURATION (ApexEngine)")
-        print(f"{'=' * 60}")
-        print(f"Strategy:     {self.strategy_name}")
-        print(f"Symbols:      {', '.join(self.symbols)}")
-        print(f"Period:       {self.start_date} to {self.end_date}")
-        print(f"Capital:      ${self.initial_capital:,.2f}")
-        print(f"Data Source:  {self.data_source}")
+        """Log backtest configuration using structured logging."""
+        config_info = {
+            "strategy": self.strategy_name,
+            "symbols": self.symbols,
+            "start": str(self.start_date),
+            "end": str(self.end_date),
+            "capital": self.initial_capital,
+            "data_source": self.data_source,
+            "bar_size": self.bar_size,
+            "fill_model": self.fill_model.value,
+        }
+
         if self.data_source == "historical":
             historical_cfg = load_historical_data_config()
-            base_dir = self.historical_dir or historical_cfg.get("base_dir", "data/historical")
-            sources = self.source_priority or historical_cfg.get("source_priority", ["ib", "yahoo"])
-            coverage_mode = self.coverage_mode or "download"
-            print(f"Coverage:     mode={coverage_mode}, dir={base_dir}")
-            print(f"Sources:      {', '.join(sources)}")
-        elif self.data_source in ("csv", "parquet"):
-            print(f"Streaming:    {self.streaming}")
-        print(f"Bar Size:     {self.bar_size}")
-        print(f"Fill Model:   {self.fill_model.value}")
+            config_info["historical_dir"] = self.historical_dir or historical_cfg.get("base_dir", "data/historical")
+            config_info["sources"] = self.source_priority or historical_cfg.get("source_priority", ["ib", "yahoo"])
+            config_info["coverage_mode"] = self.coverage_mode or "download"
+
         if self.strategy_params:
-            print(f"Parameters:   {self.strategy_params}")
-        print(f"{'=' * 60}\n")
+            config_info["params"] = self.strategy_params
+
+        logger.info(
+            f"Backtest config: {self.strategy_name} on {','.join(self.symbols)} "
+            f"({self.start_date} to {self.end_date})"
+        )
+        logger.debug(f"Full config: {config_info}")
 
     async def _ensure_historical_coverage(self) -> None:
         """Ensure historical data coverage before running backtest."""
@@ -744,7 +747,7 @@ async def run_systematic_experiment(
     output_dir: str = "results/experiments",
     parallel: int = 1,
     dry_run: bool = False,
-    generate_report: bool = False,
+    generate_report: bool = True,  # Default ON
 ):
     """Run a systematic backtest experiment."""
     from . import ExperimentSpec, RunnerConfig, SystematicRunner
@@ -766,11 +769,11 @@ async def run_systematic_experiment(
 
     if dry_run:
         logger.info("Dry run - would execute the above")
-        print("\nFirst 5 parameter combinations:")
+        logger.info("First 5 parameter combinations:")
         for i, params in enumerate(param_combinations[:5]):
-            print(f"  {i+1}: {params}")
+            logger.info(f"  {i+1}: {params}")
         if len(param_combinations) > 5:
-            print(f"  ... and {len(param_combinations) - 5} more")
+            logger.info(f"  ... and {len(param_combinations) - 5} more")
         return
 
     output_path = Path(output_dir)
@@ -810,17 +813,16 @@ async def run_systematic_experiment(
         result.total_duration_seconds = duration
         result.print_summary()
 
-        print("\nTop 5 Trials by Score:")
-        print("-" * 80)
         top_trials = runner.get_top_trials(experiment_id, limit=5)
+        logger.info("Top 5 trials by score:")
         for i, trial in enumerate(top_trials, 1):
             params_str = ", ".join(f"{k}={v}" for k, v in trial["params"].items())
-            print(
-                f"  {i}. Score: {trial['trial_score']:.3f} | "
-                f"Sharpe: {trial['median_sharpe']:.2f} | "
-                f"MaxDD: {trial['median_max_dd']:.1%}"
+            logger.info(
+                f"  {i}. Score={trial['trial_score']:.3f} "
+                f"Sharpe={trial['median_sharpe']:.2f} "
+                f"MaxDD={trial['median_max_dd']:.1%} "
+                f"Params=[{params_str}]"
             )
-            print(f"     Params: {params_str}")
 
         logger.info(f"Experiment complete! Results saved to: {db_path}")
 
@@ -1290,20 +1292,27 @@ class BacktraderRunner:
         return ((final / initial) ** (1 / years) - 1) * 100
 
     def _print_config(self) -> None:
-        """Print backtest configuration."""
-        print(f"\n{'=' * 60}")
-        print("BACKTEST CONFIGURATION (Backtrader Engine)")
-        print(f"{'=' * 60}")
-        print(f"Strategy:     {self.strategy_name}")
-        print(f"Symbols:      {', '.join(self.symbols)}")
-        print(f"Period:       {self.start_date} to {self.end_date}")
-        print(f"Capital:      ${self.initial_capital:,.2f}")
-        print(f"Data Source:  {self.data_source}")
-        print(f"Bar Size:     {self.bar_size}")
-        print(f"Commission:   {self.commission * 100:.2f}%")
+        """Log backtest configuration using structured logging."""
+        config_info = {
+            "engine": "backtrader",
+            "strategy": self.strategy_name,
+            "symbols": self.symbols,
+            "start": str(self.start_date),
+            "end": str(self.end_date),
+            "capital": self.initial_capital,
+            "data_source": self.data_source,
+            "bar_size": self.bar_size,
+            "commission": self.commission,
+        }
+
         if self.strategy_params:
-            print(f"Parameters:   {self.strategy_params}")
-        print(f"{'=' * 60}\n")
+            config_info["params"] = self.strategy_params
+
+        logger.info(
+            f"Backtrader config: {self.strategy_name} on {','.join(self.symbols)} "
+            f"({self.start_date} to {self.end_date})"
+        )
+        logger.debug(f"Full config: {config_info}")
 
 
 # =============================================================================
@@ -1354,7 +1363,7 @@ Examples:
     parser.add_argument("--output", type=str, default="results/experiments", help="Output directory")
     parser.add_argument("--parallel", type=int, default=1, help="Parallel workers")
     parser.add_argument("--dry-run", action="store_true", help="Show what would run")
-    parser.add_argument("--report", action="store_true", help="Generate HTML report")
+    parser.add_argument("--no-report", action="store_true", help="Skip HTML report generation")
 
     # Engine selection
     parser.add_argument(
@@ -1426,7 +1435,7 @@ async def main_async():
             output_dir=args.output,
             parallel=args.parallel,
             dry_run=args.dry_run,
-            generate_report=args.report,
+            generate_report=not args.no_report,  # Report ON by default
         )
         return
 

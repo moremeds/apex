@@ -60,9 +60,8 @@ temporal:
   start_date: "2021-01-01"
   end_date: "2025-12-30"
 
-# Optimization settings
+# Optimization settings (Bayesian TPE is default, n_trials auto-scales with grid size)
 optimization:
-  method: grid
   metric: sharpe
   direction: maximize
   constraints:

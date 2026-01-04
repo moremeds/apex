@@ -32,7 +32,7 @@ strategies:
     validation:
       validated_by_apex: false
 
-  rsi_reversion:
+  rsi_mean_reversion:
     strategy: src.domain.strategy.examples.rsi_mean_reversion:RsiMeanReversionStrategy
     signals: src.domain.strategy.signals.rsi_mean_reversion:RSIMeanReversionSignalGenerator
     validation:

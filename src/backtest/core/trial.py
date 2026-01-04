@@ -45,6 +45,7 @@ class TrialSpec(BaseModel):
             self.trial_id = generate_trial_id(
                 experiment_id=self.experiment_id,
                 params=self.params,
+                trial_index=self.trial_index,  # Include index for Bayesian duplicates
             )
 
     def get_param(self, name: str, default: Any = None) -> Any:
