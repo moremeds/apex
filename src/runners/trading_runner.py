@@ -15,6 +15,7 @@ Usage:
 
 Safety Features:
 - Dry-run mode (default) - logs orders but doesn't execute
+- Validation gate - requires ApexEngine validation for live trading
 - Confirmation required for live execution
 - RiskGate validation before order submission
 - Position limits and emergency stop capability
@@ -28,8 +29,11 @@ import signal
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, List, Optional, Any, Type
 import logging
+
+import yaml
 
 from ..domain.clock import SystemClock
 from ..domain.strategy.base import Strategy, StrategyContext
@@ -41,6 +45,51 @@ from ..domain.events.domain_events import QuoteTick, TradeFill
 from ..domain.interfaces.execution_provider import OrderRequest
 
 logger = logging.getLogger(__name__)
+
+
+class StrategyNotValidatedError(Exception):
+    """
+    Raised when attempting live trading with an unvalidated strategy.
+
+    Strategies must be validated by ApexEngine backtest before live execution.
+    This prevents running untested strategies with real money.
+    """
+
+    pass
+
+
+class ManifestLoadError(Exception):
+    """Raised when manifest.yaml cannot be loaded or is malformed."""
+
+    pass
+
+
+def load_strategy_manifest() -> Dict[str, Any]:
+    """
+    Load the strategy manifest.yaml file.
+
+    Returns:
+        Manifest dictionary with strategy configurations.
+
+    Raises:
+        ManifestLoadError: If manifest.yaml not found or malformed.
+    """
+    manifest_path = Path(__file__).parents[1] / "domain/strategy/manifest.yaml"
+    if not manifest_path.exists():
+        raise ManifestLoadError(f"Strategy manifest not found: {manifest_path}")
+
+    try:
+        with manifest_path.open("r", encoding="utf-8") as f:
+            manifest = yaml.safe_load(f)
+    except yaml.YAMLError as e:
+        raise ManifestLoadError(f"Malformed manifest.yaml: {e}") from e
+
+    if not isinstance(manifest, dict):
+        raise ManifestLoadError(
+            f"Invalid manifest format: expected dict, got {type(manifest).__name__}"
+        )
+
+    return manifest
 
 
 @dataclass
@@ -114,6 +163,81 @@ class TradingRunner:
         self._order_count = 0
         self._rejected_count = 0
 
+    def _check_validation_gate(self) -> None:
+        """
+        Check if strategy is validated for live trading.
+
+        Dry-run mode is always allowed. Live trading requires
+        the strategy to have `validated_by_apex: true` in manifest.yaml.
+
+        Raises:
+            StrategyNotValidatedError: If live trading attempted without validation.
+            ManifestLoadError: If manifest is missing or malformed (fail-closed).
+        """
+        if self.dry_run:
+            return  # Dry run always allowed
+
+        # Fail-closed: if manifest can't be loaded, block live trading
+        try:
+            manifest = load_strategy_manifest()
+        except ManifestLoadError as e:
+            raise StrategyNotValidatedError(
+                f"\n{'=' * 60}\n"
+                f"LIVE TRADING BLOCKED: Cannot verify validation\n"
+                f"{'=' * 60}\n"
+                f"Error: {e}\n"
+                f"\nThe strategy manifest is required for live trading validation.\n"
+                f"Ensure src/domain/strategy/manifest.yaml exists and is valid.\n"
+                f"{'=' * 60}"
+            ) from e
+
+        strategies = manifest.get("strategies", {})
+        if not isinstance(strategies, dict):
+            raise StrategyNotValidatedError(
+                f"\n{'=' * 60}\n"
+                f"LIVE TRADING BLOCKED: Invalid manifest format\n"
+                f"{'=' * 60}\n"
+                f"The 'strategies' section in manifest.yaml is malformed.\n"
+                f"{'=' * 60}"
+            )
+
+        strategy_config = strategies.get(self.strategy_name, {})
+        if not isinstance(strategy_config, dict):
+            strategy_config = {}
+
+        validation = strategy_config.get("validation", {})
+        if not isinstance(validation, dict):
+            validation = {}
+
+        if not validation.get("validated_by_apex", False):
+            validation_date = validation.get("validation_date", "never")
+            raise StrategyNotValidatedError(
+                f"\n{'=' * 60}\n"
+                f"LIVE TRADING BLOCKED: Strategy not validated\n"
+                f"{'=' * 60}\n"
+                f"Strategy:        {self.strategy_name}\n"
+                f"Last validated:  {validation_date}\n"
+                f"\nStrategies must be validated by ApexEngine before live trading.\n"
+                f"This ensures the strategy has been backtested and reviewed.\n"
+                f"\nTo validate:\n"
+                f"  1. Run backtest with ApexEngine:\n"
+                f"     python -m src.backtest.runner --strategy {self.strategy_name} \\\n"
+                f"       --symbols AAPL --start 2024-01-01 --end 2024-06-30\n"
+                f"\n"
+                f"  2. Review results and update manifest.yaml:\n"
+                f"     {self.strategy_name}:\n"
+                f"       validation:\n"
+                f"         validated_by_apex: true\n"
+                f"         validation_date: \"YYYY-MM-DD\"\n"
+                f"         validation_sharpe: 1.42  # optional\n"
+                f"{'=' * 60}"
+            )
+
+        logger.info(
+            f"Validation gate passed: {self.strategy_name} "
+            f"(validated: {validation.get('validation_date', 'unknown')})"
+        )
+
     @classmethod
     def from_args(cls, args: argparse.Namespace) -> "TradingRunner":
         """
@@ -157,6 +281,13 @@ class TradingRunner:
         Returns:
             Exit code (0 for success, 1 for error).
         """
+        # Validation gate - check strategy is validated before live trading
+        try:
+            self._check_validation_gate()
+        except StrategyNotValidatedError as e:
+            print(str(e))
+            return 1
+
         # Safety confirmation for live trading
         if not self.dry_run:
             if not self._confirm_live_trading():
