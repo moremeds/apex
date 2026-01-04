@@ -312,6 +312,7 @@ def generate_run_id(
     window_id: str,
     profile_version: str,
     data_version: str,
+    is_train: Optional[bool] = None,
 ) -> str:
     """
     Generate deterministic run ID from all run-specific factors.
@@ -322,6 +323,7 @@ def generate_run_id(
         window_id: Time window identifier
         profile_version: Execution profile version
         data_version: Data version string
+        is_train: Optional IS/OOS flag to disambiguate runs on same window
 
     Returns:
         Run ID in format "run_XXXXXXXXXXXX"
@@ -333,6 +335,10 @@ def generate_run_id(
         "profile_version": profile_version,
         "data_version": data_version,
     }
+    # Include is_train if provided (disambiguates IS vs OOS runs)
+    if is_train is not None:
+        content["is_train"] = is_train
+
     json_str = canonical_json(content)
     hash_str = content_hash(json_str)
     return f"run_{hash_str}"

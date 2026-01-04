@@ -81,6 +81,7 @@ class RunSpec(BaseModel):
     - window_id
     - profile_version
     - data_version
+    - is_train (disambiguates IS vs OOS runs on same window)
     """
 
     trial_id: str = Field(description="Parent trial ID")
@@ -113,6 +114,7 @@ class RunSpec(BaseModel):
                 window_id=self.window.window_id,
                 profile_version=self.profile_version,
                 data_version=self.data_version,
+                is_train=self.window.is_train,  # Disambiguate IS vs OOS
             )
 
     @property

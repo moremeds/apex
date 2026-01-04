@@ -6,6 +6,7 @@ Executes backtests across parameter space, symbols, and time windows.
 
 import asyncio
 import logging
+import multiprocessing as mp
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
@@ -20,6 +21,7 @@ from ..data import DatabaseManager, ExperimentRepository, TrialRepository, RunRe
 from ..data import WalkForwardSplitter, SplitConfig
 from ..analysis import Aggregator, AggregationConfig
 from ..analysis import ConstraintValidator, Constraint
+from ..analysis import PBOCalculator, DSRCalculator
 from ..optimization import GridOptimizer, BayesianOptimizer
 from .parallel import ParallelRunner, ParallelConfig, ExecutionProgress
 
@@ -28,10 +30,20 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class RunnerConfig:
-    """Configuration for the systematic runner."""
+    """Configuration for the systematic runner.
+
+    Args:
+        db_path: Path to DuckDB database for results storage.
+        parallel_workers: Number of parallel workers. 0 = auto-scale based on workload.
+        max_workers_cap: Maximum workers when auto-scaling (prevents oversubscription).
+        skip_existing: Skip runs that already exist in the database.
+        save_equity_curves: Store per-run equity curves (increases storage).
+        log_progress_interval: Log trial progress every N trials (for grid search).
+    """
 
     db_path: Union[str, Path] = ":memory:"
-    parallel_workers: int = 1
+    parallel_workers: int = 0  # 0 = auto-scale based on runs_per_trial
+    max_workers_cap: int = 16  # Cap for auto-scaling
     skip_existing: bool = True
     save_equity_curves: bool = False
     log_progress_interval: int = 10
@@ -189,6 +201,31 @@ class SystematicRunner:
         window_pairs = list(splitter.split(start_date, end_date))
         logger.info(f"Created {len(window_pairs)} walk-forward folds")
 
+        # Calculate runs per trial for auto-scaling
+        # Each trial = symbols × folds × 2 (IS + OOS)
+        runs_per_trial = len(symbols) * len(window_pairs) * 2
+
+        # Auto-scale workers based on workload
+        # Treat negative values as auto (0)
+        parallel_workers = max(0, self.config.parallel_workers)
+        max_workers_cap = max(1, self.config.max_workers_cap)
+
+        if parallel_workers == 0:
+            # Auto mode: scale to runs_per_trial, capped by CPU and max_workers_cap
+            cpu_limit = max(1, (mp.cpu_count() or 1) - 1)
+            effective_workers = min(runs_per_trial, cpu_limit, max_workers_cap)
+            effective_workers = max(1, effective_workers)  # At least 1
+
+        else:
+            effective_workers = parallel_workers
+
+        # Log experiment structure summary
+        logger.info(
+            f"Experiment: {total_trials} trials × {len(symbols)} symbols × "
+            f"{len(window_pairs)} folds × 2 (IS/OOS) = {total_trials * runs_per_trial} total runs"
+        )
+        logger.info(f"Workers: {effective_workers} (parallel runs per trial)")
+
         # Prepare constraint validator
         constraints = [
             Constraint(**c) for c in spec.optimization.constraints
@@ -198,9 +235,18 @@ class SystematicRunner:
         # Process trials
         all_trials = []
         trial_count = 0
+        best_score = float("-inf")
+        trial_times: List[float] = []  # Track trial durations for ETA
 
-        # Decide execution mode
-        use_parallel = self.config.parallel_workers > 1 and backtest_fn is not None
+        # Decide execution mode: parallel when multiple runs AND backtest_fn provided
+        use_parallel = runs_per_trial > 1 and effective_workers > 1 and backtest_fn is not None
+
+        # Create shared parallel runner ONCE with persistent executor (reused across all trials)
+        parallel_runner: Optional[ParallelRunner] = None
+        if use_parallel:
+            parallel_config = ParallelConfig(max_workers=effective_workers)
+            parallel_runner = ParallelRunner(parallel_config, persistent=True)
+            parallel_runner.start(backtest_fn)  # Create executor once
 
         # Get parameter iterator (generator for Bayesian, list for Grid)
         if use_bayesian:
@@ -209,6 +255,8 @@ class SystematicRunner:
             param_iterator = optimizer.generate_params_list()
 
         for params in param_iterator:
+            trial_start_time = time.time()
+
             trial_spec = TrialSpec(
                 experiment_id=versioned_experiment_id,
                 params=params,
@@ -223,13 +271,14 @@ class SystematicRunner:
                 trial_count,
             )
 
-            if use_parallel:
+            if use_parallel and parallel_runner:
                 trial_result = self._run_trial_parallel(
                     spec=spec,
                     trial_spec=trial_spec,
                     symbols=symbols,
                     window_pairs=window_pairs,
                     backtest_fn=backtest_fn,
+                    parallel_runner=parallel_runner,
                 )
             else:
                 trial_result = self._run_trial(
@@ -258,9 +307,28 @@ class SystematicRunner:
             if on_trial_complete:
                 on_trial_complete(trial_result)
 
+            # Track timing and best score
             trial_count += 1
-            if trial_count % self.config.log_progress_interval == 0:
-                logger.info(f"Completed {trial_count}/{total_trials} trials")
+            trial_duration = time.time() - trial_start_time
+            trial_times.append(trial_duration)
+            if trial_result.trial_score and trial_result.trial_score > best_score:
+                best_score = trial_result.trial_score
+
+            # Log progress with ETA (every N trials)
+            if trial_count % self.config.log_progress_interval == 0 or trial_count == total_trials:
+                pct = trial_count / total_trials * 100
+                avg_time = sum(trial_times) / len(trial_times)
+                remaining = total_trials - trial_count
+                eta_seconds = remaining * avg_time
+                eta_str = f"{eta_seconds/60:.1f}m" if eta_seconds > 60 else f"{eta_seconds:.0f}s"
+                logger.info(
+                    f"Trial {trial_count}/{total_trials} ({pct:.0f}%) | "
+                    f"best={best_score:.3f} | ETA: {eta_str}"
+                )
+
+        # Cleanup persistent executor
+        if parallel_runner:
+            parallel_runner.stop()
 
         # Complete experiment
         end_time = datetime.now()
@@ -316,50 +384,58 @@ class SystematicRunner:
         run_index = 0
         for symbol in symbols:
             for train_window, test_window in window_pairs:
-                # Create run spec using the test window (for OOS validation)
                 run_params = self._build_run_params(spec, trial_spec)
-                run_spec = RunSpec(
-                    trial_id=trial_spec.trial_id,
-                    symbol=symbol,
-                    window=test_window,  # Use test window for execution
-                    profile_version=profile_version,
-                    data_version=spec.reproducibility.data_version,
-                    params=run_params,
-                    run_index=run_index,
-                    experiment_id=trial_spec.experiment_id,  # Use versioned ID
-                )
 
-                # Check if run already exists
-                if self.config.skip_existing and self._run_repo.exists(run_spec.run_id):
-                    logger.debug(f"Skipping existing run: {run_spec.run_id}")
-                    continue
+                # Execute BOTH train (IS) and test (OOS) windows
+                # This enables proper overfitting detection via IS/OOS comparison
+                for window, is_train in [(train_window, True), (test_window, False)]:
+                    run_spec = RunSpec(
+                        trial_id=trial_spec.trial_id,
+                        symbol=symbol,
+                        window=window,
+                        profile_version=profile_version,
+                        data_version=spec.reproducibility.data_version,
+                        params=run_params,
+                        run_index=run_index,
+                        experiment_id=trial_spec.experiment_id,  # Use versioned ID
+                    )
 
-                # Execute backtest
-                if backtest_fn:
-                    try:
-                        result = backtest_fn(run_spec)
-                    except Exception as e:
-                        logger.error(f"Run {run_spec.run_id} failed: {e}")
-                        result = RunResult(
-                            run_id=run_spec.run_id,
-                            trial_id=trial_spec.trial_id,
-                            experiment_id=trial_spec.experiment_id,  # Use versioned ID
-                            symbol=symbol,
-                            window_id=test_window.window_id,
-                            profile_version=profile_version,
-                            data_version=spec.reproducibility.data_version,
-                            status=RunStatus.FAIL_STRATEGY,
-                            error=str(e),
-                            is_train=test_window.is_train,
-                            is_oos=test_window.is_oos,
-                        )
-                else:
-                    # Create placeholder result for testing
-                    logger.warning(f"Run {run_spec.run_id}, result is MOCKED!!!!")
-                    result = self._create_mock_result(run_spec, test_window)
+                    # Check if run already exists
+                    if self.config.skip_existing and self._run_repo.exists(run_spec.run_id):
+                        logger.debug(f"Skipping existing run: {run_spec.run_id}")
+                        continue
 
-                runs.append(result)
-                run_index += 1
+                    # Execute backtest
+                    if backtest_fn:
+                        try:
+                            result = backtest_fn(run_spec)
+                            # Ensure IS/OOS flags are set correctly
+                            result.is_train = is_train
+                            result.is_oos = not is_train
+                        except Exception as e:
+                            logger.error(f"Run {run_spec.run_id} failed: {e}")
+                            result = RunResult(
+                                run_id=run_spec.run_id,
+                                trial_id=trial_spec.trial_id,
+                                experiment_id=trial_spec.experiment_id,
+                                symbol=symbol,
+                                window_id=window.window_id,
+                                profile_version=profile_version,
+                                data_version=spec.reproducibility.data_version,
+                                status=RunStatus.FAIL_STRATEGY,
+                                error=str(e),
+                                is_train=is_train,
+                                is_oos=not is_train,
+                            )
+                    else:
+                        # Create placeholder result for testing
+                        logger.warning(f"Run {run_spec.run_id}, result is MOCKED!!!!")
+                        result = self._create_mock_result(run_spec, window)
+                        result.is_train = is_train
+                        result.is_oos = not is_train
+
+                    runs.append(result)
+                    run_index += 1
 
         # Store runs in batch
         self._run_repo.create_batch(runs)
@@ -388,11 +464,12 @@ class SystematicRunner:
         symbols: List[str],
         window_pairs: List[tuple[TimeWindow, TimeWindow]],
         backtest_fn: Callable[[RunSpec], RunResult],
+        parallel_runner: ParallelRunner,
     ) -> TrialResult:
         """
         Run a single trial across all symbols and windows (parallel).
 
-        Uses ParallelRunner for multi-core execution.
+        Uses shared ParallelRunner for multi-core execution (reused across trials).
 
         Args:
             spec: Experiment specification
@@ -400,6 +477,7 @@ class SystematicRunner:
             symbols: List of symbols to test
             window_pairs: List of (train_window, test_window) tuples
             backtest_fn: Backtest execution function (required for parallel)
+            parallel_runner: Shared parallel runner (reused to avoid executor overhead)
 
         Returns:
             Aggregated trial result
@@ -412,37 +490,45 @@ class SystematicRunner:
             else "default"
         )
 
-        # Build all run specs upfront
+        # Build all run specs upfront (both IS and OOS windows)
         run_specs: List[RunSpec] = []
+        run_is_train: Dict[str, bool] = {}  # Track IS/OOS per run_id
         run_index = 0
 
         for symbol in symbols:
             for train_window, test_window in window_pairs:
                 run_params = self._build_run_params(spec, trial_spec)
-                run_spec = RunSpec(
-                    trial_id=trial_spec.trial_id,
-                    symbol=symbol,
-                    window=test_window,  # Use test window for execution
-                    profile_version=profile_version,
-                    data_version=spec.reproducibility.data_version,
-                    params=run_params,
-                    run_index=run_index,
-                    experiment_id=trial_spec.experiment_id,  # Use versioned ID
-                )
 
-                # Check if run already exists
-                if self.config.skip_existing and self._run_repo.exists(run_spec.run_id):
-                    logger.debug(f"Skipping existing run: {run_spec.run_id}")
-                    continue
+                # Execute BOTH train (IS) and test (OOS) windows
+                for window, is_train in [(train_window, True), (test_window, False)]:
+                    run_spec = RunSpec(
+                        trial_id=trial_spec.trial_id,
+                        symbol=symbol,
+                        window=window,
+                        profile_version=profile_version,
+                        data_version=spec.reproducibility.data_version,
+                        params=run_params,
+                        run_index=run_index,
+                        experiment_id=trial_spec.experiment_id,  # Use versioned ID
+                    )
 
-                run_specs.append(run_spec)
-                run_index += 1
+                    # Check if run already exists
+                    if self.config.skip_existing and self._run_repo.exists(run_spec.run_id):
+                        logger.debug(f"Skipping existing run: {run_spec.run_id}")
+                        continue
 
-        # Execute in parallel
-        parallel_config = ParallelConfig(max_workers=self.config.parallel_workers)
-        parallel_runner = ParallelRunner(parallel_config)
+                    run_specs.append(run_spec)
+                    run_is_train[run_spec.run_id] = is_train
+                    run_index += 1
 
+        # Execute in parallel using shared runner
         runs = parallel_runner.run_all(run_specs, backtest_fn)
+
+        # Set IS/OOS flags on results
+        for result in runs:
+            is_train = run_is_train.get(result.run_id, False)
+            result.is_train = is_train
+            result.is_oos = not is_train
 
         # Store runs in batch
         self._run_repo.create_batch(runs)
@@ -565,6 +651,58 @@ class SystematicRunner:
         # Get symbols
         symbols = universe_data.get("symbols", []) if isinstance(universe_data, dict) else []
 
+        # Get temporal folds for DSR calculation
+        temporal_folds = temporal_data.get("folds", 1) if isinstance(temporal_data, dict) else 1
+
+        # Compute PBO/DSR from trial IS/OOS Sharpe ratios
+        pbo = None
+        dsr = None
+        dsr_p_value = None
+
+        # Query paired IS/OOS sharpes from trials table
+        paired_sharpes = self._db.fetchall(
+            """
+            SELECT is_median_sharpe, oos_median_sharpe
+            FROM trials
+            WHERE experiment_id = ?
+              AND is_median_sharpe IS NOT NULL
+              AND oos_median_sharpe IS NOT NULL
+            """,
+            (experiment_id,),
+        )
+
+        if paired_sharpes and len(paired_sharpes) >= 2:
+            is_sharpes = [float(row[0]) for row in paired_sharpes]
+            oos_sharpes = [float(row[1]) for row in paired_sharpes]
+
+            # Calculate PBO (Probability of Backtest Overfit)
+            # PBO uses paired IS/OOS sharpes - requires matching trial data
+            pbo_calc = PBOCalculator()
+            pbo = pbo_calc.calculate(is_sharpes, oos_sharpes)
+
+            # Calculate DSR (Deflated Sharpe Ratio)
+            # DSR corrects for multiple testing using ALL trials tested
+            if is_sharpes and total_trials >= 2:
+                best_is_sharpe = max(is_sharpes)
+                # Use total_trials for multiple testing penalty, not just paired count
+                # DSR penalizes for the total number of strategies tested
+                n_trials_for_dsr = total_trials
+                # n_observations: trading days for annualized Sharpe (252 per year)
+                # Use folds × 252 as each fold represents ~1 year of test data
+                n_observations = max(temporal_folds, 1) * 252
+
+                dsr_calc = DSRCalculator()
+                dsr, dsr_p_value = dsr_calc.calculate(
+                    observed_sharpe=best_is_sharpe,
+                    n_trials=n_trials_for_dsr,
+                    n_observations=n_observations,
+                )
+
+            logger.debug(
+                f"Statistical validation: PBO={pbo:.3f}, DSR={dsr:.3f}" if pbo and dsr else
+                f"Statistical validation: insufficient data (paired_trials={len(paired_sharpes) if paired_sharpes else 0})"
+            )
+
         # Count parameter combinations (from stored parameters)
         param_combinations = 0
         if parameters_data:
@@ -586,12 +724,17 @@ class SystematicRunner:
             strategy=exp_data.get("strategy", ""),
             total_parameter_combinations=param_combinations,
             symbols_tested=symbols,
-            temporal_folds=temporal_data.get("folds", 0) if isinstance(temporal_data, dict) else 0,
+            temporal_folds=temporal_folds,
             total_trials=total_trials,
             successful_trials=successful_trials,
             total_runs=total_runs,
             successful_runs=successful_runs,
             top_trials=top_trials,
+            # Statistical validation
+            pbo=pbo,
+            dsr=dsr,
+            dsr_p_value=dsr_p_value,
+            # Best trial details
             best_trial_id=best["trial_id"] if best else None,
             best_params=best.get("params") if best else None,
             best_sharpe=best.get("median_sharpe") if best else None,

@@ -20,7 +20,7 @@ from concurrent.futures import (
 )
 from dataclasses import dataclass, field
 from threading import Event, Thread
-from typing import Any, Callable, Dict, Iterator, List, Optional, Set, Tuple, Type
+from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, Type
 
 from ..core import RunResult, RunStatus
 from ..core import RunSpec
@@ -105,6 +105,11 @@ class ParallelConfig:
     retry_max_delay: float = 30.0  # Maximum delay between retries
     retry_jitter: float = 0.1  # Jitter factor (0.1 = ±10% randomness)
     graceful_shutdown_timeout: int = 30
+
+    # Multiprocessing worker initialization (for pickling workaround)
+    initializer: Optional[Callable[..., None]] = None  # Worker init function
+    initargs: Tuple[Any, ...] = ()  # Arguments for initializer
+    mp_context: Optional[str] = None  # "spawn", "fork", or "forkserver"
 
     def calculate_retry_delay(self, attempt: int) -> float:
         """
@@ -195,17 +200,64 @@ class ParallelRunner:
     - Graceful shutdown
     - Automatic retry for transient failures
     - Result streaming
+    - Persistent executor mode (reuse across multiple run_all calls)
 
-    Example:
+    Example (one-shot):
         runner = ParallelRunner(ParallelConfig(max_workers=4))
         results = runner.run_all(run_specs, backtest_fn)
+
+    Example (persistent - reuse across trials):
+        runner = ParallelRunner(ParallelConfig(max_workers=4), persistent=True)
+        runner.start()  # Create executor once
+        for trial in trials:
+            results = runner.run_all(run_specs, backtest_fn)
+        runner.stop()   # Cleanup
     """
 
-    def __init__(self, config: Optional[ParallelConfig] = None):
+    def __init__(self, config: Optional[ParallelConfig] = None, persistent: bool = False):
         self.config = config or ParallelConfig()
+        self.persistent = persistent
         self.progress = ExecutionProgress()
         self._shutdown_event = Event()
         self._executor: Optional[ProcessPoolExecutor] = None
+        self._executor_kwargs: Dict[str, Any] = {}
+        self._started = False
+
+    def start(self, execute_fn: Optional[Callable[[RunSpec], RunResult]] = None) -> None:
+        """
+        Start the executor in persistent mode (call once, reuse across run_all calls).
+
+        Args:
+            execute_fn: Optional function to extract initializer settings from
+        """
+        if self._started:
+            return
+
+        # Build executor kwargs
+        self._executor_kwargs = {"max_workers": self.config.max_workers}
+
+        if execute_fn:
+            init_fn = getattr(execute_fn, "_mp_initializer", None) or self.config.initializer
+            init_args = getattr(execute_fn, "_mp_initargs", None) or self.config.initargs
+            mp_context_name = getattr(execute_fn, "_mp_context", None) or self.config.mp_context
+
+            if init_fn is not None:
+                self._executor_kwargs["initializer"] = init_fn
+                self._executor_kwargs["initargs"] = init_args or ()
+            if mp_context_name:
+                self._executor_kwargs["mp_context"] = mp.get_context(mp_context_name)
+
+        self._executor = ProcessPoolExecutor(**self._executor_kwargs)
+        self._started = True
+        logger.debug(f"Started persistent executor with {self.config.max_workers} workers")
+
+    def stop(self) -> None:
+        """Stop the persistent executor."""
+        if self._executor and self._started:
+            self._executor.shutdown(wait=True)
+            self._executor = None
+            self._started = False
+            logger.debug("Stopped persistent executor")
 
     def run_all(
         self,
@@ -216,9 +268,8 @@ class ParallelRunner:
         """
         Execute all runs in parallel with automatic retry for transient failures.
 
-        Implements exponential backoff with jitter for transient errors like
-        timeouts, resource exhaustion, or connection issues. Deterministic
-        errors (ValueError, KeyError, etc.) are not retried.
+        In persistent mode, reuses the executor created by start().
+        In one-shot mode, creates and destroys executor per call.
 
         Args:
             run_specs: List of run specifications
@@ -230,124 +281,151 @@ class ParallelRunner:
         """
         self.progress = ExecutionProgress(total_runs=len(run_specs))
         results: List[RunResult] = []
-        # Track retry attempts: spec -> (attempt_count, last_error)
         retry_queue: List[Tuple[RunSpec, int, BaseException]] = []
 
-        logger.info(
-            f"Starting parallel execution: {len(run_specs)} runs, "
-            f"{self.config.max_workers} workers, max_retries={self.config.max_retries}"
+        logger.debug(
+            f"Parallel execution: {len(run_specs)} runs, "
+            f"{self.config.max_workers} workers"
         )
 
-        with ProcessPoolExecutor(max_workers=self.config.max_workers) as executor:
+        # Persistent mode: use existing executor
+        if self.persistent and self._started and self._executor:
+            return self._run_with_executor(
+                self._executor, run_specs, execute_fn, on_result, results, retry_queue
+            )
+
+        # One-shot mode: create executor just for this call
+        init_fn = getattr(execute_fn, "_mp_initializer", None) or self.config.initializer
+        init_args = getattr(execute_fn, "_mp_initargs", None) or self.config.initargs
+        mp_context_name = getattr(execute_fn, "_mp_context", None) or self.config.mp_context
+
+        executor_kwargs: Dict[str, Any] = {"max_workers": self.config.max_workers}
+        if init_fn is not None:
+            executor_kwargs["initializer"] = init_fn
+            executor_kwargs["initargs"] = init_args or ()
+        if mp_context_name:
+            executor_kwargs["mp_context"] = mp.get_context(mp_context_name)
+
+        with ProcessPoolExecutor(**executor_kwargs) as executor:
             self._executor = executor
+            return self._run_with_executor(
+                executor, run_specs, execute_fn, on_result, results, retry_queue
+            )
 
-            # Initial batch submission
-            pending_specs = list(run_specs)
+    def _run_with_executor(
+        self,
+        executor: ProcessPoolExecutor,
+        run_specs: List[RunSpec],
+        execute_fn: Callable[[RunSpec], RunResult],
+        on_result: Optional[Callable[[RunResult], None]],
+        results: List[RunResult],
+        retry_queue: List[Tuple[RunSpec, int, BaseException]],
+    ) -> List[RunResult]:
+        """Execute runs using the provided executor."""
+        pending_specs = list(run_specs)
 
-            while pending_specs or retry_queue:
+        while pending_specs or retry_queue:
+            if self._shutdown_event.is_set():
+                break
+
+            # Process retry queue first - apply backoff delay
+            if retry_queue and not pending_specs:
+                spec, attempt, last_error = retry_queue.pop(0)
+                delay = self.config.calculate_retry_delay(attempt)
+                logger.info(
+                    f"Retrying {spec.run_id} (attempt {attempt}/{self.config.max_retries}) "
+                    f"after {delay:.1f}s delay"
+                )
+                time.sleep(delay)
+                pending_specs = [spec]
+
+            # Submit runs
+            future_to_spec: Dict[Future, Tuple[RunSpec, int]] = {}
+            for spec in pending_specs:
+                if self._shutdown_event.is_set():
+                    break
+                # Initial attempt = 0
+                future = executor.submit(execute_fn, spec)
+                future_to_spec[future] = (spec, 0)
+
+            pending_specs = []
+
+            # Collect results as they complete
+            for future in as_completed(future_to_spec):
                 if self._shutdown_event.is_set():
                     break
 
-                # Process retry queue first - apply backoff delay
-                if retry_queue and not pending_specs:
-                    spec, attempt, last_error = retry_queue.pop(0)
-                    delay = self.config.calculate_retry_delay(attempt)
-                    logger.info(
-                        f"Retrying {spec.run_id} (attempt {attempt}/{self.config.max_retries}) "
-                        f"after {delay:.1f}s delay"
+                spec, attempt = future_to_spec[future]
+                try:
+                    result = future.result(timeout=self.config.timeout_per_run)
+                    results.append(result)
+
+                    if result.status == RunStatus.SUCCESS:
+                        self.progress.completed_runs += 1
+                        if attempt > 0:
+                            self.progress.retried_runs += 1
+                            logger.info(
+                                f"Run {spec.run_id} succeeded after {attempt} retry(ies)"
+                            )
+                    else:
+                        self.progress.failed_runs += 1
+
+                    if on_result:
+                        on_result(result)
+
+                except Exception as e:
+                    # Determine if we should retry
+                    next_attempt = attempt + 1
+                    should_retry = (
+                        is_transient_error(e)
+                        and next_attempt <= self.config.max_retries
+                        and not self._shutdown_event.is_set()
                     )
-                    time.sleep(delay)
-                    pending_specs = [spec]
 
-                # Submit runs
-                future_to_spec: Dict[Future, Tuple[RunSpec, int]] = {}
-                for spec in pending_specs:
-                    if self._shutdown_event.is_set():
-                        break
-                    # Initial attempt = 0
-                    future = executor.submit(execute_fn, spec)
-                    future_to_spec[future] = (spec, 0)
-
-                pending_specs = []
-
-                # Collect results as they complete
-                for future in as_completed(future_to_spec):
-                    if self._shutdown_event.is_set():
-                        break
-
-                    spec, attempt = future_to_spec[future]
-                    try:
-                        result = future.result(timeout=self.config.timeout_per_run)
-                        results.append(result)
-
-                        if result.status == RunStatus.SUCCESS:
-                            self.progress.completed_runs += 1
-                            if attempt > 0:
-                                self.progress.retried_runs += 1
-                                logger.info(
-                                    f"Run {spec.run_id} succeeded after {attempt} retry(ies)"
-                                )
+                    if should_retry:
+                        logger.warning(
+                            f"Run {spec.run_id} failed with transient error: {e}. "
+                            f"Scheduling retry {next_attempt}/{self.config.max_retries}"
+                        )
+                        retry_queue.append((spec, next_attempt, e))
+                    else:
+                        # No more retries - record failure
+                        if next_attempt > self.config.max_retries:
+                            logger.error(
+                                f"Run {spec.run_id} failed after {self.config.max_retries} retries: {e}"
+                            )
                         else:
-                            self.progress.failed_runs += 1
+                            logger.error(
+                                f"Run {spec.run_id} failed with deterministic error: {e}"
+                            )
+
+                        self.progress.failed_runs += 1
+
+                        # Create failure result
+                        result = RunResult(
+                            run_id=spec.run_id,
+                            trial_id=spec.trial_id,
+                            experiment_id=spec.experiment_id,
+                            symbol=spec.symbol,
+                            window_id=spec.window.window_id,
+                            profile_version=spec.profile_version,
+                            data_version=spec.data_version,
+                            status=RunStatus.FAIL_STRATEGY,
+                            error=str(e),
+                            is_train=spec.window.is_train,
+                            is_oos=spec.window.is_oos,
+                        )
+                        results.append(result)
 
                         if on_result:
                             on_result(result)
 
-                    except Exception as e:
-                        # Determine if we should retry
-                        next_attempt = attempt + 1
-                        should_retry = (
-                            is_transient_error(e)
-                            and next_attempt <= self.config.max_retries
-                            and not self._shutdown_event.is_set()
-                        )
+                # Log progress periodically
+                processed = self.progress.completed_runs + self.progress.failed_runs
+                if processed % 100 == 0:
+                    self._log_progress()
 
-                        if should_retry:
-                            logger.warning(
-                                f"Run {spec.run_id} failed with transient error: {e}. "
-                                f"Scheduling retry {next_attempt}/{self.config.max_retries}"
-                            )
-                            retry_queue.append((spec, next_attempt, e))
-                        else:
-                            # No more retries - record failure
-                            if next_attempt > self.config.max_retries:
-                                logger.error(
-                                    f"Run {spec.run_id} failed after {self.config.max_retries} retries: {e}"
-                                )
-                            else:
-                                logger.error(
-                                    f"Run {spec.run_id} failed with deterministic error: {e}"
-                                )
-
-                            self.progress.failed_runs += 1
-
-                            # Create failure result
-                            result = RunResult(
-                                run_id=spec.run_id,
-                                trial_id=spec.trial_id,
-                                experiment_id=spec.experiment_id,
-                                symbol=spec.symbol,
-                                window_id=spec.window.window_id,
-                                profile_version=spec.profile_version,
-                                data_version=spec.data_version,
-                                status=RunStatus.FAIL_STRATEGY,
-                                error=str(e),
-                                is_train=spec.window.is_train,
-                                is_oos=spec.window.is_oos,
-                            )
-                            results.append(result)
-
-                            if on_result:
-                                on_result(result)
-
-                    # Log progress periodically
-                    processed = self.progress.completed_runs + self.progress.failed_runs
-                    if processed % 100 == 0:
-                        self._log_progress()
-
-        self._executor = None
         self._log_progress()  # Final progress
-
         return results
 
     def run_streaming(
@@ -384,11 +462,11 @@ class ParallelRunner:
             self._executor.shutdown(wait=wait, cancel_futures=not wait)
 
     def _log_progress(self) -> None:
-        """Log current progress."""
+        """Log current progress (per-trial, use DEBUG to reduce noise)."""
         p = self.progress
         eta_str = f"{p.eta_seconds:.0f}s" if p.eta_seconds != float("inf") else "unknown"
-        logger.info(
-            f"Progress: {p.completed_runs}/{p.total_runs} ({p.completion_pct:.1f}%) | "
+        logger.debug(
+            f"Runs: {p.completed_runs}/{p.total_runs} ({p.completion_pct:.1f}%) | "
             f"Failed: {p.failed_runs} | "
             f"Speed: {p.runs_per_second:.1f} runs/s | "
             f"ETA: {eta_str}"

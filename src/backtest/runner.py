@@ -724,28 +724,74 @@ async def prefetch_data(
     return results
 
 
-def create_vectorbt_backtest_fn(cached_data: Optional[Dict[str, Any]] = None):
-    """Create a backtest function using VectorBT engine."""
+# Module-level globals for multiprocessing worker state
+# Each worker process has its own copy (no shared state issues)
+_vectorbt_cached_data: Optional[Dict[str, Any]] = None
+_vectorbt_engine: Optional[Any] = None  # VectorBTEngine, typed as Any to avoid circular import
+
+
+def _init_vectorbt_worker(
+    cached_data: Optional[Dict[str, Any]],
+    config_dict: Dict[str, Any],
+) -> None:
+    """
+    Worker initializer for VectorBT backtests.
+
+    Called once per worker process to set up the engine and cached data.
+    This avoids pickling issues with closures by using module-level globals.
+    """
+    global _vectorbt_cached_data, _vectorbt_engine
     from .execution.engines import VectorBTConfig, VectorBTEngine
+
+    _vectorbt_cached_data = cached_data
+    _vectorbt_engine = VectorBTEngine(VectorBTConfig(**config_dict))
+
+
+def _run_vectorbt_backtest(spec: "RunSpec") -> "RunResult":
+    """
+    Top-level backtest function for multiprocessing.
+
+    This function runs in worker processes after _init_vectorbt_worker has
+    set up the engine. It's a plain function (not a closure) so it pickles correctly.
+    """
+    if _vectorbt_engine is None:
+        raise RuntimeError("VectorBT engine not initialized. Call _init_vectorbt_worker first.")
+    symbol_data = _vectorbt_cached_data.get(spec.symbol) if _vectorbt_cached_data else None
+    return _vectorbt_engine.run(spec, data=symbol_data)
+
+
+def create_vectorbt_backtest_fn(cached_data: Optional[Dict[str, Any]] = None):
+    """
+    Create a backtest function using VectorBT engine.
+
+    Returns a top-level function with multiprocessing metadata attached
+    so ParallelRunner can properly initialize worker processes.
+    """
+    from dataclasses import asdict
+    from .execution.engines import VectorBTConfig
 
     if cached_data:
         config = VectorBTConfig(data_source="local")
     else:
         config = VectorBTConfig(data_source="ib", ib_port=4001)
 
-    engine = VectorBTEngine(config)
+    config_dict = asdict(config)
 
-    def backtest_fn(spec):
-        symbol_data = cached_data.get(spec.symbol) if cached_data else None
-        return engine.run(spec, data=symbol_data)
+    # Initialize in the main process for sequential execution
+    _init_vectorbt_worker(cached_data, config_dict)
 
-    return backtest_fn
+    # Attach multiprocessing metadata for ParallelRunner to use
+    _run_vectorbt_backtest._mp_initializer = _init_vectorbt_worker  # type: ignore
+    _run_vectorbt_backtest._mp_initargs = (cached_data, config_dict)  # type: ignore
+    _run_vectorbt_backtest._mp_context = "spawn"  # type: ignore - safest for cross-platform
+
+    return _run_vectorbt_backtest
 
 
 async def run_systematic_experiment(
     spec_path: str,
     output_dir: str = "results/experiments",
-    parallel: int = 1,
+    parallel: int = 0,  # 0 = auto-scale based on workload
     dry_run: bool = False,
     generate_report: bool = True,  # Default ON
 ):
@@ -1361,7 +1407,12 @@ Examples:
     # Systematic experiment options
     parser.add_argument("--spec", type=str, help="Path to experiment YAML spec")
     parser.add_argument("--output", type=str, default="results/experiments", help="Output directory")
-    parser.add_argument("--parallel", type=int, default=1, help="Parallel workers")
+    parser.add_argument(
+        "--parallel",
+        type=int,
+        default=0,
+        help="Parallel workers (0=auto-scale based on tickers/folds, capped at 16)",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Show what would run")
     parser.add_argument("--no-report", action="store_true", help="Skip HTML report generation")
 
