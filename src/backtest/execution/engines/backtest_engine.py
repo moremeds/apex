@@ -50,7 +50,7 @@ from ....domain.strategy.cost_estimator import CostEstimator, SimpleFeeSchedule
 from ....domain.strategy.registry import get_strategy_class
 from ....domain.strategy.risk_gate import RiskGate
 from ....domain.strategy.scheduler import SimulatedScheduler
-from ...data.feeds import CsvDataFeed, DataFeed
+from ...data.feeds import AlignedBarBuffer, CsvDataFeed, DataFeed
 from ..simulated import FillModel, SimulatedExecution
 from ..trade_tracker import TradeTracker
 
@@ -294,6 +294,25 @@ class BacktestEngine:
         await self._data_feed.load()
         logger.info(f"Loaded {self._data_feed.bar_count} bars")
 
+        # Detect MTF mode from data feed
+        secondary_timeframes = list(
+            getattr(self._data_feed, "secondary_timeframes", []) or []
+        )
+        use_mtf = len(secondary_timeframes) > 0
+        aligned_buffer = (
+            AlignedBarBuffer(
+                primary_timeframe=self._config.bar_size,
+                secondary_timeframes=secondary_timeframes,
+            )
+            if use_mtf
+            else None
+        )
+        if use_mtf:
+            logger.info(
+                f"MTF mode enabled: primary={self._config.bar_size}, "
+                f"secondary={secondary_timeframes}"
+            )
+
         # Start strategy
         self._strategy.start()
 
@@ -303,11 +322,14 @@ class BacktestEngine:
             if not self._running:
                 break
 
-            # Advance clock to bar time
-            self._clock.advance_to(bar.timestamp)
+            # Advance clock to bar time (normalize to naive for consistent comparison)
+            bar_ts = bar.timestamp
+            if bar_ts and bar_ts.tzinfo is not None:
+                bar_ts = bar_ts.replace(tzinfo=None)
+            self._clock.advance_to(bar_ts)
 
-            # Process scheduled actions
-            self._scheduler.advance_to(bar.timestamp)
+            # Process scheduled actions (use normalized timestamp)
+            self._scheduler.advance_to(bar_ts)
 
             # Update execution with bar price
             tick = QuoteTick(
@@ -327,11 +349,24 @@ class BacktestEngine:
             # Process any fills
             self._process_fills()
 
-            # Feed bar to strategy
-            self._strategy.on_bar(bar)
+            # Feed bar to strategy (MTF or single timeframe)
+            is_primary_bar = True  # Default for single-timeframe mode
+            if use_mtf and aligned_buffer is not None:
+                aligned = aligned_buffer.update(bar)
+                if aligned:
+                    # Primary bar closed, emit aligned MTF data
+                    self._strategy.on_bars(aligned)
+                    is_primary_bar = True
+                else:
+                    # Secondary bar - don't trigger bar_close actions
+                    is_primary_bar = False
+            else:
+                # Single timeframe mode
+                self._strategy.on_bar(bar)
 
-            # Trigger bar close scheduled actions
-            self._scheduler.trigger_bar_close_actions()
+            # Trigger bar close scheduled actions (only for primary bars in MTF mode)
+            if is_primary_bar:
+                self._scheduler.trigger_bar_close_actions()
 
             # OPT-006: Only calculate equity at day boundaries (not every bar)
             # This reduces O(bars * positions) to O(days * positions)

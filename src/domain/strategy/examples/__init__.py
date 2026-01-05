@@ -12,20 +12,22 @@ Available strategies:
 - PairsTradingStrategy: Statistical arbitrage pairs trading
 - ScheduledRebalanceStrategy: Time-based portfolio rebalancing
 - TAMetricsStrategy: Multi-indicator TA with metrics matrix (MA, RSI, MACD)
+- MTFRsiTrendStrategy: Multi-timeframe RSI trend + entry (daily/hourly)
 
 Feature coverage by strategy:
-+---------------------------+--------+-------+------+-------+---------+------+
-| Strategy                  | on_bar | Clock | Sched| Limit | Multi-  | Fill |
-|                           |        |       |      | Order | Symbol  | Mgmt |
-+---------------------------+--------+-------+------+-------+---------+------+
-| MovingAverageCrossStrategy|   -    |   -   |  -   |   -   |    -    |  X   |
-| BuyAndHoldStrategy        |   X    |   X   |  -   |   -   |    X    |  X   |
-| RsiMeanReversionStrategy  |   X    |   -   |  -   |   X   |    -    |  X   |
-| MomentumBreakoutStrategy  |   X    |   -   |  -   |   -   |    -    |  X   |
-| PairsTradingStrategy      |   X    |   -   |  -   |   -   |    X    |  X   |
-| ScheduledRebalanceStrategy|   X    |   X   |  X   |   -   |    X    |  X   |
-| TAMetricsStrategy         |   X    |   -   |  -   |   -   |    X    |  X   |
-+---------------------------+--------+-------+------+-------+---------+------+
++---------------------------+--------+--------+-------+------+-------+---------+------+
+| Strategy                  | on_bar | on_bars| Clock | Sched| Limit | Multi-  | Fill |
+|                           |        | (MTF)  |       |      | Order | Symbol  | Mgmt |
++---------------------------+--------+--------+-------+------+-------+---------+------+
+| MovingAverageCrossStrategy|   -    |   -    |   -   |  -   |   -   |    -    |  X   |
+| BuyAndHoldStrategy        |   X    |   -    |   X   |  -   |   -   |    X    |  X   |
+| RsiMeanReversionStrategy  |   X    |   -    |   -   |  -   |   X   |    -    |  X   |
+| MomentumBreakoutStrategy  |   X    |   -    |   -   |  -   |   -   |    -    |  X   |
+| PairsTradingStrategy      |   X    |   -    |   -   |  -   |   -   |    X    |  X   |
+| ScheduledRebalanceStrategy|   X    |   -    |   X   |  X   |   -   |    X    |  X   |
+| TAMetricsStrategy         |   X    |   -    |   -   |  -   |   -   |    X    |  X   |
+| MTFRsiTrendStrategy       |   X    |   X    |   -   |  -   |   -   |    X    |  X   |
++---------------------------+--------+--------+-------+------+-------+---------+------+
 """
 
 from .ma_cross import MovingAverageCrossStrategy
@@ -35,6 +37,7 @@ from .momentum_breakout import MomentumBreakoutStrategy
 from .pairs_trading import PairsTradingStrategy
 from .scheduled_rebalance import ScheduledRebalanceStrategy
 from .ta_metrics_strategy import TAMetricsStrategy
+from .mtf_rsi_trend import MTFRsiTrendStrategy
 
 __all__ = [
     # Basic strategies
@@ -47,4 +50,6 @@ __all__ = [
     "ScheduledRebalanceStrategy",
     # Systematic backtesting strategies
     "TAMetricsStrategy",
+    # Multi-timeframe strategies
+    "MTFRsiTrendStrategy",
 ]

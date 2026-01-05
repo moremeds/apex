@@ -14,7 +14,7 @@
 
 name: "Strict_Validation_Example"
 description: "Momentum strategy with strict overfitting controls"
-strategy: "momentum"
+strategy: "momentum_breakout"  # Momentum strategy with breakout signals
 
 parameters:
   lookback_days:

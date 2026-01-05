@@ -16,7 +16,7 @@
 
 name: "Label_Horizon_Example"
 description: "Swing trading strategy with proper purge gap for multi-day trades"
-strategy: "swing_trading"
+strategy: "rsi_mean_reversion"  # RSI-based strategy suitable for swing trading
 
 parameters:
   # Entry/exit thresholds

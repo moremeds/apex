@@ -155,7 +155,7 @@ class LabView(Container, can_focus=True):
             from ...backtest.execution.engines.backtest_engine import BacktestEngine, BacktestConfig
             from ...backtest.data.feeds import BarCacheDataFeed
 
-            # Load config from base.yaml
+            # Load config from base.yaml for IB connection
             config_path = Path("config/base.yaml")
             ib_host = "127.0.0.1"
             ib_port = 4001
@@ -184,7 +184,7 @@ class LabView(Container, can_focus=True):
             engine = BacktestEngine(config)
             engine.set_strategy(strategy_name=strategy_name)
 
-            # Use IB historical data with config from base.yaml
+            # Use IB historical data for real-time technical analysis
             feed = BarCacheDataFeed(
                 symbols=config.symbols,
                 start_date=config.start_date,
@@ -200,7 +200,8 @@ class LabView(Container, can_focus=True):
             result = await engine.run()
             self._on_backtest_complete(strategy_name, result)
 
-        except Exception:
+        except Exception as e:
+            self.log.exception("Backtest failed")
             self._on_backtest_error(strategy_name, str(e))
 
     def _on_backtest_complete(self, strategy_name: str, result: "BacktestResult") -> None:

@@ -157,12 +157,15 @@ class ApexEngine(BaseEngine):
             "slippage": SimFillModel.SLIPPAGE,
         }
 
+        # Use spec.bar_size if provided, otherwise fall back to engine config
+        effective_bar_size = spec.bar_size or self._apex_config.bar_size
+
         config = BacktestConfig(
             start_date=backtest_dict["start_date"],
             end_date=backtest_dict["end_date"],
             symbols=backtest_dict["symbols"],
             initial_capital=backtest_dict["initial_capital"],
-            bar_size=self._apex_config.bar_size,
+            bar_size=effective_bar_size,
             fill_model=fill_model_map.get(self._apex_config.fill_model, SimFillModel.IMMEDIATE),
             slippage_bps=backtest_dict.get("slippage_bps", 5.0),
             commission_per_share=backtest_dict.get("commission_per_share", 0.005),
@@ -181,14 +184,30 @@ class ApexEngine(BaseEngine):
                 engine.set_strategy(strategy_name=strategy_name, params=spec.params)
 
             # Create data feed based on config
-            feed = create_data_feed(
-                source=self._apex_config.data_source,
-                symbols=config.symbols,
-                start_date=config.start_date,
-                end_date=config.end_date,
-                streaming=self._apex_config.streaming,
-                bar_size=self._apex_config.bar_size,
-            )
+            # Use HistoricalStoreDataFeed directly for MTF support
+            from ...data.feeds import HistoricalStoreDataFeed
+            from ....backtest.runner import load_historical_data_config
+
+            if self._apex_config.data_source == "historical" or spec.secondary_timeframes:
+                historical_cfg = load_historical_data_config()
+                base_dir = historical_cfg.get("base_dir", "data/historical")
+                feed = HistoricalStoreDataFeed(
+                    base_dir=base_dir,
+                    symbols=config.symbols,
+                    start_date=config.start_date,
+                    end_date=config.end_date,
+                    bar_size=spec.bar_size or self._apex_config.bar_size,
+                    secondary_timeframes=spec.secondary_timeframes,
+                )
+            else:
+                feed = create_data_feed(
+                    source=self._apex_config.data_source,
+                    symbols=config.symbols,
+                    start_date=config.start_date,
+                    end_date=config.end_date,
+                    streaming=self._apex_config.streaming,
+                    bar_size=self._apex_config.bar_size,
+                )
             engine.set_data_feed(feed)
 
             return await engine.run()

@@ -390,6 +390,47 @@ class Strategy(ABC):
         )
         self.on_tick(tick)
 
+    def on_bars(self, bars: Dict[str, BarData]) -> None:
+        """
+        Called on each primary bar close with aligned multi-timeframe data.
+
+        Override for multi-timeframe strategies. Receives a dictionary mapping
+        timeframe -> BarData for all configured timeframes, aligned to the
+        primary timeframe boundary.
+
+        By default, extracts the primary timeframe bar and calls on_bar(),
+        maintaining backward compatibility with single-timeframe strategies.
+
+        Args:
+            bars: Dictionary mapping timeframe (e.g., "1d", "1h") to BarData.
+                  The primary timeframe bar is always present.
+                  Secondary timeframe bars are the most recent bar that closed
+                  at or before the primary bar's timestamp.
+
+        Example:
+            def on_bars(self, bars: Dict[str, BarData]) -> None:
+                daily = bars.get("1d")
+                hourly = bars.get("1h")
+
+                if not daily:
+                    return
+
+                # Use daily for trend direction
+                daily_rsi = self.calc_rsi(daily, period=14)
+
+                # Use hourly for entry timing (if available)
+                if hourly:
+                    hourly_rsi = self.calc_rsi(hourly, period=14)
+                    if daily_rsi > 50 and hourly_rsi < 30:
+                        self.request_order(...)
+        """
+        # Default: extract first bar and call single-timeframe on_bar()
+        # This maintains backward compatibility for strategies not using MTF
+        if bars:
+            # Get the first bar (primary timeframe)
+            primary_bar = next(iter(bars.values()))
+            self.on_bar(primary_bar)
+
     def on_greeks(self, symbol: str, greeks: Dict[str, float]) -> None:
         """
         Called on Greeks update (for options strategies).

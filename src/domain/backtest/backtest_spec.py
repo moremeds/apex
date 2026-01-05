@@ -60,6 +60,9 @@ class DataSpecConfig:
     start_date: Optional[date] = None
     end_date: Optional[date] = None
 
+    # Multi-timeframe config (for MTF strategies)
+    secondary_timeframes: List[str] = field(default_factory=list)
+
     # Historical store config (for source="historical")
     coverage_mode: Optional[str] = None  # off, check, download (default: download)
     historical_dir: Optional[str] = None  # Base dir for Parquet store

@@ -236,6 +236,7 @@ class SingleBacktestRunner:
         data_source: str = "historical",
         data_dir: str = "./data",
         bar_size: str = "1d",
+        secondary_timeframes: Optional[List[str]] = None,
         strategy_params: Optional[Dict[str, Any]] = None,
         fill_model: str = "immediate",
         slippage_bps: float = 5.0,
@@ -254,6 +255,7 @@ class SingleBacktestRunner:
         self.data_source = data_source
         self.data_dir = data_dir
         self.bar_size = bar_size
+        self.secondary_timeframes = secondary_timeframes or []
         self.strategy_params = strategy_params or {}
         self.fill_model = FillModel(fill_model)
         self.slippage_bps = slippage_bps
@@ -274,6 +276,7 @@ class SingleBacktestRunner:
             raise ValueError(f"Invalid spec: {errors}")
 
         streaming = spec.data.streaming if hasattr(spec.data, "streaming") else True
+        secondary_timeframes = getattr(spec.data, "secondary_timeframes", None) or []
 
         runner = cls(
             strategy_name=spec.strategy.name,
@@ -284,6 +287,7 @@ class SingleBacktestRunner:
             data_source=spec.data.source,
             data_dir=spec.data.csv_dir or spec.data.parquet_dir or "./data",
             bar_size=spec.data.bar_size,
+            secondary_timeframes=secondary_timeframes,
             strategy_params=spec.strategy.params,
             streaming=streaming,
             coverage_mode=spec.data.coverage_mode,
@@ -399,6 +403,7 @@ class SingleBacktestRunner:
                 start_date=self.start_date,
                 end_date=self.end_date,
                 bar_size=self.bar_size,
+                secondary_timeframes=self.secondary_timeframes,
             )
         elif self.data_source == "csv":
             if self.streaming:

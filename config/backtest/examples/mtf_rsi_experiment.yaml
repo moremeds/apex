@@ -1,0 +1,96 @@
+# Multi-Timeframe RSI Trend Strategy Experiment
+#
+# Demonstrates multi-timeframe backtesting with:
+# - Daily timeframe for trend direction (RSI > 50 = bullish)
+# - Hourly timeframe for entry timing (RSI < 30 = oversold dip)
+#
+# Entry Logic:
+# - LONG: Daily RSI > 50 (uptrend) AND Hourly RSI < 30 (oversold)
+# - SHORT: Daily RSI < 50 (downtrend) AND Hourly RSI > 70 (overbought)
+#
+# Run with:
+#   python -m src.backtest.runner --spec config/backtest/examples/mtf_rsi_experiment.yaml
+
+name: "MTF_RSI_Trend_Optimization"
+description: "Optimize multi-timeframe RSI strategy using daily trend + hourly entry"
+strategy: "mtf_rsi_trend"
+
+# Parameter search space
+parameters:
+  # RSI periods
+  trend_rsi_period:
+    type: categorical
+    values: [10, 14, 21]
+  entry_rsi_period:
+    type: categorical
+    values: [7, 14]
+
+  # Entry thresholds
+  entry_oversold:
+    type: range
+    min: 25
+    max: 35
+    step: 5
+  entry_overbought:
+    type: range
+    min: 65
+    max: 75
+    step: 5
+
+  # Trend threshold (where RSI divides bull/bear)
+  trend_threshold:
+    type: categorical
+    values: [45, 50, 55]
+
+# Multi-Timeframe Data Configuration
+data:
+  primary_timeframe: "1d"           # Daily bars for trend
+  secondary_timeframes: ["1h"]      # Hourly bars for entry
+
+# Symbol universe
+universe:
+  type: static
+  symbols:
+    - AAPL
+    - MSFT
+    - GOOGL
+    - NVDA
+    - TSLA
+
+# Temporal configuration
+temporal:
+  primary_method: walk_forward
+  train_days: 252    # 1 year training
+  test_days: 63      # 3 months testing
+  folds: 4           # 4 walk-forward folds
+  purge_days: 5      # Gap between train/test
+  embargo_days: 2    # Embargo after test
+  start_date: "2022-01-01"
+  end_date: "2025-12-31"
+
+# Optimization settings (Bayesian TPE)
+optimization:
+  method: bayesian
+  metric: sharpe
+  direction: maximize
+  constraints:
+    - metric: p10_sharpe
+      operator: ">="
+      value: 0.0
+    - metric: median_max_dd
+      operator: "<="
+      value: 0.25
+
+# Execution profiles
+profiles:
+  screening:
+    name: fast_screen
+    version: v1
+    slippage_bps: 5.0
+    commission_per_share: 0.005
+    fill_model: close
+
+# Reproducibility
+reproducibility:
+  random_seed: 42
+  data_version: "apex_2026.01"

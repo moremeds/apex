@@ -11,7 +11,7 @@ A run is the atomic unit of backtesting:
 from __future__ import annotations
 
 from datetime import date
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -98,6 +98,23 @@ class RunSpec(BaseModel):
     slippage_bps: float = Field(default=5.0, description="Slippage in bps")
     commission_per_share: float = Field(default=0.005, description="Commission per share")
 
+    # Timeframe settings
+    bar_size: str = Field(default="1d", description="Primary bar timeframe")
+    secondary_timeframes: List[str] = Field(
+        default_factory=list,
+        description="Secondary timeframes for multi-timeframe strategies",
+    )
+
+    @property
+    def is_multi_timeframe(self) -> bool:
+        """Check if this run uses multiple timeframes."""
+        return len(self.secondary_timeframes) > 0
+
+    @property
+    def all_timeframes(self) -> List[str]:
+        """Get all timeframes (primary + secondary)."""
+        return [self.bar_size] + self.secondary_timeframes
+
     # Metadata
     run_index: Optional[int] = Field(default=None, description="Run index in trial")
     experiment_id: Optional[str] = Field(default=None, description="Experiment ID for reference")
@@ -137,4 +154,6 @@ class RunSpec(BaseModel):
             "slippage_bps": self.slippage_bps,
             "commission_per_share": self.commission_per_share,
             "strategy_params": self.params,
+            "bar_size": self.bar_size,
+            "secondary_timeframes": self.secondary_timeframes,
         }

@@ -14,7 +14,7 @@
 
 name: "Monte_Carlo_Example"
 description: "Trend following strategy with Monte Carlo path dependency analysis"
-strategy: "trend_following"
+strategy: "momentum_breakout"  # Trend-following via breakout strategy
 
 parameters:
   trend_period:

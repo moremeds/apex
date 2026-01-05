@@ -398,6 +398,8 @@ class SystematicRunner:
                         params=run_params,
                         run_index=run_index,
                         experiment_id=trial_spec.experiment_id,  # Use versioned ID
+                        bar_size=spec.data.primary_timeframe,
+                        secondary_timeframes=spec.data.secondary_timeframes,
                     )
 
                     # Check if run already exists
@@ -510,6 +512,8 @@ class SystematicRunner:
                         params=run_params,
                         run_index=run_index,
                         experiment_id=trial_spec.experiment_id,  # Use versioned ID
+                        bar_size=spec.data.primary_timeframe,
+                        secondary_timeframes=spec.data.secondary_timeframes,
                     )
 
                     # Check if run already exists

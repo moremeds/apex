@@ -102,22 +102,39 @@ class ParquetHistoricalStore:
             return []
 
         # Build row group filter for efficient reads
-        filters = []
-        if start:
-            filters.append(("timestamp", ">=", start))
-        if end:
-            filters.append(("timestamp", "<=", end))
-
+        # Handle timezone mismatch by reading without filter and filtering in pandas
         try:
-            table = pq.read_table(
-                file_path,
-                filters=filters if filters else None,
-            )
+            table = pq.read_table(file_path)
         except Exception as e:
             logger.error(f"Error reading {file_path}: {e}")
             return []
 
-        return self._table_to_bars(table, symbol, timeframe)
+        # Convert to pandas for flexible timestamp filtering
+        df = table.to_pandas()
+        if start or end:
+            # Normalize timestamps to compare
+            import pandas as pd
+            ts_col = df["timestamp"]
+
+            # Make filter timestamps timezone-aware if data is timezone-aware
+            if ts_col.dt.tz is not None:
+                if start and start.tzinfo is None:
+                    start = start.replace(tzinfo=ts_col.dt.tz)
+                if end and end.tzinfo is None:
+                    end = end.replace(tzinfo=ts_col.dt.tz)
+            else:
+                # Data is timezone-naive, strip tz from filters if present
+                if start and start.tzinfo is not None:
+                    start = start.replace(tzinfo=None)
+                if end and end.tzinfo is not None:
+                    end = end.replace(tzinfo=None)
+
+            if start:
+                df = df[ts_col >= pd.Timestamp(start)]
+            if end:
+                df = df[df["timestamp"] <= pd.Timestamp(end)]
+
+        return self._table_to_bars_from_df(df, symbol, timeframe)
 
     def write_bars(
         self,
@@ -232,17 +249,25 @@ class ParquetHistoricalStore:
 
         return pa.Table.from_pydict(data, schema=BAR_SCHEMA)
 
-    def _table_to_bars(
+    def _table_to_bars_from_df(
         self,
-        table: pa.Table,
+        df: "pd.DataFrame",
         symbol: str,
         timeframe: str,
     ) -> List[BarData]:
-        """Convert PyArrow table to BarData list."""
-        df = table.to_pandas()
+        """Convert pandas DataFrame to BarData list."""
         bars = []
 
+        # Check which optional columns exist
+        has_vwap = "vwap" in df.columns
+        has_trade_count = "trade_count" in df.columns
+        has_source = "source" in df.columns
+
         for _, row in df.iterrows():
+            # Handle timestamp conversion
+            ts = row["timestamp"]
+            ts_dt = ts.to_pydatetime() if hasattr(ts, "to_pydatetime") else ts
+
             bar = BarData(
                 symbol=symbol,
                 timeframe=timeframe,
@@ -251,11 +276,11 @@ class ParquetHistoricalStore:
                 low=row["low"] if not pd_isna(row["low"]) else None,
                 close=row["close"] if not pd_isna(row["close"]) else None,
                 volume=int(row["volume"]) if not pd_isna(row["volume"]) else None,
-                vwap=row["vwap"] if not pd_isna(row["vwap"]) else None,
-                trade_count=int(row["trade_count"]) if not pd_isna(row["trade_count"]) else None,
-                bar_start=row["timestamp"].to_pydatetime() if hasattr(row["timestamp"], "to_pydatetime") else row["timestamp"],
-                source=row["source"],
-                timestamp=row["timestamp"].to_pydatetime() if hasattr(row["timestamp"], "to_pydatetime") else row["timestamp"],
+                vwap=row["vwap"] if has_vwap and not pd_isna(row["vwap"]) else None,
+                trade_count=int(row["trade_count"]) if has_trade_count and not pd_isna(row["trade_count"]) else None,
+                bar_start=ts_dt,
+                source=row["source"] if has_source else "historical",
+                timestamp=ts_dt,
             )
             bars.append(bar)
 

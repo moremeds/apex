@@ -160,6 +160,28 @@ class OptimizationConfig(BaseModel):
     )
 
 
+class DataConfig(BaseModel):
+    """Configuration for data loading and timeframes."""
+
+    primary_timeframe: str = Field(
+        default="1d", description="Primary bar timeframe (e.g., '1d', '1h', '5m')"
+    )
+    secondary_timeframes: List[str] = Field(
+        default_factory=list,
+        description="Secondary timeframes for multi-timeframe strategies (e.g., ['1h', '4h'])",
+    )
+
+    @property
+    def all_timeframes(self) -> List[str]:
+        """Get all timeframes (primary + secondary) in order."""
+        return [self.primary_timeframe] + self.secondary_timeframes
+
+    @property
+    def is_multi_timeframe(self) -> bool:
+        """Check if this is a multi-timeframe configuration."""
+        return len(self.secondary_timeframes) > 0
+
+
 class ProfileConfig(BaseModel):
     """Execution profile configuration."""
 
@@ -216,6 +238,11 @@ class ExperimentSpec(BaseModel):
 
     # Temporal
     temporal: TemporalConfig = Field(description="Temporal split configuration")
+
+    # Data configuration (timeframes, sources)
+    data: DataConfig = Field(
+        default_factory=DataConfig, description="Data loading configuration"
+    )
 
     # Optimization
     optimization: OptimizationConfig = Field(
