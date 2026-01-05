@@ -59,8 +59,7 @@ strategies:
 
   mtf_rsi_trend:
     strategy: src.domain.strategy.examples.mtf_rsi_trend:MTFRsiTrendStrategy
-    signals: null  # Multi-timeframe strategy - requires aligned MTF data
-    apex_only: true  # Requires on_bars() with multi-timeframe data
-    multi_timeframe: true  # Marker for MTF-aware execution
+    signals: src.domain.strategy.signals.mtf_rsi_trend:MTFRsiTrendSignalGenerator
+    multi_timeframe: true  # Uses secondary_data parameter in signal generator
     validation:
       validated_by_apex: false

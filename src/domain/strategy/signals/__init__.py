@@ -11,6 +11,7 @@ from .buy_and_hold import BuyAndHoldSignalGenerator
 from .indicators import adx, atr, bbands, ema, macd, momentum, rsi, sma
 from .ma_cross import MACrossSignalGenerator
 from .momentum_breakout import MomentumBreakoutSignalGenerator
+from .mtf_rsi_trend import MTFRsiTrendSignalGenerator
 from .pairs_trading import PairsTradingSignalGenerator
 from .protocol import SignalGenerator
 from .rsi_mean_reversion import RSIMeanReversionSignalGenerator
@@ -23,6 +24,7 @@ __all__ = [
     "BuyAndHoldSignalGenerator",
     "MACrossSignalGenerator",
     "MomentumBreakoutSignalGenerator",
+    "MTFRsiTrendSignalGenerator",
     "PairsTradingSignalGenerator",
     "RSIMeanReversionSignalGenerator",
     "TAMetricsSignalGenerator",

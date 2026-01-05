@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import pandas as pd
 
@@ -30,7 +30,10 @@ class MACrossSignalGenerator:
         return 50  # Default max(short_window, long_window)
 
     def generate(
-        self, data: pd.DataFrame, params: dict[str, Any]
+        self,
+        data: pd.DataFrame,
+        params: dict[str, Any],
+        secondary_data: Optional[Dict[str, pd.DataFrame]] = None,
     ) -> Tuple[pd.Series, pd.Series]:
         """
         Generate MA crossover signals.

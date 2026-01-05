@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -40,7 +40,10 @@ class TAMetricsSignalGenerator:
         return 50  # max(sma_slow, macd_slow + macd_signal)
 
     def generate(
-        self, data: pd.DataFrame, params: dict[str, Any]
+        self,
+        data: pd.DataFrame,
+        params: dict[str, Any],
+        secondary_data: Optional[Dict[str, pd.DataFrame]] = None,
     ) -> Tuple[pd.Series, pd.Series]:
         """
         Generate TA metrics matrix signals.

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import pandas as pd
 
@@ -28,7 +28,10 @@ class RSIMeanReversionSignalGenerator:
         return 15  # Default rsi_period + 1
 
     def generate(
-        self, data: pd.DataFrame, params: dict[str, Any]
+        self,
+        data: pd.DataFrame,
+        params: dict[str, Any],
+        secondary_data: Optional[Dict[str, pd.DataFrame]] = None,
     ) -> Tuple[pd.Series, pd.Series]:
         """
         Generate RSI mean reversion signals.

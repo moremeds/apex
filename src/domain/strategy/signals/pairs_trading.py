@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -34,7 +34,10 @@ class PairsTradingSignalGenerator:
         return 20  # Default lookback
 
     def generate(
-        self, data: pd.DataFrame, params: dict[str, Any]
+        self,
+        data: pd.DataFrame,
+        params: dict[str, Any],
+        secondary_data: Optional[Dict[str, pd.DataFrame]] = None,
     ) -> Tuple[pd.Series, pd.Series]:
         """
         Generate pairs trading entry/exit signals (standard protocol).

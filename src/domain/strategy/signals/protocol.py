@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Protocol, Tuple
+from typing import Any, Dict, Optional, Protocol, Tuple
 
 import pandas as pd
 
@@ -29,6 +29,23 @@ class SignalGenerator(Protocol):
                 entries = (fast > slow) & (fast.shift(1) <= slow.shift(1))
                 exits = (fast < slow) & (fast.shift(1) >= slow.shift(1))
                 return entries, exits
+
+    For Multi-Timeframe (MTF) strategies:
+        class MTFSignalGenerator:
+            @property
+            def warmup_bars(self) -> int:
+                return 50
+
+            def generate(
+                self,
+                data: pd.DataFrame,
+                params: dict[str, Any],
+                secondary_data: Optional[Dict[str, pd.DataFrame]] = None
+            ) -> Tuple[pd.Series, pd.Series]:
+                # data = primary timeframe (e.g., 1d)
+                # secondary_data = {"1h": hourly_df, "4h": four_hour_df}
+                hourly = secondary_data.get("1h") if secondary_data else None
+                # ... use both timeframes for signal generation
     """
 
     @property
@@ -43,15 +60,22 @@ class SignalGenerator(Protocol):
         ...
 
     def generate(
-        self, data: pd.DataFrame, params: dict[str, Any]
+        self,
+        data: pd.DataFrame,
+        params: dict[str, Any],
+        secondary_data: Optional[Dict[str, pd.DataFrame]] = None,
     ) -> Tuple[pd.Series, pd.Series]:
         """
         Generate entry and exit signals from OHLCV data.
 
         Args:
             data: DataFrame with columns: open, high, low, close, volume.
-                  Index is datetime.
+                  Index is datetime. This is the primary timeframe data.
             params: Strategy parameters (e.g., {"short_window": 10, "long_window": 50}).
+            secondary_data: Optional dict of secondary timeframe data.
+                  Keys are timeframe strings (e.g., "1h", "4h").
+                  Values are DataFrames with same columns as data.
+                  Used for multi-timeframe (MTF) strategies.
 
         Returns:
             Tuple of (entries, exits) boolean Series aligned to data.index.

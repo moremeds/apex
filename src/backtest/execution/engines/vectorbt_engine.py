@@ -127,13 +127,19 @@ class VectorBTEngine(BaseEngine):
         module = import_module(module_path)
         return getattr(module, class_name)
 
-    def run(self, spec: RunSpec, data: Optional[pd.DataFrame] = None) -> RunResult:
+    def run(
+        self,
+        spec: RunSpec,
+        data: Optional[pd.DataFrame] = None,
+        secondary_data: Optional[Dict[str, pd.DataFrame]] = None,
+    ) -> RunResult:
         """
         Execute a single backtest run.
 
         Args:
             spec: Run specification
-            data: Optional pre-loaded OHLCV data
+            data: Optional pre-loaded primary timeframe OHLCV data
+            secondary_data: Optional secondary timeframe data {timeframe: DataFrame}
 
         Returns:
             RunResult with computed metrics
@@ -159,6 +165,15 @@ class VectorBTEngine(BaseEngine):
                     spec, RunStatus.FAIL_DATA, "No data in date range", started_at
                 )
 
+            # Filter secondary data to date range if provided
+            filtered_secondary = None
+            if secondary_data:
+                filtered_secondary = {}
+                for tf, tf_data in secondary_data.items():
+                    filtered_tf = self._filter_date_range(tf_data, spec.start_date, spec.end_date)
+                    if not filtered_tf.empty:
+                        filtered_secondary[tf] = filtered_tf
+
             # Get strategy signal generator from manifest
             strategy_type = spec.params.get("strategy_type", self._vbt_config.strategy_type)
 
@@ -170,8 +185,10 @@ class VectorBTEngine(BaseEngine):
                     spec, RunStatus.FAIL_STRATEGY, str(e), started_at
                 )
 
-            # Generate signals
-            entries, exits = signal_generator.generate(data, spec.params)
+            # Generate signals (pass secondary data for MTF strategies)
+            entries, exits = signal_generator.generate(
+                data, spec.params, secondary_data=filtered_secondary
+            )
 
             # Run backtest
             close = data["close"]

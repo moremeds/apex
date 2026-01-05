@@ -732,23 +732,31 @@ async def prefetch_data(
 # Module-level globals for multiprocessing worker state
 # Each worker process has its own copy (no shared state issues)
 _vectorbt_cached_data: Optional[Dict[str, Any]] = None
+_vectorbt_secondary_data: Optional[Dict[str, Dict[str, Any]]] = None  # {symbol: {timeframe: df}}
 _vectorbt_engine: Optional[Any] = None  # VectorBTEngine, typed as Any to avoid circular import
 
 
 def _init_vectorbt_worker(
     cached_data: Optional[Dict[str, Any]],
     config_dict: Dict[str, Any],
+    secondary_data: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> None:
     """
     Worker initializer for VectorBT backtests.
 
     Called once per worker process to set up the engine and cached data.
     This avoids pickling issues with closures by using module-level globals.
+
+    Args:
+        cached_data: Primary timeframe data {symbol: DataFrame}
+        config_dict: VectorBTConfig as dict
+        secondary_data: Secondary timeframe data {symbol: {timeframe: DataFrame}}
     """
-    global _vectorbt_cached_data, _vectorbt_engine
+    global _vectorbt_cached_data, _vectorbt_secondary_data, _vectorbt_engine
     from .execution.engines import VectorBTConfig, VectorBTEngine
 
     _vectorbt_cached_data = cached_data
+    _vectorbt_secondary_data = secondary_data
     _vectorbt_engine = VectorBTEngine(VectorBTConfig(**config_dict))
 
 
@@ -761,16 +769,30 @@ def _run_vectorbt_backtest(spec: "RunSpec") -> "RunResult":
     """
     if _vectorbt_engine is None:
         raise RuntimeError("VectorBT engine not initialized. Call _init_vectorbt_worker first.")
+
     symbol_data = _vectorbt_cached_data.get(spec.symbol) if _vectorbt_cached_data else None
-    return _vectorbt_engine.run(spec, data=symbol_data)
+
+    # Get secondary timeframe data for this symbol
+    symbol_secondary = None
+    if _vectorbt_secondary_data and spec.symbol in _vectorbt_secondary_data:
+        symbol_secondary = _vectorbt_secondary_data[spec.symbol]
+
+    return _vectorbt_engine.run(spec, data=symbol_data, secondary_data=symbol_secondary)
 
 
-def create_vectorbt_backtest_fn(cached_data: Optional[Dict[str, Any]] = None):
+def create_vectorbt_backtest_fn(
+    cached_data: Optional[Dict[str, Any]] = None,
+    secondary_data: Optional[Dict[str, Dict[str, Any]]] = None,
+):
     """
     Create a backtest function using VectorBT engine.
 
     Returns a top-level function with multiprocessing metadata attached
     so ParallelRunner can properly initialize worker processes.
+
+    Args:
+        cached_data: Primary timeframe data {symbol: DataFrame}
+        secondary_data: Secondary timeframe data {symbol: {timeframe: DataFrame}}
     """
     from dataclasses import asdict
     from .execution.engines import VectorBTConfig
@@ -783,14 +805,125 @@ def create_vectorbt_backtest_fn(cached_data: Optional[Dict[str, Any]] = None):
     config_dict = asdict(config)
 
     # Initialize in the main process for sequential execution
-    _init_vectorbt_worker(cached_data, config_dict)
+    _init_vectorbt_worker(cached_data, config_dict, secondary_data)
 
     # Attach multiprocessing metadata for ParallelRunner to use
     _run_vectorbt_backtest._mp_initializer = _init_vectorbt_worker  # type: ignore
-    _run_vectorbt_backtest._mp_initargs = (cached_data, config_dict)  # type: ignore
+    _run_vectorbt_backtest._mp_initargs = (cached_data, config_dict, secondary_data)  # type: ignore
     _run_vectorbt_backtest._mp_context = "spawn"  # type: ignore - safest for cross-platform
 
     return _run_vectorbt_backtest
+
+
+# =============================================================================
+# ApexEngine Backtest Functions (for MTF / apex_only strategies)
+# =============================================================================
+
+# Module-level globals for ApexEngine worker state
+_apex_cached_data: Optional[Dict[str, Dict[str, Any]]] = None  # {symbol: {timeframe: DataFrame}}
+_apex_engine: Optional[Any] = None
+
+
+def is_apex_required(strategy_name: str) -> bool:
+    """
+    Check if a strategy requires ApexEngine (cannot run in VectorBT).
+
+    A strategy requires ApexEngine if:
+    - It's marked apex_only: true in manifest.yaml
+    - It has no vectorized signal generator (signals: null)
+
+    Note: multi_timeframe strategies CAN run in VectorBT if they have
+    a SignalGenerator that accepts secondary_data parameter.
+
+    Args:
+        strategy_name: Strategy name to check
+
+    Returns:
+        True if strategy requires ApexEngine
+    """
+    manifest_path = Path(__file__).parent.parent / "domain/strategy/manifest.yaml"
+    if not manifest_path.exists():
+        return False
+
+    with manifest_path.open("r", encoding="utf-8") as f:
+        manifest = yaml.safe_load(f) or {}
+
+    strategies = manifest.get("strategies", {})
+    if strategy_name not in strategies:
+        return False
+
+    entry = strategies[strategy_name]
+    return (
+        entry.get("apex_only", False) or
+        entry.get("signals") is None
+    )
+
+
+def _init_apex_worker(
+    cached_data: Optional[Dict[str, Dict[str, Any]]],
+    config_dict: Dict[str, Any],
+) -> None:
+    """
+    Worker initializer for ApexEngine backtests.
+
+    Called once per worker process to set up the engine and cached data.
+    """
+    global _apex_cached_data, _apex_engine
+    from .execution.engines import ApexEngine, ApexEngineConfig
+
+    _apex_cached_data = cached_data
+    _apex_engine = ApexEngine(ApexEngineConfig(**config_dict))
+
+
+def _run_apex_backtest(spec: "RunSpec") -> "RunResult":
+    """
+    Top-level backtest function for ApexEngine multiprocessing.
+
+    This runs bar-by-bar event-driven backtests via ApexEngine.
+    """
+    if _apex_engine is None:
+        raise RuntimeError("ApexEngine not initialized. Call _init_apex_worker first.")
+
+    # ApexEngine uses HistoricalStoreDataFeed internally, not cached data
+    # The cached_data is kept for potential future use (pre-loaded DataFrames)
+    return _apex_engine.run(spec, data=None)
+
+
+def create_apex_backtest_fn(
+    cached_data: Optional[Dict[str, Dict[str, Any]]] = None,
+    data_source: str = "historical",
+):
+    """
+    Create a backtest function using ApexEngine.
+
+    Used for MTF (multi-timeframe) strategies and apex_only strategies
+    that cannot run in vectorized VectorBT mode.
+
+    Args:
+        cached_data: Optional pre-loaded data {symbol: {timeframe: DataFrame}}
+        data_source: Data source type ("historical" for parquet files)
+
+    Returns:
+        Backtest function with multiprocessing metadata
+    """
+    from dataclasses import asdict
+    from .execution.engines import ApexEngineConfig
+
+    config = ApexEngineConfig(
+        data_source=data_source,
+        bar_size="1d",  # Primary timeframe; secondary set per-spec
+    )
+    config_dict = asdict(config)
+
+    # Initialize in main process for sequential execution
+    _init_apex_worker(cached_data, config_dict)
+
+    # Attach multiprocessing metadata
+    _run_apex_backtest._mp_initializer = _init_apex_worker  # type: ignore
+    _run_apex_backtest._mp_initargs = (cached_data, config_dict)  # type: ignore
+    _run_apex_backtest._mp_context = "spawn"  # type: ignore
+
+    return _run_apex_backtest
 
 
 async def run_systematic_experiment(
@@ -840,13 +973,41 @@ async def run_systematic_experiment(
     )
     runner = SystematicRunner(config=config)
 
+    # Prefetch data for all timeframes (primary + secondary)
+    primary_tf = spec.data.primary_timeframe or "1d"
+    secondary_tfs = spec.data.secondary_timeframes or []
+
+    logger.info(f"  Primary timeframe: {primary_tf}")
+    if secondary_tfs:
+        logger.info(f"  Secondary timeframes: {secondary_tfs}")
+
+    # Load primary timeframe data
     cached_data = await prefetch_data(
         symbols=symbols,
         start_date=spec.temporal.start_date,
         end_date=spec.temporal.end_date,
+        timeframe=primary_tf,
     )
 
-    backtest_fn = create_vectorbt_backtest_fn(cached_data=cached_data)
+    # Load secondary timeframe data (MTF support)
+    secondary_data: Dict[str, Dict[str, Any]] = {}
+    for tf in secondary_tfs:
+        tf_data = await prefetch_data(
+            symbols=symbols,
+            start_date=spec.temporal.start_date,
+            end_date=spec.temporal.end_date,
+            timeframe=tf,
+        )
+        for symbol, df in tf_data.items():
+            if symbol not in secondary_data:
+                secondary_data[symbol] = {}
+            secondary_data[symbol][tf] = df
+
+    # Create backtest function with MTF data
+    backtest_fn = create_vectorbt_backtest_fn(
+        cached_data=cached_data,
+        secondary_data=secondary_data if secondary_tfs else None,
+    )
 
     start_time = datetime.now()
     logger.info("Starting experiment execution...")
