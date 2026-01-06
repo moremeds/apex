@@ -1,0 +1,168 @@
+# Trading Signal Rules Configuration
+# Defines rules for generating trading signals from indicators
+
+version: 1
+
+# Default settings for all rules
+defaults:
+  cooldown_seconds: 3600  # 1 hour
+  enabled: true
+
+# Momentum rules
+momentum_rules:
+  rsi_oversold_exit:
+    indicator: rsi
+    direction: buy
+    strength: 70
+    priority: high
+    condition_type: state_change
+    condition_config:
+      field: zone
+      from: [oversold]
+      to: [neutral]
+    message_template: "{symbol} RSI exiting oversold zone"
+
+  rsi_overbought_exit:
+    indicator: rsi
+    direction: sell
+    strength: 70
+    priority: high
+    condition_type: state_change
+    condition_config:
+      field: zone
+      from: [overbought]
+      to: [neutral]
+    message_template: "{symbol} RSI exiting overbought zone"
+
+  macd_bullish_cross:
+    indicator: macd
+    direction: buy
+    strength: 60
+    priority: medium
+    condition_type: cross_up
+    condition_config:
+      line_a: macd
+      line_b: signal
+    message_template: "{symbol} MACD bullish crossover"
+
+  macd_bearish_cross:
+    indicator: macd
+    direction: sell
+    strength: 60
+    priority: medium
+    condition_type: cross_down
+    condition_config:
+      line_a: macd
+      line_b: signal
+    message_template: "{symbol} MACD bearish crossover"
+
+# Trend rules
+trend_rules:
+  supertrend_bullish:
+    indicator: supertrend
+    direction: buy
+    strength: 75
+    priority: high
+    condition_type: state_change
+    condition_config:
+      field: direction
+      from: [bearish]
+      to: [bullish]
+    message_template: "{symbol} SuperTrend turned bullish"
+
+  supertrend_bearish:
+    indicator: supertrend
+    direction: sell
+    strength: 75
+    priority: high
+    condition_type: state_change
+    condition_config:
+      field: direction
+      from: [bullish]
+      to: [bearish]
+    message_template: "{symbol} SuperTrend turned bearish"
+
+  ema_golden_cross:
+    indicator: ema
+    direction: buy
+    strength: 65
+    priority: high
+    condition_type: cross_up
+    condition_config:
+      line_a: ema_fast
+      line_b: ema_slow
+    message_template: "{symbol} EMA golden cross (fast > slow)"
+
+  ema_death_cross:
+    indicator: ema
+    direction: sell
+    strength: 65
+    priority: high
+    condition_type: cross_down
+    condition_config:
+      line_a: ema_fast
+      line_b: ema_slow
+    message_template: "{symbol} EMA death cross (fast < slow)"
+
+# Volatility rules
+volatility_rules:
+  bollinger_oversold:
+    indicator: bollinger
+    direction: buy
+    strength: 55
+    priority: medium
+    condition_type: state_change
+    condition_config:
+      field: zone
+      from: [below_lower]
+      to: [inside]
+    message_template: "{symbol} price bouncing from lower Bollinger Band"
+
+  bollinger_overbought:
+    indicator: bollinger
+    direction: sell
+    strength: 55
+    priority: medium
+    condition_type: state_change
+    condition_config:
+      field: zone
+      from: [above_upper]
+      to: [inside]
+    message_template: "{symbol} price rejecting upper Bollinger Band"
+
+  squeeze_release:
+    indicator: squeeze
+    direction: alert
+    strength: 80
+    priority: high
+    condition_type: state_change
+    condition_config:
+      field: squeeze
+      from: [on]
+      to: [off]
+    message_template: "{symbol} Bollinger/Keltner squeeze releasing"
+
+# Volume rules
+volume_rules:
+  volume_spike:
+    indicator: volume_ratio
+    direction: alert
+    strength: 60
+    priority: medium
+    condition_type: threshold_cross_up
+    condition_config:
+      field: ratio
+      threshold: 2.0
+    message_template: "{symbol} volume spike detected (2x average)"
+
+  obv_divergence_bullish:
+    indicator: obv
+    direction: buy
+    strength: 65
+    priority: medium
+    condition_type: state_change
+    condition_config:
+      field: divergence
+      from: [none]
+      to: [bullish]
+    message_template: "{symbol} bullish OBV divergence"
