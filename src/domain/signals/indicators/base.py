@@ -8,6 +8,7 @@ by the IndicatorEngine.
 
 from __future__ import annotations
 
+import copy
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 
@@ -105,8 +106,8 @@ class IndicatorBase(ABC):
 
     @property
     def default_params(self) -> Dict[str, Any]:
-        """Default parameters for this indicator."""
-        return self._default_params.copy()
+        """Default parameters for this indicator (deep copy to protect mutable values)."""
+        return copy.deepcopy(self._default_params)
 
     def calculate(self, data: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
         """
