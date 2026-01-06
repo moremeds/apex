@@ -86,7 +86,12 @@ class ApexEngine(BaseEngine):
         """ApexEngine does not support vectorization."""
         return False
 
-    def run(self, spec: RunSpec, data: Optional[pd.DataFrame] = None) -> RunResult:
+    def run(
+        self,
+        spec: RunSpec,
+        data: Optional[pd.DataFrame] = None,
+        secondary_data: Optional[Dict[str, pd.DataFrame]] = None,
+    ) -> RunResult:
         """
         Execute a single backtest run.
 
@@ -96,6 +101,8 @@ class ApexEngine(BaseEngine):
         Args:
             spec: Run specification (symbol, window, params)
             data: Optional pre-loaded OHLCV data (not used - ApexEngine uses DataFeed)
+            secondary_data: Optional secondary timeframe data for MTF strategies.
+                Note: MTF support in ApexEngine requires strategy-level implementation.
 
         Returns:
             RunResult with metrics and optional equity curve
@@ -283,7 +290,8 @@ class ApexEngine(BaseEngine):
     def run_batch(
         self,
         specs: List[RunSpec],
-        data: Optional[Dict[str, pd.DataFrame]] = None
+        data: Optional[Dict[str, pd.DataFrame]] = None,
+        secondary_data: Optional[Dict[str, Dict[str, pd.DataFrame]]] = None,
     ) -> List[RunResult]:
         """
         Execute multiple runs sequentially.
@@ -293,14 +301,22 @@ class ApexEngine(BaseEngine):
 
         Args:
             specs: List of run specifications
-            data: Optional dict of symbol -> OHLCV DataFrame (not used)
+            data: Optional dict of symbol -> OHLCV DataFrame (not used by ApexEngine)
+            secondary_data: Optional dict of symbol -> {timeframe: DataFrame}
+                for multi-timeframe strategies (not used by ApexEngine)
 
         Returns:
             List of RunResults in same order as specs
+
+        Note:
+            ApexEngine currently ignores data/secondary_data and loads from
+            HistoricalStoreDataFeed. Pass these for interface compatibility.
         """
         results = []
         for i, spec in enumerate(specs):
             logger.info(f"ApexEngine run {i+1}/{len(specs)}: {spec.symbol}")
-            result = self.run(spec, data.get(spec.symbol) if data else None)
+            symbol_data = data.get(spec.symbol) if data else None
+            symbol_secondary = secondary_data.get(spec.symbol) if secondary_data else None
+            result = self.run(spec, symbol_data, symbol_secondary)
             results.append(result)
         return results

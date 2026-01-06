@@ -42,6 +42,12 @@ from .parity import (
     ParityResult,
     DriftType,
     DriftDetail,
+    # Signal parity testing
+    SignalParityResult,
+    compare_signal_parity,
+    compare_directional_signal_parity,
+    SignalCapture,
+    DirectionalSignalCapture,
 )
 from .simulated import SimulatedExecution, FillModel, SimulatedOrder, SimulatedPosition
 from .order_matching import OrderMatcher
@@ -80,6 +86,12 @@ __all__ = [
     "ParityResult",
     "DriftType",
     "DriftDetail",
+    # Signal parity
+    "SignalParityResult",
+    "compare_signal_parity",
+    "compare_directional_signal_parity",
+    "SignalCapture",
+    "DirectionalSignalCapture",
     # Simulated execution
     "SimulatedExecution",
     "FillModel",

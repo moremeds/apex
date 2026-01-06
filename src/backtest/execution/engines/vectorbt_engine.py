@@ -186,21 +186,42 @@ class VectorBTEngine(BaseEngine):
                 )
 
             # Generate signals (pass secondary data for MTF strategies)
-            entries, exits = signal_generator.generate(
-                data, spec.params, secondary_data=filtered_secondary
-            )
-
-            # Run backtest
+            # Check if generator supports directional signals (long + short)
             close = data["close"]
-            pf = vbt.Portfolio.from_signals(
-                close=close,
-                entries=entries,
-                exits=exits,
-                init_cash=spec.initial_capital,
-                fees=spec.commission_per_share / close.mean(),  # Approximate
-                slippage=spec.slippage_bps / 10000,
-                freq=self._vbt_config.freq,
-            )
+
+            if hasattr(signal_generator, 'generate_directional'):
+                # Directional strategy: separate long/short signals
+                long_entries, long_exits, short_entries, short_exits = \
+                    signal_generator.generate_directional(
+                        data, spec.params, secondary_data=filtered_secondary
+                    )
+
+                pf = vbt.Portfolio.from_signals(
+                    close=close,
+                    entries=long_entries,
+                    exits=long_exits,
+                    short_entries=short_entries,
+                    short_exits=short_exits,
+                    init_cash=spec.initial_capital,
+                    fees=spec.commission_per_share / close.mean(),
+                    slippage=spec.slippage_bps / 10000,
+                    freq=self._vbt_config.freq,
+                )
+            else:
+                # Long-only strategy
+                entries, exits = signal_generator.generate(
+                    data, spec.params, secondary_data=filtered_secondary
+                )
+
+                pf = vbt.Portfolio.from_signals(
+                    close=close,
+                    entries=entries,
+                    exits=exits,
+                    init_cash=spec.initial_capital,
+                    fees=spec.commission_per_share / close.mean(),
+                    slippage=spec.slippage_bps / 10000,
+                    freq=self._vbt_config.freq,
+                )
 
             # Extract metrics
             metrics = self._extract_metrics(pf, data)
@@ -232,7 +253,8 @@ class VectorBTEngine(BaseEngine):
     def run_batch(
         self,
         specs: List[RunSpec],
-        data: Optional[Dict[str, pd.DataFrame]] = None
+        data: Optional[Dict[str, pd.DataFrame]] = None,
+        secondary_data: Optional[Dict[str, Dict[str, pd.DataFrame]]] = None,
     ) -> List[RunResult]:
         """
         Execute multiple runs with vectorization where possible.
@@ -242,6 +264,7 @@ class VectorBTEngine(BaseEngine):
         Args:
             specs: List of run specifications
             data: Optional dict of symbol -> OHLCV DataFrame
+            secondary_data: Optional dict of symbol -> {timeframe: DataFrame}
 
         Returns:
             List of RunResults in same order as specs
@@ -268,17 +291,22 @@ class VectorBTEngine(BaseEngine):
                     symbol, first_spec.start_date, first_spec.end_date
                 )
 
+            # Get secondary data for this symbol
+            symbol_secondary = secondary_data.get(symbol) if secondary_data else None
+
             # Check if we can vectorize (same strategy, same date range)
             can_vectorize = self._can_vectorize(indexed_specs)
 
             if can_vectorize and len(indexed_specs) > 1:
-                batch_results = self._run_vectorized(indexed_specs, symbol_data)
+                batch_results = self._run_vectorized(
+                    indexed_specs, symbol_data, symbol_secondary
+                )
                 for (idx, _), result in zip(indexed_specs, batch_results):
                     results[idx] = result
             else:
                 # Fall back to sequential
                 for idx, spec in indexed_specs:
-                    results[idx] = self.run(spec, symbol_data)
+                    results[idx] = self.run(spec, symbol_data, symbol_secondary)
 
         return results  # type: ignore
 
@@ -303,13 +331,19 @@ class VectorBTEngine(BaseEngine):
     def _run_vectorized(
         self,
         indexed_specs: List[Tuple[int, RunSpec]],
-        data: Optional[pd.DataFrame]
+        data: Optional[pd.DataFrame],
+        secondary_data: Optional[Dict[str, pd.DataFrame]] = None,
     ) -> List[RunResult]:
         """
         Run multiple specs with vectorized parameter sweep.
 
         This is the key performance optimization - VectorBT can evaluate
         thousands of parameter combinations in a single pass.
+
+        Args:
+            indexed_specs: List of (index, RunSpec) tuples
+            data: Primary timeframe OHLCV data
+            secondary_data: Optional secondary timeframe data {timeframe: DataFrame}
         """
         import vectorbt as vbt
 
@@ -335,6 +369,17 @@ class VectorBTEngine(BaseEngine):
                     for _, spec in indexed_specs
                 ]
 
+            # Filter secondary data if provided
+            filtered_secondary = None
+            if secondary_data:
+                filtered_secondary = {}
+                for tf, tf_data in secondary_data.items():
+                    filtered_tf = self._filter_date_range(
+                        tf_data, first_spec.start_date, first_spec.end_date
+                    )
+                    if not filtered_tf.empty:
+                        filtered_secondary[tf] = filtered_tf
+
             # Get strategy
             strategy_type = first_spec.params.get("strategy_type", self._vbt_config.strategy_type)
 
@@ -346,7 +391,11 @@ class VectorBTEngine(BaseEngine):
                 results = self._vectorized_ma_cross(indexed_specs, data, close)
             else:
                 # Fall back to sequential for unsupported strategies
-                return [self.run(spec, data) for _, spec in indexed_specs]
+                # Pass secondary data for MTF support
+                return [
+                    self.run(spec, data, filtered_secondary)
+                    for _, spec in indexed_specs
+                ]
 
             return results
 

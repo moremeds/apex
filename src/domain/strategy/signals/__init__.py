@@ -13,13 +13,14 @@ from .ma_cross import MACrossSignalGenerator
 from .momentum_breakout import MomentumBreakoutSignalGenerator
 from .mtf_rsi_trend import MTFRsiTrendSignalGenerator
 from .pairs_trading import PairsTradingSignalGenerator
-from .protocol import SignalGenerator
+from .protocol import DirectionalSignalGenerator, SignalGenerator
 from .rsi_mean_reversion import RSIMeanReversionSignalGenerator
 from .ta_metrics import TAMetricsSignalGenerator
 
 __all__ = [
-    # Protocol
+    # Protocols
     "SignalGenerator",
+    "DirectionalSignalGenerator",
     # Signal generators
     "BuyAndHoldSignalGenerator",
     "MACrossSignalGenerator",

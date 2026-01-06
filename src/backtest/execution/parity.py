@@ -196,6 +196,16 @@ class StrategyParityHarness:
         # Batch comparison
         results = harness.compare_batch(specs)
         failures = [r for r in results if not r.is_parity]
+
+    Data Source Note:
+        VectorBTEngine uses the provided `data` and `secondary_data` parameters.
+        ApexEngine currently ignores these parameters and always loads from the
+        historical store (HistoricalStoreDataFeed). This can cause false parity
+        drifts if the preloaded VectorBT data differs from the stored data.
+
+        For true parity testing with identical data, ensure both engines use
+        the same underlying data source, or implement a DataFrame-backed feed
+        for ApexEngine.
     """
 
     def __init__(
@@ -212,27 +222,31 @@ class StrategyParityHarness:
         self,
         spec: RunSpec,
         data: Optional[pd.DataFrame] = None,
+        secondary_data: Optional[Dict[str, pd.DataFrame]] = None,
     ) -> ParityResult:
         """
         Compare a single run between two engines.
 
         Args:
             spec: Run specification to test
-            data: Optional pre-loaded data (shared by both engines)
+            data: Optional pre-loaded primary timeframe data (shared by both engines)
+            secondary_data: Optional secondary timeframe data for MTF strategies.
+                Keys are timeframe strings (e.g., "1h", "4h").
+                Values are DataFrames with OHLCV columns.
 
         Returns:
             ParityResult with detailed comparison
         """
         start_time = datetime.now()
 
-        # Run reference engine
+        # Run reference engine (with MTF data if provided)
         ref_start = datetime.now()
-        ref_result = self.reference_engine.run(spec, data)
+        ref_result = self.reference_engine.run(spec, data, secondary_data)
         ref_time = (datetime.now() - ref_start).total_seconds()
 
-        # Run test engine
+        # Run test engine (with MTF data if provided)
         test_start = datetime.now()
-        test_result = self.test_engine.run(spec, data)
+        test_result = self.test_engine.run(spec, data, secondary_data)
         test_time = (datetime.now() - test_start).total_seconds()
 
         # Compare results
@@ -263,13 +277,16 @@ class StrategyParityHarness:
         self,
         specs: List[RunSpec],
         data: Optional[Dict[str, pd.DataFrame]] = None,
+        secondary_data: Optional[Dict[str, Dict[str, pd.DataFrame]]] = None,
     ) -> List[ParityResult]:
         """
         Compare multiple runs between engines.
 
         Args:
             specs: List of run specifications
-            data: Optional dict of symbol -> DataFrame
+            data: Optional dict of symbol -> DataFrame (primary timeframe)
+            secondary_data: Optional dict of symbol -> {timeframe: DataFrame}
+                for multi-timeframe strategies
 
         Returns:
             List of ParityResults
@@ -277,7 +294,8 @@ class StrategyParityHarness:
         results = []
         for spec in specs:
             symbol_data = data.get(spec.symbol) if data else None
-            results.append(self.compare(spec, symbol_data))
+            symbol_secondary = secondary_data.get(spec.symbol) if secondary_data else None
+            results.append(self.compare(spec, symbol_data, symbol_secondary))
         return results
 
     def _compare_results(
@@ -630,6 +648,83 @@ def compare_signal_parity(
     )
 
 
+def compare_directional_signal_parity(
+    vectorbt_long_entries: pd.Series,
+    vectorbt_long_exits: pd.Series,
+    vectorbt_short_entries: pd.Series,
+    vectorbt_short_exits: pd.Series,
+    captured_long_entries: pd.Series,
+    captured_long_exits: pd.Series,
+    captured_short_entries: pd.Series,
+    captured_short_exits: pd.Series,
+    warmup_bars: int,
+) -> SignalParityResult:
+    """
+    Compare directional signals from VectorBT SignalGenerator vs event-driven Strategy.
+
+    Used for strategies that generate both long AND short signals (e.g., MTF RSI Trend).
+
+    Args:
+        vectorbt_long_entries: Long entry signals from SignalGenerator.generate_directional()
+        vectorbt_long_exits: Long exit signals
+        vectorbt_short_entries: Short entry signals
+        vectorbt_short_exits: Short exit signals
+        captured_long_entries: Long entries captured from event-driven strategy
+        captured_long_exits: Long exits captured
+        captured_short_entries: Short entries captured
+        captured_short_exits: Short exits captured
+        warmup_bars: Number of initial bars to skip
+
+    Returns:
+        SignalParityResult aggregating all 4 signal comparisons
+    """
+    # Compare long signals
+    long_result = compare_signal_parity(
+        vectorbt_long_entries,
+        vectorbt_long_exits,
+        captured_long_entries,
+        captured_long_exits,
+        warmup_bars,
+    )
+
+    # Compare short signals
+    short_result = compare_signal_parity(
+        vectorbt_short_entries,
+        vectorbt_short_exits,
+        captured_short_entries,
+        captured_short_exits,
+        warmup_bars,
+    )
+
+    # Aggregate results
+    passed = long_result.passed and short_result.passed
+
+    # Combine mismatches with side labels
+    mismatches = []
+    for m in long_result.mismatches:
+        mismatches.append(f"[LONG] {m}")
+    for m in short_result.mismatches:
+        mismatches.append(f"[SHORT] {m}")
+
+    return SignalParityResult(
+        passed=passed,
+        warmup_bars=warmup_bars,
+        total_bars=long_result.total_bars,
+        compared_bars=long_result.compared_bars,
+        entry_matches=long_result.entry_matches + short_result.entry_matches,
+        entry_mismatches=long_result.entry_mismatches + short_result.entry_mismatches,
+        exit_matches=long_result.exit_matches + short_result.exit_matches,
+        exit_mismatches=long_result.exit_mismatches + short_result.exit_mismatches,
+        first_entry_mismatch_idx=(
+            long_result.first_entry_mismatch_idx or short_result.first_entry_mismatch_idx
+        ),
+        first_exit_mismatch_idx=(
+            long_result.first_exit_mismatch_idx or short_result.first_exit_mismatch_idx
+        ),
+        mismatches=mismatches,
+    )
+
+
 class SignalCapture:
     """
     Captures entry/exit signals from event-driven strategy execution.
@@ -742,5 +837,173 @@ class SignalCapture:
         """Clear captured signals and reset shadow position."""
         self._entries.clear()
         self._exits.clear()
+        self._shadow_position = 0.0
+        self._unmatched_timestamps.clear()
+
+
+class DirectionalSignalCapture:
+    """
+    Captures both long AND short entry/exit signals from event-driven strategy.
+
+    Extends SignalCapture to track directional positions and generate
+    4 signal series for parity comparison with DirectionalSignalGenerator.
+
+    Position tracking:
+    - Positive shadow_position = long
+    - Negative shadow_position = short
+    - Zero = flat
+
+    Signal mapping:
+    - BUY while flat → long_entry
+    - BUY while short → short_exit (covering)
+    - SELL while flat → short_entry
+    - SELL while long → long_exit
+
+    Usage:
+        capture = DirectionalSignalCapture(data.index, symbol="AAPL")
+
+        # During backtest, call on each order
+        capture.record_order(timestamp, symbol, side, quantity)
+
+        # After backtest, get all 4 signal series
+        long_entries, long_exits, short_entries, short_exits = capture.get_directional_signals()
+    """
+
+    def __init__(self, index: pd.DatetimeIndex, symbol: str = ""):
+        """
+        Initialize directional signal capture.
+
+        Args:
+            index: DatetimeIndex to align signals to (from OHLCV data)
+            symbol: Symbol being tracked (for multi-symbol strategies)
+        """
+        self.index = index
+        self.symbol = symbol
+        self._long_entries: List[datetime] = []
+        self._long_exits: List[datetime] = []
+        self._short_entries: List[datetime] = []
+        self._short_exits: List[datetime] = []
+        self._shadow_position: float = 0.0
+        self._unmatched_timestamps: List[datetime] = []
+
+    def record_order(
+        self,
+        timestamp: datetime,
+        symbol: str,
+        side: str,
+        quantity: float,
+    ) -> None:
+        """
+        Record an order request as directional entry/exit signal.
+
+        Handles reversal orders that cross through zero position:
+        - BUY 200 when short 100 → short_exit AND long_entry
+        - SELL 200 when long 100 → long_exit AND short_entry
+
+        Args:
+            timestamp: Bar timestamp when order was placed
+            symbol: Symbol for the order
+            side: "BUY" or "SELL"
+            quantity: Order quantity
+        """
+        if self.symbol and symbol != self.symbol:
+            return
+
+        if side.upper() == "BUY":
+            if self._shadow_position == 0:
+                # BUY while flat → long entry
+                self._long_entries.append(timestamp)
+            elif self._shadow_position < 0:
+                # BUY while short
+                self._short_exits.append(timestamp)
+                # Check for reversal: BUY quantity exceeds short position
+                if quantity > abs(self._shadow_position):
+                    # Reversal: also entering long
+                    self._long_entries.append(timestamp)
+            # else: adding to existing long, no signal
+            self._shadow_position += quantity
+
+        elif side.upper() == "SELL":
+            if self._shadow_position == 0:
+                # SELL while flat → short entry
+                self._short_entries.append(timestamp)
+            elif self._shadow_position > 0:
+                # SELL while long
+                self._long_exits.append(timestamp)
+                # Check for reversal: SELL quantity exceeds long position
+                if quantity > self._shadow_position:
+                    # Reversal: also entering short
+                    self._short_entries.append(timestamp)
+            # else: adding to existing short, no signal
+            self._shadow_position -= quantity
+
+    def get_directional_signals(
+        self,
+    ) -> Tuple[pd.Series, pd.Series, pd.Series, pd.Series]:
+        """
+        Convert captured orders to 4 boolean signal series.
+
+        Returns:
+            (long_entries, long_exits, short_entries, short_exits):
+            All are boolean Series aligned to self.index
+        """
+        long_entries = pd.Series(False, index=self.index)
+        long_exits = pd.Series(False, index=self.index)
+        short_entries = pd.Series(False, index=self.index)
+        short_exits = pd.Series(False, index=self.index)
+        self._unmatched_timestamps.clear()
+
+        # Mark long entries
+        for ts in self._long_entries:
+            if ts in long_entries.index:
+                long_entries.loc[ts] = True
+            else:
+                self._unmatched_timestamps.append(ts)
+
+        # Mark long exits
+        for ts in self._long_exits:
+            if ts in long_exits.index:
+                long_exits.loc[ts] = True
+            else:
+                self._unmatched_timestamps.append(ts)
+
+        # Mark short entries
+        for ts in self._short_entries:
+            if ts in short_entries.index:
+                short_entries.loc[ts] = True
+            else:
+                self._unmatched_timestamps.append(ts)
+
+        # Mark short exits
+        for ts in self._short_exits:
+            if ts in short_exits.index:
+                short_exits.loc[ts] = True
+            else:
+                self._unmatched_timestamps.append(ts)
+
+        return long_entries, long_exits, short_entries, short_exits
+
+    def get_signals(self) -> Tuple[pd.Series, pd.Series]:
+        """
+        Get combined entry/exit signals (backward compatibility).
+
+        Returns all entries (long or short) as entries, all exits as exits.
+        """
+        long_e, long_x, short_e, short_x = self.get_directional_signals()
+        entries = long_e | short_e
+        exits = long_x | short_x
+        return entries, exits
+
+    @property
+    def unmatched_count(self) -> int:
+        """Number of timestamps that didn't match index."""
+        return len(self._unmatched_timestamps)
+
+    def reset(self) -> None:
+        """Clear captured signals and reset shadow position."""
+        self._long_entries.clear()
+        self._long_exits.clear()
+        self._short_entries.clear()
+        self._short_exits.clear()
         self._shadow_position = 0.0
         self._unmatched_timestamps.clear()

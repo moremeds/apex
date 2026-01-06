@@ -83,3 +83,61 @@ class SignalGenerator(Protocol):
             - exits: True where a position should be closed
         """
         ...
+
+
+class DirectionalSignalGenerator(Protocol):
+    """
+    Extended protocol for strategies that generate both long AND short signals.
+
+    Use this protocol when a strategy can take both long and short positions
+    (e.g., mean reversion, pairs trading, MTF trend following).
+
+    VectorBT's Portfolio.from_signals() supports separate long/short entries:
+        portfolio = vbt.Portfolio.from_signals(
+            close=close,
+            entries=long_entries,        # Long entry signals
+            exits=long_exits,            # Long exit signals
+            short_entries=short_entries, # Short entry signals
+            short_exits=short_exits,     # Short exit signals
+        )
+
+    Example:
+        class MTFRsiTrendSignalGenerator:
+            def generate_directional(
+                self,
+                data: pd.DataFrame,
+                params: dict[str, Any],
+                secondary_data: Optional[Dict[str, pd.DataFrame]] = None,
+            ) -> Tuple[pd.Series, pd.Series, pd.Series, pd.Series]:
+                # ... calculate trend and entry signals ...
+                long_entries = bullish_trend & oversold
+                long_exits = bullish_trend & overbought
+                short_entries = bearish_trend & overbought
+                short_exits = bearish_trend & oversold
+                return long_entries, long_exits, short_entries, short_exits
+    """
+
+    @property
+    def warmup_bars(self) -> int:
+        """Number of bars required before signals are valid."""
+        ...
+
+    def generate_directional(
+        self,
+        data: pd.DataFrame,
+        params: dict[str, Any],
+        secondary_data: Optional[Dict[str, pd.DataFrame]] = None,
+    ) -> Tuple[pd.Series, pd.Series, pd.Series, pd.Series]:
+        """
+        Generate directional (long AND short) entry/exit signals.
+
+        Args:
+            data: Primary timeframe OHLCV DataFrame.
+            params: Strategy parameters.
+            secondary_data: Optional secondary timeframe data for MTF strategies.
+
+        Returns:
+            Tuple of (long_entries, long_exits, short_entries, short_exits).
+            All are boolean Series aligned to data.index.
+        """
+        ...

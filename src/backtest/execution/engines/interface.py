@@ -62,13 +62,21 @@ class BacktestEngine(Protocol):
     to be usable in the systematic runner and parity harness.
     """
 
-    def run(self, spec: RunSpec, data: Optional[pd.DataFrame] = None) -> RunResult:
+    def run(
+        self,
+        spec: RunSpec,
+        data: Optional[pd.DataFrame] = None,
+        secondary_data: Optional[Dict[str, pd.DataFrame]] = None,
+    ) -> RunResult:
         """
         Execute a single backtest run.
 
         Args:
             spec: Run specification (symbol, window, params)
-            data: Optional pre-loaded OHLCV data. If None, engine loads it.
+            data: Optional pre-loaded primary timeframe OHLCV data. If None, engine loads it.
+            secondary_data: Optional secondary timeframe data for MTF strategies.
+                Keys are timeframe strings (e.g., "1h", "4h").
+                Values are DataFrames with OHLCV columns.
 
         Returns:
             RunResult with metrics and optional equity curve
@@ -78,7 +86,8 @@ class BacktestEngine(Protocol):
     def run_batch(
         self,
         specs: List[RunSpec],
-        data: Optional[Dict[str, pd.DataFrame]] = None
+        data: Optional[Dict[str, pd.DataFrame]] = None,
+        secondary_data: Optional[Dict[str, Dict[str, pd.DataFrame]]] = None,
     ) -> List[RunResult]:
         """
         Execute multiple runs (potentially in parallel/vectorized).
@@ -88,7 +97,9 @@ class BacktestEngine(Protocol):
 
         Args:
             specs: List of run specifications
-            data: Optional dict of symbol -> OHLCV DataFrame
+            data: Optional dict of symbol -> OHLCV DataFrame (primary timeframe)
+            secondary_data: Optional dict of symbol -> {timeframe: DataFrame}
+                for multi-timeframe strategies
 
         Returns:
             List of RunResults in same order as specs
@@ -118,20 +129,27 @@ class BaseEngine(ABC):
         self._data_cache: Dict[str, pd.DataFrame] = {}
 
     @abstractmethod
-    def run(self, spec: RunSpec, data: Optional[pd.DataFrame] = None) -> RunResult:
-        """Execute a single backtest run."""
+    def run(
+        self,
+        spec: RunSpec,
+        data: Optional[pd.DataFrame] = None,
+        secondary_data: Optional[Dict[str, pd.DataFrame]] = None,
+    ) -> RunResult:
+        """Execute a single backtest run with optional MTF data."""
         pass
 
     def run_batch(
         self,
         specs: List[RunSpec],
-        data: Optional[Dict[str, pd.DataFrame]] = None
+        data: Optional[Dict[str, pd.DataFrame]] = None,
+        secondary_data: Optional[Dict[str, Dict[str, pd.DataFrame]]] = None,
     ) -> List[RunResult]:
         """Default batch implementation - override for vectorization."""
         results = []
         for spec in specs:
             symbol_data = data.get(spec.symbol) if data else None
-            results.append(self.run(spec, symbol_data))
+            symbol_secondary = secondary_data.get(spec.symbol) if secondary_data else None
+            results.append(self.run(spec, symbol_data, symbol_secondary))
         return results
 
     @property

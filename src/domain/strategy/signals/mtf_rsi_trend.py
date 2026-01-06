@@ -11,7 +11,7 @@ from .indicators import rsi
 
 class MTFRsiTrendSignalGenerator:
     """
-    Multi-Timeframe RSI strategy signal generation.
+    Multi-Timeframe RSI strategy signal generation with directional support.
 
     Uses two timeframes:
     - Primary (e.g., daily): Trend direction via RSI > 50 (bullish) or < 50 (bearish)
@@ -24,6 +24,9 @@ class MTFRsiTrendSignalGenerator:
     Exit Logic:
     - Exit LONG: Secondary RSI > overbought (take profit in uptrend)
     - Exit SHORT: Secondary RSI < oversold (take profit in downtrend)
+
+    This generator implements DirectionalSignalGenerator protocol for proper
+    long/short signal separation in VectorBT.
 
     Parameters:
         trend_rsi_period: RSI period for primary timeframe trend (default 14)
@@ -38,6 +41,34 @@ class MTFRsiTrendSignalGenerator:
         """Max RSI warmup period."""
         return 21  # Max of trend_rsi_period and entry_rsi_period + buffer
 
+    def _get_secondary_rsi(
+        self,
+        index: pd.DatetimeIndex,
+        close: pd.Series,
+        entry_period: int,
+        secondary_data: Optional[Dict[str, pd.DataFrame]],
+    ) -> pd.Series:
+        """Extract and align secondary timeframe RSI to primary index."""
+        secondary_df = None
+        if secondary_data:
+            # Try common hourly keys in order of preference
+            for key in ["1h", "1H", "4h", "4H"]:
+                if key in secondary_data:
+                    secondary_df = secondary_data[key]
+                    break
+            # Fallback to first available timeframe
+            if secondary_df is None:
+                secondary_df = next(iter(secondary_data.values()), None)
+
+        if secondary_df is not None and not secondary_df.empty:
+            secondary_close = secondary_df["close"]
+            secondary_rsi_values = rsi(secondary_close, entry_period)
+            # Align secondary RSI to primary index via forward-fill
+            return secondary_rsi_values.reindex(index, method="ffill")
+        else:
+            # Fallback: use primary timeframe RSI for entry
+            return rsi(close, entry_period)
+
     def generate(
         self,
         data: pd.DataFrame,
@@ -45,16 +76,36 @@ class MTFRsiTrendSignalGenerator:
         secondary_data: Optional[Dict[str, pd.DataFrame]] = None,
     ) -> Tuple[pd.Series, pd.Series]:
         """
-        Generate MTF RSI trend signals.
+        Generate combined entry/exit signals (long-only compatible).
+
+        For proper long/short handling, use generate_directional() instead.
+
+        Returns:
+            (entries, exits): Combined signals (long entries only for safety).
+        """
+        long_entries, long_exits, _, _ = self.generate_directional(
+            data, params, secondary_data
+        )
+        # Return long-only signals for backward compatibility
+        return long_entries, long_exits
+
+    def generate_directional(
+        self,
+        data: pd.DataFrame,
+        params: dict[str, Any],
+        secondary_data: Optional[Dict[str, pd.DataFrame]] = None,
+    ) -> Tuple[pd.Series, pd.Series, pd.Series, pd.Series]:
+        """
+        Generate separate long and short entry/exit signals.
 
         Args:
             data: Primary timeframe OHLCV DataFrame (e.g., daily).
             params: Strategy parameters.
             secondary_data: Dict with secondary timeframe data.
-                Expected key: "1h" (or other configured secondary timeframe).
 
         Returns:
-            (entries, exits): Boolean series aligned to primary timeframe index.
+            (long_entries, long_exits, short_entries, short_exits):
+            Four boolean series aligned to primary timeframe index.
         """
         close = data["close"]
         index = close.index
@@ -73,41 +124,24 @@ class MTFRsiTrendSignalGenerator:
         bullish_trend = primary_rsi > trend_threshold
         bearish_trend = primary_rsi < trend_threshold
 
-        # Get secondary timeframe data
-        # Default to primary if no secondary data available
-        secondary_df = None
-        if secondary_data:
-            # Try common hourly keys in order of preference
-            for key in ["1h", "1H", "4h", "4H"]:
-                if key in secondary_data:
-                    secondary_df = secondary_data[key]
-                    break
-            # Fallback to first available timeframe
-            if secondary_df is None and secondary_data:
-                secondary_df = next(iter(secondary_data.values()))
-
-        if secondary_df is not None and not secondary_df.empty:
-            # Resample secondary RSI to primary timeframe
-            # Use the last secondary RSI value within each primary bar period
-            secondary_close = secondary_df["close"]
-            secondary_rsi_values = rsi(secondary_close, entry_period)
-
-            # Align secondary RSI to primary index via forward-fill
-            # Each primary bar gets the most recent secondary RSI value
-            secondary_rsi = secondary_rsi_values.reindex(index, method="ffill")
-        else:
-            # Fallback: use primary timeframe RSI for entry if no secondary data
-            secondary_rsi = rsi(close, entry_period)
-
-        # Entry signals
-        long_entry = bullish_trend & (secondary_rsi < oversold)
-        short_entry = bearish_trend & (secondary_rsi > overbought)
-        entries = long_entry | short_entry
-
-        # Exit signals (take profit at opposite extreme)
-        exits = (
-            (bullish_trend & (secondary_rsi > overbought)) |
-            (bearish_trend & (secondary_rsi < oversold))
+        # Get aligned secondary RSI
+        secondary_rsi = self._get_secondary_rsi(
+            index, close, entry_period, secondary_data
         )
 
-        return entries.fillna(False), exits.fillna(False)
+        # Long signals: bullish trend + oversold entry
+        long_entries = bullish_trend & (secondary_rsi < oversold)
+        # Long exits: trend reversal (matches Apex strategy logic)
+        long_exits = bearish_trend
+
+        # Short signals: bearish trend + overbought entry
+        short_entries = bearish_trend & (secondary_rsi > overbought)
+        # Short exits: trend reversal (matches Apex strategy logic)
+        short_exits = bullish_trend
+
+        return (
+            long_entries.fillna(False),
+            long_exits.fillna(False),
+            short_entries.fillna(False),
+            short_exits.fillna(False),
+        )
