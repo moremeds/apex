@@ -10,6 +10,7 @@ from .readiness_manager import (
     MarketDataStatus,
     DataFreshness,
 )
+from .signal_router import SignalRouter, SignalRouterConfig, SignalStats
 
 __all__ = [
     "Orchestrator",
@@ -20,4 +21,7 @@ __all__ = [
     "BrokerStatus",
     "MarketDataStatus",
     "DataFreshness",
+    "SignalRouter",
+    "SignalRouterConfig",
+    "SignalStats",
 ]

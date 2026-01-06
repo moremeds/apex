@@ -603,6 +603,61 @@ class MDQCValidationTrigger(DomainEvent):
     source: str = ""  # Where the trigger came from
 
 
+@dataclass(frozen=True, slots=True)
+class TradingSignalEvent(DomainEvent):
+    """
+    Trading signal event for routing to TUI, logging, and execution.
+
+    Published on EventType.TRADING_SIGNAL when a strategy emits a signal.
+    Used by SignalRouter to decouple signal generation from consumption.
+
+    Signal flow:
+    1. Strategy.emit_signal() creates TradingSignal
+    2. SignalRouter wraps in TradingSignalEvent and publishes
+    3. Subscribers (TUI, logging, execution) receive and process
+    """
+
+    # Core signal fields
+    signal_id: str = ""
+    symbol: str = ""
+    direction: str = ""  # "LONG", "SHORT", "FLAT"
+    strength: float = 1.0
+
+    # Targeting
+    target_quantity: Optional[float] = None
+    target_price: Optional[float] = None
+
+    # Metadata
+    strategy_id: str = ""
+    reason: str = ""
+    source: str = ""  # Source of the signal (e.g., strategy_id)
+
+    @classmethod
+    def from_signal(cls, signal: Any, source: str = "strategy") -> "TradingSignalEvent":
+        """
+        Create event from TradingSignal domain object.
+
+        Args:
+            signal: TradingSignal instance from strategy
+            source: Source of the signal (e.g., strategy_id)
+
+        Returns:
+            TradingSignalEvent for event bus
+        """
+        return cls(
+            timestamp=signal.timestamp or now_local(),
+            signal_id=signal.signal_id,
+            symbol=signal.symbol,
+            direction=signal.direction,
+            strength=signal.strength,
+            target_quantity=signal.target_quantity,
+            target_price=signal.target_price,
+            strategy_id=signal.strategy_id,
+            reason=signal.reason,
+            source=source,
+        )
+
+
 # =============================================================================
 # Event Registry
 # =============================================================================
@@ -620,6 +675,7 @@ EVENT_REGISTRY: Dict[str, Type[DomainEvent]] = {
     "SnapshotReadyEvent": SnapshotReadyEvent,
     "MarketDataTickEvent": MarketDataTickEvent,
     "MDQCValidationTrigger": MDQCValidationTrigger,
+    "TradingSignalEvent": TradingSignalEvent,
 }
 
 

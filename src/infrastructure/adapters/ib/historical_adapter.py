@@ -2,7 +2,7 @@
 IB Historical Adapter for historical data requests.
 
 Handles:
-- Historical bar/candle data (implements BarProvider)
+- Historical bar/candle data (implements BarProvider and HistoricalSourcePort)
 - Batch historical requests
 
 Uses reserved historical client IDs.
@@ -14,6 +14,7 @@ from datetime import datetime, timedelta, date
 
 from ....utils.logging_setup import get_logger
 from ....domain.interfaces.bar_provider import BarProvider
+from ....domain.interfaces.historical_source import HistoricalSourcePort
 from ....domain.events.domain_events import BarData
 
 from .base import IbBaseAdapter
@@ -61,6 +62,7 @@ class IbHistoricalAdapter(IbBaseAdapter, BarProvider):
     IB adapter for historical data requests.
 
     Implements BarProvider for fetching historical bars.
+    Also implements HistoricalSourcePort for the historical data management system.
     Uses a reserved historical client ID.
 
     Note: Historical data requests can be slow and rate-limited by IB.
@@ -74,6 +76,19 @@ class IbHistoricalAdapter(IbBaseAdapter, BarProvider):
         super().__init__(*args, **kwargs)
         self._bar_callback: Optional[Callable[[BarData], None]] = None
         self._subscribed_bars: Dict[str, str] = {}  # symbol -> timeframe
+
+    # -------------------------------------------------------------------------
+    # HistoricalSourcePort Implementation
+    # -------------------------------------------------------------------------
+
+    @property
+    def source_name(self) -> str:
+        """Get source identifier for data provenance tracking."""
+        return "ib"
+
+    def supports_timeframe(self, timeframe: str) -> bool:
+        """Check if timeframe is supported."""
+        return timeframe in TIMEFRAME_TO_IB_BAR_SIZE
 
     # -------------------------------------------------------------------------
     # BarProvider Implementation
@@ -147,7 +162,7 @@ class IbHistoricalAdapter(IbBaseAdapter, BarProvider):
                     close=float(bar.close),
                     volume=int(bar.volume) if bar.volume else None,
                     bar_start=bar_ts,
-                    source="IB",
+                    source="ib",  # Lowercase to match source_name property
                     timestamp=bar_ts,
                 )
                 result.append(bar_data)
@@ -156,7 +171,10 @@ class IbHistoricalAdapter(IbBaseAdapter, BarProvider):
             if start:
                 # Ensure start is datetime for comparison
                 start_dt = start if isinstance(start, datetime) else datetime.combine(start, datetime.min.time())
-                result = [b for b in result if b.timestamp >= start_dt]
+                # Normalize timezone: make both naive for comparison
+                if start_dt.tzinfo is not None:
+                    start_dt = start_dt.replace(tzinfo=None)
+                result = [b for b in result if b.timestamp.replace(tzinfo=None) >= start_dt]
 
             # Apply limit
             if limit and len(result) > limit:

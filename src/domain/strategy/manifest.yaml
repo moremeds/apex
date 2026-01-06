@@ -1,0 +1,65 @@
+# Strategy Manifest
+#
+# Maps strategy names to their implementations:
+# - strategy: Event-driven Strategy class (for ApexEngine and live trading)
+# - signals: Vectorized SignalGenerator class (for VectorBT screening)
+# - validation: ApexEngine validation status for live trading gate
+#
+# Use colon notation: module.path:ClassName
+#
+# Validation fields:
+# - validated_by_apex: true/false - Required for live trading
+# - validation_date: ISO date when validated
+# - validation_sharpe: Sharpe ratio from validation run (informational)
+
+strategies:
+  buy_and_hold:
+    strategy: src.domain.strategy.examples.buy_and_hold:BuyAndHoldStrategy
+    signals: src.domain.strategy.signals.buy_and_hold:BuyAndHoldSignalGenerator
+    validation:
+      validated_by_apex: false
+
+  ma_cross:
+    strategy: src.domain.strategy.examples.ma_cross:MovingAverageCrossStrategy
+    signals: src.domain.strategy.signals.ma_cross:MACrossSignalGenerator
+    validation:
+      validated_by_apex: false
+
+  pairs_trading:
+    strategy: src.domain.strategy.examples.pairs_trading:PairsTradingStrategy
+    signals: src.domain.strategy.signals.pairs_trading:PairsTradingSignalGenerator
+    apex_only: true  # Requires multi-symbol data; VectorBT needs custom handling
+    validation:
+      validated_by_apex: false
+
+  rsi_mean_reversion:
+    strategy: src.domain.strategy.examples.rsi_mean_reversion:RsiMeanReversionStrategy
+    signals: src.domain.strategy.signals.rsi_mean_reversion:RSIMeanReversionSignalGenerator
+    validation:
+      validated_by_apex: false
+
+  scheduled_rebalance:
+    strategy: src.domain.strategy.examples.scheduled_rebalance:ScheduledRebalanceStrategy
+    signals: null  # Portfolio strategy - no vectorized signals
+    apex_only: true
+    validation:
+      validated_by_apex: false
+
+  momentum_breakout:
+    strategy: src.domain.strategy.examples.momentum_breakout:MomentumBreakoutStrategy
+    signals: src.domain.strategy.signals.momentum_breakout:MomentumBreakoutSignalGenerator
+    validation:
+      validated_by_apex: false
+
+  ta_metrics:
+    strategy: src.domain.strategy.examples.ta_metrics_strategy:TAMetricsStrategy
+    signals: src.domain.strategy.signals.ta_metrics:TAMetricsSignalGenerator
+    validation:
+      validated_by_apex: false
+
+  mtf_rsi_trend:
+    strategy: src.domain.strategy.examples.mtf_rsi_trend:MTFRsiTrendStrategy
+    signals: src.domain.strategy.signals.mtf_rsi_trend:MTFRsiTrendSignalGenerator
+    multi_timeframe: true  # Uses secondary_data parameter in signal generator
+    validation:
+      validated_by_apex: false

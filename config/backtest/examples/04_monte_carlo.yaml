@@ -1,0 +1,87 @@
+# Monte Carlo Trade Reshuffling Example
+#
+# Demonstrates:
+# - Monte Carlo simulation for path dependency analysis
+# - Testing if equity curves could arise by chance
+# - Confidence band visualization
+#
+# Monte Carlo reshuffling randomly reorders trades to generate
+# alternative equity curves. This helps determine if the observed
+# performance is due to genuine strategy skill or just lucky trade ordering.
+#
+# Run with:
+#   python -m src.runners.systematic_backtest_runner --spec config/backtest/examples/04_monte_carlo.yaml
+
+name: "Monte_Carlo_Example"
+description: "Trend following strategy with Monte Carlo path dependency analysis"
+strategy: "momentum_breakout"  # Trend-following via breakout strategy
+
+parameters:
+  trend_period:
+    type: range
+    min: 50
+    max: 200
+    step: 25
+  atr_multiplier:
+    type: range
+    min: 1.0
+    max: 3.0
+    step: 0.5
+  breakout_threshold:
+    type: categorical
+    values: [0.01, 0.02, 0.03]
+
+universe:
+  type: static
+  symbols:
+    - SPY       # S&P 500
+    - GLD       # Gold ETF
+    - TLT       # Treasury Bond ETF
+
+temporal:
+  primary_method: walk_forward
+  train_days: 504           # 2 years
+  test_days: 252            # 1 year
+  folds: 3
+  purge_days: 10
+  embargo_days: 5
+  start_date: "2018-01-01"
+  end_date: "2025-12-30"
+
+  # Monte Carlo configuration
+  secondary_method: monte_carlo
+
+optimization:
+  method: grid
+  metric: calmar
+  direction: maximize
+
+  # Monte Carlo analysis settings
+  monte_carlo:
+    enabled: true
+    n_simulations: 1000     # 1000 trade reshuffles
+    confidence_levels:
+      - 0.05                # 5th percentile
+      - 0.50                # Median
+      - 0.95                # 95th percentile
+    seed: 42
+
+  constraints:
+    - metric: median_sharpe
+      operator: ">="
+      value: 0.5
+    - metric: median_max_dd
+      operator: "<="
+      value: 0.20
+
+profiles:
+  trend:
+    name: trend_realistic
+    version: v1
+    slippage_bps: 5.0
+    commission_per_share: 0.005
+    fill_model: close
+
+reproducibility:
+  random_seed: 42
+  data_version: "apex_2024.12"

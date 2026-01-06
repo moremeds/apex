@@ -16,7 +16,7 @@ from datetime import datetime, date
 from pathlib import Path
 from typing import List
 
-from src.infrastructure.backtest.data_feeds import (
+from src.backtest.data.feeds import (
     StreamingCsvDataFeed,
     StreamingParquetDataFeed,
     CsvDataFeed,

@@ -8,8 +8,8 @@ from datetime import datetime, date, timedelta
 from src.domain.clock import SimulatedClock
 from src.domain.strategy.base import Strategy, StrategyContext
 from src.domain.events.domain_events import QuoteTick
-from src.infrastructure.backtest.backtest_engine import BacktestEngine, BacktestConfig
-from src.infrastructure.backtest.data_feeds import InMemoryDataFeed
+from src.backtest.execution.engines.backtest_engine import BacktestEngine, BacktestConfig
+from src.backtest.data.feeds import InMemoryDataFeed
 from src.domain.reality import RealityModelPack, create_zero_cost_pack, ConstantAdminFeeModel
 
 

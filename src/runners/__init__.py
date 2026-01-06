@@ -2,11 +2,21 @@
 Application runners for different modes.
 
 Provides entry points for:
-- BacktestRunner: Historical backtesting
-- LiveRunner: Live trading (future)
-- PaperRunner: Paper trading (future)
+- TradingRunner: Live/dry-run trading with validation gate
 """
 
-from .backtest_runner import BacktestRunner
+from .trading_runner import (
+    TradingRunner,
+    TradingConfig,
+    StrategyNotValidatedError,
+    ManifestLoadError,
+    load_strategy_manifest,
+)
 
-__all__ = ["BacktestRunner"]
+__all__ = [
+    "TradingRunner",
+    "TradingConfig",
+    "StrategyNotValidatedError",
+    "ManifestLoadError",
+    "load_strategy_manifest",
+]
