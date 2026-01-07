@@ -104,7 +104,7 @@ HeaderWidget Tab.-active {
 }
 
 /* ===== Views fill their TabPane ===== */
-SummaryView, SignalsView, PositionsView, LabView {
+SummaryView, SignalsView, PositionsView, LabView, TradingSignalsView {
     height: 1fr;
     width: 1fr;
 }
@@ -320,6 +320,92 @@ DataTable > .datatable--cursor {
 
 #lab-health-title {
     color: #ff6b6b;
+}
+
+/* ===== Trading Signals View specifics ===== */
+#trading-main {
+    height: 1fr;
+    width: 1fr;
+}
+
+#trading-left {
+    width: 1fr;
+}
+
+#trading-right {
+    width: 2fr;
+}
+
+/* Watchlist panel */
+#watchlist-panel {
+    border: solid #2f6fb3;
+    background: #23262c;
+    height: 1fr;
+}
+
+WatchlistPanel {
+    height: 1fr;
+    background: #23262c;
+}
+
+#watchlist-title {
+    color: #9fb2c6;
+}
+
+#watchlist-timeframes {
+    height: 1;
+    padding: 0 1;
+    color: #8b949e;
+}
+
+#watchlist-table {
+    height: 1fr;
+    border: none;
+    background: #23262c;
+}
+
+#watchlist-hints {
+    height: 1;
+    color: #8b949e;
+}
+
+/* Trading signals panel */
+#trading-signals-panel {
+    border: solid #7ee787;
+    background: #23262c;
+    height: 2fr;
+}
+
+#trading-signals-title {
+    color: #7ee787;
+}
+
+TradingSignalsTable {
+    border: none;
+    background: #23262c;
+    height: 1fr;
+}
+
+/* Confluence panel */
+#trading-confluence-panel {
+    border: solid #f6d365;
+    background: #23262c;
+    height: 1fr;
+}
+
+#trading-confluence-title {
+    color: #f6d365;
+}
+
+ConfluencePanel {
+    background: #23262c;
+    padding: 0 1;
+    height: 1fr;
+}
+
+#confluence-body {
+    height: 1fr;
+    padding: 0;
 }
 
 /* ===== Footer ===== */

@@ -67,6 +67,8 @@ class TextualDashboard:
         self._ta_service = None
         self._event_loop = None
         self._historical_service = None
+        self._event_bus = None
+        self._pending_universe: List[str] = []  # Symbols to apply when app starts
 
     def start(self) -> None:
         """
@@ -120,21 +122,37 @@ class TextualDashboard:
         ta_service,
         event_loop: asyncio.AbstractEventLoop,
         historical_service=None,
+        event_bus=None,
     ) -> None:
         """
-        Inject services for ATR calculation and backtesting.
+        Inject services for ATR calculation, backtesting, and signal events.
 
         Args:
             ta_service: TAService instance.
             event_loop: Main event loop for async operations.
             historical_service: HistoricalDataService for backtest data.
+            event_bus: PriorityEventBus for subscribing to TRADING_SIGNAL events.
         """
         self._ta_service = ta_service
         self._event_loop = event_loop
         self._historical_service = historical_service
+        self._event_bus = event_bus
 
         if self._app:
-            self._app.inject_services(ta_service, event_loop, historical_service)
+            self._app.inject_services(
+                ta_service, event_loop, historical_service, event_bus
+            )
+
+    def set_trading_universe(self, symbols: List[str]) -> None:
+        """
+        Set the trading universe symbols for Tab 6 watchlist.
+
+        Args:
+            symbols: List of symbol strings (e.g., ["AAPL", "TSLA"]).
+        """
+        self._pending_universe = list(symbols)
+        if self._app:
+            self._app.set_trading_universe(symbols)
 
     async def run_async(
         self,
@@ -157,7 +175,12 @@ class TextualDashboard:
                 self._ta_service,
                 self._event_loop,
                 self._historical_service,
+                self._event_bus,
             )
+
+        # Apply pending trading universe if set
+        if self._pending_universe:
+            self._app.set_trading_universe(self._pending_universe)
 
         # Run the app (blocks until user quits)
         # The app's on_mount sets up the update polling timer

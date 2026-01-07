@@ -492,10 +492,12 @@ async def main_async(args: argparse.Namespace) -> None:
                     )
                     ta_service = TAService(historical_service)
 
-                    # Inject TAService and HistoricalDataService into dashboard
+                    # Inject TAService, HistoricalDataService, and EventBus into dashboard
                     if dashboard:
                         event_loop = asyncio.get_event_loop()
-                        dashboard.set_ta_service(ta_service, event_loop, historical_service)
+                        dashboard.set_ta_service(
+                            ta_service, event_loop, historical_service, event_bus
+                        )
 
                     # Get symbols from positions for pre-fetch
                     positions = position_store.get_all()
@@ -506,8 +508,25 @@ async def main_async(args: argparse.Namespace) -> None:
                         if sym:
                             underlyings.add(sym)
 
+                    # Set trading universe for Tab 6 watchlist
                     if underlyings:
                         symbols = list(underlyings)
+                    else:
+                        # Demo mode fallback: sample symbols
+                        symbols = ["AAPL", "TSLA", "NVDA", "AMD", "MSFT", "GOOGL", "AMZN", "META"]
+                        system_structured.info(
+                            LogCategory.DATA,
+                            "No positions found, using sample symbols for demo"
+                        )
+
+                    if dashboard:
+                        dashboard.set_trading_universe(symbols)
+                        system_structured.info(
+                            LogCategory.DATA,
+                            f"Trading universe set: {len(symbols)} symbols"
+                        )
+
+                    if underlyings:
                         system_structured.info(
                             LogCategory.DATA,
                             f"Pre-fetching 60d daily bars for {len(symbols)} symbols",

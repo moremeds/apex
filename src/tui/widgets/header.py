@@ -14,7 +14,7 @@ from __future__ import annotations
 from textual.widget import Widget
 from textual.reactive import reactive
 from textual.widgets import Static, Tabs, Tab
-from textual.containers import Center, Horizontal
+from textual.containers import Horizontal
 from textual.app import ComposeResult
 
 from ...utils.market_hours import MarketHours
@@ -42,14 +42,15 @@ class HeaderWidget(Widget):
 
     def compose(self) -> ComposeResult:
         """Compose the header layout."""
-        with Center():
-            with Horizontal(id="header-content"):
-                yield Static(self._build_header_text(), id="header-left")
-                tabs = [
-                    Tab(f"[{key}]{label}", id=tab_id)
-                    for key, label, tab_id, _view in VIEW_TABS
-                ]
-                yield Tabs(*tabs, id="header-tabs", active=self.active_tab)
+        # Note: No Center() wrapper - CSS content-align handles centering
+        # Center() inside a 1-row height widget causes layout issues
+        with Horizontal(id="header-content"):
+            yield Static(self._build_header_text(), id="header-left")
+            tabs = [
+                Tab(f"[{key}]{label}", id=tab_id)
+                for key, label, tab_id, _view in VIEW_TABS
+            ]
+            yield Tabs(*tabs, id="header-tabs", active=self.active_tab)
 
     def _build_header_text(self) -> str:
         """Build the header text with all components."""

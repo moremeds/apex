@@ -128,6 +128,9 @@ class IndicatorEngine:
 
     def _on_bar_close(self, payload: Any) -> None:
         """Handle BAR_CLOSE event (sync entry point)."""
+        if not self._started:
+            return  # Ignore events after stop()
+
         try:
             loop = asyncio.get_running_loop()
             loop.create_task(self._process_bar_async(payload))
@@ -137,6 +140,9 @@ class IndicatorEngine:
 
     async def _process_bar_async(self, payload: Any) -> None:
         """Process a bar close event and compute indicators."""
+        if not self._started:
+            return  # Engine stopped, skip processing
+
         event = self._coerce_bar_close(payload)
         if event is None:
             return
@@ -173,11 +179,15 @@ class IndicatorEngine:
             if len(bars) < indicator.warmup_periods:
                 continue
 
+            # Re-check started flag before scheduling (race condition guard)
+            if not self._started:
+                return
+
             state_key: StateKey = (event.symbol, event.timeframe, indicator.name)
             prev_state = self._previous_states.get(state_key)
 
-            tasks.append(
-                loop.run_in_executor(
+            try:
+                task = loop.run_in_executor(
                     self._executor,
                     self._compute_indicator,
                     indicator,
@@ -187,7 +197,11 @@ class IndicatorEngine:
                     bar_entry["timestamp"],
                     prev_state,
                 )
-            )
+                tasks.append(task)
+            except RuntimeError:
+                # Executor was shutdown between check and call
+                logger.debug("Executor shutdown during indicator processing")
+                return
 
         if not tasks:
             return

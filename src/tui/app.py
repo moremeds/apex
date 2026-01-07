@@ -7,6 +7,7 @@ Real-time terminal UI for risk monitoring with tabbed views:
 - Tab 3: IB Positions (detailed IB positions with ATR levels)
 - Tab 4: Futu Positions (detailed Futu positions with ATR levels)
 - Tab 5: Lab (backtest strategies with parameters and performance results)
+- Tab 6: Trading Signals (universe watchlist + signal feed + confluence)
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ from .views.summary import SummaryView
 from .views.signals import SignalsView
 from .views.positions import PositionsView
 from .views.lab import LabView
+from .views.trading_signals import TradingSignalsView
 from .widgets.header import HeaderWidget
 
 if TYPE_CHECKING:
@@ -50,6 +52,7 @@ class ApexApp(App):
         Binding("3", "switch_tab('ib')", "IB", show=True),
         Binding("4", "switch_tab('futu')", "Futu", show=True),
         Binding("5", "switch_tab('lab')", "Lab", show=True),
+        Binding("6", "switch_tab('trading')", "Trading", show=True),
         Binding("q", "quit", "Quit", show=True),
     ]
 
@@ -72,8 +75,11 @@ class ApexApp(App):
         self.ta_service = None
         self.historical_service = None
         self._event_loop = None
+        self._event_bus = None
         # Bounded queue to prevent memory growth; conflation in _poll_updates keeps only latest
         self._update_queue: queue.Queue = queue.Queue(maxsize=10)
+        # Separate queue for trading signals (higher priority)
+        self._signal_queue: queue.Queue = queue.Queue(maxsize=100)
         self._poll_timer = None
 
     def on_mount(self) -> None:
@@ -89,6 +95,17 @@ class ApexApp(App):
 
     def _poll_updates(self) -> None:
         """Poll the update queue with conflation - only process latest update."""
+        # Process trading signals first (no conflation - each signal matters)
+        signals_processed = 0
+        try:
+            while signals_processed < 20:  # Max 20 signals per tick to avoid blocking
+                signal = self._signal_queue.get_nowait()
+                self._dispatch_trading_signal(signal)
+                signals_processed += 1
+        except queue.Empty:
+            pass
+
+        # Process snapshot updates with conflation
         latest_update = None
         try:
             # Drain queue but only keep the latest update (conflation)
@@ -139,6 +156,8 @@ class ApexApp(App):
                 yield PositionsView(broker="futu", id="futu-view")
             with TabPane("Lab", id="lab"):
                 yield LabView(id="lab-view")
+            with TabPane("Trading", id="trading"):
+                yield TradingSignalsView(id="trading-signals-view")
         yield Footer()
 
     def action_switch_tab(self, tab_id: str) -> None:
@@ -158,7 +177,7 @@ class ApexApp(App):
     def on_tabs_tab_activated(self, event: Tabs.TabActivated) -> None:
         """Handle header tab clicks."""
         tab_id = event.tab.id or ""
-        if tab_id in {"summary", "signals", "ib", "futu", "lab"}:
+        if tab_id in {"summary", "signals", "ib", "futu", "lab", "trading"}:
             tabs = self.query_one("#main-tabs", TabbedContent)
             if tabs.active != tab_id:
                 tabs.active = tab_id
@@ -169,18 +188,79 @@ class ApexApp(App):
         ta_service,
         event_loop,
         historical_service=None,
+        event_bus=None,
     ) -> None:
         """
-        Inject services for ATR calculation and backtesting.
+        Inject services for ATR calculation, backtesting, and signal events.
 
         Args:
             ta_service: TAService instance for ATR calculation.
             event_loop: Main event loop for scheduling async operations.
             historical_service: HistoricalDataService for backtest data.
+            event_bus: PriorityEventBus for subscribing to TRADING_SIGNAL events.
         """
         self.ta_service = ta_service
         self._event_loop = event_loop
         self.historical_service = historical_service
+        self._event_bus = event_bus
+
+        # Subscribe to trading signal events if event bus provided
+        if event_bus is not None:
+            self._subscribe_trading_signals(event_bus)
+
+    def _subscribe_trading_signals(self, event_bus) -> None:
+        """Subscribe to TRADING_SIGNAL events on the event bus."""
+        from ..domain.events.event_types import EventType
+
+        event_bus.subscribe(EventType.TRADING_SIGNAL, self._on_trading_signal)
+        self.log.info("Subscribed to TRADING_SIGNAL events")
+
+    def _on_trading_signal(self, payload) -> None:
+        """
+        Event bus callback for trading signals (called from event bus thread).
+
+        Queues the signal for processing in the TUI thread.
+        """
+        try:
+            self._signal_queue.put_nowait(payload)
+        except queue.Full:
+            # Drop oldest signal if queue full
+            try:
+                self._signal_queue.get_nowait()
+                self._signal_queue.put_nowait(payload)
+            except Exception:
+                pass
+
+    def _dispatch_trading_signal(self, signal) -> None:
+        """Dispatch a trading signal to the Trading view (runs in TUI thread)."""
+        try:
+            trading_view = self.query_one("#trading-signals-view", TradingSignalsView)
+            trading_view.add_signal(signal)
+        except Exception as e:
+            self.log.error(f"Failed to dispatch trading signal: {e}")
+
+    def set_trading_universe(self, symbols: List[str]) -> None:
+        """
+        Set the trading universe symbols for the watchlist.
+
+        Creates a mapping of symbols to all standard timeframes.
+
+        Args:
+            symbols: List of symbol strings (e.g., ["AAPL", "TSLA"]).
+        """
+        if not symbols:
+            return
+
+        # Map symbols to all standard timeframes
+        timeframes = ["1m", "5m", "15m", "1h", "4h", "1d"]
+        symbols_by_tf = {tf: list(symbols) for tf in timeframes}
+
+        try:
+            trading_view = self.query_one("#trading-signals-view", TradingSignalsView)
+            trading_view.set_universe(symbols_by_tf)
+            self.log.info(f"Trading universe set: {len(symbols)} symbols")
+        except Exception as e:
+            self.log.error(f"Failed to set trading universe: {e}")
 
     def update_data(
         self,
@@ -236,6 +316,9 @@ class ApexApp(App):
             elif active_tab == "futu":
                 futu_view = self.query_one("#futu-view", PositionsView)
                 futu_view.update_data(self.snapshot)
+            elif active_tab == "trading":
+                trading_view = self.query_one("#trading-signals-view", TradingSignalsView)
+                trading_view.refresh_view()
             # Lab view updates on-demand, not on polling cycle
         except Exception as e:
             self.log.error(f"Failed to update {active_tab} view: {e}")
