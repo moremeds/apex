@@ -28,6 +28,7 @@ from ...infrastructure.monitoring import HealthStatus
 from ..async_event_bus import AsyncEventBus
 from .data_coordinator import DataCoordinator
 from .snapshot_coordinator import SnapshotCoordinator
+from .signal_coordinator import SignalCoordinator
 
 if TYPE_CHECKING:
     from ...domain.services.risk.risk_engine import RiskEngine
@@ -131,6 +132,15 @@ class Orchestrator:
             risk_metrics=risk_metrics,
         )
 
+        # Signal pipeline coordinator (bar aggregation → indicators → signals)
+        signals_config = config.get("signals", {})
+        self._signal_coordinator = SignalCoordinator(
+            event_bus=event_bus,
+            timeframes=signals_config.get("timeframes"),
+            max_workers=signals_config.get("indicator_max_workers", 4),
+            enabled=signals_config.get("enabled", True),
+        )
+
         # State
         self._running = False
         self._timer_task: Optional[asyncio.Task] = None
@@ -158,6 +168,9 @@ class Orchestrator:
 
         # Subscribe components to events (before streaming starts)
         self._subscribe_components_to_events()
+
+        # Start signal pipeline (bar aggregation → indicators → signals)
+        self._signal_coordinator.start()
 
         # Warm-start: Load state from snapshots
         await self._perform_warm_start()
@@ -195,6 +208,7 @@ class Orchestrator:
         # Stop coordinators
         await self._data_coordinator.cleanup()
         await self._snapshot_coordinator.stop()
+        self._signal_coordinator.stop()
 
         # Cancel timer task
         if self._timer_task:
@@ -348,6 +362,14 @@ class Orchestrator:
                 logger.debug("RiskSignalManager cleanup completed")
         except Exception as e:
             logger.warning(f"Periodic cleanup error: {e}")
+
+        # Clean up expired signal cooldowns in SignalCoordinator
+        try:
+            cleared = self._signal_coordinator.clear_cooldowns()
+            if cleared > 0:
+                logger.debug(f"SignalCoordinator cleared {cleared} expired cooldowns")
+        except Exception as e:
+            logger.warning(f"Signal cooldown cleanup error: {e}")
 
     async def _perform_warm_start(self) -> None:
         """Load state from previous snapshots for warm start."""

@@ -18,7 +18,8 @@ class EventPriority(IntEnum):
     MARKET_DATA = 30 # MARKET_DATA_TICK, MARKET_DATA_BATCH
     POSITION = 40    # POSITION_UPDATED, POSITIONS_BATCH
     ACCOUNT = 50     # ACCOUNT_UPDATED
-    CONTROL = 60     # TIMER_TICK, RECONCILIATION_ISSUE
+    CONTROL = 60     # TIMER_TICK, RECONCILIATION_ISSUE, INDICATOR_UPDATE
+    SIGNAL_DATA = 65 # BAR_CLOSE (fast lane, after control but before snapshot)
     SNAPSHOT = 70    # SNAPSHOT_READY
     DIAGNOSTIC = 80  # HEALTH_CHECK, STATS
     UI = 90          # DASHBOARD_UPDATE
@@ -62,6 +63,10 @@ class EventType(Enum):
     SYSTEM_DEGRADED = "system_degraded"
     BROKER_CONNECTED = "broker_connected"
     BROKER_DISCONNECTED = "broker_disconnected"
+    INDICATOR_UPDATE = "indicator_update"
+
+    # Signal Data (Priority 65)
+    BAR_CLOSE = "bar_close"
 
     # Snapshot (Priority 70)
     SNAPSHOT_READY = "snapshot_ready"
@@ -99,6 +104,8 @@ EVENT_PRIORITY_MAP: dict[EventType, EventPriority] = {
     EventType.SYSTEM_DEGRADED: EventPriority.CONTROL,
     EventType.BROKER_CONNECTED: EventPriority.CONTROL,
     EventType.BROKER_DISCONNECTED: EventPriority.CONTROL,
+    EventType.INDICATOR_UPDATE: EventPriority.CONTROL,
+    EventType.BAR_CLOSE: EventPriority.SIGNAL_DATA,
     EventType.SNAPSHOT_READY: EventPriority.SNAPSHOT,
     EventType.HEALTH_CHECK: EventPriority.DIAGNOSTIC,
     EventType.MDQC_VALIDATION_TRIGGER: EventPriority.DIAGNOSTIC,
@@ -181,13 +188,17 @@ def get_event_type_mapping() -> Dict[EventType, Type["DomainEvent"]]:
     from .domain_events import (
         QuoteTick, BarData, TradeFill, OrderUpdate,
         PositionSnapshot, AccountSnapshot, ConnectionEvent, RiskBreachEvent,
-        MarketDataTickEvent,  # C3: Added for tick event standardization
+        MarketDataTickEvent, BarCloseEvent, IndicatorUpdateEvent,
     )
 
     return {
         # Market Data Events - C3: Use MarketDataTickEvent (what's actually published)
         EventType.MARKET_DATA_TICK: MarketDataTickEvent,
         EventType.MARKET_DATA_BATCH: BarData,
+
+        # Signal Engine Events
+        EventType.BAR_CLOSE: BarCloseEvent,
+        EventType.INDICATOR_UPDATE: IndicatorUpdateEvent,
 
         # Trading Events
         EventType.ORDER_SUBMITTED: OrderUpdate,

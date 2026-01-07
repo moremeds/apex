@@ -254,6 +254,71 @@ class BarData(DomainEvent):
 
 
 # =============================================================================
+# Signal Engine Events
+# =============================================================================
+
+
+@dataclass(frozen=True, slots=True)
+class BarCloseEvent(DomainEvent):
+    """
+    Bar close event for the signal engine data pipeline.
+
+    Published on EventType.BAR_CLOSE when a bar completes (tick aggregation).
+    Triggers indicator calculations in the IndicatorEngine.
+    """
+
+    symbol: str = ""
+    timeframe: str = "1m"
+    open: float = 0.0
+    high: float = 0.0
+    low: float = 0.0
+    close: float = 0.0
+    volume: float = 0.0
+    bar_end: Optional[datetime] = None
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "BarCloseEvent":
+        """Deserialize with datetime handling."""
+        data = data.copy()
+        data.pop("_event_type", None)
+
+        for dt_field in ["timestamp", "bar_end"]:
+            if dt_field in data and isinstance(data[dt_field], str):
+                data[dt_field] = datetime.fromisoformat(data[dt_field])
+
+        return cls(**data)
+
+
+@dataclass(frozen=True, slots=True)
+class IndicatorUpdateEvent(DomainEvent):
+    """
+    Indicator update event with current and previous state.
+
+    Published on EventType.INDICATOR_UPDATE when an indicator is recalculated.
+    Contains both current and previous state for rule transition detection.
+    """
+
+    symbol: str = ""
+    timeframe: str = "1m"
+    indicator: str = ""
+    value: Optional[float] = None
+    state: Dict[str, Any] = field(default_factory=dict)
+    previous_value: Optional[float] = None
+    previous_state: Optional[Dict[str, Any]] = None
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "IndicatorUpdateEvent":
+        """Deserialize with datetime handling."""
+        data = data.copy()
+        data.pop("_event_type", None)
+
+        if "timestamp" in data and isinstance(data["timestamp"], str):
+            data["timestamp"] = datetime.fromisoformat(data["timestamp"])
+
+        return cls(**data)
+
+
+# =============================================================================
 # Trading Events
 # =============================================================================
 
@@ -637,23 +702,57 @@ class TradingSignalEvent(DomainEvent):
         """
         Create event from TradingSignal domain object.
 
+        Handles both:
+        - Strategy TradingSignal (direction as string, has strategy_id/reason)
+        - Signal Engine TradingSignal (direction as SignalDirection enum, has trigger_rule/message)
+
         Args:
-            signal: TradingSignal instance from strategy
-            source: Source of the signal (e.g., strategy_id)
+            signal: TradingSignal instance from strategy or signal engine
+            source: Source of the signal (e.g., strategy_id, "rule_engine")
 
         Returns:
             TradingSignalEvent for event bus
         """
+        # Handle timestamp
+        timestamp = getattr(signal, "timestamp", None) or now_local()
+
+        # Handle direction - may be string or Enum
+        direction = getattr(signal, "direction", "")
+        direction_map = {"buy": "LONG", "sell": "SHORT", "alert": "FLAT"}
+        if isinstance(direction, Enum):
+            # Map signal engine directions (buy/sell/alert) to event directions
+            direction = direction_map.get(direction.value, direction.value.upper())
+        elif isinstance(direction, str) and direction.lower() in direction_map:
+            # Also handle lowercase string directions
+            direction = direction_map[direction.lower()]
+
+        # Handle strength - may be int or float
+        strength = float(getattr(signal, "strength", 1.0))
+
+        # Handle strategy_id - fall back to trigger_rule for signal engine signals
+        strategy_id = getattr(signal, "strategy_id", "")
+        if not strategy_id:
+            strategy_id = getattr(signal, "trigger_rule", "")
+
+        # Handle reason - fall back to message for signal engine signals
+        reason = getattr(signal, "reason", "")
+        if not reason:
+            reason = getattr(signal, "message", "")
+
+        # Handle optional targeting fields
+        target_quantity = getattr(signal, "target_quantity", None)
+        target_price = getattr(signal, "target_price", None)
+
         return cls(
-            timestamp=signal.timestamp or now_local(),
+            timestamp=timestamp,
             signal_id=signal.signal_id,
             symbol=signal.symbol,
-            direction=signal.direction,
-            strength=signal.strength,
-            target_quantity=signal.target_quantity,
-            target_price=signal.target_price,
-            strategy_id=signal.strategy_id,
-            reason=signal.reason,
+            direction=direction,
+            strength=strength,
+            target_quantity=target_quantity,
+            target_price=target_price,
+            strategy_id=strategy_id,
+            reason=reason,
             source=source,
         )
 
@@ -666,6 +765,8 @@ class TradingSignalEvent(DomainEvent):
 EVENT_REGISTRY: Dict[str, Type[DomainEvent]] = {
     "QuoteTick": QuoteTick,
     "BarData": BarData,
+    "BarCloseEvent": BarCloseEvent,
+    "IndicatorUpdateEvent": IndicatorUpdateEvent,
     "TradeFill": TradeFill,
     "OrderUpdate": OrderUpdate,
     "PositionSnapshot": PositionSnapshot,
