@@ -80,13 +80,28 @@ class ApexApp(App):
         self._update_queue: queue.Queue = queue.Queue(maxsize=10)
         # Separate queue for trading signals (higher priority)
         self._signal_queue: queue.Queue = queue.Queue(maxsize=100)
+        # Separate queue for confluence scores (type safety - not mixed with signals)
+        self._confluence_queue: queue.Queue = queue.Queue(maxsize=100)
+        # Separate queue for MTF alignment updates
+        self._alignment_queue: queue.Queue = queue.Queue(maxsize=100)
         self._poll_timer = None
+        # Pending universe to apply after mount (query_one fails before compose)
+        self._pending_universe: List[str] = []
+        # Track mount state for deferred universe application
+        self._is_mounted = False
 
     def on_mount(self) -> None:
         """Set up update polling when app is mounted."""
         # OPT-001: 4Hz target (0.25s) instead of 10Hz (0.1s) for consistent updates
         self._poll_timer = self.set_interval(0.25, self._poll_updates)
         self._sync_header_tab()
+
+        # Mark as mounted so deferred set_trading_universe() calls apply immediately
+        self._is_mounted = True
+
+        # Apply pending universe now that widgets are ready
+        if self._pending_universe:
+            self._apply_trading_universe(self._pending_universe)
 
     def on_unmount(self) -> None:
         """Clean up timer on unmount."""
@@ -104,6 +119,26 @@ class ApexApp(App):
                 signals_processed += 1
         except queue.Empty:
             pass
+
+        # Process confluence scores (with conflation - only latest per symbol/tf matters)
+        latest_confluence = None
+        try:
+            while True:
+                latest_confluence = self._confluence_queue.get_nowait()
+        except queue.Empty:
+            pass
+        if latest_confluence is not None:
+            self._dispatch_confluence(latest_confluence)
+
+        # Process MTF alignment updates (with conflation)
+        latest_alignment = None
+        try:
+            while True:
+                latest_alignment = self._alignment_queue.get_nowait()
+        except queue.Empty:
+            pass
+        if latest_alignment is not None:
+            self._dispatch_alignment(latest_alignment)
 
         # Process snapshot updates with conflation
         latest_update = None
@@ -239,11 +274,63 @@ class ApexApp(App):
         except Exception as e:
             self.log.error(f"Failed to dispatch trading signal: {e}")
 
+    def _on_confluence_update(self, score) -> None:
+        """
+        Callback for confluence score updates (called from coordinator thread).
+
+        Queues the score for processing in the TUI thread.
+
+        Args:
+            score: ConfluenceScore object from CrossIndicatorAnalyzer
+        """
+        try:
+            self._confluence_queue.put_nowait(score)
+        except queue.Full:
+            try:
+                self._confluence_queue.get_nowait()
+                self._confluence_queue.put_nowait(score)
+            except Exception:
+                pass
+
+    def _on_alignment_update(self, alignment) -> None:
+        """
+        Callback for MTF alignment updates (called from coordinator thread).
+
+        Queues the alignment for processing in the TUI thread.
+
+        Args:
+            alignment: MTFAlignment object from MTFDivergenceAnalyzer
+        """
+        try:
+            self._alignment_queue.put_nowait(alignment)
+        except queue.Full:
+            try:
+                self._alignment_queue.get_nowait()
+                self._alignment_queue.put_nowait(alignment)
+            except Exception:
+                pass
+
+    def _dispatch_confluence(self, score) -> None:
+        """Dispatch confluence score to Trading view (runs in TUI thread)."""
+        try:
+            trading_view = self.query_one("#trading-signals-view", TradingSignalsView)
+            trading_view.update_confluence_score(score)
+        except Exception as e:
+            self.log.error(f"Failed to dispatch confluence score: {e}")
+
+    def _dispatch_alignment(self, alignment) -> None:
+        """Dispatch MTF alignment to Trading view (runs in TUI thread)."""
+        try:
+            trading_view = self.query_one("#trading-signals-view", TradingSignalsView)
+            trading_view.update_alignment(alignment)
+        except Exception as e:
+            self.log.error(f"Failed to dispatch MTF alignment: {e}")
+
     def set_trading_universe(self, symbols: List[str]) -> None:
         """
         Set the trading universe symbols for the watchlist.
 
-        Creates a mapping of symbols to all standard timeframes.
+        Stores symbols for deferred application if app not yet mounted.
 
         Args:
             symbols: List of symbol strings (e.g., ["AAPL", "TSLA"]).
@@ -251,6 +338,15 @@ class ApexApp(App):
         if not symbols:
             return
 
+        # Always store for potential re-application
+        self._pending_universe = list(symbols)
+
+        # Try to apply immediately if already mounted
+        if getattr(self, '_is_mounted', False):
+            self._apply_trading_universe(symbols)
+
+    def _apply_trading_universe(self, symbols: List[str]) -> None:
+        """Apply trading universe to the view (called after mount)."""
         # Map symbols to all standard timeframes
         timeframes = ["1m", "5m", "15m", "1h", "4h", "1d"]
         symbols_by_tf = {tf: list(symbols) for tf in timeframes}
@@ -258,9 +354,9 @@ class ApexApp(App):
         try:
             trading_view = self.query_one("#trading-signals-view", TradingSignalsView)
             trading_view.set_universe(symbols_by_tf)
-            self.log.info(f"Trading universe set: {len(symbols)} symbols")
+            self.log.info(f"Trading universe applied: {len(symbols)} symbols")
         except Exception as e:
-            self.log.error(f"Failed to set trading universe: {e}")
+            self.log.error(f"Failed to apply trading universe: {e}")
 
     def update_data(
         self,

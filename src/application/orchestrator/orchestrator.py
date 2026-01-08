@@ -42,7 +42,7 @@ if TYPE_CHECKING:
     from ...infrastructure.monitoring import HealthMonitor, Watchdog
     from ...infrastructure.adapters.broker_manager import BrokerManager
     from ...infrastructure.adapters.market_data_manager import MarketDataManager
-    from ...infrastructure.observability import RiskMetrics, HealthMetrics
+    from ...infrastructure.observability import RiskMetrics, HealthMetrics, SignalMetrics
     from ..readiness_manager import ReadinessManager
     from ...services.snapshot_service import SnapshotService
     from ...services.warm_start_service import WarmStartService
@@ -82,6 +82,7 @@ class Orchestrator:
         readiness_manager: Optional[ReadinessManager] = None,
         snapshot_service: Optional[SnapshotService] = None,
         warm_start_service: Optional[WarmStartService] = None,
+        signal_metrics: Optional["SignalMetrics"] = None,
     ):
         # Core dependencies
         self.broker_manager = broker_manager
@@ -139,6 +140,7 @@ class Orchestrator:
             timeframes=signals_config.get("timeframes"),
             max_workers=signals_config.get("indicator_max_workers", 4),
             enabled=signals_config.get("enabled", True),
+            signal_metrics=signal_metrics,
         )
 
         # State
@@ -431,3 +433,8 @@ class Orchestrator:
             portfolio_vega=0.0,
             portfolio_theta=0.0,
         )
+
+    @property
+    def signal_coordinator(self) -> SignalCoordinator:
+        """Get the signal coordinator for confluence callback wiring."""
+        return self._signal_coordinator

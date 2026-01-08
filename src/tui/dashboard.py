@@ -69,6 +69,7 @@ class TextualDashboard:
         self._historical_service = None
         self._event_bus = None
         self._pending_universe: List[str] = []  # Symbols to apply when app starts
+        self._signal_coordinator = None  # For confluence callback wiring
 
     def start(self) -> None:
         """
@@ -154,6 +155,24 @@ class TextualDashboard:
         if self._app:
             self._app.set_trading_universe(symbols)
 
+    def set_confluence_callback_target(self, signal_coordinator) -> None:
+        """
+        Wire signal coordinator to send confluence/alignment updates to TUI.
+
+        Registers the ApexApp's callback methods with the SignalCoordinator
+        so that confluence scores and MTF alignments flow to the UI.
+
+        If called before run_async(), the signal_coordinator is stored and
+        callbacks are wired once the app is created.
+
+        Args:
+            signal_coordinator: SignalCoordinator instance with set_confluence_callback
+        """
+        self._signal_coordinator = signal_coordinator
+        if self._app and signal_coordinator:
+            signal_coordinator.set_confluence_callback(self._app._on_confluence_update)
+            signal_coordinator.set_alignment_callback(self._app._on_alignment_update)
+
     async def run_async(
         self,
         orchestrator_callback: Optional[Callable] = None,
@@ -181,6 +200,15 @@ class TextualDashboard:
         # Apply pending trading universe if set
         if self._pending_universe:
             self._app.set_trading_universe(self._pending_universe)
+
+        # Wire confluence callbacks if signal_coordinator was set
+        if self._signal_coordinator:
+            self._signal_coordinator.set_confluence_callback(
+                self._app._on_confluence_update
+            )
+            self._signal_coordinator.set_alignment_callback(
+                self._app._on_alignment_update
+            )
 
         # Run the app (blocks until user quits)
         # The app's on_mount sets up the update polling timer

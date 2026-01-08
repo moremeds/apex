@@ -136,13 +136,53 @@ class MTFDivergenceAnalyzer:
         # Determine dominant direction (prefer higher timeframes)
         dominant_direction = self._determine_dominant_direction(directions, sorted_tfs)
 
-        return MTFAlignment(
+        alignment = MTFAlignment(
             symbol=symbol,
             timeframes=sorted_tfs,
             tf_scores=tf_scores,
             alignment_strength=alignment_strength,
             dominant_direction=dominant_direction,
         )
+
+        # Debug log for MTF analysis
+        logger.debug(
+            "MTF alignment analysis completed",
+            extra={
+                "symbol": symbol,
+                "timeframes": sorted_tfs,
+                "strength": alignment_strength,
+                "direction": dominant_direction,
+                "tf_directions": {
+                    tf: score.strongest_signal for tf, score in tf_scores.items()
+                },
+            },
+        )
+
+        # Info log for strong or weak alignment (actionable)
+        if alignment_strength == "strong":
+            logger.info(
+                "Strong MTF alignment detected",
+                extra={
+                    "symbol": symbol,
+                    "strength": alignment_strength,
+                    "direction": dominant_direction,
+                    "timeframes": sorted_tfs,
+                },
+            )
+        elif alignment_strength == "weak":
+            logger.info(
+                "Weak MTF alignment - timeframes in conflict",
+                extra={
+                    "symbol": symbol,
+                    "strength": alignment_strength,
+                    "timeframes": sorted_tfs,
+                    "tf_directions": {
+                        tf: score.strongest_signal for tf, score in tf_scores.items()
+                    },
+                },
+            )
+
+        return alignment
 
     def _determine_alignment_strength(
         self,

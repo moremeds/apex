@@ -12,10 +12,11 @@ allowing the same rule to trigger independently on different symbols/timeframes.
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from threading import RLock
-from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Protocol, Tuple
 
 from src.domain.events.domain_events import IndicatorUpdateEvent, TradingSignalEvent
 from src.domain.events.event_types import EventType
@@ -23,6 +24,9 @@ from src.utils.logging_setup import get_logger
 from src.utils.timezone import now_local
 
 from .models import SignalRule, TradingSignal
+
+if TYPE_CHECKING:
+    from src.infrastructure.observability import SignalMetrics
 
 logger = get_logger(__name__)
 
@@ -139,6 +143,7 @@ class RuleEngine:
         self,
         event_bus: EventBusProtocol,
         registry: Optional[RuleRegistry] = None,
+        signal_metrics: Optional["SignalMetrics"] = None,
     ) -> None:
         """
         Initialize the rule engine.
@@ -146,9 +151,11 @@ class RuleEngine:
         Args:
             event_bus: Event bus for subscriptions and publishing
             registry: RuleRegistry with rules to evaluate (creates empty if None)
+            signal_metrics: Metrics collector for instrumentation
         """
         self._event_bus = event_bus
         self._registry = registry or RuleRegistry()
+        self._metrics = signal_metrics
 
         # Per-signal cooldown tracking: signal_id -> (last_triggered_time, cooldown_seconds)
         # signal_id format: "{category}:{indicator}:{symbol}:{timeframe}"
@@ -181,7 +188,18 @@ class RuleEngine:
 
         self._event_bus.subscribe(EventType.INDICATOR_UPDATE, self._on_indicator_update)
         self._started = True
-        logger.info(f"RuleEngine started with {len(self._registry)} rules")
+
+        # Count rules by indicator for logging
+        all_rules = self._registry.get_all_rules()
+        indicators_with_rules = set(r.indicator for r in all_rules)
+        short_tf_rules = [r.name for r in all_rules if "1m" in r.timeframes or "5m" in r.timeframes]
+
+        logger.info(
+            f"RuleEngine started: {len(all_rules)} rules across {len(indicators_with_rules)} indicators, "
+            f"{len(short_tf_rules)} short-timeframe rules",
+        )
+        if short_tf_rules:
+            logger.info(f"Short-timeframe rules: {short_tf_rules}")
 
     def stop(self) -> None:
         """Stop the engine."""
@@ -227,17 +245,29 @@ class RuleEngine:
         """Evaluate rules for an indicator update."""
         event = self._coerce_indicator_update(payload)
         if event is None:
+            logger.warning(f"RuleEngine: Failed to coerce payload type={type(payload).__name__}")
             return
 
         rules = self._registry.get_rules_for_indicator(event.indicator)
         if not rules:
+            # No rules for this indicator - this is expected for many indicators
             return
 
         curr_state = event.state or {}
         prev_state = event.previous_state
 
+        start_time = time.perf_counter()
+        rules_checked = 0
+        rules_matched_timeframe = 0
+        rules_triggered = 0
+
         for rule in rules:
             self._rules_evaluated += 1
+            rules_checked += 1
+
+            # Record rule evaluation metric
+            if self._metrics:
+                self._metrics.record_rule_evaluated(rule.name)
 
             # Skip disabled rules
             if not rule.enabled:
@@ -247,26 +277,50 @@ class RuleEngine:
             if event.timeframe not in rule.timeframes:
                 continue
 
+            rules_matched_timeframe += 1
+
             # Evaluate condition
             try:
                 triggered = rule.check_condition(prev_state, curr_state)
             except Exception as e:
-                logger.error(f"Rule {rule.name} check_condition failed: {e}")
+                if self._metrics:
+                    self._metrics.record_error("rule_engine", "check_condition")
+                logger.error(
+                    f"Rule check_condition failed: {rule.name} error={e!r}",
+                    exc_info=True,
+                )
                 continue
 
             if not triggered:
                 continue
 
+            rules_triggered += 1
+
             # Check cooldown using signal_id (category:indicator:symbol:timeframe)
             if self._is_in_cooldown(rule, event):
+                if self._metrics:
+                    self._metrics.record_signal_blocked(rule.name, "cooldown")
                 logger.debug(
-                    f"Rule {rule.name} in cooldown for {event.symbol}/{event.timeframe}"
+                    f"Signal blocked by cooldown: {rule.name} symbol={event.symbol} tf={event.timeframe}",
                 )
                 continue
 
             # Build and emit signal
             signal = self._build_signal(rule, event, curr_state, prev_state)
             self._emit_signal(signal)
+
+        # Log rule evaluation summary for debugging
+        if rules_matched_timeframe > 0:
+            logger.debug(
+                f"RuleEngine evaluated: indicator={event.indicator} symbol={event.symbol} "
+                f"tf={event.timeframe} rules_checked={rules_checked} "
+                f"matched_tf={rules_matched_timeframe} triggered={rules_triggered}"
+            )
+
+        # Record batch evaluation latency
+        duration_ms = (time.perf_counter() - start_time) * 1000
+        if self._metrics:
+            self._metrics.record_rule_evaluation_latency(duration_ms)
 
     def _is_in_cooldown(self, rule: SignalRule, event: IndicatorUpdateEvent) -> bool:
         """
@@ -293,6 +347,11 @@ class RuleEngine:
 
             # Not in cooldown - record trigger with rule's cooldown duration
             self._last_triggered[signal_id] = (event.timestamp, rule.cooldown_seconds)
+
+            # Update cooldown entries gauge
+            if self._metrics:
+                self._metrics.set_cooldown_entries(len(self._last_triggered))
+
             return False
 
     def _build_signal(
@@ -357,9 +416,37 @@ class RuleEngine:
             event = TradingSignalEvent.from_signal(signal, source="rule_engine")
             self._event_bus.publish(EventType.TRADING_SIGNAL, event)
             self._signals_emitted += 1
-            logger.info(f"Signal emitted: {signal}")
+
+            # Record signal emission metric
+            if self._metrics:
+                self._metrics.record_signal_emitted(
+                    signal.trigger_rule, signal.direction.value
+                )
+
+            # Structured info log for signal emission (most important event)
+            logger.info(
+                "Trading signal emitted",
+                extra={
+                    "signal_id": signal.signal_id,
+                    "symbol": signal.symbol,
+                    "timeframe": signal.timeframe,
+                    "direction": signal.direction.value,
+                    "indicator": signal.indicator,
+                    "rule": signal.trigger_rule,
+                    "value": signal.current_value,
+                    "threshold": signal.threshold,
+                    "strength": signal.strength.value,
+                    "priority": signal.priority,
+                },
+            )
+
         except Exception as e:
-            logger.error(f"Failed to emit signal {signal.signal_id}: {e}")
+            if self._metrics:
+                self._metrics.record_error("rule_engine", "emit_signal")
+            logger.error(
+                "Failed to emit signal",
+                extra={"signal_id": signal.signal_id, "error": str(e)},
+            )
 
     @staticmethod
     def _coerce_indicator_update(payload: Any) -> Optional[IndicatorUpdateEvent]:

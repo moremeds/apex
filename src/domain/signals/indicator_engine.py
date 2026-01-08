@@ -9,11 +9,12 @@ downstream rule evaluation.
 from __future__ import annotations
 
 import asyncio
+import time
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from threading import RLock
-from typing import Any, Callable, Deque, Dict, List, Optional, Protocol, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Deque, Dict, List, Optional, Protocol, Tuple
 
 import pandas as pd
 
@@ -23,6 +24,9 @@ from src.utils.logging_setup import get_logger
 
 from .indicators.base import Indicator
 from .indicators.registry import get_indicator_registry
+
+if TYPE_CHECKING:
+    from src.infrastructure.observability import SignalMetrics
 
 logger = get_logger(__name__)
 
@@ -64,6 +68,7 @@ class IndicatorEngine:
         event_bus: EventBusProtocol,
         max_workers: int = 4,
         max_history: Optional[int] = None,
+        signal_metrics: Optional["SignalMetrics"] = None,
     ) -> None:
         """
         Initialize the indicator engine.
@@ -72,11 +77,13 @@ class IndicatorEngine:
             event_bus: Event bus for subscriptions and publishing
             max_workers: ThreadPool size for parallel indicator calculations
             max_history: Maximum bars to retain per symbol/timeframe (auto-calculated from warmup if None)
+            signal_metrics: Metrics collector for instrumentation
         """
         self._event_bus = event_bus
         self._registry = get_indicator_registry()
         self._indicators: List[Indicator] = self._registry.get_all()
         self._max_workers = max_workers
+        self._metrics = signal_metrics
 
         # Calculate max warmup from all indicators
         warmup_periods = [ind.warmup_periods for ind in self._indicators]
@@ -116,8 +123,14 @@ class IndicatorEngine:
         self._event_bus.subscribe(EventType.BAR_CLOSE, self._on_bar_close)
         self._started = True
         logger.info(
-            f"IndicatorEngine started: {len(self._indicators)} indicators, "
-            f"max_workers={self._max_workers}, max_history={self._max_history}"
+            "IndicatorEngine started",
+            extra={
+                "indicators": len(self._indicators),
+                "indicator_names": [ind.name for ind in self._indicators],
+                "max_workers": self._max_workers,
+                "max_history": self._max_history,
+                "max_warmup": self._max_warmup,
+            },
         )
 
     def stop(self) -> None:
@@ -207,12 +220,21 @@ class IndicatorEngine:
             return
 
         # Execute all indicator calculations in parallel
+        batch_start = time.perf_counter()
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Publish results
+        # Publish results and count successes
+        indicators_computed = 0
+        errors = 0
         for result in results:
             if isinstance(result, Exception):
-                logger.error(f"Indicator calculation failed: {result}")
+                errors += 1
+                if self._metrics:
+                    self._metrics.record_error("indicator_engine", "batch_compute")
+                logger.error(
+                    "Indicator calculation failed in batch",
+                    extra={"error": str(result)},
+                )
                 continue
 
             if result is None:
@@ -220,6 +242,14 @@ class IndicatorEngine:
 
             update_event, new_state = result
             self._publish_update(update_event, new_state)
+            indicators_computed += 1
+
+        # Log batch processing summary
+        batch_duration_ms = (time.perf_counter() - batch_start) * 1000
+        logger.debug(
+            f"Bar processed: symbol={event.symbol} tf={event.timeframe} "
+            f"indicators={indicators_computed} errors={errors} duration={batch_duration_ms:.1f}ms",
+        )
 
     def _compute_indicator(
         self,
@@ -236,6 +266,7 @@ class IndicatorEngine:
         Returns:
             Tuple of (IndicatorUpdateEvent, new_state) or None on failure
         """
+        start_time = time.perf_counter()
         try:
             # Build DataFrame from bar history
             df = pd.DataFrame(bars)
@@ -246,7 +277,13 @@ class IndicatorEngine:
             for field in indicator.required_fields:
                 if field not in df.columns:
                     logger.debug(
-                        f"Indicator {indicator.name} missing field: {field}"
+                        "Indicator missing required field",
+                        extra={
+                            "indicator": indicator.name,
+                            "field": field,
+                            "symbol": symbol,
+                            "timeframe": timeframe,
+                        },
                     )
                     return None
 
@@ -277,11 +314,34 @@ class IndicatorEngine:
                 previous_state=prev_state,
             )
 
+            # Record metrics
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            if self._metrics:
+                self._metrics.record_indicator_compute_latency(duration_ms, indicator.name)
+                self._metrics.record_indicator_computed(indicator.name)
+
+            # Debug log with computation results - include state for rule debugging
+            # Include numerical values for debugging signal generation issues
+            state_summary = {k: v for k, v in state.items() if k in ("zone", "direction", "trend", "volatility", "pressure", "value", "obv", "cvd", "ad")}
+            logger.debug(
+                f"Indicator computed: {indicator.name} symbol={symbol} tf={timeframe} state={state_summary}",
+            )
+
             return event, state
 
         except Exception as e:
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            if self._metrics:
+                self._metrics.record_error("indicator_engine", "compute")
             logger.error(
-                f"Indicator {indicator.name} failed for {symbol}/{timeframe}: {e}"
+                "Indicator computation failed",
+                extra={
+                    "indicator": indicator.name,
+                    "symbol": symbol,
+                    "timeframe": timeframe,
+                    "duration_ms": round(duration_ms, 2),
+                    "error": str(e),
+                },
             )
             return None
 
@@ -297,9 +357,12 @@ class IndicatorEngine:
             self._previous_states[state_key] = new_state
 
         except Exception as e:
+            if self._metrics:
+                self._metrics.record_error("indicator_engine", "publish")
             logger.error(
-                f"Failed to publish INDICATOR_UPDATE for "
-                f"{event.symbol}/{event.timeframe}/{event.indicator}: {e}"
+                f"Failed to publish INDICATOR_UPDATE: {e!r} "
+                f"(indicator={event.indicator}, symbol={event.symbol}, tf={event.timeframe})",
+                exc_info=True,
             )
 
     @staticmethod

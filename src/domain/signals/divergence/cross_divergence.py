@@ -157,7 +157,7 @@ class CrossIndicatorAnalyzer:
         elif bearish_count > bullish_count and bearish_count > neutral_count:
             strongest_signal = "bearish"
 
-        return ConfluenceScore(
+        score = ConfluenceScore(
             symbol=symbol,
             timeframe=timeframe,
             bullish_count=bullish_count,
@@ -167,6 +167,50 @@ class CrossIndicatorAnalyzer:
             diverging_pairs=diverging_pairs,
             strongest_signal=strongest_signal,
         )
+
+        # Debug log for confluence analysis
+        logger.debug(
+            "Cross-indicator analysis completed",
+            extra={
+                "symbol": symbol,
+                "timeframe": timeframe,
+                "bullish_count": bullish_count,
+                "bearish_count": bearish_count,
+                "neutral_count": neutral_count,
+                "alignment_score": alignment_score,
+                "diverging_pairs": [(p[0], p[1]) for p in diverging_pairs],
+                "strongest_signal": strongest_signal,
+                "indicators_analyzed": list(indicator_states.keys()),
+            },
+        )
+
+        # Info log for strong confluence (actionable signal)
+        if abs(alignment_score) >= 60:
+            logger.info(
+                "Strong confluence detected",
+                extra={
+                    "symbol": symbol,
+                    "timeframe": timeframe,
+                    "alignment_score": alignment_score,
+                    "direction": strongest_signal,
+                    "bullish": bullish_count,
+                    "bearish": bearish_count,
+                },
+            )
+
+        # Info log for significant divergences
+        if len(diverging_pairs) >= 3:
+            logger.info(
+                "Multiple indicator divergences detected",
+                extra={
+                    "symbol": symbol,
+                    "timeframe": timeframe,
+                    "diverging_count": len(diverging_pairs),
+                    "pairs": [(p[0], p[1]) for p in diverging_pairs[:5]],
+                },
+            )
+
+        return score
 
     def _get_direction(self, indicator: str, state: Dict[str, Any]) -> str:
         """
@@ -185,8 +229,11 @@ class CrossIndicatorAnalyzer:
             try:
                 if bullish_check(state):
                     return "bullish"
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(
+                    "Bullish direction check failed",
+                    extra={"indicator": indicator, "error": str(e)},
+                )
 
         # Try bearish check
         bearish_check = self._bearish_signals.get(indicator)
@@ -194,8 +241,11 @@ class CrossIndicatorAnalyzer:
             try:
                 if bearish_check(state):
                     return "bearish"
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(
+                    "Bearish direction check failed",
+                    extra={"indicator": indicator, "error": str(e)},
+                )
 
         # Default to neutral
         return "neutral"

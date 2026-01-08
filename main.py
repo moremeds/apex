@@ -38,7 +38,7 @@ from src.utils.perf_logger import set_perf_metrics
 # Observability imports (optional - graceful fallback if not installed)
 try:
     from src.infrastructure.observability import (
-        MetricsManager, get_metrics_manager, RiskMetrics, HealthMetrics
+        MetricsManager, get_metrics_manager, RiskMetrics, HealthMetrics, SignalMetrics
     )
     OBSERVABILITY_AVAILABLE = True
 except ImportError:
@@ -47,6 +47,7 @@ except ImportError:
     get_metrics_manager = None  # type: ignore
     RiskMetrics = None  # type: ignore
     HealthMetrics = None  # type: ignore
+    SignalMetrics = None  # type: ignore
 
 
 def parse_args() -> argparse.Namespace:
@@ -180,7 +181,7 @@ async def main_async(args: argparse.Namespace) -> None:
         set_log_timezone(None)  # Use local time
 
     # Set up category-based logging with environment prefix
-    # Now creates 5 categories: system, adapter, risk, data, perf
+    # Now creates 6 categories: system, adapter, risk, data, perf, signal
     category_loggers = setup_category_logging(
         env=args.env,
         log_dir="./logs",
@@ -214,6 +215,7 @@ async def main_async(args: argparse.Namespace) -> None:
         # Initialize observability (Prometheus metrics)
         risk_metrics = None
         health_metrics = None
+        signal_metrics = None
         metrics_manager = None
 
         if OBSERVABILITY_AVAILABLE and args.metrics_port > 0:
@@ -224,6 +226,7 @@ async def main_async(args: argparse.Namespace) -> None:
                 meter = metrics_manager.get_meter("apex")
                 risk_metrics = RiskMetrics(meter)
                 health_metrics = HealthMetrics(meter)
+                signal_metrics = SignalMetrics(meter)
 
                 # Wire perf logger to send metrics to Prometheus
                 set_perf_metrics(health_metrics=health_metrics, risk_metrics=risk_metrics)
@@ -447,6 +450,7 @@ async def main_async(args: argparse.Namespace) -> None:
             risk_metrics=risk_metrics,
             health_metrics=health_metrics,
             readiness_manager=readiness_manager,
+            signal_metrics=signal_metrics,
         )
 
         # Initialize dashboard (if not disabled)
@@ -469,7 +473,35 @@ async def main_async(args: argparse.Namespace) -> None:
             {"components": [h.component_name for h in initial_health]}
         )
 
+        # Set trading universe FIRST (before historical connection which may fail)
+        # This ensures Tab 6 watchlist is always populated
+        if dashboard:
+            positions = position_store.get_all()
+            underlyings = set()
+            for pos in positions:
+                sym = pos.underlying if pos.underlying else pos.symbol
+                if sym:
+                    underlyings.add(sym)
+
+            if underlyings:
+                universe_symbols = list(underlyings)
+            else:
+                # Demo mode fallback: sample symbols
+                universe_symbols = ["AAPL", "TSLA", "NVDA", "AMD", "MSFT", "GOOGL", "AMZN", "META"]
+                system_structured.info(
+                    LogCategory.DATA,
+                    "No positions found, using sample symbols for demo"
+                )
+
+            dashboard.set_trading_universe(universe_symbols)
+            system_structured.info(
+                LogCategory.DATA,
+                f"Trading universe set: {len(universe_symbols)} symbols",
+                {"symbols": universe_symbols[:10]}
+            )
+
         # Connect historical IB and pre-fetch daily bars (non-blocking background task)
+        # This is optional - watchlist works without it
         prefetch_task = None
         if ib_pool:
             async def connect_historical_and_prefetch():
@@ -499,38 +531,20 @@ async def main_async(args: argparse.Namespace) -> None:
                             ta_service, event_loop, historical_service, event_bus
                         )
 
-                    # Get symbols from positions for pre-fetch
+                    # Pre-fetch daily bars for positions
                     positions = position_store.get_all()
                     underlyings = set()
                     for pos in positions:
-                        # Use underlying for options, symbol for stocks
                         sym = pos.underlying if pos.underlying else pos.symbol
                         if sym:
                             underlyings.add(sym)
 
-                    # Set trading universe for Tab 6 watchlist
                     if underlyings:
                         symbols = list(underlyings)
-                    else:
-                        # Demo mode fallback: sample symbols
-                        symbols = ["AAPL", "TSLA", "NVDA", "AMD", "MSFT", "GOOGL", "AMZN", "META"]
-                        system_structured.info(
-                            LogCategory.DATA,
-                            "No positions found, using sample symbols for demo"
-                        )
-
-                    if dashboard:
-                        dashboard.set_trading_universe(symbols)
-                        system_structured.info(
-                            LogCategory.DATA,
-                            f"Trading universe set: {len(symbols)} symbols"
-                        )
-
-                    if underlyings:
                         system_structured.info(
                             LogCategory.DATA,
                             f"Pre-fetching 60d daily bars for {len(symbols)} symbols",
-                            {"symbols": symbols[:10]}  # Log first 10
+                            {"symbols": symbols[:10]}
                         )
                         await historical_service.prefetch_daily_bars(symbols, lookback_days=60)
                         system_structured.info(
@@ -545,6 +559,14 @@ async def main_async(args: argparse.Namespace) -> None:
 
             # Start pre-fetch in background (non-blocking)
             prefetch_task = asyncio.create_task(connect_historical_and_prefetch())
+
+        # Wire confluence callbacks from signal coordinator to dashboard
+        if dashboard and orchestrator:
+            dashboard.set_confluence_callback_target(orchestrator.signal_coordinator)
+            system_structured.info(
+                LogCategory.SYSTEM,
+                "Confluence callbacks wired to dashboard"
+            )
 
         # Update loop - feeds data from orchestrator to dashboard via queue
         update_task = None
