@@ -117,8 +117,8 @@ class HistoricalDataManager:
         Args:
             symbol: Ticker symbol.
             timeframe: Bar timeframe ('5min', '1h', '1d').
-            start: Start datetime.
-            end: End datetime.
+            start: Start datetime (naive or aware).
+            end: End datetime (naive or aware).
             source_priority: Optional override for source priority.
 
         Returns:
@@ -126,8 +126,13 @@ class HistoricalDataManager:
         """
         priority = source_priority or self._source_priority
 
+        # Normalize datetimes to naive for coverage store (stores naive UTC)
+        # Coverage store internally uses naive datetimes for comparison
+        start_naive = start.replace(tzinfo=None) if start.tzinfo else start
+        end_naive = end.replace(tzinfo=None) if end.tzinfo else end
+
         # Find missing ranges
-        missing = self._coverage_store.find_gaps(symbol, timeframe, start, end)
+        missing = self._coverage_store.find_gaps(symbol, timeframe, start_naive, end_naive)
 
         if missing:
             logger.info(
@@ -144,8 +149,8 @@ class HistoricalDataManager:
                     priority=priority,
                 )
 
-        # Return data from storage
-        return self.get_bars(symbol, timeframe, start, end)
+        # Return data from storage (use naive datetimes for Parquet filtering)
+        return self.get_bars(symbol, timeframe, start_naive, end_naive)
 
     async def _download_range(
         self,

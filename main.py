@@ -11,12 +11,14 @@ from __future__ import annotations
 import asyncio
 import argparse
 import sys
+from pathlib import Path
 
 from config.config_manager import ConfigManager
 from src.domain.services import MarketAlertDetector
 from src.infrastructure.adapters import FutuAdapter, FileLoader, BrokerManager, MarketDataManager, YahooFinanceAdapter
 from src.infrastructure.adapters.ib import IbConnectionPool, ConnectionPoolConfig, IbCompositeAdapter
 from src.services import HistoricalDataService, TAService, BarPeriod
+from src.services.historical_data_manager import HistoricalDataManager
 from src.infrastructure.stores import PositionStore, MarketDataStore, AccountStore
 from src.infrastructure.monitoring import HealthMonitor, Watchdog
 from src.domain.services.risk.risk_engine import RiskEngine
@@ -429,6 +431,21 @@ async def main_async(args: argparse.Namespace) -> None:
             "coverage_threshold": market_data_threshold,
         })
 
+        # Create HistoricalDataManager for signal pipeline bar cache preloading
+        # Uses Yahoo source only (IB would conflict with connection pool client IDs)
+        historical_cfg = config.raw.get("historical_data", {})
+        storage_cfg = historical_cfg.get("storage", {})
+        historical_data_manager = HistoricalDataManager(
+            base_dir=Path(storage_cfg.get("base_dir", "data/historical")),
+            source_priority=["yahoo"],  # Yahoo only - avoids IB client ID conflict
+        )
+
+        # Note: IB historical source is NOT set here to avoid client ID conflict
+        # with IbCompositeAdapter's internal historical adapter.
+        # Yahoo source (always available) is used for daily bar preloading.
+        # IB integration can be added later via IbCompositeAdapter._historical_adapter
+        # after connection is established.
+
         # Initialize orchestrator with BrokerManager and MarketDataManager
         orchestrator = Orchestrator(
             broker_manager=broker_manager,
@@ -451,6 +468,7 @@ async def main_async(args: argparse.Namespace) -> None:
             health_metrics=health_metrics,
             readiness_manager=readiness_manager,
             signal_metrics=signal_metrics,
+            historical_data_manager=historical_data_manager,
         )
 
         # Initialize dashboard (if not disabled)

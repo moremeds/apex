@@ -83,6 +83,7 @@ class Orchestrator:
         snapshot_service: Optional[SnapshotService] = None,
         warm_start_service: Optional[WarmStartService] = None,
         signal_metrics: Optional["SignalMetrics"] = None,
+        historical_data_manager: Optional[Any] = None,
     ):
         # Core dependencies
         self.broker_manager = broker_manager
@@ -104,6 +105,7 @@ class Orchestrator:
         self._readiness_manager = readiness_manager
         self._snapshot_service = snapshot_service
         self._warm_start_service = warm_start_service
+        self._historical_data_manager = historical_data_manager
 
         # Create coordinators
         self._data_coordinator = DataCoordinator(
@@ -141,6 +143,8 @@ class Orchestrator:
             max_workers=signals_config.get("indicator_max_workers", 4),
             enabled=signals_config.get("enabled", True),
             signal_metrics=signal_metrics,
+            historical_data_manager=historical_data_manager,
+            preload_config=signals_config.get("preload", {}),
         )
 
         # State
@@ -195,10 +199,14 @@ class Orchestrator:
         # Start timer loop
         self._timer_task = asyncio.create_task(self._timer_loop())
 
-        # Initial data fetch
+        # Initial data fetch (loads positions from brokers)
         await self._data_coordinator.fetch_and_reconcile(
             on_dirty_callback=self.risk_engine.mark_dirty
         )
+
+        # Preload bar cache for signal warmup (AFTER positions are loaded)
+        # This enables indicators to fire immediately instead of waiting for warmup
+        await self._preload_signal_bars()
 
         logger.info("Orchestrator started")
 
@@ -382,6 +390,61 @@ class Orchestrator:
             await self._warm_start_service.restore()
         except Exception as e:
             logger.warning(f"Warm start failed: {e}")
+
+    async def _preload_signal_bars(self) -> None:
+        """
+        Preload historical bars from Parquet cache for signal warmup.
+
+        Called during startup BEFORE live ticks arrive to ensure indicators
+        have sufficient warmup data (e.g., 201 bars for SMA 200).
+
+        This method:
+        1. Gets symbols from position store
+        2. Calls SignalCoordinator.preload_bar_history() which:
+           - Downloads missing bars from IB/Yahoo (gap backfill)
+           - Stores to Parquet cache (persistence)
+           - Injects into IndicatorEngine (warmup)
+        """
+        if not self._signal_coordinator.is_started:
+            logger.debug("Signal coordinator not started, skipping bar preload")
+            return
+
+        if not self._historical_data_manager:
+            logger.debug("No historical data manager configured, skipping bar preload")
+            return
+
+        # Get symbols from positions (use underlying for options, symbol for stocks)
+        positions = self.position_store.get_all()
+        symbols = list({
+            p.underlying or p.symbol
+            for p in positions
+            if p.underlying or p.symbol
+        })
+
+        if not symbols:
+            logger.debug("No symbols to preload (empty position store)")
+            return
+
+        logger.info(
+            "Initiating bar cache preload for signal pipeline",
+            extra={
+                "symbols_count": len(symbols),
+                "symbols": symbols[:10],  # Log first 10 for brevity
+            },
+        )
+
+        try:
+            results = await self._signal_coordinator.preload_bar_history(symbols)
+            logger.info(
+                "Bar cache preload completed",
+                extra={
+                    "symbols_loaded": len(results),
+                    "total_bars_injected": sum(results.values()),
+                },
+            )
+        except Exception as e:
+            # Don't crash startup on preload failure
+            logger.error(f"Bar cache preload failed: {e}", exc_info=True)
 
     # Public accessors (delegate to coordinators)
 

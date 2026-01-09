@@ -139,6 +139,172 @@ class IndicatorEngine:
         self._started = False
         logger.info("IndicatorEngine stopped")
 
+    def inject_historical_bars(
+        self,
+        symbol: str,
+        timeframe: str,
+        bar_dicts: List[Dict[str, Any]],
+    ) -> int:
+        """
+        Inject historical bars for indicator warmup (IDEMPOTENT).
+
+        Only injects bars newer than the latest bar in history.
+        Safe to call multiple times - duplicates are skipped.
+
+        Call this BEFORE live tick processing starts to warm up
+        indicators with historical data from Parquet cache.
+
+        Args:
+            symbol: Trading symbol (e.g., "AAPL")
+            timeframe: Bar timeframe (e.g., "1d")
+            bar_dicts: List of bar dictionaries with keys:
+                       {timestamp, open, high, low, close, volume}
+                       Must be sorted ascending by timestamp.
+
+        Returns:
+            Number of NEW bars injected (duplicates are skipped)
+        """
+        bar_key: BarKey = (symbol, timeframe)
+
+        with self._lock:
+            if bar_key not in self._history:
+                self._history[bar_key] = deque(maxlen=self._max_history)
+
+            # Get latest timestamp in existing history for idempotency check
+            existing_history = self._history[bar_key]
+            latest_ts = None
+            if existing_history:
+                latest_ts = existing_history[-1].get("timestamp")
+
+            # Only inject bars NEWER than existing data
+            new_bars = []
+            for bar in bar_dicts:
+                bar_ts = bar.get("timestamp")
+                if latest_ts is None or bar_ts > latest_ts:
+                    new_bars.append(bar)
+                    latest_ts = bar_ts  # Update for next iteration
+
+            for bar in new_bars:
+                self._history[bar_key].append(bar)
+
+            injected_count = len(new_bars)
+            skipped_count = len(bar_dicts) - injected_count
+
+            # Get latest bar timestamp for logging
+            latest_bar_ts = None
+            if self._history[bar_key]:
+                latest_bar_ts = self._history[bar_key][-1].get("timestamp")
+
+            logger.info(
+                "Injected historical bars for indicator warmup",
+                extra={
+                    "symbol": symbol,
+                    "timeframe": timeframe,
+                    "bars_injected": injected_count,
+                    "bars_skipped_duplicate": skipped_count,
+                    "history_size": len(self._history[bar_key]),
+                    "max_history": self._max_history,
+                    "max_warmup": self._max_warmup,
+                    "latest_bar_ts": str(latest_bar_ts) if latest_bar_ts else None,
+                },
+            )
+            return injected_count
+
+    async def compute_on_history(self, symbol: str, timeframe: str) -> int:
+        """
+        Compute all indicators on existing history and publish updates.
+
+        Call this AFTER inject_historical_bars() to immediately calculate
+        indicator values instead of waiting for the next BAR_CLOSE event.
+
+        Args:
+            symbol: Trading symbol
+            timeframe: Bar timeframe
+
+        Returns:
+            Number of indicators computed
+        """
+        bar_key: BarKey = (symbol, timeframe)
+
+        with self._lock:
+            if bar_key not in self._history:
+                logger.debug(f"No history for {symbol}/{timeframe}, skipping compute")
+                return 0
+            bars = list(self._history[bar_key])
+
+        if not bars:
+            return 0
+
+        if not self._indicators:
+            return 0
+
+        # Get latest bar timestamp for the computation
+        latest_bar = bars[-1]
+        timestamp = latest_bar.get("timestamp")
+
+        # Build tasks for indicators with sufficient warmup
+        loop = asyncio.get_running_loop()
+        tasks = []
+
+        for indicator in self._indicators:
+            if len(bars) < indicator.warmup_periods:
+                continue
+
+            state_key: StateKey = (symbol, timeframe, indicator.name)
+            prev_state = self._previous_states.get(state_key)
+
+            try:
+                task = loop.run_in_executor(
+                    self._executor,
+                    self._compute_indicator,
+                    indicator,
+                    bars,
+                    symbol,
+                    timeframe,
+                    timestamp,
+                    prev_state,
+                )
+                tasks.append(task)
+            except RuntimeError:
+                logger.debug("Executor shutdown during history compute")
+                return 0
+
+        if not tasks:
+            logger.debug(
+                f"No indicators ready for {symbol}/{timeframe} "
+                f"(history={len(bars)}, max_warmup={self._max_warmup})"
+            )
+            return 0
+
+        # Execute all indicator calculations in parallel
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Publish results
+        indicators_computed = 0
+        for result in results:
+            if isinstance(result, Exception):
+                logger.error(f"Indicator computation error: {result}")
+                continue
+
+            if result is None:
+                continue
+
+            update_event, new_state = result
+            self._publish_update(update_event, new_state)
+            indicators_computed += 1
+
+        logger.info(
+            f"Computed {indicators_computed} indicators on history for {symbol}/{timeframe}",
+            extra={
+                "symbol": symbol,
+                "timeframe": timeframe,
+                "indicators_computed": indicators_computed,
+                "history_size": len(bars),
+            },
+        )
+
+        return indicators_computed
+
     def _on_bar_close(self, payload: Any) -> None:
         """Handle BAR_CLOSE event (sync entry point)."""
         if not self._started:

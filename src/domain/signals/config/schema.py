@@ -78,7 +78,7 @@ class ValidationResult:
 class UniverseDefaults:
     """Default settings for universe symbols."""
 
-    timeframes: List[str] = field(default_factory=lambda: ["1h", "4h", "1d"])
+    timeframes: List[str] = field(default_factory=lambda: ["1d"])
     min_volume_usd: float = 0.0
 
 

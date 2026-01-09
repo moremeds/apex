@@ -168,6 +168,18 @@ risk_signals:
       GOOGL: "2025-02-04"
       # Add more symbols as needed
 
+# Technical Analysis Signal Pipeline
+signals:
+  enabled: true
+  timeframes: ["1d"]  # Daily-only signals - no intraday data needed
+  indicator_max_workers: 4
+  # Bar cache preloading (startup warmup + periodic refresh)
+  preload:
+    enabled: true
+    lookback_days: 365  # Load 1 year of daily bars (covers SMA 200 warmup)
+    cache_refresh_hours: 24  # Refresh disk cache daily (append new bars)
+    slow_preload_warn_sec: 30  # Warn if preload takes longer
+
 # Watchdog monitoring
 watchdog:
   snapshot_stale_sec: 10  # Alert if snapshot not updated
