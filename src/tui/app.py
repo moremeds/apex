@@ -8,6 +8,12 @@ Real-time terminal UI for risk monitoring with tabbed views:
 - Tab 4: Futu Positions (detailed Futu positions with ATR levels)
 - Tab 5: Lab (backtest strategies with parameters and performance results)
 - Tab 6: Trading Signals (universe watchlist + signal feed + confluence)
+- Tab 7: Data (historical coverage + indicator DB status)
+
+Signal Persistence Integration:
+- Loads historical signals from database on startup (non-blocking)
+- Connects to PostgreSQL NOTIFY via SignalListener for real-time updates
+- Ensures no signals are lost between startup and event bus subscription
 """
 
 from __future__ import annotations
@@ -25,12 +31,15 @@ from .views.signals import SignalsView
 from .views.positions import PositionsView
 from .views.lab import LabView
 from .views.trading_signals import TradingSignalsView
+from .views.data import DataView, DataRefreshRequested, IndicatorDetailsRequested
 from .widgets.header import HeaderWidget
 
 if TYPE_CHECKING:
     from ..models.risk_snapshot import RiskSnapshot
     from ..models.risk_signal import RiskSignal
     from ..infrastructure.monitoring import ComponentHealth
+    from ..domain.interfaces.signal_persistence import SignalPersistencePort
+    from ..infrastructure.persistence.signal_listener import SignalListener
 
 
 class ApexApp(App):
@@ -53,6 +62,7 @@ class ApexApp(App):
         Binding("4", "switch_tab('futu')", "Futu", show=True),
         Binding("5", "switch_tab('lab')", "Lab", show=True),
         Binding("6", "switch_tab('trading')", "Trading", show=True),
+        Binding("7", "switch_tab('data')", "Data", show=True),
         Binding("q", "quit", "Quit", show=True),
     ]
 
@@ -90,11 +100,23 @@ class ApexApp(App):
         # Track mount state for deferred universe application
         self._is_mounted = False
 
+        # Signal persistence integration
+        self._signal_persistence: Optional["SignalPersistencePort"] = None
+        self._signal_listener: Optional["SignalListener"] = None
+        self._history_loaded = False
+
+        # Tab 7 (Data) services
+        self._coverage_store = None  # DuckDBCoverageStore
+        self._data_poll_timer = None  # Slower polling for Tab 7
+
     def on_mount(self) -> None:
         """Set up update polling when app is mounted."""
         # OPT-001: 4Hz target (0.25s) instead of 10Hz (0.1s) for consistent updates
         self._poll_timer = self.set_interval(0.25, self._poll_updates)
         self._sync_header_tab()
+
+        # Slower polling for Tab 7 data (coverage + indicators)
+        self._data_poll_timer = self.set_interval(10.0, self._poll_data_view)
 
         # Mark as mounted so deferred set_trading_universe() calls apply immediately
         self._is_mounted = True
@@ -103,10 +125,20 @@ class ApexApp(App):
         if self._pending_universe:
             self._apply_trading_universe(self._pending_universe)
 
+        # Load historical signals from database (non-blocking)
+        if self._signal_persistence and not self._history_loaded:
+            self._load_signal_history()
+
+        # Connect SignalListener for real-time NOTIFY updates
+        if self._signal_listener:
+            self._connect_signal_listener()
+
     def on_unmount(self) -> None:
-        """Clean up timer on unmount."""
+        """Clean up timers on unmount."""
         if self._poll_timer:
             self._poll_timer.stop()
+        if self._data_poll_timer:
+            self._data_poll_timer.stop()
 
     def _poll_updates(self) -> None:
         """Poll the update queue with conflation - only process latest update."""
@@ -193,6 +225,8 @@ class ApexApp(App):
                 yield LabView(id="lab-view")
             with TabPane("Trading", id="trading"):
                 yield TradingSignalsView(id="trading-signals-view")
+            with TabPane("Data", id="data"):
+                yield DataView(id="data-view")
         yield Footer()
 
     def action_switch_tab(self, tab_id: str) -> None:
@@ -212,7 +246,7 @@ class ApexApp(App):
     def on_tabs_tab_activated(self, event: Tabs.TabActivated) -> None:
         """Handle header tab clicks."""
         tab_id = event.tab.id or ""
-        if tab_id in {"summary", "signals", "ib", "futu", "lab", "trading"}:
+        if tab_id in {"summary", "signals", "ib", "futu", "lab", "trading", "data"}:
             tabs = self.query_one("#main-tabs", TabbedContent)
             if tabs.active != tab_id:
                 tabs.active = tab_id
@@ -224,6 +258,9 @@ class ApexApp(App):
         event_loop,
         historical_service=None,
         event_bus=None,
+        signal_persistence: Optional["SignalPersistencePort"] = None,
+        signal_listener: Optional["SignalListener"] = None,
+        coverage_store=None,
     ) -> None:
         """
         Inject services for ATR calculation, backtesting, and signal events.
@@ -233,22 +270,30 @@ class ApexApp(App):
             event_loop: Main event loop for scheduling async operations.
             historical_service: HistoricalDataService for backtest data.
             event_bus: PriorityEventBus for subscribing to TRADING_SIGNAL events.
+            signal_persistence: SignalPersistencePort for loading historical signals.
+            signal_listener: SignalListener for PostgreSQL NOTIFY updates.
+            coverage_store: DuckDBCoverageStore for Tab 7 historical coverage.
         """
         self.ta_service = ta_service
         self._event_loop = event_loop
         self.historical_service = historical_service
         self._event_bus = event_bus
+        self._signal_persistence = signal_persistence
+        self._signal_listener = signal_listener
+        self._coverage_store = coverage_store
 
         # Subscribe to trading signal events if event bus provided
         if event_bus is not None:
             self._subscribe_trading_signals(event_bus)
 
     def _subscribe_trading_signals(self, event_bus) -> None:
-        """Subscribe to TRADING_SIGNAL events on the event bus."""
+        """Subscribe to TRADING_SIGNAL, CONFLUENCE_UPDATE, and ALIGNMENT_UPDATE events."""
         from ..domain.events.event_types import EventType
 
         event_bus.subscribe(EventType.TRADING_SIGNAL, self._on_trading_signal)
-        self.log.info("Subscribed to TRADING_SIGNAL events")
+        event_bus.subscribe(EventType.CONFLUENCE_UPDATE, self._on_confluence_update)
+        event_bus.subscribe(EventType.ALIGNMENT_UPDATE, self._on_alignment_update)
+        self.log.info("Subscribed to TRADING_SIGNAL, CONFLUENCE_UPDATE, ALIGNMENT_UPDATE events")
 
     def _on_trading_signal(self, payload) -> None:
         """
@@ -276,12 +321,12 @@ class ApexApp(App):
 
     def _on_confluence_update(self, score) -> None:
         """
-        Callback for confluence score updates (called from coordinator thread).
+        Callback for confluence score updates (called from event bus).
 
         Queues the score for processing in the TUI thread.
 
         Args:
-            score: ConfluenceScore object from CrossIndicatorAnalyzer
+            score: ConfluenceUpdateEvent from event bus
         """
         try:
             self._confluence_queue.put_nowait(score)
@@ -443,7 +488,217 @@ class ApexApp(App):
         except Exception as e:
             self.log.error(f"Failed to set header tab: {e}")
 
+    # -------------------------------------------------------------------------
+    # Tab 7 (Data) Polling and Event Handlers
+    # -------------------------------------------------------------------------
+
+    def _poll_data_view(self) -> None:
+        """
+        Poll data for Tab 7 (coverage and indicators).
+
+        Runs on slower 10s interval. Only fetches when data tab is active.
+        """
+        try:
+            tabs = self.query_one("#main-tabs", TabbedContent)
+            if tabs.active != "data":
+                return  # Only poll when data tab is active
+        except Exception:
+            return
+
+        self._refresh_data_view()
+
+    def _refresh_data_view(self) -> None:
+        """Refresh data view with coverage and indicator data."""
+        # Update coverage from DuckDB
+        if self._coverage_store:
+            try:
+                coverage_data = self._get_coverage_data()
+                data_view = self.query_one("#data-view", DataView)
+                data_view.update_coverage(coverage_data)
+
+                # Update stats
+                symbol_count = len(coverage_data)
+                timeframe_set = set()
+                total_bars = 0
+                for records in coverage_data.values():
+                    for r in records:
+                        timeframe_set.add(r.get("timeframe", ""))
+                        total_bars += r.get("total_bars", 0) or 0
+
+                data_view.update_stats(
+                    symbol_count=symbol_count,
+                    timeframe_count=len(timeframe_set),
+                    total_bars=total_bars,
+                    db_connected=self._signal_persistence is not None,
+                )
+            except Exception as e:
+                self.log.error(f"Failed to update coverage: {e}")
+
+        # Update indicator summary from PostgreSQL
+        if self._signal_persistence and self._event_loop:
+            try:
+                import asyncio
+                future = asyncio.run_coroutine_threadsafe(
+                    self._signal_persistence.get_indicator_summary(),
+                    self._event_loop,
+                )
+                summary = future.result(timeout=5.0)
+                data_view = self.query_one("#data-view", DataView)
+                data_view.update_indicator_summary(summary)
+            except Exception as e:
+                self.log.error(f"Failed to update indicator summary: {e}")
+
+    def _get_coverage_data(self) -> Dict[str, List[Dict]]:
+        """Get coverage data from DuckDB grouped by symbol."""
+        if not self._coverage_store:
+            return {}
+
+        result: Dict[str, List[Dict]] = {}
+        try:
+            symbols = self._coverage_store.get_all_symbols()
+            for symbol in symbols:
+                summaries = self._coverage_store.get_coverage_summary(symbol)
+                result[symbol] = summaries
+        except Exception as e:
+            self.log.error(f"Failed to get coverage data: {e}")
+        return result
+
+    def on_data_refresh_requested(self, event: DataRefreshRequested) -> None:
+        """Handle manual refresh request from Data view."""
+        self._refresh_data_view()
+
+    def on_indicator_details_requested(self, event: IndicatorDetailsRequested) -> None:
+        """Handle indicator drill-down request from Data view."""
+        if not self._signal_persistence or not self._event_loop:
+            return
+
+        indicator = event.indicator
+
+        async def fetch_details():
+            try:
+                details = await self._signal_persistence.get_indicator_details(indicator)
+                self.call_from_thread(self._apply_indicator_details, indicator, details)
+            except Exception as e:
+                self.log.error(f"Failed to fetch indicator details: {e}")
+
+        self.run_worker(fetch_details, exclusive=True)
+
+    def _apply_indicator_details(self, indicator: str, details: List[Dict]) -> None:
+        """Apply indicator details to data view."""
+        try:
+            data_view = self.query_one("#data-view", DataView)
+            data_view.update_indicator_details(indicator, details)
+        except Exception as e:
+            self.log.error(f"Failed to apply indicator details: {e}")
+
     # NOTE: watch_snapshot removed to fix double rendering bug.
     # The update_data() method calls _update_views() directly, so having
     # watch_snapshot also call _update_views() caused double rendering
     # on every update cycle.
+
+    # -------------------------------------------------------------------------
+    # Signal History Loading (Background Worker)
+    # -------------------------------------------------------------------------
+
+    def _load_signal_history(self) -> None:
+        """
+        Load historical signals from database in background worker.
+
+        Uses Textual's run_worker to run in a separate thread,
+        keeping the TUI responsive during database queries.
+
+        Loads the last 100 signals and applies them to the Trading view.
+        """
+        if not self._signal_persistence:
+            return
+
+        async def _fetch_signals():
+            """Async worker to fetch signals from database."""
+            try:
+                signals = await self._signal_persistence.get_recent_signals(limit=100)
+                if signals:
+                    # Post to main thread
+                    self.call_from_thread(self._apply_historical_signals, signals)
+                    self.log.info(f"Loaded {len(signals)} historical signals from database")
+                else:
+                    self.log.info("No historical signals found in database")
+                self._history_loaded = True
+            except Exception as e:
+                self.log.error(f"Failed to load signal history: {e}")
+
+        # Run in background worker
+        self.run_worker(_fetch_signals, exclusive=True)
+
+    def _apply_historical_signals(self, signals: List[Any]) -> None:
+        """
+        Apply historical signals to the Trading view (runs in main thread).
+
+        Called from background worker via call_from_thread().
+
+        Args:
+            signals: List of TradingSignal objects from database.
+        """
+        try:
+            trading_view = self.query_one("#trading-signals-view", TradingSignalsView)
+            # Load signals in reverse chronological order (oldest first)
+            for signal in reversed(signals):
+                trading_view.add_signal(signal)
+            self.log.info(f"Applied {len(signals)} historical signals to Trading view")
+        except Exception as e:
+            self.log.error(f"Failed to apply historical signals: {e}")
+
+    # -------------------------------------------------------------------------
+    # SignalListener Integration (PostgreSQL NOTIFY)
+    # -------------------------------------------------------------------------
+
+    def _connect_signal_listener(self) -> None:
+        """
+        Connect SignalListener callbacks for real-time database notifications.
+
+        Routes PostgreSQL NOTIFY payloads to the same queues as EventBus,
+        unifying the data path for both live and database-sourced signals.
+        """
+        if not self._signal_listener:
+            return
+
+        # Route signal notifications to the existing queue
+        self._signal_listener.on_signal(self._on_db_signal_notify)
+        self._signal_listener.on_confluence(self._on_db_confluence_notify)
+
+        self.log.info("Connected SignalListener for PostgreSQL NOTIFY updates")
+
+    def _on_db_signal_notify(self, payload: Dict[str, Any]) -> None:
+        """
+        Handle signal notification from PostgreSQL NOTIFY.
+
+        Converts database payload to signal format and queues for TUI processing.
+
+        Args:
+            payload: JSON payload from PostgreSQL NOTIFY trigger.
+        """
+        try:
+            # Queue the payload for processing (same path as EventBus signals)
+            self._signal_queue.put_nowait(payload)
+        except queue.Full:
+            # Drop oldest if queue full
+            try:
+                self._signal_queue.get_nowait()
+                self._signal_queue.put_nowait(payload)
+            except Exception:
+                pass
+
+    def _on_db_confluence_notify(self, payload: Dict[str, Any]) -> None:
+        """
+        Handle confluence notification from PostgreSQL NOTIFY.
+
+        Args:
+            payload: JSON payload from PostgreSQL NOTIFY trigger.
+        """
+        try:
+            self._confluence_queue.put_nowait(payload)
+        except queue.Full:
+            try:
+                self._confluence_queue.get_nowait()
+                self._confluence_queue.put_nowait(payload)
+            except Exception:
+                pass

@@ -6,12 +6,17 @@ Manages the complete signal generation pipeline:
 - Indicator computation (BAR_CLOSE → INDICATOR_UPDATE)
 - Signal rule evaluation (INDICATOR_UPDATE → TRADING_SIGNAL)
 
+Optional persistence support:
+- When SignalPersistencePort is provided, signals/indicators/confluence
+  are persisted to database with PostgreSQL NOTIFY for TUI updates
+
 This coordinator follows the same pattern as DataCoordinator and
 SnapshotCoordinator, keeping the Orchestrator thin.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from datetime import datetime, timedelta
@@ -28,6 +33,7 @@ from ...infrastructure.observability import (
 
 if TYPE_CHECKING:
     from ...domain.interfaces.event_bus import EventBus
+    from ...domain.interfaces.signal_persistence import SignalPersistencePort
     from ...domain.signals import BarAggregator, IndicatorEngine, RuleEngine
     from ...domain.signals.divergence import CrossIndicatorAnalyzer, MTFDivergenceAnalyzer
 
@@ -61,6 +67,7 @@ class SignalCoordinator:
         signal_metrics: Optional[SignalMetrics] = None,
         historical_data_manager: Optional[Any] = None,
         preload_config: Optional[Dict[str, Any]] = None,
+        persistence: Optional["SignalPersistencePort"] = None,
     ) -> None:
         """
         Initialize the signal coordinator.
@@ -76,12 +83,15 @@ class SignalCoordinator:
                             - lookback_days: Number of days to load (default: 365)
                             - cache_refresh_hours: Refresh interval (default: 24)
                             - slow_preload_warn_sec: Warn if preload takes longer (default: 30)
+            persistence: Optional persistence port for saving signals/indicators/confluence
+                        to database. When provided, enables PostgreSQL NOTIFY for TUI updates.
         """
         self._event_bus = event_bus
         self._timeframes = list(dict.fromkeys(timeframes or ["1d"]))
         self._max_workers = max_workers
         self._enabled = enabled
         self._metrics = signal_metrics
+        self._persistence = persistence
 
         # Historical data manager for preloading and cache refresh
         self._historical_data_manager = historical_data_manager
@@ -100,13 +110,14 @@ class SignalCoordinator:
         # Indicator state cache: (symbol, timeframe) -> {indicator_name: state_dict}
         self._indicator_states: Dict[Tuple[str, str], Dict[str, Dict[str, Any]]] = {}
 
-        # Confluence callbacks
-        self._confluence_callback: Optional[Callable[[Any], None]] = None
-        self._alignment_callback: Optional[Callable[[Any], None]] = None
-
         # Debounce tracking: (symbol, timeframe) -> last_calc_time_ms
         self._last_confluence_calc: Dict[Tuple[str, str], float] = {}
         self._confluence_debounce_ms: float = 500.0
+
+        # Persistence statistics
+        self._signals_persisted = 0
+        self._indicators_persisted = 0
+        self._confluence_persisted = 0
 
         self._started = False
 
@@ -176,6 +187,10 @@ class SignalCoordinator:
         # Subscribe to indicator updates for confluence calculation
         self._event_bus.subscribe(EventType.INDICATOR_UPDATE, self._on_indicator_update)
 
+        # Subscribe to trading signals for persistence (if enabled)
+        if self._persistence:
+            self._event_bus.subscribe(EventType.TRADING_SIGNAL, self._on_trading_signal)
+
         self._started = True
 
         # Structured startup log
@@ -186,6 +201,7 @@ class SignalCoordinator:
                 "indicators": self._indicator_engine.indicator_count,
                 "rules": len(registry),
                 "max_workers": self._max_workers,
+                "persistence_enabled": self._persistence is not None,
             },
         )
 
@@ -215,6 +231,13 @@ class SignalCoordinator:
             self._event_bus.unsubscribe(EventType.INDICATOR_UPDATE, self._on_indicator_update)
         except Exception as e:
             logger.warning(f"Error unsubscribing from indicator events: {e}")
+
+        # Unsubscribe from trading signals (if persistence was enabled)
+        if self._persistence:
+            try:
+                self._event_bus.unsubscribe(EventType.TRADING_SIGNAL, self._on_trading_signal)
+            except Exception as e:
+                logger.warning(f"Error unsubscribing from signal events: {e}")
 
         # Clear state caches (prevents stale data on restart)
         self._indicator_states.clear()
@@ -513,30 +536,8 @@ class SignalCoordinator:
         return True
 
     # -------------------------------------------------------------------------
-    # Confluence Calculation
+    # Confluence Calculation (Event-Driven)
     # -------------------------------------------------------------------------
-
-    def set_confluence_callback(
-        self, callback: Optional[Callable[[Any], None]]
-    ) -> None:
-        """
-        Register callback to receive ConfluenceScore updates.
-
-        Args:
-            callback: Function to call with ConfluenceScore objects
-        """
-        self._confluence_callback = callback
-
-    def set_alignment_callback(
-        self, callback: Optional[Callable[[Any], None]]
-    ) -> None:
-        """
-        Register callback to receive MTFAlignment updates.
-
-        Args:
-            callback: Function to call with MTFAlignment objects
-        """
-        self._alignment_callback = callback
 
     def _on_indicator_update(self, payload: Any) -> None:
         """
@@ -548,7 +549,16 @@ class SignalCoordinator:
         Args:
             payload: IndicatorUpdateEvent with symbol, timeframe, indicator, state
         """
+        # Log every indicator update received (for debugging signal flow)
+        indicator = getattr(payload, "indicator", "?")
+        symbol = getattr(payload, "symbol", "?")
+        logger.debug(
+            "SignalCoordinator received INDICATOR_UPDATE",
+            extra={"indicator": indicator, "symbol": symbol, "started": self._started},
+        )
+
         if not self._started:
+            logger.warning("SignalCoordinator not started, ignoring INDICATOR_UPDATE")
             return
 
         symbol = getattr(payload, "symbol", None)
@@ -556,14 +566,45 @@ class SignalCoordinator:
         indicator = getattr(payload, "indicator", None)
         state = getattr(payload, "state", None)
 
-        if not all([symbol, timeframe, indicator, state]):
+        # Require symbol, timeframe, indicator - state can be empty dict
+        if not symbol or not timeframe or not indicator:
             return
+
+        # state can be None or empty dict - both are valid (indicator computed but no signal)
+        if state is None:
+            state = {}
 
         # Cache the indicator state
         key = (symbol, timeframe)
         if key not in self._indicator_states:
             self._indicator_states[key] = {}
         self._indicator_states[key][indicator] = state
+
+        # Persist indicator if persistence enabled
+        if self._persistence:
+            previous_state = getattr(payload, "previous_state", None)
+            timestamp = getattr(payload, "timestamp", None) or now_utc()
+            asyncio.create_task(self._persist_indicator(
+                symbol=symbol,
+                timeframe=timeframe,
+                indicator=indicator,
+                timestamp=timestamp,
+                state=state,
+                previous_state=previous_state,
+            ))
+
+        # Log indicator cache update
+        cached_count = len(self._indicator_states[key])
+        logger.debug(
+            "Indicator state cached for confluence",
+            extra={
+                "symbol": symbol,
+                "timeframe": timeframe,
+                "indicator": indicator,
+                "cached_indicators": cached_count,
+                "state_keys": list(state.keys()) if state else [],
+            },
+        )
 
         # Update cache size metric
         if self._metrics:
@@ -582,10 +623,15 @@ class SignalCoordinator:
         Implements 500ms debounce per (symbol, timeframe) to prevent
         excessive calculations when multiple indicators update in bursts.
 
+        Publishes CONFLUENCE_UPDATE and ALIGNMENT_UPDATE events to the event bus,
+        enabling decoupled consumption by TUI and other subscribers.
+
         Args:
             symbol: Trading symbol
             timeframe: Bar timeframe
         """
+        from ...domain.events.domain_events import ConfluenceUpdateEvent, AlignmentUpdateEvent
+
         key = (symbol, timeframe)
         now_ms = time.time() * 1000
 
@@ -593,22 +639,54 @@ class SignalCoordinator:
         if now_ms - last_calc < self._confluence_debounce_ms:
             return
 
-        self._last_confluence_calc[key] = now_ms
-
         # Get cached indicator states for this symbol/timeframe
         indicator_states = self._indicator_states.get(key, {})
         if len(indicator_states) < 2:
             # Need at least 2 indicators for meaningful confluence
+            # DON'T update debounce time - we want to try again when more indicators arrive
+            logger.debug(
+                "Confluence skipped: insufficient indicators",
+                extra={"symbol": symbol, "timeframe": timeframe, "count": len(indicator_states)},
+            )
             return
 
-        # Calculate single-timeframe confluence score
-        if self._cross_analyzer and self._confluence_callback:
+        # Only update debounce time when we actually have enough indicators to calculate
+        self._last_confluence_calc[key] = now_ms
+
+        logger.info(
+            "Calculating confluence",
+            extra={
+                "symbol": symbol,
+                "timeframe": timeframe,
+                "indicator_count": len(indicator_states),
+                "has_cross_analyzer": self._cross_analyzer is not None,
+                "has_mtf_analyzer": self._mtf_analyzer is not None,
+            },
+        )
+
+        # Calculate single-timeframe confluence score and publish event
+        if self._cross_analyzer:
             start_time = time.perf_counter()
             try:
                 with time_confluence_calculation(self._metrics):
                     score = self._cross_analyzer.analyze(symbol, timeframe, indicator_states)
 
-                self._confluence_callback(score)
+                # Publish event instead of calling callback
+                event = ConfluenceUpdateEvent.from_score(score)
+                self._event_bus.publish(EventType.CONFLUENCE_UPDATE, event)
+
+                # Persist confluence if enabled
+                if self._persistence:
+                    asyncio.create_task(self._persist_confluence(
+                        symbol=symbol,
+                        timeframe=timeframe,
+                        alignment_score=getattr(score, "alignment_score", 0.0),
+                        bullish_count=getattr(score, "bullish_count", 0),
+                        bearish_count=getattr(score, "bearish_count", 0),
+                        neutral_count=getattr(score, "neutral_count", 0),
+                        total_indicators=getattr(score, "total_indicators", 0),
+                        dominant_direction=getattr(score, "dominant_direction", None),
+                    ))
 
                 # Structured debug log with confluence results
                 duration_ms = (time.perf_counter() - start_time) * 1000
@@ -618,7 +696,7 @@ class SignalCoordinator:
                 neutral = getattr(score, "neutral_count", 0)
 
                 logger.debug(
-                    "Confluence calculated",
+                    "Confluence calculated and published",
                     extra={
                         "symbol": symbol,
                         "timeframe": timeframe,
@@ -650,7 +728,7 @@ class SignalCoordinator:
                 )
 
         # Calculate multi-timeframe alignment if we have data for multiple TFs
-        if self._mtf_analyzer and self._alignment_callback:
+        if self._mtf_analyzer:
             states_by_tf: Dict[str, Dict[str, Dict[str, Any]]] = {}
             for (sym, tf), indicators in self._indicator_states.items():
                 if sym == symbol:
@@ -664,7 +742,9 @@ class SignalCoordinator:
                             symbol, list(states_by_tf.keys()), states_by_tf
                         )
 
-                    self._alignment_callback(alignment)
+                    # Publish event instead of calling callback
+                    event = AlignmentUpdateEvent.from_alignment(alignment)
+                    self._event_bus.publish(EventType.ALIGNMENT_UPDATE, event)
 
                     # Structured debug log with alignment results
                     duration_ms = (time.perf_counter() - start_time) * 1000
@@ -673,7 +753,7 @@ class SignalCoordinator:
                     aligned_tfs = getattr(alignment, "aligned_timeframes", [])
 
                     logger.debug(
-                        "MTF alignment calculated",
+                        "MTF alignment calculated and published",
                         extra={
                             "symbol": symbol,
                             "timeframes": list(states_by_tf.keys()),
@@ -703,3 +783,84 @@ class SignalCoordinator:
                         "MTF alignment calculation failed",
                         extra={"symbol": symbol, "error": str(e)},
                     )
+
+    # -------------------------------------------------------------------------
+    # Persistence Handlers
+    # -------------------------------------------------------------------------
+
+    def _on_trading_signal(self, payload: Any) -> None:
+        """
+        Handle TRADING_SIGNAL event for persistence.
+
+        Persists signals to database, which triggers PostgreSQL NOTIFY
+        for real-time TUI updates.
+
+        Args:
+            payload: TradingSignalEvent or TradingSignal.
+        """
+        if not self._started or not self._persistence:
+            return
+
+        asyncio.create_task(self._persist_signal(payload))
+
+    async def _persist_signal(self, signal: Any) -> None:
+        """Persist trading signal to database."""
+        try:
+            # Handle both TradingSignalEvent wrapper and TradingSignal directly
+            if hasattr(signal, "signal"):
+                signal = signal.signal
+            await self._persistence.save_signal(signal)
+            self._signals_persisted += 1
+        except Exception as e:
+            logger.error(f"Failed to persist signal: {e}")
+
+    async def _persist_indicator(
+        self,
+        symbol: str,
+        timeframe: str,
+        indicator: str,
+        timestamp: datetime,
+        state: Dict[str, Any],
+        previous_state: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Persist indicator value to database."""
+        try:
+            await self._persistence.save_indicator(
+                symbol=symbol,
+                timeframe=timeframe,
+                indicator=indicator,
+                timestamp=timestamp,
+                state=state,
+                previous_state=previous_state,
+            )
+            self._indicators_persisted += 1
+        except Exception as e:
+            logger.error(f"Failed to persist indicator {indicator} for {symbol}: {e}")
+
+    async def _persist_confluence(
+        self,
+        symbol: str,
+        timeframe: str,
+        alignment_score: float,
+        bullish_count: int,
+        bearish_count: int,
+        neutral_count: int,
+        total_indicators: int,
+        dominant_direction: Optional[str] = None,
+    ) -> None:
+        """Persist confluence score to database."""
+        try:
+            await self._persistence.save_confluence(
+                symbol=symbol,
+                timeframe=timeframe,
+                timestamp=now_utc(),
+                alignment_score=alignment_score,
+                bullish_count=bullish_count,
+                bearish_count=bearish_count,
+                neutral_count=neutral_count,
+                total_indicators=total_indicators,
+                dominant_direction=dominant_direction,
+            )
+            self._confluence_persisted += 1
+        except Exception as e:
+            logger.error(f"Failed to persist confluence for {symbol}/{timeframe}: {e}")

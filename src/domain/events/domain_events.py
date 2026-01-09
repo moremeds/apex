@@ -757,6 +757,99 @@ class TradingSignalEvent(DomainEvent):
         )
 
 
+@dataclass(frozen=True, slots=True)
+class ConfluenceUpdateEvent(DomainEvent):
+    """
+    Confluence score update event for multi-indicator analysis.
+
+    Published on EventType.CONFLUENCE_UPDATE when indicator confluence
+    is recalculated. Enables TUI to display cross-indicator agreement.
+
+    Confluence measures how many technical indicators agree on direction:
+    - High confluence (0.7+): Strong directional agreement
+    - Low confluence (<0.3): Mixed/conflicting signals
+    """
+
+    symbol: str = ""
+    timeframe: str = "1d"
+    alignment_score: float = 0.0  # -1.0 (bearish) to +1.0 (bullish)
+    bullish_count: int = 0
+    bearish_count: int = 0
+    neutral_count: int = 0
+    total_indicators: int = 0
+    dominant_direction: str = "neutral"  # "bullish", "bearish", "neutral"
+    confidence: float = 0.0  # 0.0 to 1.0
+
+    @classmethod
+    def from_score(cls, score: Any) -> "ConfluenceUpdateEvent":
+        """
+        Create event from ConfluenceScore domain object.
+
+        Args:
+            score: ConfluenceScore instance from CrossIndicatorAnalyzer
+
+        Returns:
+            ConfluenceUpdateEvent for event bus
+        """
+        return cls(
+            timestamp=getattr(score, "timestamp", None) or now_local(),
+            symbol=getattr(score, "symbol", ""),
+            timeframe=getattr(score, "timeframe", "1d"),
+            alignment_score=getattr(score, "alignment_score", 0.0),
+            bullish_count=getattr(score, "bullish_count", 0),
+            bearish_count=getattr(score, "bearish_count", 0),
+            neutral_count=getattr(score, "neutral_count", 0),
+            total_indicators=getattr(score, "total_indicators", 0),
+            dominant_direction=getattr(score, "dominant_direction", "neutral"),
+            confidence=getattr(score, "confidence", 0.0),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class AlignmentUpdateEvent(DomainEvent):
+    """
+    Multi-timeframe alignment update event.
+
+    Published on EventType.ALIGNMENT_UPDATE when MTF alignment is
+    recalculated. Enables TUI to display timeframe agreement.
+
+    MTF alignment measures directional agreement across timeframes:
+    - Strong alignment: All timeframes agree on direction
+    - Weak alignment: Mixed signals across timeframes
+    """
+
+    symbol: str = ""
+    timeframes: List[str] = field(default_factory=list)
+    strength: str = "weak"  # "strong", "moderate", "weak"
+    direction: str = "neutral"  # "bullish", "bearish", "neutral"
+    aligned_count: int = 0
+    total_timeframes: int = 0
+    divergence_detected: bool = False
+
+    @classmethod
+    def from_alignment(cls, alignment: Any) -> "AlignmentUpdateEvent":
+        """
+        Create event from MTFAlignment domain object.
+
+        Args:
+            alignment: MTFAlignment instance from MTFDivergenceAnalyzer
+
+        Returns:
+            AlignmentUpdateEvent for event bus
+        """
+        aligned_tfs = getattr(alignment, "aligned_timeframes", [])
+        return cls(
+            timestamp=getattr(alignment, "timestamp", None) or now_local(),
+            symbol=getattr(alignment, "symbol", ""),
+            timeframes=list(aligned_tfs),
+            strength=getattr(alignment, "strength", "weak"),
+            direction=getattr(alignment, "direction", "neutral"),
+            aligned_count=len(aligned_tfs),
+            total_timeframes=getattr(alignment, "total_timeframes", 0),
+            divergence_detected=getattr(alignment, "divergence_detected", False),
+        )
+
+
 # =============================================================================
 # Event Registry
 # =============================================================================
@@ -777,6 +870,8 @@ EVENT_REGISTRY: Dict[str, Type[DomainEvent]] = {
     "MarketDataTickEvent": MarketDataTickEvent,
     "MDQCValidationTrigger": MDQCValidationTrigger,
     "TradingSignalEvent": TradingSignalEvent,
+    "ConfluenceUpdateEvent": ConfluenceUpdateEvent,
+    "AlignmentUpdateEvent": AlignmentUpdateEvent,
 }
 
 

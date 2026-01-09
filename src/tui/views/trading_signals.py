@@ -10,6 +10,7 @@ Keyboard shortcuts:
 - w/s or Up/Down: Navigate watchlist
 - t: Cycle timeframe
 - c: Clear signals
+- h: Toggle history view (Current State vs History)
 """
 
 from __future__ import annotations
@@ -45,6 +46,7 @@ class TradingSignalsView(Container, can_focus=True):
         Binding("down", "move_down", "Down", show=False),
         Binding("t", "cycle_timeframe", "TF", show=True),
         Binding("c", "clear_signals", "Clear", show=True),
+        Binding("h", "toggle_history", "History", show=True),
     ]
 
     def __init__(self, **kwargs) -> None:
@@ -57,6 +59,8 @@ class TradingSignalsView(Container, can_focus=True):
         self._alignments: Dict[str, Any] = {}
         # Max signals to retain
         self._max_signals = 500
+        # History mode: True = full history, False = current state only
+        self._history_mode: bool = True
 
     def on_show(self) -> None:
         """Focus this view when it becomes visible."""
@@ -253,12 +257,30 @@ class TradingSignalsView(Container, can_focus=True):
         self._refresh_signals()
         self.notify("Signals cleared", severity="information", timeout=2.0)
 
+    def action_toggle_history(self) -> None:
+        """Toggle between history and current state view."""
+        self._history_mode = not self._history_mode
+        self._update_title()
+        self._refresh_signals()
+
+        mode_name = "History" if self._history_mode else "Current State"
+        self.notify(f"View: {mode_name}", severity="information", timeout=2.0)
+
+    def _update_title(self) -> None:
+        """Update panel title to reflect current mode."""
+        try:
+            title = self.query_one("#trading-signals-title", Static)
+            mode_indicator = "[dim](History)[/]" if self._history_mode else "[green](Current)[/]"
+            title.update(f"Trading Signals {mode_indicator}")
+        except Exception:
+            pass
+
     # -------------------------------------------------------------------------
     # Internal helpers
     # -------------------------------------------------------------------------
 
     def _refresh_signals(self) -> None:
-        """Filter and display signals based on watchlist selection."""
+        """Filter and display signals based on watchlist selection and mode."""
         try:
             watchlist = self.query_one("#trading-watchlist", WatchlistPanel)
             table = self.query_one("#trading-signals-table", TradingSignalsTable)
@@ -281,7 +303,31 @@ class TradingSignalsView(Container, can_focus=True):
 
             filtered.append(signal)
 
+        # In Current State mode, keep only latest per (symbol, indicator)
+        if not self._history_mode:
+            filtered = self._dedupe_to_current_state(filtered)
+
         table.signals = filtered
+
+    def _dedupe_to_current_state(self, signals: List[Any]) -> List[Any]:
+        """
+        Deduplicate signals to show only latest per (symbol, indicator).
+
+        In Current State mode, we want to see the latest signal state
+        for each unique symbol/indicator combination.
+        """
+        seen: Dict[Tuple[str, str], Any] = {}  # (symbol, indicator) -> signal
+
+        for signal in signals:
+            symbol = getattr(signal, "symbol", "")
+            indicator = getattr(signal, "indicator", "")
+            key = (symbol, indicator)
+
+            # Keep the first occurrence (signals are already sorted newest-first)
+            if key not in seen:
+                seen[key] = signal
+
+        return list(seen.values())
 
     def _refresh_confluence(self) -> None:
         """Refresh confluence panel based on current selection."""
@@ -298,6 +344,14 @@ class TradingSignalsView(Container, can_focus=True):
         score = None
         if symbol and timeframe:
             score = self._confluence_scores.get((symbol, timeframe))
+
+        # Fallback: if no exact match, find any score for this symbol
+        # This handles timeframe mismatch (e.g., computed for "1d" but watchlist shows "1h")
+        if score is None and symbol:
+            for (s, tf), sc in self._confluence_scores.items():
+                if s == symbol:
+                    score = sc
+                    break
 
         # Get MTF alignment for symbol
         alignment = self._alignments.get(symbol) if symbol else None

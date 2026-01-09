@@ -11,6 +11,7 @@ Methods:
 - stop(): Stop the dashboard
 - update(): Queue data for display
 - set_ta_service(): Inject services for ATR calculation
+- set_signal_persistence(): Inject signal persistence for history loading
 - run_async(): Actually runs the app (blocking, must be called from main)
 """
 
@@ -26,6 +27,8 @@ if TYPE_CHECKING:
     from ..models.risk_snapshot import RiskSnapshot
     from ..models.risk_signal import RiskSignal
     from ..infrastructure.monitoring import ComponentHealth
+    from ..domain.interfaces.signal_persistence import SignalPersistencePort
+    from ..infrastructure.persistence.signal_listener import SignalListener
 
 
 @dataclass
@@ -69,7 +72,10 @@ class TextualDashboard:
         self._historical_service = None
         self._event_bus = None
         self._pending_universe: List[str] = []  # Symbols to apply when app starts
-        self._signal_coordinator = None  # For confluence callback wiring
+
+        # Signal persistence integration
+        self._signal_persistence: Optional["SignalPersistencePort"] = None
+        self._signal_listener: Optional["SignalListener"] = None
 
     def start(self) -> None:
         """
@@ -141,7 +147,12 @@ class TextualDashboard:
 
         if self._app:
             self._app.inject_services(
-                ta_service, event_loop, historical_service, event_bus
+                ta_service,
+                event_loop,
+                historical_service,
+                event_bus,
+                self._signal_persistence,
+                self._signal_listener,
             )
 
     def set_trading_universe(self, symbols: List[str]) -> None:
@@ -155,23 +166,65 @@ class TextualDashboard:
         if self._app:
             self._app.set_trading_universe(symbols)
 
-    def set_confluence_callback_target(self, signal_coordinator) -> None:
+    def set_event_bus(
+        self,
+        event_bus,
+        event_loop: asyncio.AbstractEventLoop,
+    ) -> None:
         """
-        Wire signal coordinator to send confluence/alignment updates to TUI.
+        Set the event bus for signal event subscriptions.
 
-        Registers the ApexApp's callback methods with the SignalCoordinator
-        so that confluence scores and MTF alignments flow to the UI.
-
-        If called before run_async(), the signal_coordinator is stored and
-        callbacks are wired once the app is created.
+        CRITICAL: This must be called BEFORE run_async() to ensure the TUI
+        subscribes to TRADING_SIGNAL, CONFLUENCE_UPDATE, and ALIGNMENT_UPDATE
+        events before any signals are generated.
 
         Args:
-            signal_coordinator: SignalCoordinator instance with set_confluence_callback
+            event_bus: PriorityEventBus instance for event subscriptions.
+            event_loop: Main event loop for async operations.
         """
-        self._signal_coordinator = signal_coordinator
-        if self._app and signal_coordinator:
-            signal_coordinator.set_confluence_callback(self._app._on_confluence_update)
-            signal_coordinator.set_alignment_callback(self._app._on_alignment_update)
+        self._event_bus = event_bus
+        self._event_loop = event_loop
+
+        # If app already exists (rare), inject immediately
+        if self._app:
+            self._app.inject_services(
+                self._ta_service,
+                self._event_loop,
+                self._historical_service,
+                self._event_bus,
+                self._signal_persistence,
+                self._signal_listener,
+            )
+
+    def set_signal_persistence(
+        self,
+        persistence: Optional["SignalPersistencePort"] = None,
+        listener: Optional["SignalListener"] = None,
+    ) -> None:
+        """
+        Set signal persistence for history loading and real-time NOTIFY.
+
+        This enables:
+        1. Loading historical signals from database on TUI startup
+        2. Receiving real-time signal updates via PostgreSQL NOTIFY
+
+        Args:
+            persistence: SignalPersistencePort for database queries.
+            listener: SignalListener for PostgreSQL NOTIFY updates.
+        """
+        self._signal_persistence = persistence
+        self._signal_listener = listener
+
+        # If app already exists, inject immediately
+        if self._app:
+            self._app.inject_services(
+                self._ta_service,
+                self._event_loop,
+                self._historical_service,
+                self._event_bus,
+                self._signal_persistence,
+                self._signal_listener,
+            )
 
     async def run_async(
         self,
@@ -188,27 +241,24 @@ class TextualDashboard:
         """
         self._app = ApexApp(env=self.env)
 
-        # Inject services if already set
-        if self._ta_service:
+        # Inject services if already set (event_bus is critical for signal subscriptions)
+        if self._event_bus or self._ta_service or self._signal_persistence:
             self._app.inject_services(
                 self._ta_service,
                 self._event_loop,
                 self._historical_service,
                 self._event_bus,
+                self._signal_persistence,
+                self._signal_listener,
             )
 
         # Apply pending trading universe if set
         if self._pending_universe:
             self._app.set_trading_universe(self._pending_universe)
 
-        # Wire confluence callbacks if signal_coordinator was set
-        if self._signal_coordinator:
-            self._signal_coordinator.set_confluence_callback(
-                self._app._on_confluence_update
-            )
-            self._signal_coordinator.set_alignment_callback(
-                self._app._on_alignment_update
-            )
+        # NOTE: Confluence/alignment updates now use event bus (CONFLUENCE_UPDATE,
+        # ALIGNMENT_UPDATE events) instead of direct callbacks. The TUI subscribes
+        # to these events in inject_services() via _subscribe_trading_signals().
 
         # Run the app (blocks until user quits)
         # The app's on_mount sets up the update polling timer

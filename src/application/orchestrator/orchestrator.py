@@ -38,6 +38,7 @@ if TYPE_CHECKING:
     from ...domain.services.market_alert_detector import MarketAlertDetector
     from ...domain.services.risk.risk_signal_engine import RiskSignalEngine
     from ...domain.services.risk.risk_alert_logger import RiskAlertLogger
+    from ...domain.interfaces.signal_persistence import SignalPersistencePort
     from ...infrastructure.stores import PositionStore, MarketDataStore, AccountStore
     from ...infrastructure.monitoring import HealthMonitor, Watchdog
     from ...infrastructure.adapters.broker_manager import BrokerManager
@@ -84,6 +85,7 @@ class Orchestrator:
         warm_start_service: Optional[WarmStartService] = None,
         signal_metrics: Optional["SignalMetrics"] = None,
         historical_data_manager: Optional[Any] = None,
+        signal_persistence: Optional["SignalPersistencePort"] = None,
     ):
         # Core dependencies
         self.broker_manager = broker_manager
@@ -136,6 +138,7 @@ class Orchestrator:
         )
 
         # Signal pipeline coordinator (bar aggregation → indicators → signals)
+        # With optional persistence for database storage and PostgreSQL NOTIFY
         signals_config = config.get("signals", {})
         self._signal_coordinator = SignalCoordinator(
             event_bus=event_bus,
@@ -145,6 +148,7 @@ class Orchestrator:
             signal_metrics=signal_metrics,
             historical_data_manager=historical_data_manager,
             preload_config=signals_config.get("preload", {}),
+            persistence=signal_persistence,
         )
 
         # State
@@ -153,6 +157,7 @@ class Orchestrator:
         self._latest_market_alerts: List[Dict[str, Any]] = []
         self._tick_count: int = 0  # For periodic housekeeping
         self._consecutive_errors: int = 0  # Track timer loop error frequency
+        self._bar_preload_pending: bool = True  # Defer bar preload to first timer tick
 
         # Timer configuration
         self._timer_interval_sec = config.get("timer_interval_sec", 5.0)
@@ -204,9 +209,9 @@ class Orchestrator:
             on_dirty_callback=self.risk_engine.mark_dirty
         )
 
-        # Preload bar cache for signal warmup (AFTER positions are loaded)
-        # This enables indicators to fire immediately instead of waiting for warmup
-        await self._preload_signal_bars()
+        # NOTE: Bar preload is deferred to first timer tick to ensure TUI is subscribed
+        # to CONFLUENCE_UPDATE and ALIGNMENT_UPDATE events before signals are generated.
+        # See _timer_loop() for the actual preload trigger.
 
         logger.info("Orchestrator started")
 
@@ -282,6 +287,11 @@ class Orchestrator:
                     break
 
                 new_cycle()  # New trace ID for this cycle
+
+                # Deferred bar preload on first tick (ensures TUI is subscribed to events)
+                if self._bar_preload_pending:
+                    self._bar_preload_pending = False
+                    await self._preload_signal_bars()
 
                 # Fetch and reconcile data
                 await self._data_coordinator.fetch_and_reconcile(

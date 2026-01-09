@@ -408,6 +408,76 @@ ConfluencePanel {
     padding: 0;
 }
 
+/* ===== Data View (Tab 7) ===== */
+#data-main {
+    height: 1fr;
+    width: 1fr;
+}
+
+#data-left {
+    width: 1fr;
+}
+
+#data-right {
+    width: 1fr;
+}
+
+/* Historical coverage panel */
+#data-coverage-panel {
+    border: solid #5fd7ff;
+    background: #23262c;
+    height: 1fr;
+}
+
+#data-coverage-title {
+    color: #5fd7ff;
+}
+
+HistoricalCoveragePanel {
+    height: 1fr;
+    background: #23262c;
+}
+
+#coverage-table {
+    height: 1fr;
+    border: none;
+    background: #23262c;
+}
+
+/* Indicator status panel */
+#data-indicator-panel {
+    border: solid #d66efd;
+    background: #23262c;
+    height: 1fr;
+}
+
+#data-indicator-title {
+    color: #d66efd;
+}
+
+IndicatorStatusPanel {
+    height: 1fr;
+    background: #23262c;
+}
+
+#indicator-table {
+    height: 1fr;
+    border: none;
+    background: #23262c;
+}
+
+/* Stats bar */
+#data-stats-bar {
+    height: 1;
+    border: solid #2f6fb3;
+    background: #262b31;
+    padding: 0 1;
+}
+
+#data-stats {
+    color: #8b949e;
+}
+
 /* ===== Footer ===== */
 Footer {
     background: #262b31;

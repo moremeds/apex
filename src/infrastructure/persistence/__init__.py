@@ -15,6 +15,7 @@ from src.infrastructure.persistence.database import (
     get_database,
     close_database,
 )
+from src.infrastructure.persistence.signal_listener import SignalListener
 
 __all__ = [
     "Database",
@@ -23,4 +24,5 @@ __all__ = [
     "QueryError",
     "get_database",
     "close_database",
+    "SignalListener",
 ]

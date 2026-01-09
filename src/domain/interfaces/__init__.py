@@ -11,6 +11,7 @@ from .execution_provider import ExecutionProvider, OrderRequest, OrderResult
 from .position_provider import PositionProvider
 from .account_provider import AccountProvider
 from .historical_source import HistoricalSourcePort, DateRange
+from .signal_persistence import SignalPersistencePort
 
 __all__ = [
     # Legacy interfaces (kept for compatibility)
@@ -29,4 +30,6 @@ __all__ = [
     # Historical data management
     "HistoricalSourcePort",
     "DateRange",
+    # Signal persistence
+    "SignalPersistencePort",
 ]

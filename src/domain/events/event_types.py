@@ -37,6 +37,8 @@ class EventType(Enum):
 
     # Trading (Priority 20)
     TRADING_SIGNAL = "trading_signal"
+    CONFLUENCE_UPDATE = "confluence_update"
+    ALIGNMENT_UPDATE = "alignment_update"
     ORDER_SUBMITTED = "order_submitted"
     ORDER_FILLED = "order_filled"
     ORDER_CANCELLED = "order_cancelled"
@@ -86,6 +88,8 @@ EVENT_PRIORITY_MAP: dict[EventType, EventPriority] = {
     EventType.RISK_SIGNAL: EventPriority.RISK,
     EventType.RISK_BREACH: EventPriority.RISK,
     EventType.TRADING_SIGNAL: EventPriority.TRADING,
+    EventType.CONFLUENCE_UPDATE: EventPriority.TRADING,
+    EventType.ALIGNMENT_UPDATE: EventPriority.TRADING,
     EventType.ORDER_SUBMITTED: EventPriority.TRADING,
     EventType.ORDER_FILLED: EventPriority.TRADING,
     EventType.ORDER_CANCELLED: EventPriority.TRADING,
