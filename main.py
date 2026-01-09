@@ -10,8 +10,14 @@ Usage:
 from __future__ import annotations
 import asyncio
 import argparse
+import os
 import sys
 from pathlib import Path
+
+# Change to project root directory (where main.py is located)
+# This ensures config files are found regardless of where script is invoked from
+PROJECT_ROOT = Path(__file__).resolve().parent
+os.chdir(PROJECT_ROOT)
 
 from config.config_manager import ConfigManager
 from src.domain.services import MarketAlertDetector
@@ -20,6 +26,9 @@ from src.infrastructure.adapters.ib import IbConnectionPool, ConnectionPoolConfi
 from src.services import HistoricalDataService, TAService, BarPeriod
 from src.services.historical_data_manager import HistoricalDataManager
 from src.infrastructure.stores import PositionStore, MarketDataStore, AccountStore
+from src.infrastructure.stores.duckdb_coverage_store import DuckDBCoverageStore
+from src.infrastructure.persistence.database import Database
+from src.infrastructure.persistence.repositories.ta_signal_repository import TASignalRepository
 from src.infrastructure.monitoring import HealthMonitor, Watchdog
 from src.domain.services.risk.risk_engine import RiskEngine
 from src.domain.services.pos_reconciler import Reconciler
@@ -478,6 +487,40 @@ async def main_async(args: argparse.Namespace) -> None:
                 env=args.env,
             )
 
+        # Initialize Tab 7 (Data) services - coverage store and signal persistence
+        # DuckDB for historical coverage metadata
+        coverage_store = DuckDBCoverageStore()
+        system_structured.info(LogCategory.DATA, "DuckDB coverage store initialized")
+
+        # PostgreSQL database for signal persistence (if enabled)
+        db = None
+        signal_repo = None
+        if config.database.type != "disabled":
+            try:
+                db = Database(config.database)
+                await db.connect()
+                signal_repo = TASignalRepository(db)
+                system_structured.info(
+                    LogCategory.DATA,
+                    "Signal persistence connected",
+                    {"database": config.database.database, "host": config.database.host}
+                )
+            except Exception as e:
+                system_structured.warning(
+                    LogCategory.DATA,
+                    f"Signal persistence unavailable: {e}"
+                )
+
+        # Inject Tab 7 services into dashboard
+        # Note: Pass event_bus early so TUI can subscribe to signal events
+        # and event_loop is available for async database queries
+        if dashboard:
+            event_loop = asyncio.get_event_loop()
+            dashboard.set_event_bus(event_bus, event_loop)
+            dashboard.set_coverage_store(coverage_store)
+            if signal_repo:
+                dashboard.set_signal_persistence(signal_repo)
+
         # Start orchestrator (event-driven mode is the default and only mode)
         # Data fetching happens in background, dashboard updates when ready
         system_structured.info(LogCategory.SYSTEM, "Starting orchestrator")
@@ -671,6 +714,11 @@ async def main_async(args: argparse.Namespace) -> None:
         if ib_pool:
             await ib_pool.disconnect()
             system_structured.info(LogCategory.SYSTEM, "IB connection pool disconnected")
+
+        # Close database connection
+        if db:
+            await db.close()
+            system_structured.info(LogCategory.SYSTEM, "Database connection closed")
 
         # Shutdown metrics server
         if metrics_manager:

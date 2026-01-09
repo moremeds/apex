@@ -57,6 +57,28 @@ class DataView(Container, can_focus=True):
         """Focus this view when it becomes visible."""
         self.focus()
 
+    def on_data_table_row_selected(self, event) -> None:
+        """Handle row selection in either DataTable - auto-switch active panel."""
+        table_id = event.data_table.id if event.data_table else ""
+        if table_id == "coverage-table":
+            if self._active_panel != "coverage":
+                self._active_panel = "coverage"
+                self._sync_panel_active_state()
+        elif table_id == "indicator-table":
+            if self._active_panel != "indicators":
+                self._active_panel = "indicators"
+                self._sync_panel_active_state()
+
+    def _sync_panel_active_state(self) -> None:
+        """Sync the active state to both panels."""
+        try:
+            coverage = self.query_one("#data-coverage", HistoricalCoveragePanel)
+            indicators = self.query_one("#data-indicators", IndicatorStatusPanel)
+            coverage.set_active(self._active_panel == "coverage")
+            indicators.set_active(self._active_panel == "indicators")
+        except Exception:
+            pass
+
     def compose(self) -> ComposeResult:
         """Compose the data view layout."""
         with Horizontal(id="data-main"):
@@ -100,7 +122,7 @@ class DataView(Container, can_focus=True):
             panel = self.query_one("#data-coverage", HistoricalCoveragePanel)
             panel.coverage_data = coverage_data
         except Exception:
-            self.log.exception("Failed to update coverage panel")
+            self.log.error("Failed to update coverage panel")
 
     def update_indicator_summary(self, summary: List[Dict]) -> None:
         """
@@ -114,7 +136,7 @@ class DataView(Container, can_focus=True):
             panel = self.query_one("#data-indicators", IndicatorStatusPanel)
             panel.summary = summary
         except Exception:
-            self.log.exception("Failed to update indicator panel")
+            self.log.error("Failed to update indicator panel")
 
     def update_indicator_details(self, indicator: str, details: List[Dict]) -> None:
         """
@@ -129,7 +151,7 @@ class DataView(Container, can_focus=True):
             panel = self.query_one("#data-indicators", IndicatorStatusPanel)
             panel.set_details(indicator, details)
         except Exception:
-            self.log.exception("Failed to update indicator details")
+            self.log.error("Failed to update indicator details")
 
     def update_stats(
         self,
@@ -181,28 +203,12 @@ class DataView(Container, can_focus=True):
                     # Request details from parent app
                     self.post_message(IndicatorDetailsRequested(indicator))
         except Exception:
-            self.log.exception("Failed to toggle expand")
+            self.log.error("Failed to toggle expand")
 
     def action_switch_panel(self) -> None:
         """Switch focus between coverage and indicator panels."""
-        if self._active_panel == "coverage":
-            self._active_panel = "indicators"
-            try:
-                panel = self.query_one("#data-indicators", IndicatorStatusPanel)
-                panel.set_active(True)
-                coverage = self.query_one("#data-coverage", HistoricalCoveragePanel)
-                coverage.set_active(False)
-            except Exception:
-                pass
-        else:
-            self._active_panel = "coverage"
-            try:
-                panel = self.query_one("#data-coverage", HistoricalCoveragePanel)
-                panel.set_active(True)
-                indicators = self.query_one("#data-indicators", IndicatorStatusPanel)
-                indicators.set_active(False)
-            except Exception:
-                pass
+        self._active_panel = "indicators" if self._active_panel == "coverage" else "coverage"
+        self._sync_panel_active_state()
 
     def _move_cursor(self, delta: int) -> None:
         """Move cursor in active panel."""

@@ -83,8 +83,9 @@ class HistoricalCoveragePanel(Widget):
 
     def set_active(self, active: bool) -> None:
         """Set active state for visual feedback."""
-        self._is_active = active
-        self._rebuild_table()
+        if self._is_active != active:
+            self._is_active = active
+            # Don't rebuild - just update visual if needed in future
 
     def move_cursor(self, delta: int) -> None:
         """Move cursor up or down."""
@@ -175,14 +176,13 @@ class HistoricalCoveragePanel(Widget):
                     earliest_tf = record.get("earliest")
                     latest_tf = record.get("latest")
                     bars = record.get("total_bars", 0)
-                    source = record.get("source", "")
 
                     tf_range = f"{format_date(earliest_tf)} - {format_date(latest_tf)}"
                     detail_key = f"{symbol}/{tf}"
 
                     table.add_row(
                         "",
-                        f"  [dim]{tf}[/] ({source})",
+                        f"  [dim]{tf}[/]",
                         f"  [dim]{tf_range}[/]",
                         f"[dim]{format_bars(bars)}[/]",
                         key=detail_key,

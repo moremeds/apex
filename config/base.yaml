@@ -208,8 +208,8 @@ database:
   type: timescaledb
   host: localhost
   port: 5432
-  database: apex_risk
-  user: apex
+  database: apex
+  user: chenxi
   password: ""  # Set via environment variable APEX_DB_PASSWORD
 
   # Connection pool settings

@@ -119,10 +119,11 @@ class TASignalRepository(SignalPersistencePort):
     # Signal Operations (implements SignalPersistencePort)
     # -------------------------------------------------------------------------
 
-    async def save_signal(self, signal: "TradingSignal") -> None:
+    async def save_signal(self, signal: Any) -> None:
         """
         Persist a trading signal.
 
+        Handles both TradingSignal and TradingSignalEvent objects.
         Uses INSERT (no UPSERT) since signals are append-only time-series.
         TimescaleDB handles partitioning automatically.
         """
@@ -135,24 +136,36 @@ class TASignalRepository(SignalPersistencePort):
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
             )
         """
+        # Extract values handling both TradingSignal and TradingSignalEvent
+        category = getattr(signal, "category", "")
+        if hasattr(category, "value"):
+            category = category.value
+        direction = getattr(signal, "direction", "")
+        if hasattr(direction, "value"):
+            direction = direction.value
+        priority = getattr(signal, "priority", "")
+        if hasattr(priority, "value"):
+            priority = priority.value
+        metadata = getattr(signal, "metadata", None)
+
         await self._db.execute(
             query,
             signal.timestamp,
             signal.signal_id,
             signal.symbol,
-            signal.timeframe,
-            signal.category.value if hasattr(signal.category, "value") else signal.category,
-            signal.indicator,
-            signal.direction.value if hasattr(signal.direction, "value") else signal.direction,
-            signal.strength,
-            signal.priority.value if hasattr(signal.priority, "value") else signal.priority,
-            signal.trigger_rule,
-            signal.current_value,
-            signal.threshold,
-            signal.previous_value,
-            signal.message,
-            signal.cooldown_until,
-            json.dumps(signal.metadata) if signal.metadata else None,
+            getattr(signal, "timeframe", ""),
+            category,
+            getattr(signal, "indicator", ""),
+            direction,
+            float(signal.strength),
+            priority,
+            getattr(signal, "trigger_rule", ""),
+            getattr(signal, "current_value", None),
+            getattr(signal, "threshold", None),
+            getattr(signal, "previous_value", None),
+            getattr(signal, "message", ""),
+            getattr(signal, "cooldown_until", None),
+            json.dumps(metadata) if metadata else None,
         )
 
     async def get_recent_signals(
@@ -573,37 +586,111 @@ class TASignalRepository(SignalPersistencePort):
     # TUI Tab 7 Support Methods
     # -------------------------------------------------------------------------
 
+    # Indicator metadata: (category, full_name, description)
+    INDICATOR_METADATA: Dict[str, tuple] = {
+        # Momentum indicators
+        "rsi": ("momentum", "Relative Strength Index", "Measures speed/change of price movements (0-100)"),
+        "macd": ("momentum", "Moving Avg Convergence Divergence", "Trend-following momentum using EMA crossovers"),
+        "kdj": ("momentum", "KDJ Stochastic", "Enhanced stochastic with J line for divergence"),
+        "mfi": ("momentum", "Money Flow Index", "Volume-weighted RSI measuring buying/selling pressure"),
+        "cci": ("momentum", "Commodity Channel Index", "Measures price deviation from statistical mean"),
+        "roc": ("momentum", "Rate of Change", "Percentage change between current and N-period price"),
+        "momentum": ("momentum", "Momentum", "Simple price difference over N periods"),
+        "tsi": ("momentum", "True Strength Index", "Double-smoothed momentum oscillator"),
+        "ultimate": ("momentum", "Ultimate Oscillator", "Multi-timeframe momentum with weighted averages"),
+        "williams_r": ("momentum", "Williams %R", "Overbought/oversold oscillator (-100 to 0)"),
+        "awesome": ("momentum", "Awesome Oscillator", "Difference between 5 and 34-period SMA of midpoints"),
+        "trix": ("momentum", "TRIX", "Triple-smoothed EMA rate of change"),
+        "rsi_harmonics": ("momentum", "RSI Harmonics", "RSI with harmonic pattern detection"),
+        # Trend indicators
+        "adx": ("trend", "Average Directional Index", "Measures trend strength regardless of direction"),
+        "aroon": ("trend", "Aroon", "Identifies trend changes and strength using high/low timing"),
+        "supertrend": ("trend", "SuperTrend", "ATR-based trend indicator with clear signals"),
+        "psar": ("trend", "Parabolic SAR", "Stop and reverse points for trend following"),
+        "ichimoku": ("trend", "Ichimoku Cloud", "Multi-component system showing support/resistance/trend"),
+        "vortex": ("trend", "Vortex Indicator", "Identifies trend direction using +VI/-VI crossovers"),
+        "trendline": ("trend", "Trendline", "Automated trendline detection and analysis"),
+        "zerolag": ("trend", "Zero Lag EMA", "Reduced-lag exponential moving average"),
+        # Volatility indicators
+        "atr": ("volatility", "Average True Range", "Measures market volatility using price ranges"),
+        "bollinger": ("volatility", "Bollinger Bands", "Volatility bands using standard deviation"),
+        "keltner": ("volatility", "Keltner Channel", "ATR-based volatility channel around EMA"),
+        "donchian": ("volatility", "Donchian Channel", "Highest high/lowest low over N periods"),
+        "stddev": ("volatility", "Standard Deviation", "Statistical measure of price dispersion"),
+        "hvol": ("volatility", "Historical Volatility", "Annualized standard deviation of returns"),
+        "chaikin_vol": ("volatility", "Chaikin Volatility", "Rate of change of ATR"),
+        # Volume indicators
+        "obv": ("volume", "On-Balance Volume", "Cumulative volume based on price direction"),
+        "ad": ("volume", "Accumulation/Distribution", "Volume-weighted price location indicator"),
+        "cmf": ("volume", "Chaikin Money Flow", "Volume-weighted accumulation over N periods"),
+        "vwap": ("volume", "Volume Weighted Avg Price", "Average price weighted by volume"),
+        "vpvr": ("volume", "Volume Profile", "Volume distribution across price levels"),
+        "cvd": ("volume", "Cumulative Volume Delta", "Net buying vs selling volume over time"),
+        "force": ("volume", "Force Index", "Price change multiplied by volume"),
+        # Moving averages
+        "sma": ("moving_avg", "Simple Moving Average", "Arithmetic mean of prices over N periods"),
+        "ema": ("moving_avg", "Exponential Moving Average", "Weighted average favoring recent prices"),
+        # Patterns & Levels
+        "pivot": ("pattern", "Pivot Points", "Support/resistance levels from prior period"),
+        "fibonacci": ("pattern", "Fibonacci Retracement", "Key levels based on Fibonacci ratios"),
+        "support_resistance": ("pattern", "Support/Resistance", "Detected price levels with high reaction"),
+        "candlestick": ("pattern", "Candlestick Patterns", "Japanese candlestick pattern recognition"),
+        "chart_patterns": ("pattern", "Chart Patterns", "Geometric pattern detection (H&S, triangles)"),
+    }
+
+    def _get_indicator_info(self, indicator: str) -> Dict[str, str]:
+        """Get full metadata for an indicator."""
+        if indicator in self.INDICATOR_METADATA:
+            cat, name, desc = self.INDICATOR_METADATA[indicator]
+            return {"category": cat, "full_name": name, "description": desc}
+        return {"category": "other", "full_name": indicator.title(), "description": ""}
+
     async def get_indicator_summary(self) -> List[Dict[str, Any]]:
         """
         Get high-level summary per indicator type for Tab 7 display.
 
         Returns list of dicts with:
-        - indicator: Indicator name
+        - category: Category name (momentum, trend, volatility, volume, etc.)
+        - indicator: Indicator short name
+        - full_name: Full indicator name
+        - description: Short description of indicator
         - symbol_count: Number of unique symbols with this indicator
         - last_update: Most recent update timestamp
-        - oldest_update: Oldest update timestamp
+        - oldest_update: The oldest "latest update" among all symbols (most stale symbol)
         """
+        # This query finds, for each indicator:
+        # 1. The latest update per symbol (subquery)
+        # 2. Then MIN of those to find the most stale symbol's latest update
         query = """
+            WITH latest_per_symbol AS (
+                SELECT indicator, symbol, MAX(time) as latest
+                FROM indicator_values
+                GROUP BY indicator, symbol
+            )
             SELECT
                 indicator,
                 COUNT(DISTINCT symbol) as symbol_count,
-                MAX(time) as last_update,
-                MIN(time) as oldest_update
-            FROM indicator_values
+                MAX(latest) as last_update,
+                MIN(latest) as oldest_update
+            FROM latest_per_symbol
             GROUP BY indicator
-            ORDER BY last_update DESC
+            ORDER BY indicator
         """
         records = await self._db.fetch(query)
 
-        return [
-            {
+        result = []
+        for r in records:
+            info = self._get_indicator_info(r["indicator"])
+            result.append({
+                "category": info["category"],
                 "indicator": r["indicator"],
+                "full_name": info["full_name"],
+                "description": info["description"],
                 "symbol_count": r["symbol_count"],
                 "last_update": r["last_update"],
                 "oldest_update": r["oldest_update"],
-            }
-            for r in records
-        ]
+            })
+        return result
 
     async def get_indicator_details(self, indicator: str) -> List[Dict[str, Any]]:
         """

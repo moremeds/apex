@@ -1,23 +1,40 @@
 """
 Indicator status panel for Data view (Tab 7).
 
-Displays indicator update status as a high-level summary with drill-down.
-Shows indicator name, symbol count, and last update timestamp.
+Displays indicator update status grouped by category with drill-down.
+Three-level hierarchy:
+1. Category (momentum, trend, volatility, etc.) - collapsible
+2. Indicator (rsi, macd, etc.) - collapsible, shows per-symbol details
+3. Details - per-symbol info (leaf nodes)
 
 Layout:
-- Summary rows showing indicator name, symbol count, last update
-- Expandable to show per-symbol details
+- Category headers with indicator count
+- Expandable indicators showing symbol count, last update
+- Per-symbol details when indicator is expanded
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Set
 
 from textual.app import ComposeResult
 from textual.reactive import reactive
 from textual.widget import Widget
-from textual.widgets import DataTable, Static
+from textual.widgets import DataTable
+
+
+# Category display order and icons
+CATEGORY_ORDER = ["momentum", "trend", "volatility", "volume", "moving_avg", "pattern", "other"]
+CATEGORY_LABELS = {
+    "momentum": "📈 Momentum",
+    "trend": "📊 Trend",
+    "volatility": "📉 Volatility",
+    "volume": "📦 Volume",
+    "moving_avg": "〰️ Moving Avg",
+    "pattern": "🔷 Patterns",
+    "other": "📋 Other",
+}
 
 
 def format_ago(dt: Optional[datetime]) -> str:
@@ -38,29 +55,25 @@ def format_ago(dt: Optional[datetime]) -> str:
     return f"{int(delta.total_seconds() / 86400)}d ago"
 
 
-def format_time(dt: Optional[datetime]) -> str:
-    """Format datetime as HH:MM:SS."""
-    if dt is None:
-        return "?"
-    return dt.strftime("%H:%M:%S")
-
-
 class IndicatorStatusPanel(Widget):
     """
-    Indicator status panel with summary and drill-down.
+    Indicator status panel with category grouping and drill-down.
 
-    Displays:
-    - Summary rows: indicator name, symbol count, last update
-    - Expanded view: per-symbol details with timestamps
+    Three-level hierarchy:
+    - Category (collapsible): momentum, trend, volatility, etc.
+    - Indicator (collapsible): rsi, macd, kdj, etc.
+    - Details (leaf): per-symbol info
     """
 
-    # Reactive data
+    # Reactive data - list of indicator summaries with category
     summary: reactive[List[Dict]] = reactive(list, init=False)
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
+        # Track expanded categories
+        self._expanded_categories: Set[str] = set()
         # Track expanded indicators
-        self._expanded: Set[str] = set()
+        self._expanded_indicators: Set[str] = set()
         # Details cache: indicator -> list of symbol details
         self._details: Dict[str, List[Dict]] = {}
         # Row keys for navigation
@@ -77,13 +90,14 @@ class IndicatorStatusPanel(Widget):
     def on_mount(self) -> None:
         """Initialize table columns."""
         table = self.query_one("#indicator-table", DataTable)
-        table.add_column("", width=2, key="expand")  # Expand indicator
-        table.add_column("Indicator", width=12, key="indicator")
-        table.add_column("Symbols", width=8, key="symbols")
-        table.add_column("Last Update", width=14, key="last_update")
+        table.add_column("", width=3, key="expand")  # Expand indicator
+        table.add_column("Indicator / Description", width=65, key="name")
+        table.add_column("Sym", width=4, key="symbols")
+        table.add_column("Stale", width=10, key="stalest")  # Shows oldest/most lagging
 
     def watch_summary(self, data: List[Dict]) -> None:
         """Rebuild table when summary data changes."""
+        self.log.info(f"watch_summary triggered with {len(data) if data else 0} records")
         self._rebuild_table()
 
     # -------------------------------------------------------------------------
@@ -92,13 +106,14 @@ class IndicatorStatusPanel(Widget):
 
     def set_active(self, active: bool) -> None:
         """Set active state for visual feedback."""
-        self._is_active = active
-        self._rebuild_table()
+        if self._is_active != active:
+            self._is_active = active
+            # Don't rebuild - just update visual if needed in future
 
     def set_details(self, indicator: str, details: List[Dict]) -> None:
         """Set details for an indicator."""
         self._details[indicator] = details
-        if indicator in self._expanded:
+        if indicator in self._expanded_indicators:
             self._rebuild_table()
 
     def move_cursor(self, delta: int) -> None:
@@ -117,23 +132,38 @@ class IndicatorStatusPanel(Widget):
         """
         Toggle expand/collapse on selected row.
 
-        Returns the indicator name if this is a toggleable row that was expanded,
-        or None if collapsed or not a summary row.
+        Returns:
+            - Indicator name if an indicator row was expanded (needs details fetch)
+            - None if category toggled or row collapsed
         """
         if not self._row_keys or self._selected_idx >= len(self._row_keys):
             return None
 
         key = self._row_keys[self._selected_idx]
-        # Only toggle if it's an indicator row (not a detail row)
-        if "/" not in key:  # Indicator rows are just "rsi", detail rows are "rsi/AAPL"
-            if key in self._expanded:
-                self._expanded.discard(key)
-                self._rebuild_table()
-                return None  # Collapsed, no need to fetch details
+
+        # Category row: "cat:momentum"
+        if key.startswith("cat:"):
+            category = key[4:]
+            if category in self._expanded_categories:
+                self._expanded_categories.discard(category)
             else:
-                self._expanded.add(key)
+                self._expanded_categories.add(category)
+            self._rebuild_table()
+            return None
+
+        # Indicator row: "ind:rsi"
+        if key.startswith("ind:"):
+            indicator = key[4:]
+            if indicator in self._expanded_indicators:
+                self._expanded_indicators.discard(indicator)
                 self._rebuild_table()
-                return key  # Expanded, request details
+                return None
+            else:
+                self._expanded_indicators.add(indicator)
+                self._rebuild_table()
+                return indicator  # Needs details fetch
+
+        # Detail row: "det:rsi/AAPL" - not expandable
         return None
 
     def get_selected_indicator(self) -> Optional[str]:
@@ -141,14 +171,19 @@ class IndicatorStatusPanel(Widget):
         if not self._row_keys or self._selected_idx >= len(self._row_keys):
             return None
         key = self._row_keys[self._selected_idx]
-        return key.split("/")[0] if "/" in key else key
+        if key.startswith("ind:"):
+            return key[4:]
+        if key.startswith("det:"):
+            # Extract indicator from "det:rsi/AAPL"
+            return key[4:].split("/")[0]
+        return None
 
     # -------------------------------------------------------------------------
     # Internal
     # -------------------------------------------------------------------------
 
     def _rebuild_table(self) -> None:
-        """Rebuild the table with current data and expand state."""
+        """Rebuild the table with category grouping."""
         try:
             table = self.query_one("#indicator-table", DataTable)
         except Exception:
@@ -162,69 +197,148 @@ class IndicatorStatusPanel(Widget):
             self._row_keys.append("empty")
             return
 
+        # Group indicators by category
+        by_category: Dict[str, List[Dict]] = {}
         for record in self.summary:
-            indicator = record.get("indicator", "?")
-            symbol_count = record.get("symbol_count", 0)
-            last_update = record.get("last_update")
-            is_expanded = indicator in self._expanded
+            cat = record.get("category", "other")
+            if cat not in by_category:
+                by_category[cat] = []
+            by_category[cat].append(record)
 
-            # Indicator summary row
-            expand_icon = "▼" if is_expanded else "▶"
+        # Display in category order
+        for category in CATEGORY_ORDER:
+            if category not in by_category:
+                continue
 
-            # Color based on recency
-            ago_str = format_ago(last_update)
-            if last_update:
-                now = datetime.now(last_update.tzinfo) if last_update.tzinfo else datetime.now()
-                delta = now - last_update
-                if delta.total_seconds() < 60:
-                    ago_color = "[green]"
-                elif delta.total_seconds() < 300:
-                    ago_color = "[yellow]"
-                else:
-                    ago_color = "[red]"
-                ago_display = f"{ago_color}{ago_str}[/]"
-            else:
-                ago_display = "[dim]?[/]"
+            indicators = by_category[category]
+            is_cat_expanded = category in self._expanded_categories
+            cat_icon = "▼" if is_cat_expanded else "▶"
+            cat_label = CATEGORY_LABELS.get(category, category.title())
 
+            # Find the oldest (most stale) update across all indicators in this category
+            oldest_in_category = None
+            for ind in indicators:
+                ind_oldest = ind.get("oldest_update")
+                if ind_oldest:
+                    if oldest_in_category is None or ind_oldest < oldest_in_category:
+                        oldest_in_category = ind_oldest
+
+            cat_stale_display = self._format_time_colored(oldest_in_category, warn_threshold=7*86400) if oldest_in_category else ""
+
+            # Category header row
+            cat_key = f"cat:{category}"
             table.add_row(
-                expand_icon,
-                f"[bold]{indicator}[/]",
-                str(symbol_count),
-                ago_display,
-                key=indicator,
+                cat_icon,
+                f"[bold]{cat_label}[/] [dim]({len(indicators)} indicators)[/]",
+                "",
+                cat_stale_display,
+                key=cat_key,
             )
-            self._row_keys.append(indicator)
+            self._row_keys.append(cat_key)
 
-            # Detail rows if expanded
-            if is_expanded:
-                details = self._details.get(indicator, [])
-                if not details:
+            # Show indicators if category is expanded
+            if is_cat_expanded:
+                for record in sorted(indicators, key=lambda r: r.get("indicator", "")):
+                    self._add_indicator_row(table, record)
+
+        # Restore cursor position once at the end (prevents flickering)
+        if self._row_keys:
+            # Clamp selected index to valid range
+            self._selected_idx = min(self._selected_idx, len(self._row_keys) - 1)
+            try:
+                table.move_cursor(row=self._selected_idx)
+            except Exception:
+                pass
+
+    def _add_indicator_row(self, table: DataTable, record: Dict) -> None:
+        """Add an indicator row (and details if expanded)."""
+        indicator = record.get("indicator", "?")
+        full_name = record.get("full_name", indicator)
+        description = record.get("description", "")
+        symbol_count = record.get("symbol_count", 0)
+        # Show OLDEST update (most stale) so lagging data is visible at a glance
+        oldest_update = record.get("oldest_update")
+        is_expanded = indicator in self._expanded_indicators
+
+        # Indicator row - show short name in bold + full name
+        ind_icon = "▼" if is_expanded else "▶"
+
+        # Format oldest update time - this shows the worst case (most stale data)
+        update_display = self._format_time_colored(oldest_update, warn_threshold=7*86400)
+
+        # Format: "rsi - Relative Strength Index"
+        display_name = f"[bold]{indicator}[/] - {full_name}"
+
+        ind_key = f"ind:{indicator}"
+        table.add_row(
+            f"  {ind_icon}",
+            f"  {display_name}",
+            str(symbol_count),
+            update_display,
+            key=ind_key,
+        )
+        self._row_keys.append(ind_key)
+
+        # Detail rows if expanded
+        if is_expanded:
+            # First show description if available
+            if description:
+                desc_key = f"desc:{indicator}"
+                table.add_row(
+                    "",
+                    f"    [italic cyan]{description}[/]",
+                    "",
+                    "",
+                    key=desc_key,
+                )
+                self._row_keys.append(desc_key)
+
+            details = self._details.get(indicator, [])
+            if not details:
+                table.add_row(
+                    "",
+                    "    [dim]Loading symbols...[/]",
+                    "",
+                    "",
+                    key=f"det:{indicator}/loading",
+                )
+                self._row_keys.append(f"det:{indicator}/loading")
+            else:
+                # Sort alphabetically by symbol
+                for detail in sorted(details, key=lambda d: d.get("symbol", "")):
+                    symbol = detail.get("symbol", "?")
+                    tf = detail.get("timeframe", "?")
+                    detail_update = detail.get("last_update")
+
+                    detail_display = self._format_time_colored(detail_update, warn_threshold=7*86400)
+                    detail_key = f"det:{indicator}/{symbol}/{tf}"
+
                     table.add_row(
                         "",
-                        "  [dim]Loading...[/]",
+                        f"    {symbol} ({tf})",
                         "",
-                        "",
-                        key=f"{indicator}/loading",
+                        detail_display,
+                        key=detail_key,
                     )
-                    self._row_keys.append(f"{indicator}/loading")
-                else:
-                    for detail in sorted(details, key=lambda d: d.get("symbol", "")):
-                        symbol = detail.get("symbol", "?")
-                        tf = detail.get("timeframe", "?")
-                        detail_update = detail.get("last_update")
+                    self._row_keys.append(detail_key)
 
-                        detail_ago = format_ago(detail_update) if detail_update else "?"
-                        detail_key = f"{indicator}/{symbol}"
+    def _format_time_colored(self, dt: Optional[datetime], warn_threshold: float = 300) -> str:
+        """Format datetime with color based on age."""
+        if dt is None:
+            return "[dim]?[/]"
 
-                        table.add_row(
-                            "",
-                            f"  [dim]{symbol}/{tf}[/]",
-                            "",
-                            f"[dim]{detail_ago}[/]",
-                            key=detail_key,
-                        )
-                        self._row_keys.append(detail_key)
+        ago_str = format_ago(dt)
+        now = datetime.now(dt.tzinfo) if dt.tzinfo else datetime.now()
+        delta = now - dt
+        seconds = delta.total_seconds()
 
-        # Restore cursor position
-        if self._row_keys and self._selected_idx < len(self._row_keys):
-            table.move_cursor(row=self._selected_idx)
+        if seconds < 0:
+            return "[blue]future[/]"
+        if seconds < 3600:  # < 1 hour - green
+            return f"[green]{ago_str}[/]"
+        if seconds < 86400:  # < 1 day - yellow
+            return f"[yellow]{ago_str}[/]"
+        if seconds < warn_threshold:  # < threshold - yellow
+            return f"[yellow]{ago_str}[/]"
+        # Very old - red
+        return f"[red]{ago_str}[/]"

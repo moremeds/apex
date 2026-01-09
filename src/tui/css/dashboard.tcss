@@ -12,7 +12,7 @@ Screen {
     background: #1f2228;
     color: #c9d1d9;
     layout: vertical;
-    border: solid #2f6fb3;
+    /* Removed border to avoid double-line effect with panel borders */
 }
 
 /* ===== Header ===== */

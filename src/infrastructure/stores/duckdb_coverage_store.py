@@ -8,7 +8,7 @@ enabling incremental downloads and gap detection.
 from __future__ import annotations
 from pathlib import Path
 from datetime import datetime
-from typing import List, Optional
+from typing import Dict, List, Optional
 from dataclasses import dataclass
 import duckdb
 
@@ -417,6 +417,36 @@ class DuckDBCoverageStore:
             }
             for row in result
         ]
+
+    def get_all_coverage(self) -> Dict[str, List[dict]]:
+        """
+        Get all coverage data grouped by symbol in a single query.
+        Merges data from all sources (ib, yahoo, etc.) per timeframe.
+
+        Returns:
+            Dict mapping symbol -> list of coverage records.
+            Each record: {timeframe, earliest, latest, total_bars}
+        """
+        # Merge all sources per symbol/timeframe
+        result = self._conn.execute("""
+            SELECT symbol, timeframe, MIN(start_ts), MAX(end_ts), SUM(bar_count)
+            FROM data_coverage
+            GROUP BY symbol, timeframe
+            ORDER BY symbol, timeframe
+        """).fetchall()
+
+        grouped: Dict[str, List[dict]] = {}
+        for row in result:
+            symbol = row[0]
+            if symbol not in grouped:
+                grouped[symbol] = []
+            grouped[symbol].append({
+                "timeframe": row[1],
+                "earliest": row[2],
+                "latest": row[3],
+                "total_bars": row[4],
+            })
+        return grouped
 
     def delete_coverage(
         self,

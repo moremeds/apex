@@ -118,6 +118,13 @@ class ApexApp(App):
         # Slower polling for Tab 7 data (coverage + indicators)
         self._data_poll_timer = self.set_interval(10.0, self._poll_data_view)
 
+        # Log service status for debugging
+        self.log.info(
+            f"Services: coverage_store={self._coverage_store is not None}, "
+            f"signal_persistence={self._signal_persistence is not None}, "
+            f"event_loop={self._event_loop is not None}"
+        )
+
         # Mark as mounted so deferred set_trading_universe() calls apply immediately
         self._is_mounted = True
 
@@ -236,12 +243,18 @@ class ApexApp(App):
         self._set_header_tab(tab_id)
         # OPT-002: Immediately update newly visible view with current data
         self._update_views()
+        # Trigger immediate data refresh when switching to Tab 7
+        if tab_id == "data":
+            self._refresh_data_view()
 
     def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
         """Sync header when tab activation changes."""
         pane_id = event.pane.id if event.pane else ""
         if pane_id:
             self._set_header_tab(pane_id)
+            # Trigger immediate data refresh when switching to Tab 7
+            if pane_id == "data":
+                self._refresh_data_view()
 
     def on_tabs_tab_activated(self, event: Tabs.TabActivated) -> None:
         """Handle header tab clicks."""
@@ -534,34 +547,41 @@ class ApexApp(App):
             except Exception as e:
                 self.log.error(f"Failed to update coverage: {e}")
 
-        # Update indicator summary from PostgreSQL
-        if self._signal_persistence and self._event_loop:
+        # Update indicator summary from PostgreSQL (async via worker)
+        if self._signal_persistence:
+            self._fetch_indicator_summary()
+        else:
+            self.log.warning("Indicator query skipped: signal_persistence not set")
+
+    def _fetch_indicator_summary(self) -> None:
+        """Fetch indicator summary using Textual worker to avoid blocking."""
+        async def _fetch():
             try:
-                import asyncio
-                future = asyncio.run_coroutine_threadsafe(
-                    self._signal_persistence.get_indicator_summary(),
-                    self._event_loop,
-                )
-                summary = future.result(timeout=5.0)
+                summary = await self._signal_persistence.get_indicator_summary()
+                self.log.info(f"Indicator summary fetched: {len(summary)} indicators")
+                # Workers run in same event loop when thread=False
                 data_view = self.query_one("#data-view", DataView)
                 data_view.update_indicator_summary(summary)
             except Exception as e:
-                self.log.error(f"Failed to update indicator summary: {e}")
+                self.log.error(f"Failed to fetch indicator summary: {e}")
+
+        # CRITICAL: thread=False ensures we run in the main event loop
+        # asyncpg connections are NOT thread-safe and are tied to the event loop
+        # they were created in. Using thread=True would create a new event loop
+        # where the database connection wouldn't work.
+        self.run_worker(_fetch, exclusive=False, name="indicator_summary", thread=False)
 
     def _get_coverage_data(self) -> Dict[str, List[Dict]]:
         """Get coverage data from DuckDB grouped by symbol."""
         if not self._coverage_store:
             return {}
 
-        result: Dict[str, List[Dict]] = {}
         try:
-            symbols = self._coverage_store.get_all_symbols()
-            for symbol in symbols:
-                summaries = self._coverage_store.get_coverage_summary(symbol)
-                result[symbol] = summaries
+            # Single bulk query instead of N+1 pattern
+            return self._coverage_store.get_all_coverage()
         except Exception as e:
             self.log.error(f"Failed to get coverage data: {e}")
-        return result
+            return {}
 
     def on_data_refresh_requested(self, event: DataRefreshRequested) -> None:
         """Handle manual refresh request from Data view."""
@@ -569,7 +589,7 @@ class ApexApp(App):
 
     def on_indicator_details_requested(self, event: IndicatorDetailsRequested) -> None:
         """Handle indicator drill-down request from Data view."""
-        if not self._signal_persistence or not self._event_loop:
+        if not self._signal_persistence:
             return
 
         indicator = event.indicator
@@ -577,19 +597,14 @@ class ApexApp(App):
         async def fetch_details():
             try:
                 details = await self._signal_persistence.get_indicator_details(indicator)
-                self.call_from_thread(self._apply_indicator_details, indicator, details)
+                # Apply directly - we're in the same event loop with thread=False
+                data_view = self.query_one("#data-view", DataView)
+                data_view.update_indicator_details(indicator, details)
             except Exception as e:
                 self.log.error(f"Failed to fetch indicator details: {e}")
 
-        self.run_worker(fetch_details, exclusive=True)
-
-    def _apply_indicator_details(self, indicator: str, details: List[Dict]) -> None:
-        """Apply indicator details to data view."""
-        try:
-            data_view = self.query_one("#data-view", DataView)
-            data_view.update_indicator_details(indicator, details)
-        except Exception as e:
-            self.log.error(f"Failed to apply indicator details: {e}")
+        # thread=False for asyncpg compatibility (see _fetch_indicator_summary)
+        self.run_worker(fetch_details, exclusive=True, thread=False)
 
     # NOTE: watch_snapshot removed to fix double rendering bug.
     # The update_data() method calls _update_views() directly, so having
@@ -604,8 +619,8 @@ class ApexApp(App):
         """
         Load historical signals from database in background worker.
 
-        Uses Textual's run_worker to run in a separate thread,
-        keeping the TUI responsive during database queries.
+        Uses Textual's run_worker with thread=False to run in the main event loop,
+        which is required for asyncpg database connections.
 
         Loads the last 100 signals and applies them to the Trading view.
         """
@@ -617,8 +632,10 @@ class ApexApp(App):
             try:
                 signals = await self._signal_persistence.get_recent_signals(limit=100)
                 if signals:
-                    # Post to main thread
-                    self.call_from_thread(self._apply_historical_signals, signals)
+                    # Apply directly - we're in the same event loop with thread=False
+                    trading_view = self.query_one("#trading-signals-view", TradingSignalsView)
+                    for signal in reversed(signals):
+                        trading_view.add_signal(signal)
                     self.log.info(f"Loaded {len(signals)} historical signals from database")
                 else:
                     self.log.info("No historical signals found in database")
@@ -626,26 +643,8 @@ class ApexApp(App):
             except Exception as e:
                 self.log.error(f"Failed to load signal history: {e}")
 
-        # Run in background worker
-        self.run_worker(_fetch_signals, exclusive=True)
-
-    def _apply_historical_signals(self, signals: List[Any]) -> None:
-        """
-        Apply historical signals to the Trading view (runs in main thread).
-
-        Called from background worker via call_from_thread().
-
-        Args:
-            signals: List of TradingSignal objects from database.
-        """
-        try:
-            trading_view = self.query_one("#trading-signals-view", TradingSignalsView)
-            # Load signals in reverse chronological order (oldest first)
-            for signal in reversed(signals):
-                trading_view.add_signal(signal)
-            self.log.info(f"Applied {len(signals)} historical signals to Trading view")
-        except Exception as e:
-            self.log.error(f"Failed to apply historical signals: {e}")
+        # thread=False for asyncpg compatibility (connections are event-loop bound)
+        self.run_worker(_fetch_signals, exclusive=True, thread=False)
 
     # -------------------------------------------------------------------------
     # SignalListener Integration (PostgreSQL NOTIFY)

@@ -77,6 +77,9 @@ class TextualDashboard:
         self._signal_persistence: Optional["SignalPersistencePort"] = None
         self._signal_listener: Optional["SignalListener"] = None
 
+        # Tab 7 (Data) coverage store
+        self._coverage_store = None
+
     def start(self) -> None:
         """
         Compatibility shim - does nothing.
@@ -153,6 +156,7 @@ class TextualDashboard:
                 event_bus,
                 self._signal_persistence,
                 self._signal_listener,
+                self._coverage_store,
             )
 
     def set_trading_universe(self, symbols: List[str]) -> None:
@@ -194,6 +198,7 @@ class TextualDashboard:
                 self._event_bus,
                 self._signal_persistence,
                 self._signal_listener,
+                self._coverage_store,
             )
 
     def set_signal_persistence(
@@ -224,6 +229,28 @@ class TextualDashboard:
                 self._event_bus,
                 self._signal_persistence,
                 self._signal_listener,
+                self._coverage_store,
+            )
+
+    def set_coverage_store(self, coverage_store) -> None:
+        """
+        Set coverage store for Tab 7 historical data display.
+
+        Args:
+            coverage_store: DuckDBCoverageStore instance.
+        """
+        self._coverage_store = coverage_store
+
+        # If app already exists, inject immediately
+        if self._app:
+            self._app.inject_services(
+                self._ta_service,
+                self._event_loop,
+                self._historical_service,
+                self._event_bus,
+                self._signal_persistence,
+                self._signal_listener,
+                self._coverage_store,
             )
 
     async def run_async(
@@ -242,7 +269,7 @@ class TextualDashboard:
         self._app = ApexApp(env=self.env)
 
         # Inject services if already set (event_bus is critical for signal subscriptions)
-        if self._event_bus or self._ta_service or self._signal_persistence:
+        if self._event_bus or self._ta_service or self._signal_persistence or self._coverage_store:
             self._app.inject_services(
                 self._ta_service,
                 self._event_loop,
@@ -250,6 +277,7 @@ class TextualDashboard:
                 self._event_bus,
                 self._signal_persistence,
                 self._signal_listener,
+                self._coverage_store,
             )
 
         # Apply pending trading universe if set

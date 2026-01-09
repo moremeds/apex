@@ -148,5 +148,5 @@ class PSARIndicator(IndicatorBase):
         return {
             "psar": float(psar),
             "trend": "neutral",  # Determined by comparing with price in rules
-            "flip": flip,
+            "flip": bool(flip),  # Ensure JSON serializable
         }

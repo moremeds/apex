@@ -151,11 +151,11 @@ class SignalRunner:
     async def _create_persistence(self):
         """Create persistence layer if database is available."""
         try:
-            from config.loader import load_config
+            from config.config_manager import ConfigManager
             from ..infrastructure.persistence.database import get_database
             from ..infrastructure.persistence.repositories.ta_signal_repository import TASignalRepository
 
-            config = load_config()
+            config = ConfigManager().load()
             db = await get_database(config.database)
             return TASignalRepository(db)
         except Exception as e:
@@ -449,12 +449,14 @@ class SignalRunner:
         """
         Run backfill to process historical bars.
 
-        Fetches historical bar data and injects it into the indicator engine
-        for warmup and historical signal generation.
+        Fetches historical bar data and processes each bar through the
+        indicator engine, triggering persistence for each.
 
         Returns:
             Exit code (0 for success).
         """
+        from ..domain.events.domain_events import BarCloseEvent
+
         print("=" * 60)
         print("SIGNAL BACKFILL")
         print("=" * 60)
@@ -466,6 +468,7 @@ class SignalRunner:
 
         self._running = True
         total_bars = 0
+        total_processed = 0
 
         for symbol in self.config.symbols:
             for timeframe in self.config.timeframes:
@@ -482,15 +485,51 @@ class SignalRunner:
                     print(f"  No historical data available for {symbol} {timeframe}")
                     continue
 
-                # Inject into indicator engine
-                injected = await self._service.inject_historical_bars(
+                total_bars += len(bars)
+                print(f"  Found {len(bars)} bars, processing...")
+
+                # First inject all bars for warmup (needed for indicator lookback)
+                await self._service.inject_historical_bars(
                     symbol=symbol,
                     timeframe=timeframe,
                     bars=bars,
                 )
 
-                total_bars += injected
-                print(f"  Injected {injected} bars")
+                # Now emit BAR_CLOSE for each bar to trigger indicator computation
+                for i, bar_dict in enumerate(bars):
+                    if not self._running:
+                        break
+
+                    # Convert timestamp string to datetime if needed
+                    timestamp = bar_dict.get("timestamp")
+                    if isinstance(timestamp, str):
+                        from datetime import datetime as dt
+                        timestamp = dt.fromisoformat(timestamp.replace("Z", "+00:00"))
+
+                    bar_event = BarCloseEvent(
+                        symbol=symbol,
+                        timeframe=timeframe,
+                        timestamp=timestamp,
+                        open=float(bar_dict.get("open", 0)),
+                        high=float(bar_dict.get("high", 0)),
+                        low=float(bar_dict.get("low", 0)),
+                        close=float(bar_dict.get("close", 0)),
+                        volume=int(bar_dict.get("volume", 0)),
+                    )
+
+                    self._event_bus.publish(EventType.BAR_CLOSE, bar_event)
+                    total_processed += 1
+
+                    # Progress update
+                    if (i + 1) % 50 == 0 or i == len(bars) - 1:
+                        print(f"    Processed {i + 1}/{len(bars)} bars")
+
+                    # Small delay to allow event processing
+                    await asyncio.sleep(0.001)
+
+        # Wait for pipeline to finish processing
+        print("\nWaiting for pipeline to complete...")
+        await asyncio.sleep(2.0)
 
         # Report results
         print()
@@ -498,12 +537,13 @@ class SignalRunner:
         print("BACKFILL RESULTS")
         print("=" * 60)
         stats = self._service.stats
-        print(f"Total bars injected:  {total_bars}")
+        print(f"Total bars found:     {total_bars}")
+        print(f"Bars processed:       {total_processed}")
         print(f"Indicators computed:  {stats['indicators_computed']}")
         print(f"Signals emitted:      {stats['signals_emitted']}")
         print("=" * 60)
 
-        return 0 if total_bars > 0 else 1
+        return 0 if total_processed > 0 else 1
 
     async def _fetch_historical_bars(
         self,
@@ -523,14 +563,14 @@ class SignalRunner:
             List of bar dicts with open, high, low, close, volume, timestamp.
         """
         try:
-            # Try DuckDB/Parquet store first
-            from ..infrastructure.stores.duckdb_market_store import DuckDBMarketStore
+            # Try Parquet store first
+            from ..infrastructure.stores.parquet_historical_store import ParquetHistoricalStore
 
-            store = DuckDBMarketStore()
+            store = ParquetHistoricalStore()
             end_date = now_utc()
             start_date = end_date - timedelta(days=days)
 
-            bars = await store.get_bars(
+            bars = store.read_bars(
                 symbol=symbol,
                 timeframe=timeframe,
                 start=start_date,
@@ -541,10 +581,10 @@ class SignalRunner:
                 return [bar.to_dict() for bar in bars]
 
         except Exception as e:
-            logger.debug(f"DuckDB store not available: {e}")
+            logger.warning(f"Parquet store error for {symbol} {timeframe}: {e}")
 
         # Generate synthetic bars for demonstration
-        logger.info(f"Generating synthetic historical bars for {symbol} {timeframe}")
+        logger.info(f"No historical data found - generating synthetic bars for {symbol} {timeframe}")
         return self._generate_synthetic_bars(
             symbol=symbol,
             timeframe=timeframe,

@@ -685,8 +685,10 @@ class TradingSignalEvent(DomainEvent):
     # Core signal fields
     signal_id: str = ""
     symbol: str = ""
+    timeframe: str = ""  # e.g., "1m", "5m", "1h", "1d"
     direction: str = ""  # "LONG", "SHORT", "FLAT"
     strength: float = 1.0
+    indicator: str = ""  # Source indicator (e.g., "rsi", "macd")
 
     # Targeting
     target_quantity: Optional[float] = None
@@ -696,6 +698,15 @@ class TradingSignalEvent(DomainEvent):
     strategy_id: str = ""
     reason: str = ""
     source: str = ""  # Source of the signal (e.g., strategy_id)
+
+    # Signal context for persistence
+    category: str = ""  # "momentum", "trend", "volatility", etc.
+    priority: str = ""  # "info", "low", "medium", "high", "critical"
+    trigger_rule: str = ""
+    current_value: Optional[float] = None
+    threshold: Optional[float] = None
+    previous_value: Optional[float] = None
+    message: str = ""
 
     @classmethod
     def from_signal(cls, signal: Any, source: str = "strategy") -> "TradingSignalEvent":
@@ -743,17 +754,43 @@ class TradingSignalEvent(DomainEvent):
         target_quantity = getattr(signal, "target_quantity", None)
         target_price = getattr(signal, "target_price", None)
 
+        # Handle timeframe and indicator
+        timeframe = getattr(signal, "timeframe", "")
+        indicator = getattr(signal, "indicator", "")
+
+        # Handle signal context for persistence
+        category = getattr(signal, "category", "")
+        if hasattr(category, "value"):
+            category = category.value
+        priority = getattr(signal, "priority", "")
+        if hasattr(priority, "value"):
+            priority = priority.value
+        trigger_rule = getattr(signal, "trigger_rule", "")
+        current_value = getattr(signal, "current_value", None)
+        threshold = getattr(signal, "threshold", None)
+        previous_value = getattr(signal, "previous_value", None)
+        message = getattr(signal, "message", "")
+
         return cls(
             timestamp=timestamp,
             signal_id=signal.signal_id,
             symbol=signal.symbol,
+            timeframe=timeframe,
             direction=direction,
             strength=strength,
+            indicator=indicator,
             target_quantity=target_quantity,
             target_price=target_price,
             strategy_id=strategy_id,
             reason=reason,
             source=source,
+            category=category,
+            priority=priority,
+            trigger_rule=trigger_rule,
+            current_value=current_value,
+            threshold=threshold,
+            previous_value=previous_value,
+            message=message,
         )
 
 
