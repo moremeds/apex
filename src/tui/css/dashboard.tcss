@@ -155,7 +155,8 @@ Vertical {
 
 
 HealthBar .health-component {
-    width: 20;
+    min-width: 15;
+    width: 1fr;
     height: 3;
     content-align: center middle;
     text-align: center;
@@ -239,7 +240,8 @@ HealthBar {
 }
 
 HealthBar.compact-health .health-component {
-    width: 8;
+    min-width: 6;
+    width: 1fr;
     height: 1;
     content-align: center middle;
     text-align: center;

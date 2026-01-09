@@ -6,16 +6,17 @@ Displays trading signals from the signal engine with:
 - Strength indicator bar
 - Timeframe and indicator extraction from signal_id
 - FIFO eviction when max_signals exceeded
+- Incremental updates via TradingSignalViewModel (OPT-PERF)
 """
 
 from __future__ import annotations
 
-from datetime import datetime
-from enum import Enum
 from typing import Any, List, Optional, Tuple
 
 from textual.reactive import reactive
 from textual.widgets import DataTable
+
+from ..viewmodels.trading_signal_vm import TradingSignalViewModel
 
 
 def extract_signal_metadata(signal: Any) -> Tuple[Optional[str], Optional[str]]:
@@ -83,6 +84,10 @@ class TradingSignalsTable(DataTable):
         super().__init__(cursor_type="row", zebra_stripes=True, **kwargs)
         self._max_signals = max_signals
         self._column_keys: List[str] = []
+        self._row_keys: List[str] = []
+
+        # ViewModel for incremental updates (OPT-PERF)
+        self._view_model = TradingSignalViewModel(max_signals=max_signals)
 
     def on_mount(self) -> None:
         """Initialize table columns."""
@@ -93,8 +98,16 @@ class TradingSignalsTable(DataTable):
             self._column_keys.append(col_key)
 
     def watch_signals(self, signals: List[Any]) -> None:
-        """Rebuild table when signals change."""
-        self._rebuild(signals)
+        """Update table when signals change using incremental updates (OPT-PERF)."""
+        if not signals:
+            self._full_rebuild([])
+            return
+
+        # Use ViewModel to determine if full refresh is needed
+        if self._view_model.full_refresh_needed(signals):
+            self._full_rebuild(signals)
+        else:
+            self._incremental_update(signals)
 
     def add_signal(self, signal: Any) -> None:
         """
@@ -110,19 +123,65 @@ class TradingSignalsTable(DataTable):
 
     def clear_signals(self) -> None:
         """Clear all signals from the table."""
+        self._view_model.invalidate()
         self.signals = []
 
-    def _rebuild(self, signals: List[Any]) -> None:
-        """Full table rebuild with signal data."""
+    def _full_rebuild(self, signals: List[Any]) -> None:
+        """Full table rebuild (first load or structural change)."""
         self.clear()
+        self._row_keys.clear()
 
         if not signals:
             self._add_placeholder_row()
+            self._view_model.invalidate()
             return
 
-        for signal in signals:
-            row_key = self._signal_key(signal)
-            self.add_row(*self._build_row(signal), key=row_key)
+        # Get display data from ViewModel
+        display_data = self._view_model.compute_display_data(signals)
+        row_order = self._view_model.get_row_order(signals)
+
+        # Add rows in order
+        for row_key in row_order:
+            if row_key in display_data:
+                self.add_row(*display_data[row_key], key=row_key)
+                self._row_keys.append(row_key)
+
+    def _incremental_update(self, signals: List[Any]) -> None:
+        """Incremental cell-level updates (efficient path - OPT-PERF)."""
+        row_ops, cell_updates, new_order = self._view_model.compute_updates(signals)
+
+        # Handle row removals first
+        for row_op in row_ops:
+            if row_op.action == "remove":
+                try:
+                    self.remove_row(row_op.row_key)
+                    if row_op.row_key in self._row_keys:
+                        self._row_keys.remove(row_op.row_key)
+                except Exception as e:
+                    self.log.error(f"Failed to remove row {row_op.row_key}: {e}")
+
+        # Handle row additions
+        for row_op in row_ops:
+            if row_op.action == "add" and row_op.values:
+                try:
+                    self.add_row(*row_op.values, key=row_op.row_key)
+                    self._row_keys.append(row_op.row_key)
+                except Exception as e:
+                    self.log.error(f"Failed to add row {row_op.row_key}: {e}")
+
+        # Handle cell updates (most efficient path)
+        for cell in cell_updates:
+            try:
+                if cell.column_index < len(self._column_keys):
+                    col_key = self._column_keys[cell.column_index]
+                    self.update_cell(cell.row_key, col_key, cell.value)
+            except Exception as e:
+                self.log.error(f"Failed to update cell {cell.row_key}: {e}")
+
+        # Update row order tracking
+        self._row_keys = [k for k in new_order if k in self._row_keys or any(
+            op.action == "add" and op.row_key == k for op in row_ops
+        )]
 
     def _add_placeholder_row(self) -> None:
         """Add a placeholder row when no signals exist."""
@@ -137,108 +196,4 @@ class TradingSignalsTable(DataTable):
             "[dim]-[/]",
         ]
         self.add_row(*placeholders, key="_placeholder_empty")
-
-    def _build_row(self, signal: Any) -> List[str]:
-        """Build a display row from a signal object."""
-        timestamp = self._format_time(getattr(signal, "timestamp", None))
-        symbol = getattr(signal, "symbol", "-") or "-"
-
-        # Direction handling
-        direction = self._normalize_direction(getattr(signal, "direction", ""))
-        direction_text = self._style_direction(direction)
-
-        # Strength bar
-        strength = getattr(signal, "strength", None)
-        strength_text = self._format_strength(strength)
-
-        # Extract metadata
-        timeframe, indicator = extract_signal_metadata(signal)
-
-        # Rule and message
-        rule = (
-            getattr(signal, "trigger_rule", None)
-            or getattr(signal, "strategy_id", "")
-            or "-"
-        )
-        message = (
-            getattr(signal, "message", None) or getattr(signal, "reason", "") or "-"
-        )
-
-        return [
-            timestamp,
-            symbol,
-            direction_text,
-            strength_text,
-            timeframe or "-",
-            indicator or "-",
-            self._truncate(rule, 24),
-            self._truncate(message, 50),
-        ]
-
-    def _signal_key(self, signal: Any) -> str:
-        """Generate a stable row key for a signal."""
-        signal_id = getattr(signal, "signal_id", None)
-        if signal_id:
-            return str(signal_id)
-        # Fallback: combine symbol and timestamp
-        symbol = getattr(signal, "symbol", "UNKNOWN")
-        ts = getattr(signal, "timestamp", None)
-        if isinstance(ts, datetime):
-            return f"{symbol}:{ts.isoformat()}"
-        return f"{symbol}:{id(signal)}"
-
-    def _format_time(self, value: Optional[Any]) -> str:
-        """Format timestamp for display."""
-        if isinstance(value, datetime):
-            return value.strftime("%H:%M:%S")
-        if isinstance(value, str):
-            try:
-                return datetime.fromisoformat(value).strftime("%H:%M:%S")
-            except ValueError:
-                return value[:8] if len(value) >= 8 else value
-        return "-"
-
-    def _format_strength(self, value: Optional[Any]) -> str:
-        """Format strength value with visual indicator."""
-        if value is None:
-            return "-"
-        try:
-            val = int(float(value))
-            # Clamp to 0-100
-            val = max(0, min(100, val))
-            return str(val)
-        except (TypeError, ValueError):
-            return "-"
-
-    def _normalize_direction(self, direction: Any) -> str:
-        """Normalize direction to BUY/SELL/ALERT."""
-        if isinstance(direction, Enum):
-            direction = direction.value
-        if not direction:
-            return "ALERT"
-
-        direction = str(direction).upper()
-        direction_map = {
-            "LONG": "BUY",
-            "BUY": "BUY",
-            "SHORT": "SELL",
-            "SELL": "SELL",
-            "FLAT": "ALERT",
-            "ALERT": "ALERT",
-        }
-        return direction_map.get(direction, "ALERT")
-
-    def _style_direction(self, direction: str) -> str:
-        """Apply color styling to direction."""
-        styles = {
-            "BUY": "[bold #7ee787]BUY[/]",
-            "SELL": "[bold #ff6b6b]SELL[/]",
-            "ALERT": "[bold #f6d365]ALRT[/]",
-        }
-        return styles.get(direction, f"[#8b949e]{direction}[/]")
-
-    def _truncate(self, text: str, max_len: int) -> str:
-        """Truncate text with ellipsis if too long."""
-        if len(text) <= max_len:
-            return text
-        return text[: max_len - 1] + "…"
+        self._row_keys.append("_placeholder_empty")

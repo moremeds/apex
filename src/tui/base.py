@@ -16,6 +16,7 @@ class DashboardView(Enum):
     FUTU_POSITIONS = "futu_positions"         # Tab 4: Futu detailed positions
     LAB = "lab"                               # Tab 5: Strategy lab (backtest strategies)
     TRADING_SIGNALS = "trading_signals"       # Tab 6: Trading signals + confluence
+    DATA = "data"                             # Tab 7: Historical coverage + indicator DB
 
 
 # View tabs configuration for header rendering
@@ -26,4 +27,5 @@ VIEW_TABS = [
     ("4", "Futu", "futu", DashboardView.FUTU_POSITIONS),
     ("5", "Lab", "lab", DashboardView.LAB),
     ("6", "Trading", "trading", DashboardView.TRADING_SIGNALS),
+    ("7", "Data", "data", DashboardView.DATA),
 ]

@@ -163,23 +163,16 @@ class BaseViewModel(ABC, Generic[T]):
 
     def full_refresh_needed(self, data: T) -> bool:
         """
-        Check if a full refresh is needed (e.g., first load or structural change).
+        Check if a full refresh is needed (first load only).
 
-        Uses _get_or_compute to cache the result for subsequent compute_updates call,
-        avoiding double computation.
+        OPT-PERF: Changed to only return True on first load.
+        Row additions/removals are now handled by compute_updates() via RowUpdate
+        operations, enabling incremental updates instead of full table rebuilds.
 
-        Override in subclasses for custom logic.
+        Override in subclasses for custom logic (e.g., schema changes).
         """
-        if self._previous_data is None:
-            return True
-
-        # Compute and cache for potential reuse by compute_updates
-        new_display, _ = self._get_or_compute(data)
-        old_keys = set(self._row_cache.keys())
-        new_keys = set(new_display.keys())
-
-        # Structural change if keys differ
-        return old_keys != new_keys
+        # Only full refresh on first load - let compute_updates handle row add/remove
+        return self._previous_data is None
 
     def invalidate(self) -> None:
         """Clear cache, forcing full refresh on next update."""
