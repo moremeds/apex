@@ -144,6 +144,7 @@ class RuleEngine:
         event_bus: EventBusProtocol,
         registry: Optional[RuleRegistry] = None,
         signal_metrics: Optional["SignalMetrics"] = None,
+        trace_mode: bool = False,
     ) -> None:
         """
         Initialize the rule engine.
@@ -152,10 +153,12 @@ class RuleEngine:
             event_bus: Event bus for subscriptions and publishing
             registry: RuleRegistry with rules to evaluate (creates empty if None)
             signal_metrics: Metrics collector for instrumentation
+            trace_mode: If True, enable verbose logging of rule evaluations for debugging
         """
         self._event_bus = event_bus
         self._registry = registry or RuleRegistry()
         self._metrics = signal_metrics
+        self._trace_mode = trace_mode
 
         # Per-signal cooldown tracking: signal_id -> (last_triggered_time, cooldown_seconds)
         # signal_id format: "{category}:{indicator}:{symbol}:{timeframe}"
@@ -180,6 +183,17 @@ class RuleEngine:
     def rules_evaluated(self) -> int:
         """Total rule evaluations since start."""
         return self._rules_evaluated
+
+    @property
+    def trace_mode(self) -> bool:
+        """Whether trace mode is enabled."""
+        return self._trace_mode
+
+    @trace_mode.setter
+    def trace_mode(self, value: bool) -> None:
+        """Enable or disable trace mode at runtime."""
+        self._trace_mode = value
+        logger.info(f"RuleEngine trace_mode {'enabled' if value else 'disabled'}")
 
     def start(self) -> None:
         """Start the engine by subscribing to INDICATOR_UPDATE events."""
@@ -290,6 +304,18 @@ class RuleEngine:
                     exc_info=True,
                 )
                 continue
+
+            # Trace mode: log detailed rule evaluation values
+            if self._trace_mode:
+                field = rule.condition_config.get("field", "value")
+                threshold = rule.condition_config.get("threshold")
+                prev_val = prev_state.get(field) if prev_state else None
+                curr_val = curr_state.get(field) if curr_state else None
+                logger.info(
+                    f"TRACE Rule {rule.name}: "
+                    f"prev={prev_val}, curr={curr_val}, threshold={threshold} -> "
+                    f"{'TRIGGERED' if triggered else 'NO_MATCH'}"
+                )
 
             if not triggered:
                 continue

@@ -96,8 +96,9 @@ class IndicatorEngine:
         # Previous indicator states for transition detection
         self._previous_states: Dict[StateKey, Dict[str, Any]] = {}
 
-        # Thread safety for shared state
-        self._lock = RLock()
+        # PERF: Per-symbol locks to reduce contention (allows parallel processing of different symbols)
+        self._locks: Dict[BarKey, RLock] = {}
+        self._locks_lock = RLock()  # Meta-lock for creating new per-symbol locks
 
         # Thread pool for parallel calculations
         self._executor = ThreadPoolExecutor(max_workers=max_workers)
@@ -139,6 +140,26 @@ class IndicatorEngine:
         self._started = False
         logger.info("IndicatorEngine stopped")
 
+    def _get_lock(self, bar_key: BarKey) -> RLock:
+        """
+        Get or create a lock for a specific (symbol, timeframe) pair.
+
+        Uses double-checked locking pattern for efficiency.
+        """
+        # Fast path: lock already exists
+        lock = self._locks.get(bar_key)
+        if lock is not None:
+            return lock
+
+        # Slow path: create new lock
+        with self._locks_lock:
+            # Double-check after acquiring meta-lock
+            lock = self._locks.get(bar_key)
+            if lock is None:
+                lock = RLock()
+                self._locks[bar_key] = lock
+            return lock
+
     def inject_historical_bars(
         self,
         symbol: str,
@@ -166,7 +187,7 @@ class IndicatorEngine:
         """
         bar_key: BarKey = (symbol, timeframe)
 
-        with self._lock:
+        with self._get_lock(bar_key):
             if bar_key not in self._history:
                 self._history[bar_key] = deque(maxlen=self._max_history)
 
@@ -226,7 +247,7 @@ class IndicatorEngine:
         """
         bar_key: BarKey = (symbol, timeframe)
 
-        with self._lock:
+        with self._get_lock(bar_key):
             if bar_key not in self._history:
                 logger.debug(f"No history for {symbol}/{timeframe}, skipping compute")
                 return 0
@@ -242,12 +263,18 @@ class IndicatorEngine:
         latest_bar = bars[-1]
         timestamp = latest_bar.get("timestamp")
 
+        # PERF: Create DataFrame ONCE and share across all indicator threads
+        df = pd.DataFrame(bars)
+        if "timestamp" in df.columns:
+            df = df.set_index("timestamp")
+        bar_count = len(df)
+
         # Build tasks for indicators with sufficient warmup
         loop = asyncio.get_running_loop()
         tasks = []
 
         for indicator in self._indicators:
-            if len(bars) < indicator.warmup_periods:
+            if bar_count < indicator.warmup_periods:
                 continue
 
             state_key: StateKey = (symbol, timeframe, indicator.name)
@@ -258,7 +285,7 @@ class IndicatorEngine:
                     self._executor,
                     self._compute_indicator,
                     indicator,
-                    bars,
+                    df,  # Pass shared DataFrame instead of bars list
                     symbol,
                     timeframe,
                     timestamp,
@@ -272,7 +299,7 @@ class IndicatorEngine:
         if not tasks:
             logger.debug(
                 f"No indicators ready for {symbol}/{timeframe} "
-                f"(history={len(bars)}, max_warmup={self._max_warmup})"
+                f"(history={bar_count}, max_warmup={self._max_warmup})"
             )
             return 0
 
@@ -338,8 +365,8 @@ class IndicatorEngine:
 
         bar_key: BarKey = (event.symbol, event.timeframe)
 
-        # Update history (thread-safe)
-        with self._lock:
+        # Update history (thread-safe with per-symbol lock)
+        with self._get_lock(bar_key):
             if bar_key not in self._history:
                 self._history[bar_key] = deque(maxlen=self._max_history)
             self._history[bar_key].append(bar_entry)
@@ -350,12 +377,19 @@ class IndicatorEngine:
         if not self._indicators:
             return
 
+        # PERF: Create DataFrame ONCE and share across all indicator threads
+        # This avoids creating 40 DataFrames (one per indicator) per bar close
+        df = pd.DataFrame(bars)
+        if "timestamp" in df.columns:
+            df = df.set_index("timestamp")
+        bar_count = len(df)
+
         # Build tasks for indicators with sufficient warmup
         loop = asyncio.get_running_loop()
         tasks = []
 
         for indicator in self._indicators:
-            if len(bars) < indicator.warmup_periods:
+            if bar_count < indicator.warmup_periods:
                 continue
 
             # Re-check started flag before scheduling (race condition guard)
@@ -370,7 +404,7 @@ class IndicatorEngine:
                     self._executor,
                     self._compute_indicator,
                     indicator,
-                    bars,
+                    df,  # Pass shared DataFrame instead of bars list
                     event.symbol,
                     event.timeframe,
                     bar_entry["timestamp"],
@@ -420,7 +454,7 @@ class IndicatorEngine:
     def _compute_indicator(
         self,
         indicator: Indicator,
-        bars: List[Dict[str, Any]],
+        df: pd.DataFrame,
         symbol: str,
         timeframe: str,
         timestamp: datetime,
@@ -429,16 +463,19 @@ class IndicatorEngine:
         """
         Compute a single indicator (runs in thread pool).
 
+        Args:
+            indicator: The indicator to compute
+            df: Pre-built DataFrame with OHLCV data (shared across threads, read-only)
+            symbol: Trading symbol
+            timeframe: Bar timeframe
+            timestamp: Timestamp for the update event
+            prev_state: Previous indicator state for transition detection
+
         Returns:
             Tuple of (IndicatorUpdateEvent, new_state) or None on failure
         """
         start_time = time.perf_counter()
         try:
-            # Build DataFrame from bar history
-            df = pd.DataFrame(bars)
-            if "timestamp" in df.columns:
-                df = df.set_index("timestamp")
-
             # Validate required fields
             for field in indicator.required_fields:
                 if field not in df.columns:
@@ -453,7 +490,7 @@ class IndicatorEngine:
                     )
                     return None
 
-            # Calculate indicator
+            # Calculate indicator (df is read-only, indicator.calculate returns new df)
             result_df = indicator.calculate(df, indicator.default_params)
             if result_df.empty:
                 return None

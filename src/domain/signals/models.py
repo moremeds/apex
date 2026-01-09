@@ -224,13 +224,26 @@ class SignalRule:
         prev_state: Optional[Dict[str, Any]],
         curr_state: Dict[str, Any],
     ) -> bool:
-        """Value crosses above threshold."""
-        if prev_state is None:
-            return False
+        """
+        Value crosses above threshold.
+
+        Config options:
+            field: Field to check (default: "value")
+            threshold: Threshold value
+            detect_initial: If True, trigger when curr >= threshold on first eval (default: False)
+        """
         field = self.condition_config.get("field", "value")
         threshold = self.condition_config.get("threshold", 0)
-        prev_val = prev_state.get(field, 0)
         curr_val = curr_state.get(field, 0)
+
+        # Handle first evaluation (no previous state)
+        if prev_state is None:
+            # Opt-in: detect initial state already above threshold
+            if self.condition_config.get("detect_initial", False):
+                return curr_val >= threshold
+            return False
+
+        prev_val = prev_state.get(field, 0)
         return prev_val < threshold <= curr_val
 
     def _check_threshold_cross_down(
@@ -238,13 +251,26 @@ class SignalRule:
         prev_state: Optional[Dict[str, Any]],
         curr_state: Dict[str, Any],
     ) -> bool:
-        """Value crosses below threshold."""
-        if prev_state is None:
-            return False
+        """
+        Value crosses below threshold.
+
+        Config options:
+            field: Field to check (default: "value")
+            threshold: Threshold value
+            detect_initial: If True, trigger when curr <= threshold on first eval (default: False)
+        """
         field = self.condition_config.get("field", "value")
         threshold = self.condition_config.get("threshold", 0)
-        prev_val = prev_state.get(field, 0)
         curr_val = curr_state.get(field, 0)
+
+        # Handle first evaluation (no previous state)
+        if prev_state is None:
+            # Opt-in: detect initial state already below threshold
+            if self.condition_config.get("detect_initial", False):
+                return curr_val <= threshold
+            return False
+
+        prev_val = prev_state.get(field, 0)
         return prev_val > threshold >= curr_val
 
     def _check_state_change(
