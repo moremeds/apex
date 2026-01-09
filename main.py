@@ -578,13 +578,9 @@ async def main_async(args: argparse.Namespace) -> None:
             # Start pre-fetch in background (non-blocking)
             prefetch_task = asyncio.create_task(connect_historical_and_prefetch())
 
-        # Wire confluence callbacks from signal coordinator to dashboard
-        if dashboard and orchestrator:
-            dashboard.set_confluence_callback_target(orchestrator.signal_coordinator)
-            system_structured.info(
-                LogCategory.SYSTEM,
-                "Confluence callbacks wired to dashboard"
-            )
+        # NOTE: Confluence/alignment updates now use event bus (CONFLUENCE_UPDATE,
+        # ALIGNMENT_UPDATE events) instead of direct callbacks. The TUI subscribes
+        # to these events in inject_services() via _subscribe_trading_signals().
 
         # Update loop - feeds data from orchestrator to dashboard via queue
         update_task = None
