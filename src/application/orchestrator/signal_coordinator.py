@@ -412,30 +412,37 @@ class SignalCoordinator:
             logger.debug("No symbols to preload")
             return {}
 
-        lookback_days = self._preload_config.get("lookback_days", 365)
         slow_warn_sec = self._preload_config.get("slow_preload_warn_sec", 30)
         end_dt = now_utc()
-        start_dt = end_dt - timedelta(days=lookback_days)
 
         results: Dict[str, int] = {}
         start_time = time.monotonic()
 
+        # Build timeframe-specific lookback based on source limits
+        timeframe_lookbacks = {}
+        for tf in self._timeframes:
+            max_days = self._historical_data_manager.get_max_history_days(tf)
+            timeframe_lookbacks[tf] = max_days
+
         logger.info(
-            "Starting bar cache preload (startup)",
+            "Starting bar cache preload (startup) - max history per timeframe",
             extra={
                 "symbols_count": len(symbols),
                 "symbols": symbols[:10] if len(symbols) > 10 else symbols,
                 "timeframes": self._timeframes,
-                "lookback_days": lookback_days,
-                "start": start_dt.isoformat(),
+                "timeframe_lookbacks": timeframe_lookbacks,
                 "end": end_dt.isoformat(),
             },
         )
 
         for timeframe in self._timeframes:
+            # Use timeframe-specific max history
+            lookback_days = timeframe_lookbacks.get(timeframe, 365)
+            start_dt = end_dt - timedelta(days=lookback_days)
+
             for symbol in symbols:
                 try:
-                    # ensure_data: gap check → download → store → return bars
+                    # ensure_data: gap check → download (if gaps) → store → return bars
                     bars = await self._historical_data_manager.ensure_data(
                         symbol=symbol,
                         timeframe=timeframe,

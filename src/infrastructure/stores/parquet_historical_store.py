@@ -411,6 +411,32 @@ class ParquetHistoricalStore:
             f.stem for f in symbol_dir.glob("*.parquet")
         ])
 
+    def get_all_file_sizes(self) -> dict[tuple[str, str], int]:
+        """
+        Get file sizes for all symbol/timeframe combinations.
+
+        Returns:
+            Dict mapping (symbol, timeframe) -> file size in bytes.
+        """
+        sizes: dict[tuple[str, str], int] = {}
+
+        if not self._base_dir.exists():
+            return sizes
+
+        for symbol_dir in self._base_dir.iterdir():
+            if not symbol_dir.is_dir() or symbol_dir.name.startswith("_"):
+                continue
+
+            symbol = symbol_dir.name
+            for parquet_file in symbol_dir.glob("*.parquet"):
+                timeframe = parquet_file.stem
+                try:
+                    sizes[(symbol, timeframe)] = parquet_file.stat().st_size
+                except OSError:
+                    pass
+
+        return sizes
+
 
 def pd_isna(value: object) -> bool:
     """Check if value is NaN/None, handling pandas types."""

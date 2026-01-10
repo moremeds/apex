@@ -574,13 +574,34 @@ class ApexApp(App):
         self.run_worker(_fetch, exclusive=False, name="indicator_summary", thread=False)
 
     def _get_coverage_data(self) -> Dict[str, List[Dict]]:
-        """Get coverage data from DuckDB grouped by symbol."""
+        """Get coverage data from DuckDB grouped by symbol, including file sizes."""
         if not self._coverage_store:
             return {}
 
         try:
-            # Single bulk query instead of N+1 pattern
-            return self._coverage_store.get_all_coverage()
+            # Get coverage from DuckDB
+            coverage = self._coverage_store.get_all_coverage()
+
+            # Add file sizes from the parquet files
+            from pathlib import Path
+            base_dir = Path("data/historical")
+
+            if base_dir.exists():
+                for symbol, records in coverage.items():
+                    symbol_dir = base_dir / symbol.upper()
+                    if symbol_dir.exists():
+                        for record in records:
+                            tf = record.get("timeframe", "")
+                            parquet_file = symbol_dir / f"{tf}.parquet"
+                            if parquet_file.exists():
+                                try:
+                                    record["file_size"] = parquet_file.stat().st_size
+                                except OSError:
+                                    record["file_size"] = None
+                            else:
+                                record["file_size"] = None
+
+            return coverage
         except Exception as e:
             self.log.error(f"Failed to get coverage data: {e}")
             return {}

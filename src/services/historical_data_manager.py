@@ -277,6 +277,21 @@ class HistoricalDataManager:
         """Find gaps in coverage for the requested range."""
         return self._coverage_store.find_gaps(symbol, timeframe, start, end)
 
+    def get_max_history_days(self, timeframe: str) -> int:
+        """
+        Get maximum history available for a timeframe from preferred source.
+
+        Returns the max from the highest priority source that supports this timeframe.
+        Used for preload to request full available history on startup.
+        """
+        for source_name in self._source_priority:
+            source = self._sources.get(source_name)
+            if source and source.supports_timeframe(timeframe):
+                if hasattr(source, "get_max_history_days"):
+                    return source.get_max_history_days(timeframe)
+        # Fallback defaults if no source has the method
+        return {"1m": 7, "5m": 60, "15m": 60, "1h": 730, "1d": 3650}.get(timeframe, 365)
+
     async def download_symbols(
         self,
         symbols: List[str],

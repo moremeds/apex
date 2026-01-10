@@ -38,6 +38,17 @@ def format_bars(n: Optional[int]) -> str:
     return str(n)
 
 
+def format_size(bytes_val: Optional[int]) -> str:
+    """Format file size with KB/MB suffix."""
+    if bytes_val is None:
+        return "?"
+    if bytes_val >= 1_000_000:
+        return f"{bytes_val / 1_000_000:.1f}MB"
+    if bytes_val >= 1_000:
+        return f"{bytes_val / 1_000:.1f}KB"
+    return f"{bytes_val}B"
+
+
 class HistoricalCoveragePanel(Widget):
     """
     Historical data coverage panel with collapsible ticker groups.
@@ -69,9 +80,10 @@ class HistoricalCoveragePanel(Widget):
         """Initialize table columns."""
         table = self.query_one("#coverage-table", DataTable)
         table.add_column("", width=2, key="expand")  # Expand indicator
-        table.add_column("Symbol / TF", width=16, key="symbol")
-        table.add_column("Date Range", width=24, key="range")
-        table.add_column("Bars", width=10, key="bars")
+        table.add_column("Symbol / TF", width=14, key="symbol")
+        table.add_column("Date Range", width=26, key="range")
+        table.add_column("Bars", width=8, key="bars")
+        table.add_column("Size", width=8, key="size")
 
     def watch_coverage_data(self, data: Dict[str, List[Dict]]) -> None:
         """Rebuild table when coverage data changes."""
@@ -137,7 +149,7 @@ class HistoricalCoveragePanel(Widget):
         self._row_keys = []
 
         if not self.coverage_data:
-            table.add_row("", "[dim]No data[/]", "", "", key="empty")
+            table.add_row("", "[dim]No data[/]", "", "", "", key="empty")
             self._row_keys.append("empty")
             return
 
@@ -146,8 +158,9 @@ class HistoricalCoveragePanel(Widget):
             tf_count = len(records)
             is_expanded = symbol in self._expanded
 
-            # Calculate total bars for this symbol
+            # Calculate totals for this symbol
             total_bars = sum(r.get("total_bars", 0) or 0 for r in records)
+            total_size = sum(r.get("file_size", 0) or 0 for r in records)
 
             # Symbol header row
             expand_icon = "▼" if is_expanded else "▶"
@@ -165,6 +178,7 @@ class HistoricalCoveragePanel(Widget):
                 symbol_label,
                 date_range,
                 format_bars(total_bars),
+                format_size(total_size) if total_size else "?",
                 key=symbol,
             )
             self._row_keys.append(symbol)
@@ -176,6 +190,7 @@ class HistoricalCoveragePanel(Widget):
                     earliest_tf = record.get("earliest")
                     latest_tf = record.get("latest")
                     bars = record.get("total_bars", 0)
+                    file_size = record.get("file_size")
 
                     tf_range = f"{format_date(earliest_tf)} - {format_date(latest_tf)}"
                     detail_key = f"{symbol}/{tf}"
@@ -185,6 +200,7 @@ class HistoricalCoveragePanel(Widget):
                         f"  [dim]{tf}[/]",
                         f"  [dim]{tf_range}[/]",
                         f"[dim]{format_bars(bars)}[/]",
+                        f"[dim]{format_size(file_size)}[/]",
                         key=detail_key,
                     )
                     self._row_keys.append(detail_key)
