@@ -73,15 +73,17 @@ class ApexApp(App):
     health: reactive[List[Any]] = reactive(list)
     market_alerts: reactive[List[Dict[str, Any]]] = reactive(list)
 
-    def __init__(self, env: str = "dev", **kwargs):
+    def __init__(self, env: str = "dev", display_tz: str = "Asia/Hong_Kong", **kwargs):
         """
         Initialize the Apex Dashboard.
 
         Args:
             env: Environment name (dev, demo, prod).
+            display_tz: IANA timezone name for display (e.g., "Asia/Hong_Kong").
         """
         super().__init__(**kwargs)
         self.env = env
+        self.display_tz = display_tz
         self.ta_service = None
         self.historical_service = None
         self._event_loop = None
@@ -218,7 +220,7 @@ class ApexApp(App):
 
     def compose(self) -> ComposeResult:
         """Compose the dashboard layout."""
-        yield HeaderWidget(env=self.env, id="header")
+        yield HeaderWidget(env=self.env, display_tz=self.display_tz, id="header")
         with TabbedContent(initial="summary", id="main-tabs"):
             with TabPane("Summary", id="summary"):
                 yield SummaryView(id="summary-view")

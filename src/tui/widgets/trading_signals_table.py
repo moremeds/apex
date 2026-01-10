@@ -87,10 +87,18 @@ class TradingSignalsTable(DataTable):
         self._row_keys: List[str] = []
 
         # ViewModel for incremental updates (OPT-PERF)
-        self._view_model = TradingSignalViewModel(max_signals=max_signals)
+        # Will be initialized in on_mount when app's display_tz is available
+        self._view_model: Optional[TradingSignalViewModel] = None
 
     def on_mount(self) -> None:
         """Initialize table columns."""
+        # Initialize viewmodel with app's display timezone
+        display_tz = getattr(self.app, "display_tz", "Asia/Hong_Kong")
+        self._view_model = TradingSignalViewModel(
+            max_signals=self._max_signals,
+            display_tz=display_tz,
+        )
+
         self._column_keys.clear()
         for idx, (name, width) in enumerate(self.COLUMNS):
             col_key = f"col-{idx}"
@@ -101,6 +109,10 @@ class TradingSignalsTable(DataTable):
         """Update table when signals change using incremental updates (OPT-PERF)."""
         if not signals:
             self._full_rebuild([])
+            return
+
+        # Guard: viewmodel may not be initialized yet (before on_mount)
+        if self._view_model is None:
             return
 
         # Use ViewModel to determine if full refresh is needed

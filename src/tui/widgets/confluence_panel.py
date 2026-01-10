@@ -219,12 +219,27 @@ class ConfluencePanel(Widget):
         return "#f6d365"  # Yellow
 
     def _format_time(self, value: Any) -> str:
-        """Format timestamp for display."""
+        """Format timestamp for display, converting UTC to display timezone."""
+        from zoneinfo import ZoneInfo
+
+        dt = None
         if isinstance(value, datetime):
-            return value.strftime("%H:%M:%S")
-        if isinstance(value, str):
+            dt = value
+        elif isinstance(value, str):
             try:
-                return datetime.fromisoformat(value).strftime("%H:%M:%S")
+                dt = datetime.fromisoformat(value)
             except ValueError:
                 return value[:8] if len(value) >= 8 else value
-        return "-"
+
+        if dt is None:
+            return "-"
+
+        # Convert UTC to display timezone if configured
+        try:
+            display_tz = getattr(self.app, "display_tz", "Asia/Hong_Kong")
+            if dt.tzinfo is not None:
+                dt = dt.astimezone(ZoneInfo(display_tz))
+        except Exception:
+            pass  # Fall back to original timezone
+
+        return dt.strftime("%H:%M:%S")

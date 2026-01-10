@@ -38,10 +38,23 @@ CATEGORY_LABELS = {
 
 
 def format_ago(dt: Optional[datetime]) -> str:
-    """Format datetime as relative time (e.g., '2s ago')."""
+    """Format datetime as relative time (e.g., '2s ago').
+
+    Handles both timezone-aware and naive datetimes.
+    Naive datetimes are assumed to be UTC (database convention).
+    """
+    from datetime import timezone
+
     if dt is None:
         return "?"
-    now = datetime.now(dt.tzinfo) if dt.tzinfo else datetime.now()
+
+    # Ensure both times are in UTC for accurate comparison
+    # Database stores TIMESTAMPTZ which asyncpg returns as UTC-aware
+    # If naive, assume UTC (our storage convention)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+
+    now = datetime.now(timezone.utc)
     delta = now - dt
 
     if delta.total_seconds() < 0:
@@ -91,9 +104,9 @@ class IndicatorStatusPanel(Widget):
         """Initialize table columns."""
         table = self.query_one("#indicator-table", DataTable)
         table.add_column("", width=3, key="expand")  # Expand indicator
-        table.add_column("Indicator / Description", width=65, key="name")
+        table.add_column("Indicator / Description", width=55, key="name")
         table.add_column("Sym", width=4, key="symbols")
-        table.add_column("Stale", width=10, key="stalest")  # Shows oldest/most lagging
+        table.add_column("DB Timestamp", width=20, key="stalest")  # Raw timestamp with TZ
 
     def watch_summary(self, data: List[Dict]) -> None:
         """Rebuild table when summary data changes."""
@@ -323,22 +336,32 @@ class IndicatorStatusPanel(Widget):
                     self._row_keys.append(detail_key)
 
     def _format_time_colored(self, dt: Optional[datetime], warn_threshold: float = 300) -> str:
-        """Format datetime with color based on age."""
+        """Format datetime showing RAW database timestamp with timezone for debugging."""
+        from datetime import timezone
+
         if dt is None:
             return "[dim]?[/]"
 
-        ago_str = format_ago(dt)
-        now = datetime.now(dt.tzinfo) if dt.tzinfo else datetime.now()
-        delta = now - dt
+        # Show RAW timestamp from database with timezone info
+        # Format: "HH:MM:SS TZ" or "HH:MM:SS (naive)" if no tzinfo
+        if dt.tzinfo is not None:
+            # Has timezone - show it
+            raw_str = dt.strftime("%m-%d %H:%M %Z")
+        else:
+            # Naive datetime - flag it
+            raw_str = dt.strftime("%m-%d %H:%M") + " NAIVE"
+
+        # Color based on age (assume UTC if naive for comparison)
+        dt_utc = dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+        now = datetime.now(timezone.utc)
+        delta = now - dt_utc
         seconds = delta.total_seconds()
 
         if seconds < 0:
-            return "[blue]future[/]"
+            return f"[blue]{raw_str}[/]"
         if seconds < 3600:  # < 1 hour - green
-            return f"[green]{ago_str}[/]"
+            return f"[green]{raw_str}[/]"
         if seconds < 86400:  # < 1 day - yellow
-            return f"[yellow]{ago_str}[/]"
-        if seconds < warn_threshold:  # < threshold - yellow
-            return f"[yellow]{ago_str}[/]"
+            return f"[yellow]{raw_str}[/]"
         # Very old - red
-        return f"[red]{ago_str}[/]"
+        return f"[red]{raw_str}[/]"

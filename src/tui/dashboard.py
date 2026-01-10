@@ -57,11 +57,14 @@ class TextualDashboard:
         Initialize the Textual dashboard.
 
         Args:
-            config: Dashboard configuration (unused, kept for compatibility).
+            config: Dashboard configuration dict. May contain 'display_tz' key
+                    for timezone display (e.g., "Asia/Hong_Kong").
             env: Environment name (dev, demo, prod).
         """
         self.env = env
         self.config = config or {}
+        # Extract display timezone from config (default: Asia/Hong_Kong)
+        self.display_tz = self.config.get("display_tz", "Asia/Hong_Kong")
         self._app: Optional[ApexApp] = None
         # Set _running = True immediately so update_loop doesn't exit early
         # It will be set to False when the app actually exits
@@ -266,7 +269,7 @@ class TextualDashboard:
         Args:
             orchestrator_callback: Async function that returns (snapshot, signals, health, alerts).
         """
-        self._app = ApexApp(env=self.env)
+        self._app = ApexApp(env=self.env, display_tz=self.display_tz)
 
         # Inject services if already set (event_bus is critical for signal subscriptions)
         if self._event_bus or self._ta_service or self._signal_persistence or self._coverage_store:

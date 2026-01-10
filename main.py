@@ -455,6 +455,26 @@ async def main_async(args: argparse.Namespace) -> None:
         # IB integration can be added later via IbCompositeAdapter._historical_adapter
         # after connection is established.
 
+        # Initialize PostgreSQL database for signal persistence (must be before Orchestrator)
+        # This enables indicator/rule engine data to be saved to database
+        db = None
+        signal_repo = None
+        if config.database.type != "disabled":
+            try:
+                db = Database(config.database)
+                await db.connect()
+                signal_repo = TASignalRepository(db)
+                system_structured.info(
+                    LogCategory.DATA,
+                    "Signal persistence connected",
+                    {"database": config.database.database, "host": config.database.host}
+                )
+            except Exception as e:
+                system_structured.warning(
+                    LogCategory.DATA,
+                    f"Signal persistence unavailable: {e}"
+                )
+
         # Initialize orchestrator with BrokerManager and MarketDataManager
         orchestrator = Orchestrator(
             broker_manager=broker_manager,
@@ -478,38 +498,22 @@ async def main_async(args: argparse.Namespace) -> None:
             readiness_manager=readiness_manager,
             signal_metrics=signal_metrics,
             historical_data_manager=historical_data_manager,
+            signal_persistence=signal_repo,
         )
 
         # Initialize dashboard (if not disabled)
         if not args.no_dashboard:
+            # Merge dashboard config with display timezone
+            dashboard_config = config.raw.get("dashboard", {})
+            dashboard_config["display_tz"] = config.display.timezone if config.display else "Asia/Hong_Kong"
             dashboard = TerminalDashboard(
-                config=config.raw.get("dashboard", {}),
+                config=dashboard_config,
                 env=args.env,
             )
 
-        # Initialize Tab 7 (Data) services - coverage store and signal persistence
-        # DuckDB for historical coverage metadata
+        # Initialize Tab 7 (Data) services - DuckDB for historical coverage metadata
         coverage_store = DuckDBCoverageStore()
         system_structured.info(LogCategory.DATA, "DuckDB coverage store initialized")
-
-        # PostgreSQL database for signal persistence (if enabled)
-        db = None
-        signal_repo = None
-        if config.database.type != "disabled":
-            try:
-                db = Database(config.database)
-                await db.connect()
-                signal_repo = TASignalRepository(db)
-                system_structured.info(
-                    LogCategory.DATA,
-                    "Signal persistence connected",
-                    {"database": config.database.database, "host": config.database.host}
-                )
-            except Exception as e:
-                system_structured.warning(
-                    LogCategory.DATA,
-                    f"Signal persistence unavailable: {e}"
-                )
 
         # Inject Tab 7 services into dashboard
         # Note: Pass event_bus early so TUI can subscribe to signal events

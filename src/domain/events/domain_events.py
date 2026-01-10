@@ -24,7 +24,7 @@ from typing import Optional, Literal, Dict, Any, List, Type, TypeVar
 from enum import Enum
 import json
 
-from ...utils.timezone import now_local
+from ...utils.timezone import now_utc
 
 
 # Type variable for generic from_dict
@@ -84,7 +84,7 @@ class DomainEvent:
 
     All domain events are immutable (frozen) and use slots for memory efficiency.
     """
-    timestamp: datetime = field(default_factory=now_local)
+    timestamp: datetime = field(default_factory=now_utc)
 
     def to_dict(self) -> Dict[str, Any]:
         """

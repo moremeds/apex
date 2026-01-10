@@ -28,10 +28,11 @@ class TradingSignalViewModel(BaseViewModel[List[Any]]):
     - Compute cell-level diffs for incremental updates
     """
 
-    def __init__(self, max_signals: int = 100) -> None:
+    def __init__(self, max_signals: int = 100, display_tz: str = "Asia/Hong_Kong") -> None:
         super().__init__()
         self._max_signals = max_signals
         self._signal_map: Dict[str, Any] = {}  # row_key -> signal
+        self._display_tz = display_tz
 
     def compute_display_data(self, signals: List[Any]) -> Dict[str, List[str]]:
         """Transform signal list into display rows."""
@@ -150,15 +151,29 @@ class TradingSignalViewModel(BaseViewModel[List[Any]]):
     # -------------------------------------------------------------------------
 
     def _format_time(self, value: Optional[Any]) -> str:
-        """Format timestamp for display."""
+        """Format timestamp for display, converting UTC to display timezone."""
+        from zoneinfo import ZoneInfo
+
+        dt = None
         if isinstance(value, datetime):
-            return value.strftime("%H:%M:%S")
-        if isinstance(value, str):
+            dt = value
+        elif isinstance(value, str):
             try:
-                return datetime.fromisoformat(value).strftime("%H:%M:%S")
+                dt = datetime.fromisoformat(value)
             except ValueError:
                 return value[:8] if len(value) >= 8 else value
-        return "-"
+
+        if dt is None:
+            return "-"
+
+        # Convert UTC to display timezone
+        try:
+            if dt.tzinfo is not None:
+                dt = dt.astimezone(ZoneInfo(self._display_tz))
+        except Exception:
+            pass  # Fall back to original timezone
+
+        return dt.strftime("%H:%M:%S")
 
     def _format_strength(self, value: Optional[Any]) -> str:
         """Format strength value with visual indicator."""

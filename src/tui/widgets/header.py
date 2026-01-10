@@ -29,15 +29,17 @@ class HeaderWidget(Widget):
 
     active_tab: reactive[str] = reactive("summary", init=False)
 
-    def __init__(self, env: str = "dev", **kwargs):
+    def __init__(self, env: str = "dev", display_tz: str = "Asia/Hong_Kong", **kwargs):
         """
         Initialize header widget.
 
         Args:
             env: Environment name (dev, demo, prod).
+            display_tz: IANA timezone name for display (e.g., "Asia/Hong_Kong").
         """
         super().__init__(**kwargs)
         self.env = env
+        self._display_tz_name = display_tz
         self._display_tz = None
 
     def compose(self) -> ComposeResult:
@@ -55,9 +57,9 @@ class HeaderWidget(Widget):
     def _build_header_text(self) -> str:
         """Build the header text with all components."""
         from ...utils.timezone import DisplayTimezone
-        # Get current time
+        # Get current time using configured timezone
         if self._display_tz is None:
-            self._display_tz = DisplayTimezone("Asia/Hong_Kong")
+            self._display_tz = DisplayTimezone(self._display_tz_name)
         current_time = self._display_tz.current_time("%H:%M:%S %Z")
 
         # Get market status
