@@ -41,27 +41,40 @@ class YahooHistoricalAdapter:
     """
 
     # Timeframe mapping: APEX format -> yfinance format
+    # Supports both short ("5m") and long ("5min") formats for compatibility
     TIMEFRAME_MAP = {
-        "5min": "5m",
-        "15min": "15m",
-        "30min": "30m",
+        # Short format (used by BarAggregator and config)
+        "1m": "1m",      # Yahoo supports 1m with 7-day limit
+        "5m": "5m",
+        "15m": "15m",
+        "30m": "30m",
         "1h": "1h",
         "4h": "4h",
         "1d": "1d",
         "1w": "1wk",
         "1M": "1mo",
+        # Long format aliases (legacy)
+        "5min": "5m",
+        "15min": "15m",
+        "30min": "30m",
     }
 
     # Maximum history available per timeframe
+    # Yahoo limits: 1m=7d, 5m/15m/30m=60d, 1h+=730d
     MAX_HISTORY_DAYS = {
+        "1m": 7,        # 7 days only for 1-minute data
+        "5m": 60,
+        "15m": 60,
+        "30m": 60,
+        "1h": 730,
+        "4h": 730,
+        "1d": 36500,    # ~100 years
+        "1w": 36500,
+        "1M": 36500,
+        # Long format aliases
         "5min": 60,
         "15min": 60,
         "30min": 60,
-        "1h": 730,
-        "4h": 730,
-        "1d": 36500,  # ~100 years
-        "1w": 36500,
-        "1M": 36500,
     }
 
     def __init__(
@@ -244,14 +257,20 @@ class YahooHistoricalAdapter:
     ) -> datetime:
         """Calculate bar end time based on timeframe."""
         delta_map = {
-            "5min": timedelta(minutes=5),
-            "15min": timedelta(minutes=15),
-            "30min": timedelta(minutes=30),
+            # Short format
+            "1m": timedelta(minutes=1),
+            "5m": timedelta(minutes=5),
+            "15m": timedelta(minutes=15),
+            "30m": timedelta(minutes=30),
             "1h": timedelta(hours=1),
             "4h": timedelta(hours=4),
             "1d": timedelta(days=1),
             "1w": timedelta(weeks=1),
             "1M": timedelta(days=30),
+            # Long format aliases
+            "5min": timedelta(minutes=5),
+            "15min": timedelta(minutes=15),
+            "30min": timedelta(minutes=30),
         }
         delta = delta_map.get(timeframe, timedelta(days=1))
         return bar_start + delta

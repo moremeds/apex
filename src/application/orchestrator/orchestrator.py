@@ -149,6 +149,7 @@ class Orchestrator:
             historical_data_manager=historical_data_manager,
             preload_config=signals_config.get("preload", {}),
             persistence=signal_persistence,
+            exclude_options=signals_config.get("exclude_options", True),
         )
 
         # State

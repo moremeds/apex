@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional, Tuple, TYPE_CHECKING
@@ -68,6 +69,7 @@ class SignalCoordinator:
         historical_data_manager: Optional[Any] = None,
         preload_config: Optional[Dict[str, Any]] = None,
         persistence: Optional["SignalPersistencePort"] = None,
+        exclude_options: bool = True,
     ) -> None:
         """
         Initialize the signal coordinator.
@@ -85,6 +87,9 @@ class SignalCoordinator:
                             - slow_preload_warn_sec: Warn if preload takes longer (default: 30)
             persistence: Optional persistence port for saving signals/indicators/confluence
                         to database. When provided, enables PostgreSQL NOTIFY for TUI updates.
+            exclude_options: If True, filter out options symbols from bar aggregation (default: True).
+                            Options symbols are detected by pattern matching (length > 10, contains
+                            digits in date/strike format).
         """
         self._event_bus = event_bus
         self._timeframes = list(dict.fromkeys(timeframes or ["1d"]))
@@ -92,6 +97,7 @@ class SignalCoordinator:
         self._enabled = enabled
         self._metrics = signal_metrics
         self._persistence = persistence
+        self._exclude_options = exclude_options
 
         # Historical data manager for preloading and cache refresh
         self._historical_data_manager = historical_data_manager
@@ -265,6 +271,52 @@ class SignalCoordinator:
 
         logger.info("SignalCoordinator stopped")
 
+    def _is_options_symbol(self, symbol: str) -> bool:
+        """
+        Detect if a symbol is an options symbol based on pattern matching.
+
+        Options symbols typically have formats like:
+        - IB: "AAPL  250117C00250000" (with spaces)
+        - OCC: "AAPL250117C00250000" (compact)
+        - Custom: "AAPL:OPT:250117:250:C"
+
+        Simple heuristics:
+        - Length > 10 characters (stock symbols are typically 1-5 chars)
+        - Contains digits mixed with letters in option-like patterns
+        - Contains "C" or "P" followed by digits (strike price pattern)
+
+        Args:
+            symbol: The symbol string to check
+
+        Returns:
+            True if the symbol appears to be an options symbol
+        """
+        if not symbol:
+            return False
+
+        # Stock symbols are typically short (1-5 chars, occasionally 6)
+        if len(symbol) <= 6:
+            return False
+
+        # Options symbols are typically longer
+        if len(symbol) > 10:
+            return True
+
+        # Check for common option patterns: contains both letters and many digits
+        # Pattern: 6+ digits (date YYMMDD + strike) anywhere in symbol
+        if re.search(r'\d{6,}', symbol):
+            return True
+
+        # Pattern: C or P followed by digits (call/put + strike)
+        if re.search(r'[CP]\d{5,}', symbol, re.IGNORECASE):
+            return True
+
+        # Pattern: colon-separated format (AAPL:OPT:...)
+        if ':OPT:' in symbol.upper():
+            return True
+
+        return False
+
     def _on_market_data_tick(self, payload: Any) -> None:
         """
         Handle MARKET_DATA_TICK event by fanning out to all aggregators.
@@ -275,6 +327,12 @@ class SignalCoordinator:
         # Guard against processing after stop
         if not self._started:
             return
+
+        # Filter out options symbols if configured
+        if self._exclude_options:
+            symbol = getattr(payload, 'symbol', None)
+            if symbol and self._is_options_symbol(symbol):
+                return  # Skip options - don't aggregate their ticks
 
         # Iterate over a copy to avoid race with stop() clearing the dict
         for aggregator in list(self._bar_aggregators.values()):

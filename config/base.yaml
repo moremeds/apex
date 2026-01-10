@@ -171,8 +171,9 @@ risk_signals:
 # Technical Analysis Signal Pipeline
 signals:
   enabled: true
-  timeframes: ["1d"]  # Daily-only signals - no intraday data needed
+  timeframes: ["1m", "5m", "15m", "1h", "1d"]  # All timeframes for full signal pipeline
   indicator_max_workers: 4
+  exclude_options: true  # Filter out options symbols from bar aggregation (only save underlying bars)
   # Bar cache preloading (startup warmup + periodic refresh)
   preload:
     enabled: true

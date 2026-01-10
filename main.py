@@ -25,6 +25,7 @@ from src.infrastructure.adapters import FutuAdapter, FileLoader, BrokerManager, 
 from src.infrastructure.adapters.ib import IbConnectionPool, ConnectionPoolConfig, IbCompositeAdapter
 from src.services import HistoricalDataService, TAService, BarPeriod
 from src.services.historical_data_manager import HistoricalDataManager
+from src.services.bar_persistence_service import BarPersistenceService
 from src.infrastructure.stores import PositionStore, MarketDataStore, AccountStore
 from src.infrastructure.stores.duckdb_coverage_store import DuckDBCoverageStore
 from src.infrastructure.persistence.database import Database
@@ -441,19 +442,28 @@ async def main_async(args: argparse.Namespace) -> None:
         })
 
         # Create HistoricalDataManager for signal pipeline bar cache preloading
-        # Uses Yahoo source only (IB would conflict with connection pool client IDs)
+        # IB is preferred source (no limit on intraday history), Yahoo is fallback
         historical_cfg = config.raw.get("historical_data", {})
         storage_cfg = historical_cfg.get("storage", {})
         historical_data_manager = HistoricalDataManager(
             base_dir=Path(storage_cfg.get("base_dir", "data/historical")),
-            source_priority=["yahoo"],  # Yahoo only - avoids IB client ID conflict
+            source_priority=["ib", "yahoo"],  # IB preferred, Yahoo fallback (60-day intraday limit)
         )
 
-        # Note: IB historical source is NOT set here to avoid client ID conflict
-        # with IbCompositeAdapter's internal historical adapter.
-        # Yahoo source (always available) is used for daily bar preloading.
-        # IB integration can be added later via IbCompositeAdapter._historical_adapter
-        # after connection is established.
+        # Note: IB source will be registered after connection is established
+        # via set_ib_source() call after orchestrator.start().
+
+        # Create BarPersistenceService for persisting live bars to parquet
+        # This subscribes to BAR_CLOSE events and batches writes to disk
+        bar_persistence_service: BarPersistenceService | None = None
+        if historical_data_manager._bar_store:
+            bar_persistence_service = BarPersistenceService(
+                event_bus=event_bus,
+                bar_store=historical_data_manager._bar_store,
+                flush_threshold_bars=10,  # Flush after 10 bars per symbol/timeframe
+                flush_threshold_sec=60.0,  # Or after 60 seconds
+            )
+            system_structured.info(LogCategory.DATA, "BarPersistenceService created")
 
         # Initialize PostgreSQL database for signal persistence (must be before Orchestrator)
         # This enables indicator/rule engine data to be saved to database
@@ -525,10 +535,23 @@ async def main_async(args: argparse.Namespace) -> None:
             if signal_repo:
                 dashboard.set_signal_persistence(signal_repo)
 
+        # Start BarPersistenceService before orchestrator (to capture all BAR_CLOSE events)
+        if bar_persistence_service:
+            bar_persistence_service.start()
+
         # Start orchestrator (event-driven mode is the default and only mode)
         # Data fetching happens in background, dashboard updates when ready
         system_structured.info(LogCategory.SYSTEM, "Starting orchestrator")
         await orchestrator.start()
+
+        # Register IB historical source now that broker is connected
+        # This enables IB as preferred source for historical bar downloads
+        if config.ibkr.enabled:
+            ib_adapter = broker_manager.get_adapter("ib")
+            if ib_adapter and ib_adapter.is_connected():
+                if hasattr(ib_adapter, '_historical_adapter') and ib_adapter._historical_adapter:
+                    historical_data_manager.set_ib_source(ib_adapter._historical_adapter)
+                    system_structured.info(LogCategory.SYSTEM, "IB historical source registered with HistoricalDataManager")
 
         # Debug: Check health components after orchestrator start
         initial_health = health_monitor.get_all_health()
@@ -713,6 +736,11 @@ async def main_async(args: argparse.Namespace) -> None:
         if orchestrator:
             await orchestrator.stop()
             system_structured.info(LogCategory.SYSTEM, "Orchestrator stopped")
+
+        # Stop BarPersistenceService and flush pending bars
+        if bar_persistence_service:
+            bar_persistence_service.stop()
+            system_structured.info(LogCategory.DATA, "BarPersistenceService stopped")
 
         # Disconnect IB connection pool
         if ib_pool:
