@@ -18,7 +18,6 @@ Signal Persistence Integration:
 
 from __future__ import annotations
 
-import queue
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from textual.app import App, ComposeResult
@@ -33,6 +32,7 @@ from .views.lab import LabView
 from .views.trading_signals import TradingSignalsView
 from .views.data import DataView, DataRefreshRequested, IndicatorDetailsRequested
 from .widgets.header import HeaderWidget
+from .event_bus import TUIEventBus
 
 if TYPE_CHECKING:
     from ..models.risk_snapshot import RiskSnapshot
@@ -88,14 +88,10 @@ class ApexApp(App):
         self.historical_service = None
         self._event_loop = None
         self._event_bus = None
-        # Bounded queue to prevent memory growth; conflation in _poll_updates keeps only latest
-        self._update_queue: queue.Queue = queue.Queue(maxsize=10)
-        # Separate queue for trading signals (higher priority)
-        self._signal_queue: queue.Queue = queue.Queue(maxsize=100)
-        # Separate queue for confluence scores (type safety - not mixed with signals)
-        self._confluence_queue: queue.Queue = queue.Queue(maxsize=100)
-        # Separate queue for MTF alignment updates
-        self._alignment_queue: queue.Queue = queue.Queue(maxsize=100)
+
+        # Consolidated event bus for all TUI updates (replaces 4 separate queues)
+        self._tui_events = TUIEventBus()
+
         self._poll_timer = None
         # Pending universe to apply after mount (query_one fails before compose)
         self._pending_universe: List[str] = []
@@ -150,73 +146,38 @@ class ApexApp(App):
             self._data_poll_timer.stop()
 
     def _poll_updates(self) -> None:
-        """Poll the update queue with conflation - only process latest update."""
-        # Process trading signals first (no conflation - each signal matters)
-        signals_processed = 0
-        try:
-            while signals_processed < 20:  # Max 20 signals per tick to avoid blocking
-                signal = self._signal_queue.get_nowait()
-                self._dispatch_trading_signal(signal)
-                signals_processed += 1
-        except queue.Empty:
-            pass
+        """Poll all event queues and dispatch to appropriate handlers."""
+        result = self._tui_events.poll()
 
-        # Process confluence scores (with conflation - only latest per symbol/tf matters)
-        latest_confluence = None
-        try:
-            while True:
-                latest_confluence = self._confluence_queue.get_nowait()
-        except queue.Empty:
-            pass
-        if latest_confluence is not None:
-            self._dispatch_confluence(latest_confluence)
+        # Dispatch trading signals (no conflation - each signal matters)
+        for signal in result.signals:
+            self._dispatch_trading_signal(signal)
 
-        # Process MTF alignment updates (with conflation)
-        latest_alignment = None
-        try:
-            while True:
-                latest_alignment = self._alignment_queue.get_nowait()
-        except queue.Empty:
-            pass
-        if latest_alignment is not None:
-            self._dispatch_alignment(latest_alignment)
+        # Dispatch confluence (conflated to latest)
+        if result.confluence is not None:
+            self._dispatch_confluence(result.confluence)
 
-        # Process snapshot updates with conflation
-        latest_update = None
-        try:
-            # Drain queue but only keep the latest update (conflation)
-            while True:
-                latest_update = self._update_queue.get_nowait()
-        except queue.Empty:
-            pass
+        # Dispatch alignment (conflated to latest)
+        if result.alignment is not None:
+            self._dispatch_alignment(result.alignment)
 
-        # Only process the latest update
-        if latest_update is not None:
+        # Dispatch snapshot (conflated to latest)
+        if result.snapshot is not None:
             self.update_data(
-                latest_update.snapshot,
-                latest_update.signals,
-                latest_update.health,
-                latest_update.alerts,
+                result.snapshot.snapshot,
+                result.snapshot.signals,
+                result.snapshot.health,
+                result.snapshot.alerts,
             )
 
     def queue_update(self, snapshot, signals, health, alerts) -> None:
         """Queue a data update (thread-safe)."""
-        from .dashboard import DashboardUpdate
-        update = DashboardUpdate(
+        self._tui_events.push_snapshot(
             snapshot=snapshot,
             signals=signals,
             health=health,
             alerts=alerts,
         )
-        try:
-            self._update_queue.put_nowait(update)
-        except queue.Full:
-            # Drop old update if full
-            try:
-                self._update_queue.get_nowait()
-                self._update_queue.put_nowait(update)
-            except Exception:
-                pass
 
     def compose(self) -> ComposeResult:
         """Compose the dashboard layout."""
@@ -316,15 +277,7 @@ class ApexApp(App):
 
         Queues the signal for processing in the TUI thread.
         """
-        try:
-            self._signal_queue.put_nowait(payload)
-        except queue.Full:
-            # Drop oldest signal if queue full
-            try:
-                self._signal_queue.get_nowait()
-                self._signal_queue.put_nowait(payload)
-            except Exception:
-                pass
+        self._tui_events.push_signal(payload)
 
     def _dispatch_trading_signal(self, signal) -> None:
         """Dispatch a trading signal to the Trading view (runs in TUI thread)."""
@@ -343,14 +296,7 @@ class ApexApp(App):
         Args:
             score: ConfluenceUpdateEvent from event bus
         """
-        try:
-            self._confluence_queue.put_nowait(score)
-        except queue.Full:
-            try:
-                self._confluence_queue.get_nowait()
-                self._confluence_queue.put_nowait(score)
-            except Exception:
-                pass
+        self._tui_events.push_confluence(score)
 
     def _on_alignment_update(self, alignment) -> None:
         """
@@ -361,14 +307,7 @@ class ApexApp(App):
         Args:
             alignment: MTFAlignment object from MTFDivergenceAnalyzer
         """
-        try:
-            self._alignment_queue.put_nowait(alignment)
-        except queue.Full:
-            try:
-                self._alignment_queue.get_nowait()
-                self._alignment_queue.put_nowait(alignment)
-            except Exception:
-                pass
+        self._tui_events.push_alignment(alignment)
 
     def _dispatch_confluence(self, score) -> None:
         """Dispatch confluence score to Trading view (runs in TUI thread)."""

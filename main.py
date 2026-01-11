@@ -20,46 +20,13 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 os.chdir(PROJECT_ROOT)
 
 from config.config_manager import ConfigManager
-from src.domain.services import MarketAlertDetector
-from src.infrastructure.adapters import FutuAdapter, FileLoader, BrokerManager, MarketDataManager, YahooFinanceAdapter
-from src.infrastructure.adapters.ib import IbConnectionPool, ConnectionPoolConfig, IbCompositeAdapter
-from src.services import HistoricalDataService, TAService, BarPeriod
-from src.services.historical_data_manager import HistoricalDataManager
-from src.services.bar_persistence_service import BarPersistenceService
-from src.infrastructure.stores import PositionStore, MarketDataStore, AccountStore
-from src.infrastructure.stores.duckdb_coverage_store import DuckDBCoverageStore
-from src.infrastructure.persistence.database import Database
-from src.infrastructure.persistence.repositories.ta_signal_repository import TASignalRepository
-from src.infrastructure.monitoring import HealthMonitor, Watchdog
-from src.domain.services.risk.risk_engine import RiskEngine
-from src.domain.services.pos_reconciler import Reconciler
-from src.domain.services.mdqc import MDQC
-from src.domain.services.risk.rule_engine import RuleEngine
-from src.domain.services.risk.risk_signal_manager import RiskSignalManager
-from src.domain.services.risk.risk_signal_engine import RiskSignalEngine
-from src.domain.services.risk.risk_alert_logger import RiskAlertLogger
-from src.application import Orchestrator, ReadinessManager
-from src.domain.events import PriorityEventBus
+from src.services import HistoricalDataService, TAService
+from src.application import AppContainer
 from src.tui import TerminalDashboard
 from src.models.risk_snapshot import RiskSnapshot
 from src.utils import StructuredLogger, flush_all_loggers, set_log_timezone
 from src.utils.structured_logger import LogCategory
-from src.utils.logging_setup import setup_category_logging, is_console_enabled
-from src.utils.perf_logger import set_perf_metrics
-
-# Observability imports (optional - graceful fallback if not installed)
-try:
-    from src.infrastructure.observability import (
-        MetricsManager, get_metrics_manager, RiskMetrics, HealthMetrics, SignalMetrics
-    )
-    OBSERVABILITY_AVAILABLE = True
-except ImportError:
-    OBSERVABILITY_AVAILABLE = False
-    MetricsManager = None  # type: ignore
-    get_metrics_manager = None  # type: ignore
-    RiskMetrics = None  # type: ignore
-    HealthMetrics = None  # type: ignore
-    SignalMetrics = None  # type: ignore
+from src.utils.logging_setup import setup_category_logging
 
 
 def parse_args() -> argparse.Namespace:
@@ -181,7 +148,6 @@ Examples:
 async def main_async(args: argparse.Namespace) -> None:
     """Main async entry point."""
     # Load configuration first to get timezone setting
-    global metrics_manager
     config_manager = ConfigManager(config_dir="config", env=args.env)
     config = config_manager.load()
 
@@ -192,19 +158,17 @@ async def main_async(args: argparse.Namespace) -> None:
     else:
         set_log_timezone(None)  # Use local time
 
-    # Set up category-based logging with environment prefix
-    # Now creates 6 categories: system, adapter, risk, data, perf, signal
+    # Set up category-based logging
     category_loggers = setup_category_logging(
         env=args.env,
         log_dir="./logs",
         level=args.log_level,
-        console=args.no_dashboard,  # Console output when no dashboard
+        console=args.no_dashboard,
         verbose=args.verbose,
     )
     system_logger = category_loggers["system"]
     data_logger = category_loggers["data"]
 
-    # Create structured loggers for each category
     system_structured = StructuredLogger(system_logger)
     data_structured = StructuredLogger(data_logger)
 
@@ -214,306 +178,24 @@ async def main_async(args: argparse.Namespace) -> None:
         {"env": args.env, "log_timezone": log_tz}
     )
 
-    orchestrator = None
+    # Create application container (composition root)
+    container = AppContainer(
+        config=config,
+        env=args.env,
+        metrics_port=args.metrics_port,
+        no_dashboard=args.no_dashboard,
+    )
+
     dashboard = None
+    historical_service = None
+    ta_service = None
 
     try:
-        system_structured.info(LogCategory.SYSTEM, "Configuration loaded", {"env": args.env})
-
-        # Initialize event bus (use PriorityEventBus for dual-lane priority dispatch)
-        event_bus = PriorityEventBus()
-        system_structured.info(LogCategory.SYSTEM, "Using PriorityEventBus (dual-lane)")
-
-        # Initialize observability (Prometheus metrics)
-        risk_metrics = None
-        health_metrics = None
-        signal_metrics = None
-        metrics_manager = None
-
-        if OBSERVABILITY_AVAILABLE and args.metrics_port > 0:
-            try:
-                metrics_manager = get_metrics_manager(port=args.metrics_port)
-                metrics_manager.start()
-
-                meter = metrics_manager.get_meter("apex")
-                risk_metrics = RiskMetrics(meter)
-                health_metrics = HealthMetrics(meter)
-                signal_metrics = SignalMetrics(meter)
-
-                # Wire perf logger to send metrics to Prometheus
-                set_perf_metrics(health_metrics=health_metrics, risk_metrics=risk_metrics)
-
-                system_structured.info(
-                    LogCategory.SYSTEM,
-                    "Observability enabled",
-                    {"metrics_port": args.metrics_port, "endpoint": f"http://localhost:{args.metrics_port}/metrics"}
-                )
-                if is_console_enabled():
-                    print(f"📊 Metrics available at http://localhost:{args.metrics_port}/metrics", flush=True)
-            except Exception as e:
-                system_structured.warning(
-                    LogCategory.SYSTEM,
-                    f"Failed to start metrics server: {e}. Continuing without observability."
-                )
-        elif not OBSERVABILITY_AVAILABLE:
-            system_structured.info(
-                LogCategory.SYSTEM,
-                "Observability not available (install with: pip install -e '.[observability]')"
-            )
-        else:
-            system_structured.info(LogCategory.SYSTEM, "Observability disabled (--metrics-port 0)")
-
-        # Initialize data stores
-        position_store = PositionStore()
-        market_data_store = MarketDataStore()
-        account_store = AccountStore()
-
-        # Initialize monitoring (needed for BrokerManager)
-        health_monitor = HealthMonitor()
-
-        # Initialize BrokerManager to manage all broker connections
-        broker_manager = BrokerManager(health_monitor=health_monitor)
-        # Initialize MarketDataManager to manage all market data sources
-        # EventBus passed for single streaming path (IB → MDManager → EventBus)
-        market_data_manager = MarketDataManager(
-            health_monitor=health_monitor,
-            event_bus=event_bus,
-        )
-
-        # IB Connection Pool for historical data (ATR, TA indicators)
-        ib_pool = None
-        historical_service = None
-        ta_service = None
-
-        # Register adapters with BrokerManager
-        if config.ibkr.enabled:
-            # OPT-016: Connection pool config for composite adapter
-            pool_config = ConnectionPoolConfig(
-                host=config.ibkr.host,
-                port=config.ibkr.port,
-                client_ids=config.ibkr.client_ids,
-            )
-
-            # OPT-016: Create composite adapter (single recommended path)
-            ib_adapter = IbCompositeAdapter(
-                pool_config=pool_config,
-                event_bus=event_bus,
-            )
-            system_structured.info(LogCategory.SYSTEM, "IB composite adapter registered", {
-                "host": config.ibkr.host,
-                "port": config.ibkr.port,
-                "adapter_type": "composite",
-            })
-
-            broker_manager.register_adapter("ib", ib_adapter)
-            market_data_manager.register_provider("ib", ib_adapter, priority=10)
-            system_structured.info(LogCategory.SYSTEM, "IB registered as market data provider", {
-                "streaming": ib_adapter.supports_streaming(),
-                "greeks": ib_adapter.supports_greeks(),
-            })
-
-            # Create IB Connection Pool for historical data (separate IB connection)
-            # Uses same event loop - no threading issues
-            # Note: When using composite adapter, historical is handled via pool
-            ib_pool = IbConnectionPool(pool_config)
-
-        else:
-            system_structured.info(LogCategory.SYSTEM, "IB adapter DISABLED (demo mode)")
-
-        if config.futu.enabled:
-            futu_adapter = FutuAdapter(
-                host=config.futu.host,
-                port=config.futu.port,
-                security_firm=config.futu.security_firm,
-                trd_env=config.futu.trd_env,
-                filter_trading_market=config.futu.filter_trdmarket,
-                event_bus=event_bus,
-            )
-            broker_manager.register_adapter("futu", futu_adapter)
-            system_structured.info(LogCategory.SYSTEM, "Futu adapter registered", {
-                "host": config.futu.host,
-                "port": config.futu.port,
-                "market": config.futu.filter_trdmarket,
-            })
-        else:
-            system_structured.info(LogCategory.SYSTEM, "Futu adapter DISABLED")
-
-        # Register file loader for manual positions
-        file_loader = FileLoader(
-            file_path=config.manual_positions.file,
-            reload_interval_sec=config.manual_positions.reload_interval_sec,
-        )
-        broker_manager.register_adapter("manual", file_loader)
-
-        # TODO: Register additional market data providers here as needed
-        # Example for future Yahoo Finance or CCXT providers:
-        # if config.yahoo.enabled:
-        #     yahoo_provider = YahooFinanceProvider(...)
-        #     market_data_manager.register_provider("yahoo", yahoo_provider, priority=50)
-        #
-        # if config.ccxt.enabled:
-        #     ccxt_provider = CcxtProvider(...)
-        #     market_data_manager.register_provider("ccxt", ccxt_provider, priority=60)
-
-        # Initialize Yahoo Finance adapter for beta and market data
-        # DISABLED: Yahoo API calls were causing 6.5s snapshot delays
-        # TODO: Re-enable with async/cached-only mode once performance is verified
-        yahoo_adapter = None
-        # yahoo_adapter = YahooFinanceAdapter(
-        #     price_ttl_seconds=30,
-        #     beta_ttl_hours=24,
-        # )
-        # await yahoo_adapter.connect()
-        # system_structured.info(LogCategory.SYSTEM, "Yahoo Finance adapter initialized")
-        system_structured.info(LogCategory.SYSTEM, "Yahoo Finance adapter DISABLED (performance)")
-
-        # Initialize domain services
-        risk_engine = RiskEngine(
-            config=config.raw,
-            yahoo_adapter=yahoo_adapter,  # None - uses beta=1.0 for all
-            risk_metrics=risk_metrics,
-        )
-        reconciler = Reconciler(stale_threshold_seconds=300)
-        mdqc = MDQC(
-            stale_seconds=config.mdqc.stale_seconds,
-            ignore_zero_quotes=config.mdqc.ignore_zero_quotes,
-            enforce_bid_ask_sanity=config.mdqc.enforce_bid_ask_sanity,
-        )
-        rule_engine = RuleEngine(
-            risk_limits=config.raw.get("risk_limits", {}),
-            soft_threshold=config.risk_limits.soft_breach_threshold,
-        )
-        market_alert_detector = MarketAlertDetector(config.raw.get("market_alerts", {}))
-
-        # Initialize risk signal engine (Phase 1-4: Multi-layer risk detection)
-        signal_manager = RiskSignalManager(
-            debounce_seconds=config.raw.get("risk_signals", {}).get("debounce_seconds", 15),
-            cooldown_minutes=config.raw.get("risk_signals", {}).get("cooldown_minutes", 5),
-        )
-        risk_signal_engine = RiskSignalEngine(
-            config=config.raw,
-            rule_engine=rule_engine,
-            signal_manager=signal_manager,
-        )
-        system_structured.info(LogCategory.SYSTEM, "Risk signal engine initialized")
-
-        # Initialize risk alert logger for audit trail
-        risk_alert_logger = RiskAlertLogger(
-            log_dir="./logs",
-            env=args.env,
-            retention_days=config.raw.get("risk_alerts", {}).get("retention_days", 30),
-        )
-        system_structured.info(LogCategory.SYSTEM, "Risk alert logger initialized", {
-            "log_dir": "./logs",
-            "retention_days": config.raw.get("risk_alerts", {}).get("retention_days", 30),
-        })
-
-        # suggester = SimpleSuggester()  # TODO: Use for breach analysis in dashboard
-        # shock_engine = SimpleShockEngine(risk_engine=risk_engine, config=config.raw)  # TODO: Add scenario analysis
-
-        watchdog = Watchdog(
-            health_monitor=health_monitor,
-            event_bus=event_bus,
-            config=config.raw.get("watchdog", {}),
-        )
-
-        # Initialize ReadinessManager for event-driven system readiness
-        # Determine required brokers from config
-        required_brokers = []
-        if config.ibkr.enabled:
-            required_brokers.append("ib")
-        if config.futu.enabled:
-            required_brokers.append("futu")
-        # Manual positions always available
-        required_brokers.append("manual")
-
-        # Require 100% market data coverage before starting snapshots
-        # User's positions are standard tickers that should all have data
-        market_data_threshold = 1.0  # 100% coverage required
-        readiness_manager = ReadinessManager(
-            event_bus=event_bus,
-            required_brokers=required_brokers,
-            market_data_coverage_threshold=market_data_threshold,
-            startup_timeout_sec=config.raw.get("dashboard", {}).get("snapshot_ready_timeout_sec", 30.0),
-        )
-        system_structured.info(LogCategory.SYSTEM, "ReadinessManager initialized", {
-            "required_brokers": required_brokers,
-            "coverage_threshold": market_data_threshold,
-        })
-
-        # Create HistoricalDataManager for signal pipeline bar cache preloading
-        # IB is preferred source (no limit on intraday history), Yahoo is fallback
-        historical_cfg = config.raw.get("historical_data", {})
-        storage_cfg = historical_cfg.get("storage", {})
-        historical_data_manager = HistoricalDataManager(
-            base_dir=Path(storage_cfg.get("base_dir", "data/historical")),
-            source_priority=["ib", "yahoo"],  # IB preferred, Yahoo fallback (60-day intraday limit)
-        )
-
-        # Note: IB source will be registered after connection is established
-        # via set_ib_source() call after orchestrator.start().
-
-        # Create BarPersistenceService for persisting live bars to parquet
-        # This subscribes to BAR_CLOSE events and batches writes to disk
-        bar_persistence_service: BarPersistenceService | None = None
-        if historical_data_manager._bar_store:
-            bar_persistence_service = BarPersistenceService(
-                event_bus=event_bus,
-                bar_store=historical_data_manager._bar_store,
-                flush_threshold_bars=10,  # Flush after 10 bars per symbol/timeframe
-                flush_threshold_sec=60.0,  # Or after 60 seconds
-            )
-            system_structured.info(LogCategory.DATA, "BarPersistenceService created")
-
-        # Initialize PostgreSQL database for signal persistence (must be before Orchestrator)
-        # This enables indicator/rule engine data to be saved to database
-        db = None
-        signal_repo = None
-        if config.database.type != "disabled":
-            try:
-                db = Database(config.database)
-                await db.connect()
-                signal_repo = TASignalRepository(db)
-                system_structured.info(
-                    LogCategory.DATA,
-                    "Signal persistence connected",
-                    {"database": config.database.database, "host": config.database.host}
-                )
-            except Exception as e:
-                system_structured.warning(
-                    LogCategory.DATA,
-                    f"Signal persistence unavailable: {e}"
-                )
-
-        # Initialize orchestrator with BrokerManager and MarketDataManager
-        orchestrator = Orchestrator(
-            broker_manager=broker_manager,
-            market_data_manager=market_data_manager,
-            position_store=position_store,
-            market_data_store=market_data_store,
-            account_store=account_store,
-            risk_engine=risk_engine,
-            reconciler=reconciler,
-            mdqc=mdqc,
-            rule_engine=rule_engine,
-            health_monitor=health_monitor,
-            watchdog=watchdog,
-            event_bus=event_bus,
-            config=config.raw,
-            market_alert_detector=market_alert_detector,
-            risk_signal_engine=risk_signal_engine,
-            risk_alert_logger=risk_alert_logger,
-            risk_metrics=risk_metrics,
-            health_metrics=health_metrics,
-            readiness_manager=readiness_manager,
-            signal_metrics=signal_metrics,
-            historical_data_manager=historical_data_manager,
-            signal_persistence=signal_repo,
-        )
+        # Initialize all services via container
+        await container.initialize(system_structured)
 
         # Initialize dashboard (if not disabled)
         if not args.no_dashboard:
-            # Merge dashboard config with display timezone
             dashboard_config = config.raw.get("dashboard", {})
             dashboard_config["display_tz"] = config.display.timezone if config.display else "Asia/Hong_Kong"
             dashboard = TerminalDashboard(
@@ -521,65 +203,38 @@ async def main_async(args: argparse.Namespace) -> None:
                 env=args.env,
             )
 
-        # Initialize Tab 7 (Data) services - DuckDB for historical coverage metadata
-        coverage_store = DuckDBCoverageStore()
-        system_structured.info(LogCategory.DATA, "DuckDB coverage store initialized")
-
-        # Inject Tab 7 services into dashboard
-        # Note: Pass event_bus early so TUI can subscribe to signal events
-        # and event_loop is available for async database queries
+        # Wire dashboard to container services
         if dashboard:
             event_loop = asyncio.get_event_loop()
-            dashboard.set_event_bus(event_bus, event_loop)
-            dashboard.set_coverage_store(coverage_store)
-            if signal_repo:
-                dashboard.set_signal_persistence(signal_repo)
+            dashboard.set_event_bus(container.event_bus, event_loop)
+            dashboard.set_coverage_store(container.coverage_store)
+            if container.signal_repo:
+                dashboard.set_signal_persistence(container.signal_repo)
 
-        # Start BarPersistenceService before orchestrator (to capture all BAR_CLOSE events)
-        if bar_persistence_service:
-            bar_persistence_service.start()
+        # Start container services
+        await container.start()
 
-        # Start orchestrator (event-driven mode is the default and only mode)
-        # Data fetching happens in background, dashboard updates when ready
-        system_structured.info(LogCategory.SYSTEM, "Starting orchestrator")
-        await orchestrator.start()
-
-        # Register IB historical source now that broker is connected
-        # This enables IB as preferred source for historical bar downloads
-        if config.ibkr.enabled:
-            ib_adapter = broker_manager.get_adapter("ib")
-            if ib_adapter and ib_adapter.is_connected():
-                if hasattr(ib_adapter, '_historical_adapter') and ib_adapter._historical_adapter:
-                    historical_data_manager.set_ib_source(ib_adapter._historical_adapter)
-                    system_structured.info(LogCategory.SYSTEM, "IB historical source registered with HistoricalDataManager")
-
-        # Debug: Check health components after orchestrator start
-        initial_health = health_monitor.get_all_health()
+        # Debug: Check health components after start
+        initial_health = container.health_monitor.get_all_health()
         system_structured.info(
             LogCategory.SYSTEM,
-            f"Health components after orchestrator start: {len(initial_health)}",
+            f"Health components after start: {len(initial_health)}",
             {"components": [h.component_name for h in initial_health]}
         )
 
-        # Set trading universe FIRST (before historical connection which may fail)
-        # This ensures Tab 6 watchlist is always populated
+        # Set trading universe for dashboard
         if dashboard:
-            positions = position_store.get_all()
-            underlyings = set()
-            for pos in positions:
-                sym = pos.underlying if pos.underlying else pos.symbol
-                if sym:
-                    underlyings.add(sym)
+            positions = container.position_store.get_all()
+            underlyings = {
+                pos.underlying if pos.underlying else pos.symbol
+                for pos in positions if pos.underlying or pos.symbol
+            }
 
             if underlyings:
                 universe_symbols = list(underlyings)
             else:
-                # Demo mode fallback: sample symbols
                 universe_symbols = ["AAPL", "TSLA", "NVDA", "AMD", "MSFT", "GOOGL", "AMZN", "META"]
-                system_structured.info(
-                    LogCategory.DATA,
-                    "No positions found, using sample symbols for demo"
-                )
+                system_structured.info(LogCategory.DATA, "No positions found, using sample symbols")
 
             dashboard.set_trading_universe(universe_symbols)
             system_structured.info(
@@ -588,44 +243,39 @@ async def main_async(args: argparse.Namespace) -> None:
                 {"symbols": universe_symbols[:10]}
             )
 
-        # Connect historical IB and pre-fetch daily bars (non-blocking background task)
-        # This is optional - watchlist works without it
+        # Background task: Connect historical IB and pre-fetch daily bars
         prefetch_task = None
-        if ib_pool:
+        if container.ib_pool:
             async def connect_historical_and_prefetch():
                 """Background task to connect historical IB and pre-fetch bars."""
                 try:
-                    # Connect historical IB connection (on same event loop)
-                    await ib_pool.connect_historical()
+                    await container.ib_pool.connect_historical()
                     system_structured.info(
                         LogCategory.SYSTEM,
                         "IB historical connection established",
                         {"client_id": config.ibkr.client_ids.historical_pool[0]}
                     )
 
-                    # Create services
                     nonlocal historical_service, ta_service
                     historical_service = HistoricalDataService(
-                        ib_historical=ib_pool.historical,
+                        ib_historical=container.ib_pool.historical,
                         cache_size=512,
                         default_daily_lookback=60,
                     )
                     ta_service = TAService(historical_service)
 
-                    # Inject TAService, HistoricalDataService, and EventBus into dashboard
                     if dashboard:
                         event_loop = asyncio.get_event_loop()
                         dashboard.set_ta_service(
-                            ta_service, event_loop, historical_service, event_bus
+                            ta_service, event_loop, historical_service, container.event_bus
                         )
 
                     # Pre-fetch daily bars for positions
-                    positions = position_store.get_all()
-                    underlyings = set()
-                    for pos in positions:
-                        sym = pos.underlying if pos.underlying else pos.symbol
-                        if sym:
-                            underlyings.add(sym)
+                    positions = container.position_store.get_all()
+                    underlyings = {
+                        pos.underlying if pos.underlying else pos.symbol
+                        for pos in positions if pos.underlying or pos.symbol
+                    }
 
                     if underlyings:
                         symbols = list(underlyings)
@@ -635,72 +285,45 @@ async def main_async(args: argparse.Namespace) -> None:
                             {"symbols": symbols[:10]}
                         )
                         await historical_service.prefetch_daily_bars(symbols, lookback_days=60)
-                        system_structured.info(
-                            LogCategory.DATA,
-                            "Daily bars pre-fetch complete"
-                        )
+                        system_structured.info(LogCategory.DATA, "Daily bars pre-fetch complete")
                 except Exception as e:
-                    system_structured.warning(
-                        LogCategory.SYSTEM,
-                        f"Historical data setup failed: {e}"
-                    )
+                    system_structured.warning(LogCategory.SYSTEM, f"Historical data setup failed: {e}")
 
-            # Start pre-fetch in background (non-blocking)
             prefetch_task = asyncio.create_task(connect_historical_and_prefetch())
 
-        # NOTE: Confluence/alignment updates now use event bus (CONFLUENCE_UPDATE,
-        # ALIGNMENT_UPDATE events) instead of direct callbacks. The TUI subscribes
-        # to these events in inject_services() via _subscribe_trading_signals().
-
-        # Update loop - feeds data from orchestrator to dashboard via queue
+        # Update loop - feeds data from orchestrator to dashboard
         update_task = None
         if dashboard:
             async def update_loop():
                 """Background task that feeds orchestrator data to dashboard queue."""
                 while dashboard.running:
                     try:
-                        # Wait for orchestrator to signal new snapshot
-                        snapshot = await orchestrator.wait_for_snapshot(timeout=3.0)
-                        health = health_monitor.get_all_health()
+                        snapshot = await container.orchestrator.wait_for_snapshot(timeout=3.0)
+                        health = container.health_monitor.get_all_health()
 
                         if snapshot:
-                            # Get risk signals from orchestrator (multi-layer risk detection)
-                            risk_signals = orchestrator.get_latest_risk_signals()
-
-                            # Use market alert detector output from orchestrator
-                            market_alerts = orchestrator.get_latest_market_alerts()
-
-                            # Queue update to dashboard (thread-safe)
+                            risk_signals = container.orchestrator.get_latest_risk_signals()
+                            market_alerts = container.orchestrator.get_latest_market_alerts()
                             dashboard.update(snapshot, risk_signals, health, market_alerts)
-
-                            # Log market data fetch
                             data_structured.info(
                                 LogCategory.DATA,
                                 "Risk snapshot refreshed",
                                 {"positions": snapshot.total_positions, "position_risks": len(snapshot.position_risks)}
                             )
                         else:
-                            # No full snapshot yet - show positions preview immediately
-                            preview = orchestrator.get_positions_preview()
+                            preview = container.orchestrator.get_positions_preview()
                             if preview and preview.total_positions > 0:
                                 dashboard.update(preview, [], health, [])
                             else:
-                                empty_snapshot = RiskSnapshot()
-                                dashboard.update(empty_snapshot, [], health, [])
+                                dashboard.update(RiskSnapshot(), [], health, [])
                     except asyncio.CancelledError:
                         break
                     except Exception as e:
-                        system_structured.warning(
-                            LogCategory.SYSTEM,
-                            f"Update loop error: {e}"
-                        )
+                        system_structured.warning(LogCategory.SYSTEM, f"Update loop error: {e}")
                         await asyncio.sleep(1)
 
-            # Start update loop as background task
             update_task = asyncio.create_task(update_loop())
 
-            # Run Textual dashboard in main thread (blocks until user quits)
-            # The update_task runs concurrently via asyncio
             try:
                 await dashboard.run_async()
             except KeyboardInterrupt:
@@ -713,7 +336,7 @@ async def main_async(args: argparse.Namespace) -> None:
                     except asyncio.CancelledError:
                         pass
         else:
-            # Headless mode - just wait for interrupt
+            # Headless mode
             try:
                 while True:
                     await asyncio.sleep(1)
@@ -723,41 +346,12 @@ async def main_async(args: argparse.Namespace) -> None:
         system_structured.info(LogCategory.SYSTEM, "System shutdown complete")
 
     except Exception as e:
-        system_structured.error(
-            LogCategory.SYSTEM,
-            "Fatal error",
-            {"error": str(e)}
-        )
+        system_structured.error(LogCategory.SYSTEM, "Fatal error", {"error": str(e)})
         system_logger.exception("Fatal error:")
     finally:
-        # Always clean up resources
         if dashboard:
             dashboard.stop()
-        if orchestrator:
-            await orchestrator.stop()
-            system_structured.info(LogCategory.SYSTEM, "Orchestrator stopped")
-
-        # Stop BarPersistenceService and flush pending bars
-        if bar_persistence_service:
-            bar_persistence_service.stop()
-            system_structured.info(LogCategory.DATA, "BarPersistenceService stopped")
-
-        # Disconnect IB connection pool
-        if ib_pool:
-            await ib_pool.disconnect()
-            system_structured.info(LogCategory.SYSTEM, "IB connection pool disconnected")
-
-        # Close database connection
-        if db:
-            await db.close()
-            system_structured.info(LogCategory.SYSTEM, "Database connection closed")
-
-        # Shutdown metrics server
-        if metrics_manager:
-            metrics_manager.shutdown()
-            system_structured.info(LogCategory.SYSTEM, "Metrics server stopped")
-
-        # Ensure all logs are flushed to disk
+        await container.cleanup()
         flush_all_loggers()
 
 

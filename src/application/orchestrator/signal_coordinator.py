@@ -21,22 +21,18 @@ import logging
 import re
 import time
 from datetime import datetime, timedelta
-from typing import Any, Callable, Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from ...utils.logging_setup import get_logger
 from ...utils.timezone import now_utc
 from ...domain.events.event_types import EventType
-from ...infrastructure.observability import (
-    SignalMetrics,
-    time_confluence_calculation,
-    time_alignment_calculation,
-)
+from ...domain.signals.confluence_calculator import ConfluenceCalculator
+from ...infrastructure.observability import SignalMetrics
 
 if TYPE_CHECKING:
     from ...domain.interfaces.event_bus import EventBus
     from ...domain.interfaces.signal_persistence import SignalPersistencePort
     from ...domain.signals import BarAggregator, IndicatorEngine, RuleEngine
-    from ...domain.signals.divergence import CrossIndicatorAnalyzer, MTFDivergenceAnalyzer
 
 logger = get_logger(__name__)
 
@@ -109,16 +105,8 @@ class SignalCoordinator:
         self._indicator_engine: Optional["IndicatorEngine"] = None
         self._rule_engine: Optional["RuleEngine"] = None
 
-        # Confluence calculation components
-        self._cross_analyzer: Optional["CrossIndicatorAnalyzer"] = None
-        self._mtf_analyzer: Optional["MTFDivergenceAnalyzer"] = None
-
-        # Indicator state cache: (symbol, timeframe) -> {indicator_name: state_dict}
-        self._indicator_states: Dict[Tuple[str, str], Dict[str, Dict[str, Any]]] = {}
-
-        # Debounce tracking: (symbol, timeframe) -> last_calc_time_ms
-        self._last_confluence_calc: Dict[Tuple[str, str], float] = {}
-        self._confluence_debounce_ms: float = 500.0
+        # Confluence calculator (extracted for single responsibility)
+        self._confluence_calculator: Optional[ConfluenceCalculator] = None
 
         # Persistence statistics
         self._signals_persisted = 0
@@ -157,7 +145,6 @@ class SignalCoordinator:
         # Import here to avoid circular imports and allow lazy loading
         from ...domain.signals import BarAggregator, IndicatorEngine, RuleEngine, RuleRegistry
         from ...domain.signals.rules import ALL_RULES
-        from ...domain.signals.divergence import CrossIndicatorAnalyzer, MTFDivergenceAnalyzer
 
         # Create bar aggregators for each timeframe (pass metrics for instrumentation)
         self._bar_aggregators = {
@@ -183,14 +170,19 @@ class SignalCoordinator:
         self._indicator_engine.start()
         self._rule_engine.start()
 
-        # Create confluence analyzers
-        self._cross_analyzer = CrossIndicatorAnalyzer()
-        self._mtf_analyzer = MTFDivergenceAnalyzer(self._cross_analyzer)
+        # Create and start confluence calculator
+        self._confluence_calculator = ConfluenceCalculator(
+            event_bus=self._event_bus,
+            metrics=self._metrics,
+        )
+        if self._persistence:
+            self._confluence_calculator.set_persistence_callback(self._persist_confluence)
+        self._confluence_calculator.start()
 
         # Subscribe to tick events for bar aggregation
         self._event_bus.subscribe(EventType.MARKET_DATA_TICK, self._on_market_data_tick)
 
-        # Subscribe to indicator updates for confluence calculation
+        # Subscribe to indicator updates for confluence + persistence
         self._event_bus.subscribe(EventType.INDICATOR_UPDATE, self._on_indicator_update)
 
         # Subscribe to trading signals for persistence (if enabled)
@@ -245,9 +237,9 @@ class SignalCoordinator:
             except Exception as e:
                 logger.warning(f"Error unsubscribing from signal events: {e}")
 
-        # Clear state caches (prevents stale data on restart)
-        self._indicator_states.clear()
-        self._last_confluence_calc.clear()
+        # Stop confluence calculator
+        if self._confluence_calculator:
+            self._confluence_calculator.stop()
 
         # Flush remaining bars BEFORE stopping engines
         # This ensures final BAR_CLOSE events are processed through the pipeline
@@ -266,8 +258,7 @@ class SignalCoordinator:
         self._bar_aggregators.clear()
         self._indicator_engine = None
         self._rule_engine = None
-        self._cross_analyzer = None
-        self._mtf_analyzer = None
+        self._confluence_calculator = None
 
         logger.info("SignalCoordinator stopped")
 
@@ -601,51 +592,40 @@ class SignalCoordinator:
         return True
 
     # -------------------------------------------------------------------------
-    # Confluence Calculation (Event-Driven)
+    # Indicator Update Handler (Delegates confluence to ConfluenceCalculator)
     # -------------------------------------------------------------------------
 
     def _on_indicator_update(self, payload: Any) -> None:
         """
-        Aggregate INDICATOR_UPDATE events for confluence calculation.
+        Handle INDICATOR_UPDATE events.
 
-        Caches indicator states per (symbol, timeframe) and triggers
-        debounced confluence calculation when sufficient data arrives.
+        Delegates confluence calculation to ConfluenceCalculator and handles
+        indicator persistence separately.
 
         Args:
             payload: IndicatorUpdateEvent with symbol, timeframe, indicator, state
         """
-        # Log every indicator update received (for debugging signal flow)
-        indicator = getattr(payload, "indicator", "?")
-        symbol = getattr(payload, "symbol", "?")
-        logger.debug(
-            "SignalCoordinator received INDICATOR_UPDATE",
-            extra={"indicator": indicator, "symbol": symbol, "started": self._started},
-        )
-
         if not self._started:
-            logger.warning("SignalCoordinator not started, ignoring INDICATOR_UPDATE")
             return
 
         symbol = getattr(payload, "symbol", None)
         timeframe = getattr(payload, "timeframe", None)
         indicator = getattr(payload, "indicator", None)
-        state = getattr(payload, "state", None)
+        state = getattr(payload, "state", None) or {}
 
-        # Require symbol, timeframe, indicator - state can be empty dict
         if not symbol or not timeframe or not indicator:
             return
 
-        # state can be None or empty dict - both are valid (indicator computed but no signal)
-        if state is None:
-            state = {}
+        # Delegate confluence calculation to ConfluenceCalculator
+        if self._confluence_calculator:
+            self._confluence_calculator.on_indicator_update(
+                symbol=symbol,
+                timeframe=timeframe,
+                indicator=indicator,
+                state=state,
+            )
 
-        # Cache the indicator state
-        key = (symbol, timeframe)
-        if key not in self._indicator_states:
-            self._indicator_states[key] = {}
-        self._indicator_states[key][indicator] = state
-
-        # Persist indicator if persistence enabled
+        # Persist indicator (coordinator responsibility)
         if self._persistence:
             previous_state = getattr(payload, "previous_state", None)
             timestamp = getattr(payload, "timestamp", None) or now_utc()
@@ -657,197 +637,6 @@ class SignalCoordinator:
                 state=state,
                 previous_state=previous_state,
             ))
-
-        # Log indicator cache update
-        cached_count = len(self._indicator_states[key])
-        logger.debug(
-            "Indicator state cached for confluence",
-            extra={
-                "symbol": symbol,
-                "timeframe": timeframe,
-                "indicator": indicator,
-                "cached_indicators": cached_count,
-                "state_keys": list(state.keys()) if state else [],
-            },
-        )
-
-        # Update cache size metric
-        if self._metrics:
-            total_entries = sum(
-                len(indicators) for indicators in self._indicator_states.values()
-            )
-            self._metrics.set_indicator_state_cache_size(total_entries)
-
-        # Debounced confluence calculation
-        self._maybe_calculate_confluence(symbol, timeframe)
-
-    def _maybe_calculate_confluence(self, symbol: str, timeframe: str) -> None:
-        """
-        Calculate confluence if debounce period has passed.
-
-        Implements 500ms debounce per (symbol, timeframe) to prevent
-        excessive calculations when multiple indicators update in bursts.
-
-        Publishes CONFLUENCE_UPDATE and ALIGNMENT_UPDATE events to the event bus,
-        enabling decoupled consumption by TUI and other subscribers.
-
-        Args:
-            symbol: Trading symbol
-            timeframe: Bar timeframe
-        """
-        from ...domain.events.domain_events import ConfluenceUpdateEvent, AlignmentUpdateEvent
-
-        key = (symbol, timeframe)
-        now_ms = time.time() * 1000
-
-        last_calc = self._last_confluence_calc.get(key, 0)
-        if now_ms - last_calc < self._confluence_debounce_ms:
-            return
-
-        # Get cached indicator states for this symbol/timeframe
-        indicator_states = self._indicator_states.get(key, {})
-        if len(indicator_states) < 2:
-            # Need at least 2 indicators for meaningful confluence
-            # DON'T update debounce time - we want to try again when more indicators arrive
-            logger.debug(
-                "Confluence skipped: insufficient indicators",
-                extra={"symbol": symbol, "timeframe": timeframe, "count": len(indicator_states)},
-            )
-            return
-
-        # Only update debounce time when we actually have enough indicators to calculate
-        self._last_confluence_calc[key] = now_ms
-
-        logger.info(
-            "Calculating confluence",
-            extra={
-                "symbol": symbol,
-                "timeframe": timeframe,
-                "indicator_count": len(indicator_states),
-                "has_cross_analyzer": self._cross_analyzer is not None,
-                "has_mtf_analyzer": self._mtf_analyzer is not None,
-            },
-        )
-
-        # Calculate single-timeframe confluence score and publish event
-        if self._cross_analyzer:
-            start_time = time.perf_counter()
-            try:
-                with time_confluence_calculation(self._metrics):
-                    score = self._cross_analyzer.analyze(symbol, timeframe, indicator_states)
-
-                # Publish event instead of calling callback
-                event = ConfluenceUpdateEvent.from_score(score)
-                self._event_bus.publish(EventType.CONFLUENCE_UPDATE, event)
-
-                # Persist confluence if enabled
-                if self._persistence:
-                    asyncio.create_task(self._persist_confluence(
-                        symbol=symbol,
-                        timeframe=timeframe,
-                        alignment_score=getattr(score, "alignment_score", 0.0),
-                        bullish_count=getattr(score, "bullish_count", 0),
-                        bearish_count=getattr(score, "bearish_count", 0),
-                        neutral_count=getattr(score, "neutral_count", 0),
-                        total_indicators=getattr(score, "total_indicators", 0),
-                        dominant_direction=getattr(score, "dominant_direction", None),
-                    ))
-
-                # Structured debug log with confluence results
-                duration_ms = (time.perf_counter() - start_time) * 1000
-                alignment_score = getattr(score, "alignment_score", None)
-                bullish = getattr(score, "bullish_count", 0)
-                bearish = getattr(score, "bearish_count", 0)
-                neutral = getattr(score, "neutral_count", 0)
-
-                logger.debug(
-                    "Confluence calculated and published",
-                    extra={
-                        "symbol": symbol,
-                        "timeframe": timeframe,
-                        "alignment_score": alignment_score,
-                        "bullish": bullish,
-                        "bearish": bearish,
-                        "neutral": neutral,
-                        "duration_ms": round(duration_ms, 2),
-                    },
-                )
-
-                # Performance warning for slow calculations
-                if duration_ms > 100:
-                    logger.warning(
-                        "Slow confluence calculation",
-                        extra={
-                            "symbol": symbol,
-                            "timeframe": timeframe,
-                            "duration_ms": round(duration_ms, 2),
-                        },
-                    )
-
-            except Exception as e:
-                if self._metrics:
-                    self._metrics.record_error("confluence", "calculate")
-                logger.error(
-                    "Confluence calculation failed",
-                    extra={"symbol": symbol, "timeframe": timeframe, "error": str(e)},
-                )
-
-        # Calculate multi-timeframe alignment if we have data for multiple TFs
-        if self._mtf_analyzer:
-            states_by_tf: Dict[str, Dict[str, Dict[str, Any]]] = {}
-            for (sym, tf), indicators in self._indicator_states.items():
-                if sym == symbol:
-                    states_by_tf[tf] = indicators
-
-            if len(states_by_tf) >= 2:
-                start_time = time.perf_counter()
-                try:
-                    with time_alignment_calculation(self._metrics):
-                        alignment = self._mtf_analyzer.analyze(
-                            symbol, list(states_by_tf.keys()), states_by_tf
-                        )
-
-                    # Publish event instead of calling callback
-                    event = AlignmentUpdateEvent.from_alignment(alignment)
-                    self._event_bus.publish(EventType.ALIGNMENT_UPDATE, event)
-
-                    # Structured debug log with alignment results
-                    duration_ms = (time.perf_counter() - start_time) * 1000
-                    strength = getattr(alignment, "strength", None)
-                    direction = getattr(alignment, "direction", None)
-                    aligned_tfs = getattr(alignment, "aligned_timeframes", [])
-
-                    logger.debug(
-                        "MTF alignment calculated and published",
-                        extra={
-                            "symbol": symbol,
-                            "timeframes": list(states_by_tf.keys()),
-                            "strength": strength,
-                            "direction": direction,
-                            "aligned_count": len(aligned_tfs),
-                            "duration_ms": round(duration_ms, 2),
-                        },
-                    )
-
-                    # Log strong alignments at INFO level
-                    if strength == "strong":
-                        logger.info(
-                            "Strong MTF alignment detected",
-                            extra={
-                                "symbol": symbol,
-                                "strength": strength,
-                                "direction": direction,
-                                "timeframes": aligned_tfs,
-                            },
-                        )
-
-                except Exception as e:
-                    if self._metrics:
-                        self._metrics.record_error("alignment", "calculate")
-                    logger.error(
-                        "MTF alignment calculation failed",
-                        extra={"symbol": symbol, "error": str(e)},
-                    )
 
     # -------------------------------------------------------------------------
     # Persistence Handlers
