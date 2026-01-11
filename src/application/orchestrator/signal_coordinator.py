@@ -17,10 +17,8 @@ SnapshotCoordinator, keeping the Orchestrator thin.
 from __future__ import annotations
 
 import asyncio
-import logging
 import re
-import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from ...utils.logging_setup import get_logger
@@ -28,6 +26,7 @@ from ...utils.timezone import now_utc
 from ...domain.events.event_types import EventType
 from ...domain.signals.confluence_calculator import ConfluenceCalculator
 from ...infrastructure.observability import SignalMetrics
+from .signal_pipeline import BarPreloader
 
 if TYPE_CHECKING:
     from ...domain.interfaces.event_bus import EventBus
@@ -98,7 +97,6 @@ class SignalCoordinator:
         # Historical data manager for preloading and cache refresh
         self._historical_data_manager = historical_data_manager
         self._preload_config = preload_config or {}
-        self._last_cache_refresh: Optional[datetime] = None
 
         # Lazy initialization - components created on start()
         self._bar_aggregators: Dict[str, "BarAggregator"] = {}
@@ -107,6 +105,9 @@ class SignalCoordinator:
 
         # Confluence calculator (extracted for single responsibility)
         self._confluence_calculator: Optional[ConfluenceCalculator] = None
+
+        # Bar preloader (extracted for single responsibility)
+        self._bar_preloader: Optional[BarPreloader] = None
 
         # Persistence statistics
         self._signals_persisted = 0
@@ -178,6 +179,15 @@ class SignalCoordinator:
         if self._persistence:
             self._confluence_calculator.set_persistence_callback(self._persist_confluence)
         self._confluence_calculator.start()
+
+        # Create bar preloader (if historical data manager configured)
+        if self._historical_data_manager is not None:
+            self._bar_preloader = BarPreloader(
+                historical_data_manager=self._historical_data_manager,
+                indicator_engine=self._indicator_engine,
+                timeframes=self._timeframes,
+                preload_config=self._preload_config,
+            )
 
         # Subscribe to tick events for bar aggregation
         self._event_bus.subscribe(EventType.MARKET_DATA_TICK, self._on_market_data_tick)
@@ -259,6 +269,7 @@ class SignalCoordinator:
         self._indicator_engine = None
         self._rule_engine = None
         self._confluence_calculator = None
+        self._bar_preloader = None
 
         logger.info("SignalCoordinator stopped")
 
@@ -382,8 +393,11 @@ class SignalCoordinator:
         """
         Preload historical bars from Parquet cache on STARTUP.
 
-        Performs gap detection via DuckDB, downloads missing data from IB/Yahoo,
-        stores to Parquet, and injects into IndicatorEngine for warmup.
+        Delegates to BarPreloader which handles:
+        - Gap detection via DuckDB
+        - Download missing data from IB/Yahoo
+        - Store to Parquet
+        - Inject into IndicatorEngine for warmup
 
         Args:
             symbols: List of symbols to preload (e.g., ["AAPL", "TSLA"])
@@ -391,133 +405,19 @@ class SignalCoordinator:
         Returns:
             Dict mapping symbol -> number of bars injected
         """
-        if not self._indicator_engine:
-            logger.warning("Cannot preload bars: indicator engine not initialized")
+        if not self._bar_preloader:
+            logger.warning("Cannot preload bars: bar preloader not configured")
             return {}
-
-        if not self._historical_data_manager:
-            logger.warning("Cannot preload bars: historical data manager not configured")
-            return {}
-
-        if not symbols:
-            logger.debug("No symbols to preload")
-            return {}
-
-        slow_warn_sec = self._preload_config.get("slow_preload_warn_sec", 30)
-        end_dt = now_utc()
-
-        results: Dict[str, int] = {}
-        start_time = time.monotonic()
-
-        # Build timeframe-specific lookback based on source limits
-        timeframe_lookbacks = {}
-        for tf in self._timeframes:
-            max_days = self._historical_data_manager.get_max_history_days(tf)
-            timeframe_lookbacks[tf] = max_days
-
-        logger.info(
-            "Starting bar cache preload (startup) - max history per timeframe",
-            extra={
-                "symbols_count": len(symbols),
-                "symbols": symbols[:10] if len(symbols) > 10 else symbols,
-                "timeframes": self._timeframes,
-                "timeframe_lookbacks": timeframe_lookbacks,
-                "end": end_dt.isoformat(),
-            },
-        )
-
-        for timeframe in self._timeframes:
-            # Use timeframe-specific max history
-            lookback_days = timeframe_lookbacks.get(timeframe, 365)
-            start_dt = end_dt - timedelta(days=lookback_days)
-
-            for symbol in symbols:
-                try:
-                    # ensure_data: gap check → download (if gaps) → store → return bars
-                    bars = await self._historical_data_manager.ensure_data(
-                        symbol=symbol,
-                        timeframe=timeframe,
-                        start=start_dt,
-                        end=end_dt,
-                    )
-
-                    if bars:
-                        bar_dicts = [
-                            {
-                                "timestamp": b.bar_start,
-                                "open": b.open,
-                                "high": b.high,
-                                "low": b.low,
-                                "close": b.close,
-                                "volume": b.volume or 0,
-                            }
-                            for b in bars
-                        ]
-                        # INJECT into indicator engine for warmup
-                        count = self._indicator_engine.inject_historical_bars(
-                            symbol, timeframe, bar_dicts
-                        )
-                        results[symbol] = results.get(symbol, 0) + count
-
-                        # Compute indicators immediately to generate signals
-                        indicators_computed = await self._indicator_engine.compute_on_history(
-                            symbol, timeframe
-                        )
-
-                        logger.debug(
-                            "Preloaded bars for symbol",
-                            extra={
-                                "symbol": symbol,
-                                "timeframe": timeframe,
-                                "bars_injected": count,
-                                "indicators_computed": indicators_computed,
-                                "date_range": f"{bars[0].bar_start} to {bars[-1].bar_start}",
-                            },
-                        )
-                    else:
-                        logger.warning(
-                            "No bars returned for symbol",
-                            extra={"symbol": symbol, "timeframe": timeframe},
-                        )
-
-                except Exception as e:
-                    # Don't crash startup on single symbol failure
-                    logger.error(
-                        "Failed to preload bars for symbol (continuing)",
-                        extra={
-                            "symbol": symbol,
-                            "timeframe": timeframe,
-                            "error": str(e),
-                            "error_type": type(e).__name__,
-                        },
-                    )
-
-        elapsed_sec = time.monotonic() - start_time
-        self._last_cache_refresh = now_utc()
-
-        log_level = logging.WARNING if elapsed_sec > slow_warn_sec else logging.INFO
-        logger.log(
-            log_level,
-            "Bar cache preload complete",
-            extra={
-                "symbols_loaded": len(results),
-                "total_bars_injected": sum(results.values()),
-                "elapsed_sec": round(elapsed_sec, 2),
-                "slow_threshold_sec": slow_warn_sec,
-                "cache_refreshed_at": self._last_cache_refresh.isoformat(),
-            },
-        )
-
-        return results
+        return await self._bar_preloader.preload_startup(symbols)
 
     async def refresh_disk_cache(self, symbols: List[str]) -> bool:
         """
         Refresh Parquet cache (PERIODIC, disk-only).
 
-        Updates disk cache with new bars from broker.
-        Does NOT inject into IndicatorEngine - live BAR_CLOSE events handle that.
-
-        This keeps the Parquet files up-to-date for the next restart.
+        Delegates to BarPreloader which handles:
+        - Time-based gating (respects cache_refresh_hours)
+        - Updates Parquet files via HistoricalDataManager
+        - Does NOT inject into IndicatorEngine (live bars handle that)
 
         Args:
             symbols: List of symbols to refresh
@@ -525,71 +425,10 @@ class SignalCoordinator:
         Returns:
             True if refresh was performed, False if skipped (not due yet)
         """
-        refresh_hours = self._preload_config.get("cache_refresh_hours", 24)
-
-        if self._last_cache_refresh:
-            elapsed = now_utc() - self._last_cache_refresh
-            if elapsed.total_seconds() < refresh_hours * 3600:
-                logger.debug(
-                    "Cache refresh skipped (not due yet)",
-                    extra={
-                        "last_refresh": self._last_cache_refresh.isoformat(),
-                        "next_refresh_hours": round(
-                            refresh_hours - elapsed.total_seconds() / 3600, 2
-                        ),
-                    },
-                )
-                return False
-
-        if not self._historical_data_manager:
-            logger.debug("Cache refresh skipped: no historical data manager")
+        if not self._bar_preloader:
+            logger.debug("Cache refresh skipped: bar preloader not configured")
             return False
-
-        if not symbols:
-            logger.debug("Cache refresh skipped: no symbols")
-            return False
-
-        logger.info(
-            "Triggering scheduled disk cache refresh (no injection)",
-            extra={
-                "symbols_count": len(symbols),
-                "refresh_interval_hours": refresh_hours,
-            },
-        )
-
-        # Only refresh disk - call ensure_data but DON'T inject
-        lookback_days = self._preload_config.get("lookback_days", 365)
-        end_dt = now_utc()
-        start_dt = end_dt - timedelta(days=lookback_days)
-
-        for timeframe in self._timeframes:
-            for symbol in symbols:
-                try:
-                    # This updates Parquet files (gap fill + new bars)
-                    # We intentionally DON'T inject - live BAR_CLOSE handles new bars
-                    await self._historical_data_manager.ensure_data(
-                        symbol=symbol,
-                        timeframe=timeframe,
-                        start=start_dt,
-                        end=end_dt,
-                    )
-                except Exception as e:
-                    logger.error(
-                        "Failed to refresh cache for symbol",
-                        extra={
-                            "symbol": symbol,
-                            "timeframe": timeframe,
-                            "error": str(e),
-                        },
-                    )
-
-        self._last_cache_refresh = now_utc()
-
-        logger.info(
-            "Disk cache refresh complete",
-            extra={"cache_refreshed_at": self._last_cache_refresh.isoformat()},
-        )
-        return True
+        return await self._bar_preloader.refresh_disk_cache(symbols)
 
     # -------------------------------------------------------------------------
     # Indicator Update Handler (Delegates confluence to ConfluenceCalculator)

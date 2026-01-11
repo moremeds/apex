@@ -20,6 +20,7 @@ from .strategy_vm import StrategyDisplayState, StrategyViewModel
 from .summary_vm import SummaryViewModel
 from .alert_vm import AlertViewModel  # OPT-011
 from .order_vm import OrderViewModel  # OPT-011
+from .indicator_status_vm import IndicatorStatusViewModel, IndicatorRow, RowType
 
 __all__ = [
     "BaseViewModel",
@@ -33,4 +34,7 @@ __all__ = [
     "SummaryViewModel",
     "AlertViewModel",
     "OrderViewModel",
+    "IndicatorStatusViewModel",
+    "IndicatorRow",
+    "RowType",
 ]
