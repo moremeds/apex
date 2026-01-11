@@ -12,8 +12,8 @@ Uses reserved monitoring client ID.
 from __future__ import annotations
 from collections import OrderedDict
 from threading import Lock
-from typing import List, Dict, Optional, Callable
-from datetime import datetime
+from typing import List, Dict, Optional, Callable, Tuple, Any
+from datetime import datetime, timedelta
 from math import isnan
 import asyncio
 
@@ -86,6 +86,11 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
         self._account_cache_ttl_sec: int = 10
         self._account_callback: Optional[Callable[[AccountSnapshot], None]] = None
 
+        # Previous close cache - ticker.close can be stale on weekends
+        # Cache previous close fetched from historical data with 1-hour TTL
+        self._previous_close_cache: Dict[str, Tuple[float, datetime]] = {}
+        self._previous_close_cache_ttl_sec: int = 3600  # 1 hour
+
     # -------------------------------------------------------------------------
     # Cache Helpers
     # -------------------------------------------------------------------------
@@ -137,6 +142,52 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
                 return False
 
         return True
+
+    async def _get_previous_close(self, symbol: str, contract: Any) -> Optional[float]:
+        """
+        Get previous trading day's close using historical data.
+
+        IB's ticker.close can be stale on weekends (showing Thursday's close
+        instead of Friday's). This method fetches the actual last daily bar
+        to get the accurate previous close.
+
+        Args:
+            symbol: The symbol to fetch previous close for.
+            contract: The qualified IB contract.
+
+        Returns:
+            Previous close price, or None if unavailable.
+        """
+        # Check cache first
+        if symbol in self._previous_close_cache:
+            cached_price, cached_time = self._previous_close_cache[symbol]
+            if (datetime.now() - cached_time).total_seconds() < self._previous_close_cache_ttl_sec:
+                return cached_price
+
+        try:
+            # Fetch 2 days of daily bars to ensure we get the last trading day
+            bars = await self.ib.reqHistoricalDataAsync(
+                contract,
+                endDateTime="",  # Now
+                durationStr="2 D",
+                barSizeSetting="1 day",
+                whatToShow="TRADES",
+                useRTH=True,  # Regular trading hours only
+                formatDate=1,
+            )
+
+            if bars:
+                # Last bar is the most recent trading day's close
+                last_bar = bars[-1]
+                prev_close = float(last_bar.close)
+                self._previous_close_cache[symbol] = (prev_close, datetime.now())
+                logger.debug(f"Fetched previous close for {symbol}: {prev_close} from {last_bar.date}")
+                return prev_close
+
+        except Exception as e:
+            logger.warning(f"Failed to fetch historical previous close for {symbol}: {e}")
+
+        return None
 
     # -------------------------------------------------------------------------
     # Connection Hooks
@@ -662,17 +713,26 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
                 return market_data
 
             valid_symbols, valid_contracts = zip(*qualified_with_syms)
+            # Build symbol -> contract mapping for historical lookups
+            sym_to_contract = dict(qualified_with_syms)
             tickers = await self.ib.reqTickersAsync(*valid_contracts)
 
             for sym, ticker in zip(valid_symbols, tickers):
                 try:
+                    # Get previous close from historical data (more reliable than ticker.close)
+                    # ticker.close can be stale on weekends (showing Thursday instead of Friday)
+                    prev_close = await self._get_previous_close(sym, sym_to_contract[sym])
+                    # Fall back to ticker.close if historical fetch fails
+                    if prev_close is None and hasattr(ticker, "close") and ticker.close and not isnan(ticker.close):
+                        prev_close = float(ticker.close)
+
                     md = MarketData(
                         symbol=sym,
                         last=float(ticker.last) if ticker.last and not isnan(ticker.last) else None,
                         bid=float(ticker.bid) if ticker.bid and not isnan(ticker.bid) else None,
                         ask=float(ticker.ask) if ticker.ask and not isnan(ticker.ask) else None,
                         mid=float((ticker.bid + ticker.ask) / 2) if ticker.bid and ticker.ask and not isnan(ticker.bid) and not isnan(ticker.ask) else None,
-                        yesterday_close=float(ticker.close) if hasattr(ticker, "close") and ticker.close and not isnan(ticker.close) else None,
+                        yesterday_close=prev_close,
                         timestamp=datetime.now(),
                     )
                     market_data[sym] = md

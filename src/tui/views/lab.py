@@ -10,12 +10,14 @@ Layout matching original Rich dashboard:
 Keyboard shortcuts:
 - w/s: Navigate strategies
 - Enter: Run backtest for selected strategy
+
+Note: Backtest execution is delegated to BacktestService (application layer)
+for proper separation of concerns.
 """
 
 from __future__ import annotations
 
-from datetime import date
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, List, Optional
 
 from textual.containers import Container, Horizontal, Vertical
 from textual.widgets import Static
@@ -30,6 +32,7 @@ from ..widgets.health_bar import HealthBar
 
 if TYPE_CHECKING:
     from ...domain.backtest.backtest_result import BacktestResult
+    from ...application.services.backtest_service import BacktestService
 
 
 class LabView(Container, can_focus=True):
@@ -43,6 +46,15 @@ class LabView(Container, can_focus=True):
         Binding("down", "move_down", "Down", show=False),
         Binding("enter", "run_backtest", "Run Backtest", show=True),
     ]
+
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        # BacktestService is injected via set_backtest_service()
+        self._backtest_service: Optional["BacktestService"] = None
+
+    def set_backtest_service(self, service: "BacktestService") -> None:
+        """Inject the backtest service for running backtests."""
+        self._backtest_service = service
 
     def on_show(self) -> None:
         """Focus this view when it becomes visible."""
@@ -148,56 +160,22 @@ class LabView(Container, can_focus=True):
 
     @work(exclusive=True)
     async def _run_backtest_worker(self, strategy_name: str) -> None:
-        """Run backtest as async task on main event loop."""
+        """
+        Run backtest as async task on main event loop.
+
+        Delegates to BacktestService if injected, otherwise falls back
+        to direct engine creation for backwards compatibility.
+        """
         try:
-            import yaml
-            from pathlib import Path
-            from ...backtest.execution.engines.backtest_engine import BacktestEngine, BacktestConfig
-            from ...backtest.data.feeds import BarCacheDataFeed
+            if self._backtest_service:
+                # Preferred path: use injected service
+                result = await self._backtest_service.run_strategy(strategy_name)
+            else:
+                # Fallback: create service on demand
+                from ...application.services.backtest_service import BacktestService
+                service = BacktestService()
+                result = await service.run_strategy(strategy_name)
 
-            # Load config from base.yaml for IB connection
-            config_path = Path("config/base.yaml")
-            ib_host = "127.0.0.1"
-            ib_port = 4001
-            ib_client_id = 10  # Use last client from historical_pool
-
-            if config_path.exists():
-                with open(config_path) as f:
-                    cfg = yaml.safe_load(f)
-                    ibkr = cfg.get("brokers", {}).get("ibkr", {})
-                    ib_host = ibkr.get("host", ib_host)
-                    ib_port = ibkr.get("port", ib_port)
-                    historical_pool = ibkr.get("client_ids", {}).get("historical_pool", [10])
-                    if historical_pool:
-                        ib_client_id = historical_pool[-1]  # Use last client ID
-
-            # Default backtest configuration
-            config = BacktestConfig(
-                start_date=date(2024, 1, 1),
-                end_date=date(2024, 6, 30),
-                symbols=["AAPL", "MSFT"],
-                initial_capital=100000.0,
-                strategy_name=strategy_name,
-            )
-
-            # Create engine
-            engine = BacktestEngine(config)
-            engine.set_strategy(strategy_name=strategy_name)
-
-            # Use IB historical data for real-time technical analysis
-            feed = BarCacheDataFeed(
-                symbols=config.symbols,
-                start_date=config.start_date,
-                end_date=config.end_date,
-                host=ib_host,
-                port=ib_port,
-                client_id=ib_client_id,
-            )
-
-            engine.set_data_feed(feed)
-
-            # Run backtest (async on main loop)
-            result = await engine.run()
             self._on_backtest_complete(strategy_name, result)
 
         except Exception as e:

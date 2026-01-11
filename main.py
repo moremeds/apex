@@ -10,14 +10,26 @@ Usage:
 from __future__ import annotations
 import asyncio
 import argparse
+import os
 import sys
+from pathlib import Path
+
+# Change to project root directory (where main.py is located)
+# This ensures config files are found regardless of where script is invoked from
+PROJECT_ROOT = Path(__file__).resolve().parent
+os.chdir(PROJECT_ROOT)
 
 from config.config_manager import ConfigManager
 from src.domain.services import MarketAlertDetector
 from src.infrastructure.adapters import FutuAdapter, FileLoader, BrokerManager, MarketDataManager, YahooFinanceAdapter
 from src.infrastructure.adapters.ib import IbConnectionPool, ConnectionPoolConfig, IbCompositeAdapter
 from src.services import HistoricalDataService, TAService, BarPeriod
+from src.services.historical_data_manager import HistoricalDataManager
+from src.services.bar_persistence_service import BarPersistenceService
 from src.infrastructure.stores import PositionStore, MarketDataStore, AccountStore
+from src.infrastructure.stores.duckdb_coverage_store import DuckDBCoverageStore
+from src.infrastructure.persistence.database import Database
+from src.infrastructure.persistence.repositories.ta_signal_repository import TASignalRepository
 from src.infrastructure.monitoring import HealthMonitor, Watchdog
 from src.domain.services.risk.risk_engine import RiskEngine
 from src.domain.services.pos_reconciler import Reconciler
@@ -38,7 +50,7 @@ from src.utils.perf_logger import set_perf_metrics
 # Observability imports (optional - graceful fallback if not installed)
 try:
     from src.infrastructure.observability import (
-        MetricsManager, get_metrics_manager, RiskMetrics, HealthMetrics
+        MetricsManager, get_metrics_manager, RiskMetrics, HealthMetrics, SignalMetrics
     )
     OBSERVABILITY_AVAILABLE = True
 except ImportError:
@@ -47,6 +59,7 @@ except ImportError:
     get_metrics_manager = None  # type: ignore
     RiskMetrics = None  # type: ignore
     HealthMetrics = None  # type: ignore
+    SignalMetrics = None  # type: ignore
 
 
 def parse_args() -> argparse.Namespace:
@@ -180,7 +193,7 @@ async def main_async(args: argparse.Namespace) -> None:
         set_log_timezone(None)  # Use local time
 
     # Set up category-based logging with environment prefix
-    # Now creates 5 categories: system, adapter, risk, data, perf
+    # Now creates 6 categories: system, adapter, risk, data, perf, signal
     category_loggers = setup_category_logging(
         env=args.env,
         log_dir="./logs",
@@ -214,6 +227,7 @@ async def main_async(args: argparse.Namespace) -> None:
         # Initialize observability (Prometheus metrics)
         risk_metrics = None
         health_metrics = None
+        signal_metrics = None
         metrics_manager = None
 
         if OBSERVABILITY_AVAILABLE and args.metrics_port > 0:
@@ -224,6 +238,7 @@ async def main_async(args: argparse.Namespace) -> None:
                 meter = metrics_manager.get_meter("apex")
                 risk_metrics = RiskMetrics(meter)
                 health_metrics = HealthMetrics(meter)
+                signal_metrics = SignalMetrics(meter)
 
                 # Wire perf logger to send metrics to Prometheus
                 set_perf_metrics(health_metrics=health_metrics, risk_metrics=risk_metrics)
@@ -426,6 +441,50 @@ async def main_async(args: argparse.Namespace) -> None:
             "coverage_threshold": market_data_threshold,
         })
 
+        # Create HistoricalDataManager for signal pipeline bar cache preloading
+        # IB is preferred source (no limit on intraday history), Yahoo is fallback
+        historical_cfg = config.raw.get("historical_data", {})
+        storage_cfg = historical_cfg.get("storage", {})
+        historical_data_manager = HistoricalDataManager(
+            base_dir=Path(storage_cfg.get("base_dir", "data/historical")),
+            source_priority=["ib", "yahoo"],  # IB preferred, Yahoo fallback (60-day intraday limit)
+        )
+
+        # Note: IB source will be registered after connection is established
+        # via set_ib_source() call after orchestrator.start().
+
+        # Create BarPersistenceService for persisting live bars to parquet
+        # This subscribes to BAR_CLOSE events and batches writes to disk
+        bar_persistence_service: BarPersistenceService | None = None
+        if historical_data_manager._bar_store:
+            bar_persistence_service = BarPersistenceService(
+                event_bus=event_bus,
+                bar_store=historical_data_manager._bar_store,
+                flush_threshold_bars=10,  # Flush after 10 bars per symbol/timeframe
+                flush_threshold_sec=60.0,  # Or after 60 seconds
+            )
+            system_structured.info(LogCategory.DATA, "BarPersistenceService created")
+
+        # Initialize PostgreSQL database for signal persistence (must be before Orchestrator)
+        # This enables indicator/rule engine data to be saved to database
+        db = None
+        signal_repo = None
+        if config.database.type != "disabled":
+            try:
+                db = Database(config.database)
+                await db.connect()
+                signal_repo = TASignalRepository(db)
+                system_structured.info(
+                    LogCategory.DATA,
+                    "Signal persistence connected",
+                    {"database": config.database.database, "host": config.database.host}
+                )
+            except Exception as e:
+                system_structured.warning(
+                    LogCategory.DATA,
+                    f"Signal persistence unavailable: {e}"
+                )
+
         # Initialize orchestrator with BrokerManager and MarketDataManager
         orchestrator = Orchestrator(
             broker_manager=broker_manager,
@@ -447,19 +506,52 @@ async def main_async(args: argparse.Namespace) -> None:
             risk_metrics=risk_metrics,
             health_metrics=health_metrics,
             readiness_manager=readiness_manager,
+            signal_metrics=signal_metrics,
+            historical_data_manager=historical_data_manager,
+            signal_persistence=signal_repo,
         )
 
         # Initialize dashboard (if not disabled)
         if not args.no_dashboard:
+            # Merge dashboard config with display timezone
+            dashboard_config = config.raw.get("dashboard", {})
+            dashboard_config["display_tz"] = config.display.timezone if config.display else "Asia/Hong_Kong"
             dashboard = TerminalDashboard(
-                config=config.raw.get("dashboard", {}),
+                config=dashboard_config,
                 env=args.env,
             )
+
+        # Initialize Tab 7 (Data) services - DuckDB for historical coverage metadata
+        coverage_store = DuckDBCoverageStore()
+        system_structured.info(LogCategory.DATA, "DuckDB coverage store initialized")
+
+        # Inject Tab 7 services into dashboard
+        # Note: Pass event_bus early so TUI can subscribe to signal events
+        # and event_loop is available for async database queries
+        if dashboard:
+            event_loop = asyncio.get_event_loop()
+            dashboard.set_event_bus(event_bus, event_loop)
+            dashboard.set_coverage_store(coverage_store)
+            if signal_repo:
+                dashboard.set_signal_persistence(signal_repo)
+
+        # Start BarPersistenceService before orchestrator (to capture all BAR_CLOSE events)
+        if bar_persistence_service:
+            bar_persistence_service.start()
 
         # Start orchestrator (event-driven mode is the default and only mode)
         # Data fetching happens in background, dashboard updates when ready
         system_structured.info(LogCategory.SYSTEM, "Starting orchestrator")
         await orchestrator.start()
+
+        # Register IB historical source now that broker is connected
+        # This enables IB as preferred source for historical bar downloads
+        if config.ibkr.enabled:
+            ib_adapter = broker_manager.get_adapter("ib")
+            if ib_adapter and ib_adapter.is_connected():
+                if hasattr(ib_adapter, '_historical_adapter') and ib_adapter._historical_adapter:
+                    historical_data_manager.set_ib_source(ib_adapter._historical_adapter)
+                    system_structured.info(LogCategory.SYSTEM, "IB historical source registered with HistoricalDataManager")
 
         # Debug: Check health components after orchestrator start
         initial_health = health_monitor.get_all_health()
@@ -469,7 +561,35 @@ async def main_async(args: argparse.Namespace) -> None:
             {"components": [h.component_name for h in initial_health]}
         )
 
+        # Set trading universe FIRST (before historical connection which may fail)
+        # This ensures Tab 6 watchlist is always populated
+        if dashboard:
+            positions = position_store.get_all()
+            underlyings = set()
+            for pos in positions:
+                sym = pos.underlying if pos.underlying else pos.symbol
+                if sym:
+                    underlyings.add(sym)
+
+            if underlyings:
+                universe_symbols = list(underlyings)
+            else:
+                # Demo mode fallback: sample symbols
+                universe_symbols = ["AAPL", "TSLA", "NVDA", "AMD", "MSFT", "GOOGL", "AMZN", "META"]
+                system_structured.info(
+                    LogCategory.DATA,
+                    "No positions found, using sample symbols for demo"
+                )
+
+            dashboard.set_trading_universe(universe_symbols)
+            system_structured.info(
+                LogCategory.DATA,
+                f"Trading universe set: {len(universe_symbols)} symbols",
+                {"symbols": universe_symbols[:10]}
+            )
+
         # Connect historical IB and pre-fetch daily bars (non-blocking background task)
+        # This is optional - watchlist works without it
         prefetch_task = None
         if ib_pool:
             async def connect_historical_and_prefetch():
@@ -492,16 +612,17 @@ async def main_async(args: argparse.Namespace) -> None:
                     )
                     ta_service = TAService(historical_service)
 
-                    # Inject TAService and HistoricalDataService into dashboard
+                    # Inject TAService, HistoricalDataService, and EventBus into dashboard
                     if dashboard:
                         event_loop = asyncio.get_event_loop()
-                        dashboard.set_ta_service(ta_service, event_loop, historical_service)
+                        dashboard.set_ta_service(
+                            ta_service, event_loop, historical_service, event_bus
+                        )
 
-                    # Get symbols from positions for pre-fetch
+                    # Pre-fetch daily bars for positions
                     positions = position_store.get_all()
                     underlyings = set()
                     for pos in positions:
-                        # Use underlying for options, symbol for stocks
                         sym = pos.underlying if pos.underlying else pos.symbol
                         if sym:
                             underlyings.add(sym)
@@ -511,7 +632,7 @@ async def main_async(args: argparse.Namespace) -> None:
                         system_structured.info(
                             LogCategory.DATA,
                             f"Pre-fetching 60d daily bars for {len(symbols)} symbols",
-                            {"symbols": symbols[:10]}  # Log first 10
+                            {"symbols": symbols[:10]}
                         )
                         await historical_service.prefetch_daily_bars(symbols, lookback_days=60)
                         system_structured.info(
@@ -526,6 +647,10 @@ async def main_async(args: argparse.Namespace) -> None:
 
             # Start pre-fetch in background (non-blocking)
             prefetch_task = asyncio.create_task(connect_historical_and_prefetch())
+
+        # NOTE: Confluence/alignment updates now use event bus (CONFLUENCE_UPDATE,
+        # ALIGNMENT_UPDATE events) instead of direct callbacks. The TUI subscribes
+        # to these events in inject_services() via _subscribe_trading_signals().
 
         # Update loop - feeds data from orchestrator to dashboard via queue
         update_task = None
@@ -612,10 +737,20 @@ async def main_async(args: argparse.Namespace) -> None:
             await orchestrator.stop()
             system_structured.info(LogCategory.SYSTEM, "Orchestrator stopped")
 
+        # Stop BarPersistenceService and flush pending bars
+        if bar_persistence_service:
+            bar_persistence_service.stop()
+            system_structured.info(LogCategory.DATA, "BarPersistenceService stopped")
+
         # Disconnect IB connection pool
         if ib_pool:
             await ib_pool.disconnect()
             system_structured.info(LogCategory.SYSTEM, "IB connection pool disconnected")
+
+        # Close database connection
+        if db:
+            await db.close()
+            system_structured.info(LogCategory.SYSTEM, "Database connection closed")
 
         # Shutdown metrics server
         if metrics_manager:

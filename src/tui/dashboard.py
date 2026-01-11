@@ -11,6 +11,7 @@ Methods:
 - stop(): Stop the dashboard
 - update(): Queue data for display
 - set_ta_service(): Inject services for ATR calculation
+- set_signal_persistence(): Inject signal persistence for history loading
 - run_async(): Actually runs the app (blocking, must be called from main)
 """
 
@@ -26,6 +27,8 @@ if TYPE_CHECKING:
     from ..models.risk_snapshot import RiskSnapshot
     from ..models.risk_signal import RiskSignal
     from ..infrastructure.monitoring import ComponentHealth
+    from ..domain.interfaces.signal_persistence import SignalPersistencePort
+    from ..infrastructure.persistence.signal_listener import SignalListener
 
 
 @dataclass
@@ -54,11 +57,14 @@ class TextualDashboard:
         Initialize the Textual dashboard.
 
         Args:
-            config: Dashboard configuration (unused, kept for compatibility).
+            config: Dashboard configuration dict. May contain 'display_tz' key
+                    for timezone display (e.g., "Asia/Hong_Kong").
             env: Environment name (dev, demo, prod).
         """
         self.env = env
         self.config = config or {}
+        # Extract display timezone from config (default: Asia/Hong_Kong)
+        self.display_tz = self.config.get("display_tz", "Asia/Hong_Kong")
         self._app: Optional[ApexApp] = None
         # Set _running = True immediately so update_loop doesn't exit early
         # It will be set to False when the app actually exits
@@ -67,6 +73,15 @@ class TextualDashboard:
         self._ta_service = None
         self._event_loop = None
         self._historical_service = None
+        self._event_bus = None
+        self._pending_universe: List[str] = []  # Symbols to apply when app starts
+
+        # Signal persistence integration
+        self._signal_persistence: Optional["SignalPersistencePort"] = None
+        self._signal_listener: Optional["SignalListener"] = None
+
+        # Tab 7 (Data) coverage store
+        self._coverage_store = None
 
     def start(self) -> None:
         """
@@ -120,21 +135,126 @@ class TextualDashboard:
         ta_service,
         event_loop: asyncio.AbstractEventLoop,
         historical_service=None,
+        event_bus=None,
     ) -> None:
         """
-        Inject services for ATR calculation and backtesting.
+        Inject services for ATR calculation, backtesting, and signal events.
 
         Args:
             ta_service: TAService instance.
             event_loop: Main event loop for async operations.
             historical_service: HistoricalDataService for backtest data.
+            event_bus: PriorityEventBus for subscribing to TRADING_SIGNAL events.
         """
         self._ta_service = ta_service
         self._event_loop = event_loop
         self._historical_service = historical_service
+        self._event_bus = event_bus
 
         if self._app:
-            self._app.inject_services(ta_service, event_loop, historical_service)
+            self._app.inject_services(
+                ta_service,
+                event_loop,
+                historical_service,
+                event_bus,
+                self._signal_persistence,
+                self._signal_listener,
+                self._coverage_store,
+            )
+
+    def set_trading_universe(self, symbols: List[str]) -> None:
+        """
+        Set the trading universe symbols for Tab 6 watchlist.
+
+        Args:
+            symbols: List of symbol strings (e.g., ["AAPL", "TSLA"]).
+        """
+        self._pending_universe = list(symbols)
+        if self._app:
+            self._app.set_trading_universe(symbols)
+
+    def set_event_bus(
+        self,
+        event_bus,
+        event_loop: asyncio.AbstractEventLoop,
+    ) -> None:
+        """
+        Set the event bus for signal event subscriptions.
+
+        CRITICAL: This must be called BEFORE run_async() to ensure the TUI
+        subscribes to TRADING_SIGNAL, CONFLUENCE_UPDATE, and ALIGNMENT_UPDATE
+        events before any signals are generated.
+
+        Args:
+            event_bus: PriorityEventBus instance for event subscriptions.
+            event_loop: Main event loop for async operations.
+        """
+        self._event_bus = event_bus
+        self._event_loop = event_loop
+
+        # If app already exists (rare), inject immediately
+        if self._app:
+            self._app.inject_services(
+                self._ta_service,
+                self._event_loop,
+                self._historical_service,
+                self._event_bus,
+                self._signal_persistence,
+                self._signal_listener,
+                self._coverage_store,
+            )
+
+    def set_signal_persistence(
+        self,
+        persistence: Optional["SignalPersistencePort"] = None,
+        listener: Optional["SignalListener"] = None,
+    ) -> None:
+        """
+        Set signal persistence for history loading and real-time NOTIFY.
+
+        This enables:
+        1. Loading historical signals from database on TUI startup
+        2. Receiving real-time signal updates via PostgreSQL NOTIFY
+
+        Args:
+            persistence: SignalPersistencePort for database queries.
+            listener: SignalListener for PostgreSQL NOTIFY updates.
+        """
+        self._signal_persistence = persistence
+        self._signal_listener = listener
+
+        # If app already exists, inject immediately
+        if self._app:
+            self._app.inject_services(
+                self._ta_service,
+                self._event_loop,
+                self._historical_service,
+                self._event_bus,
+                self._signal_persistence,
+                self._signal_listener,
+                self._coverage_store,
+            )
+
+    def set_coverage_store(self, coverage_store) -> None:
+        """
+        Set coverage store for Tab 7 historical data display.
+
+        Args:
+            coverage_store: DuckDBCoverageStore instance.
+        """
+        self._coverage_store = coverage_store
+
+        # If app already exists, inject immediately
+        if self._app:
+            self._app.inject_services(
+                self._ta_service,
+                self._event_loop,
+                self._historical_service,
+                self._event_bus,
+                self._signal_persistence,
+                self._signal_listener,
+                self._coverage_store,
+            )
 
     async def run_async(
         self,
@@ -149,15 +269,27 @@ class TextualDashboard:
         Args:
             orchestrator_callback: Async function that returns (snapshot, signals, health, alerts).
         """
-        self._app = ApexApp(env=self.env)
+        self._app = ApexApp(env=self.env, display_tz=self.display_tz)
 
-        # Inject services if already set
-        if self._ta_service:
+        # Inject services if already set (event_bus is critical for signal subscriptions)
+        if self._event_bus or self._ta_service or self._signal_persistence or self._coverage_store:
             self._app.inject_services(
                 self._ta_service,
                 self._event_loop,
                 self._historical_service,
+                self._event_bus,
+                self._signal_persistence,
+                self._signal_listener,
+                self._coverage_store,
             )
+
+        # Apply pending trading universe if set
+        if self._pending_universe:
+            self._app.set_trading_universe(self._pending_universe)
+
+        # NOTE: Confluence/alignment updates now use event bus (CONFLUENCE_UPDATE,
+        # ALIGNMENT_UPDATE events) instead of direct callbacks. The TUI subscribes
+        # to these events in inject_services() via _subscribe_trading_signals().
 
         # Run the app (blocks until user quits)
         # The app's on_mount sets up the update polling timer

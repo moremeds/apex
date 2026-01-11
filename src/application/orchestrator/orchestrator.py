@@ -28,6 +28,7 @@ from ...infrastructure.monitoring import HealthStatus
 from ..async_event_bus import AsyncEventBus
 from .data_coordinator import DataCoordinator
 from .snapshot_coordinator import SnapshotCoordinator
+from .signal_coordinator import SignalCoordinator
 
 if TYPE_CHECKING:
     from ...domain.services.risk.risk_engine import RiskEngine
@@ -37,11 +38,12 @@ if TYPE_CHECKING:
     from ...domain.services.market_alert_detector import MarketAlertDetector
     from ...domain.services.risk.risk_signal_engine import RiskSignalEngine
     from ...domain.services.risk.risk_alert_logger import RiskAlertLogger
+    from ...domain.interfaces.signal_persistence import SignalPersistencePort
     from ...infrastructure.stores import PositionStore, MarketDataStore, AccountStore
     from ...infrastructure.monitoring import HealthMonitor, Watchdog
     from ...infrastructure.adapters.broker_manager import BrokerManager
     from ...infrastructure.adapters.market_data_manager import MarketDataManager
-    from ...infrastructure.observability import RiskMetrics, HealthMetrics
+    from ...infrastructure.observability import RiskMetrics, HealthMetrics, SignalMetrics
     from ..readiness_manager import ReadinessManager
     from ...services.snapshot_service import SnapshotService
     from ...services.warm_start_service import WarmStartService
@@ -81,6 +83,9 @@ class Orchestrator:
         readiness_manager: Optional[ReadinessManager] = None,
         snapshot_service: Optional[SnapshotService] = None,
         warm_start_service: Optional[WarmStartService] = None,
+        signal_metrics: Optional["SignalMetrics"] = None,
+        historical_data_manager: Optional[Any] = None,
+        signal_persistence: Optional["SignalPersistencePort"] = None,
     ):
         # Core dependencies
         self.broker_manager = broker_manager
@@ -102,6 +107,7 @@ class Orchestrator:
         self._readiness_manager = readiness_manager
         self._snapshot_service = snapshot_service
         self._warm_start_service = warm_start_service
+        self._historical_data_manager = historical_data_manager
 
         # Create coordinators
         self._data_coordinator = DataCoordinator(
@@ -131,12 +137,28 @@ class Orchestrator:
             risk_metrics=risk_metrics,
         )
 
+        # Signal pipeline coordinator (bar aggregation → indicators → signals)
+        # With optional persistence for database storage and PostgreSQL NOTIFY
+        signals_config = config.get("signals", {})
+        self._signal_coordinator = SignalCoordinator(
+            event_bus=event_bus,
+            timeframes=signals_config.get("timeframes"),
+            max_workers=signals_config.get("indicator_max_workers", 4),
+            enabled=signals_config.get("enabled", True),
+            signal_metrics=signal_metrics,
+            historical_data_manager=historical_data_manager,
+            preload_config=signals_config.get("preload", {}),
+            persistence=signal_persistence,
+            exclude_options=signals_config.get("exclude_options", True),
+        )
+
         # State
         self._running = False
         self._timer_task: Optional[asyncio.Task] = None
         self._latest_market_alerts: List[Dict[str, Any]] = []
         self._tick_count: int = 0  # For periodic housekeeping
         self._consecutive_errors: int = 0  # Track timer loop error frequency
+        self._bar_preload_pending: bool = True  # Defer bar preload to first timer tick
 
         # Timer configuration
         self._timer_interval_sec = config.get("timer_interval_sec", 5.0)
@@ -159,6 +181,9 @@ class Orchestrator:
         # Subscribe components to events (before streaming starts)
         self._subscribe_components_to_events()
 
+        # Start signal pipeline (bar aggregation → indicators → signals)
+        self._signal_coordinator.start()
+
         # Warm-start: Load state from snapshots
         await self._perform_warm_start()
 
@@ -180,10 +205,14 @@ class Orchestrator:
         # Start timer loop
         self._timer_task = asyncio.create_task(self._timer_loop())
 
-        # Initial data fetch
+        # Initial data fetch (loads positions from brokers)
         await self._data_coordinator.fetch_and_reconcile(
             on_dirty_callback=self.risk_engine.mark_dirty
         )
+
+        # NOTE: Bar preload is deferred to first timer tick to ensure TUI is subscribed
+        # to CONFLUENCE_UPDATE and ALIGNMENT_UPDATE events before signals are generated.
+        # See _timer_loop() for the actual preload trigger.
 
         logger.info("Orchestrator started")
 
@@ -195,6 +224,7 @@ class Orchestrator:
         # Stop coordinators
         await self._data_coordinator.cleanup()
         await self._snapshot_coordinator.stop()
+        self._signal_coordinator.stop()
 
         # Cancel timer task
         if self._timer_task:
@@ -258,6 +288,11 @@ class Orchestrator:
                     break
 
                 new_cycle()  # New trace ID for this cycle
+
+                # Deferred bar preload on first tick (ensures TUI is subscribed to events)
+                if self._bar_preload_pending:
+                    self._bar_preload_pending = False
+                    await self._preload_signal_bars()
 
                 # Fetch and reconcile data
                 await self._data_coordinator.fetch_and_reconcile(
@@ -349,6 +384,14 @@ class Orchestrator:
         except Exception as e:
             logger.warning(f"Periodic cleanup error: {e}")
 
+        # Clean up expired signal cooldowns in SignalCoordinator
+        try:
+            cleared = self._signal_coordinator.clear_cooldowns()
+            if cleared > 0:
+                logger.debug(f"SignalCoordinator cleared {cleared} expired cooldowns")
+        except Exception as e:
+            logger.warning(f"Signal cooldown cleanup error: {e}")
+
     async def _perform_warm_start(self) -> None:
         """Load state from previous snapshots for warm start."""
         if not self._warm_start_service:
@@ -358,6 +401,61 @@ class Orchestrator:
             await self._warm_start_service.restore()
         except Exception as e:
             logger.warning(f"Warm start failed: {e}")
+
+    async def _preload_signal_bars(self) -> None:
+        """
+        Preload historical bars from Parquet cache for signal warmup.
+
+        Called during startup BEFORE live ticks arrive to ensure indicators
+        have sufficient warmup data (e.g., 201 bars for SMA 200).
+
+        This method:
+        1. Gets symbols from position store
+        2. Calls SignalCoordinator.preload_bar_history() which:
+           - Downloads missing bars from IB/Yahoo (gap backfill)
+           - Stores to Parquet cache (persistence)
+           - Injects into IndicatorEngine (warmup)
+        """
+        if not self._signal_coordinator.is_started:
+            logger.debug("Signal coordinator not started, skipping bar preload")
+            return
+
+        if not self._historical_data_manager:
+            logger.debug("No historical data manager configured, skipping bar preload")
+            return
+
+        # Get symbols from positions (use underlying for options, symbol for stocks)
+        positions = self.position_store.get_all()
+        symbols = list({
+            p.underlying or p.symbol
+            for p in positions
+            if p.underlying or p.symbol
+        })
+
+        if not symbols:
+            logger.debug("No symbols to preload (empty position store)")
+            return
+
+        logger.info(
+            "Initiating bar cache preload for signal pipeline",
+            extra={
+                "symbols_count": len(symbols),
+                "symbols": symbols[:10],  # Log first 10 for brevity
+            },
+        )
+
+        try:
+            results = await self._signal_coordinator.preload_bar_history(symbols)
+            logger.info(
+                "Bar cache preload completed",
+                extra={
+                    "symbols_loaded": len(results),
+                    "total_bars_injected": sum(results.values()),
+                },
+            )
+        except Exception as e:
+            # Don't crash startup on preload failure
+            logger.error(f"Bar cache preload failed: {e}", exc_info=True)
 
     # Public accessors (delegate to coordinators)
 
@@ -409,3 +507,8 @@ class Orchestrator:
             portfolio_vega=0.0,
             portfolio_theta=0.0,
         )
+
+    @property
+    def signal_coordinator(self) -> SignalCoordinator:
+        """Get the signal coordinator for confluence callback wiring."""
+        return self._signal_coordinator

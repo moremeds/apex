@@ -56,6 +56,26 @@ TIMEFRAME_TO_DEFAULT_DURATION = {
     "1M": "5 Y",
 }
 
+# Maximum practical history to request per timeframe (in days)
+# IB can provide more but large requests timeout. These limits ensure
+# requests complete reliably within ~60 seconds.
+# Reference: https://interactivebrokers.github.io/tws-api/historical_limitations.html
+MAX_HISTORY_DAYS = {
+    "1s": 1,       # ~86,400 bars/day - limit to 1 day
+    "5s": 1,       # ~17,280 bars/day
+    "15s": 1,      # ~5,760 bars/day
+    "30s": 2,      # ~2,880 bars/day
+    "1m": 7,       # ~390 bars/day - 7 days = ~2,730 bars
+    "5m": 30,      # ~78 bars/day - 30 days = ~2,340 bars
+    "15m": 60,     # ~26 bars/day - 60 days = ~1,560 bars
+    "30m": 90,     # ~13 bars/day - 90 days = ~1,170 bars
+    "1h": 180,     # ~7 bars/day - 180 days = ~1,260 bars
+    "4h": 365,     # ~2 bars/day - 365 days = ~730 bars
+    "1d": 3650,    # ~10 years
+    "1w": 3650,    # ~10 years
+    "1M": 3650,    # ~10 years
+}
+
 
 class IbHistoricalAdapter(IbBaseAdapter, BarProvider):
     """
@@ -121,13 +141,26 @@ class IbHistoricalAdapter(IbBaseAdapter, BarProvider):
         if not bar_size:
             raise ValueError(f"Unsupported timeframe: {timeframe}")
 
+        end_dt = end or datetime.now()
+
+        # Truncate request to max practical history for this timeframe
+        # Large requests (e.g., 1 year of 1m bars) timeout and return empty
+        max_days = MAX_HISTORY_DAYS.get(timeframe, 7)
+        if start:
+            requested_days = (end_dt - start).days
+            if requested_days > max_days:
+                original_start = start
+                start = end_dt - timedelta(days=max_days)
+                logger.warning(
+                    f"Truncating {symbol}/{timeframe} request from {requested_days} "
+                    f"to {max_days} days (IB practical limit)"
+                )
+
         # Calculate duration string
-        if start and end:
-            duration = self._calculate_duration(start, end, timeframe)
+        if start and end_dt:
+            duration = self._calculate_duration(start, end_dt, timeframe)
         else:
             duration = TIMEFRAME_TO_DEFAULT_DURATION.get(timeframe, "1 D")
-
-        end_dt = end or datetime.now()
 
         try:
             from ib_async import Stock
@@ -215,6 +248,10 @@ class IbHistoricalAdapter(IbBaseAdapter, BarProvider):
     def get_supported_timeframes(self) -> List[str]:
         """Get supported timeframes."""
         return list(TIMEFRAME_TO_IB_BAR_SIZE.keys())
+
+    def get_max_history_days(self, timeframe: str) -> int:
+        """Get maximum practical history available for timeframe."""
+        return MAX_HISTORY_DAYS.get(timeframe, 7)
 
     async def fetch_bars_batch(self, requests: List[dict]) -> dict:
         """

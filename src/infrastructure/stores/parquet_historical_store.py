@@ -10,6 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 from datetime import datetime
 from typing import List, Optional
+import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
@@ -208,27 +209,52 @@ class ParquetHistoricalStore:
         """
         Merge tables, with new data taking precedence for duplicate timestamps.
 
+        Handles schema migration: existing files may have older schema (e.g.,
+        timestamp[ns] vs timestamp[us,tz=UTC]). Converts to pandas for
+        schema-agnostic merge, then back to target schema.
+
         Args:
             existing: Existing table.
             new: New table to merge.
 
         Returns:
-            Merged and deduplicated table.
+            Merged and deduplicated table with BAR_SCHEMA.
         """
-        # Combine tables
-        combined = pa.concat_tables([existing, new])
+        # Convert to pandas for schema-agnostic merge
+        # This handles schema differences (timestamp precision, timezone, extra columns)
+        existing_df = existing.to_pandas()
+        new_df = new.to_pandas()
 
-        # Convert to pandas for deduplication (PyArrow lacks native dedup)
-        df = combined.to_pandas()
+        # Normalize timestamps to UTC-aware for consistent comparison
+        # Old files may have tz-naive timestamps, new data has UTC
+        for df in [existing_df, new_df]:
+            if "timestamp" in df.columns:
+                ts_col = df["timestamp"]
+                if ts_col.dt.tz is None:
+                    df["timestamp"] = ts_col.dt.tz_localize("UTC")
+                else:
+                    df["timestamp"] = ts_col.dt.tz_convert("UTC")
+
+        # Concatenate DataFrames
+        combined_df = pd.concat([existing_df, new_df], ignore_index=True)
 
         # Keep last occurrence (new data) for duplicate timestamps
-        df = df.drop_duplicates(subset=["timestamp"], keep="last")
+        combined_df = combined_df.drop_duplicates(subset=["timestamp"], keep="last")
 
         # Sort by timestamp
-        df = df.sort_values("timestamp").reset_index(drop=True)
+        combined_df = combined_df.sort_values("timestamp").reset_index(drop=True)
 
-        # Convert back to PyArrow
-        return pa.Table.from_pandas(df, schema=BAR_SCHEMA)
+        # Ensure all required columns exist with proper defaults
+        for field in BAR_SCHEMA:
+            if field.name not in combined_df.columns:
+                combined_df[field.name] = None
+
+        # Select only columns in BAR_SCHEMA (drop extra columns from old schema)
+        schema_columns = [f.name for f in BAR_SCHEMA]
+        combined_df = combined_df[schema_columns]
+
+        # Convert back to PyArrow with target schema
+        return pa.Table.from_pandas(combined_df, schema=BAR_SCHEMA)
 
     def _bars_to_table(self, bars: List[BarData]) -> pa.Table:
         """Convert BarData list to PyArrow table."""
@@ -384,6 +410,32 @@ class ParquetHistoricalStore:
         return sorted([
             f.stem for f in symbol_dir.glob("*.parquet")
         ])
+
+    def get_all_file_sizes(self) -> dict[tuple[str, str], int]:
+        """
+        Get file sizes for all symbol/timeframe combinations.
+
+        Returns:
+            Dict mapping (symbol, timeframe) -> file size in bytes.
+        """
+        sizes: dict[tuple[str, str], int] = {}
+
+        if not self._base_dir.exists():
+            return sizes
+
+        for symbol_dir in self._base_dir.iterdir():
+            if not symbol_dir.is_dir() or symbol_dir.name.startswith("_"):
+                continue
+
+            symbol = symbol_dir.name
+            for parquet_file in symbol_dir.glob("*.parquet"):
+                timeframe = parquet_file.stem
+                try:
+                    sizes[(symbol, timeframe)] = parquet_file.stat().st_size
+                except OSError:
+                    pass
+
+        return sizes
 
 
 def pd_isna(value: object) -> bool:

@@ -15,6 +15,7 @@ ViewModels MUST NOT:
 from .base import BaseViewModel, CellUpdate, RowUpdate
 from .position_vm import PositionViewModel
 from .signal_vm import SignalViewModel
+from .trading_signal_vm import TradingSignalViewModel
 from .strategy_vm import StrategyDisplayState, StrategyViewModel
 from .summary_vm import SummaryViewModel
 from .alert_vm import AlertViewModel  # OPT-011
@@ -26,6 +27,7 @@ __all__ = [
     "RowUpdate",
     "PositionViewModel",
     "SignalViewModel",
+    "TradingSignalViewModel",
     "StrategyDisplayState",
     "StrategyViewModel",
     "SummaryViewModel",

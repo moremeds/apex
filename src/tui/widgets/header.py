@@ -14,7 +14,7 @@ from __future__ import annotations
 from textual.widget import Widget
 from textual.reactive import reactive
 from textual.widgets import Static, Tabs, Tab
-from textual.containers import Center, Horizontal
+from textual.containers import Horizontal
 from textual.app import ComposeResult
 
 from ...utils.market_hours import MarketHours
@@ -29,34 +29,37 @@ class HeaderWidget(Widget):
 
     active_tab: reactive[str] = reactive("summary", init=False)
 
-    def __init__(self, env: str = "dev", **kwargs):
+    def __init__(self, env: str = "dev", display_tz: str = "Asia/Hong_Kong", **kwargs):
         """
         Initialize header widget.
 
         Args:
             env: Environment name (dev, demo, prod).
+            display_tz: IANA timezone name for display (e.g., "Asia/Hong_Kong").
         """
         super().__init__(**kwargs)
         self.env = env
+        self._display_tz_name = display_tz
         self._display_tz = None
 
     def compose(self) -> ComposeResult:
         """Compose the header layout."""
-        with Center():
-            with Horizontal(id="header-content"):
-                yield Static(self._build_header_text(), id="header-left")
-                tabs = [
-                    Tab(f"[{key}]{label}", id=tab_id)
-                    for key, label, tab_id, _view in VIEW_TABS
-                ]
-                yield Tabs(*tabs, id="header-tabs", active=self.active_tab)
+        # Note: No Center() wrapper - CSS content-align handles centering
+        # Center() inside a 1-row height widget causes layout issues
+        with Horizontal(id="header-content"):
+            yield Static(self._build_header_text(), id="header-left")
+            tabs = [
+                Tab(f"[{key}]{label}", id=tab_id)
+                for key, label, tab_id, _view in VIEW_TABS
+            ]
+            yield Tabs(*tabs, id="header-tabs", active=self.active_tab)
 
     def _build_header_text(self) -> str:
         """Build the header text with all components."""
         from ...utils.timezone import DisplayTimezone
-        # Get current time
+        # Get current time using configured timezone
         if self._display_tz is None:
-            self._display_tz = DisplayTimezone("Asia/Hong_Kong")
+            self._display_tz = DisplayTimezone(self._display_tz_name)
         current_time = self._display_tz.current_time("%H:%M:%S %Z")
 
         # Get market status

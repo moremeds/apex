@@ -24,7 +24,7 @@ from typing import Optional, Literal, Dict, Any, List, Type, TypeVar
 from enum import Enum
 import json
 
-from ...utils.timezone import now_local
+from ...utils.timezone import now_utc
 
 
 # Type variable for generic from_dict
@@ -84,7 +84,7 @@ class DomainEvent:
 
     All domain events are immutable (frozen) and use slots for memory efficiency.
     """
-    timestamp: datetime = field(default_factory=now_local)
+    timestamp: datetime = field(default_factory=now_utc)
 
     def to_dict(self) -> Dict[str, Any]:
         """
@@ -251,6 +251,71 @@ class BarData(DomainEvent):
         if self.close is not None and self.open is not None:
             return self.close >= self.open
         return None
+
+
+# =============================================================================
+# Signal Engine Events
+# =============================================================================
+
+
+@dataclass(frozen=True, slots=True)
+class BarCloseEvent(DomainEvent):
+    """
+    Bar close event for the signal engine data pipeline.
+
+    Published on EventType.BAR_CLOSE when a bar completes (tick aggregation).
+    Triggers indicator calculations in the IndicatorEngine.
+    """
+
+    symbol: str = ""
+    timeframe: str = "1m"
+    open: float = 0.0
+    high: float = 0.0
+    low: float = 0.0
+    close: float = 0.0
+    volume: float = 0.0
+    bar_end: Optional[datetime] = None
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "BarCloseEvent":
+        """Deserialize with datetime handling."""
+        data = data.copy()
+        data.pop("_event_type", None)
+
+        for dt_field in ["timestamp", "bar_end"]:
+            if dt_field in data and isinstance(data[dt_field], str):
+                data[dt_field] = datetime.fromisoformat(data[dt_field])
+
+        return cls(**data)
+
+
+@dataclass(frozen=True, slots=True)
+class IndicatorUpdateEvent(DomainEvent):
+    """
+    Indicator update event with current and previous state.
+
+    Published on EventType.INDICATOR_UPDATE when an indicator is recalculated.
+    Contains both current and previous state for rule transition detection.
+    """
+
+    symbol: str = ""
+    timeframe: str = "1m"
+    indicator: str = ""
+    value: Optional[float] = None
+    state: Dict[str, Any] = field(default_factory=dict)
+    previous_value: Optional[float] = None
+    previous_state: Optional[Dict[str, Any]] = None
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "IndicatorUpdateEvent":
+        """Deserialize with datetime handling."""
+        data = data.copy()
+        data.pop("_event_type", None)
+
+        if "timestamp" in data and isinstance(data["timestamp"], str):
+            data["timestamp"] = datetime.fromisoformat(data["timestamp"])
+
+        return cls(**data)
 
 
 # =============================================================================
@@ -620,8 +685,10 @@ class TradingSignalEvent(DomainEvent):
     # Core signal fields
     signal_id: str = ""
     symbol: str = ""
+    timeframe: str = ""  # e.g., "1m", "5m", "1h", "1d"
     direction: str = ""  # "LONG", "SHORT", "FLAT"
     strength: float = 1.0
+    indicator: str = ""  # Source indicator (e.g., "rsi", "macd")
 
     # Targeting
     target_quantity: Optional[float] = None
@@ -632,29 +699,191 @@ class TradingSignalEvent(DomainEvent):
     reason: str = ""
     source: str = ""  # Source of the signal (e.g., strategy_id)
 
+    # Signal context for persistence
+    category: str = ""  # "momentum", "trend", "volatility", etc.
+    priority: str = ""  # "info", "low", "medium", "high", "critical"
+    trigger_rule: str = ""
+    current_value: Optional[float] = None
+    threshold: Optional[float] = None
+    previous_value: Optional[float] = None
+    message: str = ""
+
     @classmethod
     def from_signal(cls, signal: Any, source: str = "strategy") -> "TradingSignalEvent":
         """
         Create event from TradingSignal domain object.
 
+        Handles both:
+        - Strategy TradingSignal (direction as string, has strategy_id/reason)
+        - Signal Engine TradingSignal (direction as SignalDirection enum, has trigger_rule/message)
+
         Args:
-            signal: TradingSignal instance from strategy
-            source: Source of the signal (e.g., strategy_id)
+            signal: TradingSignal instance from strategy or signal engine
+            source: Source of the signal (e.g., strategy_id, "rule_engine")
 
         Returns:
             TradingSignalEvent for event bus
         """
+        # Handle timestamp
+        timestamp = getattr(signal, "timestamp", None) or now_local()
+
+        # Handle direction - may be string or Enum
+        direction = getattr(signal, "direction", "")
+        direction_map = {"buy": "LONG", "sell": "SHORT", "alert": "FLAT"}
+        if isinstance(direction, Enum):
+            # Map signal engine directions (buy/sell/alert) to event directions
+            direction = direction_map.get(direction.value, direction.value.upper())
+        elif isinstance(direction, str) and direction.lower() in direction_map:
+            # Also handle lowercase string directions
+            direction = direction_map[direction.lower()]
+
+        # Handle strength - may be int or float
+        strength = float(getattr(signal, "strength", 1.0))
+
+        # Handle strategy_id - fall back to trigger_rule for signal engine signals
+        strategy_id = getattr(signal, "strategy_id", "")
+        if not strategy_id:
+            strategy_id = getattr(signal, "trigger_rule", "")
+
+        # Handle reason - fall back to message for signal engine signals
+        reason = getattr(signal, "reason", "")
+        if not reason:
+            reason = getattr(signal, "message", "")
+
+        # Handle optional targeting fields
+        target_quantity = getattr(signal, "target_quantity", None)
+        target_price = getattr(signal, "target_price", None)
+
+        # Handle timeframe and indicator
+        timeframe = getattr(signal, "timeframe", "")
+        indicator = getattr(signal, "indicator", "")
+
+        # Handle signal context for persistence
+        category = getattr(signal, "category", "")
+        if hasattr(category, "value"):
+            category = category.value
+        priority = getattr(signal, "priority", "")
+        if hasattr(priority, "value"):
+            priority = priority.value
+        trigger_rule = getattr(signal, "trigger_rule", "")
+        current_value = getattr(signal, "current_value", None)
+        threshold = getattr(signal, "threshold", None)
+        previous_value = getattr(signal, "previous_value", None)
+        message = getattr(signal, "message", "")
+
         return cls(
-            timestamp=signal.timestamp or now_local(),
+            timestamp=timestamp,
             signal_id=signal.signal_id,
             symbol=signal.symbol,
-            direction=signal.direction,
-            strength=signal.strength,
-            target_quantity=signal.target_quantity,
-            target_price=signal.target_price,
-            strategy_id=signal.strategy_id,
-            reason=signal.reason,
+            timeframe=timeframe,
+            direction=direction,
+            strength=strength,
+            indicator=indicator,
+            target_quantity=target_quantity,
+            target_price=target_price,
+            strategy_id=strategy_id,
+            reason=reason,
             source=source,
+            category=category,
+            priority=priority,
+            trigger_rule=trigger_rule,
+            current_value=current_value,
+            threshold=threshold,
+            previous_value=previous_value,
+            message=message,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ConfluenceUpdateEvent(DomainEvent):
+    """
+    Confluence score update event for multi-indicator analysis.
+
+    Published on EventType.CONFLUENCE_UPDATE when indicator confluence
+    is recalculated. Enables TUI to display cross-indicator agreement.
+
+    Confluence measures how many technical indicators agree on direction:
+    - High confluence (0.7+): Strong directional agreement
+    - Low confluence (<0.3): Mixed/conflicting signals
+    """
+
+    symbol: str = ""
+    timeframe: str = "1d"
+    alignment_score: float = 0.0  # -1.0 (bearish) to +1.0 (bullish)
+    bullish_count: int = 0
+    bearish_count: int = 0
+    neutral_count: int = 0
+    total_indicators: int = 0
+    dominant_direction: str = "neutral"  # "bullish", "bearish", "neutral"
+    confidence: float = 0.0  # 0.0 to 1.0
+
+    @classmethod
+    def from_score(cls, score: Any) -> "ConfluenceUpdateEvent":
+        """
+        Create event from ConfluenceScore domain object.
+
+        Args:
+            score: ConfluenceScore instance from CrossIndicatorAnalyzer
+
+        Returns:
+            ConfluenceUpdateEvent for event bus
+        """
+        return cls(
+            timestamp=getattr(score, "timestamp", None) or now_local(),
+            symbol=getattr(score, "symbol", ""),
+            timeframe=getattr(score, "timeframe", "1d"),
+            alignment_score=getattr(score, "alignment_score", 0.0),
+            bullish_count=getattr(score, "bullish_count", 0),
+            bearish_count=getattr(score, "bearish_count", 0),
+            neutral_count=getattr(score, "neutral_count", 0),
+            total_indicators=getattr(score, "total_indicators", 0),
+            dominant_direction=getattr(score, "dominant_direction", "neutral"),
+            confidence=getattr(score, "confidence", 0.0),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class AlignmentUpdateEvent(DomainEvent):
+    """
+    Multi-timeframe alignment update event.
+
+    Published on EventType.ALIGNMENT_UPDATE when MTF alignment is
+    recalculated. Enables TUI to display timeframe agreement.
+
+    MTF alignment measures directional agreement across timeframes:
+    - Strong alignment: All timeframes agree on direction
+    - Weak alignment: Mixed signals across timeframes
+    """
+
+    symbol: str = ""
+    timeframes: List[str] = field(default_factory=list)
+    strength: str = "weak"  # "strong", "moderate", "weak"
+    direction: str = "neutral"  # "bullish", "bearish", "neutral"
+    aligned_count: int = 0
+    total_timeframes: int = 0
+    divergence_detected: bool = False
+
+    @classmethod
+    def from_alignment(cls, alignment: Any) -> "AlignmentUpdateEvent":
+        """
+        Create event from MTFAlignment domain object.
+
+        Args:
+            alignment: MTFAlignment instance from MTFDivergenceAnalyzer
+
+        Returns:
+            AlignmentUpdateEvent for event bus
+        """
+        aligned_tfs = getattr(alignment, "aligned_timeframes", [])
+        return cls(
+            timestamp=getattr(alignment, "timestamp", None) or now_local(),
+            symbol=getattr(alignment, "symbol", ""),
+            timeframes=list(aligned_tfs),
+            strength=getattr(alignment, "strength", "weak"),
+            direction=getattr(alignment, "direction", "neutral"),
+            aligned_count=len(aligned_tfs),
+            total_timeframes=getattr(alignment, "total_timeframes", 0),
+            divergence_detected=getattr(alignment, "divergence_detected", False),
         )
 
 
@@ -666,6 +895,8 @@ class TradingSignalEvent(DomainEvent):
 EVENT_REGISTRY: Dict[str, Type[DomainEvent]] = {
     "QuoteTick": QuoteTick,
     "BarData": BarData,
+    "BarCloseEvent": BarCloseEvent,
+    "IndicatorUpdateEvent": IndicatorUpdateEvent,
     "TradeFill": TradeFill,
     "OrderUpdate": OrderUpdate,
     "PositionSnapshot": PositionSnapshot,
@@ -676,6 +907,8 @@ EVENT_REGISTRY: Dict[str, Type[DomainEvent]] = {
     "MarketDataTickEvent": MarketDataTickEvent,
     "MDQCValidationTrigger": MDQCValidationTrigger,
     "TradingSignalEvent": TradingSignalEvent,
+    "ConfluenceUpdateEvent": ConfluenceUpdateEvent,
+    "AlignmentUpdateEvent": AlignmentUpdateEvent,
 }
 
 

@@ -2,7 +2,7 @@
 Logging setup with file rotation, categories, and trace ID support.
 
 Provides:
-- 5 log categories: system, adapter, risk, data, perf
+- 6 log categories: system, adapter, risk, data, perf, signal
 - Automatic module → category routing
 - Cycle ID correlation in all logs
 - File logging with size-based or time-based rotation
@@ -16,6 +16,7 @@ Categories:
 - risk: Risk calculations, breaches, signals
 - data: Market data, positions, reconciliation, stores
 - perf: Timing, latency, performance diagnostics
+- signal: Bar aggregation, indicators, trading signals, confluence
 """
 
 from __future__ import annotations
@@ -66,7 +67,7 @@ _queue_listeners: List[logging.handlers.QueueListener] = []
 # =============================================================================
 
 # Available log categories
-CATEGORIES = ["system", "adapter", "risk", "data", "perf"]
+CATEGORIES = ["system", "adapter", "risk", "data", "perf", "signal"]
 
 # Category file suffixes
 CATEGORY_SUFFIXES = {
@@ -75,6 +76,7 @@ CATEGORY_SUFFIXES = {
     "risk": "risk",
     "data": "data",
     "perf": "performance",
+    "signal": "signal",
 }
 
 # Module path → category routing
@@ -91,6 +93,11 @@ MODULE_ROUTING: List[tuple[str, str]] = [
 
     # Stores
     ("src.infrastructure.stores", "data"),
+
+    # Signal pipeline (bar aggregation → indicators → signals → confluence)
+    ("src.domain.signals", "signal"),
+    ("src.application.orchestrator.signal_coordinator", "signal"),
+    ("src.infrastructure.observability.signal_metrics", "signal"),
 
     # Risk domain
     ("src.domain.services.risk", "risk"),

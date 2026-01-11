@@ -29,7 +29,7 @@ MANIFEST
 
 # PyInstaller
 *.manifest
-*.spec
+*.spec/
 
 # Installer logs
 pip-log.txt
@@ -175,3 +175,5 @@ temp/
 /docs/ideas/textual/
 /docs/ideas/rich_layout/
 /results/
+/docs/indicators/
+/docs/rules/

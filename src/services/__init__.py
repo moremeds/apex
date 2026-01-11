@@ -6,6 +6,7 @@ from src.services.snapshot_service import SnapshotService
 from src.services.warm_start_service import WarmStartService, WarmStartResult
 from src.services.historical_data_service import HistoricalDataService
 from src.services.ta_service import TAService, ATRLevels
+from src.services.bar_persistence_service import BarPersistenceService
 
 __all__ = [
     "HistoryLoaderService",
@@ -20,4 +21,6 @@ __all__ = [
     "HistoricalDataService",
     "TAService",
     "ATRLevels",
+    # Bar persistence
+    "BarPersistenceService",
 ]

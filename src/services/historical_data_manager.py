@@ -117,8 +117,8 @@ class HistoricalDataManager:
         Args:
             symbol: Ticker symbol.
             timeframe: Bar timeframe ('5min', '1h', '1d').
-            start: Start datetime.
-            end: End datetime.
+            start: Start datetime (naive or aware).
+            end: End datetime (naive or aware).
             source_priority: Optional override for source priority.
 
         Returns:
@@ -126,8 +126,13 @@ class HistoricalDataManager:
         """
         priority = source_priority or self._source_priority
 
+        # Normalize datetimes to naive for coverage store (stores naive UTC)
+        # Coverage store internally uses naive datetimes for comparison
+        start_naive = start.replace(tzinfo=None) if start.tzinfo else start
+        end_naive = end.replace(tzinfo=None) if end.tzinfo else end
+
         # Find missing ranges
-        missing = self._coverage_store.find_gaps(symbol, timeframe, start, end)
+        missing = self._coverage_store.find_gaps(symbol, timeframe, start_naive, end_naive)
 
         if missing:
             logger.info(
@@ -144,8 +149,8 @@ class HistoricalDataManager:
                     priority=priority,
                 )
 
-        # Return data from storage
-        return self.get_bars(symbol, timeframe, start, end)
+        # Return data from storage (use naive datetimes for Parquet filtering)
+        return self.get_bars(symbol, timeframe, start_naive, end_naive)
 
     async def _download_range(
         self,
@@ -181,13 +186,22 @@ class HistoricalDataManager:
                     # Write to storage
                     self._bar_store.write_bars(symbol, timeframe, bars, mode="upsert")
 
-                    # Update coverage
+                    # Update coverage using ACTUAL data range, not requested range
+                    # This ensures coverage reflects IPO/inception dates correctly
+                    # Single pass: bars are typically sorted from source, use first/last
+                    bar_starts = [b.bar_start for b in bars if b.bar_start]
+                    actual_start = bar_starts[0]
+                    actual_end = bar_starts[-1]
+                    # Handle unsorted case (should be rare)
+                    if actual_start > actual_end:
+                        actual_start, actual_end = actual_end, actual_start
+
                     self._coverage_store.update_coverage(
                         symbol=symbol,
                         timeframe=timeframe,
                         source=source_name,
-                        start=start,
-                        end=end,
+                        start=actual_start,
+                        end=actual_end,
                         bar_count=len(bars),
                     )
 
@@ -196,8 +210,8 @@ class HistoricalDataManager:
                         timeframe=timeframe,
                         source=source_name,
                         bars_downloaded=len(bars),
-                        start=start,
-                        end=end,
+                        start=actual_start,
+                        end=actual_end,
                         success=True,
                     )
                 else:
@@ -207,8 +221,26 @@ class HistoricalDataManager:
                 logger.error(f"Failed to download from {source_name}: {e}")
                 continue
 
-        # All sources failed
-        self._coverage_store.record_gap(symbol, timeframe, start, end)
+        # All sources failed - only record gap if we have existing coverage
+        # (otherwise, data likely doesn't exist for this range, e.g., pre-IPO)
+        existing_coverage = self._coverage_store.get_coverage(symbol, timeframe)
+        if existing_coverage:
+            # Only record gap if it's within known data range
+            earliest = min(c.start for c in existing_coverage)
+            latest = max(c.end for c in existing_coverage)
+            if start >= earliest and end <= latest:
+                self._coverage_store.record_gap(symbol, timeframe, start, end)
+                logger.debug(f"Recorded gap for {symbol}/{timeframe}: {start} to {end}")
+            else:
+                logger.debug(
+                    f"Skipping gap record for {symbol}/{timeframe} - "
+                    f"outside known data range ({earliest} to {latest})"
+                )
+        else:
+            logger.debug(
+                f"Skipping gap record for {symbol}/{timeframe} - "
+                f"no existing coverage (likely pre-IPO/inception)"
+            )
 
         return DownloadResult(
             symbol=symbol,
@@ -271,6 +303,21 @@ class HistoricalDataManager:
     ) -> List[DateRange]:
         """Find gaps in coverage for the requested range."""
         return self._coverage_store.find_gaps(symbol, timeframe, start, end)
+
+    def get_max_history_days(self, timeframe: str) -> int:
+        """
+        Get maximum history available for a timeframe from preferred source.
+
+        Returns the max from the highest priority source that supports this timeframe.
+        Used for preload to request full available history on startup.
+        """
+        for source_name in self._source_priority:
+            source = self._sources.get(source_name)
+            if source and source.supports_timeframe(timeframe):
+                if hasattr(source, "get_max_history_days"):
+                    return source.get_max_history_days(timeframe)
+        # Fallback defaults if no source has the method
+        return {"1m": 7, "5m": 60, "15m": 60, "1h": 730, "1d": 3650}.get(timeframe, 365)
 
     async def download_symbols(
         self,

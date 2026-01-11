@@ -43,6 +43,12 @@ from src.infrastructure.persistence.repositories.snapshot_repositories import (
     RiskSnapshotRepository,
     RiskSnapshotRecord,
 )
+from src.infrastructure.persistence.repositories.ta_signal_repository import (
+    TASignalRepository,
+    TASignalEntity,
+    IndicatorValueEntity,
+    ConfluenceScoreEntity,
+)
 
 __all__ = [
     "BaseRepository",
@@ -70,4 +76,9 @@ __all__ = [
     "AccountSnapshot",
     "RiskSnapshotRepository",
     "RiskSnapshotRecord",
+    # TA Signal persistence
+    "TASignalRepository",
+    "TASignalEntity",
+    "IndicatorValueEntity",
+    "ConfluenceScoreEntity",
 ]
