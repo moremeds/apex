@@ -60,7 +60,8 @@ class YahooHistoricalAdapter:
     }
 
     # Maximum history available per timeframe
-    # Yahoo limits: 1m=7d, 5m/15m/30m=60d, 1h+=730d
+    # Yahoo returns from IPO (stocks) or inception (ETFs) automatically
+    # Intraday limits are hard Yahoo API limits
     MAX_HISTORY_DAYS = {
         "1m": 7,        # 7 days only for 1-minute data
         "5m": 60,
@@ -68,9 +69,9 @@ class YahooHistoricalAdapter:
         "30m": 60,
         "1h": 730,
         "4h": 730,
-        "1d": 36500,    # ~100 years
-        "1w": 36500,
-        "1M": 36500,
+        "1d": 18250,    # ~50 years (Yahoo returns from IPO/inception)
+        "1w": 18250,
+        "1M": 18250,
         # Long format aliases
         "5min": 60,
         "15min": 60,

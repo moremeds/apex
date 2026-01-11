@@ -89,7 +89,8 @@ class VolumeRatioIndicator(IndicatorBase):
         else:
             level = "normal"
 
-        spike = volume_ratio >= high_threshold
+        # Convert to Python bool for JSON serialization
+        spike = bool(volume_ratio >= high_threshold)
 
         return {
             "volume_ratio": float(volume_ratio),

@@ -203,8 +203,9 @@ class SqueezeIndicator(IndicatorBase):
                 "direction": "neutral",
             }
 
-        squeeze_on = squeeze == 1
-        squeeze_off = squeeze == -1
+        # Convert to Python bool for JSON serialization
+        squeeze_on = bool(squeeze == 1)
+        squeeze_off = bool(squeeze == -1)
 
         if pd.isna(squeeze_mom):
             direction = "neutral"

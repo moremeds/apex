@@ -186,13 +186,22 @@ class HistoricalDataManager:
                     # Write to storage
                     self._bar_store.write_bars(symbol, timeframe, bars, mode="upsert")
 
-                    # Update coverage
+                    # Update coverage using ACTUAL data range, not requested range
+                    # This ensures coverage reflects IPO/inception dates correctly
+                    # Single pass: bars are typically sorted from source, use first/last
+                    bar_starts = [b.bar_start for b in bars if b.bar_start]
+                    actual_start = bar_starts[0]
+                    actual_end = bar_starts[-1]
+                    # Handle unsorted case (should be rare)
+                    if actual_start > actual_end:
+                        actual_start, actual_end = actual_end, actual_start
+
                     self._coverage_store.update_coverage(
                         symbol=symbol,
                         timeframe=timeframe,
                         source=source_name,
-                        start=start,
-                        end=end,
+                        start=actual_start,
+                        end=actual_end,
                         bar_count=len(bars),
                     )
 
@@ -201,8 +210,8 @@ class HistoricalDataManager:
                         timeframe=timeframe,
                         source=source_name,
                         bars_downloaded=len(bars),
-                        start=start,
-                        end=end,
+                        start=actual_start,
+                        end=actual_end,
                         success=True,
                     )
                 else:
@@ -212,8 +221,26 @@ class HistoricalDataManager:
                 logger.error(f"Failed to download from {source_name}: {e}")
                 continue
 
-        # All sources failed
-        self._coverage_store.record_gap(symbol, timeframe, start, end)
+        # All sources failed - only record gap if we have existing coverage
+        # (otherwise, data likely doesn't exist for this range, e.g., pre-IPO)
+        existing_coverage = self._coverage_store.get_coverage(symbol, timeframe)
+        if existing_coverage:
+            # Only record gap if it's within known data range
+            earliest = min(c.start for c in existing_coverage)
+            latest = max(c.end for c in existing_coverage)
+            if start >= earliest and end <= latest:
+                self._coverage_store.record_gap(symbol, timeframe, start, end)
+                logger.debug(f"Recorded gap for {symbol}/{timeframe}: {start} to {end}")
+            else:
+                logger.debug(
+                    f"Skipping gap record for {symbol}/{timeframe} - "
+                    f"outside known data range ({earliest} to {latest})"
+                )
+        else:
+            logger.debug(
+                f"Skipping gap record for {symbol}/{timeframe} - "
+                f"no existing coverage (likely pre-IPO/inception)"
+            )
 
         return DownloadResult(
             symbol=symbol,
