@@ -6,7 +6,7 @@ from .account import AccountInfo
 from .risk_snapshot import RiskSnapshot
 from .reconciliation import ReconciliationIssue, IssueType
 from .position_risk import PositionRisk
-from .order import Order, Trade, Execution, OrderSource, OrderStatus, OrderSide, OrderType
+from .order import Order, Trade, OrderSource, OrderStatus, OrderSide, OrderType
 
 __all__ = [
     "Position",
@@ -22,7 +22,6 @@ __all__ = [
     "PositionRisk",
     "Order",
     "Trade",
-    "Execution",  # Alias for Trade (IB terminology)
     "OrderSource",
     "OrderStatus",
     "OrderSide",

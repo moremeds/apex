@@ -375,7 +375,7 @@ class PriorityEventBus:
                 except asyncio.QueueEmpty:
                     break
                 except Exception as e:
-                    logger.error(f"Error draining fast queue: {e}")
+                    logger.exception(f"Error draining fast queue: {e}")
 
         # Drain pending slow events
         for envelope in self._pending_slow.values():
@@ -383,7 +383,7 @@ class PriorityEventBus:
                 await self._dispatch(envelope)
                 drained += 1
             except Exception as e:
-                logger.error(f"Error draining slow queue: {e}")
+                logger.exception(f"Error draining slow queue: {e}")
         self._pending_slow.clear()
 
         if drained > 0:
@@ -490,7 +490,7 @@ class PriorityEventBus:
                     cb(payload)
             except Exception as e:
                 self._errors.increment()
-                logger.error(f"Subscriber error for {event_type.value}: {e}")
+                logger.exception(f"Subscriber error for {event_type.value}: {e}")
 
         # Async subscribers
         for cb in self._async_subscribers.get(event_type, []):
@@ -500,7 +500,7 @@ class PriorityEventBus:
                     await result
             except Exception as e:
                 self._errors.increment()
-                logger.error(f"Async subscriber error for {event_type.value}: {e}")
+                logger.exception(f"Async subscriber error for {event_type.value}: {e}")
 
     async def _run_heavy_callback(self, cb: Callable, payload: Any) -> None:
         """Run a heavy callback in thread pool with semaphore protection."""
@@ -511,7 +511,7 @@ class PriorityEventBus:
                 self._heavy_callbacks_offloaded.increment()
             except Exception as e:
                 self._errors.increment()
-                logger.error(f"Heavy callback error: {e}")
+                logger.exception(f"Heavy callback error: {e}")
 
     def _dispatch_sync(self, envelope: PriorityEventEnvelope) -> None:
         """Sync dispatch fallback (when not running)."""
@@ -519,7 +519,7 @@ class PriorityEventBus:
             try:
                 cb(envelope.payload)
             except Exception as e:
-                logger.error(f"Sync dispatch error: {e}")
+                logger.exception(f"Sync dispatch error: {e}")
 
     def subscribe(self, event_type: EventType, callback: Callable) -> None:
         """Subscribe sync callback to event type."""

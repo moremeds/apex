@@ -295,10 +295,6 @@ def get_evaluators() -> Dict["ConditionType", ConditionEvaluator]:
     return _evaluators_cache
 
 
-# For direct import (initialized on first access)
-EVALUATORS = property(lambda self: get_evaluators())
-
-
 class _EvaluatorsProxy:
     """Proxy for lazy EVALUATORS dict access."""
 

@@ -164,7 +164,7 @@ class SystemClock(Clock):
         try:
             callback()
         except Exception as e:
-            logger.error(f"Timer {timer_id} callback error: {e}")
+            logger.exception(f"Timer {timer_id} callback error: {e}")
 
     def cancel_timer(self, timer_id: str) -> bool:
         """Cancel a scheduled timer."""
@@ -290,7 +290,7 @@ class SimulatedClock(Clock):
                 timers_fired += 1
                 logger.debug(f"Timer {timer_id} fired at {fire_time}")
             except Exception as e:
-                logger.error(f"Timer {timer_id} callback error: {e}")
+                logger.exception(f"Timer {timer_id} callback error: {e}")
 
         # Advance to final target time
         self._current_time = new_time

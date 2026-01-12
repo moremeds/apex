@@ -12,6 +12,7 @@ from typing import Dict, Any, Optional
 from .fee_model import (
     FeeModel,
     ZeroFeeModel,
+    ConstantFeeModel,
     PerShareFeeModel,
     IBFeeModel,
     FutuFeeModel,
@@ -22,6 +23,7 @@ from .slippage_model import (
     ConstantSlippageModel,
     SpreadSlippageModel,
     VolumeSlippageModel,
+    RandomSlippageModel,
 )
 from .fill_model import (
     FillModel,

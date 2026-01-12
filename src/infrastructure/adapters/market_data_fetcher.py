@@ -88,6 +88,8 @@ class MarketDataFetcher:
         # OPT-010: Snapshot dicts for lock-free reads (copy-on-write)
         self._ticker_to_symbol_snapshot: Dict[int, str] = {}
         self._ticker_positions_snapshot: Dict[str, Position] = {}
+        # CRIT-001: Error counter for rate-limited logging
+        self._ticker_error_count: int = 0
 
     def set_event_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         """Set event loop for non-blocking callback dispatch (M4 fix)."""
@@ -801,9 +803,11 @@ class MarketDataFetcher:
                 except (asyncio.QueueFull, RuntimeError):
                     dropped += 1
 
-            except Exception:
-                # Silently skip errors in hot path (logged in batch processor)
-                pass
+            except Exception as e:
+                # CRIT-001: Rate-limited logging for hot path errors
+                self._ticker_error_count += 1
+                if self._ticker_error_count <= 10 or self._ticker_error_count % 100 == 0:
+                    logger.warning("Ticker processing error (total=%d): %s", self._ticker_error_count, e)
 
         if dropped > 0:
             logger.warning(f"Ticker queue full, dropped {dropped} updates")

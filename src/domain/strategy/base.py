@@ -502,7 +502,7 @@ class Strategy(ABC):
         Args:
             error: The exception that occurred.
         """
-        logger.error(f"Strategy {self.strategy_id} error: {error}")
+        logger.exception(f"Strategy {self.strategy_id} error: {error}")
         self._error_message = str(error)
 
     # -------------------------------------------------------------------------

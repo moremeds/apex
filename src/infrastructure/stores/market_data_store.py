@@ -291,6 +291,7 @@ class MarketDataStore:
 
         C3: Updated to handle MarketDataTickEvent (typed).
         M14: Removed legacy dict handling.
+        OPT-016: Only recalculate mid when bid/ask actually change.
 
         Args:
             payload: MarketDataTickEvent (typed event).
@@ -299,27 +300,40 @@ class MarketDataStore:
 
         # Handle typed MarketDataTickEvent (new standard)
         if isinstance(payload, MarketDataTickEvent):
-            # Update existing market data or create new entry
             symbol = payload.symbol
             existing = self.get(symbol)
+
             if existing:
-                # Merge tick data into existing MarketData
-                existing.bid = payload.bid if payload.bid is not None else existing.bid
-                existing.ask = payload.ask if payload.ask is not None else existing.ask
-                existing.last = payload.last if payload.last is not None else existing.last
-                existing.delta = payload.delta if payload.delta is not None else existing.delta
-                existing.gamma = payload.gamma if payload.gamma is not None else existing.gamma
-                existing.vega = payload.vega if payload.vega is not None else existing.vega
-                existing.theta = payload.theta if payload.theta is not None else existing.theta
-                existing.iv = payload.iv if payload.iv is not None else existing.iv
-                # Recalculate mid when bid/ask update
-                if existing.bid is not None and existing.ask is not None:
+                # OPT-016: Track if bid/ask changed to avoid redundant mid recalc
+                bid_changed = payload.bid is not None and payload.bid != existing.bid
+                ask_changed = payload.ask is not None and payload.ask != existing.ask
+
+                # Merge tick data into existing MarketData (only non-None values)
+                if payload.bid is not None:
+                    existing.bid = payload.bid
+                if payload.ask is not None:
+                    existing.ask = payload.ask
+                if payload.last is not None:
+                    existing.last = payload.last
+                if payload.delta is not None:
+                    existing.delta = payload.delta
+                if payload.gamma is not None:
+                    existing.gamma = payload.gamma
+                if payload.vega is not None:
+                    existing.vega = payload.vega
+                if payload.theta is not None:
+                    existing.theta = payload.theta
+                if payload.iv is not None:
+                    existing.iv = payload.iv
+
+                # OPT-016: Only recalculate mid if bid or ask actually changed
+                if (bid_changed or ask_changed) and existing.bid is not None and existing.ask is not None:
                     existing.mid = (existing.bid + existing.ask) / 2
-                existing.timestamp = now_utc()  # Refresh timestamp on every tick
+
+                existing.timestamp = now_utc()
                 self.upsert([existing])
             else:
                 # Create new MarketData from tick
-                # Calculate mid if we have both bid and ask
                 mid = None
                 if payload.bid is not None and payload.ask is not None:
                     mid = (payload.bid + payload.ask) / 2
@@ -334,7 +348,7 @@ class MarketDataStore:
                     vega=payload.vega,
                     theta=payload.theta,
                     iv=payload.iv,
-                    timestamp=now_utc(),  # Set timestamp on creation
+                    timestamp=now_utc(),
                 )
                 self.upsert([md])
             return

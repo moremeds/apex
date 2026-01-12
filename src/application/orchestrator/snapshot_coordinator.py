@@ -218,17 +218,16 @@ class SnapshotCoordinator:
 
     @log_timing("log_risk_alerts", warn_threshold_ms=50)
     def _log_risk_alerts(self, snapshot: RiskSnapshot) -> None:
-        """Log risk alerts to audit file."""
+        """Log risk alerts to audit file.
+
+        OPT-015: Removed redundant rule_engine.evaluate() call.
+        All signals (including Layer 1 breaches) are now in _latest_risk_signals
+        from RiskSignalEngine.evaluate(), which already calls rule_engine.
+        """
         if not self.risk_alert_logger:
             return
 
-        # Log breaches (convert to RiskSignal for logging)
-        breaches = self.rule_engine.evaluate(snapshot)
-        for breach in breaches:
-            signal = RiskSignal.from_breach(breach, layer=1)
-            self.risk_alert_logger.log_risk_signal(signal, snapshot)
-
-        # Log signals
+        # Log all signals (includes Layer 1 breaches already converted to RiskSignal)
         for signal in self._latest_risk_signals:
             self.risk_alert_logger.log_risk_signal(signal, snapshot)
 

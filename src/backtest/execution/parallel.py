@@ -322,7 +322,8 @@ class ParallelRunner:
         retry_queue: List[Tuple[RunSpec, int, BaseException]],
     ) -> List[RunResult]:
         """Execute runs using the provided executor."""
-        pending_specs = list(run_specs)
+        # CRIT-003: Track (spec, attempt) pairs to preserve retry count
+        pending_specs: List[Tuple[RunSpec, int]] = [(spec, 0) for spec in run_specs]
 
         while pending_specs or retry_queue:
             if self._shutdown_event.is_set():
@@ -337,16 +338,17 @@ class ParallelRunner:
                     f"after {delay:.1f}s delay"
                 )
                 time.sleep(delay)
-                pending_specs = [spec]
+                # CRIT-003: Preserve attempt count from retry_queue
+                pending_specs = [(spec, attempt)]
 
             # Submit runs
             future_to_spec: Dict[Future, Tuple[RunSpec, int]] = {}
-            for spec in pending_specs:
+            for spec, attempt in pending_specs:
                 if self._shutdown_event.is_set():
                     break
-                # Initial attempt = 0
+                # CRIT-003: Use actual attempt count, not always 0
                 future = executor.submit(execute_fn, spec)
-                future_to_spec[future] = (spec, 0)
+                future_to_spec[future] = (spec, attempt)
 
             pending_specs = []
 

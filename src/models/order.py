@@ -187,7 +187,3 @@ class Trade:
     def total_cost(self) -> float:
         """Calculate total cost including commission."""
         return self.notional_value + self.commission
-
-
-# Alias for IB terminology
-Execution = Trade

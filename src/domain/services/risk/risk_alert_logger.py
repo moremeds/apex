@@ -533,7 +533,7 @@ class RiskAlertLogger:
         try:
             self._logger.info(context.to_json())
         except Exception as e:
-            logger.error(f"Failed to write risk alert log: {e}")
+            logger.exception(f"Failed to write risk alert log: {e}")
 
     def get_recent_alerts(self, hours: int = 24) -> List[Dict[str, Any]]:
         """

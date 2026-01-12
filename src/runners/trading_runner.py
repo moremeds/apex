@@ -392,7 +392,20 @@ class TradingRunner:
         5. Monitor broker connection health and reconnect
         6. Handle broker disconnection gracefully
         """
-        logger.info("Main trading loop started")
+        # CRIT-002: Safety guard - live trading requires broker integration
+        if not self.dry_run:
+            raise NotImplementedError(
+                "\n" + "=" * 60 + "\n"
+                "LIVE TRADING NOT YET IMPLEMENTED\n"
+                "=" * 60 + "\n"
+                "The trading runner does not yet have broker adapter integration.\n"
+                "Orders would be logged but NOT executed, giving a false impression\n"
+                "of live trading.\n\n"
+                "Use --dry-run for paper trading simulation.\n"
+                "=" * 60
+            )
+
+        logger.info("Main trading loop started (dry-run mode)")
 
         # Health tracking
         last_heartbeat = 0
