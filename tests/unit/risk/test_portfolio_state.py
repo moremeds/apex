@@ -47,6 +47,8 @@ class TestPortfolioState:
             vega=0.0,
             theta=0.0,
             notional=notional,
+            delta_dollars=delta * 155.0,  # delta * underlying_price
+            underlying_price=155.0,
             is_reliable=is_reliable,
             has_greeks=has_greeks,
             last_update=datetime.now(),
@@ -141,6 +143,8 @@ class TestPortfolioState:
             vega_change=0.0,
             theta_change=0.0,
             notional_change=100.0,
+            delta_dollars_change=0.0,
+            underlying_price=156.0,
             is_reliable=True,
             has_greeks=False,
         )
@@ -172,6 +176,8 @@ class TestPortfolioState:
             vega_change=0.0,
             theta_change=0.0,
             notional_change=0.0,
+            delta_dollars_change=0.0,
+            underlying_price=100.0,
             is_reliable=True,
             has_greeks=False,
         )
@@ -204,6 +210,8 @@ class TestPortfolioState:
             vega_change=0.0,
             theta_change=0.0,
             notional_change=0.0,
+            delta_dollars_change=0.0,
+            underlying_price=156.0,
             is_reliable=True,
             has_greeks=True,
         )
@@ -249,6 +257,8 @@ class TestPortfolioState:
                         vega_change=0.0,
                         theta_change=0.0,
                         notional_change=0.0,
+                        delta_dollars_change=0.0,
+                        underlying_price=155.0 + i * 0.01,
                         is_reliable=True,
                         has_greeks=False,
                     )

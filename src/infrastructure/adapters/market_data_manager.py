@@ -496,6 +496,7 @@ class MarketDataManager(MarketDataProvider):
                 iv=md.iv,
                 quality=md.quality.value.lower() if md.quality else "good",
                 yesterday_close=md.yesterday_close,
+                underlying_price=md.underlying_price,
                 # Note: session_open not available in MarketData, handled by tick processor
             )
             self._event_bus.publish(EventType.MARKET_DATA_TICK, event)

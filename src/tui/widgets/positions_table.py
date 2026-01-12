@@ -10,13 +10,16 @@ Uses PositionViewModel for business logic and incremental updates.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from textual.widgets import DataTable
 from textual.reactive import reactive
 from textual.message import Message
 
 from ..viewmodels.position_vm import PositionViewModel
+
+if TYPE_CHECKING:
+    from ...domain.events.domain_events import PositionDeltaEvent
 
 
 class PositionsTable(DataTable):
@@ -193,6 +196,31 @@ class PositionsTable(DataTable):
         # This updates our internal tracking but displayed rows stay in insertion order.
         # Full rebuild would be needed for visual reordering (causes flicker).
         self._row_keys = [k for k in new_order if k in self._row_keys]
+
+    def apply_deltas(self, deltas: Dict[str, "PositionDeltaEvent"]) -> None:
+        """
+        Apply position deltas for streaming updates (O(1) per delta).
+
+        Fast path that updates specific cells without full table refresh.
+        Skips deltas for symbols not currently in the table.
+
+        Args:
+            deltas: Dict mapping symbol -> PositionDeltaEvent
+        """
+        if not deltas:
+            return
+
+        # Get cell updates from ViewModel
+        cell_updates = self._view_model.apply_deltas(deltas)
+
+        # Apply cell updates directly
+        for cell in cell_updates:
+            try:
+                if cell.column_index < len(self._column_keys):
+                    col_key = self._column_keys[cell.column_index]
+                    self.update_cell(cell.row_key, col_key, cell.value)
+            except Exception as e:
+                self.log.error(f"Failed to apply delta cell update {cell.row_key}: {e}")
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         """Handle row selection."""

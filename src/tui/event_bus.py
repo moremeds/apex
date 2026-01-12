@@ -15,12 +15,14 @@ a cleaner API for event producers and consumers.
 from __future__ import annotations
 
 import queue
+import threading
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ..models.risk_snapshot import RiskSnapshot
     from ..infrastructure.monitoring import ComponentHealth
+    from ..domain.events.domain_events import PositionDeltaEvent
 
 
 @dataclass
@@ -39,11 +41,12 @@ class PollResult:
     confluence: Optional[Any]
     alignment: Optional[Any]
     snapshot: Optional[DashboardUpdate]
+    deltas: Dict[str, Any]  # symbol -> latest PositionDeltaEvent
 
     @property
     def has_data(self) -> bool:
         """Check if any data was received."""
-        return bool(self.signals) or self.confluence or self.alignment or self.snapshot
+        return bool(self.signals) or self.confluence or self.alignment or self.snapshot or bool(self.deltas)
 
 
 class TUIEventBus:
@@ -75,6 +78,8 @@ class TUIEventBus:
         '_confluence_queue',
         '_alignment_queue',
         '_snapshot_queue',
+        '_delta_buffer',
+        '_delta_lock',
         '_max_signals_per_poll',
     )
 
@@ -100,6 +105,9 @@ class TUIEventBus:
         self._confluence_queue: queue.Queue = queue.Queue(maxsize=confluence_queue_size)
         self._alignment_queue: queue.Queue = queue.Queue(maxsize=alignment_queue_size)
         self._snapshot_queue: queue.Queue = queue.Queue(maxsize=snapshot_queue_size)
+        # Delta buffer: coalesces by symbol (latest delta per symbol wins)
+        self._delta_buffer: Dict[str, "PositionDeltaEvent"] = {}
+        self._delta_lock = threading.Lock()
         self._max_signals_per_poll = max_signals_per_poll
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -142,6 +150,16 @@ class TUIEventBus:
             except Exception:
                 pass
 
+    def push_delta(self, delta: "PositionDeltaEvent") -> None:
+        """
+        Push position delta (thread-safe, coalesced by symbol).
+
+        Only the latest delta per symbol is kept between polls.
+        This prevents queue buildup during high tick rates.
+        """
+        with self._delta_lock:
+            self._delta_buffer[delta.symbol] = delta
+
     def push_snapshot(
         self,
         snapshot: Any,
@@ -176,6 +194,7 @@ class TUIEventBus:
 
         Applies type-specific conflation:
         - Signals: Return up to max_signals_per_poll, no conflation
+        - Deltas: Coalesced by symbol (latest per symbol)
         - Confluence/Alignment/Snapshot: Return only latest (conflate)
 
         Returns:
@@ -186,7 +205,15 @@ class TUIEventBus:
             confluence=self._poll_latest(self._confluence_queue),
             alignment=self._poll_latest(self._alignment_queue),
             snapshot=self._poll_latest(self._snapshot_queue),
+            deltas=self._poll_deltas(),
         )
+
+    def _poll_deltas(self) -> Dict[str, Any]:
+        """Poll and clear delta buffer (returns symbol -> delta mapping)."""
+        with self._delta_lock:
+            deltas = self._delta_buffer.copy()
+            self._delta_buffer.clear()
+        return deltas
 
     def _poll_signals(self) -> List[Any]:
         """Poll signals with batch limit (no conflation)."""
@@ -215,9 +242,12 @@ class TUIEventBus:
 
     def queue_sizes(self) -> Dict[str, int]:
         """Get current queue sizes (approximate, for diagnostics)."""
+        with self._delta_lock:
+            delta_count = len(self._delta_buffer)
         return {
             "signals": self._signal_queue.qsize(),
             "confluence": self._confluence_queue.qsize(),
             "alignment": self._alignment_queue.qsize(),
             "snapshots": self._snapshot_queue.qsize(),
+            "deltas": delta_count,
         }

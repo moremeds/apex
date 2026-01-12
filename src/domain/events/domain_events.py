@@ -662,6 +662,9 @@ class MarketDataTickEvent(DomainEvent):
     yesterday_close: Optional[float] = None
     session_open: Optional[float] = None
 
+    # Underlying price (for options Delta $ calculation)
+    underlying_price: Optional[float] = None
+
 
 @dataclass(frozen=True, slots=True)
 class PositionDeltaEvent(DomainEvent):
@@ -692,6 +695,12 @@ class PositionDeltaEvent(DomainEvent):
 
     # Notional delta
     notional_change: float = 0.0
+
+    # Delta dollars change (for Delta $ column)
+    delta_dollars_change: float = 0.0
+
+    # Underlying price (for Spot column updates, especially in consolidated view)
+    underlying_price: float = 0.0
 
     # Data quality flags
     is_reliable: bool = True

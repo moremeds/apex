@@ -64,6 +64,8 @@ class PositionDelta:
     vega_change: float
     theta_change: float
     notional_change: float
+    delta_dollars_change: float
+    underlying_price: float
     is_reliable: bool
     has_greeks: bool
 
@@ -88,6 +90,8 @@ class PositionDelta:
             vega_change=self.vega_change,
             theta_change=self.theta_change,
             notional_change=self.notional_change,
+            delta_dollars_change=self.delta_dollars_change,
+            underlying_price=self.underlying_price,
             is_reliable=self.is_reliable,
             has_greeks=self.has_greeks,
         )
@@ -144,6 +148,8 @@ class PositionState:
     vega: float
     theta: float
     notional: float
+    delta_dollars: float
+    underlying_price: float
 
     # Data quality
     is_reliable: bool
@@ -166,6 +172,8 @@ class PositionState:
         vega: float,
         theta: float,
         notional: float,
+        delta_dollars: float,
+        underlying_price: float,
         is_reliable: bool,
         has_greeks: bool,
         timestamp: Optional[datetime] = None,
@@ -187,6 +195,8 @@ class PositionState:
             vega=vega,
             theta=theta,
             notional=notional,
+            delta_dollars=delta_dollars,
+            underlying_price=underlying_price,
             is_reliable=is_reliable,
             has_greeks=has_greeks,
             last_update=timestamp or now_utc(),
@@ -220,8 +230,10 @@ class PositionState:
             vega=self.vega + delta.vega_change,
             theta=self.theta + delta.theta_change,
             notional=self.notional + delta.notional_change,
+            delta_dollars=self.delta_dollars + delta.delta_dollars_change,
+            underlying_price=delta.underlying_price,
             is_reliable=delta.is_reliable,
-            has_greeks=delta.has_greeks,  # Update from delta
+            has_greeks=delta.has_greeks,
             last_update=delta.timestamp,
         )
 
@@ -243,6 +255,8 @@ class PositionState:
             "vega": self.vega,
             "theta": self.theta,
             "notional": self.notional,
+            "delta_dollars": self.delta_dollars,
+            "underlying_price": self.underlying_price,
             "is_reliable": self.is_reliable,
             "has_greeks": self.has_greeks,
             "last_update": self.last_update.isoformat(),

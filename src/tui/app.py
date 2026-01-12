@@ -161,6 +161,9 @@ class ApexApp(App):
         if result.alignment is not None:
             self._dispatch_alignment(result.alignment)
 
+        # Note: Deltas are dispatched via call_from_thread in _flush_deltas()
+        # to achieve sub-100ms latency. Polling path disabled to prevent double-apply.
+
         # Dispatch snapshot (conflated to latest)
         if result.snapshot is not None:
             self.update_data(
@@ -263,13 +266,16 @@ class ApexApp(App):
             self._subscribe_trading_signals(event_bus)
 
     def _subscribe_trading_signals(self, event_bus) -> None:
-        """Subscribe to TRADING_SIGNAL, CONFLUENCE_UPDATE, and ALIGNMENT_UPDATE events."""
+        """Subscribe to trading signals and position delta events."""
         from ..domain.events.event_types import EventType
 
         event_bus.subscribe(EventType.TRADING_SIGNAL, self._on_trading_signal)
         event_bus.subscribe(EventType.CONFLUENCE_UPDATE, self._on_confluence_update)
         event_bus.subscribe(EventType.ALIGNMENT_UPDATE, self._on_alignment_update)
-        self.log.info("Subscribed to TRADING_SIGNAL, CONFLUENCE_UPDATE, ALIGNMENT_UPDATE events")
+        event_bus.subscribe(EventType.POSITION_DELTA, self._on_position_delta)
+        self.log.info(
+            "Subscribed to TRADING_SIGNAL, CONFLUENCE_UPDATE, ALIGNMENT_UPDATE, POSITION_DELTA events"
+        )
 
     def _on_trading_signal(self, payload) -> None:
         """
@@ -309,6 +315,24 @@ class ApexApp(App):
         """
         self._tui_events.push_alignment(alignment)
 
+    def _on_position_delta(self, delta) -> None:
+        """
+        Event bus callback for position deltas (called from DeltaPublisher thread).
+
+        Uses coalescing buffer + scheduled flush for sub-100ms latency while
+        preventing UI thread overload under high tick rates.
+
+        Args:
+            delta: PositionDeltaEvent with incremental P&L/Greeks changes.
+        """
+        # Push to coalescing buffer (latest delta per symbol wins)
+        self._tui_events.push_delta(delta)
+
+        # Schedule flush via call_from_thread (debounced - only one pending at a time)
+        if not getattr(self, "_delta_flush_pending", False):
+            self._delta_flush_pending = True
+            self.call_from_thread(self._flush_deltas)
+
     def _dispatch_confluence(self, score) -> None:
         """Dispatch confluence score to Trading view (runs in TUI thread)."""
         try:
@@ -324,6 +348,55 @@ class ApexApp(App):
             trading_view.update_alignment(alignment)
         except Exception as e:
             self.log.error(f"Failed to dispatch MTF alignment: {e}")
+
+    def _flush_deltas(self) -> None:
+        """
+        Flush coalesced deltas to all views (called via call_from_thread).
+
+        Runs in TUI thread. Clears the pending flag to allow next flush.
+        """
+        # Clear pending flag to allow next flush
+        self._delta_flush_pending = False
+
+        # Poll deltas from buffer (clears buffer)
+        deltas = self._tui_events._poll_deltas()
+        if not deltas:
+            return
+
+        # Dispatch to ALL position views
+        self._dispatch_deltas(deltas)
+
+    def _dispatch_deltas(self, deltas: Dict[str, Any]) -> None:
+        """
+        Dispatch position deltas to ALL position views (runs in TUI thread).
+
+        Updates all views to keep them in sync, preventing stale data on tab switch.
+        Deltas are applied directly to table cells without waiting for snapshots.
+
+        Args:
+            deltas: Dict mapping symbol -> PositionDeltaEvent
+        """
+        if not deltas:
+            return
+
+        # Apply to ALL position views (not just active)
+        try:
+            summary_view = self.query_one("#summary-view", SummaryView)
+            summary_view.apply_deltas(deltas)
+        except Exception as e:
+            self.log.error(f"Failed to dispatch deltas to Summary view: {e}")
+
+        try:
+            ib_view = self.query_one("#ib-view", PositionsView)
+            ib_view.apply_deltas(deltas)
+        except Exception as e:
+            self.log.error(f"Failed to dispatch deltas to IB view: {e}")
+
+        try:
+            futu_view = self.query_one("#futu-view", PositionsView)
+            futu_view.apply_deltas(deltas)
+        except Exception as e:
+            self.log.error(f"Failed to dispatch deltas to Futu view: {e}")
 
     def set_trading_universe(self, symbols: List[str]) -> None:
         """

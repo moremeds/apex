@@ -233,6 +233,12 @@ HealthBar {
     background: #23262c;
 }
 
+/* Ensure health content container fills the health bar */
+HealthBar #health-content {
+    height: 100%;
+    width: 100%;
+}
+
 #lab-health {
     border: none;
     height: 1fr;

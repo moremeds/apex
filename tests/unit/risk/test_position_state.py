@@ -27,6 +27,8 @@ class TestPositionDelta:
             vega_change=0.0,
             theta_change=0.0,
             notional_change=100.0,
+            delta_dollars_change=150.0,
+            underlying_price=150.0,
             is_reliable=True,
             has_greeks=False,
         )
@@ -49,6 +51,8 @@ class TestPositionDelta:
             vega_change=0.2,
             theta_change=-0.3,
             notional_change=500.0,
+            delta_dollars_change=775.0,
+            underlying_price=155.0,
             is_reliable=True,
             has_greeks=True,
         )
@@ -67,6 +71,8 @@ class TestPositionDelta:
         assert event.vega_change == 0.2
         assert event.theta_change == -0.3
         assert event.notional_change == 500.0
+        assert event.delta_dollars_change == 775.0
+        assert event.underlying_price == 155.0
         assert event.is_reliable is True
         assert event.has_greeks is True
 
@@ -84,6 +90,8 @@ class TestPositionDelta:
             vega_change=0.0,
             theta_change=0.0,
             notional_change=0.0,
+            delta_dollars_change=0.0,
+            underlying_price=150.0,
             is_reliable=True,
             has_greeks=False,
         )
@@ -113,6 +121,8 @@ class TestPositionState:
             vega=0.0,
             theta=0.0,
             notional=15500.0,
+            delta_dollars=15500.0,
+            underlying_price=155.0,
             is_reliable=True,
             has_greeks=False,
             last_update=datetime.now(),
@@ -140,6 +150,8 @@ class TestPositionState:
             vega=0.0,
             theta=0.0,
             notional=15500.0,
+            delta_dollars=15500.0,
+            underlying_price=155.0,
             is_reliable=True,
             has_greeks=False,
             last_update=timestamp,
@@ -158,6 +170,8 @@ class TestPositionState:
             vega_change=0.0,
             theta_change=0.0,
             notional_change=100.0,
+            delta_dollars_change=100.0,
+            underlying_price=156.0,
             is_reliable=True,
             has_greeks=True,  # Greeks became available
         )
@@ -195,6 +209,8 @@ class TestPositionState:
             vega=0.0,
             theta=0.0,
             notional=15500.0,
+            delta_dollars=15500.0,
+            underlying_price=155.0,
             is_reliable=True,
             has_greeks=False,
             last_update=datetime.now(),
@@ -212,6 +228,8 @@ class TestPositionState:
             vega_change=0.0,
             theta_change=0.0,
             notional_change=100.0,
+            delta_dollars_change=100.0,
+            underlying_price=156.0,
             is_reliable=True,
             has_greeks=False,
         )
@@ -246,6 +264,8 @@ class TestPositionState:
             vega=1.0,
             theta=-0.5,
             notional=15500.0,
+            delta_dollars=15500.0,
+            underlying_price=155.0,
             is_reliable=True,
             has_greeks=True,
             last_update=timestamp,
@@ -256,5 +276,7 @@ class TestPositionState:
         assert d["symbol"] == "AAPL"
         assert d["quantity"] == 100
         assert d["unrealized_pnl"] == 500.0
+        assert d["delta_dollars"] == 15500.0
+        assert d["underlying_price"] == 155.0
         assert d["has_greeks"] is True
         assert d["last_update"] == timestamp.isoformat()

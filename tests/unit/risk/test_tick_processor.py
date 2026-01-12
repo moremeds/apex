@@ -66,6 +66,8 @@ class TestTickProcessor:
             vega=0.0,
             theta=0.0,
             notional=15500.0,
+            delta_dollars=15500.0,
+            underlying_price=155.0,
             is_reliable=True,
             has_greeks=False,
             last_update=datetime.now(),

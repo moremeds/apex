@@ -39,7 +39,7 @@ from typing import Optional, TYPE_CHECKING
 
 from ..calculators.pnl_calculator import calculate_pnl, DataQuality
 from ..calculators.greeks_calculator import calculate_position_greeks
-from ..calculators.notional_calculator import calculate_notional
+from ..calculators.notional_calculator import calculate_notional, calculate_delta_dollars
 from ..state.position_state import PositionState, PositionDelta
 from src.utils.timezone import now_utc
 
@@ -129,6 +129,21 @@ class TickProcessor:
             multiplier=position.multiplier,
         )
 
+        # Resolve underlying price for delta dollars calculation
+        # For stocks: underlying price = mark price
+        # For options: use tick.underlying_price if available, else mark_price
+        underlying_price = tick.underlying_price or mark
+
+        # Calculate new delta dollars
+        new_delta_dollars, _ = calculate_delta_dollars(
+            delta=new_greeks.delta / (position.quantity * position.multiplier)
+            if position.quantity * position.multiplier != 0
+            else 0.0,  # Per-contract delta
+            underlying_price=underlying_price,
+            quantity=position.quantity,
+            multiplier=position.multiplier,
+        )
+
         # Build delta (changes from current state)
         return PositionDelta(
             symbol=position.symbol,
@@ -142,6 +157,8 @@ class TickProcessor:
             vega_change=new_greeks.vega - current_state.vega,
             theta_change=new_greeks.theta - current_state.theta,
             notional_change=new_notional.notional - current_state.notional,
+            delta_dollars_change=new_delta_dollars - current_state.delta_dollars,
+            underlying_price=underlying_price,
             is_reliable=new_pnl.is_reliable,
             has_greeks=new_greeks.has_greeks,
         )
@@ -282,6 +299,19 @@ def create_initial_state(
         multiplier=position.multiplier,
     )
 
+    # Resolve underlying price for delta dollars calculation
+    underlying_price = tick.underlying_price or mark
+
+    # Calculate initial delta dollars
+    delta_dollars, _ = calculate_delta_dollars(
+        delta=greeks.delta / (position.quantity * position.multiplier)
+        if position.quantity * position.multiplier != 0
+        else 0.0,
+        underlying_price=underlying_price,
+        quantity=position.quantity,
+        multiplier=position.multiplier,
+    )
+
     return PositionState(
         symbol=position.symbol,
         underlying=position.underlying,
@@ -298,6 +328,8 @@ def create_initial_state(
         vega=greeks.vega,
         theta=greeks.theta,
         notional=notional.notional,
+        delta_dollars=delta_dollars,
+        underlying_price=underlying_price,
         is_reliable=pnl.is_reliable,
         has_greeks=greeks.has_greeks,
         last_update=tick.timestamp,

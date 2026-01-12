@@ -16,7 +16,7 @@ Keyboard shortcuts:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional
+from typing import Any, Dict, TYPE_CHECKING, Optional
 
 from textual.containers import Container, Horizontal, Vertical
 from textual.widgets import Static
@@ -29,6 +29,7 @@ from ..widgets.orders_panel import OrdersPanel
 
 if TYPE_CHECKING:
     from ...models.risk_snapshot import RiskSnapshot
+    from ...domain.events.domain_events import PositionDeltaEvent
 
 
 class PositionsView(Container, can_focus=True):
@@ -108,6 +109,21 @@ class PositionsView(Container, can_focus=True):
             positions_table.positions = position_risks
         except Exception:
             self.log.exception("Failed to update positions table")
+
+    def apply_deltas(self, deltas: Dict[str, "PositionDeltaEvent"]) -> None:
+        """
+        Apply position deltas for streaming updates.
+
+        Fast path that updates specific cells without full table refresh.
+
+        Args:
+            deltas: Dict mapping symbol -> PositionDeltaEvent
+        """
+        try:
+            positions_table = self.query_one(f"#{self.broker}-positions", PositionsTable)
+            positions_table.apply_deltas(deltas)
+        except Exception:
+            self.log.exception("Failed to apply position deltas")
 
     def action_move_up(self) -> None:
         """Move selection up in the positions table."""

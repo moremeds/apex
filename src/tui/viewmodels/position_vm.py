@@ -11,9 +11,12 @@ Extracts business logic from PositionsTable:
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
-from .base import BaseViewModel
+from .base import BaseViewModel, CellUpdate
+
+if TYPE_CHECKING:
+    from ...domain.events.domain_events import PositionDeltaEvent
 
 
 class PositionViewModel(BaseViewModel[List[Any]]):
@@ -26,6 +29,7 @@ class PositionViewModel(BaseViewModel[List[Any]]):
     - Sort by absolute market value
     - Track row ordering for cursor preservation
     - Compute cell-level diffs for incremental updates
+    - Apply streaming deltas for O(1) cell updates
     """
 
     def __init__(
@@ -40,6 +44,9 @@ class PositionViewModel(BaseViewModel[List[Any]]):
         self.show_portfolio_row = show_portfolio_row
         self._underlying_order: List[str] = []
         self._position_map: Dict[str, Any] = {}  # row_key -> position
+        # Delta support: track numeric values for O(1) delta application
+        self._symbol_to_row_keys: Dict[str, List[str]] = {}  # symbol -> [row_keys]
+        self._values_cache: Dict[str, Dict[str, float]] = {}  # row_key -> {metric -> value}
 
     def compute_display_data(self, positions: List[Any]) -> Dict[str, List[str]]:
         """Transform position list into display rows."""
@@ -109,10 +116,13 @@ class PositionViewModel(BaseViewModel[List[Any]]):
         """Build consolidated view rows (grouped by underlying)."""
         result: Dict[str, List[str]] = {}
         self._position_map.clear()
+        self._symbol_to_row_keys.clear()
+        self._values_cache.clear()
 
         # Portfolio totals row
         if self.show_portfolio_row:
             totals = self._compute_totals(positions)
+            self._values_cache["__portfolio__"] = totals.copy()
             result["__portfolio__"] = [
                 "[bold]>> PORTFOLIO[/]",
                 str(len(positions)),
@@ -127,6 +137,12 @@ class PositionViewModel(BaseViewModel[List[Any]]):
                 self._fmt_number(totals["vega"]),
                 self._fmt_number(totals["theta"]),
             ]
+            # All symbols contribute to portfolio row
+            for pos in positions:
+                symbol = getattr(pos, "symbol", "")
+                if symbol not in self._symbol_to_row_keys:
+                    self._symbol_to_row_keys[symbol] = []
+                self._symbol_to_row_keys[symbol].append("__portfolio__")
 
         for underlying in sorted_underlyings:
             prs = by_underlying[underlying]
@@ -135,6 +151,14 @@ class PositionViewModel(BaseViewModel[List[Any]]):
 
             row_key = f"underlying-{underlying}"
             self._position_map[row_key] = prs[0]
+            self._values_cache[row_key] = totals.copy()
+
+            # Track symbol -> row_key mappings
+            for pos in prs:
+                symbol = getattr(pos, "symbol", "")
+                if symbol not in self._symbol_to_row_keys:
+                    self._symbol_to_row_keys[symbol] = []
+                self._symbol_to_row_keys[symbol].append(row_key)
 
             result[row_key] = [
                 f"  {underlying}",
@@ -162,10 +186,13 @@ class PositionViewModel(BaseViewModel[List[Any]]):
         """Build detailed view rows with individual positions."""
         result: Dict[str, List[str]] = {}
         self._position_map.clear()
+        self._symbol_to_row_keys.clear()
+        self._values_cache.clear()
 
         # Broker total row
         if self.show_portfolio_row:
             totals = self._compute_totals(positions)
+            self._values_cache["__total__"] = totals.copy()
             broker_name = (self.broker_filter or "ALL").upper()
             result["__total__"] = [
                 f"[bold]>> {broker_name} Total[/]",
@@ -182,6 +209,12 @@ class PositionViewModel(BaseViewModel[List[Any]]):
                 self._fmt_number(totals["vega"]),
                 self._fmt_number(totals["theta"]),
             ]
+            # All symbols contribute to total row
+            for pos in positions:
+                symbol = getattr(pos, "symbol", "")
+                if symbol not in self._symbol_to_row_keys:
+                    self._symbol_to_row_keys[symbol] = []
+                self._symbol_to_row_keys[symbol].append("__total__")
 
         for underlying in sorted_underlyings:
             prs = by_underlying[underlying]
@@ -191,6 +224,14 @@ class PositionViewModel(BaseViewModel[List[Any]]):
             # Header row
             header_key = f"header-{underlying}"
             self._position_map[header_key] = prs[0]
+            self._values_cache[header_key] = totals.copy()
+
+            # Track symbol -> header row mapping
+            for pos in prs:
+                symbol = getattr(pos, "symbol", "")
+                if symbol not in self._symbol_to_row_keys:
+                    self._symbol_to_row_keys[symbol] = []
+                self._symbol_to_row_keys[symbol].append(header_key)
 
             result[header_key] = [
                 f"[bold]>> {underlying}[/]",
@@ -224,6 +265,12 @@ class PositionViewModel(BaseViewModel[List[Any]]):
                 expiry_key = str(expiry) if expiry else "stock"
                 row_key = f"pos-{underlying}-{symbol}-{expiry_key}"
                 self._position_map[row_key] = pos
+
+                # Cache position values for delta application
+                self._values_cache[row_key] = self._extract_position_values(pos)
+                if symbol not in self._symbol_to_row_keys:
+                    self._symbol_to_row_keys[symbol] = []
+                self._symbol_to_row_keys[symbol].append(row_key)
 
                 result[row_key] = self._build_position_row(pos, display_name)
 
@@ -385,3 +432,123 @@ class PositionViewModel(BaseViewModel[List[Any]]):
     def get_position_for_key(self, row_key: str) -> Optional[Any]:
         """Get the position object for a row key."""
         return self._position_map.get(row_key)
+
+    def _extract_position_values(self, pos: Any) -> Dict[str, float]:
+        """Extract numeric values from a position for delta tracking."""
+        return {
+            "mkt_value": getattr(pos, "market_value", 0) or 0,
+            "pnl": getattr(pos, "daily_pnl", 0) or 0,
+            "upnl": getattr(pos, "unrealized_pnl", 0) or 0,
+            "delta_$": getattr(pos, "delta_dollars", 0) or 0,
+            "delta": getattr(pos, "delta", 0) or 0,
+            "gamma": getattr(pos, "gamma", 0) or 0,
+            "vega": getattr(pos, "vega", 0) or 0,
+            "theta": getattr(pos, "theta", 0) or 0,
+            "mark_price": getattr(pos, "mark_price", 0) or 0,
+        }
+
+    def apply_deltas(
+        self, deltas: Dict[str, "PositionDeltaEvent"]
+    ) -> List[CellUpdate]:
+        """
+        Apply position deltas and return cell updates.
+
+        Fast path for streaming updates - O(n) where n is number of deltas.
+        Skips symbols not in the current view.
+
+        Args:
+            deltas: Dict mapping symbol -> PositionDeltaEvent
+
+        Returns:
+            List of CellUpdate objects for changed cells.
+        """
+        cell_updates: List[CellUpdate] = []
+
+        for symbol, delta in deltas.items():
+            row_keys = self._symbol_to_row_keys.get(symbol, [])
+            if not row_keys:
+                continue  # Symbol not in current view
+
+            for row_key in row_keys:
+                if row_key not in self._values_cache:
+                    continue
+
+                values = self._values_cache[row_key]
+
+                # Apply delta changes to cached values
+                values["pnl"] = values.get("pnl", 0) + delta.daily_pnl_change
+                values["upnl"] = values.get("upnl", 0) + delta.pnl_change
+                values["delta"] = values.get("delta", 0) + delta.delta_change
+                values["gamma"] = values.get("gamma", 0) + delta.gamma_change
+                values["vega"] = values.get("vega", 0) + delta.vega_change
+                values["theta"] = values.get("theta", 0) + delta.theta_change
+                values["mkt_value"] = values.get("mkt_value", 0) + delta.notional_change
+                # Update mark_price and delta_$ from delta event
+                values["mark_price"] = delta.new_mark_price
+                values["delta_$"] = values.get("delta_$", 0) + delta.delta_dollars_change
+
+                # Compute cell updates based on row type
+                updates = self._compute_delta_cell_updates(row_key, values, delta)
+                cell_updates.extend(updates)
+
+        return cell_updates
+
+    def _compute_delta_cell_updates(
+        self,
+        row_key: str,
+        values: Dict[str, float],
+        delta: "PositionDeltaEvent",
+    ) -> List[CellUpdate]:
+        """
+        Compute cell updates for a single row after delta application.
+
+        Column indices differ between consolidated and detailed views.
+        """
+        updates: List[CellUpdate] = []
+
+        if self.consolidated:
+            # Consolidated view: Ticker, Qty, Spot, Beta, Mkt Value, P&L, UP&L, Delta $, D, G, V, Th
+            # Indices:              0      1     2     3       4        5      6       7    8  9 10 11
+
+            # Update Spot column (index 2) with underlying price
+            # Skip aggregate rows (__portfolio__, __total__) as Spot is meaningless for them
+            if not row_key.startswith("__"):
+                updates.append(
+                    CellUpdate(row_key, 2, self._fmt_price(delta.underlying_price, is_close=False, decimals=2))
+                )
+
+            updates.extend([
+                CellUpdate(row_key, 4, self._fmt_number(values["mkt_value"])),
+                CellUpdate(row_key, 5, self._fmt_number(values["pnl"], color=True)),
+                CellUpdate(row_key, 6, self._fmt_number(values["upnl"], color=True)),
+                CellUpdate(row_key, 7, self._fmt_number(values["delta_$"])),  # Delta $ column
+                CellUpdate(row_key, 8, self._fmt_number(values["delta"])),
+                CellUpdate(row_key, 9, self._fmt_number(values["gamma"])),
+                CellUpdate(row_key, 10, self._fmt_number(values["vega"])),
+                CellUpdate(row_key, 11, self._fmt_number(values["theta"])),
+            ])
+        else:
+            # Detailed view: Ticker, Qty, Spot, IV, Beta, Mkt Value, P&L, UP&L, Delta $, D, G, V, Th
+            # Indices:           0      1     2    3    4       5        6      7       8    9 10 11 12
+
+            # Position rows get mark price update too
+            if row_key.startswith("pos-"):
+                # Update mark price in Spot column (index 2)
+                is_close = False  # Delta events are live, not close prices
+                decimals = 3 if "-stock" not in row_key else 2
+                updates.append(
+                    CellUpdate(row_key, 2, self._fmt_price(delta.new_mark_price, is_close, decimals))
+                )
+
+            updates.extend([
+                CellUpdate(row_key, 5, self._fmt_number(values["mkt_value"])),
+                CellUpdate(row_key, 6, self._fmt_number(values["pnl"], color=True)),
+                CellUpdate(row_key, 7, self._fmt_number(values["upnl"], color=True)),
+                CellUpdate(row_key, 8, self._fmt_number(values["delta_$"])),  # Delta $ column
+                CellUpdate(row_key, 9, self._fmt_number(values["delta"])),
+                CellUpdate(row_key, 10, self._fmt_number(values["gamma"])),
+                CellUpdate(row_key, 11, self._fmt_number(values["vega"])),
+                CellUpdate(row_key, 12, self._fmt_number(values["theta"])),
+            ])
+
+        return updates
