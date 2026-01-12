@@ -23,10 +23,12 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 from ..domain.events import PriorityEventBus
 from ..domain.services import MarketAlertDetector
 from ..domain.services.risk.risk_engine import RiskEngine
+from ..domain.services.risk.risk_facade import RiskFacade
 from ..domain.services.risk.rule_engine import RuleEngine
 from ..domain.services.risk.risk_signal_manager import RiskSignalManager
 from ..domain.services.risk.risk_signal_engine import RiskSignalEngine
 from ..domain.services.risk.risk_alert_logger import RiskAlertLogger
+from ..domain.services.risk.streaming import DeltaPublisher, ShadowValidator
 from ..domain.services.pos_reconciler import Reconciler
 from ..domain.services.mdqc import MDQC
 from ..infrastructure.adapters import FutuAdapter, FileLoader, BrokerManager, MarketDataManager
@@ -95,6 +97,9 @@ class AppContainer:
 
     # Domain services
     risk_engine: Optional[RiskEngine] = field(default=None, init=False)
+    risk_facade: Optional[RiskFacade] = field(default=None, init=False)
+    delta_publisher: Optional[DeltaPublisher] = field(default=None, init=False)
+    shadow_validator: Optional[ShadowValidator] = field(default=None, init=False)
     reconciler: Optional[Reconciler] = field(default=None, init=False)
     mdqc: Optional[MDQC] = field(default=None, init=False)
     rule_engine: Optional[RuleEngine] = field(default=None, init=False)
@@ -155,6 +160,7 @@ class AppContainer:
         # Phase 3: Domain Services
         self._create_domain_services()
         self._create_risk_services()
+        self._create_streaming_risk_service()
         self._create_readiness_manager()
 
         # Phase 4: Historical Data
@@ -345,6 +351,31 @@ class AppContainer:
 
         self._log(LogCategory.SYSTEM, "Risk services created")
 
+    def _create_streaming_risk_service(self) -> None:
+        """
+        Phase 3d: Create streaming risk components for low-latency TUI updates.
+
+        Creates RiskFacade, DeltaPublisher, and ShadowValidator for the streaming
+        hot path. Runs in parallel with existing RiskEngine during shadow mode.
+        """
+        # Create RiskFacade (manages PortfolioState and TickProcessor internally)
+        self.risk_facade = RiskFacade()
+
+        # Create DeltaPublisher (bridges RiskFacade to event bus)
+        self.delta_publisher = DeltaPublisher(
+            risk_facade=self.risk_facade,
+            event_bus=self.event_bus,
+            position_store=self.position_store,
+        )
+
+        # Create ShadowValidator (compares streaming vs batch calculations)
+        self.shadow_validator = ShadowValidator(
+            risk_facade=self.risk_facade,
+            event_bus=self.event_bus,
+        )
+
+        self._log(LogCategory.SYSTEM, "Streaming risk service created (shadow mode)")
+
     def _create_readiness_manager(self) -> None:
         """Phase 3c: Create readiness manager."""
         required_brokers = []
@@ -430,6 +461,9 @@ class AppContainer:
             signal_metrics=self.signal_metrics,
             historical_data_manager=self.historical_data_manager,
             signal_persistence=self.signal_repo,
+            risk_facade=self.risk_facade,
+            delta_publisher=self.delta_publisher,
+            shadow_validator=self.shadow_validator,
         )
 
         self._log(LogCategory.SYSTEM, "Orchestrator created")

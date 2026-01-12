@@ -86,6 +86,9 @@ class Orchestrator:
         signal_metrics: Optional["SignalMetrics"] = None,
         historical_data_manager: Optional[Any] = None,
         signal_persistence: Optional["SignalPersistencePort"] = None,
+        risk_facade: Optional[Any] = None,
+        delta_publisher: Optional[Any] = None,
+        shadow_validator: Optional[Any] = None,
     ):
         # Core dependencies
         self.broker_manager = broker_manager
@@ -108,6 +111,11 @@ class Orchestrator:
         self._snapshot_service = snapshot_service
         self._warm_start_service = warm_start_service
         self._historical_data_manager = historical_data_manager
+
+        # Streaming risk system (Phase 2 shadow mode)
+        self._risk_facade = risk_facade
+        self._delta_publisher = delta_publisher
+        self._shadow_validator = shadow_validator
 
         # Create coordinators
         self._data_coordinator = DataCoordinator(
@@ -181,6 +189,14 @@ class Orchestrator:
         # Subscribe components to events (before streaming starts)
         self._subscribe_components_to_events()
 
+        # Start streaming risk system (shadow mode - parallel to RiskEngine)
+        if self._delta_publisher:
+            self._delta_publisher.start()
+            logger.debug("DeltaPublisher started (shadow mode)")
+        if self._shadow_validator:
+            self._shadow_validator.start()
+            logger.debug("ShadowValidator started")
+
         # Start signal pipeline (bar aggregation → indicators → signals)
         self._signal_coordinator.start()
 
@@ -225,6 +241,12 @@ class Orchestrator:
         await self._data_coordinator.cleanup()
         await self._snapshot_coordinator.stop()
         self._signal_coordinator.stop()
+
+        # Stop streaming risk system
+        if self._delta_publisher:
+            self._delta_publisher.stop()
+        if self._shadow_validator:
+            self._shadow_validator.stop()
 
         # Cancel timer task
         if self._timer_task:

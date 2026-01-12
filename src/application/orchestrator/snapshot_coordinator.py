@@ -212,6 +212,7 @@ class SnapshotCoordinator:
             coverage_pct=getattr(snapshot, 'market_data_coverage', 0.0),
             portfolio_delta=snapshot.portfolio_delta,
             unrealized_pnl=snapshot.total_unrealized_pnl,
+            daily_pnl=snapshot.total_daily_pnl,
         )
         self.event_bus.publish(EventType.SNAPSHOT_READY, event)
         self._snapshot_ready.set()
