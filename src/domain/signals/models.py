@@ -191,6 +191,8 @@ class SignalRule:
         """
         Check if the rule condition is met.
 
+        Uses pluggable evaluators from conditions module for each ConditionType.
+
         Args:
             prev_state: Previous indicator state (None if first evaluation)
             curr_state: Current indicator state
@@ -198,161 +200,24 @@ class SignalRule:
         Returns:
             True if condition is met, False otherwise
         """
-        if self.condition_type == ConditionType.THRESHOLD_CROSS_UP:
-            return self._check_threshold_cross_up(prev_state, curr_state)
-        elif self.condition_type == ConditionType.THRESHOLD_CROSS_DOWN:
-            return self._check_threshold_cross_down(prev_state, curr_state)
-        elif self.condition_type == ConditionType.STATE_CHANGE:
-            return self._check_state_change(prev_state, curr_state)
-        elif self.condition_type == ConditionType.CROSS_UP:
-            return self._check_cross_up(prev_state, curr_state)
-        elif self.condition_type == ConditionType.CROSS_DOWN:
-            return self._check_cross_down(prev_state, curr_state)
-        elif self.condition_type == ConditionType.RANGE_ENTRY:
-            return self._check_range_entry(prev_state, curr_state)
-        elif self.condition_type == ConditionType.RANGE_EXIT:
-            return self._check_range_exit(prev_state, curr_state)
-        elif self.condition_type == ConditionType.CUSTOM:
-            raise NotImplementedError(
-                f"CUSTOM condition type requires a custom handler. "
-                f"Rule '{self.name}' must provide a callable in condition_config['handler']."
-            )
-        return False
+        # Handle CUSTOM separately (requires handler in config)
+        if self.condition_type == ConditionType.CUSTOM:
+            handler = self.condition_config.get("handler")
+            if handler is None:
+                raise NotImplementedError(
+                    f"CUSTOM condition type requires a callable in condition_config['handler']. "
+                    f"Rule '{self.name}' is missing the handler."
+                )
+            return handler(self.condition_config, prev_state, curr_state)
 
-    def _check_threshold_cross_up(
-        self,
-        prev_state: Optional[Dict[str, Any]],
-        curr_state: Dict[str, Any],
-    ) -> bool:
-        """
-        Value crosses above threshold.
+        # Use pluggable evaluator
+        from .conditions import EVALUATORS
 
-        Config options:
-            field: Field to check (default: "value")
-            threshold: Threshold value
-            detect_initial: If True, trigger when curr >= threshold on first eval (default: False)
-        """
-        field = self.condition_config.get("field", "value")
-        threshold = self.condition_config.get("threshold", 0)
-        curr_val = curr_state.get(field, 0)
-
-        # Handle first evaluation (no previous state)
-        if prev_state is None:
-            # Opt-in: detect initial state already above threshold
-            if self.condition_config.get("detect_initial", False):
-                return curr_val >= threshold
+        evaluator = EVALUATORS.get(self.condition_type)
+        if evaluator is None:
             return False
 
-        prev_val = prev_state.get(field, 0)
-        return prev_val < threshold <= curr_val
-
-    def _check_threshold_cross_down(
-        self,
-        prev_state: Optional[Dict[str, Any]],
-        curr_state: Dict[str, Any],
-    ) -> bool:
-        """
-        Value crosses below threshold.
-
-        Config options:
-            field: Field to check (default: "value")
-            threshold: Threshold value
-            detect_initial: If True, trigger when curr <= threshold on first eval (default: False)
-        """
-        field = self.condition_config.get("field", "value")
-        threshold = self.condition_config.get("threshold", 0)
-        curr_val = curr_state.get(field, 0)
-
-        # Handle first evaluation (no previous state)
-        if prev_state is None:
-            # Opt-in: detect initial state already below threshold
-            if self.condition_config.get("detect_initial", False):
-                return curr_val <= threshold
-            return False
-
-        prev_val = prev_state.get(field, 0)
-        return prev_val > threshold >= curr_val
-
-    def _check_state_change(
-        self,
-        prev_state: Optional[Dict[str, Any]],
-        curr_state: Dict[str, Any],
-    ) -> bool:
-        """State transitions from one value to another."""
-        if prev_state is None:
-            return False
-        field = self.condition_config.get("field", "zone")
-        from_states = self.condition_config.get("from", [])
-        to_states = self.condition_config.get("to", [])
-        prev_val = prev_state.get(field)
-        curr_val = curr_state.get(field)
-        return prev_val in from_states and curr_val in to_states
-
-    def _check_cross_up(
-        self,
-        prev_state: Optional[Dict[str, Any]],
-        curr_state: Dict[str, Any],
-    ) -> bool:
-        """Line A crosses above Line B."""
-        if prev_state is None:
-            return False
-        line_a = self.condition_config.get("line_a", "fast")
-        line_b = self.condition_config.get("line_b", "slow")
-        prev_a = prev_state.get(line_a, 0)
-        prev_b = prev_state.get(line_b, 0)
-        curr_a = curr_state.get(line_a, 0)
-        curr_b = curr_state.get(line_b, 0)
-        return prev_a <= prev_b and curr_a > curr_b
-
-    def _check_cross_down(
-        self,
-        prev_state: Optional[Dict[str, Any]],
-        curr_state: Dict[str, Any],
-    ) -> bool:
-        """Line A crosses below Line B."""
-        if prev_state is None:
-            return False
-        line_a = self.condition_config.get("line_a", "fast")
-        line_b = self.condition_config.get("line_b", "slow")
-        prev_a = prev_state.get(line_a, 0)
-        prev_b = prev_state.get(line_b, 0)
-        curr_a = curr_state.get(line_a, 0)
-        curr_b = curr_state.get(line_b, 0)
-        return prev_a >= prev_b and curr_a < curr_b
-
-    def _check_range_entry(
-        self,
-        prev_state: Optional[Dict[str, Any]],
-        curr_state: Dict[str, Any],
-    ) -> bool:
-        """Value enters a range."""
-        if prev_state is None:
-            return False
-        field = self.condition_config.get("field", "value")
-        lower = self.condition_config.get("lower", 0)
-        upper = self.condition_config.get("upper", 100)
-        prev_val = prev_state.get(field, 0)
-        curr_val = curr_state.get(field, 0)
-        was_outside = prev_val < lower or prev_val > upper
-        is_inside = lower <= curr_val <= upper
-        return was_outside and is_inside
-
-    def _check_range_exit(
-        self,
-        prev_state: Optional[Dict[str, Any]],
-        curr_state: Dict[str, Any],
-    ) -> bool:
-        """Value exits a range."""
-        if prev_state is None:
-            return False
-        field = self.condition_config.get("field", "value")
-        lower = self.condition_config.get("lower", 0)
-        upper = self.condition_config.get("upper", 100)
-        prev_val = prev_state.get(field, 0)
-        curr_val = curr_state.get(field, 0)
-        was_inside = lower <= prev_val <= upper
-        is_outside = curr_val < lower or curr_val > upper
-        return was_inside and is_outside
+        return evaluator.evaluate(self.condition_config, prev_state, curr_state)
 
 
 @dataclass
