@@ -24,6 +24,7 @@ from ...domain.events.domain_events import SnapshotReadyEvent
 
 if TYPE_CHECKING:
     from ...domain.services.risk.risk_engine import RiskEngine
+    from ...domain.services.risk.risk_facade import RiskFacade
     from ...domain.services.risk.rule_engine import RuleEngine
     from ...domain.services.risk.risk_signal_engine import RiskSignalEngine
     from ...domain.services.risk.risk_alert_logger import RiskAlertLogger
@@ -59,6 +60,7 @@ class SnapshotCoordinator:
         risk_signal_engine: Optional[RiskSignalEngine] = None,
         risk_alert_logger: Optional[RiskAlertLogger] = None,
         risk_metrics: Optional[RiskMetrics] = None,
+        risk_facade: Optional["RiskFacade"] = None,
     ):
         self.risk_engine = risk_engine
         self.rule_engine = rule_engine
@@ -70,12 +72,18 @@ class SnapshotCoordinator:
         self.risk_signal_engine = risk_signal_engine
         self.risk_alert_logger = risk_alert_logger
         self._risk_metrics = risk_metrics
+        self._risk_facade = risk_facade
 
         # Configuration
         dashboard_cfg = config.get("dashboard", {})
         self._snapshot_min_interval_sec: float = dashboard_cfg.get("snapshot_min_interval_sec", 1.0)
         self._snapshot_ready_ratio: float = dashboard_cfg.get("snapshot_ready_ratio", 0.9)
         self._snapshot_ready_timeout_sec: float = dashboard_cfg.get("snapshot_ready_timeout_sec", 30.0)
+
+        # Feature flag: use streaming (RiskFacade) as primary snapshot source
+        # Set to True to use streaming P&L, False to use RiskEngine (default)
+        risk_engine_cfg = config.get("risk_engine", {})
+        self._use_streaming_primary: bool = risk_engine_cfg.get("use_streaming_primary", False)
 
         # State
         self._latest_snapshot: Optional[RiskSnapshot] = None
@@ -91,7 +99,9 @@ class SnapshotCoordinator:
         self._running = True
         self._snapshot_startup_time = datetime.now()
         self._dispatcher_task = asyncio.create_task(self._dispatch_loop())
-        logger.info("SnapshotCoordinator started")
+
+        mode = "streaming (RiskFacade)" if self._use_streaming_primary else "batch (RiskEngine)"
+        logger.info(f"SnapshotCoordinator started in {mode} mode")
 
     async def stop(self) -> None:
         """Stop the snapshot dispatcher."""
@@ -174,13 +184,20 @@ class SnapshotCoordinator:
                 account_id="missing",
             )
 
-        # Build snapshot (runs in thread to avoid blocking)
-        snapshot = await asyncio.to_thread(
-            self.risk_engine.build_snapshot,
-            positions,
-            market_data,
-            account_info
-        )
+        # Build snapshot - use streaming or RiskEngine based on feature flag
+        if self._use_streaming_primary and self._risk_facade is not None:
+            # Streaming path: get snapshot from RiskFacade (hot path P&L)
+            snapshot = self._risk_facade.get_snapshot()
+            # Update account info (RiskFacade may not have latest)
+            self._risk_facade.set_account_info(account_info)
+        else:
+            # RiskEngine path: build snapshot from scratch (cold path)
+            snapshot = await asyncio.to_thread(
+                self.risk_engine.build_snapshot,
+                positions,
+                market_data,
+                account_info
+            )
 
         if snapshot is None:
             return
@@ -284,3 +301,22 @@ class SnapshotCoordinator:
     def is_ready(self) -> bool:
         """Check if snapshot coordinator is ready (has valid snapshot)."""
         return self._snapshot_readiness_achieved and self._latest_snapshot is not None
+
+    @property
+    def use_streaming_primary(self) -> bool:
+        """Check if streaming (RiskFacade) is the primary snapshot source."""
+        return self._use_streaming_primary
+
+    @use_streaming_primary.setter
+    def use_streaming_primary(self, value: bool) -> None:
+        """
+        Toggle streaming mode at runtime.
+
+        Use for quick rollback if streaming issues are detected:
+            coordinator.use_streaming_primary = False
+        """
+        old_mode = "streaming" if self._use_streaming_primary else "batch"
+        new_mode = "streaming" if value else "batch"
+        if old_mode != new_mode:
+            logger.info(f"Snapshot source switched: {old_mode} -> {new_mode}")
+        self._use_streaming_primary = value
