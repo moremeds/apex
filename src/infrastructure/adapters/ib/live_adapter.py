@@ -107,6 +107,30 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
             while len(self._market_data_cache) > self._market_data_cache_max_size:
                 self._market_data_cache.popitem(last=False)
 
+    def _make_contract_key(self, contract: object) -> tuple:
+        """
+        HIGH-007: Create hashable key from contract for O(1) lookup.
+
+        Key includes all fields used in matching:
+        - symbol, secType, and for options: expiry, strike, right
+
+        Args:
+            contract: IB contract object
+
+        Returns:
+            Hashable tuple key for the contract
+        """
+        symbol = getattr(contract, 'symbol', '')
+        sec_type = getattr(contract, 'secType', 'STK')
+
+        if sec_type == 'OPT':
+            expiry = getattr(contract, 'lastTradeDateOrContractMonth', '')
+            strike = getattr(contract, 'strike', 0)
+            right = getattr(contract, 'right', '')
+            return (symbol, sec_type, expiry, strike, right)
+        else:
+            return (symbol, sec_type)
+
     def _contracts_match(self, original: object, qualified: object) -> bool:
         """
         OPT-012: Check if an original contract matches a qualified contract.
@@ -121,27 +145,7 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
         Returns:
             True if contracts represent the same instrument.
         """
-        # Basic symbol match
-        if getattr(original, 'symbol', None) != getattr(qualified, 'symbol', None):
-            return False
-
-        orig_type = getattr(original, 'secType', 'STK')
-        qual_type = getattr(qualified, 'secType', 'STK')
-
-        if orig_type != qual_type:
-            return False
-
-        # For options, match on expiry, strike, and right
-        if orig_type == 'OPT':
-            if getattr(original, 'lastTradeDateOrContractMonth', '') != \
-               getattr(qualified, 'lastTradeDateOrContractMonth', ''):
-                return False
-            if getattr(original, 'strike', 0) != getattr(qualified, 'strike', 0):
-                return False
-            if getattr(original, 'right', '') != getattr(qualified, 'right', ''):
-                return False
-
-        return True
+        return self._make_contract_key(original) == self._make_contract_key(qualified)
 
     async def _get_previous_close(self, symbol: str, contract: Any) -> Optional[float]:
         """
@@ -630,15 +634,17 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
             if not qualified:
                 return []
 
-            # Build pos_map for market data fetcher
-            # We need to match qualified contracts back to positions
+            # HIGH-007: O(n) hash-based contract matching (was O(n²) nested loops)
+            # Build lookup dict: contract_key -> position
+            orig_key_to_pos = {
+                self._make_contract_key(c): pos
+                for c, pos in zip(contracts, positions)
+            }
             pos_map = {}
             for qc in qualified:
-                # Match by contract key (symbol + type + details)
-                for orig_contract, pos in zip(contracts, positions):
-                    if self._contracts_match(orig_contract, qc):
-                        pos_map[id(qc)] = pos
-                        break
+                key = self._make_contract_key(qc)
+                if key in orig_key_to_pos:
+                    pos_map[id(qc)] = orig_key_to_pos[key]
 
             logger.debug(f"OPT-012: Qualified {len(qualified)}/{len(contracts)} contracts")
 
@@ -700,13 +706,17 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
                 logger.warning("No contracts qualified for market indicators")
                 return market_data
 
-            # Map qualified contracts back to symbols
+            # HIGH-007: O(n) hash-based contract matching (was O(n²) nested loops)
+            # Build lookup dict: contract_key -> symbol
+            orig_key_to_sym = {
+                self._make_contract_key(c): sym
+                for sym, c in zip(symbols, contracts)
+            }
             qualified_with_syms = []
             for qc in qualified:
-                for sym, orig_contract in zip(symbols, contracts):
-                    if self._contracts_match(orig_contract, qc):
-                        qualified_with_syms.append((sym, qc))
-                        break
+                key = self._make_contract_key(qc)
+                if key in orig_key_to_sym:
+                    qualified_with_syms.append((orig_key_to_sym[key], qc))
 
             if not qualified_with_syms:
                 logger.warning("Could not match qualified contracts to symbols")

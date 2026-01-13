@@ -11,6 +11,7 @@ from datetime import datetime
 from ....utils.logging_setup import get_logger
 from ....models.account import AccountInfo
 from ....domain.interfaces.event_bus import EventType
+from .exceptions import classify_futu_exception, FutuConnectionError, FutuRateLimitError
 
 if TYPE_CHECKING:
     from .adapter import FutuAdapter
@@ -166,15 +167,20 @@ class AccountFetcher:
             return account_info
 
         except Exception as e:
-            if "disconnect" in str(e).lower() or "connection" in str(e).lower():
-                logger.error(f"Failed to fetch account info from Futu: {e}")
-                self._adapter._connected = False
+            # Classify the exception into typed Futu errors
+            futu_error = classify_futu_exception(e)
 
-            if "frequent" in str(e).lower():
+            if isinstance(futu_error, FutuConnectionError):
+                logger.error(f"Futu connection error: {futu_error}")
+                self._adapter._connected = False
+                raise futu_error
+
+            if isinstance(futu_error, FutuRateLimitError):
                 if self._cache is not None:
                     logger.debug("Rate limited - returning cached account info")
                     return self._cache
                 logger.warning("Futu rate limited and no cached account info available")
-            else:
-                logger.error(f"Failed to fetch account info from Futu: {e}")
-            raise
+                raise futu_error
+
+            logger.error(f"Failed to fetch account info from Futu: {futu_error}")
+            raise futu_error

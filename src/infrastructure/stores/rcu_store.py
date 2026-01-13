@@ -157,6 +157,33 @@ class RCUDict(Generic[K, V]):
             self._version += 1
             return True
 
+    def batch_delete(self, keys: List[K]) -> int:
+        """
+        HIGH-008: Copy-on-write delete of multiple keys in single copy.
+
+        This is O(n) vs O(n*k) for k individual delete() calls.
+
+        Args:
+            keys: List of keys to delete.
+
+        Returns:
+            Number of keys actually deleted.
+        """
+        if not keys:
+            return 0
+        with self._write_lock:
+            # Find which keys actually exist
+            to_delete = [k for k in keys if k in self._data]
+            if not to_delete:
+                return 0
+            # HIGH-008 FIX: Create set once before comprehension (was O(n²) recreating set each iteration)
+            delete_set = set(to_delete)
+            # Single copy with all deletions - O(n)
+            new_data = {k: v for k, v in self._data.items() if k not in delete_set}
+            self._data = new_data
+            self._version += 1
+            return len(to_delete)
+
     def clear(self) -> None:
         """Clear all data (atomic)."""
         with self._write_lock:

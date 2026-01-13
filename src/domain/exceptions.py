@@ -42,6 +42,16 @@ class MarketDataError(RecoverableError):
     pass
 
 
+class SourceUnavailableError(MarketDataError):
+    """
+    Data source temporarily unavailable (rate limited, network error, etc.).
+
+    Unlike MarketDataError, this specifically indicates the source is
+    temporarily unavailable and should NOT be cached as valid data.
+    """
+    pass
+
+
 class ExecutionError(RecoverableError):
     """Order submission or management failures."""
     pass

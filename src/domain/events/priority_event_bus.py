@@ -109,8 +109,13 @@ class PriorityEventBus:
         self._fast_task: Optional[asyncio.Task] = None
         self._slow_task: Optional[asyncio.Task] = None
         self._sequence = 0  # Global sequence counter for ordering
-        self._lock = Lock()
         self._loop: Optional[asyncio.AbstractEventLoop] = None
+
+        # HIGH-009: Fine-grained locks to reduce contention
+        # Each lock protects a specific data structure
+        self._sequence_lock = Lock()  # Protects _sequence counter
+        self._subscribers_lock = Lock()  # Protects _subscribers, _async_subscribers, _heavy_callbacks
+        self._slow_queue_lock = Lock()  # Protects _pending_slow dict
 
         # Slow lane configuration
         self._slow_lane_debounce_ms = slow_lane_debounce_ms
@@ -169,15 +174,18 @@ class PriorityEventBus:
 
         priority = EVENT_PRIORITY_MAP.get(event_type, EventPriority.CONTROL)
 
-        with self._lock:
+        # HIGH-009: Fine-grained lock for sequence counter only
+        with self._sequence_lock:
             self._sequence += 1
-            envelope = PriorityEventEnvelope(
-                priority=priority,
-                sequence=self._sequence,
-                event_type=event_type,
-                payload=payload,
-                source=source,
-            )
+            seq = self._sequence
+
+        envelope = PriorityEventEnvelope(
+            priority=priority,
+            sequence=seq,
+            event_type=event_type,
+            payload=payload,
+            source=source,
+        )
 
         if not self._running:
             # Sync fallback
@@ -244,8 +252,8 @@ class PriorityEventBus:
 
         key = f"{envelope.event_type.value}:{symbol}"
 
-        # OPT-008: Only hold lock for dict modification, stats are atomic
-        with self._lock:
+        # HIGH-009: Fine-grained lock for slow queue only
+        with self._slow_queue_lock:
             self._pending_slow[key] = envelope
             current = len(self._pending_slow)
             # Drop policy: if too many pending, drop lowest priority events first
@@ -453,7 +461,8 @@ class PriorityEventBus:
                 await asyncio.sleep(self._slow_lane_min_interval_ms / 1000)
 
                 # Flush pending slow events (coalesce by event_type + symbol)
-                with self._lock:
+                # HIGH-009: Fine-grained lock for slow queue only
+                with self._slow_queue_lock:
                     pending = list(self._pending_slow.items())
                     self._pending_slow.clear()
 
@@ -478,10 +487,17 @@ class PriorityEventBus:
         event_type = envelope.event_type
         payload = envelope.payload
 
-        # Sync subscribers
-        for cb in self._subscribers.get(event_type, []):
+        # HIGH-009 FIX: Copy subscriber lists while holding lock to prevent race conditions
+        # during concurrent subscribe/unsubscribe operations
+        with self._subscribers_lock:
+            sync_callbacks = list(self._subscribers.get(event_type, []))
+            async_callbacks = list(self._async_subscribers.get(event_type, []))
+            heavy_set = set(self._heavy_callbacks)
+
+        # Sync subscribers (iterate over copy)
+        for cb in sync_callbacks:
             try:
-                if cb in self._heavy_callbacks:
+                if cb in heavy_set:
                     # Offload heavy callback to thread pool with task tracking
                     task = asyncio.create_task(self._run_heavy_callback(cb, payload))
                     self._heavy_tasks.add(task)
@@ -492,8 +508,8 @@ class PriorityEventBus:
                 self._errors.increment()
                 logger.exception(f"Subscriber error for {event_type.value}: {e}")
 
-        # Async subscribers
-        for cb in self._async_subscribers.get(event_type, []):
+        # Async subscribers (iterate over copy)
+        for cb in async_callbacks:
             try:
                 result = cb(payload)
                 if asyncio.iscoroutine(result):
@@ -515,7 +531,10 @@ class PriorityEventBus:
 
     def _dispatch_sync(self, envelope: PriorityEventEnvelope) -> None:
         """Sync dispatch fallback (when not running)."""
-        for cb in self._subscribers.get(envelope.event_type, []):
+        # HIGH-009 FIX: Copy subscriber list while holding lock
+        with self._subscribers_lock:
+            callbacks = list(self._subscribers.get(envelope.event_type, []))
+        for cb in callbacks:
             try:
                 cb(envelope.payload)
             except Exception as e:
@@ -523,19 +542,22 @@ class PriorityEventBus:
 
     def subscribe(self, event_type: EventType, callback: Callable) -> None:
         """Subscribe sync callback to event type."""
-        with self._lock:
+        # HIGH-009: Fine-grained lock for subscribers
+        with self._subscribers_lock:
             self._subscribers[event_type].append(callback)
         logger.debug(f"Subscribed to {event_type.value}")
 
     def subscribe_async(self, event_type: EventType, callback: Callable) -> None:
         """Subscribe async callback to event type."""
-        with self._lock:
+        # HIGH-009: Fine-grained lock for subscribers
+        with self._subscribers_lock:
             self._async_subscribers[event_type].append(callback)
         logger.debug(f"Async subscribed to {event_type.value}")
 
     def unsubscribe(self, event_type: EventType, callback: Callable) -> None:
         """Unsubscribe a callback from an event type."""
-        with self._lock:
+        # HIGH-009: Fine-grained lock for subscribers
+        with self._subscribers_lock:
             if callback in self._subscribers.get(event_type, []):
                 self._subscribers[event_type].remove(callback)
                 logger.debug(f"Unsubscribed from {event_type.value}")
@@ -560,19 +582,21 @@ class PriorityEventBus:
         Args:
             callback: The callback function to mark as heavy
         """
-        with self._lock:
+        # HIGH-009: Fine-grained lock for subscribers
+        with self._subscribers_lock:
             self._heavy_callbacks.add(callback)
         logger.debug(f"Registered heavy callback: {callback.__name__ if hasattr(callback, '__name__') else callback}")
 
     def unregister_heavy_callback(self, callback: Callable) -> None:
         """Unregister a callback from the heavy callback set."""
-        with self._lock:
+        # HIGH-009: Fine-grained lock for subscribers
+        with self._subscribers_lock:
             self._heavy_callbacks.discard(callback)
 
     def get_stats(self) -> Dict[str, Any]:
         """Get bus statistics (OPT-008: mostly lock-free reads)."""
-        # Only lock for pending_slow length check
-        with self._lock:
+        # HIGH-009: Fine-grained lock for slow queue only
+        with self._slow_queue_lock:
             slow_pending = len(self._pending_slow)
 
         return {
@@ -591,6 +615,60 @@ class PriorityEventBus:
             "slow_pending": slow_pending,
             "slow_pending_max": self._max_pending_slow,
             "running": self._running,
+        }
+
+    def get_queue_health(self) -> Dict[str, Any]:
+        """
+        HIGH-012: Get queue health status for monitoring.
+
+        Returns health status with severity levels:
+        - healthy: <80% capacity
+        - warning: 80-95% capacity
+        - critical: >95% capacity
+
+        Returns:
+            Dict with health status, utilization percentages, and alerts.
+        """
+        fast_size = self._fast_queue.qsize() if self._fast_queue else 0
+        fast_pct = (fast_size / self._fast_lane_max_size) * 100 if self._fast_lane_max_size > 0 else 0
+
+        with self._slow_queue_lock:
+            slow_size = len(self._pending_slow)
+        slow_pct = (slow_size / self._max_pending_slow) * 100 if self._max_pending_slow > 0 else 0
+
+        # Determine overall health
+        max_pct = max(fast_pct, slow_pct)
+        if max_pct >= 95:
+            status = "critical"
+        elif max_pct >= 80:
+            status = "warning"
+        else:
+            status = "healthy"
+
+        # Log warnings/criticals
+        if status == "critical":
+            logger.error(
+                f"HIGH-012: Queue CRITICAL - fast={fast_pct:.1f}%, slow={slow_pct:.1f}%"
+            )
+        elif status == "warning":
+            logger.warning(
+                f"HIGH-012: Queue warning - fast={fast_pct:.1f}%, slow={slow_pct:.1f}%"
+            )
+
+        return {
+            "status": status,
+            "fast_queue": {
+                "size": fast_size,
+                "max": self._fast_lane_max_size,
+                "utilization_pct": round(fast_pct, 1),
+            },
+            "slow_queue": {
+                "size": slow_size,
+                "max": self._max_pending_slow,
+                "utilization_pct": round(slow_pct, 1),
+            },
+            "dropped_total": self._dropped.value,
+            "errors_total": self._errors.value,
         }
 
     @property

@@ -12,6 +12,7 @@ import threading
 from ....utils.logging_setup import get_logger
 from ....models.position import Position
 from .converters import convert_position
+from .exceptions import classify_futu_exception, FutuConnectionError, FutuRateLimitError
 
 if TYPE_CHECKING:
     from .adapter import FutuAdapter
@@ -150,21 +151,25 @@ class PositionFetcher:
                 self._cooldown_until = None
 
         except Exception as e:
-            if "disconnect" in str(e).lower() or "connection" in str(e).lower():
-                logger.error(f"Failed to fetch positions from Futu: {e}")
-                self._adapter._connected = False
+            # Classify the exception into typed Futu errors
+            futu_error = classify_futu_exception(e)
 
-            if "frequent" in str(e).lower():
-                cooldown_seconds = 30
+            if isinstance(futu_error, FutuConnectionError):
+                logger.error(f"Futu connection error: {futu_error}")
+                self._adapter._connected = False
+                raise futu_error
+
+            if isinstance(futu_error, FutuRateLimitError):
+                cooldown_seconds = futu_error.cooldown_seconds
                 with self._lock:
                     self._cooldown_until = datetime.now() + timedelta(seconds=cooldown_seconds)
                 logger.warning(f"Futu rate limit hit; backing off for {cooldown_seconds}s")
-                with self._lock:
-                    if self._cache is not None:
-                        return self._cache
+                if self._cache is not None:
+                    return self._cache
                 logger.warning("Futu rate limited and no cached positions available")
-            else:
-                logger.error(f"Failed to fetch positions from Futu: {e}")
-            raise
+                raise futu_error
+
+            logger.error(f"Failed to fetch positions from Futu: {futu_error}")
+            raise futu_error
 
         return positions

@@ -320,6 +320,35 @@ class RunResult:
         """Quick access to max drawdown."""
         return self.metrics.max_drawdown
 
+    def validate(self) -> tuple[bool, Optional[str]]:
+        """
+        Validate that the result is meaningful and not corrupted.
+
+        HIGH-013: Prevents false-success persistence of invalid results.
+
+        Returns:
+            Tuple of (is_valid, error_message)
+        """
+        import math
+
+        # Check critical metrics for NaN
+        critical_metrics = [
+            ("sharpe", self.metrics.sharpe),
+            ("total_return", self.metrics.total_return),
+            ("max_drawdown", self.metrics.max_drawdown),
+        ]
+
+        for name, value in critical_metrics:
+            if math.isnan(value) or math.isinf(value):
+                return False, f"Invalid {name}: {value}"
+
+        # Check equity curve if status is SUCCESS
+        if self.status == RunStatus.SUCCESS:
+            if self.equity_curve is not None and len(self.equity_curve) == 0:
+                return False, "Empty equity curve for successful run"
+
+        return True, None
+
     def to_dict(self, include_curves: bool = False) -> Dict[str, Any]:
         """Convert to dictionary for storage."""
         result = {

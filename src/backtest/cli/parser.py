@@ -7,6 +7,56 @@ Defines all command-line arguments for the unified backtest runner.
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
+from typing import Any, Optional, Sequence
+
+
+class DateAction(argparse.Action):
+    """Custom action to parse and validate date arguments at parse time."""
+
+    def __call__(
+        self,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: str | Sequence[Any] | None,
+        option_string: Optional[str] = None,
+    ) -> None:
+        if values is None:
+            setattr(namespace, self.dest, None)
+            return
+
+        value_str = str(values)
+        try:
+            parsed_date = datetime.strptime(value_str, "%Y-%m-%d").date()
+            setattr(namespace, self.dest, parsed_date)
+        except ValueError:
+            parser.error(
+                f"{option_string}: invalid date format '{value_str}' "
+                f"(expected YYYY-MM-DD, e.g., 2024-01-15)"
+            )
+
+
+class PositiveFloatAction(argparse.Action):
+    """Custom action to validate positive float values at parse time."""
+
+    def __call__(
+        self,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: str | Sequence[Any] | None,
+        option_string: Optional[str] = None,
+    ) -> None:
+        if values is None:
+            setattr(namespace, self.dest, None)
+            return
+
+        try:
+            value = float(values)
+            if value <= 0:
+                parser.error(f"{option_string}: value must be positive (got {value})")
+            setattr(namespace, self.dest, value)
+        except (TypeError, ValueError):
+            parser.error(f"{option_string}: invalid number '{values}'")
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -43,9 +93,16 @@ Examples:
     # Single backtest options
     parser.add_argument("--strategy", type=str, help="Strategy name (e.g., ma_cross)")
     parser.add_argument("--symbols", type=str, help="Comma-separated symbols (e.g., AAPL,MSFT)")
-    parser.add_argument("--start", type=str, help="Start date (YYYY-MM-DD)")
-    parser.add_argument("--end", type=str, help="End date (YYYY-MM-DD)")
-    parser.add_argument("--capital", type=float, default=100000, help="Initial capital")
+    parser.add_argument(
+        "--start", action=DateAction, help="Start date (YYYY-MM-DD)"
+    )
+    parser.add_argument(
+        "--end", action=DateAction, help="End date (YYYY-MM-DD)"
+    )
+    parser.add_argument(
+        "--capital", action=PositiveFloatAction, default=100000.0,
+        help="Initial capital (must be positive, default: 100000)"
+    )
 
     # Systematic experiment options
     parser.add_argument("--spec", type=str, help="Path to experiment YAML spec")

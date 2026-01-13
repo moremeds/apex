@@ -61,6 +61,9 @@ async def main_async() -> None:
     if not args.start or not args.end:
         parser.error("--start and --end required")
 
+    # Parse symbols once after validation
+    symbols = [s.strip() for s in args.symbols.split(",")]
+
     try:
         engine_type = args.engine or "apex"
 
@@ -69,9 +72,9 @@ async def main_async() -> None:
 
             runner = BacktraderRunner(
                 strategy_name=args.strategy,
-                symbols=[s.strip() for s in args.symbols.split(",")],
-                start_date=datetime.strptime(args.start, "%Y-%m-%d").date(),
-                end_date=datetime.strptime(args.end, "%Y-%m-%d").date(),
+                symbols=symbols,
+                start_date=args.start,
+                end_date=args.end,
                 initial_capital=args.capital,
                 data_source=args.data_source,
                 data_dir=args.data_dir,
@@ -84,10 +87,6 @@ async def main_async() -> None:
             from ..core import RunSpec
             from ..execution.engines import VectorBTConfig, VectorBTEngine
 
-            symbols = [s.strip() for s in args.symbols.split(",")]
-            start_date = datetime.strptime(args.start, "%Y-%m-%d").date()
-            end_date = datetime.strptime(args.end, "%Y-%m-%d").date()
-
             config = VectorBTConfig(data_source="ib", ib_port=4001)
             engine = VectorBTEngine(config)
 
@@ -95,8 +94,8 @@ async def main_async() -> None:
                 spec = RunSpec(
                     strategy=args.strategy,
                     symbol=symbol,
-                    start=datetime.combine(start_date, datetime.min.time()),
-                    end=datetime.combine(end_date, datetime.max.time()),
+                    start=datetime.combine(args.start, datetime.min.time()),
+                    end=datetime.combine(args.end, datetime.max.time()),
                     params={},
                 )
                 result = engine.run(spec)

@@ -436,6 +436,15 @@ class SystematicRunner:
                         result.is_train = is_train
                         result.is_oos = not is_train
 
+                    # HIGH-013: Validate result before persistence
+                    is_valid, validation_error = result.validate()
+                    if not is_valid and result.status == RunStatus.SUCCESS:
+                        logger.warning(
+                            f"Run {run_spec.run_id} marked SUCCESS but invalid: {validation_error}"
+                        )
+                        result.status = RunStatus.FAIL_EXECUTION
+                        result.error = f"Validation failed: {validation_error}"
+
                     runs.append(result)
                     run_index += 1
 
@@ -528,11 +537,20 @@ class SystematicRunner:
         # Execute in parallel using shared runner
         runs = parallel_runner.run_all(run_specs, backtest_fn)
 
-        # Set IS/OOS flags on results
+        # Set IS/OOS flags on results and validate
         for result in runs:
             is_train = run_is_train.get(result.run_id, False)
             result.is_train = is_train
             result.is_oos = not is_train
+
+            # HIGH-013: Validate result before persistence
+            is_valid, validation_error = result.validate()
+            if not is_valid and result.status == RunStatus.SUCCESS:
+                logger.warning(
+                    f"Run {result.run_id} marked SUCCESS but invalid: {validation_error}"
+                )
+                result.status = RunStatus.FAIL_EXECUTION
+                result.error = f"Validation failed: {validation_error}"
 
         # Store runs in batch
         self._run_repo.create_batch(runs)
