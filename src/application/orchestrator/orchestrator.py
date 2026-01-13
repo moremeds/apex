@@ -129,6 +129,7 @@ class Orchestrator:
             health_monitor=health_monitor,
             config=config,
             event_bus=event_bus,  # Enable slow-lane MDQC validation
+            readiness_manager=readiness_manager,  # Enables POSITIONS_READY event
         )
 
         self._snapshot_coordinator = SnapshotCoordinator(

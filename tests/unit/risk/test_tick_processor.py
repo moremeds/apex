@@ -215,10 +215,10 @@ class TestTickProcessor:
         # (156 - 154) * 100 = 200 vs (156 - 154) from current_state = 200, change = 200 - 100 = 100
         assert delta.daily_pnl_change == pytest.approx(100.0, rel=0.01)
 
-    def test_process_tick_no_valid_mark(
+    def test_process_tick_no_valid_mark_falls_back_to_current_state(
         self, processor: TickProcessor, stock_position: Position, current_state: PositionState
     ):
-        """process_tick() should return None when no valid mark price."""
+        """process_tick() should skip delta when fallback produces no meaningful change."""
         tick = MarketDataTickEvent(
             symbol="AAPL",
             source="ib",
@@ -230,6 +230,101 @@ class TestTickProcessor:
 
         delta = processor.process_tick(tick, stock_position, current_state)
 
+        # When falling back to current_state.mark_price with no price change,
+        # all delta values are zero - this is filtered as negligible to prevent
+        # flooding the event bus during extended hours with empty updates
+        assert delta is None
+
+    def test_process_tick_no_valid_mark_falls_back_to_avg_price(
+        self, processor: TickProcessor, stock_position: Position
+    ):
+        """process_tick() should fallback to avg_price when current_state has no mark."""
+        # Create a state with mark_price = 0 (no valid price)
+        zero_mark_state = PositionState(
+            symbol="AAPL",
+            underlying="AAPL",
+            quantity=100,
+            multiplier=1,
+            avg_cost=150.0,
+            mark_price=0.0,  # No valid mark
+            yesterday_close=154.0,
+            session_open=153.0,
+            unrealized_pnl=0.0,
+            daily_pnl=0.0,
+            delta=100.0,
+            gamma=0.0,
+            vega=0.0,
+            theta=0.0,
+            notional=0.0,
+            delta_dollars=0.0,
+            underlying_price=0.0,
+            is_reliable=False,
+            has_greeks=False,
+            last_update=datetime.now(),
+        )
+        tick = MarketDataTickEvent(
+            symbol="AAPL",
+            source="ib",
+            bid=None,
+            ask=None,
+            last=None,
+            quality="good",
+        )
+
+        delta = processor.process_tick(tick, stock_position, zero_mark_state)
+
+        # Should use position.avg_price (150.0) as final fallback
+        assert delta is not None
+        assert delta.new_mark_price == 150.0
+
+    def test_process_tick_no_fallback_available(
+        self, processor: TickProcessor
+    ):
+        """process_tick() should return None when no price available at all."""
+        # Position with zero avg_price
+        zero_price_position = Position(
+            symbol="AAPL",
+            underlying="AAPL",
+            asset_type=AssetType.STOCK,
+            quantity=100,
+            avg_price=0.0,  # No entry price
+            multiplier=1,
+        )
+        # State with zero mark price
+        zero_mark_state = PositionState(
+            symbol="AAPL",
+            underlying="AAPL",
+            quantity=100,
+            multiplier=1,
+            avg_cost=0.0,
+            mark_price=0.0,
+            yesterday_close=0.0,
+            session_open=0.0,
+            unrealized_pnl=0.0,
+            daily_pnl=0.0,
+            delta=0.0,
+            gamma=0.0,
+            vega=0.0,
+            theta=0.0,
+            notional=0.0,
+            delta_dollars=0.0,
+            underlying_price=0.0,
+            is_reliable=False,
+            has_greeks=False,
+            last_update=datetime.now(),
+        )
+        tick = MarketDataTickEvent(
+            symbol="AAPL",
+            source="ib",
+            bid=None,
+            ask=None,
+            last=None,
+            quality="good",
+        )
+
+        delta = processor.process_tick(tick, zero_price_position, zero_mark_state)
+
+        # No fallback available, should return None
         assert delta is None
 
     def test_process_tick_uses_last_as_fallback(
@@ -318,8 +413,8 @@ class TestCreateInitialState:
         assert state is not None
         assert state.is_reliable is False  # Marked as unreliable
 
-    def test_rejects_tick_without_valid_mark(self, stock_position: Position):
-        """create_initial_state() should reject tick without valid mark price."""
+    def test_no_valid_mark_falls_back_to_avg_price(self, stock_position: Position):
+        """create_initial_state() should fallback to avg_price when tick has no prices."""
         tick = MarketDataTickEvent(
             symbol="AAPL",
             source="ib",
@@ -331,6 +426,34 @@ class TestCreateInitialState:
 
         state = create_initial_state(stock_position, tick)
 
+        # Should use position.avg_price (150.0) as fallback
+        assert state is not None
+        assert state.mark_price == 150.0
+        # P&L is zero when mark == avg_cost
+        assert state.unrealized_pnl == 0.0
+
+    def test_no_fallback_available_returns_none(self):
+        """create_initial_state() should return None when no price available at all."""
+        zero_price_position = Position(
+            symbol="AAPL",
+            underlying="AAPL",
+            asset_type=AssetType.STOCK,
+            quantity=100,
+            avg_price=0.0,  # No entry price
+            multiplier=1,
+        )
+        tick = MarketDataTickEvent(
+            symbol="AAPL",
+            source="ib",
+            bid=None,
+            ask=None,
+            last=None,
+            quality="good",
+        )
+
+        state = create_initial_state(zero_price_position, tick)
+
+        # No fallback available, should return None
         assert state is None
 
     def test_uses_zero_for_missing_reference_prices(self, stock_position: Position):

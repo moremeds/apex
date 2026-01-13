@@ -286,3 +286,12 @@ class PortfolioState:
     def symbols(self) -> List[str]:
         """List of position symbols."""
         return list(self._positions.keys())
+
+    def get_position_states(self) -> Dict[str, PositionState]:
+        """
+        Get thread-safe copy of all position states.
+
+        Used by RiskFacade to build position_risks list.
+        """
+        with self._lock:
+            return self._positions.copy()

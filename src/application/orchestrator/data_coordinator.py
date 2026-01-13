@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from ...domain.services.mdqc import MDQC
     from ...infrastructure.monitoring import HealthMonitor
     from ...domain.interfaces.event_bus import EventBus
+    from ..readiness_manager import ReadinessManager
 
 logger = get_logger(__name__)
 
@@ -56,6 +57,7 @@ class DataCoordinator:
         health_monitor: HealthMonitor,
         config: Dict[str, Any],
         event_bus: Optional[EventBus] = None,
+        readiness_manager: Optional["ReadinessManager"] = None,
     ):
         self.broker_manager = broker_manager
         self.market_data_manager = market_data_manager
@@ -66,6 +68,7 @@ class DataCoordinator:
         self.mdqc = mdqc
         self.health_monitor = health_monitor
         self._event_bus = event_bus
+        self._readiness_manager = readiness_manager
 
         # Account TTL caching
         self._account_ttl_sec: float = config.get("account_ttl_sec", 30.0)
@@ -113,6 +116,17 @@ class DataCoordinator:
         # Update stores
         self.position_store.upsert_positions(merged_positions)
         self.account_store.update(account_info)
+
+        # Notify ReadinessManager that positions are loaded (triggers POSITIONS_READY event)
+        # This enables DeltaPublisher to sync positions to RiskFacade for streaming P&L
+        # Only notify for brokers that are actually connected (not disconnected/failed)
+        if self._readiness_manager is not None:
+            for broker_name, positions in positions_by_broker.items():
+                broker_status = self.broker_manager.get_status(broker_name)
+                if broker_status is not None and broker_status.connected:
+                    # Ensure broker is marked as connected in ReadinessManager first
+                    self._readiness_manager.on_broker_connected(broker_name)
+                    self._readiness_manager.on_positions_loaded(broker_name, len(positions))
 
         # Subscribe to market data for new symbols
         await self._subscribe_market_data(merged_positions)

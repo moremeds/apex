@@ -42,6 +42,7 @@ from ..calculators.greeks_calculator import calculate_position_greeks
 from ..calculators.notional_calculator import calculate_notional, calculate_delta_dollars
 from ..state.position_state import PositionState, PositionDelta
 from src.utils.timezone import now_utc
+from src.utils.market_hours import MarketHours
 
 if TYPE_CHECKING:
     from src.domain.events.domain_events import MarketDataTickEvent
@@ -88,10 +89,18 @@ class TickProcessor:
         if not self._should_emit_delta(tick):
             return None
 
-        # Resolve mark price (mid preferred, then last)
+        # Resolve mark price with fallback chain
+        # Priority: tick mid → tick bid/ask → tick last → current mark → avg cost
         mark = self._resolve_mark_price(tick)
         if mark is None or mark <= 0:
-            return None
+            # Fallback to current state's mark (preserve last known good value)
+            if current_state.mark_price > 0:
+                mark = current_state.mark_price
+            # Fallback to position entry price
+            elif position.avg_price > 0:
+                mark = position.avg_price
+            else:
+                return None
 
         # Map tick quality string to DataQuality enum
         data_quality = self._map_quality(tick.quality)
@@ -100,9 +109,19 @@ class TickProcessor:
         yesterday_close = tick.yesterday_close or current_state.yesterday_close
         session_open = tick.session_open or current_state.session_open
 
+        # Apply market hours logic for P&L calculation (matches RiskEngine behavior)
+        # - Market OPEN: use live mark for all assets
+        # - Market EXTENDED: use live mark for stocks only, yesterday_close for options
+        # - Market CLOSED: use yesterday_close for all assets
+        pnl_price = self._resolve_pnl_price(
+            mark=mark,
+            yesterday_close=yesterday_close,
+            asset_type=position.asset_type.value,
+        )
+
         # Calculate new P&L
         new_pnl = calculate_pnl(
-            mark=mark,
+            mark=pnl_price,
             avg_cost=position.avg_price,
             yesterday_close=yesterday_close if yesterday_close > 0 else None,
             session_open=session_open if session_open > 0 else None,
@@ -144,20 +163,38 @@ class TickProcessor:
             multiplier=position.multiplier,
         )
 
+        # Calculate all changes
+        pnl_change = new_pnl.unrealized - current_state.unrealized_pnl
+        daily_pnl_change = new_pnl.daily - current_state.daily_pnl
+        delta_change = new_greeks.delta - current_state.delta
+        gamma_change = new_greeks.gamma - current_state.gamma
+        vega_change = new_greeks.vega - current_state.vega
+        theta_change = new_greeks.theta - current_state.theta
+        notional_change = new_notional.notional - current_state.notional
+        delta_dollars_change = new_delta_dollars - current_state.delta_dollars
+
+        # Skip no-op deltas (common with fallback prices during extended hours)
+        # This prevents flooding the event bus with empty updates
+        if self._is_negligible_delta(
+            pnl_change, daily_pnl_change, delta_change, gamma_change,
+            vega_change, theta_change, notional_change, delta_dollars_change,
+        ):
+            return None
+
         # Build delta (changes from current state)
         return PositionDelta(
             symbol=position.symbol,
             underlying=position.underlying,
             timestamp=tick.timestamp,
             new_mark_price=mark,
-            pnl_change=new_pnl.unrealized - current_state.unrealized_pnl,
-            daily_pnl_change=new_pnl.daily - current_state.daily_pnl,
-            delta_change=new_greeks.delta - current_state.delta,
-            gamma_change=new_greeks.gamma - current_state.gamma,
-            vega_change=new_greeks.vega - current_state.vega,
-            theta_change=new_greeks.theta - current_state.theta,
-            notional_change=new_notional.notional - current_state.notional,
-            delta_dollars_change=new_delta_dollars - current_state.delta_dollars,
+            pnl_change=pnl_change,
+            daily_pnl_change=daily_pnl_change,
+            delta_change=delta_change,
+            gamma_change=gamma_change,
+            vega_change=vega_change,
+            theta_change=theta_change,
+            notional_change=notional_change,
+            delta_dollars_change=delta_dollars_change,
             underlying_price=underlying_price,
             is_reliable=new_pnl.is_reliable,
             has_greeks=new_greeks.has_greeks,
@@ -235,6 +272,75 @@ class TickProcessor:
         }
         return quality_map.get(quality_lower, DataQuality.GOOD)
 
+    def _is_negligible_delta(
+        self,
+        pnl_change: float,
+        daily_pnl_change: float,
+        delta_change: float,
+        gamma_change: float,
+        vega_change: float,
+        theta_change: float,
+        notional_change: float,
+        delta_dollars_change: float,
+    ) -> bool:
+        """
+        Check if all delta changes are negligible (within tolerance).
+
+        This filters out "empty" updates from fallback prices during extended hours,
+        preventing event bus flooding with no-op deltas.
+
+        Tolerances chosen to filter floating-point noise while preserving
+        any real changes (even small price moves on large positions).
+        """
+        # Tolerances: $0.01 for P&L/notional, 0.001 for Greeks
+        return (
+            abs(pnl_change) < 0.01
+            and abs(daily_pnl_change) < 0.01
+            and abs(delta_change) < 0.001
+            and abs(gamma_change) < 0.0001
+            and abs(vega_change) < 0.001
+            and abs(theta_change) < 0.001
+            and abs(notional_change) < 0.01
+            and abs(delta_dollars_change) < 0.01
+        )
+
+    def _resolve_pnl_price(
+        self,
+        mark: float,
+        yesterday_close: float,
+        asset_type: str,
+    ) -> float:
+        """
+        Resolve price to use for P&L calculation based on market hours.
+
+        This matches RiskEngine's behavior for extended hours:
+        - Market OPEN: use live mark for all assets
+        - Market EXTENDED: use live mark for stocks only, yesterday_close for options
+        - Market CLOSED: use yesterday_close for all assets
+
+        Args:
+            mark: Current mark price from tick.
+            yesterday_close: Yesterday's closing price.
+            asset_type: Asset type string (e.g., "STOCK", "OPTION").
+
+        Returns:
+            Price to use for P&L calculation.
+        """
+        market_status = MarketHours.get_market_status()
+        is_stock = asset_type == "STOCK"
+
+        # Use live price when: market is OPEN, or (EXTENDED and is a stock)
+        use_live_price = market_status == "OPEN" or (market_status == "EXTENDED" and is_stock)
+
+        if use_live_price:
+            return mark
+
+        # Use yesterday_close for options during extended hours, or all assets when closed
+        # Fall back to mark if yesterday_close is not available
+        if yesterday_close and yesterday_close > 0:
+            return yesterday_close
+        return mark
+
 
 def create_initial_state(
     position: Position,
@@ -262,17 +368,30 @@ def create_initial_state(
     if strict_quality and not processor._should_emit_delta(tick):
         return None
 
-    # Resolve mark price
+    # Resolve mark price with fallback to entry price
+    # Priority: tick mid → tick bid/ask → tick last → avg cost
     mark = processor._resolve_mark_price(tick)
     if mark is None or mark <= 0:
-        return None
+        # Fallback to position entry price (no current state for initial state)
+        if position.avg_price > 0:
+            mark = position.avg_price
+        else:
+            return None
 
     # Map quality
     data_quality = processor._map_quality(tick.quality)
 
+    # Apply market hours logic for P&L calculation (matches RiskEngine behavior)
+    yesterday_close = tick.yesterday_close or 0.0
+    pnl_price = processor._resolve_pnl_price(
+        mark=mark,
+        yesterday_close=yesterday_close,
+        asset_type=position.asset_type.value,
+    )
+
     # Calculate initial P&L
     pnl = calculate_pnl(
-        mark=mark,
+        mark=pnl_price,
         avg_cost=position.avg_price,
         yesterday_close=tick.yesterday_close,
         session_open=tick.session_open,

@@ -27,6 +27,7 @@ Usage:
 from __future__ import annotations
 
 import threading
+from dataclasses import dataclass
 from typing import Dict, List, Optional, TYPE_CHECKING
 
 from .streaming.tick_processor import TickProcessor, create_initial_state
@@ -37,6 +38,14 @@ if TYPE_CHECKING:
     from src.domain.events.domain_events import MarketDataTickEvent
     from src.models.position import Position
     from src.models.risk_snapshot import RiskSnapshot
+    from src.models.account import AccountInfo
+
+
+@dataclass
+class BrokerAccountInfo:
+    """Per-broker account info for snapshot building."""
+    net_liquidation: float = 0.0
+    buying_power: float = 0.0
 
 
 class RiskFacade:
@@ -68,6 +77,13 @@ class RiskFacade:
         # Uses replace-not-mutate pattern (atomic dict replacement)
         self._positions: Dict[str, Position] = {}
         self._positions_lock = threading.Lock()
+
+        # Account info for snapshot building
+        self._account_info: Optional[AccountInfo] = None
+        self._broker_accounts: Dict[str, BrokerAccountInfo] = {
+            "ib": BrokerAccountInfo(),
+            "futu": BrokerAccountInfo(),
+        }
 
     def on_tick(self, tick: MarketDataTickEvent) -> Optional[PositionDelta]:
         """
@@ -111,14 +127,74 @@ class RiskFacade:
 
     def get_snapshot(self) -> RiskSnapshot:
         """
-        Get current portfolio snapshot.
+        Get current portfolio snapshot with position_risks and account info.
 
         This is the COLD PATH - called periodically for risk signals.
 
         Returns:
-            RiskSnapshot with current portfolio metrics.
+            RiskSnapshot with current portfolio metrics, position_risks, and account info.
         """
-        return self._state.to_snapshot()
+        # Get base snapshot from PortfolioState
+        snapshot = self._state.to_snapshot()
+
+        # Build position_risks list
+        snapshot.position_risks = self._build_position_risks()
+
+        # Add account info fields
+        if self._account_info is not None:
+            snapshot.margin_utilization = self._account_info.margin_utilization()
+            snapshot.buying_power = self._account_info.buying_power
+            snapshot.total_net_liquidation = self._account_info.net_liquidation
+
+        # Add per-broker account info
+        ib_account = self._broker_accounts.get("ib")
+        if ib_account:
+            snapshot.ib_net_liquidation = ib_account.net_liquidation
+            snapshot.ib_buying_power = ib_account.buying_power
+
+        futu_account = self._broker_accounts.get("futu")
+        if futu_account:
+            snapshot.futu_net_liquidation = futu_account.net_liquidation
+            snapshot.futu_buying_power = futu_account.buying_power
+
+        return snapshot
+
+    def _build_position_risks(self) -> List["PositionRisk"]:
+        """
+        Build PositionRisk list from PositionState and Position objects.
+
+        Thread-safe: uses snapshot of position states.
+        """
+        from src.models.position_risk import PositionRisk
+
+        position_risks = []
+        position_states = self._state.get_position_states()
+
+        for symbol, state in position_states.items():
+            position = self._positions.get(symbol)
+            if position is None:
+                continue  # No position object for this state
+
+            risk = PositionRisk(
+                position=position,
+                mark_price=state.mark_price,
+                market_value=state.notional,
+                unrealized_pnl=state.unrealized_pnl,
+                daily_pnl=state.daily_pnl,
+                delta=state.delta,
+                gamma=state.gamma,
+                vega=state.vega,
+                theta=state.theta,
+                notional=state.notional,
+                delta_dollars=state.delta_dollars,
+                has_market_data=state.is_reliable,
+                has_greeks=state.has_greeks,
+                is_stale=not state.is_reliable,
+                calculated_at=state.last_update,
+            )
+            position_risks.append(risk)
+
+        return position_risks
 
     def load_positions(
         self,
@@ -241,3 +317,25 @@ class RiskFacade:
     def get_position_state(self, symbol: str) -> Optional[PositionState]:
         """Get calculated state for a position."""
         return self._state.get_position(symbol)
+
+    def set_account_info(
+        self,
+        account_info: "AccountInfo",
+        broker_accounts: Optional[Dict[str, "AccountInfo"]] = None,
+    ) -> None:
+        """
+        Update account info for snapshot building.
+
+        Args:
+            account_info: Aggregated account info.
+            broker_accounts: Optional dict of broker_name -> AccountInfo for per-broker fields.
+        """
+        self._account_info = account_info
+
+        if broker_accounts is not None:
+            for broker_name, account in broker_accounts.items():
+                if broker_name in self._broker_accounts:
+                    self._broker_accounts[broker_name] = BrokerAccountInfo(
+                        net_liquidation=account.net_liquidation,
+                        buying_power=account.buying_power,
+                    )
