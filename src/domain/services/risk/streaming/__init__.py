@@ -17,11 +17,9 @@ Design Principles:
 
 from .tick_processor import TickProcessor, create_initial_state
 from .delta_publisher import DeltaPublisher
-from .shadow_validator import ShadowValidator
 
 __all__ = [
     "TickProcessor",
     "DeltaPublisher",
-    "ShadowValidator",
     "create_initial_state",
 ]

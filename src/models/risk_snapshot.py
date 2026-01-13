@@ -16,7 +16,7 @@ class RiskSnapshot:
     """
     Aggregated portfolio risk snapshot.
 
-    Output of RiskEngine.build_snapshot() - contains portfolio-level metrics,
+    Output of RiskFacade.get_snapshot() - contains portfolio-level metrics,
     Greeks, concentration, and expiry bucket analysis.
     """
 
@@ -74,6 +74,6 @@ class RiskSnapshot:
     # Preview mode indicator (positions shown before full risk calculation)
     is_preview: bool = False
 
-    # Per-position risk breakdown (calculated by RiskEngine)
+    # Per-position risk breakdown (calculated by streaming risk system)
     # This is the single source of truth for all position-level calculations
     position_risks: List["PositionRisk"] = field(default_factory=list)

@@ -2,15 +2,13 @@
 SnapshotCoordinator - Handles risk snapshot building and dispatching.
 
 Responsibilities:
-- Dirty tracking (when to rebuild snapshots)
-- Debounced snapshot dispatching
+- Periodic snapshot dispatching (interval-based)
 - Snapshot readiness gating
 - Risk signal evaluation
 """
 
 from __future__ import annotations
 import asyncio
-import time
 from datetime import datetime
 from typing import Dict, List, Optional, Any, TYPE_CHECKING
 
@@ -23,13 +21,12 @@ from ...domain.interfaces.event_bus import EventType
 from ...domain.events.domain_events import SnapshotReadyEvent
 
 if TYPE_CHECKING:
-    from ...domain.services.risk.risk_engine import RiskEngine
     from ...domain.services.risk.risk_facade import RiskFacade
     from ...domain.services.risk.rule_engine import RuleEngine
     from ...domain.services.risk.risk_signal_engine import RiskSignalEngine
     from ...domain.services.risk.risk_alert_logger import RiskAlertLogger
     from ...domain.interfaces.event_bus import EventBus
-    from ...infrastructure.stores import PositionStore, MarketDataStore, AccountStore
+    from ...infrastructure.stores import AccountStore
     from ...infrastructure.monitoring import HealthMonitor
     from ...infrastructure.observability import RiskMetrics
 
@@ -40,50 +37,37 @@ class SnapshotCoordinator:
     """
     Coordinates risk snapshot building and dispatching.
 
-    Handles:
-    - Dirty tracking to trigger rebuilds
-    - Debounced snapshot dispatching
-    - Snapshot readiness gating for startup
-    - Risk signal evaluation and logging
+    Uses streaming RiskFacade exclusively for snapshot building.
+    Dispatches snapshots on a fixed interval (no dirty tracking needed -
+    RiskFacade state is kept current via position delta events).
     """
 
     def __init__(
         self,
-        risk_engine: RiskEngine,
-        rule_engine: RuleEngine,
-        position_store: PositionStore,
-        market_data_store: MarketDataStore,
-        account_store: AccountStore,
-        event_bus: EventBus,
-        health_monitor: HealthMonitor,
+        risk_facade: "RiskFacade",
+        rule_engine: "RuleEngine",
+        account_store: "AccountStore",
+        event_bus: "EventBus",
+        health_monitor: "HealthMonitor",
         config: Dict[str, Any],
-        risk_signal_engine: Optional[RiskSignalEngine] = None,
-        risk_alert_logger: Optional[RiskAlertLogger] = None,
-        risk_metrics: Optional[RiskMetrics] = None,
-        risk_facade: Optional["RiskFacade"] = None,
+        risk_signal_engine: Optional["RiskSignalEngine"] = None,
+        risk_alert_logger: Optional["RiskAlertLogger"] = None,
+        risk_metrics: Optional["RiskMetrics"] = None,
     ):
-        self.risk_engine = risk_engine
+        self._risk_facade = risk_facade
         self.rule_engine = rule_engine
-        self.position_store = position_store
-        self.market_data_store = market_data_store
         self.account_store = account_store
         self.event_bus = event_bus
         self.health_monitor = health_monitor
         self.risk_signal_engine = risk_signal_engine
         self.risk_alert_logger = risk_alert_logger
         self._risk_metrics = risk_metrics
-        self._risk_facade = risk_facade
 
         # Configuration
         dashboard_cfg = config.get("dashboard", {})
-        self._snapshot_min_interval_sec: float = dashboard_cfg.get("snapshot_min_interval_sec", 1.0)
+        self._snapshot_interval_sec: float = dashboard_cfg.get("snapshot_min_interval_sec", 1.0)
         self._snapshot_ready_ratio: float = dashboard_cfg.get("snapshot_ready_ratio", 0.9)
         self._snapshot_ready_timeout_sec: float = dashboard_cfg.get("snapshot_ready_timeout_sec", 30.0)
-
-        # Feature flag: use streaming (RiskFacade) as primary snapshot source
-        # Set to True to use streaming P&L, False to use RiskEngine (default)
-        risk_engine_cfg = config.get("risk_engine", {})
-        self._use_streaming_primary: bool = risk_engine_cfg.get("use_streaming_primary", False)
 
         # State
         self._latest_snapshot: Optional[RiskSnapshot] = None
@@ -99,9 +83,7 @@ class SnapshotCoordinator:
         self._running = True
         self._snapshot_startup_time = datetime.now()
         self._dispatcher_task = asyncio.create_task(self._dispatch_loop())
-
-        mode = "streaming (RiskFacade)" if self._use_streaming_primary else "batch (RiskEngine)"
-        logger.info(f"SnapshotCoordinator started in {mode} mode")
+        logger.info("SnapshotCoordinator started (streaming mode)")
 
     async def stop(self) -> None:
         """Stop the snapshot dispatcher."""
@@ -121,29 +103,15 @@ class SnapshotCoordinator:
 
     async def _dispatch_loop(self) -> None:
         """
-        Main dispatch loop - rebuilds snapshots when risk engine is dirty.
+        Main dispatch loop - builds snapshots on fixed interval.
 
-        Uses debouncing to prevent excessive rebuilds during rapid updates.
+        RiskFacade state is kept current via position delta events,
+        so we simply read the latest state on each interval.
         """
-        last_snapshot_time = 0.0
-
         while self._running:
             try:
-                # Wait for dirty flag or timeout
-                await asyncio.sleep(0.05)  # 50ms poll interval
-
-                if not self.risk_engine.needs_rebuild():
-                    continue
-
-                # Debounce: ensure minimum interval between snapshots
-                now = time.time()
-                elapsed = now - last_snapshot_time
-                if elapsed < self._snapshot_min_interval_sec:
-                    await asyncio.sleep(self._snapshot_min_interval_sec - elapsed)
-
-                # Build snapshot
+                await asyncio.sleep(self._snapshot_interval_sec)
                 await self._build_and_dispatch_snapshot()
-                last_snapshot_time = time.time()
 
             except asyncio.CancelledError:
                 break
@@ -156,16 +124,8 @@ class SnapshotCoordinator:
         """Build a new risk snapshot and dispatch it."""
         new_cycle()  # New trace ID for this snapshot cycle
 
-        # Gather data
-        positions = self.position_store.get_all()  # Returns List[Position]
-        market_data = self.market_data_store.get_all()
+        # Update account info in RiskFacade (may have changed since last snapshot)
         account_info = self.account_store.get()
-
-        if not positions:
-            return
-
-        # Position updates can arrive before the first account fetch completes.
-        # Avoid crashing snapshot building on startup; use a safe zeroed AccountInfo.
         if account_info is None:
             from ...models.account import AccountInfo
 
@@ -183,27 +143,12 @@ class SnapshotCoordinator:
                 timestamp=datetime.now(),
                 account_id="missing",
             )
+        self._risk_facade.set_account_info(account_info)
 
-        # Build snapshot - use streaming or RiskEngine based on feature flag
-        if self._use_streaming_primary and self._risk_facade is not None:
-            # Streaming path: get snapshot from RiskFacade (hot path P&L)
-            snapshot = self._risk_facade.get_snapshot()
-            # Update account info (RiskFacade may not have latest)
-            self._risk_facade.set_account_info(account_info)
-        else:
-            # RiskEngine path: build snapshot from scratch (cold path)
-            snapshot = await asyncio.to_thread(
-                self.risk_engine.build_snapshot,
-                positions,
-                market_data,
-                account_info
-            )
-
-        if snapshot is None:
+        # Get snapshot from RiskFacade (streaming state)
+        snapshot = self._risk_facade.get_snapshot()
+        if snapshot is None or snapshot.total_positions == 0:
             return
-
-        # Clear dirty state after successful build
-        self.risk_engine.clear_dirty_state()
 
         self._latest_snapshot = snapshot
 
@@ -301,22 +246,3 @@ class SnapshotCoordinator:
     def is_ready(self) -> bool:
         """Check if snapshot coordinator is ready (has valid snapshot)."""
         return self._snapshot_readiness_achieved and self._latest_snapshot is not None
-
-    @property
-    def use_streaming_primary(self) -> bool:
-        """Check if streaming (RiskFacade) is the primary snapshot source."""
-        return self._use_streaming_primary
-
-    @use_streaming_primary.setter
-    def use_streaming_primary(self, value: bool) -> None:
-        """
-        Toggle streaming mode at runtime.
-
-        Use for quick rollback if streaming issues are detected:
-            coordinator.use_streaming_primary = False
-        """
-        old_mode = "streaming" if self._use_streaming_primary else "batch"
-        new_mode = "streaming" if value else "batch"
-        if old_mode != new_mode:
-            logger.info(f"Snapshot source switched: {old_mode} -> {new_mode}")
-        self._use_streaming_primary = value

@@ -264,6 +264,29 @@ class DataCoordinator:
                 # Ensure store is populated immediately (do not rely on EventBus wiring order).
                 self.market_data_store.upsert(market_data_list)
 
+                # Publish MARKET_DATA_READY immediately after priming to trigger re-syncs
+                # even when coverage is <100% (e.g., options in extended hours).
+                if self._event_bus is not None:
+                    self._event_bus.publish(
+                        EventType.MARKET_DATA_READY,
+                        {
+                            "total_symbols": total_symbols,
+                            "symbols_with_data": len(market_data_list),
+                            "primed": True,
+                            "timestamp": datetime.now().isoformat(),
+                        },
+                        source="market_data_prime",
+                    )
+
+                # Notify ReadinessManager of market data coverage (triggers MARKET_DATA_READY)
+                # This is critical for DeltaPublisher to re-sync positions with yesterday_close
+                if self._readiness_manager is not None:
+                    symbols_with_data = len(market_data_list)
+                    self._readiness_manager.on_market_data_update(
+                        total_symbols=total_symbols,
+                        symbols_with_data=symbols_with_data,
+                    )
+
             self.health_monitor.update_component_health(
                 "market_data_feed",
                 HealthStatus.HEALTHY if market_data_list else HealthStatus.DEGRADED,

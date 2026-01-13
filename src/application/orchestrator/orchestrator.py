@@ -31,13 +31,13 @@ from .snapshot_coordinator import SnapshotCoordinator
 from .signal_coordinator import SignalCoordinator
 
 if TYPE_CHECKING:
-    from ...domain.services.risk.risk_engine import RiskEngine
     from ...domain.services.pos_reconciler import Reconciler
     from ...domain.services.mdqc import MDQC
     from ...domain.services.risk.rule_engine import RuleEngine
     from ...domain.services.market_alert_detector import MarketAlertDetector
     from ...domain.services.risk.risk_signal_engine import RiskSignalEngine
     from ...domain.services.risk.risk_alert_logger import RiskAlertLogger
+    from ...domain.services.risk.risk_facade import RiskFacade
     from ...domain.interfaces.signal_persistence import SignalPersistencePort
     from ...infrastructure.stores import PositionStore, MarketDataStore, AccountStore
     from ...infrastructure.monitoring import HealthMonitor, Watchdog
@@ -62,33 +62,31 @@ class Orchestrator:
 
     def __init__(
         self,
-        broker_manager: BrokerManager,
-        market_data_manager: MarketDataManager,
-        position_store: PositionStore,
-        market_data_store: MarketDataStore,
-        account_store: AccountStore,
-        risk_engine: RiskEngine,
-        reconciler: Reconciler,
-        mdqc: MDQC,
-        rule_engine: RuleEngine,
-        health_monitor: HealthMonitor,
-        watchdog: Watchdog,
+        broker_manager: "BrokerManager",
+        market_data_manager: "MarketDataManager",
+        position_store: "PositionStore",
+        market_data_store: "MarketDataStore",
+        account_store: "AccountStore",
+        risk_facade: "RiskFacade",
+        reconciler: "Reconciler",
+        mdqc: "MDQC",
+        rule_engine: "RuleEngine",
+        health_monitor: "HealthMonitor",
+        watchdog: "Watchdog",
         event_bus: Union[EventBus, PriorityEventBus],
         config: Dict[str, Any],
-        market_alert_detector: Optional[MarketAlertDetector] = None,
-        risk_signal_engine: Optional[RiskSignalEngine] = None,
-        risk_alert_logger: Optional[RiskAlertLogger] = None,
-        risk_metrics: Optional[RiskMetrics] = None,
-        health_metrics: Optional[HealthMetrics] = None,
-        readiness_manager: Optional[ReadinessManager] = None,
-        snapshot_service: Optional[SnapshotService] = None,
-        warm_start_service: Optional[WarmStartService] = None,
+        market_alert_detector: Optional["MarketAlertDetector"] = None,
+        risk_signal_engine: Optional["RiskSignalEngine"] = None,
+        risk_alert_logger: Optional["RiskAlertLogger"] = None,
+        risk_metrics: Optional["RiskMetrics"] = None,
+        health_metrics: Optional["HealthMetrics"] = None,
+        readiness_manager: Optional["ReadinessManager"] = None,
+        snapshot_service: Optional["SnapshotService"] = None,
+        warm_start_service: Optional["WarmStartService"] = None,
         signal_metrics: Optional["SignalMetrics"] = None,
         historical_data_manager: Optional[Any] = None,
         signal_persistence: Optional["SignalPersistencePort"] = None,
-        risk_facade: Optional[Any] = None,
         delta_publisher: Optional[Any] = None,
-        shadow_validator: Optional[Any] = None,
     ):
         # Core dependencies
         self.broker_manager = broker_manager
@@ -96,7 +94,7 @@ class Orchestrator:
         self.position_store = position_store
         self.market_data_store = market_data_store
         self.account_store = account_store
-        self.risk_engine = risk_engine
+        self._risk_facade = risk_facade
         self.rule_engine = rule_engine
         self.health_monitor = health_monitor
         self.watchdog = watchdog
@@ -112,10 +110,8 @@ class Orchestrator:
         self._warm_start_service = warm_start_service
         self._historical_data_manager = historical_data_manager
 
-        # Streaming risk system (Phase 2 shadow mode)
-        self._risk_facade = risk_facade
+        # Streaming risk system
         self._delta_publisher = delta_publisher
-        self._shadow_validator = shadow_validator
 
         # Create coordinators
         self._data_coordinator = DataCoordinator(
@@ -133,10 +129,8 @@ class Orchestrator:
         )
 
         self._snapshot_coordinator = SnapshotCoordinator(
-            risk_engine=risk_engine,
+            risk_facade=risk_facade,
             rule_engine=rule_engine,
-            position_store=position_store,
-            market_data_store=market_data_store,
             account_store=account_store,
             event_bus=event_bus,
             health_monitor=health_monitor,
@@ -190,13 +184,10 @@ class Orchestrator:
         # Subscribe components to events (before streaming starts)
         self._subscribe_components_to_events()
 
-        # Start streaming risk system (shadow mode - parallel to RiskEngine)
+        # Start streaming risk system
         if self._delta_publisher:
             self._delta_publisher.start()
-            logger.debug("DeltaPublisher started (shadow mode)")
-        if self._shadow_validator:
-            self._shadow_validator.start()
-            logger.debug("ShadowValidator started")
+            logger.debug("DeltaPublisher started")
 
         # Start signal pipeline (bar aggregation → indicators → signals)
         self._signal_coordinator.start()
@@ -223,9 +214,7 @@ class Orchestrator:
         self._timer_task = asyncio.create_task(self._timer_loop())
 
         # Initial data fetch (loads positions from brokers)
-        await self._data_coordinator.fetch_and_reconcile(
-            on_dirty_callback=self.risk_engine.mark_dirty
-        )
+        await self._data_coordinator.fetch_and_reconcile()
 
         # NOTE: Bar preload is deferred to first timer tick to ensure TUI is subscribed
         # to CONFLUENCE_UPDATE and ALIGNMENT_UPDATE events before signals are generated.
@@ -246,8 +235,6 @@ class Orchestrator:
         # Stop streaming risk system
         if self._delta_publisher:
             self._delta_publisher.stop()
-        if self._shadow_validator:
-            self._shadow_validator.stop()
 
         # Cancel timer task
         if self._timer_task:
@@ -275,9 +262,6 @@ class Orchestrator:
         # Disconnect brokers
         await self.broker_manager.disconnect()
 
-        # Close risk engine
-        self.risk_engine.close()
-
         logger.info("Orchestrator stopped")
 
     async def _connect_providers(self) -> None:
@@ -297,9 +281,8 @@ class Orchestrator:
 
     def _subscribe_components_to_events(self) -> None:
         """Wire up event subscriptions."""
-        # Stores + engines listen to event bus (event-driven mode).
+        # Stores listen to event bus (event-driven mode).
         self.market_data_store.subscribe_to_events(self.event_bus)
-        self.risk_engine.subscribe_to_events(self.event_bus)
 
     async def _timer_loop(self) -> None:
         """Timer loop for periodic data refresh."""
@@ -318,9 +301,7 @@ class Orchestrator:
                     await self._preload_signal_bars()
 
                 # Fetch and reconcile data
-                await self._data_coordinator.fetch_and_reconcile(
-                    on_dirty_callback=self.risk_engine.mark_dirty
-                )
+                await self._data_coordinator.fetch_and_reconcile()
 
                 # Detect market alerts
                 await self._detect_market_alerts()
@@ -360,7 +341,6 @@ class Orchestrator:
         """Handle position update from broker."""
         logger.debug(f"Position update from {broker_name}: {len(positions)} positions")
         self.position_store.upsert_positions(positions)
-        self.risk_engine.mark_dirty()
 
     async def _detect_market_alerts(self) -> None:
         """Detect market-wide alerts (VIX regime, etc.)."""
