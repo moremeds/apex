@@ -85,6 +85,11 @@ class YahooFinanceAdapter(MarketDataProvider):
         self._last_request_time: Optional[datetime] = None
         self._min_request_interval = timedelta(seconds=1)  # Rate limit: 1 req/sec to avoid Yahoo 429
 
+        # Fetch metrics for observability
+        self._fetch_success_count = 0
+        self._fetch_failure_count = 0
+        self._rate_limit_count = 0
+
         if not self._yf_available:
             logger.warning("yfinance not installed. YahooFinanceAdapter will return empty data.")
 
@@ -103,6 +108,16 @@ class YahooFinanceAdapter(MarketDataProvider):
     def is_connected(self) -> bool:
         """Check if connected."""
         return self._connected
+
+    @property
+    def fetch_metrics(self) -> Dict[str, int]:
+        """Get fetch metrics for observability."""
+        return {
+            "success_count": self._fetch_success_count,
+            "failure_count": self._fetch_failure_count,
+            "rate_limit_count": self._rate_limit_count,
+            "cache_size": len(self._cache),
+        }
 
     def _cache_put(self, symbol: str, data: CachedData) -> None:
         """
@@ -238,6 +253,7 @@ class YahooFinanceAdapter(MarketDataProvider):
                 if info:
                     md = self._parse_ticker_info(symbol, info)
                     market_data_list.append(md)
+                    self._fetch_success_count += 1
 
                     # Cache the result (m6: bounded cache with eviction)
                     with self._lock:
@@ -247,16 +263,18 @@ class YahooFinanceAdapter(MarketDataProvider):
                             fetched_at=now_utc(),
                         ))
             except Exception as e:
-                logger.warning(f"Failed to fetch {symbol}: {e}")
-                # On rate limit, cache default to avoid retry storm
-                if "Too Many Requests" in str(e) or "Rate limited" in str(e):
-                    with self._lock:
-                        if symbol not in self._cache:
-                            self._cache_put(symbol, CachedData(
-                                data=MarketData(symbol=symbol, timestamp=now_utc()),
-                                beta=self.DEFAULT_BETA,
-                                fetched_at=now_utc(),
-                            ))
+                self._fetch_failure_count += 1
+                error_str = str(e)
+
+                # HIGH-016: Do NOT cache on rate limit - this causes silent failures
+                if "Too Many Requests" in error_str or "Rate limited" in error_str or "429" in error_str:
+                    self._rate_limit_count += 1
+                    logger.warning(
+                        f"Yahoo rate limited for {symbol} (total rate limits: {self._rate_limit_count})"
+                    )
+                    # Skip caching - let next request retry fresh
+                else:
+                    logger.warning(f"Failed to fetch {symbol}: {e}")
 
         return market_data_list
 
@@ -469,16 +487,19 @@ class YahooFinanceAdapter(MarketDataProvider):
             return None
 
         except Exception as e:
-            logger.warning(f"Failed to fetch beta for {symbol}: {e}")
-            # On rate limit, cache default to avoid retry storm
-            if "Too Many Requests" in str(e) or "Rate limited" in str(e):
-                with self._lock:
-                    if symbol not in self._cache:
-                        self._cache_put(symbol, CachedData(
-                            data=MarketData(symbol=symbol, timestamp=now_utc()),
-                            beta=self.DEFAULT_BETA,
-                            fetched_at=now_utc(),
-                        ))
+            self._fetch_failure_count += 1
+            error_str = str(e)
+
+            # HIGH-016: Do NOT cache on rate limit - this causes silent failures
+            if "Too Many Requests" in error_str or "Rate limited" in error_str or "429" in error_str:
+                self._rate_limit_count += 1
+                logger.warning(
+                    f"Yahoo rate limited for beta fetch {symbol} (total: {self._rate_limit_count})"
+                )
+                # Skip caching - let next request retry fresh
+            else:
+                logger.warning(f"Failed to fetch beta for {symbol}: {e}")
+
             return None
 
     # -------------------------------------------------------------------------

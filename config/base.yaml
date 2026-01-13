@@ -324,21 +324,9 @@ risk_engine:
 # Greeks configuration (MVP uses IBKR Greeks exclusively)
 greeks:
   source: "ibkr"  # Use IBKR Greeks only (no local BSM/Bachelier)
-  fallback_enabled: false  # No fallback calculation in MVP
-  mark_missing_as: "DATA_MISSING"  # Flag when Greeks unavailable
 
 # Beta values are fetched dynamically from Yahoo Finance via YahooFinanceAdapter
 # No static beta configuration needed - betas are cached with 24h TTL
-
-# Alert thresholds (for future email/Slack integration)
-alerts:
-  enabled: false  # Not implemented in MVP
-  channels:
-    - slack
-    - email
-  breach_severity:
-    soft: "warning"
-    hard: "critical"
 
 # Performance targets (reference)
 # <100ms refresh for <100 positions

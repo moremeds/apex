@@ -65,6 +65,14 @@ class MarketDataStore:
         self._eviction_age_seconds = eviction_age_seconds
         self._last_eviction_time = time.time()
 
+        # HIGH-010: Tick buffer to avoid copy-on-write per tick
+        # Buffer flushes when either threshold is reached
+        self._tick_buffer: Dict[str, MarketData] = {}
+        self._tick_buffer_lock = RLock()
+        self._last_flush_time = time.time()
+        self._tick_flush_interval_ms = 10  # Flush every 10ms
+        self._tick_flush_count = 50  # Or every 50 ticks
+
     def upsert(self, market_data: Iterable[MarketData]) -> None:
         """
         Insert or update market data.
@@ -88,6 +96,71 @@ class MarketDataStore:
                     self._evict_stale()
                     self._last_eviction_time = now
 
+    def _buffer_tick(self, md: MarketData) -> None:
+        """
+        HIGH-010: Buffer tick updates to avoid per-tick copy-on-write.
+
+        Ticks are accumulated in a buffer and flushed when either:
+        - 50 ticks have accumulated
+        - 10ms have elapsed since last flush
+
+        Args:
+            md: MarketData to buffer.
+        """
+        with self._tick_buffer_lock:
+            self._tick_buffer[md.symbol] = md
+
+            # Check if flush needed
+            now = time.time()
+            buffer_size = len(self._tick_buffer)
+            elapsed_ms = (now - self._last_flush_time) * 1000
+
+            if buffer_size >= self._tick_flush_count or elapsed_ms >= self._tick_flush_interval_ms:
+                self._flush_tick_buffer_locked()
+
+    def _maybe_flush_stale_buffer(self) -> None:
+        """
+        HIGH-010 FIX: Auto-flush buffer if stale (for sparse tick scenarios).
+
+        Called on get() to ensure readers don't see stale data when tick flow is sparse.
+        Uses try_lock to avoid blocking reads if flush is in progress.
+        """
+        # Quick check without lock - if buffer empty, nothing to do
+        if not self._tick_buffer:
+            return
+
+        # Check if enough time has passed to warrant a flush
+        elapsed_ms = (time.time() - self._last_flush_time) * 1000
+        if elapsed_ms < self._tick_flush_interval_ms:
+            return
+
+        # Try to acquire lock without blocking
+        if self._tick_buffer_lock.acquire(blocking=False):
+            try:
+                # Double-check after acquiring lock
+                if self._tick_buffer and (time.time() - self._last_flush_time) * 1000 >= self._tick_flush_interval_ms:
+                    self._flush_tick_buffer_locked()
+            finally:
+                self._tick_buffer_lock.release()
+
+    def _flush_tick_buffer_locked(self) -> None:
+        """Flush tick buffer to RCU store. Caller must hold _tick_buffer_lock."""
+        if not self._tick_buffer:
+            return
+        # Single RCU update for all buffered ticks
+        self._market_data.update(self._tick_buffer)
+        self._tick_buffer.clear()
+        self._last_flush_time = time.time()
+
+    def flush_tick_buffer(self) -> None:
+        """
+        Force flush of tick buffer.
+
+        Call this before operations that need latest data (e.g., snapshots).
+        """
+        with self._tick_buffer_lock:
+            self._flush_tick_buffer_locked()
+
     def _evict_stale(self) -> None:
         """
         Evict stale entries.
@@ -108,11 +181,10 @@ class MarketDataStore:
             if md.timestamp and age_seconds(md.timestamp) > self._eviction_age_seconds:
                 stale_symbols.append(symbol)
 
-        for symbol in stale_symbols:
-            self._market_data.delete(symbol)
-
+        # HIGH-008: Use batch_delete for O(n) instead of O(n²)
         if stale_symbols:
-            logger.debug(f"Evicted {len(stale_symbols)} stale market data entries")
+            deleted = self._market_data.batch_delete(stale_symbols)
+            logger.debug(f"Evicted {deleted} stale market data entries")
 
         # Evict by count if still over limit
         current_size = len(self._market_data)
@@ -123,19 +195,23 @@ class MarketDataStore:
                 self._market_data.items(),
                 key=lambda x: x[1].timestamp.timestamp() if x[1].timestamp else 0
             )
-            for symbol, _ in sorted_entries[:excess]:
-                self._market_data.delete(symbol)
-            logger.debug(f"Evicted {excess} oldest market data entries (over max {self._max_symbols})")
+            # HIGH-008: Use batch_delete for O(n) instead of O(n²)
+            symbols_to_evict = [symbol for symbol, _ in sorted_entries[:excess]]
+            deleted = self._market_data.batch_delete(symbols_to_evict)
+            logger.debug(f"Evicted {deleted} oldest market data entries (over max {self._max_symbols})")
 
     def get(self, symbol: str) -> Optional[MarketData]:
         """
         Get market data for a symbol.
 
         OPT-014: Lock-free read via RCUDict.
+        HIGH-010 FIX: Auto-flushes stale buffer for sparse tick scenarios.
 
         Note: Returns cached data even if Greeks are stale.
         Use is_greeks_stale() to check freshness.
         """
+        # HIGH-010 FIX: Auto-flush stale buffer before read
+        self._maybe_flush_stale_buffer()
         return self._market_data.get(symbol)
 
     def has_fresh_data(self, symbol: str) -> bool:
@@ -331,7 +407,8 @@ class MarketDataStore:
                     existing.mid = (existing.bid + existing.ask) / 2
 
                 existing.timestamp = now_utc()
-                self.upsert([existing])
+                # HIGH-010: Buffer tick instead of per-tick upsert
+                self._buffer_tick(existing)
             else:
                 # Create new MarketData from tick
                 mid = None
@@ -350,7 +427,8 @@ class MarketDataStore:
                     iv=payload.iv,
                     timestamp=now_utc(),
                 )
-                self.upsert([md])
+                # HIGH-010: Buffer tick instead of per-tick upsert
+                self._buffer_tick(md)
             return
 
         # M14: Removed legacy dict handling - all callers now use typed events

@@ -7,7 +7,7 @@ Futu returns timestamps in US Eastern time for US market.
 """
 
 from __future__ import annotations
-from typing import Optional, Dict, Union
+from typing import Any, Optional, Dict, Union
 from datetime import datetime
 
 from ....models.position import Position, AssetType, PositionSource
@@ -18,6 +18,58 @@ from ....utils.logging_setup import get_logger
 
 
 logger = get_logger(__name__)
+
+
+# -----------------------------------------------------------------------------
+# Helper functions to reduce duplication
+# -----------------------------------------------------------------------------
+
+
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    """
+    Safely convert a value to float, handling None and empty values.
+
+    Args:
+        value: Value to convert (can be None, empty string, or numeric)
+        default: Default value if conversion fails
+
+    Returns:
+        Float value or default
+    """
+    if value is None or value == "":
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _parse_side(trd_side: Any) -> OrderSide:
+    """
+    Parse Futu trade side to OrderSide enum.
+
+    Args:
+        trd_side: Futu trade side value (BUY, BUY_BACK, SELL, etc.)
+
+    Returns:
+        OrderSide.BUY or OrderSide.SELL
+    """
+    return OrderSide.BUY if str(trd_side).upper() in ("BUY", "BUY_BACK") else OrderSide.SELL
+
+
+def _parse_timestamp(ts_value: Any) -> Optional[datetime]:
+    """
+    Parse Futu timestamp to UTC datetime.
+
+    Args:
+        ts_value: Timestamp value from Futu API
+
+    Returns:
+        UTC datetime or None if parsing fails
+    """
+    if not ts_value:
+        return None
+    return parse_futu_timestamp(ts_value)
 
 
 def convert_position(row, acc_id: Optional[int] = None) -> Optional[Position]:
@@ -117,12 +169,11 @@ def convert_order(row, acc_id: Optional[int] = None) -> Optional[Order]:
         order_type = order_type_map.get(str(futu_order_type), OrderType.LIMIT)
 
         # Map Futu trade side
-        trd_side = row.get("trd_side", "")
-        side = OrderSide.BUY if str(trd_side) in ("BUY", "BUY_BACK") else OrderSide.SELL
+        side = _parse_side(row.get("trd_side", ""))
 
         # Parse timestamps (Futu returns EST for US market) -> convert to UTC
-        create_time = parse_futu_timestamp(row.get("create_time"))
-        updated_time = parse_futu_timestamp(row.get("updated_time"))
+        create_time = _parse_timestamp(row.get("create_time"))
+        updated_time = _parse_timestamp(row.get("updated_time"))
 
         # Use updated_time as filled_time for filled orders
         filled_time = updated_time if status == OrderStatus.FILLED else None
@@ -185,11 +236,10 @@ def convert_trade(row: Union[Dict, object], acc_id: Optional[int] = None) -> Opt
         asset_type = asset_type_enum.value if asset_type_enum else "STOCK"
 
         # Map Futu trade side
-        trd_side = get_val("trd_side", "")
-        side = OrderSide.BUY if str(trd_side) in ("BUY", "BUY_BACK") else OrderSide.SELL
+        side = _parse_side(get_val("trd_side", ""))
 
         # Parse trade time (Futu returns EST for US market) -> convert to UTC
-        trade_time = parse_futu_timestamp(get_val("create_time")) or now_utc()
+        trade_time = _parse_timestamp(get_val("create_time")) or now_utc()
 
         return Trade(
             trade_id=trade_id,
@@ -237,11 +287,10 @@ def convert_trade_with_fee(row: Dict, commission: float, acc_id: Optional[int] =
         asset_type = asset_type_enum.value if asset_type_enum else "STOCK"
 
         # Map trade side
-        trd_side = row.get("trd_side", "")
-        side = OrderSide.BUY if str(trd_side) in ("BUY", "BUY_BACK") else OrderSide.SELL
+        side = _parse_side(row.get("trd_side", ""))
 
         # Parse trade time (Futu returns EST for US market) -> convert to UTC
-        trade_time = parse_futu_timestamp(row.get("create_time")) or now_utc()
+        trade_time = _parse_timestamp(row.get("create_time")) or now_utc()
 
         return Trade(
             trade_id=trade_id,
@@ -252,8 +301,8 @@ def convert_trade_with_fee(row: Dict, commission: float, acc_id: Optional[int] =
             underlying=underlying,
             asset_type=asset_type,
             side=side,
-            quantity=float(row.get("qty", 0)),
-            price=float(row.get("price", 0)),
+            quantity=_safe_float(row.get("qty")),
+            price=_safe_float(row.get("price")),
             commission=commission,
             trade_time=trade_time,
             expiry=expiry,
@@ -284,9 +333,9 @@ def build_trade_from_order(order: Dict, acc_id: Optional[int] = None) -> Optiona
     try:
         code = order.get("code", "")
         order_id = str(order.get("order_id", ""))
-        dealt_qty = float(order.get("dealt_qty", 0) or 0)
-        dealt_avg_price = float(order.get("dealt_avg_price", 0) or 0)
-        fee_amount = float(order.get("fee_amount", 0) or 0)
+        dealt_qty = _safe_float(order.get("dealt_qty"))
+        dealt_avg_price = _safe_float(order.get("dealt_avg_price"))
+        fee_amount = _safe_float(order.get("fee_amount"))
 
         if dealt_qty == 0:
             return None
@@ -296,11 +345,10 @@ def build_trade_from_order(order: Dict, acc_id: Optional[int] = None) -> Optiona
         asset_type = asset_type_enum.value if asset_type_enum else "STOCK"
 
         # Map trade side
-        trd_side = order.get("trd_side", "")
-        side = OrderSide.BUY if str(trd_side) in ("BUY", "BUY_BACK") else OrderSide.SELL
+        side = _parse_side(order.get("trd_side", ""))
 
         # Use updated_time as fill time (Futu returns EST for US market) -> convert to UTC
-        trade_time = parse_futu_timestamp(order.get("updated_time")) or now_utc()
+        trade_time = _parse_timestamp(order.get("updated_time")) or now_utc()
 
         # Create trade with order_id as trade_id (synthetic ID)
         return Trade(
