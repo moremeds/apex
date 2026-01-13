@@ -4,11 +4,12 @@ Apex Dashboard - Pure Textual Implementation.
 Real-time terminal UI for risk monitoring with tabbed views:
 - Tab 1: Account Summary (consolidated positions, summary, alerts, health)
 - Tab 2: Risk Signals (full screen risk signals)
-- Tab 3: IB Positions (detailed IB positions with ATR levels)
+- Tab 3: Signal Introspection (indicator states, rule evaluations, cooldowns)
 - Tab 4: Futu Positions (detailed Futu positions with ATR levels)
 - Tab 5: Lab (backtest strategies with parameters and performance results)
 - Tab 6: Trading Signals (universe watchlist + signal feed + confluence)
 - Tab 7: Data (historical coverage + indicator DB status)
+- Tab 8: IB Positions (detailed IB positions with ATR levels)
 
 Signal Persistence Integration:
 - Loads historical signals from database on startup (non-blocking)
@@ -31,6 +32,7 @@ from .views.positions import PositionsView
 from .views.lab import LabView
 from .views.trading_signals import TradingSignalsView
 from .views.data import DataView, DataRefreshRequested, IndicatorDetailsRequested
+from .views.signal_introspection import SignalIntrospectionView
 from .widgets.header import HeaderWidget
 from .event_bus import TUIEventBus
 
@@ -58,11 +60,12 @@ class ApexApp(App):
     BINDINGS = [
         Binding("1", "switch_tab('summary')", "Summary", show=True),
         Binding("2", "switch_tab('signals')", "Signals", show=True),
-        Binding("3", "switch_tab('ib')", "IB", show=True),
+        Binding("3", "switch_tab('introspection')", "Intro", show=True),
         Binding("4", "switch_tab('futu')", "Futu", show=True),
         Binding("5", "switch_tab('lab')", "Lab", show=True),
         Binding("6", "switch_tab('trading')", "Trading", show=True),
         Binding("7", "switch_tab('data')", "Data", show=True),
+        Binding("8", "switch_tab('ib')", "IB", show=True),
         Binding("q", "quit", "Quit", show=True),
     ]
 
@@ -190,8 +193,8 @@ class ApexApp(App):
                 yield SummaryView(id="summary-view")
             with TabPane("Signals", id="signals"):
                 yield SignalsView(id="signals-view")
-            with TabPane("IB", id="ib"):
-                yield PositionsView(broker="ib", id="ib-view")
+            with TabPane("Intro", id="introspection"):
+                yield SignalIntrospectionView(id="introspection-view")
             with TabPane("Futu", id="futu"):
                 yield PositionsView(broker="futu", id="futu-view")
             with TabPane("Lab", id="lab"):
@@ -200,6 +203,8 @@ class ApexApp(App):
                 yield TradingSignalsView(id="trading-signals-view")
             with TabPane("Data", id="data"):
                 yield DataView(id="data-view")
+            with TabPane("IB", id="ib"):
+                yield PositionsView(broker="ib", id="ib-view")
         yield Footer()
 
     def action_switch_tab(self, tab_id: str) -> None:

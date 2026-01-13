@@ -486,6 +486,78 @@ IndicatorStatusPanel {
     color: #8b949e;
 }
 
+/* ===== Signal Introspection View (Tab 3) ===== */
+#introspection-main {
+    height: 1fr;
+    width: 1fr;
+}
+
+#introspection-left {
+    width: 2fr;
+}
+
+#introspection-right {
+    width: 3fr;
+}
+
+/* Indicator states panel */
+#intro-indicator-title {
+    color: #5fd7ff;
+}
+
+#intro-indicator-table {
+    height: 1fr;
+    border: solid #5fd7ff;
+    background: #23262c;
+}
+
+/* Warmup status panel */
+#intro-warmup-title {
+    color: #f6d365;
+}
+
+#intro-warmup-table {
+    height: 1fr;
+    max-height: 10;
+    border: solid #f6d365;
+    background: #23262c;
+}
+
+/* Rule evaluations panel */
+#intro-evaluations-title {
+    color: #7ee787;
+}
+
+#intro-evaluations-table {
+    height: 2fr;
+    border: solid #7ee787;
+    background: #23262c;
+}
+
+/* Cooldowns panel */
+#intro-stats-title {
+    color: #d66efd;
+}
+
+#intro-cooldowns-table {
+    height: 1fr;
+    border: solid #d66efd;
+    background: #23262c;
+}
+
+/* Pipeline stats */
+#intro-pipeline-stats {
+    height: 1;
+    border: solid #2f6fb3;
+    background: #262b31;
+    padding: 0 1;
+    color: #8b949e;
+}
+
+.stats-panel {
+    height: 1;
+}
+
 /* ===== Footer ===== */
 Footer {
     background: #262b31;

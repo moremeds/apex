@@ -116,6 +116,93 @@ class IndicatorEngine:
         """Number of registered indicators."""
         return len(self._indicators)
 
+    # -------------------------------------------------------------------------
+    # Introspection Methods (for SignalIntrospectionPort)
+    # -------------------------------------------------------------------------
+
+    def get_warmup_status(self, symbol: str, timeframe: str) -> Dict[str, Any]:
+        """
+        Get warmup progress for a symbol/timeframe.
+
+        Per-symbol/timeframe granularity (cheap), not per-indicator.
+        Reads from existing _history without copying.
+
+        Args:
+            symbol: Trading symbol (e.g., "AAPL").
+            timeframe: Bar timeframe (e.g., "1h", "1d").
+
+        Returns:
+            Dict with warmup info.
+        """
+        key: BarKey = (symbol, timeframe)
+        bar_count = len(self._history.get(key, []))
+        bars_required = self._max_warmup
+        progress_pct = min(1.0, bar_count / bars_required) if bars_required > 0 else 1.0
+
+        return {
+            "symbol": symbol,
+            "timeframe": timeframe,
+            "bars_loaded": bar_count,
+            "bars_required": bars_required,
+            "progress_pct": progress_pct,
+            "status": "ready" if bar_count >= bars_required else "warming_up",
+        }
+
+    def get_all_warmup_status(self) -> List[Dict[str, Any]]:
+        """
+        Get warmup status for all symbol/timeframe combinations.
+
+        Returns:
+            List of warmup status dicts.
+        """
+        return [
+            self.get_warmup_status(sym, tf)
+            for (sym, tf) in self._history.keys()
+        ]
+
+    def get_indicator_state(
+        self, symbol: str, timeframe: str, indicator: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Get current cached state for a specific indicator.
+
+        Args:
+            symbol: Trading symbol.
+            timeframe: Bar timeframe.
+            indicator: Indicator name.
+
+        Returns:
+            Indicator state dict or None if not cached.
+        """
+        key: StateKey = (symbol, timeframe, indicator)
+        return self._previous_states.get(key)
+
+    def get_all_indicator_states(
+        self, symbol: Optional[str] = None, timeframe: Optional[str] = None
+    ) -> Dict[StateKey, Dict[str, Any]]:
+        """
+        Get all cached indicator states, optionally filtered.
+
+        Args:
+            symbol: Optional filter by symbol.
+            timeframe: Optional filter by timeframe.
+
+        Returns:
+            Dict mapping (symbol, timeframe, indicator) -> state_dict.
+        """
+        if symbol is None and timeframe is None:
+            return dict(self._previous_states)
+
+        result: Dict[StateKey, Dict[str, Any]] = {}
+        for key, state in self._previous_states.items():
+            sym, tf, ind = key
+            if symbol is not None and sym != symbol:
+                continue
+            if timeframe is not None and tf != timeframe:
+                continue
+            result[key] = state
+        return result
+
     def start(self) -> None:
         """Start the engine by subscribing to BAR_CLOSE events."""
         if self._started:

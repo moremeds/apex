@@ -6,5 +6,14 @@ from .file_loader import FileLoader
 from .broker_manager import BrokerManager
 from .market_data_manager import MarketDataManager
 from .yahoo import YahooFinanceAdapter
+from .signal_introspection_adapter import SignalIntrospectionAdapter
 
-__all__ = ["IbCompositeAdapter", "FutuAdapter", "FileLoader", "BrokerManager", "MarketDataManager", "YahooFinanceAdapter"]
+__all__ = [
+    "IbCompositeAdapter",
+    "FutuAdapter",
+    "FileLoader",
+    "BrokerManager",
+    "MarketDataManager",
+    "YahooFinanceAdapter",
+    "SignalIntrospectionAdapter",
+]

@@ -56,11 +56,12 @@ class HistoricalVolatilityIndicator(IndicatorBase):
         close = data["close"].values.astype(np.float64)
         n = len(close)
 
-        # Log returns
+        # Log returns - skip non-positive values to avoid log(0) or log(negative)
         returns = np.full(n, np.nan, dtype=np.float64)
         for i in range(1, n):
-            if close[i - 1] != 0:
+            if close[i - 1] > 0 and close[i] > 0:
                 returns[i] = np.log(close[i] / close[i - 1])
+            # else: returns[i] stays NaN (already initialized)
 
         # Rolling standard deviation of returns
         hvol = np.full(n, np.nan, dtype=np.float64)
