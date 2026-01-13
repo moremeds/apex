@@ -16,9 +16,10 @@ class EventPriority(IntEnum):
     RISK = 10        # RISK_SIGNAL, RISK_BREACH
     TRADING = 20     # ORDER_SUBMITTED, FILL_RECEIVED, TRADING_SIGNAL
     MARKET_DATA = 30 # MARKET_DATA_TICK, MARKET_DATA_BATCH
+    POSITION_DELTA = 35  # POSITION_DELTA - Fast path for TUI streaming
     POSITION = 40    # POSITION_UPDATED, POSITIONS_BATCH
     ACCOUNT = 50     # ACCOUNT_UPDATED
-    CONTROL = 60     # TIMER_TICK, RECONCILIATION_ISSUE, INDICATOR_UPDATE
+    CONTROL = 60     # TIMER_TICK, RECONCILIATION_ISSUE, INDICATOR_UPDATE, FULL_RESYNC
     SIGNAL_DATA = 65 # BAR_CLOSE (fast lane, after control but before snapshot)
     SNAPSHOT = 70    # SNAPSHOT_READY
     DIAGNOSTIC = 80  # HEALTH_CHECK, STATS
@@ -48,6 +49,9 @@ class EventType(Enum):
     MARKET_DATA_BATCH = "market_data_batch"
     MARKET_DATA_STALE = "market_data_stale"
 
+    # Position Delta (Priority 35) - Fast path for TUI streaming
+    POSITION_DELTA = "position_delta"
+
     # Position (Priority 40)
     POSITION_UPDATED = "position_updated"
     POSITIONS_BATCH = "positions_batch"
@@ -66,6 +70,7 @@ class EventType(Enum):
     BROKER_CONNECTED = "broker_connected"
     BROKER_DISCONNECTED = "broker_disconnected"
     INDICATOR_UPDATE = "indicator_update"
+    FULL_RESYNC = "full_resync"  # Triggers complete portfolio state rebuild on reconnect
 
     # Signal Data (Priority 65)
     BAR_CLOSE = "bar_close"
@@ -96,6 +101,7 @@ EVENT_PRIORITY_MAP: dict[EventType, EventPriority] = {
     EventType.MARKET_DATA_TICK: EventPriority.MARKET_DATA,
     EventType.MARKET_DATA_BATCH: EventPriority.MARKET_DATA,
     EventType.MARKET_DATA_STALE: EventPriority.MARKET_DATA,
+    EventType.POSITION_DELTA: EventPriority.POSITION_DELTA,
     EventType.POSITION_UPDATED: EventPriority.POSITION,
     EventType.POSITIONS_BATCH: EventPriority.POSITION,
     EventType.POSITIONS_READY: EventPriority.POSITION,
@@ -109,6 +115,7 @@ EVENT_PRIORITY_MAP: dict[EventType, EventPriority] = {
     EventType.BROKER_CONNECTED: EventPriority.CONTROL,
     EventType.BROKER_DISCONNECTED: EventPriority.CONTROL,
     EventType.INDICATOR_UPDATE: EventPriority.CONTROL,
+    EventType.FULL_RESYNC: EventPriority.CONTROL,
     EventType.BAR_CLOSE: EventPriority.SIGNAL_DATA,
     EventType.SNAPSHOT_READY: EventPriority.SNAPSHOT,
     EventType.HEALTH_CHECK: EventPriority.DIAGNOSTIC,
@@ -156,6 +163,8 @@ NEVER_DROP: set[EventType] = {
     EventType.SYSTEM_DEGRADED,
     EventType.BROKER_CONNECTED,
     EventType.BROKER_DISCONNECTED,
+    EventType.POSITION_DELTA,  # Critical for TUI streaming
+    EventType.FULL_RESYNC,  # Critical for state recovery
 }
 # ============================================================================
 
@@ -193,12 +202,16 @@ def get_event_type_mapping() -> Dict[EventType, Type["DomainEvent"]]:
         QuoteTick, BarData, TradeFill, OrderUpdate,
         PositionSnapshot, AccountSnapshot, ConnectionEvent, RiskBreachEvent,
         MarketDataTickEvent, BarCloseEvent, IndicatorUpdateEvent,
+        PositionDeltaEvent, FullResyncEvent,
     )
 
     return {
         # Market Data Events - C3: Use MarketDataTickEvent (what's actually published)
         EventType.MARKET_DATA_TICK: MarketDataTickEvent,
         EventType.MARKET_DATA_BATCH: BarData,
+
+        # Position Delta Events - Fast path for TUI streaming
+        EventType.POSITION_DELTA: PositionDeltaEvent,
 
         # Signal Engine Events
         EventType.BAR_CLOSE: BarCloseEvent,
@@ -223,6 +236,9 @@ def get_event_type_mapping() -> Dict[EventType, Type["DomainEvent"]]:
 
         # Risk Events
         EventType.RISK_BREACH: RiskBreachEvent,
+
+        # Control Events
+        EventType.FULL_RESYNC: FullResyncEvent,
     }
 
 

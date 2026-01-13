@@ -20,12 +20,92 @@ logger = get_logger(__name__)
 DirectionChecker = Callable[[Dict[str, Any]], bool]
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Indicator Direction Configuration (Data-Driven, Zero-Overhead)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Each indicator has (bullish_checker, bearish_checker) lambdas.
+# Organized as a single config dict for maintainability while keeping
+# the performance of direct lambda calls (no dataclass overhead).
+#
+# To add a new indicator:
+#   1. Add entry to INDICATOR_CHECKERS below
+#   2. Both bullish and bearish lambdas take state dict, return bool
+#
+INDICATOR_CHECKERS: Dict[str, Tuple[DirectionChecker, DirectionChecker]] = {
+    # Momentum oscillators
+    "rsi": (
+        lambda s: s.get("zone") == "oversold",
+        lambda s: s.get("zone") == "overbought",
+    ),
+    "mfi": (
+        lambda s: s.get("zone") == "oversold",
+        lambda s: s.get("zone") == "overbought",
+    ),
+    "kdj": (
+        lambda s: s.get("zone") == "oversold" or s.get("cross") == "bullish",
+        lambda s: s.get("zone") == "overbought" or s.get("cross") == "bearish",
+    ),
+    # Trend indicators
+    "macd": (
+        lambda s: s.get("histogram", 0) > 0 or s.get("cross") == "bullish",
+        lambda s: s.get("histogram", 0) < 0 or s.get("cross") == "bearish",
+    ),
+    "supertrend": (
+        lambda s: s.get("direction") in ("bullish", "up", "1"),
+        lambda s: s.get("direction") in ("bearish", "down", "-1"),
+    ),
+    "psar": (
+        lambda s: s.get("direction") in ("bullish", "up"),
+        lambda s: s.get("direction") in ("bearish", "down"),
+    ),
+    "adx": (
+        lambda s: s.get("di_plus", 0) > s.get("di_minus", 0),
+        lambda s: s.get("di_minus", 0) > s.get("di_plus", 0),
+    ),
+    "aroon": (
+        lambda s: s.get("aroon_up", 0) > s.get("aroon_down", 0),
+        lambda s: s.get("aroon_down", 0) > s.get("aroon_up", 0),
+    ),
+    # Moving averages
+    "ema": (
+        lambda s: s.get("cross") == "bullish" or s.get("trend") == "up",
+        lambda s: s.get("cross") == "bearish" or s.get("trend") == "down",
+    ),
+    "sma": (
+        lambda s: s.get("cross") == "bullish" or s.get("trend") == "up",
+        lambda s: s.get("cross") == "bearish" or s.get("trend") == "down",
+    ),
+    # Volatility / bands
+    "bollinger": (
+        lambda s: s.get("zone") in ("below_lower", "lower"),
+        lambda s: s.get("zone") in ("above_upper", "upper"),
+    ),
+    "squeeze": (
+        lambda s: s.get("signal") in ("bullish", "long", "buy"),
+        lambda s: s.get("signal") in ("bearish", "short", "sell"),
+    ),
+    # Volume-based
+    "obv": (
+        lambda s: s.get("trend") in ("up", "bullish"),
+        lambda s: s.get("trend") in ("down", "bearish"),
+    ),
+    "vwap": (
+        lambda s: s.get("position") == "above",
+        lambda s: s.get("position") == "below",
+    ),
+}
+
+
 class CrossIndicatorAnalyzer:
     """
     Analyzes agreement/disagreement across multiple indicators.
 
     Determines overall market sentiment by scoring how many indicators
     are bullish vs bearish, and identifies conflicting indicator pairs.
+
+    Uses centralized INDICATOR_CHECKERS config for maintainability
+    while keeping zero-overhead lambda performance.
 
     Example:
         analyzer = CrossIndicatorAnalyzer()
@@ -42,41 +122,13 @@ class CrossIndicatorAnalyzer:
     """
 
     def __init__(self) -> None:
-        """Initialize with default signal detection rules."""
-        # Bullish signal detectors per indicator
+        """Initialize with centralized indicator checkers."""
+        # Unpack config into bullish/bearish dicts for fast lookup
         self._bullish_signals: Dict[str, DirectionChecker] = {
-            "rsi": lambda s: s.get("zone") == "oversold",
-            "macd": lambda s: s.get("histogram", 0) > 0 or s.get("cross") == "bullish",
-            "supertrend": lambda s: s.get("direction") in ["bullish", "up", "1"],
-            "bollinger": lambda s: s.get("zone") in ["below_lower", "lower"],
-            "adx": lambda s: s.get("di_plus", 0) > s.get("di_minus", 0),
-            "kdj": lambda s: s.get("zone") == "oversold" or s.get("cross") == "bullish",
-            "ema": lambda s: s.get("cross") == "bullish" or s.get("trend") == "up",
-            "sma": lambda s: s.get("cross") == "bullish" or s.get("trend") == "up",
-            "psar": lambda s: s.get("direction") in ["bullish", "up"],
-            "aroon": lambda s: s.get("aroon_up", 0) > s.get("aroon_down", 0),
-            "obv": lambda s: s.get("trend") in ["up", "bullish"],
-            "vwap": lambda s: s.get("position") == "above",
-            "mfi": lambda s: s.get("zone") == "oversold",
-            "squeeze": lambda s: s.get("signal") in ["bullish", "long", "buy"],
+            name: checkers[0] for name, checkers in INDICATOR_CHECKERS.items()
         }
-
-        # Bearish signal detectors per indicator
         self._bearish_signals: Dict[str, DirectionChecker] = {
-            "rsi": lambda s: s.get("zone") == "overbought",
-            "macd": lambda s: s.get("histogram", 0) < 0 or s.get("cross") == "bearish",
-            "supertrend": lambda s: s.get("direction") in ["bearish", "down", "-1"],
-            "bollinger": lambda s: s.get("zone") in ["above_upper", "upper"],
-            "adx": lambda s: s.get("di_minus", 0) > s.get("di_plus", 0),
-            "kdj": lambda s: s.get("zone") == "overbought" or s.get("cross") == "bearish",
-            "ema": lambda s: s.get("cross") == "bearish" or s.get("trend") == "down",
-            "sma": lambda s: s.get("cross") == "bearish" or s.get("trend") == "down",
-            "psar": lambda s: s.get("direction") in ["bearish", "down"],
-            "aroon": lambda s: s.get("aroon_down", 0) > s.get("aroon_up", 0),
-            "obv": lambda s: s.get("trend") in ["down", "bearish"],
-            "vwap": lambda s: s.get("position") == "below",
-            "mfi": lambda s: s.get("zone") == "overbought",
-            "squeeze": lambda s: s.get("signal") in ["bearish", "short", "sell"],
+            name: checkers[1] for name, checkers in INDICATOR_CHECKERS.items()
         }
 
     def register_indicator(

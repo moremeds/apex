@@ -23,6 +23,7 @@ from ..widgets.health_bar import HealthBar
 
 if TYPE_CHECKING:
     from ...models.risk_snapshot import RiskSnapshot
+    from ...domain.events.domain_events import PositionDeltaEvent
 
 
 class SummaryView(Container):
@@ -92,3 +93,18 @@ class SummaryView(Container):
             health_bar.health = health or []
         except Exception:
             self.log.exception("Failed to update health bar")
+
+    def apply_deltas(self, deltas: Dict[str, "PositionDeltaEvent"]) -> None:
+        """
+        Apply position deltas for streaming updates.
+
+        Fast path that updates specific cells without full table refresh.
+
+        Args:
+            deltas: Dict mapping symbol -> PositionDeltaEvent
+        """
+        try:
+            positions_table = self.query_one("#summary-positions", PositionsTable)
+            positions_table.apply_deltas(deltas)
+        except Exception:
+            self.log.exception("Failed to apply position deltas")

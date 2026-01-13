@@ -11,8 +11,10 @@ from .readiness_manager import (
     DataFreshness,
 )
 from .signal_router import SignalRouter, SignalRouterConfig, SignalStats
+from .bootstrap import AppContainer
 
 __all__ = [
+    "AppContainer",
     "Orchestrator",
     "AsyncEventBus",
     "ReadinessManager",

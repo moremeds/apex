@@ -311,6 +311,7 @@ risk_engine:
   # Near-term Greek thresholds (for concentration metrics)
   near_term_gamma_dte: 7   # Days to expiry threshold for near-term gamma
   near_term_vega_dte: 30   # Days to expiry threshold for near-term vega
+  use_streaming_primary: True
 
   # Expiry bucket boundaries (for grouping positions)
   expiry_buckets:

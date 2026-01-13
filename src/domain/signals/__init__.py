@@ -44,6 +44,7 @@ from .models import (
 
 from .indicator_engine import IndicatorEngine
 from .rule_engine import RuleEngine, RuleRegistry
+from .confluence_calculator import ConfluenceCalculator
 
 from .data import BarBuilder, BarAggregator
 
@@ -62,6 +63,7 @@ __all__ = [
     "IndicatorEngine",
     "RuleEngine",
     "RuleRegistry",
+    "ConfluenceCalculator",
     # Data pipeline
     "BarBuilder",
     "BarAggregator",

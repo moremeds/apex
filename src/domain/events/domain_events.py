@@ -625,6 +625,7 @@ class SnapshotReadyEvent(DomainEvent):
     coverage_pct: float = 0.0
     portfolio_delta: float = 0.0
     unrealized_pnl: float = 0.0
+    daily_pnl: float = 0.0  # Total daily P&L for shadow validation
 
     # Optional: full snapshot object stored separately to avoid serialization overhead
     # Access via snapshot_coordinator.get_latest_snapshot() instead
@@ -653,6 +654,71 @@ class MarketDataTickEvent(DomainEvent):
     vega: Optional[float] = None
     theta: Optional[float] = None
     iv: Optional[float] = None
+
+    # Data quality for tick filtering (used by streaming risk engine)
+    quality: str = "good"  # "good", "stale", "suspicious", "zero_quote"
+
+    # Reference prices for P&L calculations
+    yesterday_close: Optional[float] = None
+    session_open: Optional[float] = None
+
+    # Underlying price (for options Delta $ calculation)
+    underlying_price: Optional[float] = None
+
+
+@dataclass(frozen=True, slots=True)
+class PositionDeltaEvent(DomainEvent):
+    """
+    Position delta event for streaming TUI updates.
+
+    Published on EventType.POSITION_DELTA when a tick causes position state change.
+    Contains incremental changes (deltas) rather than absolute values for O(1) UI updates.
+
+    The TUI should maintain local state and apply deltas directly, never waiting
+    for full snapshots. This decouples TUI latency from snapshot building latency.
+    """
+    symbol: str = ""
+    underlying: str = ""
+
+    # New mark price
+    new_mark_price: float = 0.0
+
+    # P&L deltas (changes from previous state)
+    pnl_change: float = 0.0
+    daily_pnl_change: float = 0.0
+
+    # Greeks deltas
+    delta_change: float = 0.0
+    gamma_change: float = 0.0
+    vega_change: float = 0.0
+    theta_change: float = 0.0
+
+    # Notional delta
+    notional_change: float = 0.0
+
+    # Delta dollars change (for Delta $ column)
+    delta_dollars_change: float = 0.0
+
+    # Underlying price (for Spot column updates, especially in consolidated view)
+    underlying_price: float = 0.0
+
+    # Data quality flags
+    is_reliable: bool = True
+    has_greeks: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class FullResyncEvent(DomainEvent):
+    """
+    Full resync event triggered on reconnection.
+
+    Published on EventType.FULL_RESYNC when the system needs to rebuild
+    all portfolio state from scratch (e.g., after broker reconnection).
+
+    TUI should clear cached state and wait for fresh position deltas.
+    """
+    reason: str = ""  # "broker_reconnect", "manual_trigger", etc.
+    source: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -905,6 +971,8 @@ EVENT_REGISTRY: Dict[str, Type[DomainEvent]] = {
     "RiskBreachEvent": RiskBreachEvent,
     "SnapshotReadyEvent": SnapshotReadyEvent,
     "MarketDataTickEvent": MarketDataTickEvent,
+    "PositionDeltaEvent": PositionDeltaEvent,
+    "FullResyncEvent": FullResyncEvent,
     "MDQCValidationTrigger": MDQCValidationTrigger,
     "TradingSignalEvent": TradingSignalEvent,
     "ConfluenceUpdateEvent": ConfluenceUpdateEvent,

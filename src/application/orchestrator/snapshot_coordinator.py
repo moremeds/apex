@@ -2,15 +2,13 @@
 SnapshotCoordinator - Handles risk snapshot building and dispatching.
 
 Responsibilities:
-- Dirty tracking (when to rebuild snapshots)
-- Debounced snapshot dispatching
+- Periodic snapshot dispatching (interval-based)
 - Snapshot readiness gating
 - Risk signal evaluation
 """
 
 from __future__ import annotations
 import asyncio
-import time
 from datetime import datetime
 from typing import Dict, List, Optional, Any, TYPE_CHECKING
 
@@ -23,12 +21,12 @@ from ...domain.interfaces.event_bus import EventType
 from ...domain.events.domain_events import SnapshotReadyEvent
 
 if TYPE_CHECKING:
-    from ...domain.services.risk.risk_engine import RiskEngine
+    from ...domain.services.risk.risk_facade import RiskFacade
     from ...domain.services.risk.rule_engine import RuleEngine
     from ...domain.services.risk.risk_signal_engine import RiskSignalEngine
     from ...domain.services.risk.risk_alert_logger import RiskAlertLogger
     from ...domain.interfaces.event_bus import EventBus
-    from ...infrastructure.stores import PositionStore, MarketDataStore, AccountStore
+    from ...infrastructure.stores import AccountStore
     from ...infrastructure.monitoring import HealthMonitor
     from ...infrastructure.observability import RiskMetrics
 
@@ -39,31 +37,25 @@ class SnapshotCoordinator:
     """
     Coordinates risk snapshot building and dispatching.
 
-    Handles:
-    - Dirty tracking to trigger rebuilds
-    - Debounced snapshot dispatching
-    - Snapshot readiness gating for startup
-    - Risk signal evaluation and logging
+    Uses streaming RiskFacade exclusively for snapshot building.
+    Dispatches snapshots on a fixed interval (no dirty tracking needed -
+    RiskFacade state is kept current via position delta events).
     """
 
     def __init__(
         self,
-        risk_engine: RiskEngine,
-        rule_engine: RuleEngine,
-        position_store: PositionStore,
-        market_data_store: MarketDataStore,
-        account_store: AccountStore,
-        event_bus: EventBus,
-        health_monitor: HealthMonitor,
+        risk_facade: "RiskFacade",
+        rule_engine: "RuleEngine",
+        account_store: "AccountStore",
+        event_bus: "EventBus",
+        health_monitor: "HealthMonitor",
         config: Dict[str, Any],
-        risk_signal_engine: Optional[RiskSignalEngine] = None,
-        risk_alert_logger: Optional[RiskAlertLogger] = None,
-        risk_metrics: Optional[RiskMetrics] = None,
+        risk_signal_engine: Optional["RiskSignalEngine"] = None,
+        risk_alert_logger: Optional["RiskAlertLogger"] = None,
+        risk_metrics: Optional["RiskMetrics"] = None,
     ):
-        self.risk_engine = risk_engine
+        self._risk_facade = risk_facade
         self.rule_engine = rule_engine
-        self.position_store = position_store
-        self.market_data_store = market_data_store
         self.account_store = account_store
         self.event_bus = event_bus
         self.health_monitor = health_monitor
@@ -73,7 +65,7 @@ class SnapshotCoordinator:
 
         # Configuration
         dashboard_cfg = config.get("dashboard", {})
-        self._snapshot_min_interval_sec: float = dashboard_cfg.get("snapshot_min_interval_sec", 1.0)
+        self._snapshot_interval_sec: float = dashboard_cfg.get("snapshot_min_interval_sec", 1.0)
         self._snapshot_ready_ratio: float = dashboard_cfg.get("snapshot_ready_ratio", 0.9)
         self._snapshot_ready_timeout_sec: float = dashboard_cfg.get("snapshot_ready_timeout_sec", 30.0)
 
@@ -91,7 +83,7 @@ class SnapshotCoordinator:
         self._running = True
         self._snapshot_startup_time = datetime.now()
         self._dispatcher_task = asyncio.create_task(self._dispatch_loop())
-        logger.info("SnapshotCoordinator started")
+        logger.info("SnapshotCoordinator started (streaming mode)")
 
     async def stop(self) -> None:
         """Stop the snapshot dispatcher."""
@@ -111,29 +103,15 @@ class SnapshotCoordinator:
 
     async def _dispatch_loop(self) -> None:
         """
-        Main dispatch loop - rebuilds snapshots when risk engine is dirty.
+        Main dispatch loop - builds snapshots on fixed interval.
 
-        Uses debouncing to prevent excessive rebuilds during rapid updates.
+        RiskFacade state is kept current via position delta events,
+        so we simply read the latest state on each interval.
         """
-        last_snapshot_time = 0.0
-
         while self._running:
             try:
-                # Wait for dirty flag or timeout
-                await asyncio.sleep(0.05)  # 50ms poll interval
-
-                if not self.risk_engine.needs_rebuild():
-                    continue
-
-                # Debounce: ensure minimum interval between snapshots
-                now = time.time()
-                elapsed = now - last_snapshot_time
-                if elapsed < self._snapshot_min_interval_sec:
-                    await asyncio.sleep(self._snapshot_min_interval_sec - elapsed)
-
-                # Build snapshot
+                await asyncio.sleep(self._snapshot_interval_sec)
                 await self._build_and_dispatch_snapshot()
-                last_snapshot_time = time.time()
 
             except asyncio.CancelledError:
                 break
@@ -146,16 +124,8 @@ class SnapshotCoordinator:
         """Build a new risk snapshot and dispatch it."""
         new_cycle()  # New trace ID for this snapshot cycle
 
-        # Gather data
-        positions = self.position_store.get_all()  # Returns List[Position]
-        market_data = self.market_data_store.get_all()
+        # Update account info in RiskFacade (may have changed since last snapshot)
         account_info = self.account_store.get()
-
-        if not positions:
-            return
-
-        # Position updates can arrive before the first account fetch completes.
-        # Avoid crashing snapshot building on startup; use a safe zeroed AccountInfo.
         if account_info is None:
             from ...models.account import AccountInfo
 
@@ -173,20 +143,12 @@ class SnapshotCoordinator:
                 timestamp=datetime.now(),
                 account_id="missing",
             )
+        self._risk_facade.set_account_info(account_info)
 
-        # Build snapshot (runs in thread to avoid blocking)
-        snapshot = await asyncio.to_thread(
-            self.risk_engine.build_snapshot,
-            positions,
-            market_data,
-            account_info
-        )
-
-        if snapshot is None:
+        # Get snapshot from RiskFacade (streaming state)
+        snapshot = self._risk_facade.get_snapshot()
+        if snapshot is None or snapshot.total_positions == 0:
             return
-
-        # Clear dirty state after successful build
-        self.risk_engine.clear_dirty_state()
 
         self._latest_snapshot = snapshot
 
@@ -212,23 +174,23 @@ class SnapshotCoordinator:
             coverage_pct=getattr(snapshot, 'market_data_coverage', 0.0),
             portfolio_delta=snapshot.portfolio_delta,
             unrealized_pnl=snapshot.total_unrealized_pnl,
+            daily_pnl=snapshot.total_daily_pnl,
         )
         self.event_bus.publish(EventType.SNAPSHOT_READY, event)
         self._snapshot_ready.set()
 
     @log_timing("log_risk_alerts", warn_threshold_ms=50)
     def _log_risk_alerts(self, snapshot: RiskSnapshot) -> None:
-        """Log risk alerts to audit file."""
+        """Log risk alerts to audit file.
+
+        OPT-015: Removed redundant rule_engine.evaluate() call.
+        All signals (including Layer 1 breaches) are now in _latest_risk_signals
+        from RiskSignalEngine.evaluate(), which already calls rule_engine.
+        """
         if not self.risk_alert_logger:
             return
 
-        # Log breaches (convert to RiskSignal for logging)
-        breaches = self.rule_engine.evaluate(snapshot)
-        for breach in breaches:
-            signal = RiskSignal.from_breach(breach, layer=1)
-            self.risk_alert_logger.log_risk_signal(signal, snapshot)
-
-        # Log signals
+        # Log all signals (includes Layer 1 breaches already converted to RiskSignal)
         for signal in self._latest_risk_signals:
             self.risk_alert_logger.log_risk_signal(signal, snapshot)
 

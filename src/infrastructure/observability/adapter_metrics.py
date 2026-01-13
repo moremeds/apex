@@ -11,14 +11,11 @@ Exposes per-adapter operational metrics for Prometheus:
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING, Optional, Dict, Any
+from typing import Optional, Dict, Any
 from contextlib import contextmanager
 
 from opentelemetry import metrics
 from ...utils.logging_setup import get_logger
-
-if TYPE_CHECKING:
-    from ..adapters.adapter_manager import AdapterStatus
 
 logger = get_logger(__name__)
 
@@ -332,12 +329,12 @@ class AdapterMetrics:
         labels = {"adapter": adapter_name, "broker": broker}
         self._last_activity_timestamp.set(time.time(), labels)
 
-    def record_adapter_status(self, status: "AdapterStatus") -> None:
+    def record_adapter_status(self, status: Any) -> None:
         """
-        Record all metrics from an AdapterStatus object.
+        Record all metrics from an adapter status object.
 
         Args:
-            status: AdapterStatus from AdapterManager.
+            status: Object with name, broker, adapter_type, connected, last_updated attributes.
         """
         labels = {
             "adapter": status.name,

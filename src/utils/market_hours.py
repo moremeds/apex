@@ -6,8 +6,16 @@ Handles regular trading hours, extended hours, and market holidays.
 
 from __future__ import annotations
 from datetime import datetime, time
-from typing import Optional
+from typing import Optional, Tuple
 import pytz
+import threading
+
+
+# Module-level cache for hot path performance
+# Format: (status, expiry_timestamp)
+_status_cache: Tuple[str, float] = ("", 0.0)
+_cache_lock = threading.Lock()
+_CACHE_TTL_SECONDS = 60.0  # Refresh every 60 seconds
 
 
 class MarketHours:
@@ -99,14 +107,47 @@ class MarketHours:
     @classmethod
     def get_market_status(cls, dt: Optional[datetime] = None) -> str:
         """
-        Get current market status.
+        Get current market status (cached for hot path performance).
+
+        Uses 60-second TTL cache to avoid repeated pytz timezone conversions.
+        Safe because market status only changes at fixed times (4am, 9:30am, 4pm, 8pm ET).
 
         Args:
-            dt: Datetime to check (defaults to now).
+            dt: Datetime to check. If None, uses cached "now" status.
+                If provided, bypasses cache for exact calculation.
 
         Returns:
             One of: "OPEN", "EXTENDED", "CLOSED"
         """
+        global _status_cache
+
+        # If specific datetime provided, compute exactly (no cache)
+        if dt is not None:
+            return cls._compute_market_status(dt)
+
+        # Check cache for current time
+        import time as time_module
+        now_ts = time_module.time()
+
+        cached_status, expiry_ts = _status_cache
+        if cached_status and now_ts < expiry_ts:
+            return cached_status
+
+        # Cache miss - compute and store
+        with _cache_lock:
+            # Double-check after acquiring lock
+            cached_status, expiry_ts = _status_cache
+            if cached_status and now_ts < expiry_ts:
+                return cached_status
+
+            # Compute fresh status
+            status = cls._compute_market_status(None)
+            _status_cache = (status, now_ts + _CACHE_TTL_SECONDS)
+            return status
+
+    @classmethod
+    def _compute_market_status(cls, dt: Optional[datetime]) -> str:
+        """Compute market status without caching."""
         if cls.is_market_open(dt):
             return "OPEN"
         elif cls.is_extended_hours(dt):
