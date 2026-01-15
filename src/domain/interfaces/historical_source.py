@@ -1,11 +1,18 @@
 """Historical data source protocol for downloading bar data from external sources."""
 
 from __future__ import annotations
-from typing import Protocol, List, runtime_checkable
-from datetime import datetime
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import List, Protocol, runtime_checkable
 
 from ..events.domain_events import BarData
+
+
+def _to_naive_utc(dt: datetime) -> datetime:
+    """Convert datetime to naive UTC for consistent comparison."""
+    if dt.tzinfo is None:
+        return dt
+    return dt.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 @dataclass(frozen=True, slots=True)
@@ -16,8 +23,14 @@ class DateRange:
     end: datetime
 
     def __post_init__(self) -> None:
-        if self.start > self.end:
+        # Normalize to naive UTC for consistent comparison
+        start_naive = _to_naive_utc(self.start)
+        end_naive = _to_naive_utc(self.end)
+        if start_naive > end_naive:
             raise ValueError(f"start ({self.start}) must be <= end ({self.end})")
+        # Store normalized values (workaround for frozen dataclass)
+        object.__setattr__(self, 'start', start_naive)
+        object.__setattr__(self, 'end', end_naive)
 
     def overlaps(self, other: DateRange) -> bool:
         """Check if this range overlaps with another."""

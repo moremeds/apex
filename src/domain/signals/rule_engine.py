@@ -63,6 +63,93 @@ class RuleRegistry:
     _by_indicator: Dict[str, List[SignalRule]] = field(default_factory=dict)
     _by_name: Dict[str, SignalRule] = field(default_factory=dict)
 
+    @classmethod
+    def from_config(cls, config: Dict[str, Any]) -> "RuleRegistry":
+        """
+        Create a registry from YAML configuration.
+
+        Expected config structure:
+            rules:
+              rule_name:
+                enabled: true
+                indicator: rsi
+                category: momentum
+                direction: buy
+                strength: 70
+                priority: high
+                condition:
+                  type: state_change
+                  field: zone
+                  from: [oversold]
+                  to: [neutral]
+                timeframes: [1h, 4h, 1d]
+                cooldown_seconds: 3600
+                message: "{symbol} RSI signal"
+
+        Args:
+            config: Configuration dict with 'rules' key
+
+        Returns:
+            Populated RuleRegistry
+        """
+        from .models import (
+            ConditionType,
+            SignalCategory,
+            SignalDirection,
+            SignalPriority,
+            SignalRule,
+        )
+
+        registry = cls()
+        rules_config = config.get("rules", {})
+
+        for rule_name, settings in rules_config.items():
+            if not settings.get("enabled", True):
+                logger.debug(f"Skipping disabled rule: {rule_name}")
+                continue
+
+            try:
+                # Parse condition
+                condition = settings.get("condition", {})
+                condition_type_str = condition.get("type", "custom").upper()
+                condition_type = ConditionType[condition_type_str]
+
+                # Build condition_config from non-type fields
+                condition_config = {k: v for k, v in condition.items() if k != "type"}
+
+                # Parse enums
+                category = SignalCategory[settings["category"].upper()]
+                direction = SignalDirection[settings["direction"].upper()]
+                priority = SignalPriority[settings.get("priority", "medium").upper()]
+
+                # Parse timeframes as tuple
+                timeframes = tuple(settings.get("timeframes", ["1h"]))
+
+                rule = SignalRule(
+                    name=rule_name,
+                    indicator=settings["indicator"],
+                    category=category,
+                    direction=direction,
+                    strength=settings.get("strength", 50),
+                    priority=priority,
+                    condition_type=condition_type,
+                    condition_config=condition_config,
+                    timeframes=timeframes,
+                    cooldown_seconds=settings.get("cooldown_seconds", 3600),
+                    enabled=True,
+                    message_template=settings.get("message", ""),
+                )
+                registry.add_rule(rule)
+                logger.debug(f"Loaded rule: {rule_name} for indicator={rule.indicator}")
+
+            except KeyError as e:
+                logger.error(f"Invalid rule config '{rule_name}': missing {e}")
+            except Exception as e:
+                logger.error(f"Failed to load rule '{rule_name}': {e}")
+
+        logger.info(f"Loaded {len(registry)} rules from config")
+        return registry
+
     def add_rule(self, rule: SignalRule) -> None:
         """
         Register a single rule.

@@ -1,0 +1,178 @@
+# Development configuration for SignalService
+#
+# This is a minimal config for testing the signal pipeline.
+# Use this with signal_service_runner for validation.
+#
+# Usage:
+#   python -m src.runners.signal_service_runner --config config/signals/dev.yaml --synthetic
+
+# Swing trading timeframes (no intraday)
+timeframes:
+  - 30m
+  - 1h
+  - 4h
+  - 1d
+  - 1w
+
+# ThreadPool size for indicator calculations
+max_workers: 4
+
+# Log signals when generated
+log_signals: true
+
+# Indicator configuration
+# Each indicator can be enabled/disabled and have custom parameters
+indicators:
+  # Momentum indicators
+  rsi:
+    enabled: true
+    params:
+      period: 14
+      overbought: 70
+      oversold: 30
+
+  macd:
+    enabled: true
+    params:
+      fast_period: 12
+      slow_period: 26
+      signal_period: 9
+
+  # Trend indicators
+  supertrend:
+    enabled: true
+    params:
+      period: 10
+      multiplier: 3.0
+
+  # Volatility indicators
+  atr:
+    enabled: true
+    params:
+      period: 14
+
+# Rule configuration
+# Each rule can be enabled/disabled and have custom thresholds
+rules:
+  # RSI oversold exit - bullish signal when RSI leaves oversold zone
+  rsi_oversold_exit:
+    enabled: true
+    indicator: rsi
+    category: momentum
+    direction: buy
+    strength: 70
+    priority: high
+    condition:
+      type: state_change
+      field: zone
+      from:
+        - oversold
+      to:
+        - neutral
+    timeframes:
+      - 1h
+      - 4h
+      - 1d
+    cooldown_seconds: 3600
+    message: "{symbol} RSI exiting oversold zone"
+
+  # RSI overbought exit - bearish signal when RSI leaves overbought zone
+  rsi_overbought_exit:
+    enabled: true
+    indicator: rsi
+    category: momentum
+    direction: sell
+    strength: 70
+    priority: high
+    condition:
+      type: state_change
+      field: zone
+      from:
+        - overbought
+      to:
+        - neutral
+    timeframes:
+      - 1h
+      - 4h
+      - 1d
+    cooldown_seconds: 3600
+    message: "{symbol} RSI exiting overbought zone"
+
+  # MACD bullish crossover
+  macd_bullish_cross:
+    enabled: true
+    indicator: macd
+    category: momentum
+    direction: buy
+    strength: 65
+    priority: high
+    condition:
+      type: cross_up
+      line_a: macd
+      line_b: signal
+    timeframes:
+      - 1h
+      - 4h
+      - 1d
+    cooldown_seconds: 3600
+    message: "{symbol} MACD bullish crossover"
+
+  # Weekly RSI oversold - stronger signal for weekly timeframe
+  rsi_weekly_oversold:
+    enabled: true
+    indicator: rsi
+    category: momentum
+    direction: buy
+    strength: 80
+    priority: high
+    condition:
+      type: state_change
+      field: zone
+      from:
+        - oversold
+      to:
+        - neutral
+    timeframes:
+      - 1w
+    cooldown_seconds: 86400  # 24 hour cooldown for weekly signals
+    message: "{symbol} Weekly RSI exiting oversold zone"
+
+  # RSI overbought threshold - fires when RSI > 70 (detect_initial for testing)
+  rsi_overbought_threshold:
+    enabled: true
+    indicator: rsi
+    category: momentum
+    direction: sell
+    strength: 65
+    priority: medium
+    condition:
+      type: threshold_cross_up
+      field: value
+      threshold: 70
+      detect_initial: true
+    timeframes:
+      - 1h
+      - 4h
+      - 1d
+    cooldown_seconds: 3600
+    message: "{symbol} RSI above 70 (value={value})"
+
+  # RSI oversold threshold - fires when RSI < 30 (detect_initial for testing)
+  rsi_oversold_threshold:
+    enabled: true
+    indicator: rsi
+    category: momentum
+    direction: buy
+    strength: 65
+    priority: medium
+    condition:
+      type: threshold_cross_down
+      field: value
+      threshold: 30
+      detect_initial: true
+    timeframes:
+      - 1h
+      - 4h
+      - 1d
+    cooldown_seconds: 3600
+    message: "{symbol} RSI below 30 (value={value})"
