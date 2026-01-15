@@ -104,9 +104,19 @@ HeaderWidget Tab.-active {
 }
 
 /* ===== Views fill their TabPane ===== */
-SummaryView, SignalsView, PositionsView, LabView, TradingSignalsView {
+SummaryView, SignalsView, UnifiedSignalsView, PositionsView, LabView, DataView, SignalIntrospectionView {
     height: 1fr;
     width: 1fr;
+}
+
+/* ===== Signals View (Tab 2) ===== */
+#signals-header {
+    height: 1;
+    min-height: 1;
+}
+
+#signals-switcher {
+    height: 1fr;
 }
 
 /* ===== Horizontal splits ===== */

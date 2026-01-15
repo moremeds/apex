@@ -19,7 +19,7 @@ from .base import BaseViewModel
 
 class TradingSignalViewModel(BaseViewModel[List[Any]]):
     """
-    ViewModel for trading signals table (Tab 6).
+    ViewModel for trading signals table (Tab 2 Signals, trading panel).
 
     Responsibilities:
     - Transform signals into display rows

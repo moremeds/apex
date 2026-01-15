@@ -60,6 +60,8 @@ class SignalIntrospectionView(Container, can_focus=True):
     def on_show(self) -> None:
         """Focus this view when it becomes visible."""
         self.focus()
+        if self._introspection is not None:
+            self.refresh_view()
 
     def compose(self) -> ComposeResult:
         """Compose the signal introspection layout."""
@@ -133,6 +135,8 @@ class SignalIntrospectionView(Container, can_focus=True):
     def set_introspection(self, introspection: "SignalIntrospectionPort") -> None:
         """Set the introspection port for data access."""
         self._introspection = introspection
+        if self.is_mounted:
+            self.refresh_view()
 
     def refresh_view(self) -> None:
         """Refresh all panels from introspection data."""

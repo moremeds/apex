@@ -83,6 +83,9 @@ class TextualDashboard:
         # Tab 7 (Data) coverage store
         self._coverage_store = None
 
+        # Tab 7 (Intro) signal introspection
+        self._signal_introspection = None
+
     def start(self) -> None:
         """
         Compatibility shim - does nothing.
@@ -164,7 +167,7 @@ class TextualDashboard:
 
     def set_trading_universe(self, symbols: List[str]) -> None:
         """
-        Set the trading universe symbols for Tab 6 watchlist.
+        Set the trading universe symbols for Tab 2 Signals (trading panel watchlist).
 
         Args:
             symbols: List of symbol strings (e.g., ["AAPL", "TSLA"]).
@@ -172,6 +175,17 @@ class TextualDashboard:
         self._pending_universe = list(symbols)
         if self._app:
             self._app.set_trading_universe(symbols)
+
+    def set_signal_introspection(self, introspection) -> None:
+        """
+        Set the signal introspection adapter for Tab 7 Intro view.
+
+        Args:
+            introspection: SignalIntrospectionPort implementation (adapter).
+        """
+        self._signal_introspection = introspection
+        if self._app:
+            self._app.set_signal_introspection(introspection)
 
     def set_event_bus(
         self,
@@ -286,6 +300,10 @@ class TextualDashboard:
         # Apply pending trading universe if set
         if self._pending_universe:
             self._app.set_trading_universe(self._pending_universe)
+
+        # Apply signal introspection if set
+        if self._signal_introspection:
+            self._app.set_signal_introspection(self._signal_introspection)
 
         # NOTE: Confluence/alignment updates now use event bus (CONFLUENCE_UPDATE,
         # ALIGNMENT_UPDATE events) instead of direct callbacks. The TUI subscribes

@@ -243,6 +243,36 @@ async def main_async(args: argparse.Namespace) -> None:
                 {"symbols": universe_symbols[:10]}
             )
 
+        # Wire signal introspection adapter for Tab 7 (Intro) live pipeline visibility
+        if dashboard and container.orchestrator:
+            try:
+                coordinator = container.orchestrator.signal_coordinator
+                if coordinator and coordinator._indicator_engine and coordinator._rule_engine:
+                    from src.infrastructure.adapters.signal_introspection_adapter import (
+                        SignalIntrospectionAdapter,
+                    )
+                    introspection = SignalIntrospectionAdapter(
+                        signal_coordinator=coordinator,
+                        indicator_engine=coordinator._indicator_engine,
+                        rule_engine=coordinator._rule_engine,
+                    )
+                    introspection.start()
+                    dashboard.set_signal_introspection(introspection)
+                    system_structured.info(
+                        LogCategory.SYSTEM,
+                        "Signal introspection adapter wired to dashboard",
+                    )
+                else:
+                    system_structured.warning(
+                        LogCategory.SYSTEM,
+                        "Signal pipeline not fully initialized, skipping introspection wiring",
+                    )
+            except Exception as e:
+                system_structured.error(
+                    LogCategory.SYSTEM,
+                    f"Failed to wire signal introspection: {e}",
+                )
+
         # Background task: Connect historical IB and pre-fetch daily bars
         prefetch_task = None
         if container.ib_pool:
