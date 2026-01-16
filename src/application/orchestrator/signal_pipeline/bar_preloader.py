@@ -129,6 +129,8 @@ class BarPreloader:
             },
         )
 
+        failed_symbols: list[tuple[str, str, str]] = []  # (symbol, timeframe, error)
+
         for timeframe in self._timeframes:
             lookback_days = timeframe_lookbacks.get(timeframe, 365)
             start_dt = end_dt - timedelta(days=lookback_days)
@@ -178,6 +180,7 @@ class BarPreloader:
                             "No bars returned for symbol",
                             extra={"symbol": symbol, "timeframe": timeframe},
                         )
+                        failed_symbols.append((symbol, timeframe, "No bars returned"))
 
                 except Exception as e:
                     logger.error(
@@ -189,6 +192,14 @@ class BarPreloader:
                             "error_type": type(e).__name__,
                         },
                     )
+                    failed_symbols.append((symbol, timeframe, str(e)))
+
+        # Report all failed symbols at the end
+        if failed_symbols:
+            logger.error(
+                f"Preload failed for {len(failed_symbols)} symbol/timeframe combinations",
+                extra={"failed": [f"{s}/{tf}: {err}" for s, tf, err in failed_symbols]},
+            )
 
         elapsed_sec = time.monotonic() - start_time
         self._last_cache_refresh = now_utc()

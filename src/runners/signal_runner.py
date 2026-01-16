@@ -1,15 +1,11 @@
 """
-Signal Runner - Standalone TA signal pipeline for validation and testing.
+Signal Runner - Standalone TA signal pipeline for live and backfill processing.
 
 Enables running the signal pipeline independently from the TUI for:
-- Pipeline validation with synthetic data
 - Live signal generation without TUI overhead
 - Historical bar backfill for indicator warmup
 
 Usage:
-    # Validate pipeline with synthetic ticks (no database)
-    python -m src.runners.signal_runner --validate
-
     # Run pipeline on live market data (headless mode)
     python -m src.runners.signal_runner --live --symbols AAPL,TSLA
 
@@ -27,15 +23,12 @@ import asyncio
 import logging
 import signal
 import sys
-import math
-import random
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
-from ..domain.events.domain_events import MarketDataTickEvent
 from ..domain.events.event_types import EventType
 from ..domain.events.priority_event_bus import PriorityEventBus
 from ..application.services.ta_signal_service import TASignalService
@@ -52,11 +45,6 @@ class SignalRunnerConfig:
     symbols: List[str]
     timeframes: List[str]
     max_workers: int = 4
-
-    # Validation mode
-    validate: bool = False
-    validation_ticks: int = 100
-    validation_interval_ms: float = 10.0
 
     # Live mode
     live: bool = False
@@ -79,7 +67,6 @@ class SignalRunner:
     Standalone signal pipeline runner.
 
     Can run TASignalService independently for:
-    - Validation (synthetic data, no DB)
     - Live execution (real market data, optional DB)
     - Backfill (historical bars from data provider)
     """
@@ -109,14 +96,12 @@ class SignalRunner:
         try:
             await self._initialize()
 
-            if self.config.validate:
-                return await self._run_validation()
-            elif self.config.backfill:
+            if self.config.backfill:
                 return await self._run_backfill()
             elif self.config.live:
                 return await self._run_live()
             else:
-                print("No mode specified. Use --validate, --live, or --backfill")
+                print("No mode specified. Use --live or --backfill")
                 return 1
 
         except KeyboardInterrupt:
@@ -135,7 +120,8 @@ class SignalRunner:
             from config.config_manager import ConfigManager
             config = ConfigManager().load()
             display_tz = config.display.get("timezone", "Asia/Hong_Kong")
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to load config for display timezone: {e}")
             display_tz = "Asia/Hong_Kong"
         self._display_tz = DisplayTimezone(display_tz)
 
@@ -204,132 +190,6 @@ class SignalRunner:
             else:
                 ts_str = now_utc().strftime("%H:%M:%S")
             print(f"  SIGNAL [{ts_str}]: {signal_type.upper()} {symbol} [{indicator}] strength={strength}")
-
-    # -------------------------------------------------------------------------
-    # Validation Mode
-    # -------------------------------------------------------------------------
-
-    async def _run_validation(self) -> int:
-        """
-        Run pipeline validation with synthetic data.
-
-        Generates synthetic ticks and verifies pipeline produces expected signals.
-
-        Returns:
-            Exit code (0 if validation passed).
-        """
-        print("=" * 60)
-        print("SIGNAL PIPELINE VALIDATION")
-        print("=" * 60)
-        print(f"Symbols:    {', '.join(self.config.symbols)}")
-        print(f"Timeframes: {', '.join(self.config.timeframes)}")
-        print(f"Ticks:      {self.config.validation_ticks}")
-        print("=" * 60)
-        print()
-
-        self._running = True
-
-        # Generate and inject synthetic ticks
-        for symbol in self.config.symbols:
-            print(f"Injecting {self.config.validation_ticks} ticks for {symbol}...")
-            ticks = self._generate_synthetic_ticks(
-                symbol=symbol,
-                count=self.config.validation_ticks,
-            )
-
-            for i, tick in enumerate(ticks):
-                if not self._running:
-                    break
-
-                self._event_bus.publish(EventType.MARKET_DATA_TICK, tick)
-
-                if (i + 1) % 20 == 0:
-                    print(f"  Processed {i + 1}/{self.config.validation_ticks} ticks")
-
-                await asyncio.sleep(self.config.validation_interval_ms / 1000)
-
-        # Wait for pipeline to process remaining events
-        print("\nWaiting for pipeline to complete...")
-        await asyncio.sleep(2.0)
-
-        # Report results
-        stats = self._service.stats
-        print()
-        print("=" * 60)
-        print("VALIDATION RESULTS")
-        print("=" * 60)
-        print(f"Bars processed:       {stats['bars_processed']}")
-        print(f"Indicators computed:  {stats['indicators_computed']}")
-        print(f"Signals emitted:      {stats['signals_emitted']}")
-        print(f"Signals received:     {self._signal_count}")
-        print("=" * 60)
-
-        # Validation criteria
-        if stats["bars_processed"] > 0:
-            print("\n✅ Validation PASSED: Pipeline is processing data")
-            return 0
-        else:
-            print("\n❌ Validation FAILED: No bars were processed")
-            return 1
-
-    def _generate_synthetic_ticks(
-        self,
-        symbol: str,
-        count: int,
-        base_price: float = 150.0,
-        volatility: float = 0.02,
-    ) -> List[MarketDataTickEvent]:
-        """
-        Generate synthetic market data ticks with realistic price movement.
-
-        Uses Geometric Brownian Motion to simulate price paths that
-        will trigger various indicator conditions (oversold, overbought, etc.).
-
-        Args:
-            symbol: Trading symbol.
-            count: Number of ticks to generate.
-            base_price: Starting price.
-            volatility: Price volatility (standard deviation per tick).
-
-        Returns:
-            List of MarketDataTickEvent objects.
-        """
-        ticks = []
-        price = base_price
-        timestamp = now_utc()
-
-        # Add some trending behavior to trigger signals
-        trend_direction = 1.0  # Start bullish
-        trend_duration = count // 5  # Change trend every 20% of ticks
-
-        for i in range(count):
-            # Change trend direction periodically
-            if i > 0 and i % trend_duration == 0:
-                trend_direction *= -1
-
-            # Geometric Brownian Motion with drift
-            drift = 0.0002 * trend_direction  # Small trend bias
-            random_shock = random.gauss(0, volatility)
-            price *= math.exp(drift + random_shock)
-
-            # Add some bid-ask spread
-            spread = price * 0.001  # 0.1% spread
-            bid = price - spread / 2
-            ask = price + spread / 2
-
-            tick = MarketDataTickEvent(
-                symbol=symbol,
-                source="synthetic",
-                timestamp=timestamp,
-                bid=bid,
-                ask=ask,
-                last=price,
-            )
-            ticks.append(tick)
-
-            timestamp += timedelta(seconds=1)
-
-        return ticks
 
     # -------------------------------------------------------------------------
     # Live Mode
@@ -539,7 +399,10 @@ class SignalRunner:
         days: int,
     ) -> List[Dict[str, Any]]:
         """
-        Fetch historical bars from data provider.
+        Fetch historical bars from data provider using HistoricalDataManager.
+
+        Uses cache-first approach: reads from Parquet cache, downloads missing
+        data from IB/Yahoo if needed, and saves to cache for future use.
 
         Args:
             symbol: Trading symbol.
@@ -548,70 +411,56 @@ class SignalRunner:
 
         Returns:
             List of bar dicts with open, high, low, close, volume, timestamp.
+
+        Raises:
+            ValueError: If no historical data is available after attempting download.
         """
-        try:
-            # Try Parquet store first
-            from ..infrastructure.stores.parquet_historical_store import ParquetHistoricalStore
+        from pathlib import Path
+        from ..services.historical_data_manager import HistoricalDataManager
 
-            store = ParquetHistoricalStore()
-            end_date = now_utc()
-            start_date = end_date - timedelta(days=days)
+        end_date = now_utc()
+        start_date = end_date - timedelta(days=days)
 
-            bars = store.read_bars(
-                symbol=symbol,
-                timeframe=timeframe,
-                start=start_date,
-                end=end_date,
-            )
-
-            if bars:
-                return [bar.to_dict() for bar in bars]
-
-        except Exception as e:
-            logger.warning(f"Parquet store error for {symbol} {timeframe}: {e}")
-
-        # Generate synthetic bars for demonstration
-        logger.info(f"No historical data found - generating synthetic bars for {symbol} {timeframe}")
-        return self._generate_synthetic_bars(
-            symbol=symbol,
-            timeframe=timeframe,
-            count=min(days, 252),  # Max 1 year of daily bars
+        # Use HistoricalDataManager for cache-first + download flow
+        manager = HistoricalDataManager(
+            base_dir=Path("data/historical"),
+            source_priority=["ib", "yahoo"],
         )
 
-    def _generate_synthetic_bars(
-        self,
-        symbol: str,
-        timeframe: str,
-        count: int,
-        base_price: float = 150.0,
-    ) -> List[Dict[str, Any]]:
-        """Generate synthetic historical bars for backfill testing."""
-        bars = []
-        price = base_price
-        timestamp = now_utc() - timedelta(days=count)
+        # Try to set up IB source for better data quality
+        try:
+            from config.config_manager import ConfigManager
+            from ..infrastructure.adapters.ib.historical_adapter import IbHistoricalAdapter
 
-        for _ in range(count):
-            # Generate OHLC with random walk
-            open_price = price
-            high_price = price * (1 + random.uniform(0, 0.03))
-            low_price = price * (1 - random.uniform(0, 0.03))
-            close_price = random.uniform(low_price, high_price)
+            config = ConfigManager().load()
+            ib_config = config.ibkr
 
-            bars.append({
-                "symbol": symbol,
-                "timeframe": timeframe,
-                "timestamp": timestamp,
-                "open": open_price,
-                "high": high_price,
-                "low": low_price,
-                "close": close_price,
-                "volume": random.randint(100000, 10000000),
-            })
+            if ib_config.enabled:
+                ib_adapter = IbHistoricalAdapter(
+                    host=ib_config.host,
+                    port=ib_config.port,
+                    client_id=ib_config.client_ids.historical_pool[0] if ib_config.client_ids.historical_pool else 3,
+                )
+                await ib_adapter.connect()
+                manager.set_ib_source(ib_adapter)
+        except Exception as e:
+            logger.warning(f"IB not available for backfill, using Yahoo: {e}")
 
-            price = close_price
-            timestamp += timedelta(days=1)
+        # ensure_data: check cache -> download gaps -> save to parquet -> return bars
+        bars = await manager.ensure_data(
+            symbol=symbol,
+            timeframe=timeframe,
+            start=start_date.replace(tzinfo=None),
+            end=end_date.replace(tzinfo=None),
+        )
 
-        return bars
+        if not bars:
+            raise ValueError(
+                f"No historical data available for {symbol}/{timeframe}. "
+                f"Ensure IB is connected or data exists in data/historical/{symbol}/"
+            )
+
+        return [bar.to_dict() for bar in bars]
 
     def _setup_signal_handlers(self) -> None:
         """Set up signal handlers for graceful shutdown."""
@@ -749,11 +598,6 @@ Examples:
     # Mode selection (mutually exclusive)
     mode_group = parser.add_mutually_exclusive_group(required=True)
     mode_group.add_argument(
-        "--validate",
-        action="store_true",
-        help="Run validation with synthetic data (no database)",
-    )
-    mode_group.add_argument(
         "--live",
         action="store_true",
         help="Run on live market data (headless mode)",
@@ -776,14 +620,6 @@ Examples:
         nargs="+",
         default=["1d"],
         help="Space-separated timeframes (default: 1d)",
-    )
-
-    # Validation options
-    parser.add_argument(
-        "--ticks",
-        type=int,
-        default=100,
-        help="Number of synthetic ticks for validation (default: 100)",
     )
 
     # Backfill options
@@ -854,8 +690,6 @@ async def main():
         symbols=args.symbols,
         timeframes=args.timeframes,
         max_workers=args.max_workers,
-        validate=args.validate,
-        validation_ticks=args.ticks,
         live=args.live,
         backfill=args.backfill,
         backfill_days=args.days,

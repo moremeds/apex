@@ -227,13 +227,23 @@ class ParquetHistoricalStore:
 
         # Normalize timestamps to UTC-aware for consistent comparison
         # Old files may have tz-naive timestamps, new data has UTC
-        for df in [existing_df, new_df]:
+        for label, df in [("existing", existing_df), ("new", new_df)]:
             if "timestamp" in df.columns:
                 ts_col = df["timestamp"]
                 if ts_col.dt.tz is None:
+                    # WARN: Naive timestamps should not happen with fixed IB adapter
+                    # Log warning to detect if contaminated data sneaks in
+                    logger.warning(
+                        f"Naive timestamps detected in {label} data - "
+                        f"assuming UTC but this may indicate a data source bug"
+                    )
                     df["timestamp"] = ts_col.dt.tz_localize("UTC")
                 else:
                     df["timestamp"] = ts_col.dt.tz_convert("UTC")
+
+                # Truncate microseconds for consistent deduplication
+                # This prevents "same" bars with different microseconds from being duplicated
+                df["timestamp"] = df["timestamp"].dt.floor("s")
 
         # Concatenate DataFrames
         combined_df = pd.concat([existing_df, new_df], ignore_index=True)
@@ -258,10 +268,28 @@ class ParquetHistoricalStore:
 
     def _bars_to_table(self, bars: List[BarData]) -> pa.Table:
         """Convert BarData list to PyArrow table."""
-        now = datetime.utcnow()
+        from zoneinfo import ZoneInfo
+
+        UTC = ZoneInfo("UTC")
+        now = datetime.now(UTC)
+
+        def normalize_timestamp(ts: datetime) -> datetime:
+            """Normalize timestamp to UTC with truncated microseconds."""
+            if ts is None:
+                return now  # Fallback to current time
+            # Ensure timezone-aware (UTC)
+            if ts.tzinfo is None:
+                logger.warning(f"Naive timestamp encountered during write: {ts}")
+                ts = ts.replace(tzinfo=UTC)
+            else:
+                ts = ts.astimezone(UTC)
+            # Truncate microseconds for consistent deduplication
+            return ts.replace(microsecond=0)
+
+        timestamps = [normalize_timestamp(b.bar_start or b.timestamp) for b in bars]
 
         data = {
-            "timestamp": [b.bar_start or b.timestamp for b in bars],
+            "timestamp": timestamps,
             "open": [b.open for b in bars],
             "high": [b.high for b in bars],
             "low": [b.low for b in bars],

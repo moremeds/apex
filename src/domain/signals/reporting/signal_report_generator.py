@@ -22,6 +22,8 @@ import numpy as np
 import pandas as pd
 
 from src.utils.logging_setup import get_logger
+from ..divergence.cross_divergence import CrossIndicatorAnalyzer
+from ..models import ConfluenceScore
 
 from .description_generator import generate_indicator_description, generate_rule_description
 
@@ -53,6 +55,152 @@ BOUNDED_OSCILLATORS = {"rsi", "stochastic", "kdj", "williams_r", "mfi", "cci", "
 UNBOUNDED_OSCILLATORS = {"macd", "momentum", "roc", "cmf", "pvo", "force_index"}
 # Volume indicators
 VOLUME_INDICATORS = {"obv", "volume_profile", "vwma", "ease_of_movement", "chaikin_volatility"}
+
+
+def derive_indicator_states(df: pd.DataFrame) -> Dict[str, Dict[str, Any]]:
+    """
+    Derive semantic indicator states from DataFrame's last row values.
+
+    Translates raw indicator values into the state format expected by
+    CrossIndicatorAnalyzer (e.g., RSI=35 → {'zone': 'oversold', 'value': 35}).
+
+    Args:
+        df: DataFrame with indicator columns
+
+    Returns:
+        Dict mapping indicator names to state dicts
+    """
+    if df.empty:
+        return {}
+
+    last_row = df.iloc[-1]
+    states: Dict[str, Dict[str, Any]] = {}
+
+    # RSI state derivation
+    rsi_col = next((c for c in df.columns if c.lower().startswith("rsi_rsi")), None)
+    if rsi_col and pd.notna(last_row[rsi_col]):
+        rsi_val = float(last_row[rsi_col])
+        zone = "oversold" if rsi_val < 30 else "overbought" if rsi_val > 70 else "neutral"
+        states["rsi"] = {"value": rsi_val, "zone": zone}
+
+    # MACD state derivation
+    macd_col = next((c for c in df.columns if "macd_macd" in c.lower()), None)
+    signal_col = next((c for c in df.columns if "macd_signal" in c.lower()), None)
+    hist_col = next((c for c in df.columns if "macd_histogram" in c.lower()), None)
+    if hist_col and pd.notna(last_row[hist_col]):
+        hist_val = float(last_row[hist_col])
+        macd_val = float(last_row[macd_col]) if macd_col and pd.notna(last_row[macd_col]) else 0
+        signal_val = float(last_row[signal_col]) if signal_col and pd.notna(last_row[signal_col]) else 0
+        # Detect cross from last two rows
+        cross = "neutral"
+        if len(df) >= 2:
+            prev_macd = df[macd_col].iloc[-2] if macd_col and pd.notna(df[macd_col].iloc[-2]) else None
+            prev_signal = df[signal_col].iloc[-2] if signal_col and pd.notna(df[signal_col].iloc[-2]) else None
+            if prev_macd is not None and prev_signal is not None:
+                if prev_macd <= prev_signal and macd_val > signal_val:
+                    cross = "bullish"
+                elif prev_macd >= prev_signal and macd_val < signal_val:
+                    cross = "bearish"
+        states["macd"] = {"histogram": hist_val, "macd": macd_val, "signal": signal_val, "cross": cross}
+
+    # SuperTrend state derivation
+    st_col = next((c for c in df.columns if "supertrend_direction" in c.lower()), None)
+    if st_col and pd.notna(last_row[st_col]):
+        direction = str(last_row[st_col]).lower()
+        states["supertrend"] = {"direction": direction}
+    else:
+        # Infer from SuperTrend vs price
+        st_val_col = next((c for c in df.columns if "supertrend_supertrend" in c.lower()), None)
+        close_col = "close" if "close" in df.columns else None
+        if st_val_col and close_col and pd.notna(last_row[st_val_col]) and pd.notna(last_row[close_col]):
+            st_val = float(last_row[st_val_col])
+            close_val = float(last_row[close_col])
+            direction = "bullish" if close_val > st_val else "bearish"
+            states["supertrend"] = {"direction": direction, "value": st_val}
+
+    # Bollinger Bands state derivation
+    bb_upper = next((c for c in df.columns if "bollinger_bb_upper" in c.lower()), None)
+    bb_lower = next((c for c in df.columns if "bollinger_bb_lower" in c.lower()), None)
+    close_col = "close" if "close" in df.columns else None
+    if bb_upper and bb_lower and close_col:
+        if pd.notna(last_row[bb_upper]) and pd.notna(last_row[bb_lower]) and pd.notna(last_row[close_col]):
+            upper = float(last_row[bb_upper])
+            lower = float(last_row[bb_lower])
+            close = float(last_row[close_col])
+            if close <= lower:
+                zone = "below_lower"
+            elif close >= upper:
+                zone = "above_upper"
+            else:
+                zone = "middle"
+            states["bollinger"] = {"zone": zone, "upper": upper, "lower": lower}
+
+    # KDJ state derivation
+    k_col = next((c for c in df.columns if c.lower().startswith("kdj_k")), None)
+    d_col = next((c for c in df.columns if c.lower().startswith("kdj_d")), None)
+    if k_col and d_col and pd.notna(last_row[k_col]) and pd.notna(last_row[d_col]):
+        k_val = float(last_row[k_col])
+        d_val = float(last_row[d_col])
+        zone = "oversold" if k_val < 20 else "overbought" if k_val > 80 else "neutral"
+        # Detect cross
+        cross = "neutral"
+        if len(df) >= 2:
+            prev_k = df[k_col].iloc[-2] if pd.notna(df[k_col].iloc[-2]) else None
+            prev_d = df[d_col].iloc[-2] if pd.notna(df[d_col].iloc[-2]) else None
+            if prev_k is not None and prev_d is not None:
+                if prev_k <= prev_d and k_val > d_val:
+                    cross = "bullish"
+                elif prev_k >= prev_d and k_val < d_val:
+                    cross = "bearish"
+        states["kdj"] = {"k": k_val, "d": d_val, "zone": zone, "cross": cross}
+
+    # ADX state derivation
+    adx_col = next((c for c in df.columns if c.lower().startswith("adx_adx")), None)
+    di_plus_col = next((c for c in df.columns if "di_plus" in c.lower() or "di_p" in c.lower()), None)
+    di_minus_col = next((c for c in df.columns if "di_minus" in c.lower() or "di_m" in c.lower()), None)
+    if di_plus_col and di_minus_col:
+        if pd.notna(last_row[di_plus_col]) and pd.notna(last_row[di_minus_col]):
+            di_plus = float(last_row[di_plus_col])
+            di_minus = float(last_row[di_minus_col])
+            adx_val = float(last_row[adx_col]) if adx_col and pd.notna(last_row[adx_col]) else 0
+            states["adx"] = {"adx": adx_val, "di_plus": di_plus, "di_minus": di_minus}
+
+    return states
+
+
+def calculate_confluence(
+    data: Dict[Tuple[str, str], pd.DataFrame]
+) -> Dict[str, ConfluenceScore]:
+    """
+    Calculate confluence scores for all symbol/timeframe combinations.
+
+    Args:
+        data: Dict mapping (symbol, timeframe) to DataFrame
+
+    Returns:
+        Dict mapping "symbol_timeframe" to ConfluenceScore
+    """
+    analyzer = CrossIndicatorAnalyzer()
+    confluence_scores: Dict[str, ConfluenceScore] = {}
+
+    for (symbol, timeframe), df in data.items():
+        key = f"{symbol}_{timeframe}"
+        indicator_states = derive_indicator_states(df)
+
+        if indicator_states:
+            score = analyzer.analyze(symbol, timeframe, indicator_states)
+            confluence_scores[key] = score
+            logger.debug(
+                f"Confluence calculated for {key}",
+                extra={
+                    "alignment_score": score.alignment_score,
+                    "bullish": score.bullish_count,
+                    "bearish": score.bearish_count,
+                    "indicators_analyzed": list(indicator_states.keys()),
+                },
+            )
+
+    return confluence_scores
 
 
 def detect_historical_signals(
@@ -255,6 +403,25 @@ class SignalReportGenerator:
         # Build chart data for JavaScript
         chart_data = self._build_chart_data(data)
 
+        # Calculate confluence scores for each symbol/timeframe
+        confluence_scores = calculate_confluence(data)
+        confluence_data = {
+            key: {
+                "symbol": score.symbol,
+                "timeframe": score.timeframe,
+                "bullish_count": score.bullish_count,
+                "bearish_count": score.bearish_count,
+                "neutral_count": score.neutral_count,
+                "alignment_score": score.alignment_score,
+                "diverging_pairs": [
+                    {"ind1": p[0], "ind2": p[1], "reason": p[2]}
+                    for p in score.diverging_pairs
+                ],
+                "strongest_signal": score.strongest_signal,
+            }
+            for key, score in confluence_scores.items()
+        }
+
         # Detect historical signals for each symbol/timeframe
         signal_history: Dict[str, List[Dict[str, Any]]] = {}
         for (symbol, timeframe), df in data.items():
@@ -274,6 +441,7 @@ class SignalReportGenerator:
             chart_data=chart_data,
             indicator_info=indicator_info,
             signal_history=signal_history,
+            confluence_data=confluence_data,
         )
 
         output_path = Path(output_path)
@@ -409,6 +577,7 @@ class SignalReportGenerator:
         chart_data: Dict[str, Any],
         indicator_info: List[Dict[str, Any]],
         signal_history: Dict[str, List[Dict[str, Any]]],
+        confluence_data: Dict[str, Dict[str, Any]],
     ) -> str:
         c = self._colors
         generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -454,6 +623,15 @@ class SignalReportGenerator:
             <div id="main-chart"></div>
         </div>
 
+        <div class="confluence-section">
+            <h2 class="section-header" onclick="toggleSection('confluence-content')">
+                <span class="toggle-icon">▼</span> Confluence Analysis
+            </h2>
+            <div id="confluence-content" class="section-content">
+                <div id="confluence-panel"></div>
+            </div>
+        </div>
+
         <div class="signal-history-section">
             <h2 class="section-header" onclick="toggleSection('signal-history-content')">
                 <span class="toggle-icon">▼</span> Signal History
@@ -474,7 +652,7 @@ class SignalReportGenerator:
     </div>
 
     <script>
-{self._get_scripts(chart_data, symbols, timeframes, signal_history)}
+{self._get_scripts(chart_data, symbols, timeframes, signal_history, confluence_data)}
     </script>
 </body>
 </html>"""
@@ -594,6 +772,7 @@ body {{
     height: 900px;
 }}
 
+.confluence-section,
 .signal-history-section,
 .indicators-section {{
     background: {c['card_bg']};
@@ -602,6 +781,131 @@ body {{
     padding: 24px;
     margin-bottom: 24px;
 }}
+
+.confluence-panel {{
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+}}
+
+.confluence-score {{
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}}
+
+.alignment-meter {{
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}}
+
+.alignment-bar {{
+    height: 24px;
+    background: linear-gradient(to right, {c['loss']} 0%, {c['text_muted']} 50%, {c['profit']} 100%);
+    border-radius: 12px;
+    position: relative;
+    overflow: hidden;
+}}
+
+.alignment-indicator {{
+    position: absolute;
+    top: 50%;
+    transform: translateX(-50%) translateY(-50%);
+    width: 4px;
+    height: 32px;
+    background: white;
+    border-radius: 2px;
+    box-shadow: 0 0 8px rgba(0,0,0,0.5);
+}}
+
+.alignment-value {{
+    font-size: 28px;
+    font-weight: 700;
+    text-align: center;
+}}
+
+.alignment-value.bullish {{ color: {c['profit']}; }}
+.alignment-value.bearish {{ color: {c['loss']}; }}
+.alignment-value.neutral {{ color: {c['text_muted']}; }}
+
+.signal-counts {{
+    display: flex;
+    justify-content: center;
+    gap: 24px;
+}}
+
+.count-item {{
+    text-align: center;
+}}
+
+.count-value {{
+    font-size: 24px;
+    font-weight: 600;
+}}
+
+.count-value.bullish {{ color: {c['profit']}; }}
+.count-value.bearish {{ color: {c['loss']}; }}
+.count-value.neutral {{ color: {c['text_muted']}; }}
+
+.count-label {{
+    font-size: 12px;
+    color: {c['text_muted']};
+    text-transform: uppercase;
+}}
+
+.divergence-list {{
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}}
+
+.divergence-item {{
+    padding: 12px;
+    background: {c['bg']};
+    border-radius: 8px;
+    font-size: 13px;
+}}
+
+.divergence-item .indicators {{
+    font-weight: 600;
+    margin-bottom: 4px;
+}}
+
+.divergence-item .reason {{
+    color: {c['text_muted']};
+    font-size: 12px;
+}}
+
+.no-divergences {{
+    text-align: center;
+    color: {c['text_muted']};
+    padding: 24px;
+    font-style: italic;
+}}
+
+.strongest-signal {{
+    text-align: center;
+    padding: 12px;
+    background: {c['bg']};
+    border-radius: 8px;
+    margin-top: 8px;
+}}
+
+.strongest-signal .label {{
+    font-size: 12px;
+    color: {c['text_muted']};
+    text-transform: uppercase;
+}}
+
+.strongest-signal .value {{
+    font-size: 18px;
+    font-weight: 600;
+}}
+
+.strongest-signal .value.bullish {{ color: {c['profit']}; }}
+.strongest-signal .value.bearish {{ color: {c['loss']}; }}
+.strongest-signal .value.neutral {{ color: {c['text_muted']}; }}
 
 .section-header {{
     font-size: 18px;
@@ -848,12 +1152,14 @@ body {{
         symbols: List[str],
         timeframes: List[str],
         signal_history: Dict[str, List[Dict[str, Any]]],
+        confluence_data: Dict[str, Dict[str, Any]],
     ) -> str:
         data_json = json.dumps(chart_data, default=str)
         symbols_json = json.dumps(symbols)
         timeframes_json = json.dumps(timeframes)
         colors_json = json.dumps(self._colors)
         signals_json = json.dumps(signal_history, default=str)
+        confluence_json = json.dumps(confluence_data, default=str)
 
         return f"""
 const chartData = {data_json};
@@ -861,6 +1167,7 @@ const symbols = {symbols_json};
 const timeframes = {timeframes_json};
 const colors = {colors_json};
 const signalHistory = {signals_json};
+const confluenceData = {confluence_json};
 
 let currentSymbol = symbols[0] || '';
 let currentTimeframe = timeframes[0] || '1d';
@@ -888,6 +1195,7 @@ function updateChart() {{
 
     renderMainChart(data);
     updateSignalHistoryTable();
+    updateConfluencePanel();
 }}
 
 function renderMainChart(data) {{
@@ -895,10 +1203,23 @@ function renderMainChart(data) {{
     const traces = [];
     const hasData = (values) => values && !values.every(v => v === null);
 
+    // For intraday charts, use index-based x-axis to avoid gaps
+    // This bypasses Plotly rangebreaks bug with candlesticks (Issue #4795)
+    const isIntraday = ['1m', '5m', '15m', '30m', '1h', '4h'].includes(data.timeframe);
+    const xValues = isIntraday
+        ? data.timestamps.map((_, i) => i)  // Use indices for intraday
+        : data.timestamps;                   // Use timestamps for daily
+
+    // Create a timestamp-to-index map for signal markers
+    const tsToIdx = {{}};
+    if (isIntraday) {{
+        data.timestamps.forEach((ts, i) => {{ tsToIdx[ts] = i; }});
+    }}
+
     // Row 1: Price candlesticks
     traces.push({{
         type: 'candlestick',
-        x: data.timestamps,
+        x: xValues,
         open: data.open,
         high: data.high,
         low: data.low,
@@ -923,7 +1244,7 @@ function renderMainChart(data) {{
         traces.push({{
             type: 'scatter',
             mode: 'lines',
-            x: data.timestamps,
+            x: xValues,
             y: values,
             name: name.replace('bollinger_bb_', 'BB ').replace('supertrend_', 'ST '),
             line: {{ color: config.color, width: 1, dash: config.dash }},
@@ -938,14 +1259,14 @@ function renderMainChart(data) {{
         traces.push({{
             type: 'scatter',
             mode: 'lines',
-            x: data.timestamps,
+            x: xValues,
             y: rsiValues,
             name: 'RSI',
             line: {{ color: '#8b5cf6', width: 1.5 }},
             xaxis: 'x',
             yaxis: 'y2',
         }});
-        const boundsX = [data.timestamps[0], data.timestamps[data.timestamps.length - 1]];
+        const boundsX = [xValues[0], xValues[xValues.length - 1]];
         const rsiLevels = [
             {{ value: 70, name: 'Overbought', color: colors.candle_down }},
             {{ value: 30, name: 'Oversold', color: colors.candle_up }},
@@ -971,7 +1292,7 @@ function renderMainChart(data) {{
         const barColors = macdHist.map(v => v >= 0 ? colors.candle_up : colors.candle_down);
         traces.push({{
             type: 'bar',
-            x: data.timestamps,
+            x: xValues,
             y: macdHist,
             name: 'MACD Hist',
             marker: {{ color: barColors }},
@@ -989,7 +1310,7 @@ function renderMainChart(data) {{
         traces.push({{
             type: 'scatter',
             mode: 'lines',
-            x: data.timestamps,
+            x: xValues,
             y: values,
             name,
             line: {{ color, width: 1.5 }},
@@ -1006,7 +1327,7 @@ function renderMainChart(data) {{
         }});
         traces.push({{
             type: 'bar',
-            x: data.timestamps,
+            x: xValues,
             y: data.volume,
             name: 'Volume',
             marker: {{ color: volColors, opacity: 0.5 }},
@@ -1022,22 +1343,22 @@ function renderMainChart(data) {{
     const sellSignals = signals.filter(s => s.direction === 'sell');
 
     if (buySignals.length > 0) {{
-        const buyTimestamps = buySignals.map(s => s.timestamp);
-        const buyPrices = buyTimestamps.map(ts => {{
-            const idx = data.timestamps.findIndex(t => t === ts);
-            return idx >= 0 ? data.low[idx] * 0.995 : null;
-        }}).filter(p => p !== null);
-        const validBuyTs = buyTimestamps.filter((ts, i) => {{
-            const idx = data.timestamps.findIndex(t => t === ts);
-            return idx >= 0;
-        }});
+        const buyData = buySignals.map(s => {{
+            const idx = data.timestamps.findIndex(t => t === s.timestamp);
+            if (idx < 0) return null;
+            return {{
+                x: isIntraday ? idx : s.timestamp,
+                y: data.low[idx] * 0.995,
+                rule: s.rule
+            }};
+        }}).filter(d => d !== null);
 
-        if (validBuyTs.length > 0) {{
+        if (buyData.length > 0) {{
             traces.push({{
                 type: 'scatter',
                 mode: 'markers',
-                x: validBuyTs,
-                y: buyPrices,
+                x: buyData.map(d => d.x),
+                y: buyData.map(d => d.y),
                 name: 'Buy Signal',
                 marker: {{
                     symbol: 'triangle-up',
@@ -1046,10 +1367,7 @@ function renderMainChart(data) {{
                     line: {{ color: 'white', width: 1 }}
                 }},
                 hovertemplate: '%{{text}}<extra></extra>',
-                text: buySignals.filter((s, i) => {{
-                    const idx = data.timestamps.findIndex(t => t === s.timestamp);
-                    return idx >= 0;
-                }}).map(s => s.rule),
+                text: buyData.map(d => d.rule),
                 xaxis: 'x',
                 yaxis: 'y',
             }});
@@ -1057,22 +1375,22 @@ function renderMainChart(data) {{
     }}
 
     if (sellSignals.length > 0) {{
-        const sellTimestamps = sellSignals.map(s => s.timestamp);
-        const sellPrices = sellTimestamps.map(ts => {{
-            const idx = data.timestamps.findIndex(t => t === ts);
-            return idx >= 0 ? data.high[idx] * 1.005 : null;
-        }}).filter(p => p !== null);
-        const validSellTs = sellTimestamps.filter((ts, i) => {{
-            const idx = data.timestamps.findIndex(t => t === ts);
-            return idx >= 0;
-        }});
+        const sellData = sellSignals.map(s => {{
+            const idx = data.timestamps.findIndex(t => t === s.timestamp);
+            if (idx < 0) return null;
+            return {{
+                x: isIntraday ? idx : s.timestamp,
+                y: data.high[idx] * 1.005,
+                rule: s.rule
+            }};
+        }}).filter(d => d !== null);
 
-        if (validSellTs.length > 0) {{
+        if (sellData.length > 0) {{
             traces.push({{
                 type: 'scatter',
                 mode: 'markers',
-                x: validSellTs,
-                y: sellPrices,
+                x: sellData.map(d => d.x),
+                y: sellData.map(d => d.y),
                 name: 'Sell Signal',
                 marker: {{
                     symbol: 'triangle-down',
@@ -1081,17 +1399,55 @@ function renderMainChart(data) {{
                     line: {{ color: 'white', width: 1 }}
                 }},
                 hovertemplate: '%{{text}}<extra></extra>',
-                text: sellSignals.filter((s, i) => {{
-                    const idx = data.timestamps.findIndex(t => t === s.timestamp);
-                    return idx >= 0;
-                }}).map(s => s.rule),
+                text: sellData.map(d => d.rule),
                 xaxis: 'x',
                 yaxis: 'y',
             }});
         }}
     }}
 
-    // Layout with 4 subplots
+    // Layout with 4 subplots (4% gaps between panels)
+    // Hide gaps to create continuous chart visualization
+    const isDaily = ['1d', '1w', '1D', '1W'].includes(data.timeframe);
+
+    // For daily charts, use rangebreaks to hide weekends
+    // For intraday, we use index-based x-axis (no rangebreaks needed - already continuous)
+    let rangebreaks = [];
+    if (isDaily) {{
+        rangebreaks = [{{ bounds: ['sat', 'mon'] }}];
+    }}
+
+    // For intraday charts with index-based x-axis, create custom tick labels
+    // Show ~15 evenly spaced labels with readable date/time format
+    let tickvals = null;
+    let ticktext = null;
+    if (isIntraday && data.timestamps.length > 0) {{
+        const n = data.timestamps.length;
+        const step = Math.max(1, Math.floor(n / 15));
+        tickvals = [];
+        ticktext = [];
+        for (let i = 0; i < n; i += step) {{
+            tickvals.push(i);
+            // Format timestamp as "MM/DD HH:mm"
+            const ts = new Date(data.timestamps[i]);
+            const month = String(ts.getUTCMonth() + 1).padStart(2, '0');
+            const day = String(ts.getUTCDate()).padStart(2, '0');
+            const hour = String(ts.getUTCHours()).padStart(2, '0');
+            const min = String(ts.getUTCMinutes()).padStart(2, '0');
+            ticktext.push(`${{month}}/${{day}} ${{hour}}:${{min}}`);
+        }}
+        // Always include last bar
+        if (tickvals[tickvals.length - 1] !== n - 1) {{
+            tickvals.push(n - 1);
+            const ts = new Date(data.timestamps[n - 1]);
+            const month = String(ts.getUTCMonth() + 1).padStart(2, '0');
+            const day = String(ts.getUTCDate()).padStart(2, '0');
+            const hour = String(ts.getUTCHours()).padStart(2, '0');
+            const min = String(ts.getUTCMinutes()).padStart(2, '0');
+            ticktext.push(`${{month}}/${{day}} ${{hour}}:${{min}}`);
+        }}
+    }}
+
     const layout = {{
         title: {{
             text: `${{data.symbol}} - ${{data.timeframe}} (${{data.bar_count}} bars)`,
@@ -1110,52 +1466,70 @@ function renderMainChart(data) {{
         hovermode: 'x unified',
         bargap: 0.1,
 
-        // Shared X-axis
+        // Shared X-axis configuration
+        // For daily: use timestamps with rangebreaks
+        // For intraday: use indices with custom tick labels (continuous chart)
         xaxis: {{
+            title: {{ text: 'Time (UTC)', standoff: 10, font: {{ size: 11, color: colors.text_muted }} }},
             gridcolor: colors.border,
             showgrid: true,
             rangeslider: {{ visible: false }},
             tickangle: -45,
-            nticks: 15,
             domain: [0, 1],
+            rangebreaks: rangebreaks,
+            ...(isIntraday && tickvals ? {{ tickvals: tickvals, ticktext: ticktext }} : {{ nticks: 15 }}),
         }},
 
-        // Y1: Price (top 55%)
+        // Timezone annotation
+        annotations: [{{
+            text: 'All times displayed in UTC',
+            xref: 'paper',
+            yref: 'paper',
+            x: 1,
+            y: 1.02,
+            xanchor: 'right',
+            yanchor: 'bottom',
+            showarrow: false,
+            font: {{ size: 10, color: colors.text_muted }},
+        }}],
+
+        // Y1: Price (48% with 4% gap)
         yaxis: {{
             title: 'Price',
             side: 'right',
             gridcolor: colors.border,
             showgrid: true,
-            domain: [0.45, 1],
+            domain: [0.52, 1.00],
+            autorange: true,
         }},
 
-        // Y2: RSI (15%)
+        // Y2: RSI (12% with 4% gap)
         yaxis2: {{
             title: 'RSI',
             side: 'right',
             gridcolor: colors.border,
             showgrid: true,
-            domain: [0.28, 0.43],
+            domain: [0.36, 0.48],
             range: [0, 100],
             dtick: 25,
         }},
 
-        // Y3: MACD (15%)
+        // Y3: MACD (12% with 4% gap)
         yaxis3: {{
             title: 'MACD',
             side: 'right',
             gridcolor: colors.border,
             showgrid: true,
-            domain: [0.12, 0.26],
+            domain: [0.20, 0.32],
         }},
 
-        // Y4: Volume (10%)
+        // Y4: Volume (16%)
         yaxis4: {{
             title: 'Vol',
             side: 'right',
             gridcolor: colors.border,
             showgrid: true,
-            domain: [0, 0.10],
+            domain: [0.00, 0.16],
         }},
     }};
 
@@ -1212,6 +1586,68 @@ function updateSignalHistoryTable() {{
     container.innerHTML = html;
 }}
 
+function updateConfluencePanel() {{
+    const key = getDataKey();
+    const confluence = confluenceData[key];
+    const container = document.getElementById('confluence-panel');
+
+    if (!confluence) {{
+        container.innerHTML = '<div class="no-divergences">No confluence data available for this symbol/timeframe</div>';
+        return;
+    }}
+
+    const alignmentPct = (confluence.alignment_score + 100) / 2;  // Convert -100..+100 to 0..100
+    const alignmentClass = confluence.alignment_score > 20 ? 'bullish' : confluence.alignment_score < -20 ? 'bearish' : 'neutral';
+    const strongestClass = confluence.strongest_signal === 'bullish' ? 'bullish' : confluence.strongest_signal === 'bearish' ? 'bearish' : 'neutral';
+
+    let divergenceHtml = '';
+    if (confluence.diverging_pairs && confluence.diverging_pairs.length > 0) {{
+        divergenceHtml = confluence.diverging_pairs.slice(0, 5).map(p => `
+            <div class="divergence-item">
+                <div class="indicators">${{p.ind1}} ↔ ${{p.ind2}}</div>
+                <div class="reason">${{p.reason}}</div>
+            </div>
+        `).join('');
+    }} else {{
+        divergenceHtml = '<div class="no-divergences">No divergences detected - indicators are aligned</div>';
+    }}
+
+    container.innerHTML = `
+        <div class="confluence-panel">
+            <div class="confluence-score">
+                <div class="alignment-meter">
+                    <div class="alignment-bar">
+                        <div class="alignment-indicator" style="left: ${{alignmentPct}}%"></div>
+                    </div>
+                </div>
+                <div class="alignment-value ${{alignmentClass}}">${{confluence.alignment_score > 0 ? '+' : ''}}${{confluence.alignment_score}}</div>
+                <div class="signal-counts">
+                    <div class="count-item">
+                        <div class="count-value bullish">▲ ${{confluence.bullish_count}}</div>
+                        <div class="count-label">Bullish</div>
+                    </div>
+                    <div class="count-item">
+                        <div class="count-value neutral">● ${{confluence.neutral_count}}</div>
+                        <div class="count-label">Neutral</div>
+                    </div>
+                    <div class="count-item">
+                        <div class="count-value bearish">▼ ${{confluence.bearish_count}}</div>
+                        <div class="count-label">Bearish</div>
+                    </div>
+                </div>
+                <div class="strongest-signal">
+                    <div class="label">Strongest Signal</div>
+                    <div class="value ${{strongestClass}}">${{confluence.strongest_signal ? confluence.strongest_signal.toUpperCase() : 'NONE'}}</div>
+                </div>
+            </div>
+            <div class="divergence-list">
+                <h4 style="margin-bottom: 12px; color: ${{colors.text_muted}}; font-size: 12px; text-transform: uppercase;">Diverging Indicators</h4>
+                ${{divergenceHtml}}
+            </div>
+        </div>
+    `;
+}}
+
 function toggleSection(contentId) {{
     const content = document.getElementById(contentId);
     const header = content.previousElementSibling;
@@ -1225,5 +1661,6 @@ function toggleSection(contentId) {{
 document.addEventListener('DOMContentLoaded', () => {{
     updateChart();
     updateSignalHistoryTable();
+    updateConfluencePanel();
 }});
 """
