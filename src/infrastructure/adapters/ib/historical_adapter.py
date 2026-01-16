@@ -9,8 +9,11 @@ Uses reserved historical client IDs.
 """
 
 from __future__ import annotations
+import asyncio
 from typing import List, Optional, Callable, Dict
 from datetime import datetime, timedelta, date
+
+from zoneinfo import ZoneInfo
 
 from ....utils.logging_setup import get_logger
 from ....domain.interfaces.bar_provider import BarProvider
@@ -18,6 +21,10 @@ from ....domain.interfaces.historical_source import HistoricalSourcePort
 from ....domain.events.domain_events import BarData
 
 from .base import IbBaseAdapter
+
+# IB returns timestamps in US Eastern Time (naive), we need to convert to UTC
+US_EASTERN = ZoneInfo("America/New_York")
+UTC = ZoneInfo("UTC")
 
 
 logger = get_logger(__name__)
@@ -186,6 +193,11 @@ class IbHistoricalAdapter(IbBaseAdapter, BarProvider):
                 if isinstance(bar_ts, date) and not isinstance(bar_ts, datetime):
                     bar_ts = datetime.combine(bar_ts, datetime.min.time())
 
+                # CRITICAL: IB returns naive timestamps in Eastern Time, convert to UTC
+                if bar_ts.tzinfo is None:
+                    bar_ts = bar_ts.replace(tzinfo=US_EASTERN)
+                bar_ts = bar_ts.astimezone(UTC)
+
                 bar_data = BarData(
                     symbol=symbol,
                     timeframe=timeframe,
@@ -253,32 +265,75 @@ class IbHistoricalAdapter(IbBaseAdapter, BarProvider):
         """Get maximum practical history available for timeframe."""
         return MAX_HISTORY_DAYS.get(timeframe, 7)
 
-    async def fetch_bars_batch(self, requests: List[dict]) -> dict:
+    async def fetch_bars_batch(
+        self,
+        requests: List[dict],
+        max_concurrent: int = 3,
+        delay_between_batches: float = 1.0,
+    ) -> dict:
         """
-        Fetch bars for multiple symbols efficiently.
+        Fetch bars for multiple symbols with rate limiting to avoid IB pacing violations.
+
+        IB has strict rate limits (~60 requests/10 min for historical data).
+        This method processes requests in small batches with delays between.
 
         Args:
             requests: List of dicts with symbol, timeframe, start, end, limit.
+            max_concurrent: Max parallel requests per batch (default: 3).
+            delay_between_batches: Seconds to wait between batches (default: 1.0).
 
         Returns:
             Dict mapping symbol to List[BarData].
         """
-        results = {}
+        results: Dict[str, List[BarData]] = {}
 
-        for req in requests:
-            symbol = req.get("symbol")
+        if not requests:
+            return results
+
+        async def fetch_single(req: dict) -> tuple[str, List[BarData]]:
+            """Fetch a single request and return (symbol, bars)."""
+            symbol = req.get("symbol", "")
             timeframe = req.get("timeframe", "1d")
             start = req.get("start")
             end = req.get("end")
             limit = req.get("limit")
+            bars = await self.fetch_bars(symbol, timeframe, start, end, limit)
+            return symbol, bars
 
-            try:
-                bars = await self.fetch_bars(symbol, timeframe, start, end, limit)
-                results[symbol] = bars
-            except Exception as e:
-                logger.error(f"Failed to fetch bars for {symbol}: {e}")
-                results[symbol] = []
+        # Process in batches with rate limiting
+        total = len(requests)
+        for i in range(0, total, max_concurrent):
+            batch = requests[i : i + max_concurrent]
+            batch_num = i // max_concurrent + 1
+            total_batches = (total + max_concurrent - 1) // max_concurrent
 
+            logger.debug(
+                f"IB batch {batch_num}/{total_batches}: fetching {len(batch)} symbols"
+            )
+
+            # Run batch concurrently
+            tasks = [fetch_single(req) for req in batch]
+            batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            # Collect results, log errors
+            for req, result in zip(batch, batch_results):
+                symbol = req.get("symbol", "")
+                if isinstance(result, Exception):
+                    logger.error(f"IB historical fetch failed for {symbol}: {result}")
+                    results[symbol] = []
+                else:
+                    sym, bars = result
+                    results[sym] = bars
+
+            # Rate limit delay between batches (skip delay after last batch)
+            if i + max_concurrent < total:
+                logger.debug(f"Rate limit delay: {delay_between_batches}s")
+                await asyncio.sleep(delay_between_batches)
+
+        logger.info(
+            f"IB batch fetch complete: {len(results)} symbols, "
+            f"{sum(len(bars) for bars in results.values())} total bars"
+        )
         return results
 
     # -------------------------------------------------------------------------

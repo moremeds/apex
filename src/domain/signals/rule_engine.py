@@ -13,10 +13,11 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from threading import RLock
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Protocol, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Deque, Dict, List, Optional, Protocol, Tuple
 
 from src.domain.events.domain_events import IndicatorUpdateEvent, TradingSignalEvent
 from src.domain.events.event_types import EventType
@@ -61,6 +62,93 @@ class RuleRegistry:
 
     _by_indicator: Dict[str, List[SignalRule]] = field(default_factory=dict)
     _by_name: Dict[str, SignalRule] = field(default_factory=dict)
+
+    @classmethod
+    def from_config(cls, config: Dict[str, Any]) -> "RuleRegistry":
+        """
+        Create a registry from YAML configuration.
+
+        Expected config structure:
+            rules:
+              rule_name:
+                enabled: true
+                indicator: rsi
+                category: momentum
+                direction: buy
+                strength: 70
+                priority: high
+                condition:
+                  type: state_change
+                  field: zone
+                  from: [oversold]
+                  to: [neutral]
+                timeframes: [1h, 4h, 1d]
+                cooldown_seconds: 3600
+                message: "{symbol} RSI signal"
+
+        Args:
+            config: Configuration dict with 'rules' key
+
+        Returns:
+            Populated RuleRegistry
+        """
+        from .models import (
+            ConditionType,
+            SignalCategory,
+            SignalDirection,
+            SignalPriority,
+            SignalRule,
+        )
+
+        registry = cls()
+        rules_config = config.get("rules", {})
+
+        for rule_name, settings in rules_config.items():
+            if not settings.get("enabled", True):
+                logger.debug(f"Skipping disabled rule: {rule_name}")
+                continue
+
+            try:
+                # Parse condition
+                condition = settings.get("condition", {})
+                condition_type_str = condition.get("type", "custom").upper()
+                condition_type = ConditionType[condition_type_str]
+
+                # Build condition_config from non-type fields
+                condition_config = {k: v for k, v in condition.items() if k != "type"}
+
+                # Parse enums
+                category = SignalCategory[settings["category"].upper()]
+                direction = SignalDirection[settings["direction"].upper()]
+                priority = SignalPriority[settings.get("priority", "medium").upper()]
+
+                # Parse timeframes as tuple
+                timeframes = tuple(settings.get("timeframes", ["1h"]))
+
+                rule = SignalRule(
+                    name=rule_name,
+                    indicator=settings["indicator"],
+                    category=category,
+                    direction=direction,
+                    strength=settings.get("strength", 50),
+                    priority=priority,
+                    condition_type=condition_type,
+                    condition_config=condition_config,
+                    timeframes=timeframes,
+                    cooldown_seconds=settings.get("cooldown_seconds", 3600),
+                    enabled=True,
+                    message_template=settings.get("message", ""),
+                )
+                registry.add_rule(rule)
+                logger.debug(f"Loaded rule: {rule_name} for indicator={rule.indicator}")
+
+            except KeyError as e:
+                logger.error(f"Invalid rule config '{rule_name}': missing {e}")
+            except Exception as e:
+                logger.error(f"Failed to load rule '{rule_name}': {e}")
+
+        logger.info(f"Loaded {len(registry)} rules from config")
+        return registry
 
     def add_rule(self, rule: SignalRule) -> None:
         """
@@ -168,6 +256,10 @@ class RuleEngine:
         self._started = False
         self._signals_emitted = 0
         self._rules_evaluated = 0
+
+        # Evaluation history (ring buffer) - only populated when trace_mode enabled
+        # Stores recent rule evaluations for introspection/debugging
+        self._evaluation_history: Deque[Dict[str, Any]] = deque(maxlen=200)
 
     @property
     def registry(self) -> RuleRegistry:
@@ -294,8 +386,9 @@ class RuleEngine:
             rules_matched_timeframe += 1
 
             # Evaluate condition
+            condition_met = False
             try:
-                triggered = rule.check_condition(prev_state, curr_state)
+                condition_met = rule.check_condition(prev_state, curr_state)
             except Exception as e:
                 if self._metrics:
                     self._metrics.record_error("rule_engine", "check_condition")
@@ -303,6 +396,7 @@ class RuleEngine:
                     f"Rule check_condition failed: {rule.name} error={e!r}",
                     exc_info=True,
                 )
+                self._record_evaluation(rule, event, False, False, False, error=True)
                 continue
 
             # Trace mode: log detailed rule evaluation values
@@ -314,26 +408,30 @@ class RuleEngine:
                 logger.info(
                     f"TRACE Rule {rule.name}: "
                     f"prev={prev_val}, curr={curr_val}, threshold={threshold} -> "
-                    f"{'TRIGGERED' if triggered else 'NO_MATCH'}"
+                    f"{'TRIGGERED' if condition_met else 'NO_MATCH'}"
                 )
 
-            if not triggered:
+            if not condition_met:
+                self._record_evaluation(rule, event, False, False, False)
                 continue
 
             rules_triggered += 1
 
             # Check cooldown using signal_id (category:indicator:symbol:timeframe)
-            if self._is_in_cooldown(rule, event):
+            blocked_by_cooldown = self._is_in_cooldown(rule, event)
+            if blocked_by_cooldown:
                 if self._metrics:
                     self._metrics.record_signal_blocked(rule.name, "cooldown")
                 logger.debug(
                     f"Signal blocked by cooldown: {rule.name} symbol={event.symbol} tf={event.timeframe}",
                 )
+                self._record_evaluation(rule, event, False, True, True)
                 continue
 
             # Build and emit signal
             signal = self._build_signal(rule, event, curr_state, prev_state)
             self._emit_signal(signal)
+            self._record_evaluation(rule, event, True, False, True)
 
         # Log rule evaluation summary for debugging
         if rules_matched_timeframe > 0:
@@ -487,3 +585,195 @@ class RuleEngine:
                 return None
 
         return None
+
+    # -------------------------------------------------------------------------
+    # Introspection Methods (for SignalIntrospectionPort)
+    # -------------------------------------------------------------------------
+
+    def _record_evaluation(
+        self,
+        rule: SignalRule,
+        event: IndicatorUpdateEvent,
+        triggered: bool,
+        blocked_by_cooldown: bool,
+        condition_met: bool,
+        error: bool = False,
+    ) -> None:
+        """
+        Record a rule evaluation for introspection.
+
+        Only records when trace_mode is enabled (zero overhead when off).
+        This enables debugging and TUI visibility into rule evaluations.
+        """
+        if not self._trace_mode:
+            return
+
+        reason = self._build_evaluation_reason(triggered, blocked_by_cooldown, condition_met, error)
+
+        entry = {
+            "rule_name": rule.name,
+            "indicator": rule.indicator,
+            "category": rule.category.value,
+            "symbol": event.symbol,
+            "timeframe": event.timeframe,
+            "triggered": triggered,
+            "blocked_by_cooldown": blocked_by_cooldown,
+            "condition_met": condition_met,
+            "error": error,
+            "reason": reason,
+            "timestamp": event.timestamp,
+        }
+
+        # Thread-safe append (same lock as reads)
+        with self._lock:
+            self._evaluation_history.append(entry)
+
+    @staticmethod
+    def _build_evaluation_reason(
+        triggered: bool,
+        blocked_by_cooldown: bool,
+        condition_met: bool,
+        error: bool = False,
+    ) -> str:
+        """Build human-readable reason for evaluation outcome."""
+        if triggered:
+            return "signal emitted"
+        if error:
+            return "evaluation error"
+        if blocked_by_cooldown:
+            return "blocked by cooldown"
+        if not condition_met:
+            return "condition not met"
+        return "unknown"
+
+    @staticmethod
+    def _compute_remaining_seconds(
+        last_time: datetime, cooldown_seconds: float, now: datetime
+    ) -> Optional[int]:
+        """
+        Compute remaining cooldown seconds.
+
+        Returns None if cooldown expired or timestamp comparison fails (naive datetime).
+        """
+        try:
+            elapsed = (now - last_time).total_seconds()
+        except TypeError:
+            return None
+
+        remaining = cooldown_seconds - elapsed
+        if remaining <= 0:
+            return None
+
+        return int(remaining)
+
+    @staticmethod
+    def _parse_cooldown_key(key: str) -> Tuple[str, str, str, str]:
+        """Parse cooldown key into (category, indicator, symbol, timeframe)."""
+        parts = key.split(":", 3)
+        while len(parts) < 4:
+            parts.append("")
+        return parts[0], parts[1], parts[2], parts[3]
+
+    def get_evaluation_history(
+        self,
+        limit: int = 50,
+        triggered_only: bool = False,
+    ) -> List[Dict[str, Any]]:
+        """
+        Get recent rule evaluation history.
+
+        Returns empty list if trace_mode was not enabled during evaluations.
+
+        Args:
+            limit: Maximum number of evaluations to return.
+            triggered_only: If True, only return evaluations that triggered.
+
+        Returns:
+            List of evaluation dicts, most recent first.
+        """
+        with self._lock:
+            history = list(self._evaluation_history)
+
+        # Most recent first
+        history = history[-limit:][::-1]
+
+        if triggered_only:
+            history = [e for e in history if e["triggered"]]
+
+        return history
+
+    def get_cooldown_status(
+        self,
+        category: str,
+        indicator: str,
+        symbol: str,
+        timeframe: str,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Get cooldown status for a specific category:indicator:symbol:timeframe.
+
+        Args:
+            category: Signal category (e.g., "momentum", "trend").
+            indicator: Indicator name (e.g., "rsi").
+            symbol: Trading symbol.
+            timeframe: Bar timeframe.
+
+        Returns:
+            Cooldown info dict if actively in cooldown, None otherwise.
+        """
+        key = f"{category}:{indicator}:{symbol}:{timeframe}"
+
+        with self._lock:
+            entry = self._last_triggered.get(key)
+            if entry is None:
+                return None
+
+            last_time, cooldown_seconds = entry
+            remaining_seconds = self._compute_remaining_seconds(
+                last_time, cooldown_seconds, now_local()
+            )
+            if remaining_seconds is None:
+                return None
+
+            return {
+                "category": category,
+                "indicator": indicator,
+                "symbol": symbol,
+                "timeframe": timeframe,
+                "last_triggered": last_time,
+                "cooldown_seconds": cooldown_seconds,
+                "remaining_seconds": remaining_seconds,
+                "active": True,
+            }
+
+    def get_all_cooldowns(self) -> List[Dict[str, Any]]:
+        """
+        Get all active cooldowns.
+
+        Returns:
+            List of active cooldown dicts.
+        """
+        now = now_local()
+        result: List[Dict[str, Any]] = []
+
+        with self._lock:
+            for key, (last_time, cooldown_seconds) in self._last_triggered.items():
+                remaining_seconds = self._compute_remaining_seconds(
+                    last_time, cooldown_seconds, now
+                )
+                if remaining_seconds is None:
+                    continue
+
+                category, indicator, symbol, timeframe = self._parse_cooldown_key(key)
+                result.append({
+                    "key": key,
+                    "category": category,
+                    "indicator": indicator,
+                    "symbol": symbol,
+                    "timeframe": timeframe,
+                    "last_triggered": last_time,
+                    "cooldown_seconds": cooldown_seconds,
+                    "remaining_seconds": remaining_seconds,
+                })
+
+        return result

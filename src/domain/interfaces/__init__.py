@@ -12,6 +12,7 @@ from .position_provider import PositionProvider
 from .account_provider import AccountProvider
 from .historical_source import HistoricalSourcePort, DateRange
 from .signal_persistence import SignalPersistencePort
+from .signal_introspection import SignalIntrospectionPort
 
 __all__ = [
     # Legacy interfaces (kept for compatibility)
@@ -32,4 +33,6 @@ __all__ = [
     "DateRange",
     # Signal persistence
     "SignalPersistencePort",
+    # Signal introspection (real-time read-only)
+    "SignalIntrospectionPort",
 ]

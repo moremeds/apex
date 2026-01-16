@@ -8,19 +8,219 @@ This service coordinates between:
 """
 
 from __future__ import annotations
+import asyncio
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
 from dataclasses import dataclass
+from zoneinfo import ZoneInfo
 
 from ..utils.logging_setup import get_logger
+
+# US market hours in Eastern Time
+US_EASTERN = ZoneInfo("America/New_York")
+UTC = ZoneInfo("UTC")
+MARKET_OPEN_HOUR = 9   # 9:30 AM ET
+MARKET_CLOSE_HOUR = 16  # 4:00 PM ET
+
+
+def _to_comparable_naive(dt: datetime) -> datetime:
+    """
+    Convert datetime to naive UTC with truncated microseconds for comparison.
+
+    This ensures consistent cache hit detection by:
+    1. Converting to UTC if timezone-aware
+    2. Stripping timezone info
+    3. Truncating microseconds to avoid spurious gap detection
+    """
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(UTC)
+    return dt.replace(tzinfo=None, microsecond=0)
+
+# Intraday timeframes that only have data during market hours
+INTRADAY_TIMEFRAMES = {"1m", "5m", "15m", "30m", "1h", "4h"}
+
+# Expected bars per regular trading day (9:30-16:00 ET = 6.5 hours)
+EXPECTED_BARS_PER_DAY = {
+    "1m": 390,   # 6.5 hours * 60 minutes
+    "5m": 78,    # 6.5 hours * 12 (5-min bars per hour)
+    "15m": 26,   # 6.5 hours / 0.25 hours
+    "30m": 13,   # 6.5 hours / 0.5 hours
+    "1h": 7,     # 7 bars: 9:30, 10:30, 11:30, 12:30, 13:30, 14:30, 15:30
+    "4h": 2,     # 2 bars: 9:30, 13:30
+}
+
+# Timeframes where Yahoo provides correctly market-aligned bars
+# IB returns clock-aligned bars (10:00, 11:00...) with partial first bar
+# Yahoo returns market-aligned bars (09:30, 10:30, 11:30...)
+YAHOO_PREFERRED_TIMEFRAMES = {"1m", "5m", "15m", "30m", "1h"}
+from collections import defaultdict
+import pandas as pd
+
 from ..domain.interfaces.historical_source import DateRange
 from ..domain.events.domain_events import BarData
+
+
+def resample_bars_to_4h(bars_1h: List[BarData], symbol: str) -> List[BarData]:
+    """
+    Resample 1h bars to 4h bars aligned to market open (09:30).
+
+    4h bars for US market:
+    - Bar 1: 09:30-13:30 (aggregates 09:30, 10:30, 11:30, 12:30)
+    - Bar 2: 13:30-16:00 (aggregates 13:30, 14:30, 15:30, partial)
+
+    Args:
+        bars_1h: List of 1h BarData
+        symbol: Symbol name for output bars
+
+    Returns:
+        List of resampled 4h BarData
+    """
+    if not bars_1h:
+        return []
+
+    # Convert to DataFrame for easier aggregation
+    data = []
+    for bar in bars_1h:
+        if bar.bar_start:
+            data.append({
+                "timestamp": bar.bar_start,
+                "open": bar.open,
+                "high": bar.high,
+                "low": bar.low,
+                "close": bar.close,
+                "volume": bar.volume or 0,
+            })
+
+    if not data:
+        return []
+
+    df = pd.DataFrame(data)
+    df = df.set_index("timestamp").sort_index()
+
+    # Convert to ET for proper market hour grouping
+    if df.index.tzinfo is not None:
+        df.index = df.index.tz_convert(US_EASTERN)
+    else:
+        df.index = df.index.tz_localize(UTC).tz_convert(US_EASTERN)
+
+    # Create 4h groups based on market hours
+    # Group 1: 09:30-13:30 (hours 9, 10, 11, 12)
+    # Group 2: 13:30-16:00 (hours 13, 14, 15)
+    def get_4h_group(ts):
+        hour = ts.hour
+        minute = ts.minute
+        date = ts.date()
+        if hour < 13 or (hour == 13 and minute < 30):
+            return pd.Timestamp(date.year, date.month, date.day, 9, 30, tz=US_EASTERN)
+        else:
+            return pd.Timestamp(date.year, date.month, date.day, 13, 30, tz=US_EASTERN)
+
+    df["group"] = df.index.map(get_4h_group)
+
+    # Aggregate OHLCV
+    resampled = df.groupby("group").agg({
+        "open": "first",
+        "high": "max",
+        "low": "min",
+        "close": "last",
+        "volume": "sum",
+    })
+
+    # Convert back to BarData
+    result = []
+    for ts, row in resampled.iterrows():
+        # Convert back to UTC for storage
+        ts_utc = ts.astimezone(UTC)
+        bar = BarData(
+            symbol=symbol,
+            timeframe="4h",
+            open=row["open"],
+            high=row["high"],
+            low=row["low"],
+            close=row["close"],
+            volume=int(row["volume"]),
+            bar_start=ts_utc,
+            timestamp=ts_utc,
+            source="resampled",
+        )
+        result.append(bar)
+
+    return sorted(result, key=lambda b: b.bar_start)
 from ..infrastructure.stores.duckdb_coverage_store import DuckDBCoverageStore
 from ..infrastructure.stores.parquet_historical_store import ParquetHistoricalStore
 from ..infrastructure.adapters.yahoo.historical_adapter import YahooHistoricalAdapter
 
 logger = get_logger(__name__)
+
+
+def validate_intraday_bars(
+    bars: List[BarData], timeframe: str, symbol: str
+) -> List[str]:
+    """
+    Validate bar counts per trading day. Returns list of warnings.
+
+    For each day, logs: date, bar count, first bar time, last bar time.
+    Warns if count differs from expected or first bar isn't at 9:30 ET.
+    """
+    expected = EXPECTED_BARS_PER_DAY.get(timeframe)
+    if not expected or not bars:
+        return []
+
+    warnings = []
+    bars_by_date: Dict[Any, List[BarData]] = defaultdict(list)
+
+    # Group bars by trading date in Eastern Time
+    for bar in bars:
+        if bar.bar_start:
+            # Convert to ET for grouping by trading day
+            if bar.bar_start.tzinfo:
+                et_time = bar.bar_start.astimezone(US_EASTERN)
+            else:
+                # Assume naive timestamps are UTC
+                et_time = bar.bar_start.replace(tzinfo=UTC).astimezone(US_EASTERN)
+            bars_by_date[et_time.date()].append(bar)
+
+    for date, day_bars in sorted(bars_by_date.items()):
+        actual = len(day_bars)
+
+        # Sort bars by time to get first/last
+        sorted_bars = sorted(day_bars, key=lambda b: b.bar_start)
+        first_bar = sorted_bars[0].bar_start
+        last_bar = sorted_bars[-1].bar_start
+
+        # Convert to ET for display
+        if first_bar.tzinfo:
+            first_et = first_bar.astimezone(US_EASTERN)
+            last_et = last_bar.astimezone(US_EASTERN)
+        else:
+            first_et = first_bar.replace(tzinfo=UTC).astimezone(US_EASTERN)
+            last_et = last_bar.replace(tzinfo=UTC).astimezone(US_EASTERN)
+
+        # Log info for each day
+        logger.debug(
+            f"{symbol}/{timeframe} {date}: {actual} bars, "
+            f"first={first_et.strftime('%H:%M')}, last={last_et.strftime('%H:%M')}"
+        )
+
+        # Warn if bar count differs (allow fewer for short days)
+        if actual > expected:
+            warnings.append(
+                f"{date}: {actual} bars (expected max {expected}), "
+                f"first={first_et.strftime('%H:%M')}, last={last_et.strftime('%H:%M')}"
+            )
+
+        # Warn if first bar isn't at 9:30 ET (or close to it for aggregated bars)
+        expected_first_hour = 9
+        expected_first_minute = 30
+        if first_et.hour != expected_first_hour or first_et.minute != expected_first_minute:
+            # Allow 4h bars to start at 9:30 (first bar covers 9:30-13:30)
+            if not (timeframe == "4h" and first_et.hour == 9 and first_et.minute == 30):
+                warnings.append(
+                    f"{date}: first bar at {first_et.strftime('%H:%M')}, expected 09:30"
+                )
+
+    return warnings
 
 
 @dataclass
@@ -126,13 +326,24 @@ class HistoricalDataManager:
         """
         priority = source_priority or self._source_priority
 
-        # Normalize datetimes to naive for coverage store (stores naive UTC)
-        # Coverage store internally uses naive datetimes for comparison
-        start_naive = start.replace(tzinfo=None) if start.tzinfo else start
-        end_naive = end.replace(tzinfo=None) if end.tzinfo else end
+        # For intraday timeframes, prefer Yahoo which provides market-aligned bars
+        # IB returns clock-aligned bars (10:00, 11:00) with partial first bar at 09:30
+        # Yahoo returns proper market-aligned bars (09:30, 10:30, 11:30...)
+        if timeframe in YAHOO_PREFERRED_TIMEFRAMES and source_priority is None:
+            priority = ["yahoo", "ib"]
+
+        # Special handling for 4h: resample from 1h bars
+        # Neither IB nor Yahoo provide properly aligned 4h bars
+        if timeframe == "4h":
+            return await self._ensure_4h_from_1h(symbol, start, end)
+
+        # Normalize datetimes to naive UTC with truncated microseconds
+        # This ensures consistent cache hit detection across requests
+        start_cmp = _to_comparable_naive(start)
+        end_cmp = _to_comparable_naive(end)
 
         # Find missing ranges
-        missing = self._coverage_store.find_gaps(symbol, timeframe, start_naive, end_naive)
+        missing = self._coverage_store.find_gaps(symbol, timeframe, start_cmp, end_cmp)
 
         if missing:
             logger.info(
@@ -149,8 +360,8 @@ class HistoricalDataManager:
                     priority=priority,
                 )
 
-        # Return data from storage (use naive datetimes for Parquet filtering)
-        return self.get_bars(symbol, timeframe, start_naive, end_naive)
+        # Return data from storage (use comparable timestamps for Parquet filtering)
+        return self.get_bars(symbol, timeframe, start_cmp, end_cmp)
 
     async def _download_range(
         self,
@@ -182,19 +393,40 @@ class HistoricalDataManager:
 
                 bars = await source.fetch_bars(symbol, timeframe, start, end)
 
-                if bars:
-                    # Write to storage
-                    self._bar_store.write_bars(symbol, timeframe, bars, mode="upsert")
+                # Rate limiting for IB to avoid pacing violations
+                if source_name == "ib":
+                    await asyncio.sleep(0.5)  # 500ms delay between IB requests
 
-                    # Update coverage using ACTUAL data range, not requested range
-                    # This ensures coverage reflects IPO/inception dates correctly
-                    # Single pass: bars are typically sorted from source, use first/last
+                if bars:
+                    # Validate bars have timestamps before processing
                     bar_starts = [b.bar_start for b in bars if b.bar_start]
-                    actual_start = bar_starts[0]
-                    actual_end = bar_starts[-1]
-                    # Handle unsorted case (should be rare)
-                    if actual_start > actual_end:
-                        actual_start, actual_end = actual_end, actual_start
+                    if not bar_starts:
+                        logger.error(
+                            f"Downloaded bars have no valid timestamps for "
+                            f"{symbol}/{timeframe} from {source_name}"
+                        )
+                        continue  # Try next source
+
+                    # Write to storage with error handling
+                    try:
+                        self._bar_store.write_bars(symbol, timeframe, bars, mode="upsert")
+                    except Exception as e:
+                        logger.error(
+                            f"Failed to write bars to Parquet for {symbol}/{timeframe}: {e}"
+                        )
+                        raise  # Don't update coverage if write failed
+
+                    # Get actual bar count from parquet after upsert (deduplication)
+                    # This is more accurate than len(bars) when merging overlapping ranges
+                    actual_bar_count = self._bar_store.get_bar_count(symbol, timeframe)
+
+                    # Update coverage using ACTUAL data range from parquet
+                    date_range = self._bar_store.get_date_range(symbol, timeframe)
+                    if date_range:
+                        actual_start, actual_end = date_range
+                    else:
+                        actual_start = min(bar_starts)
+                        actual_end = max(bar_starts)
 
                     self._coverage_store.update_coverage(
                         symbol=symbol,
@@ -202,7 +434,7 @@ class HistoricalDataManager:
                         source=source_name,
                         start=actual_start,
                         end=actual_end,
-                        bar_count=len(bars),
+                        bar_count=actual_bar_count,
                     )
 
                     return DownloadResult(
@@ -215,13 +447,39 @@ class HistoricalDataManager:
                         success=True,
                     )
                 else:
-                    logger.warning(f"No data returned from {source_name} for {symbol}")
+                    # Provide more context for intraday timeframes
+                    if timeframe in INTRADAY_TIMEFRAMES:
+                        logger.info(
+                            f"No {timeframe} bars returned from {source_name} for {symbol} "
+                            f"({start} to {end}) - likely outside market hours"
+                        )
+                    else:
+                        logger.warning(f"No data returned from {source_name} for {symbol}")
 
             except Exception as e:
                 logger.error(f"Failed to download from {source_name}: {e}")
                 continue
 
-        # All sources failed - only record gap if we have existing coverage
+        # All sources failed - check if this is expected for intraday outside market hours
+        if timeframe in INTRADAY_TIMEFRAMES:
+            # For intraday, don't record gaps or log errors for out-of-hours requests
+            # These gaps will naturally be filled when market data becomes available
+            logger.debug(
+                f"No {timeframe} data for {symbol} from {start} to {end} - "
+                f"this is normal outside market hours"
+            )
+            return DownloadResult(
+                symbol=symbol,
+                timeframe=timeframe,
+                source="none",
+                bars_downloaded=0,
+                start=start,
+                end=end,
+                success=True,  # Not a failure - just no data during off-hours
+                error=None,
+            )
+
+        # For daily/weekly timeframes, record gap if we have existing coverage
         # (otherwise, data likely doesn't exist for this range, e.g., pre-IPO)
         existing_coverage = self._coverage_store.get_coverage(symbol, timeframe)
         if existing_coverage:
@@ -253,12 +511,68 @@ class HistoricalDataManager:
             error="All sources failed",
         )
 
+    async def _ensure_4h_from_1h(
+        self,
+        symbol: str,
+        start: datetime,
+        end: datetime,
+    ) -> List[BarData]:
+        """
+        Ensure 4h data by resampling from 1h bars.
+
+        Neither IB nor Yahoo provide properly market-aligned 4h bars.
+        This method fetches 1h bars (which Yahoo aligns correctly) and
+        resamples them to 4h bars aligned to market open (09:30, 13:30).
+
+        Args:
+            symbol: Ticker symbol.
+            start: Start datetime.
+            end: End datetime.
+
+        Returns:
+            List of 4h BarData.
+        """
+        # First ensure we have 1h data
+        bars_1h = await self.ensure_data(symbol, "1h", start, end)
+
+        if not bars_1h:
+            logger.warning(f"No 1h bars available for 4h resampling: {symbol}")
+            return []
+
+        # Resample to 4h
+        bars_4h = resample_bars_to_4h(bars_1h, symbol)
+
+        if bars_4h:
+            # Store resampled bars
+            self._bar_store.write_bars(symbol, "4h", bars_4h, mode="upsert")
+
+            # Update coverage
+            bar_starts = [b.bar_start for b in bars_4h if b.bar_start]
+            if bar_starts:
+                actual_start = min(bar_starts)
+                actual_end = max(bar_starts)
+                self._coverage_store.update_coverage(
+                    symbol=symbol,
+                    timeframe="4h",
+                    source="resampled",
+                    start=actual_start,
+                    end=actual_end,
+                    bar_count=len(bars_4h),
+                )
+
+            logger.info(
+                f"Resampled {len(bars_1h)} 1h bars to {len(bars_4h)} 4h bars for {symbol}"
+            )
+
+        return bars_4h
+
     def get_bars(
         self,
         symbol: str,
         timeframe: str,
         start: Optional[datetime] = None,
         end: Optional[datetime] = None,
+        validate: bool = True,
     ) -> List[BarData]:
         """
         Query bars from storage (no download).
@@ -268,11 +582,23 @@ class HistoricalDataManager:
             timeframe: Bar timeframe.
             start: Optional start filter.
             end: Optional end filter.
+            validate: Whether to validate intraday bar counts (default: True).
 
         Returns:
             List of BarData sorted by timestamp.
         """
-        return self._bar_store.read_bars(symbol, timeframe, start, end)
+        bars = self._bar_store.read_bars(symbol, timeframe, start, end)
+
+        # Validate intraday bar counts
+        if validate and timeframe in INTRADAY_TIMEFRAMES and bars:
+            warnings = validate_intraday_bars(bars, timeframe, symbol)
+            if warnings:
+                logger.warning(
+                    f"Bar validation warnings for {symbol}/{timeframe}:",
+                    extra={"warnings": warnings[:5]},  # Limit to first 5
+                )
+
+        return bars
 
     def get_coverage(
         self,

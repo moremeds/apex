@@ -170,6 +170,10 @@ class DuckDBCoverageStore:
             bar_count: Number of bars in this range.
             quality: Data quality ('complete', 'partial', 'gaps').
         """
+        # Truncate microseconds for consistent comparison across requests
+        start = start.replace(microsecond=0) if hasattr(start, 'replace') else start
+        end = end.replace(microsecond=0) if hasattr(end, 'replace') else end
+
         new_range = DateRange(start=start, end=end)
 
         # Get existing ranges for this symbol/timeframe/source
@@ -199,8 +203,13 @@ class DuckDBCoverageStore:
 
             # Check if overlapping or adjacent (within 1 day for daily bars)
             if self._should_merge(merged_range, existing_range, timeframe):
+                # Only add existing bar_count if ranges are strictly adjacent (no overlap)
+                # Overlapping ranges mean upsert will de-duplicate in Parquet,
+                # so we shouldn't sum bar_counts (would inflate the count)
+                if not new_range.overlaps(existing_range):
+                    merged_bar_count += existing_count
+                # If overlapping, the new bar_count already reflects the fresh download
                 merged_range = merged_range.merge(existing_range)
-                merged_bar_count += existing_count
                 ranges_to_delete.append(existing_range.start)
 
         # Delete old ranges that were merged

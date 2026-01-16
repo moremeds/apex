@@ -3,12 +3,12 @@ Apex Dashboard - Pure Textual Implementation.
 
 Real-time terminal UI for risk monitoring with tabbed views:
 - Tab 1: Account Summary (consolidated positions, summary, alerts, health)
-- Tab 2: Risk Signals (full screen risk signals)
+- Tab 2: Signals (unified: risk signals + trading signals with panel switcher)
 - Tab 3: IB Positions (detailed IB positions with ATR levels)
 - Tab 4: Futu Positions (detailed Futu positions with ATR levels)
 - Tab 5: Lab (backtest strategies with parameters and performance results)
-- Tab 6: Trading Signals (universe watchlist + signal feed + confluence)
-- Tab 7: Data (historical coverage + indicator DB status)
+- Tab 6: Data (historical coverage + indicator DB status)
+- Tab 7: Signal Introspection (indicator states, rule evaluations, cooldowns)
 
 Signal Persistence Integration:
 - Loads historical signals from database on startup (non-blocking)
@@ -29,8 +29,8 @@ from .views.summary import SummaryView
 from .views.signals import SignalsView
 from .views.positions import PositionsView
 from .views.lab import LabView
-from .views.trading_signals import TradingSignalsView
 from .views.data import DataView, DataRefreshRequested, IndicatorDetailsRequested
+from .views.signal_introspection import SignalIntrospectionView
 from .widgets.header import HeaderWidget
 from .event_bus import TUIEventBus
 
@@ -61,8 +61,8 @@ class ApexApp(App):
         Binding("3", "switch_tab('ib')", "IB", show=True),
         Binding("4", "switch_tab('futu')", "Futu", show=True),
         Binding("5", "switch_tab('lab')", "Lab", show=True),
-        Binding("6", "switch_tab('trading')", "Trading", show=True),
-        Binding("7", "switch_tab('data')", "Data", show=True),
+        Binding("6", "switch_tab('data')", "Data", show=True),
+        Binding("7", "switch_tab('introspection')", "Intro", show=True),
         Binding("q", "quit", "Quit", show=True),
     ]
 
@@ -196,10 +196,10 @@ class ApexApp(App):
                 yield PositionsView(broker="futu", id="futu-view")
             with TabPane("Lab", id="lab"):
                 yield LabView(id="lab-view")
-            with TabPane("Trading", id="trading"):
-                yield TradingSignalsView(id="trading-signals-view")
             with TabPane("Data", id="data"):
                 yield DataView(id="data-view")
+            with TabPane("Intro", id="introspection"):
+                yield SignalIntrospectionView(id="introspection-view")
         yield Footer()
 
     def action_switch_tab(self, tab_id: str) -> None:
@@ -225,7 +225,7 @@ class ApexApp(App):
     def on_tabs_tab_activated(self, event: Tabs.TabActivated) -> None:
         """Handle header tab clicks."""
         tab_id = event.tab.id or ""
-        if tab_id in {"summary", "signals", "ib", "futu", "lab", "trading", "data"}:
+        if tab_id in {"summary", "signals", "ib", "futu", "lab", "data", "introspection"}:
             tabs = self.query_one("#main-tabs", TabbedContent)
             if tabs.active != tab_id:
                 tabs.active = tab_id
@@ -264,6 +264,22 @@ class ApexApp(App):
         # Subscribe to trading signal events if event bus provided
         if event_bus is not None:
             self._subscribe_trading_signals(event_bus)
+        else:
+            self.log.warning("No event_bus provided - trading signals will not stream in real-time")
+
+    def set_signal_introspection(self, introspection) -> None:
+        """
+        Set the signal introspection adapter for Tab 7 Intro view.
+
+        Args:
+            introspection: SignalIntrospectionPort implementation (adapter).
+        """
+        try:
+            intro_view = self.query_one("#introspection-view", SignalIntrospectionView)
+            intro_view.set_introspection(introspection)
+            self.log.info("Signal introspection adapter wired to TUI")
+        except Exception as e:
+            self.log.error(f"Failed to wire signal introspection: {e}")
 
     def _subscribe_trading_signals(self, event_bus) -> None:
         """Subscribe to trading signals and position delta events."""
@@ -286,10 +302,10 @@ class ApexApp(App):
         self._tui_events.push_signal(payload)
 
     def _dispatch_trading_signal(self, signal) -> None:
-        """Dispatch a trading signal to the Trading view (runs in TUI thread)."""
+        """Dispatch a trading signal to the unified Signals view (runs in TUI thread)."""
         try:
-            trading_view = self.query_one("#trading-signals-view", TradingSignalsView)
-            trading_view.add_signal(signal)
+            signals_view = self.query_one("#signals-view", SignalsView)
+            signals_view.add_trading_signal(signal)
         except Exception as e:
             self.log.error(f"Failed to dispatch trading signal: {e}")
 
@@ -334,18 +350,18 @@ class ApexApp(App):
             self.call_from_thread(self._flush_deltas)
 
     def _dispatch_confluence(self, score) -> None:
-        """Dispatch confluence score to Trading view (runs in TUI thread)."""
+        """Dispatch confluence score to unified Signals view (runs in TUI thread)."""
         try:
-            trading_view = self.query_one("#trading-signals-view", TradingSignalsView)
-            trading_view.update_confluence_score(score)
+            signals_view = self.query_one("#signals-view", SignalsView)
+            signals_view.update_confluence_score(score)
         except Exception as e:
             self.log.error(f"Failed to dispatch confluence score: {e}")
 
     def _dispatch_alignment(self, alignment) -> None:
-        """Dispatch MTF alignment to Trading view (runs in TUI thread)."""
+        """Dispatch MTF alignment to unified Signals view (runs in TUI thread)."""
         try:
-            trading_view = self.query_one("#trading-signals-view", TradingSignalsView)
-            trading_view.update_alignment(alignment)
+            signals_view = self.query_one("#signals-view", SignalsView)
+            signals_view.update_alignment(alignment)
         except Exception as e:
             self.log.error(f"Failed to dispatch MTF alignment: {e}")
 
@@ -418,14 +434,14 @@ class ApexApp(App):
             self._apply_trading_universe(symbols)
 
     def _apply_trading_universe(self, symbols: List[str]) -> None:
-        """Apply trading universe to the view (called after mount)."""
+        """Apply trading universe to the unified Signals view (called after mount)."""
         # Map symbols to all standard timeframes
         timeframes = ["1m", "5m", "15m", "1h", "4h", "1d"]
         symbols_by_tf = {tf: list(symbols) for tf in timeframes}
 
         try:
-            trading_view = self.query_one("#trading-signals-view", TradingSignalsView)
-            trading_view.set_universe(symbols_by_tf)
+            signals_view = self.query_one("#signals-view", SignalsView)
+            signals_view.set_universe(symbols_by_tf)
             self.log.info(f"Trading universe applied: {len(symbols)} symbols")
         except Exception as e:
             self.log.error(f"Failed to apply trading universe: {e}")
@@ -477,6 +493,7 @@ class ApexApp(App):
                 )
             elif active_tab == "signals":
                 signals_view = self.query_one("#signals-view", SignalsView)
+                # Update risk signals (unified view handles both risk + trading)
                 signals_view.update_data(self.risk_signals, self.snapshot)
             elif active_tab == "ib":
                 ib_view = self.query_one("#ib-view", PositionsView)
@@ -484,10 +501,10 @@ class ApexApp(App):
             elif active_tab == "futu":
                 futu_view = self.query_one("#futu-view", PositionsView)
                 futu_view.update_data(self.snapshot)
-            elif active_tab == "trading":
-                trading_view = self.query_one("#trading-signals-view", TradingSignalsView)
-                trading_view.refresh_view()
-            # Lab view updates on-demand, not on polling cycle
+            elif active_tab == "introspection":
+                intro_view = self.query_one("#introspection-view", SignalIntrospectionView)
+                intro_view.refresh_view()
+            # Lab and Data views update on-demand, not on polling cycle
         except Exception as e:
             self.log.error(f"Failed to update {active_tab} view: {e}")
 
@@ -657,7 +674,7 @@ class ApexApp(App):
         Uses Textual's run_worker with thread=False to run in the main event loop,
         which is required for asyncpg database connections.
 
-        Loads the last 100 signals and applies them to the Trading view.
+        Loads the last 100 signals and applies them to the unified Signals view.
         """
         if not self._signal_persistence:
             return
@@ -668,9 +685,9 @@ class ApexApp(App):
                 signals = await self._signal_persistence.get_recent_signals(limit=100)
                 if signals:
                     # Apply directly - we're in the same event loop with thread=False
-                    trading_view = self.query_one("#trading-signals-view", TradingSignalsView)
+                    signals_view = self.query_one("#signals-view", SignalsView)
                     for signal in reversed(signals):
-                        trading_view.add_signal(signal)
+                        signals_view.add_signal(signal)
                     self.log.info(f"Loaded {len(signals)} historical signals from database")
                 else:
                     self.log.info("No historical signals found in database")
@@ -705,34 +722,20 @@ class ApexApp(App):
         """
         Handle signal notification from PostgreSQL NOTIFY.
 
-        Converts database payload to signal format and queues for TUI processing.
+        Routes database payloads through the same TUIEventBus as EventBus signals.
 
         Args:
             payload: JSON payload from PostgreSQL NOTIFY trigger.
         """
-        try:
-            # Queue the payload for processing (same path as EventBus signals)
-            self._signal_queue.put_nowait(payload)
-        except queue.Full:
-            # Drop oldest if queue full
-            try:
-                self._signal_queue.get_nowait()
-                self._signal_queue.put_nowait(payload)
-            except Exception:
-                pass
+        self._tui_events.push_signal(payload)
 
     def _on_db_confluence_notify(self, payload: Dict[str, Any]) -> None:
         """
         Handle confluence notification from PostgreSQL NOTIFY.
 
+        Routes database payloads through the same TUIEventBus as EventBus confluence.
+
         Args:
             payload: JSON payload from PostgreSQL NOTIFY trigger.
         """
-        try:
-            self._confluence_queue.put_nowait(payload)
-        except queue.Full:
-            try:
-                self._confluence_queue.get_nowait()
-                self._confluence_queue.put_nowait(payload)
-            except Exception:
-                pass
+        self._tui_events.push_confluence(payload)

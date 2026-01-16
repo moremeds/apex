@@ -47,13 +47,16 @@ class WatchlistPanel(Widget):
             self.timeframe = timeframe
             super().__init__()
 
-    # Standard timeframes in display order
+    # Standard timeframes in display order (short to long)
     TIMEFRAMES: List[str] = ["1m", "5m", "15m", "1h", "4h", "1d"]
+
+    # Preferred timeframes for default selection (1d first for trading signals)
+    PREFERRED_TIMEFRAMES: List[str] = ["1d", "4h", "1h", "15m", "5m", "1m"]
 
     # Reactive state
     symbols: reactive[List[str]] = reactive(list, init=False)
     selected_symbol: reactive[Optional[str]] = reactive(None, init=False)
-    selected_timeframe: reactive[str] = reactive("1h", init=False)
+    selected_timeframe: reactive[str] = reactive("1d", init=False)
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
@@ -242,8 +245,8 @@ class WatchlistPanel(Widget):
             pass  # Widget not mounted yet
 
     def _first_available_timeframe(self) -> str:
-        """Get the first timeframe that has symbols, or default to 1h."""
-        for tf in self.TIMEFRAMES:
+        """Get first available timeframe, preferring longer ones (1d first)."""
+        for tf in self.PREFERRED_TIMEFRAMES:
             if tf in self._symbols_by_timeframe and self._symbols_by_timeframe[tf]:
                 return tf
-        return "1h"  # Sensible default
+        return "1d"  # Default to daily

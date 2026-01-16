@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 from ...utils.logging_setup import get_logger
 from ...utils.timezone import now_utc
 from ...domain.events.event_types import EventType
+from ...domain.signals.signal_state_tracker import SignalStateTracker
 
 if TYPE_CHECKING:
     from ...domain.interfaces.event_bus import EventBus
@@ -96,6 +97,9 @@ class TASignalService:
         # Confluence analyzers
         self._cross_analyzer = None
         self._mtf_analyzer = None
+
+        # Signal state tracking for invalidation
+        self._state_tracker = SignalStateTracker()
 
         # State tracking
         self._running = False
@@ -360,7 +364,7 @@ class TASignalService:
 
     def _on_trading_signal(self, payload: Any) -> None:
         """
-        Handle TRADING_SIGNAL - persist if enabled.
+        Handle TRADING_SIGNAL - track state and persist if enabled.
 
         This is called AFTER RuleEngine emits the signal.
         We persist here to keep RuleEngine decoupled from persistence.
@@ -372,6 +376,24 @@ class TASignalService:
             return
 
         self._signals_emitted += 1
+
+        # Track signal state and detect invalidation
+        # Extract underlying signal from event wrapper if needed
+        signal = getattr(payload, "signal", payload)
+        invalidated = self._state_tracker.process_signal(signal)
+
+        if invalidated:
+            # Publish invalidation event for subscribers (e.g., TUI, persistence)
+            self._event_bus.publish(
+                EventType.SIGNAL_INVALIDATED,
+                {
+                    "invalidated_signal": invalidated,
+                    "replaced_by": signal.signal_id,
+                },
+            )
+            logger.debug(
+                f"Signal invalidated: {invalidated.signal_id} -> {signal.signal_id}"
+            )
 
         # Persist signal if persistence enabled
         if self._persistence:
