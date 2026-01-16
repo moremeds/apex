@@ -25,20 +25,22 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
-import math
-import random
 import signal
 import sys
+import math
+import random
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
+
+import pandas as pd
 
 from ..domain.events.domain_events import MarketDataTickEvent
 from ..domain.events.event_types import EventType
 from ..domain.events.priority_event_bus import PriorityEventBus
 from ..application.services.ta_signal_service import TASignalService
 from ..utils.logging_setup import get_logger
-from ..utils.timezone import now_utc
+from ..utils.timezone import now_utc, DisplayTimezone
 
 logger = get_logger(__name__)
 
@@ -69,6 +71,7 @@ class SignalRunnerConfig:
     # Output
     verbose: bool = False
     stats_interval: int = 10
+    html_output: Optional[str] = None  # Path for HTML report generation
 
 
 class SignalRunner:
@@ -94,6 +97,7 @@ class SignalRunner:
         self._persistence = None
         self._running = False
         self._signal_count = 0
+        self._display_tz: Optional[DisplayTimezone] = None
 
     async def run(self) -> int:
         """
@@ -126,6 +130,15 @@ class SignalRunner:
 
     async def _initialize(self) -> None:
         """Initialize pipeline components."""
+        # Initialize display timezone from config (same pattern as header.py)
+        try:
+            from config.config_manager import ConfigManager
+            config = ConfigManager().load()
+            display_tz = config.display.get("timezone", "Asia/Hong_Kong")
+        except Exception:
+            display_tz = "Asia/Hong_Kong"
+        self._display_tz = DisplayTimezone(display_tz)
+
         # Create event bus
         self._event_bus = PriorityEventBus()
         await self._event_bus.start()
@@ -164,6 +177,7 @@ class SignalRunner:
 
     async def _shutdown(self) -> None:
         """Shutdown pipeline components."""
+
         if self._service:
             await self._service.stop()
 
@@ -181,9 +195,15 @@ class SignalRunner:
         symbol = getattr(payload, "symbol", "unknown")
         indicator = getattr(payload, "indicator", "unknown")
         strength = getattr(payload, "strength", 0)
+        timestamp = getattr(payload, "timestamp", None)
 
         if self.config.verbose:
-            print(f"  SIGNAL: {signal_type.upper()} {symbol} [{indicator}] strength={strength}")
+            # Format timestamp with timezone (same pattern as header.py)
+            if timestamp and self._display_tz:
+                ts_str = self._display_tz.format_with_tz(timestamp, "%H:%M:%S %Z")
+            else:
+                ts_str = now_utc().strftime("%H:%M:%S")
+            print(f"  SIGNAL [{ts_str}]: {signal_type.upper()} {symbol} [{indicator}] strength={strength}")
 
     # -------------------------------------------------------------------------
     # Validation Mode
@@ -317,129 +337,96 @@ class SignalRunner:
 
     async def _run_live(self) -> int:
         """
-        Run pipeline on live market data.
+        Run pipeline on historical bars from IB/Yahoo.
 
-        Connects to broker adapters for real-time data without TUI.
+        Uses HistoricalDataManager to fetch past session bars,
+        injects them into IndicatorEngine, and computes signals.
 
         Returns:
             Exit code (0 for success).
         """
+        from pathlib import Path
+        from ..services.historical_data_manager import HistoricalDataManager
+        from ..application.orchestrator.signal_pipeline import BarPreloader
+
         print("=" * 60)
-        print("LIVE SIGNAL PIPELINE (Headless)")
+        print("SIGNAL PIPELINE (Historical Bars)")
         print("=" * 60)
         print(f"Symbols:     {', '.join(self.config.symbols)}")
         print(f"Timeframes:  {', '.join(self.config.timeframes)}")
         print(f"Persistence: {'enabled' if self.config.with_persistence else 'disabled'}")
         print("=" * 60)
-        print("\nStarting live signal generation. Press Ctrl+C to stop.\n")
 
         self._running = True
         self._setup_signal_handlers()
 
-        # Connect to live market data
-        market_adapter = await self._create_market_adapter()
+        # Create historical data manager
+        historical_manager = HistoricalDataManager(
+            base_dir=Path("data/historical"),
+            source_priority=["ib", "yahoo"],
+        )
 
-        if market_adapter is None:
-            print("Running in demo mode (no broker connection)")
-            print("Generating synthetic ticks for demonstration...")
-            return await self._run_live_demo()
-
-        # Subscribe to market data
-        for symbol in self.config.symbols:
-            await market_adapter.subscribe(symbol)
-
-        # Main loop - print stats periodically
-        last_stats_time = 0
-        while self._running:
-            try:
-                now = int(now_utc().timestamp())
-                if now - last_stats_time >= self.config.stats_interval:
-                    last_stats_time = now
-                    stats = self._service.stats
-                    print(
-                        f"[{now_utc().strftime('%H:%M:%S')}] "
-                        f"bars={stats['bars_processed']} "
-                        f"indicators={stats['indicators_computed']} "
-                        f"signals={stats['signals_emitted']}"
-                    )
-
-                await asyncio.sleep(1.0)
-
-            except asyncio.CancelledError:
-                break
-
-        return 0
-
-    async def _run_live_demo(self) -> int:
-        """Run live mode with synthetic data for demonstration."""
-        tick_count = 0
-        last_stats_time = 0
-
-        for symbol in self.config.symbols:
-            base_price = 150.0 + random.uniform(-50, 50)
-            price = base_price
-
-            while self._running:
-                # Generate tick
-                drift = random.gauss(0, 0.0002)
-                price *= math.exp(drift + random.gauss(0, 0.01))
-
-                tick = MarketDataTickEvent(
-                    symbol=symbol,
-                    source="demo",
-                    timestamp=now_utc(),
-                    bid=price * 0.999,
-                    ask=price * 1.001,
-                    last=price,
-                )
-
-                self._event_bus.publish(EventType.MARKET_DATA_TICK, tick)
-                tick_count += 1
-
-                # Print stats periodically
-                now = int(now_utc().timestamp())
-                if now - last_stats_time >= self.config.stats_interval:
-                    last_stats_time = now
-                    stats = self._service.stats
-                    print(
-                        f"[{now_utc().strftime('%H:%M:%S')}] "
-                        f"ticks={tick_count} "
-                        f"bars={stats['bars_processed']} "
-                        f"indicators={stats['indicators_computed']} "
-                        f"signals={stats['signals_emitted']}"
-                    )
-
-                await asyncio.sleep(0.5)  # Slower for demo
-
-        return 0
-
-    async def _create_market_adapter(self):
-        """
-        Create market data adapter for live mode.
-
-        Returns:
-            Market adapter or None if unavailable.
-        """
-        # Try to connect to IB
+        # Try to set IB source for better data quality
         try:
-            from config.loader import load_config
-            from ..infrastructure.adapters.ib.live_adapter import IbLiveAdapter
+            from config.config_manager import ConfigManager
+            from ..infrastructure.adapters.ib.historical_adapter import IbHistoricalAdapter
 
-            config = load_config()
-            adapter = IbLiveAdapter(config.brokers.ib, self._event_bus)
+            config = ConfigManager().load()
+            ib_config = config.ibkr
 
-            # Try to connect (with timeout)
-            try:
-                await asyncio.wait_for(adapter.connect(), timeout=5.0)
-                logger.info("Connected to Interactive Brokers")
-                return adapter
-            except (asyncio.TimeoutError, Exception) as e:
-                logger.warning(f"Could not connect to IB: {e}")
-                return None
+            if ib_config.enabled:
+                ib_adapter = IbHistoricalAdapter(
+                    host=ib_config.host,
+                    port=ib_config.port,
+                    client_id=ib_config.client_ids.historical_pool[0] if ib_config.client_ids.historical_pool else 3,
+                )
+                await ib_adapter.connect()
+                historical_manager.set_ib_source(ib_adapter)
+                print(f"Connected to IB at {ib_config.host}:{ib_config.port} for historical data")
+        except Exception as e:
+            logger.warning(f"IB not available, using Yahoo only: {e}")
+            print("Using Yahoo Finance for historical data (IB unavailable)")
 
-        except ImportError:
-            logger.warning("IB adapter not available")
-            return None
+        # Create bar preloader with indicator engine from TASignalService
+        bar_preloader = BarPreloader(
+            historical_data_manager=historical_manager,
+            indicator_engine=self._service._indicator_engine,
+            timeframes=self.config.timeframes,
+            preload_config={
+                "lookback_days": 365,
+                "slow_preload_warn_sec": 30,
+            },
+        )
+
+        # Preload historical bars and compute indicators
+        print(f"\nLoading historical bars for {len(self.config.symbols)} symbols...")
+        results = await bar_preloader.preload_startup(self.config.symbols)
+
+        total_bars = sum(results.values())
+        print(f"\nLoaded {total_bars} bars across {len(results)} symbols")
+        for symbol, count in results.items():
+            print(f"  {symbol}: {count} bars")
+
+        # Allow event bus to dispatch INDICATOR_UPDATE -> RuleEngine -> TRADING_SIGNAL
+        print("\nProcessing signals...")
+        # Yield to event loop multiple times to ensure dispatch tasks run
+        for _ in range(20):
+            await asyncio.sleep(0.1)
+
+        # Show final stats
+        stats = self._service.stats
+        time_str = self._display_tz.format_with_tz(now_utc(), "%H:%M:%S %Z") if self._display_tz else now_utc().strftime("%H:%M:%S")
+        print(f"\n[{time_str}] Pipeline complete:")
+        print(f"  Bars processed:      {stats['bars_processed']}")
+        print(f"  Indicators computed: {stats['indicators_computed']}")
+        print(f"  Signals emitted:     {stats['signals_emitted']}")
+        print(f"  Signals received:    {self._signal_count}")
+
+        # Generate HTML report if requested
+        if self.config.html_output:
+            await self._generate_html_report(historical_manager, self.config.html_output)
+
+        return 0
 
     # -------------------------------------------------------------------------
     # Backfill Mode
@@ -635,6 +622,108 @@ class SignalRunner:
         signal.signal(signal.SIGINT, handle_signal)
         signal.signal(signal.SIGTERM, handle_signal)
 
+    # -------------------------------------------------------------------------
+    # HTML Report Generation
+    # -------------------------------------------------------------------------
+
+    async def _generate_html_report(
+        self,
+        historical_manager: Any,
+        output_path: str,
+    ) -> None:
+        """
+        Generate HTML report with charts for all symbols/timeframes.
+
+        Loads historical data into DataFrames, computes indicators,
+        and generates an interactive HTML report.
+
+        Args:
+            historical_manager: HistoricalDataManager instance with IB/Yahoo sources.
+            output_path: Path to save the HTML report.
+        """
+        from pathlib import Path
+        from typing import Tuple
+        from ..domain.signals.reporting import SignalReportGenerator
+        from ..domain.signals.rules import ALL_RULES
+
+        print(f"\nGenerating HTML report...")
+
+        # Load historical data into DataFrames
+        data: Dict[Tuple[str, str], pd.DataFrame] = {}
+        end = now_utc().replace(tzinfo=None)  # Naive for historical manager
+
+        for symbol in self.config.symbols:
+            for tf in self.config.timeframes:
+                start = end - timedelta(days=365)  # 1 year of history
+                try:
+                    bars = await historical_manager.ensure_data(symbol, tf, start, end)
+                    if bars:
+                        records = [
+                            {
+                                "timestamp": getattr(b, "bar_start", None) or b.timestamp,
+                                "open": b.open,
+                                "high": b.high,
+                                "low": b.low,
+                                "close": b.close,
+                                "volume": b.volume,
+                            }
+                            for b in bars
+                        ]
+                        df = pd.DataFrame(records)
+                        df.set_index("timestamp", inplace=True)
+                        df = df.tail(100)  # Last 100 bars for report
+                        data[(symbol, tf)] = df
+                except Exception as e:
+                    logger.warning(f"Failed to load {symbol}/{tf} for report: {e}")
+
+        if not data:
+            print("  No data available for HTML report")
+            return
+
+        # Compute indicators on DataFrames
+        indicators = list(self._service._indicator_engine._indicators) if self._service._indicator_engine else []
+        for key, df in data.items():
+            data[key] = self._compute_indicators_on_df(df, indicators)
+
+        # Generate report
+        output = Path(output_path)
+        output.parent.mkdir(parents=True, exist_ok=True)
+
+        generator = SignalReportGenerator(theme="dark")
+        report_path = generator.generate(
+            data=data,
+            indicators=indicators,
+            rules=ALL_RULES,
+            output_path=output,
+        )
+        print(f"  Report saved: {report_path}")
+
+    def _compute_indicators_on_df(
+        self,
+        df: pd.DataFrame,
+        indicators: List[Any],
+    ) -> pd.DataFrame:
+        """
+        Compute all indicators on a DataFrame and merge columns.
+
+        Each indicator's columns are prefixed with indicator name.
+        """
+        indicator_dfs = []
+
+        for indicator in indicators:
+            if len(df) < indicator.warmup_periods:
+                continue
+            try:
+                ind_df = indicator.calculate(df, indicator.default_params)
+                prefixed = ind_df.add_prefix(f"{indicator.name}_")
+                indicator_dfs.append(prefixed)
+            except Exception as e:
+                logger.debug(f"Failed to compute {indicator.name}: {e}")
+
+        if indicator_dfs:
+            return pd.concat([df] + indicator_dfs, axis=1)
+        return df.copy()
+
 
 def create_parser() -> argparse.ArgumentParser:
     """Create argument parser for signal runner."""
@@ -643,17 +732,17 @@ def create_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Validate pipeline with synthetic data
-  python -m src.runners.signal_runner --validate
+  # Run with HTML report (default output: results/signals/signal_report.html)
+  python -m src.runners.signal_runner --live --symbols AAPL TSLA QQQ
 
-  # Run live signal generation
-  python -m src.runners.signal_runner --live --symbols AAPL,TSLA
+  # Custom HTML output path
+  python -m src.runners.signal_runner --live --symbols AAPL --html-output my_report.html
+
+  # Skip HTML report
+  python -m src.runners.signal_runner --live --symbols AAPL --no-html
 
   # Backfill historical signals
   python -m src.runners.signal_runner --backfill --symbols AAPL --days 365
-
-  # Enable database persistence
-  python -m src.runners.signal_runner --live --symbols AAPL --with-persistence
         """,
     )
 
@@ -678,15 +767,15 @@ Examples:
     # Symbol/timeframe configuration
     parser.add_argument(
         "--symbols",
-        type=str,
-        default="AAPL",
-        help="Comma-separated list of symbols (default: AAPL)",
+        nargs="+",
+        default=["AAPL"],
+        help="Space-separated symbols (default: AAPL)",
     )
     parser.add_argument(
         "--timeframes",
-        type=str,
-        default="1d",
-        help="Comma-separated list of timeframes (default: 1d)",
+        nargs="+",
+        default=["1d"],
+        help="Space-separated timeframes (default: 1d)",
     )
 
     # Validation options
@@ -710,6 +799,20 @@ Examples:
         "--with-persistence",
         action="store_true",
         help="Enable database persistence for signals",
+    )
+
+    # HTML report generation (default: enabled)
+    parser.add_argument(
+        "--no-html",
+        action="store_true",
+        help="Skip HTML report generation",
+    )
+    parser.add_argument(
+        "--html-output",
+        type=str,
+        default="results/signals/signal_report.html",
+        metavar="PATH",
+        help="HTML report output path (default: results/signals/signal_report.html)",
     )
 
     # General options
@@ -748,8 +851,8 @@ async def main():
 
     # Parse configuration
     config = SignalRunnerConfig(
-        symbols=[s.strip() for s in args.symbols.split(",")],
-        timeframes=[tf.strip() for tf in args.timeframes.split(",")],
+        symbols=args.symbols,
+        timeframes=args.timeframes,
         max_workers=args.max_workers,
         validate=args.validate,
         validation_ticks=args.ticks,
@@ -759,6 +862,7 @@ async def main():
         with_persistence=args.with_persistence,
         verbose=args.verbose,
         stats_interval=args.stats_interval,
+        html_output=None if args.no_html else args.html_output,
     )
 
     runner = SignalRunner(config)

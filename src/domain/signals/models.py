@@ -15,6 +15,8 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
+from ...utils.timezone import now_utc
+
 
 class SignalCategory(Enum):
     """Category of the trading signal based on indicator type."""
@@ -40,6 +42,13 @@ class SignalPriority(Enum):
     HIGH = "high"
     MEDIUM = "medium"
     LOW = "low"
+
+
+class SignalStatus(Enum):
+    """Lifecycle status of a trading signal."""
+
+    ACTIVE = "active"  # Signal is current and actionable
+    INVALIDATED = "invalidated"  # Superseded by newer signal for same (symbol, indicator, timeframe)
 
 
 class ConditionType(Enum):
@@ -92,10 +101,15 @@ class TradingSignal:
     previous_value: Optional[float] = None  # For state change detection
 
     # Metadata
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=now_utc)
     cooldown_until: Optional[datetime] = None
     message: str = ""  # Human-readable description
     metadata: Dict[str, Any] = field(default_factory=dict)
+
+    # Signal lifecycle (invalidation tracking)
+    status: SignalStatus = SignalStatus.ACTIVE
+    invalidated_by: Optional[str] = None  # signal_id of superseding signal
+    invalidated_at: Optional[datetime] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize to dictionary for logging/API."""
@@ -116,6 +130,9 @@ class TradingSignal:
             "cooldown_until": self.cooldown_until.isoformat() if self.cooldown_until else None,
             "message": self.message,
             "metadata": self.metadata,
+            "status": self.status.value,
+            "invalidated_by": self.invalidated_by,
+            "invalidated_at": self.invalidated_at.isoformat() if self.invalidated_at else None,
         }
 
     def __str__(self) -> str:
