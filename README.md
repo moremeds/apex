@@ -2,7 +2,7 @@
 
 **Production-grade portfolio risk monitoring and strategy backtesting for options and derivatives trading**
 
-[![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Python](https://img.shields.io/badge/python-3.14+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Code Style](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
@@ -18,19 +18,20 @@ APEX is a comprehensive risk management and backtesting platform designed for ac
 |---------|-------------|
 | **Real-time Risk Monitoring** | P&L (unrealized/daily), Greeks aggregation, concentration limits |
 | **Multi-Broker Support** | Interactive Brokers, Futu OpenD with auto-reconnect |
-| **Strategy Backtesting** | Live/backtest parity - same code runs in both modes |
-| **Terminal Dashboard** | Rich TUI with multiple views, keyboard navigation |
+| **Dual-Engine Backtesting** | ApexEngine (event-driven) + VectorBT (vectorized, 100x faster) |
+| **44+ Technical Indicators** | Full TA-Lib integration with custom rule engine |
+| **Terminal Dashboard** | Textual TUI with 6 views, keyboard navigation |
 | **Event-Driven Architecture** | Priority event bus with fast/slow lanes |
 | **Persistence Layer** | DuckDB/PostgreSQL with TimescaleDB support |
 | **Observability** | Prometheus metrics, Grafana dashboards |
 
 ### Technical Highlights
 
-- **46,000+ lines** of production Python code across 172 modules
+- **95,000+ lines** of production Python code across 374 modules
 - **Async-first** design using `asyncio` and `ib_async`
-- **Thread-safe** in-memory stores with `RLock`
+- **Thread-safe** RCU (Read-Copy-Update) stores for lock-free reads
 - **Hexagonal architecture** with clear domain/infrastructure separation
-- **Comprehensive test suite** with unit, integration, and partial tests
+- **65 test files** with 85% coverage requirement enforced
 
 ---
 
@@ -39,7 +40,7 @@ APEX is a comprehensive risk management and backtesting platform designed for ac
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                     PRESENTATION LAYER                          │
-│  Terminal Dashboard (rich)  │  CLI Runners  │  Metrics Endpoint │
+│  Terminal Dashboard (Textual)  │  CLI Runners  │ Metrics Endpoint│
 └─────────────────────────────────────────────────────────────────┘
                               │
 ┌─────────────────────────────────────────────────────────────────┐
@@ -49,12 +50,12 @@ APEX is a comprehensive risk management and backtesting platform designed for ac
                               │
 ┌─────────────────────────────────────────────────────────────────┐
 │                      DOMAIN LAYER                               │
-│  RiskEngine  │  RuleEngine  │  Strategy Framework  │  MDQC      │
+│  RiskEngine  │  IndicatorEngine  │  Strategy Framework  │  MDQC │
 └─────────────────────────────────────────────────────────────────┘
                               │
 ┌─────────────────────────────────────────────────────────────────┐
 │                  INFRASTRUCTURE LAYER                           │
-│  IB Adapter  │  Futu Adapter  │  Backtest Engine  │  Stores     │
+│  IB Adapter  │  Futu Adapter  │  Backtest Engines  │  Stores    │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -64,31 +65,35 @@ APEX is a comprehensive risk management and backtesting platform designed for ac
 apex/
 ├── config/               # Configuration files (YAML)
 │   ├── base.yaml         # Main configuration
-│   ├── backtest/         # Strategy backtest specs
-│   └── prometheus/       # Alerting rules
+│   ├── risk_config.yaml  # Risk limits and signals
+│   ├── signals/          # Signal rule definitions
+│   └── backtest/         # Backtest YAML specs (9 examples)
 ├── data/
+│   ├── historical/       # Cached bar data (Parquet)
 │   ├── positions/        # Manual position files
 │   └── logs/             # Structured log output
 ├── docs/                 # Documentation
 ├── migrations/           # Database migrations
-├── scripts/              # CLI tools
+├── scripts/              # CLI utilities
 ├── src/
-│   ├── application/      # Orchestrator, event bus
-│   ├── domain/           # Business logic
+│   ├── application/      # Orchestrator, coordinators (17 files)
+│   ├── backtest/         # Backtest engines (51 files)
+│   ├── domain/           # Business logic (168 files)
 │   │   ├── events/       # PriorityEventBus
-│   │   ├── services/     # RiskEngine, MDQC, RuleEngine
+│   │   ├── services/     # RiskEngine, MDQC
+│   │   ├── signals/      # 44+ indicators, rule engine
 │   │   ├── strategy/     # Strategy framework
 │   │   └── interfaces/   # Port definitions (DI)
-│   ├── infrastructure/   # External integrations
+│   ├── infrastructure/   # External integrations (62 files)
 │   │   ├── adapters/     # IB, Futu, Yahoo
-│   │   ├── backtest/     # Backtest engine
+│   │   ├── stores/       # RCU stores
 │   │   └── persistence/  # Database repositories
-│   ├── models/           # Data models
-│   ├── runners/          # CLI runners
-│   ├── services/         # Application services
-│   └── tui/              # Terminal dashboard
-├── tests/                # Test suites
-├── main.py               # Entry point
+│   ├── models/           # Data models (9 files)
+│   ├── runners/          # CLI runners (3 files)
+│   ├── services/         # Application services (13 files)
+│   └── tui/              # Terminal dashboard (42 files)
+├── tests/                # Test suites (65 files)
+├── main.py               # Primary entry point
 └── pyproject.toml        # Package config
 ```
 
@@ -98,8 +103,9 @@ apex/
 
 | Requirement | Version | Notes |
 |-------------|---------|-------|
-| Python | 3.10+ | 3.14 recommended |
-| IBKR TWS/Gateway | Latest | Required for market data |
+| Python | 3.14+ | Required (uses latest features) |
+| TA-Lib | 0.4.19+ | Required for indicators |
+| IBKR TWS/Gateway | Latest | Required for live market data |
 | PostgreSQL | 14+ | Optional, for persistence |
 | TimescaleDB | 2.x | Optional, for time-series |
 | Futu OpenD | Latest | Optional, for Futu positions |
@@ -154,19 +160,22 @@ Ensure API connections are enabled in settings.
 ### 3. Run APEX
 
 ```bash
-# Development mode
-python orchestrator.py --env dev
+# Development mode with TUI
+python main.py --env dev
 
 # Production mode
-python orchestrator.py --env prod
+python main.py --env prod
 
 # Demo mode (offline, sample data)
-python orchestrator.py --env demo
+python main.py --env demo
+
+# Headless mode (no TUI)
+python main.py --env dev --no-dashboard
 ```
 
 ### 4. Terminal Dashboard
 
-The TUI displays real-time risk metrics:
+The TUI displays real-time risk metrics across 6 views:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -182,38 +191,130 @@ The TUI displays real-time risk metrics:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+**TUI Views:**
+
+| Key | View | Description |
+|-----|------|-------------|
+| `1` | Summary | Portfolio P&L, Greeks aggregation, risk summary |
+| `2` | Positions | Position details, P&L breakdown by symbol |
+| `3` | Signals | Real-time trading signals, signal history |
+| `4` | Signal Introspection | Live signal pipeline visibility, rule evaluation |
+| `5` | Data | Market data health, indicator values |
+| `6` | Lab | Experimental features, diagnostic tools |
+
 **Keyboard:** `1-6` switch views, `q` quit, `Ctrl+C` graceful shutdown
+
+---
+
+## CLI Reference
+
+### Main Entry Point (`main.py`)
+
+```bash
+# Monitor mode (default)
+python main.py --env dev
+python main.py --env prod --no-dashboard
+python main.py --env dev --metrics-port 9090
+
+# Backtest mode
+python main.py --mode backtest --strategy ma_cross --symbols AAPL \
+    --start 2024-01-01 --end 2024-06-30
+python main.py --mode backtest --spec config/backtest/ma_cross_example.yaml
+
+# Trading mode (live execution)
+python main.py --mode trading --dry-run  # Paper trading
+
+# Common options
+--config <path>        # Custom config file
+--verbose, -v          # DEBUG level logging
+--log-level [DEBUG|INFO|WARNING|ERROR]
+```
+
+### Backtest Runner
+
+```bash
+# Single backtest with ApexEngine (full simulation)
+python -m src.backtest.runner --strategy ma_cross --symbols AAPL \
+    --start 2024-01-01 --end 2024-06-30
+
+# VectorBT engine (100x faster for parameter sweeps)
+python -m src.backtest.runner --strategy ma_cross --symbols AAPL \
+    --start 2024-01-01 --end 2024-06-30 --engine vectorbt
+
+# Backtrader engine
+python -m src.backtest.runner --strategy ma_cross --symbols AAPL \
+    --start 2024-01-01 --end 2024-06-30 --engine backtrader
+
+# Systematic experiment with YAML spec
+python -m src.backtest.runner --spec config/backtest/examples/ta_metrics.yaml
+
+# List all registered strategies
+python -m src.backtest.runner --list-strategies
+
+# Custom parameters
+python -m src.backtest.runner --strategy ma_cross --symbols AAPL MSFT \
+    --start 2024-01-01 --end 2024-06-30 --params fast_period=10 slow_period=30
+
+# Offline mode (fail if data gaps)
+python -m src.backtest.runner --strategy ma_cross --symbols AAPL \
+    --start 2024-01-01 --end 2024-06-30 --coverage-mode check
+```
+
+### Signal Runner
+
+```bash
+# Live signal generation
+python -m src.runners.signal_runner --live --symbols AAPL TSLA QQQ
+
+# Multiple timeframes
+python -m src.runners.signal_runner --live --symbols AAPL --timeframes 1m 5m 1h 1d
+
+# Generate HTML report
+python -m src.runners.signal_runner --live --symbols AAPL --html-output report.html
+
+# Backfill historical signals
+python -m src.runners.signal_runner --backfill --symbols AAPL --days 365
+
+# With database persistence
+python -m src.runners.signal_runner --live --symbols AAPL --with-persistence
+```
+
+### History Loader
+
+```bash
+# Load broker history
+python scripts/history_loader.py --broker ib --days 30
+python scripts/history_loader.py --broker futu --days 30 --market US
+python scripts/history_loader.py --broker all --dry-run
+python scripts/history_loader.py --broker ib --from-date 2024-01-01 --to-date 2024-06-30
+```
 
 ---
 
 ## Strategy Backtesting
 
-APEX includes a production-ready strategy framework with **live/backtest parity**.
+APEX includes a production-ready strategy framework with **live/backtest parity** and **dual-engine** support.
+
+### Backtesting Engines
+
+| Engine | Use Case | Speed | Features |
+|--------|----------|-------|----------|
+| **ApexEngine** | Full simulation | Baseline | Event-driven, realistic fills, live/backtest parity |
+| **VectorBTEngine** | Parameter sweeps | 100x faster | Vectorized, Optuna integration, WFO |
+| **Backtrader** | Classic backtesting | Fast | Mature ecosystem, many analyzers |
 
 ### Available Strategies
 
 | Strategy | Registry Name | Description |
 |----------|---------------|-------------|
-| Moving Average Cross | `ma_cross` | Classic MA crossover |
-| Buy and Hold | `buy_and_hold` | Passive benchmark |
-| RSI Mean Reversion | `rsi_mean_reversion` | RSI with limit orders |
+| Moving Average Cross | `ma_cross` | Classic SMA/EMA crossover |
+| Buy and Hold | `buy_and_hold` | Passive benchmark strategy |
+| RSI Mean Reversion | `rsi_mean_reversion` | RSI-based with limit orders |
 | Momentum Breakout | `momentum_breakout` | ATR-based with trailing stops |
 | Pairs Trading | `pairs_trading` | Statistical arbitrage |
 | Scheduled Rebalance | `scheduled_rebalance` | Time-based rebalancing |
-
-### Running Backtests
-
-```bash
-# List strategies
-python -m src.runners.backtest_runner --list-strategies
-
-# CLI backtest
-python -m src.runners.backtest_runner --strategy ma_cross --symbols AAPL \
-    --start 2024-01-01 --end 2024-06-30
-
-# From YAML spec
-python -m src.runners.backtest_runner --spec config/backtest/ma_cross_example.yaml
-```
+| MTF RSI Trend | `mtf_rsi_trend` | Multi-timeframe RSI strategy |
+| TA Metrics | `ta_metrics_strategy` | Technical analysis metrics |
 
 ### Creating Custom Strategies
 
@@ -234,6 +335,51 @@ class MyStrategy(Strategy):
 ```
 
 See [docs/STRATEGY_GUIDE.md](docs/STRATEGY_GUIDE.md) for complete documentation.
+
+---
+
+## Technical Indicators (44+)
+
+APEX includes a comprehensive signal pipeline with 44+ indicators powered by TA-Lib.
+
+### Indicator Categories
+
+| Category | Count | Indicators |
+|----------|-------|------------|
+| **Trend** | 10 | SMA, EMA, MACD, ADX, SuperTrend, Ichimoku, PSAR, Aroon, TRIX, Vortex, ZeroLag |
+| **Momentum** | 12 | RSI, KDJ, CCI, MFI, ROC, Williams %R, TSI, Awesome, Ultimate, Momentum, RSI Harmonics |
+| **Volatility** | 8 | ATR, Bollinger Bands, Keltner, Donchian, StdDev, Historical Vol, Squeeze, Chaikin Vol |
+| **Volume** | 8 | OBV, CMF, A/D Line, VWAP, Force Index, CVD, VPVR, Volume Ratio |
+| **Pattern** | 6 | Candlestick, Chart Patterns, Fibonacci, Support/Resistance, Pivot Points, Trendlines |
+
+### Signal Rules
+
+Rules are evaluated on indicator updates and fire trading signals:
+
+| Category | Rules |
+|----------|-------|
+| **Trend** | Golden/Death Cross, Price Cross MA, PSAR Flip, SuperTrend Flip, Ichimoku Breakout, ADX Confirmation |
+| **Momentum** | RSI Overbought/Oversold, Stochastic Crossover, MACD Crossovers, CCI Extremes, Williams %R Range |
+| **Volatility** | Bollinger Squeeze, Keltner Breakout, ATR Expansion |
+| **Volume** | OBV Divergence, CMF Confirmation, VWAP Cross |
+| **Divergence** | RSI Divergence, MACD Divergence, Price-Volume Divergence |
+
+### Signal Rule Development
+
+```python
+from src.domain.signals.models import SignalRule, ConditionType
+
+rule = SignalRule(
+    id="rsi_oversold",
+    indicator="RSI",
+    timeframe="5m",
+    condition_type=ConditionType.THRESHOLD_CROSS,
+    threshold=30,
+    direction="below",
+    cooldown_bars=5,
+    detect_initial=True,
+)
+```
 
 ---
 
@@ -288,19 +434,6 @@ PostgreSQL/DuckDB storage for historical data and warm-start.
 - **Warm-Start:** Restore state from database on startup
 - **Periodic Snapshots:** Configurable interval capture
 
-### History Loading
-
-```bash
-# Load Futu history
-python scripts/history_loader.py --broker futu --days 30
-
-# Load IB history
-python scripts/history_loader.py --broker ib --days 30
-
-# Dry run
-python scripts/history_loader.py --broker all --dry-run
-```
-
 See [docs/PERSISTENCE_LAYER.md](docs/PERSISTENCE_LAYER.md) for database setup.
 
 ---
@@ -316,7 +449,7 @@ Exposed at `http://localhost:8000/metrics`:
 
 ### Grafana Dashboards
 
-Pre-configured dashboards in `config/grafana/`.
+Pre-configured dashboards in `config/prometheus/`.
 
 See [docs/OBSERVABILITY_SETUP.md](docs/OBSERVABILITY_SETUP.md) for setup.
 
@@ -327,24 +460,31 @@ See [docs/OBSERVABILITY_SETUP.md](docs/OBSERVABILITY_SETUP.md) for setup.
 ### Testing
 
 ```bash
-# All tests with coverage
-pytest --cov=src --cov-report=html
+# All tests with coverage (85% enforced)
+pytest
 
 # Specific test file
 pytest tests/unit/test_risk_engine.py
 
+# Pattern matching
+pytest tests/unit/ -k "test_rule"
+
 # Integration tests
 pytest tests/integration/
 
-# Open coverage report
+# Skip slow tests
+pytest -m "not slow"
+
+# HTML coverage report
+pytest --cov=src --cov-report=html
 open htmlcov/index.html
 ```
 
 ### Code Quality
 
 ```bash
-mypy src/              # Type checking
-black src/ tests/      # Formatting
+mypy src/              # Type checking (strict)
+black src/ tests/      # Formatting (100-char lines)
 isort src/ tests/      # Import sorting
 flake8 src/ tests/     # Linting
 ```
@@ -359,15 +499,28 @@ flake8 src/ tests/     # Linting
 
 ---
 
+## Configuration Files
+
+| File | Purpose |
+|------|---------|
+| `config/base.yaml` | Main configuration (brokers, ports, API keys) |
+| `config/risk_config.yaml` | Risk limits and signal thresholds |
+| `config/demo.yaml` | Demo mode offline configuration |
+| `config/signals/rules.yaml` | Signal rule definitions |
+| `config/signals/universe.yaml` | Trading universe definition |
+| `config/backtest/*.yaml` | Backtest specification examples |
+
+---
+
 ## Documentation
 
 | Document | Description |
 |----------|-------------|
-| [docs/USER_MANUAL.md](docs/USER_MANUAL.md) | Complete user guide with CLI reference |
-| [docs/STRATEGY_GUIDE.md](docs/STRATEGY_GUIDE.md) | Strategy development & backtest guide |
+| [CLAUDE.md](CLAUDE.md) | Development guidelines for AI assistants |
 | [docs/PERSISTENCE_LAYER.md](docs/PERSISTENCE_LAYER.md) | Database setup and API reference |
-| [docs/OBSERVABILITY_SETUP.md](docs/OBSERVABILITY_SETUP.md) | Prometheus, Grafana, alerting |
-| [CLAUDE.md](CLAUDE.md) | Development guidelines |
+| [docs/indicators/](docs/indicators/) | Indicator documentation by category |
+| [docs/rules/](docs/rules/) | Signal rule documentation |
+| [docs/designs/](docs/designs/) | Architecture design documents |
 | [docs/reviews/](docs/reviews/) | Code reviews |
 
 ---
@@ -416,9 +569,12 @@ MIT License - see [LICENSE](LICENSE) file
 Built with:
 - [ib_async](https://github.com/ib-api-reloaded/ib_async) - Interactive Brokers API
 - [futu-api](https://github.com/FutuOpenAPI/py-futu-api) - Futu OpenD API
-- [rich](https://github.com/Textualize/rich) - Terminal UI
+- [textual](https://github.com/Textualize/textual) - Terminal UI framework
+- [vectorbt](https://github.com/polakowo/vectorbt) - Vectorized backtesting
+- [backtrader](https://github.com/mementum/backtrader) - Event-driven backtesting
+- [TA-Lib](https://github.com/mrjbq7/ta-lib) - Technical analysis indicators
+- [optuna](https://github.com/optuna/optuna) - Hyperparameter optimization
 - [DuckDB](https://duckdb.org/) - Embedded analytics database
 - [asyncpg](https://github.com/MagicStack/asyncpg) - PostgreSQL async client
-- [TA-Lib](https://github.com/mrjbq7/ta-lib) - Technical analysis
 - [pytest](https://pytest.org/) - Testing framework
 - [uv](https://github.com/astral-sh/uv) - Fast Python package manager
