@@ -1,0 +1,135 @@
+# Market Regime Parameter Optimization
+#
+# Optimizes regime detection thresholds for market benchmarks (QQQ/SPY).
+# Uses walk-forward validation with asymmetric error costs for short put strategies.
+#
+# Key insight: Minimize "missed R2" (failed to avoid crash) over "false R2" (missed rally)
+# because missed crashes are much more expensive than missed premium.
+#
+# Run with:
+#   python -m src.runners.systematic_backtest_runner --spec config/backtest/regime/market_regime_opt.yaml
+
+name: "Market_Regime_Optimization"
+description: "Optimize regime thresholds for QQQ/SPY with asymmetric error costs"
+strategy: "regime_validation"
+
+# Parameter search space for regime thresholds
+parameters:
+  # Volatility thresholds (dual-window)
+  vol_high_short_pct:
+    type: range
+    min: 70
+    max: 90
+    step: 5
+  vol_high_long_pct:
+    type: range
+    min: 75
+    max: 95
+    step: 5
+  vol_low_pct:
+    type: range
+    min: 15
+    max: 30
+    step: 5
+
+  # Choppiness thresholds
+  chop_high_pct:
+    type: range
+    min: 60
+    max: 80
+    step: 5
+  chop_low_pct:
+    type: range
+    min: 20
+    max: 40
+    step: 5
+  chop_cross_high:
+    type: range
+    min: 3
+    max: 5
+    step: 1
+
+  # Extension thresholds
+  ext_overbought:
+    type: range
+    min: 1.5
+    max: 3.0
+    step: 0.25
+  ext_oversold:
+    type: range
+    min: -3.0
+    max: -1.5
+    step: 0.25
+
+# Market benchmarks only
+universe:
+  type: static
+  symbols:
+    - QQQ
+    - SPY
+
+# Walk-forward configuration with purge/embargo
+temporal:
+  primary_method: walk_forward
+  train_days: 252           # 1 year training
+  test_days: 63             # 3 months out-of-sample
+  folds: 5                  # 5 walk-forward folds
+  purge_days: 5             # Gap to prevent leakage (Lopez de Prado)
+  embargo_days: 2           # Model decay gap
+  start_date: "2020-01-01"
+  end_date: "2025-12-30"
+
+# Bayesian optimization with asymmetric error costs
+optimization:
+  method: bayesian
+  sampler: TPE
+  n_trials: 200
+  metric: regime_utility    # Custom: weighted combination of metrics
+  direction: maximize
+
+  # Validation gates (hard constraints)
+  constraints:
+    # Must improve out-of-sample
+    - metric: oos_sharpe_improvement
+      operator: ">="
+      value: 0.0
+    # Regime stability (avoid noisy flipping)
+    - metric: regime_stability
+      operator: ">="
+      value: 0.7
+    # Deflated Sharpe Ratio check (Lopez de Prado)
+    - metric: dsr
+      operator: ">="
+      value: 0.3
+    # Probability of Backtest Overfitting
+    - metric: pbo
+      operator: "<="
+      value: 0.50
+
+  # Asymmetric error weights for objective function
+  # missed_r2 = failed to identify risk-off (very expensive for short put)
+  # false_r2 = false alarm on risk-off (missed premium, less expensive)
+  weights:
+    oos_sharpe: 1.0
+    missed_r2_rate: -3.0    # 3x penalty for missing crashes
+    false_r2_rate: -0.5     # Light penalty for false alarms
+    regime_stability: 0.5
+
+# Standard execution profile
+profiles:
+  default:
+    name: market_regime
+    version: v1
+    slippage_bps: 5.0
+    commission_per_share: 0.005
+    fill_model: close
+
+# Reproducibility
+reproducibility:
+  random_seed: 42
+  data_version: "apex_2024.12"
+
+# Output storage
+output:
+  params_store: "src/domain/services/regime/params_store.py"
+  report_dir: "reports/regime_optimization"

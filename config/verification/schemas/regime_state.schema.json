@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RegimeState",
+  "description": "Schema for regime detection output",
+  "type": "object",
+  "required": ["regime", "regime_name", "confidence", "component_states", "components", "transition"],
+  "properties": {
+    "regime": {
+      "type": "string",
+      "enum": ["R0", "R1", "R2", "R3"],
+      "description": "Current market regime classification"
+    },
+    "regime_name": {
+      "type": "string",
+      "description": "Human-readable regime name"
+    },
+    "confidence": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "Regime classification confidence (0-100)"
+    },
+    "component_states": {
+      "type": "object",
+      "required": ["trend_state", "vol_state", "chop_state", "ext_state"],
+      "properties": {
+        "trend_state": {
+          "type": "string",
+          "enum": ["trend_up", "trend_down", "neutral"],
+          "description": "Trend classification"
+        },
+        "vol_state": {
+          "type": "string",
+          "enum": ["vol_high", "vol_normal", "vol_low"],
+          "description": "Volatility classification"
+        },
+        "chop_state": {
+          "type": "string",
+          "enum": ["choppy", "trending", "neutral"],
+          "description": "Choppiness classification"
+        },
+        "ext_state": {
+          "type": "string",
+          "enum": ["overbought", "oversold", "slightly_high", "slightly_low", "neutral"],
+          "description": "Extension from mean classification"
+        },
+        "iv_state": {
+          "type": "string",
+          "enum": ["iv_high", "iv_elevated", "iv_normal", "iv_low", "na"],
+          "description": "Implied volatility classification (market level only)"
+        }
+      }
+    },
+    "components": {
+      "type": "object",
+      "description": "Raw indicator values",
+      "properties": {
+        "close": {"type": "number"},
+        "ma20": {"type": "number"},
+        "ma50": {"type": "number"},
+        "ma200": {"type": "number"},
+        "ma50_slope": {"type": "number"},
+        "atr20": {"type": "number"},
+        "atr_pct": {"type": "number"},
+        "atr_pct_63": {"type": "number"},
+        "atr_pct_252": {"type": "number"},
+        "chop": {"type": "number"},
+        "chop_pct_252": {"type": "number"},
+        "ma20_crosses": {"type": "integer"},
+        "ext": {"type": "number"},
+        "iv_value": {"type": ["number", "null"]},
+        "iv_pct_63": {"type": ["number", "null"]}
+      }
+    },
+    "transition": {
+      "type": "object",
+      "required": ["regime_changed", "bars_in_regime"],
+      "properties": {
+        "regime_changed": {
+          "type": "boolean",
+          "description": "Whether regime changed on this bar"
+        },
+        "previous_regime": {
+          "type": ["string", "null"],
+          "enum": ["R0", "R1", "R2", "R3", null],
+          "description": "Previous regime if changed"
+        },
+        "bars_in_regime": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Bars in current regime"
+        }
+      }
+    },
+    "timestamp": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "Timestamp of this regime state"
+    },
+    "symbol": {
+      "type": "string",
+      "description": "Symbol being analyzed"
+    },
+    "is_market_level": {
+      "type": "boolean",
+      "description": "True for market benchmarks (QQQ/SPY)"
+    }
+  }
+}

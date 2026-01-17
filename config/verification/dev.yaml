@@ -1,0 +1,36 @@
+# Development Verification Profile
+#
+# Run on every commit/PR. Fast checks only.
+#
+# Usage:
+#   python -m src.verification.regime_verifier --profile dev
+
+profile: "development"
+description: "CI/development verification - fast schema and unit checks"
+
+# Checks to run in this profile
+checks:
+  # Phase 1 - Core Indicator
+  - P1_SCHEMA_VALID
+  - P1_NO_NAN_AFTER_WARMUP
+  - P1_MUTUAL_EXCLUSIVE_REGIME
+  - P1_HYSTERESIS_WORKS
+  # Phase 2 - Hierarchical Service
+  - P2_SCHEMA_VALID
+  - P2_DECISION_TABLE_COVERAGE
+  # Phase 3 - Multi-Timeframe
+  - P3_WEEKLY_VETO_TIGHTENS
+  # Phase 5 - Params
+  - P5_PARAMS_VALID
+
+# Performance checks skipped in dev (too slow)
+skip:
+  - P1_PERF_BUDGET
+  - P5_DSR_GATE
+  - P5_PBO_GATE
+
+# Run command for CI
+run_cmd: "pytest tests/unit/signals/ tests/unit/services/ -v --tb=short"
+
+# Fail behavior
+fail_action: "block_merge"

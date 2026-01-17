@@ -26,6 +26,7 @@ class SignalCategory(Enum):
     VOLATILITY = "volatility"
     VOLUME = "volume"
     PATTERN = "pattern"
+    REGIME = "regime"
 
 
 class SignalDirection(Enum):

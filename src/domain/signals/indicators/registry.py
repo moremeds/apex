@@ -54,7 +54,7 @@ class IndicatorRegistry:
             Number of indicators discovered
         """
         base_path = Path(__file__).parent
-        categories = ["momentum", "trend", "volatility", "volume", "pattern"]
+        categories = ["momentum", "trend", "volatility", "volume", "pattern", "regime"]
 
         discovered = 0
         for category in categories:

@@ -1,5 +1,5 @@
 """
-Comprehensive unit tests for all 44 trading signal indicators.
+Comprehensive unit tests for all 45 trading signal indicators.
 
 Tests cover:
 - Indicator properties (name, category, required_fields, warmup_periods)
@@ -117,9 +117,9 @@ class TestIndicatorDiscovery:
     """Tests for indicator discovery."""
 
     def test_total_indicator_count(self, registry: IndicatorRegistry):
-        """Verify all 44 indicators are discovered."""
+        """Verify all 45 indicators are discovered."""
         indicators = registry.get_all()
-        assert len(indicators) == 44, f"Expected 44 indicators, found {len(indicators)}"
+        assert len(indicators) == 45, f"Expected 45 indicators, found {len(indicators)}"
 
     def test_momentum_indicators(self, registry: IndicatorRegistry):
         """Verify all 12 momentum indicators."""
@@ -170,6 +170,13 @@ class TestIndicatorDiscovery:
             "chart_patterns", "fibonacci", "pivot",
         }
         assert names == expected, f"Missing pattern indicators: {expected - names}"
+
+    def test_regime_indicators(self, registry: IndicatorRegistry):
+        """Verify regime indicator."""
+        indicators = registry.get_by_category(SignalCategory.REGIME)
+        names = {ind.name for ind in indicators}
+        expected = {"regime_detector"}
+        assert names == expected, f"Missing regime indicators: {expected - names}"
 
 
 class TestIndicatorProperties:
@@ -309,6 +316,8 @@ class TestIndicatorState:
                     "tk_cross", "cross_zero", "signal", "cross", "kumo_twist",
                     # Pattern detection outputs (when no pattern found)
                     "pattern", "pattern_type", "reversal_signal", "direction", "nearest_level",
+                    # Regime detector: regime transition tracking (None when no pending change)
+                    "pending_regime", "previous_regime", "iv_state",
                 }
                 for key, value in state.items():
                     assert value is not None or key in allowed_none_keys, \

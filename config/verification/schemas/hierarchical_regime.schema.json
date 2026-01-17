@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "HierarchicalRegime",
+  "description": "Schema for hierarchical regime output (market/sector/stock)",
+  "type": "object",
+  "required": ["symbol", "timestamp", "market_regime", "stock_regime", "action"],
+  "properties": {
+    "symbol": {
+      "type": "string",
+      "description": "Symbol being analyzed"
+    },
+    "timestamp": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "Timestamp of this regime state"
+    },
+    "market_regime": {
+      "type": "string",
+      "enum": ["R0", "R1", "R2", "R3"],
+      "description": "Market-level regime (QQQ/SPY)"
+    },
+    "market_confidence": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "Market regime confidence"
+    },
+    "market_symbol": {
+      "type": "string",
+      "enum": ["QQQ", "SPY"],
+      "description": "Market benchmark used"
+    },
+    "sector_regime": {
+      "type": ["string", "null"],
+      "enum": ["R0", "R1", "R2", "R3", null],
+      "description": "Sector-level regime (SMH, XLV, etc.)"
+    },
+    "sector_confidence": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "maximum": 100,
+      "description": "Sector regime confidence"
+    },
+    "sector_symbol": {
+      "type": ["string", "null"],
+      "description": "Sector ETF used (SMH, XLV, XLF, XLE, XLY)"
+    },
+    "stock_regime": {
+      "type": "string",
+      "enum": ["R0", "R1", "R2", "R3"],
+      "description": "Stock-level regime"
+    },
+    "stock_confidence": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "Stock regime confidence"
+    },
+    "action": {
+      "type": "string",
+      "enum": ["GO", "GO_SMALL", "NO_GO", "HARD_NO"],
+      "description": "Synthesized trading action"
+    },
+    "action_context": {
+      "type": "object",
+      "description": "Context for the trading action",
+      "properties": {
+        "min_dte": {
+          "type": ["integer", "null"],
+          "description": "Minimum days to expiration"
+        },
+        "max_dte": {
+          "type": ["integer", "null"],
+          "description": "Maximum days to expiration"
+        },
+        "min_delta": {
+          "type": ["number", "null"],
+          "description": "Minimum delta"
+        },
+        "max_delta": {
+          "type": ["number", "null"],
+          "description": "Maximum delta"
+        },
+        "spread_only": {
+          "type": "boolean",
+          "description": "Whether to only allow spreads"
+        },
+        "size_factor": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Position size multiplier"
+        },
+        "reason": {
+          "type": "string",
+          "description": "Human-readable reason for action"
+        }
+      }
+    }
+  }
+}

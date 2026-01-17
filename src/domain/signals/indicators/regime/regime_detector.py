@@ -1,0 +1,692 @@
+"""
+Regime Detector Indicator.
+
+Implements a 3-level hierarchical regime detection system for market classification:
+- R0 (Healthy Uptrend): TrendUp + NormalVol + Trending
+- R1 (Choppy/Extended): TrendUp but Choppy OR Overbought
+- R2 (Risk-Off): TrendDown OR (HighVol + below MA50) OR IV_HIGH
+- R3 (Rebound Window): HighVol + Oversold + NOT TrendDown + structural confirm
+
+Key Features:
+- Priority-based decision tree prevents parallel regime triggers
+- Proper hysteresis with pending_regime/pending_count pattern
+- Component-based architecture for testability and optimization
+"""
+
+from __future__ import annotations
+
+import threading
+from dataclasses import replace
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+import numpy as np
+import pandas as pd
+
+from src.utils.logging_setup import get_logger
+from ...models import SignalCategory
+from ..base import IndicatorBase
+from .components import (
+    calculate_chop_state,
+    calculate_ext_state,
+    calculate_iv_state,
+    calculate_trend_state,
+    calculate_vol_state,
+)
+from .models import (
+    ENTRY_HYSTERESIS,
+    EXIT_HYSTERESIS,
+    ChopState,
+    ComponentStates,
+    ComponentValues,
+    ExtState,
+    IVState,
+    MarketRegime,
+    RegimeOutput,
+    RegimeState,
+    TrendState,
+    VolState,
+)
+
+logger = get_logger(__name__)
+
+# Market benchmark symbols that receive IV analysis
+MARKET_BENCHMARKS = {"QQQ", "SPY", "IWM", "DIA"}
+
+
+class RegimeDetectorIndicator(IndicatorBase):
+    """
+    Regime Detector indicator for market condition classification.
+
+    Classifies market into one of four regimes:
+    - R0: Healthy Uptrend - Full trading allowed
+    - R1: Choppy/Extended - Reduced frequency, wider spreads
+    - R2: Risk-Off - No new positions
+    - R3: Rebound Window - Small defined-risk positions only
+
+    Default Parameters:
+        ma50_period: 50
+        ma200_period: 200
+        ma20_period: 20
+        slope_lookback: 20
+        atr_period: 20
+        atr_pct_short_window: 63 (3 months)
+        atr_pct_long_window: 252 (1 year)
+        vol_high_short_pct: 80
+        vol_high_long_pct: 85
+        vol_low_pct: 20
+        chop_period: 14
+        chop_pct_window: 252
+        ma20_cross_lookback: 10
+        chop_high_pct: 70
+        chop_low_pct: 30
+        chop_cross_high: 4
+        chop_cross_low: 1
+        ext_overbought: 2.0
+        ext_oversold: -2.0
+        ext_slightly_high: 1.5
+        ext_slightly_low: -1.5
+
+    State Output:
+        regime: "R0", "R1", "R2", "R3"
+        regime_name: Human-readable name
+        confidence: 0-100 regime confidence
+        component_states: Dict of component classifications
+        components: Dict of raw numeric values
+        transition: Dict with regime_changed, previous_regime, bars_in_regime
+    """
+
+    name = "regime_detector"
+    category = SignalCategory.REGIME
+    required_fields = ["high", "low", "close"]
+    warmup_periods = 252  # Need 1 year for percentile calculations
+
+    _default_params = {
+        # MAs
+        "ma50_period": 50,
+        "ma200_period": 200,
+        "ma20_period": 20,
+        "slope_lookback": 20,
+        # Volatility (dual-window)
+        "atr_period": 20,
+        "atr_pct_short_window": 63,
+        "atr_pct_long_window": 252,
+        "vol_high_short_pct": 80,
+        "vol_high_long_pct": 85,
+        "vol_low_pct": 20,
+        # IV (market level only)
+        "iv_pct_window": 63,
+        "iv_high_pct": 75,
+        "iv_elevated_pct": 50,
+        "iv_low_pct": 25,
+        # Choppiness
+        "chop_period": 14,
+        "chop_pct_window": 252,
+        "ma20_cross_lookback": 10,
+        "chop_high_pct": 70,
+        "chop_low_pct": 30,
+        "chop_cross_high": 4,
+        "chop_cross_low": 1,
+        # Extension
+        "ext_overbought": 2.0,
+        "ext_oversold": -2.0,
+        "ext_slightly_high": 1.5,
+        "ext_slightly_low": -1.5,
+    }
+
+    def __init__(self) -> None:
+        """Initialize regime detector with tracking state."""
+        super().__init__()
+        # Track regime state per symbol for hysteresis (thread-safe)
+        self._regime_states: Dict[str, RegimeState] = {}
+        self._state_lock = threading.Lock()
+
+    def _calculate(self, data: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
+        """
+        Calculate regime indicators for all bars.
+
+        Returns DataFrame with columns for regime classification and all
+        component values for rule evaluation and reporting.
+        """
+        n = len(data)
+        if n == 0:
+            return pd.DataFrame(
+                {
+                    "regime": pd.Series(dtype=str),
+                    "regime_confidence": pd.Series(dtype=int),
+                    "trend_state": pd.Series(dtype=str),
+                    "vol_state": pd.Series(dtype=str),
+                    "chop_state": pd.Series(dtype=str),
+                    "ext_state": pd.Series(dtype=str),
+                },
+                index=data.index,
+            )
+
+        # Extract OHLC arrays
+        high = data["high"].values.astype(np.float64)
+        low = data["low"].values.astype(np.float64)
+        close = data["close"].values.astype(np.float64)
+
+        # Calculate all components with error handling
+        try:
+            trend_states, trend_details = calculate_trend_state(close, params)
+        except Exception as e:
+            logger.error(f"Trend state calculation failed: {e}", exc_info=True)
+            trend_states = np.array([TrendState.NEUTRAL] * n)
+            trend_details = {"ma50": np.full(n, np.nan), "ma200": np.full(n, np.nan), "ma50_slope": np.full(n, np.nan)}
+
+        try:
+            vol_states, vol_details = calculate_vol_state(high, low, close, params)
+        except Exception as e:
+            logger.error(f"Vol state calculation failed: {e}", exc_info=True)
+            vol_states = np.array([VolState.NORMAL] * n)
+            vol_details = {"atr": np.full(n, np.nan), "atr_pct": np.full(n, np.nan), "atr_pct_63": np.full(n, 50.0), "atr_pct_252": np.full(n, 50.0)}
+
+        try:
+            chop_states, chop_details = calculate_chop_state(high, low, close, params)
+        except Exception as e:
+            logger.error(f"Chop state calculation failed: {e}", exc_info=True)
+            chop_states = np.array([ChopState.NEUTRAL] * n)
+            chop_details = {"chop": np.full(n, 50.0), "chop_pct_252": np.full(n, 50.0), "ma20_crosses": np.zeros(n)}
+
+        try:
+            ext_states, ext_details = calculate_ext_state(high, low, close, params)
+        except Exception as e:
+            logger.error(f"Ext state calculation failed: {e}", exc_info=True)
+            ext_states = np.array([ExtState.NEUTRAL] * n)
+            ext_details = {"ext": np.zeros(n), "ma20": np.full(n, np.nan)}
+
+        # Get MA20 from ext_details (already calculated)
+        ma20 = ext_details["ma20"]
+
+        # Calculate 5-bar high for R3 structural confirmation
+        last_5_bar_high = np.full(n, np.nan)
+        for i in range(4, n):
+            last_5_bar_high[i] = np.max(high[i - 4 : i + 1])
+
+        # Classify regime for each bar
+        regimes = []
+        confidences = []
+
+        for i in range(n):
+            # Build state dict for classification
+            state = {
+                "close": close[i],
+                "ma20": ma20[i] if not np.isnan(ma20[i]) else close[i],
+                "ma50": trend_details["ma50"][i],
+                "ma200": trend_details["ma200"][i],
+                "ma50_slope": trend_details["ma50_slope"][i],
+                "last_5_bar_high": last_5_bar_high[i] if not np.isnan(last_5_bar_high[i]) else close[i],
+                "trend_state": trend_states[i],
+                "vol_state": vol_states[i],
+                "chop_state": chop_states[i],
+                "ext_state": ext_states[i],
+                "iv_state": IVState.NA,  # IV calculated separately at service level
+                "is_market_level": False,
+            }
+
+            # Compute regime (without hysteresis for batch calculation)
+            regime = self._compute_candidate_regime(state)
+            confidence = self._compute_confidence(state, regime)
+
+            regimes.append(regime.value)
+            confidences.append(confidence)
+
+        # Build result DataFrame
+        result = pd.DataFrame(
+            {
+                "regime": regimes,
+                "regime_confidence": confidences,
+                # Component states
+                "trend_state": [ts.value for ts in trend_states],
+                "vol_state": [vs.value for vs in vol_states],
+                "chop_state": [cs.value for cs in chop_states],
+                "ext_state": [es.value for es in ext_states],
+                # Component values
+                "ma20": ma20,
+                "ma50": trend_details["ma50"],
+                "ma200": trend_details["ma200"],
+                "ma50_slope": trend_details["ma50_slope"],
+                "atr20": vol_details["atr"],
+                "atr_pct": vol_details["atr_pct"],
+                "atr_pct_63": vol_details["atr_pct_63"],
+                "atr_pct_252": vol_details["atr_pct_252"],
+                "chop": chop_details["chop"],
+                "chop_pct_252": chop_details["chop_pct_252"],
+                "ma20_crosses": chop_details["ma20_crosses"],
+                "ext": ext_details["ext"],
+                "last_5_bar_high": last_5_bar_high,
+            },
+            index=data.index,
+        )
+
+        return result
+
+    def _get_state(
+        self,
+        current: pd.Series,
+        previous: Optional[pd.Series],
+        params: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """
+        Extract regime state for rule evaluation.
+
+        Applies hysteresis for stable regime transitions.
+        """
+        regime_str = current.get("regime", "R1")
+        confidence = current.get("regime_confidence", 50)
+
+        # Parse component states
+        trend_state_str = current.get("trend_state", "neutral")
+        vol_state_str = current.get("vol_state", "vol_normal")
+        chop_state_str = current.get("chop_state", "neutral")
+        ext_state_str = current.get("ext_state", "neutral")
+
+        # Convert strings to enums with logging
+        try:
+            regime = MarketRegime(regime_str)
+        except ValueError:
+            logger.warning(f"Invalid regime string '{regime_str}', falling back to R1")
+            regime = MarketRegime.R1_CHOPPY_EXTENDED
+
+        # Detect regime change
+        regime_changed = False
+        previous_regime = None
+        if previous is not None:
+            prev_regime_str = previous.get("regime", "R1")
+            if prev_regime_str != regime_str:
+                regime_changed = True
+                try:
+                    previous_regime = MarketRegime(prev_regime_str)
+                except ValueError:
+                    logger.warning(f"Invalid previous regime string '{prev_regime_str}'")
+                    previous_regime = None
+
+        # Build state dict
+        return {
+            "regime": regime.value,
+            "regime_name": regime.display_name,
+            "confidence": int(confidence) if not pd.isna(confidence) else 50,
+            # Component states
+            "trend_state": trend_state_str,
+            "vol_state": vol_state_str,
+            "chop_state": chop_state_str,
+            "ext_state": ext_state_str,
+            "iv_state": "na",  # IV handled at service level
+            # Component values
+            "components": {
+                "close": self._safe_float(current.get("close")),
+                "ma20": self._safe_float(current.get("ma20")),
+                "ma50": self._safe_float(current.get("ma50")),
+                "ma200": self._safe_float(current.get("ma200")),
+                "ma50_slope": self._safe_float(current.get("ma50_slope")),
+                "atr20": self._safe_float(current.get("atr20")),
+                "atr_pct": self._safe_float(current.get("atr_pct")),
+                "atr_pct_63": self._safe_float(current.get("atr_pct_63")),
+                "atr_pct_252": self._safe_float(current.get("atr_pct_252")),
+                "chop": self._safe_float(current.get("chop")),
+                "chop_pct_252": self._safe_float(current.get("chop_pct_252")),
+                "ma20_crosses": int(current.get("ma20_crosses", 0)),
+                "ext": self._safe_float(current.get("ext")),
+            },
+            # Transition
+            "regime_changed": regime_changed,
+            "previous_regime": previous_regime.value if previous_regime else None,
+        }
+
+    def _compute_candidate_regime(self, state: Dict[str, Any]) -> MarketRegime:
+        """
+        Priority-based regime classification.
+
+        Priority Order (highest to lowest):
+        1. R2 (Risk-Off) - Veto power, always checked first
+        2. R3 (Rebound)  - Only if NOT in active downtrend + structural confirm
+        3. R1 (Choppy)   - Only if NOT in strong trend acceleration
+        4. R0 (Healthy)  - Default when conditions are favorable
+        """
+        close = state["close"]
+        ma20 = state["ma20"]
+        ma50 = state["ma50"]
+        ma200 = state["ma200"]
+        ma50_slope = state["ma50_slope"]
+        last_5_bar_high = state["last_5_bar_high"]
+
+        trend_state = state["trend_state"]
+        vol_state = state["vol_state"]
+        chop_state = state["chop_state"]
+        ext_state = state["ext_state"]
+        iv_state = state.get("iv_state", IVState.NA)
+        is_market_level = state.get("is_market_level", False)
+
+        # Handle NaN values
+        if np.isnan(ma50) or np.isnan(ma200):
+            return MarketRegime.R1_CHOPPY_EXTENDED
+
+        # === R2 CHECK (Highest Priority - Veto) ===
+        r2_condition = (
+            trend_state == TrendState.DOWN
+            or (vol_state == VolState.HIGH and close < ma50)
+            or (iv_state == IVState.HIGH and is_market_level)
+        )
+        if r2_condition:
+            return MarketRegime.R2_RISK_OFF
+
+        # === R3 CHECK (Rebound Window) ===
+        # CRITICAL: Explicit downtrend exclusion + structural confirmation
+        structural_confirm = close > ma20 or close > last_5_bar_high
+
+        r3_condition = (
+            vol_state == VolState.HIGH
+            and ext_state == ExtState.OVERSOLD
+            and trend_state != TrendState.DOWN
+            and close > ma200
+            and (np.isnan(ma50_slope) or ma50_slope > -0.02)
+            and structural_confirm
+        )
+        if r3_condition:
+            return MarketRegime.R3_REBOUND_WINDOW
+
+        # === R1 CHECK (Choppy/Extended) ===
+        is_strong_trend_acceleration = (
+            trend_state == TrendState.UP
+            and not np.isnan(ma50_slope)
+            and ma50_slope > 0.03
+            and chop_state == ChopState.TRENDING
+        )
+
+        r1_condition = trend_state == TrendState.UP and (
+            chop_state == ChopState.CHOPPY
+            or (ext_state == ExtState.OVERBOUGHT and not is_strong_trend_acceleration)
+        )
+        if r1_condition:
+            return MarketRegime.R1_CHOPPY_EXTENDED
+
+        # === R0 CHECK (Healthy Uptrend) ===
+        r0_condition = (
+            trend_state == TrendState.UP
+            and vol_state != VolState.HIGH
+            and chop_state != ChopState.CHOPPY
+        )
+        if r0_condition:
+            return MarketRegime.R0_HEALTHY_UPTREND
+
+        # === FALLBACK ===
+        return MarketRegime.R1_CHOPPY_EXTENDED
+
+    def _compute_confidence(self, state: Dict[str, Any], regime: MarketRegime) -> int:
+        """
+        Compute confidence score (0-100) for the regime classification.
+
+        Confidence is based on how clearly the conditions are met.
+        """
+        confidence = 50  # Base confidence
+
+        trend_state = state["trend_state"]
+        vol_state = state["vol_state"]
+        chop_state = state["chop_state"]
+        ext_state = state["ext_state"]
+
+        if regime == MarketRegime.R0_HEALTHY_UPTREND:
+            # R0: Higher confidence if all conditions strongly met
+            if trend_state == TrendState.UP:
+                confidence += 20
+            if vol_state == VolState.LOW:
+                confidence += 15
+            elif vol_state == VolState.NORMAL:
+                confidence += 10
+            if chop_state == ChopState.TRENDING:
+                confidence += 15
+
+        elif regime == MarketRegime.R1_CHOPPY_EXTENDED:
+            # R1: Moderate confidence
+            if chop_state == ChopState.CHOPPY:
+                confidence += 15
+            if ext_state in (ExtState.OVERBOUGHT, ExtState.SLIGHTLY_HIGH):
+                confidence += 10
+
+        elif regime == MarketRegime.R2_RISK_OFF:
+            # R2: High confidence when conditions are clear
+            if trend_state == TrendState.DOWN:
+                confidence += 25
+            if vol_state == VolState.HIGH:
+                confidence += 20
+
+        elif regime == MarketRegime.R3_REBOUND_WINDOW:
+            # R3: Confidence based on oversold depth and vol spike
+            if ext_state == ExtState.OVERSOLD:
+                confidence += 20
+            if vol_state == VolState.HIGH:
+                confidence += 15
+
+        return min(100, max(0, confidence))
+
+    # Pre-computed valid enum value sets for performance
+    _VALID_TREND_STATES = {e.value for e in TrendState}
+    _VALID_VOL_STATES = {e.value for e in VolState}
+    _VALID_CHOP_STATES = {e.value for e in ChopState}
+    _VALID_EXT_STATES = {e.value for e in ExtState}
+    _VALID_IV_STATES = {e.value for e in IVState}
+
+    @staticmethod
+    def _parse_enum_value(value, enum_class, valid_set, default):
+        """
+        Parse a value into an enum, handling both string and enum inputs.
+
+        Args:
+            value: Input value (string or enum)
+            enum_class: Target enum class (e.g., TrendState)
+            valid_set: Pre-computed set of valid string values
+            default: Default enum value if parsing fails
+
+        Returns:
+            Enum value
+        """
+        if isinstance(value, str):
+            return enum_class(value) if value in valid_set else default
+        return value if value is not None else default
+
+    def update_with_hysteresis(
+        self,
+        symbol: str,
+        state: Dict[str, Any],
+        timestamp: Optional[datetime] = None,
+    ) -> RegimeOutput:
+        """
+        Update regime with proper pending/count hysteresis.
+
+        Use this method for real-time regime updates to get stable transitions.
+        Thread-safe: uses internal lock for regime state access.
+
+        Args:
+            symbol: Symbol being analyzed
+            state: Current state dict from get_state() or flat state dict
+            timestamp: Optional timestamp for the update
+
+        Returns:
+            RegimeOutput with stable regime classification
+        """
+        # Flatten state if components are nested (from get_state())
+        flat_state = self._flatten_state(state)
+
+        # Compute candidate regime (outside lock - pure computation)
+        candidate = self._compute_candidate_regime(flat_state)
+
+        # Thread-safe state access
+        with self._state_lock:
+            # Get or create regime state for this symbol
+            if symbol not in self._regime_states:
+                self._regime_states[symbol] = RegimeState()
+
+            regime_state = self._regime_states[symbol]
+
+            # Save old regime BEFORE applying hysteresis (fixes previous_regime bug)
+            old_regime = regime_state.current_regime
+
+            # Apply hysteresis (creates copy internally)
+            updated_state = self._apply_hysteresis(regime_state, candidate, timestamp)
+            self._regime_states[symbol] = updated_state
+
+        # Build output (outside lock - uses immutable updated_state)
+        regime_changed = updated_state.current_regime != old_regime
+
+        # Convert string states to enums for ComponentStates (using helper)
+        trend_state_val = self._parse_enum_value(
+            flat_state.get("trend_state"), TrendState, self._VALID_TREND_STATES, TrendState.NEUTRAL
+        )
+        vol_state_val = self._parse_enum_value(
+            flat_state.get("vol_state"), VolState, self._VALID_VOL_STATES, VolState.NORMAL
+        )
+        chop_state_val = self._parse_enum_value(
+            flat_state.get("chop_state"), ChopState, self._VALID_CHOP_STATES, ChopState.NEUTRAL
+        )
+        ext_state_val = self._parse_enum_value(
+            flat_state.get("ext_state"), ExtState, self._VALID_EXT_STATES, ExtState.NEUTRAL
+        )
+        iv_state_val = self._parse_enum_value(
+            flat_state.get("iv_state"), IVState, self._VALID_IV_STATES, IVState.NA
+        )
+
+        return RegimeOutput(
+            regime=updated_state.current_regime,
+            regime_name=updated_state.current_regime.display_name,
+            confidence=self._compute_confidence(flat_state, updated_state.current_regime),
+            component_states=ComponentStates(
+                trend_state=trend_state_val,
+                vol_state=vol_state_val,
+                chop_state=chop_state_val,
+                ext_state=ext_state_val,
+                iv_state=iv_state_val,
+            ),
+            component_values=ComponentValues(
+                close=flat_state.get("close", 0.0),
+                ma20=flat_state.get("ma20", 0.0),
+                ma50=flat_state.get("ma50", 0.0),
+                ma200=flat_state.get("ma200", 0.0),
+                ma50_slope=flat_state.get("ma50_slope", 0.0),
+                atr20=flat_state.get("atr20", 0.0),
+                atr_pct=flat_state.get("atr_pct", 0.0),
+                atr_pct_63=flat_state.get("atr_pct_63", 50.0),
+                atr_pct_252=flat_state.get("atr_pct_252", 50.0),
+                chop=flat_state.get("chop", 50.0),
+                chop_pct_252=flat_state.get("chop_pct_252", 50.0),
+                ma20_crosses=flat_state.get("ma20_crosses", 0),
+                ext=flat_state.get("ext", 0.0),
+                last_5_bar_high=flat_state.get("last_5_bar_high", 0.0),
+            ),
+            regime_changed=regime_changed,
+            previous_regime=old_regime if regime_changed else None,
+            bars_in_regime=updated_state.bars_in_current,
+            timestamp=timestamp,
+            symbol=symbol,
+            is_market_level=symbol.upper() in MARKET_BENCHMARKS,
+        )
+
+    def _apply_hysteresis(
+        self,
+        regime_state: RegimeState,
+        candidate: MarketRegime,
+        timestamp: Optional[datetime] = None,
+    ) -> RegimeState:
+        """
+        Apply hysteresis to regime transition.
+
+        Creates a copy of the input state to avoid mutation side effects.
+
+        1. Compute candidate_regime from priority tree
+        2. If candidate != current AND candidate != pending: reset pending
+        3. If candidate == pending: increment pending_count
+        4. If pending_count >= entry_threshold: switch regime
+        5. Exit hysteresis: can't leave current until bars_in_current >= exit_threshold
+        """
+        # Create a copy to avoid mutating the input
+        state = replace(regime_state)
+
+        # === STEP 1: Exit hysteresis check ===
+        if candidate != state.current_regime:
+            exit_threshold = EXIT_HYSTERESIS[state.current_regime]
+            if state.bars_in_current < exit_threshold:
+                # Stay in current regime
+                state.bars_in_current += 1
+                return state
+
+        # === STEP 2: Entry hysteresis (pending/count) ===
+        if candidate != state.current_regime:
+            if candidate != state.pending_regime:
+                # New candidate - reset pending
+                state.pending_regime = candidate
+                state.pending_count = 1
+            else:
+                # Same candidate - increment count
+                state.pending_count += 1
+
+            # Check if candidate confirmed
+            entry_threshold = ENTRY_HYSTERESIS[candidate]
+            if state.pending_count >= entry_threshold:
+                # SWITCH to new regime
+                state.current_regime = candidate
+                state.pending_regime = None
+                state.pending_count = 0
+                state.bars_in_current = 1
+                state.last_regime_change = timestamp
+            else:
+                # Stay in current, waiting for confirmation
+                state.bars_in_current += 1
+        else:
+            # Candidate == current, clear pending
+            state.pending_regime = None
+            state.pending_count = 0
+            state.bars_in_current += 1
+
+        return state
+
+    def _flatten_state(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Flatten state dict by merging nested 'components' into top level.
+
+        The get_state() method returns component values nested under 'components' key,
+        but _compute_candidate_regime() expects them at the top level.
+
+        Args:
+            state: State dict from get_state() or already flat
+
+        Returns:
+            Flat state dict with all component values at top level
+        """
+        flat = dict(state)
+
+        # If components are nested, merge them to top level
+        if "components" in flat:
+            components = flat.pop("components")
+            for key, value in components.items():
+                if key not in flat:  # Don't overwrite existing top-level keys
+                    flat[key] = value
+
+        # Ensure last_5_bar_high has a default
+        if "last_5_bar_high" not in flat:
+            flat["last_5_bar_high"] = flat.get("close", 0.0)
+
+        return flat
+
+    def _safe_float(self, value: Any, default: float = 0.0) -> float:
+        """Safely convert value to float."""
+        if value is None or (isinstance(value, float) and np.isnan(value)):
+            return default
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    def reset_state(self, symbol: Optional[str] = None) -> None:
+        """
+        Reset regime state for a symbol or all symbols.
+
+        Thread-safe: uses internal lock for state access.
+
+        Args:
+            symbol: Symbol to reset, or None to reset all
+        """
+        with self._state_lock:
+            if symbol is None:
+                self._regime_states.clear()
+            elif symbol in self._regime_states:
+                del self._regime_states[symbol]
