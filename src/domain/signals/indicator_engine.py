@@ -12,7 +12,7 @@ import asyncio
 import time
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import datetime, timezone
 from threading import RLock
 from typing import TYPE_CHECKING, Any, Callable, Deque, Dict, List, Optional, Protocol, Tuple
 
@@ -20,7 +20,6 @@ import pandas as pd
 
 from src.domain.events.domain_events import BarCloseEvent, IndicatorUpdateEvent
 from src.domain.events.event_types import EventType
-from src.utils.datetime_utils import now_utc
 from src.utils.logging_setup import get_logger
 
 from .indicators.base import Indicator
@@ -346,7 +345,7 @@ class IndicatorEngine:
 
         # Get latest bar timestamp for the computation
         latest_bar = bars[-1]
-        timestamp: datetime = latest_bar.get("timestamp") or now_utc()
+        timestamp: datetime = latest_bar.get("timestamp") or datetime.now(timezone.utc)
 
         # PERF: Create DataFrame ONCE and share across all indicator threads
         df = pd.DataFrame(bars)

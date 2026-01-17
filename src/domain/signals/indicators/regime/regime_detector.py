@@ -18,14 +18,13 @@ from __future__ import annotations
 
 import threading
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 
-from src.utils.datetime_utils import now_utc
 from src.utils.logging_setup import get_logger
 
 from ...models import SignalCategory
@@ -1069,7 +1068,7 @@ class RegimeDetectorIndicator(IndicatorBase):
         turning_point_output = self._get_turning_point_prediction(symbol, flat_state)
 
         # Use timestamp or current time for output
-        effective_ts = timestamp or now_utc()
+        effective_ts = timestamp or datetime.now(timezone.utc)
 
         return RegimeOutput(
             # Schema & Identity
