@@ -41,6 +41,9 @@ dependencies = [
 
     # Optimization
     "optuna>=4.6.0",           # Hyperparameter optimization framework
+
+    # Verification
+    "jsonschema>=4.20.0",      # JSON Schema validation for contract verification
 ]
 
 [project.optional-dependencies]
