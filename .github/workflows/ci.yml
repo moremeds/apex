@@ -73,8 +73,8 @@ jobs:
 
       - name: Install dependencies (without TA-Lib)
         run: |
-          # Use pip for editable install (more reliable than uv for src layout)
-          pip install -e ".[dev,observability]"
+          # Install in non-editable mode for CI (more reliable)
+          pip install ".[dev,observability]"
           # Ensure TA-Lib is not required for contract tests
           pip uninstall -y TA-Lib 2>/dev/null || true
           # Debug: verify package structure
@@ -139,7 +139,7 @@ jobs:
           python-version: "3.13"
 
       - name: Install Python dependencies
-        run: pip install -e ".[dev,observability]"
+        run: pip install ".[dev,observability]"
 
       - name: Try TA-Lib wheels first (fast)
         id: talib-wheels
@@ -197,7 +197,7 @@ jobs:
           python-version: "3.13"
 
       - name: Install dependencies
-        run: pip install -e ".[dev,observability]"
+        run: pip install ".[dev,observability]"
 
       - name: Run integration tests
         run: |
