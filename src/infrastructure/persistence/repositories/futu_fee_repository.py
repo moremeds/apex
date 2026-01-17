@@ -216,6 +216,17 @@ class FutuFeeRepository(BaseRepository[FutuRawFee]):
             """
             record = await self._db.fetchrow(query, account_id)
 
+        if record is None:
+            return {
+                "total_fees": Decimal(0),
+                "total_commission": Decimal(0),
+                "total_platform_fee": Decimal(0),
+                "total_settlement_fee": Decimal(0),
+                "total_sec_fee": Decimal(0),
+                "total_taf_fee": Decimal(0),
+                "total_stamp_duty": Decimal(0),
+            }
+
         return {
             "total_fees": record["total_fees"] or Decimal(0),
             "total_commission": record["total_commission"] or Decimal(0),

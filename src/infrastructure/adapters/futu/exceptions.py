@@ -48,6 +48,7 @@ def classify_futu_exception(e: Exception) -> FutuError:
     """
     error_str = str(e).lower()
 
+    exc: FutuError
     if "disconnect" in error_str or "connection" in error_str or "socket" in error_str:
         exc = FutuConnectionError(f"Connection error: {e}")
     elif "frequent" in error_str or "rate" in error_str or "too many" in error_str:

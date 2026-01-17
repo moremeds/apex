@@ -427,8 +427,11 @@ class TestEventTypeMapping:
 
     def test_get_event_type_mapping(self):
         """Test that mapping returns expected types."""
+        from src.domain.events.domain_events import MarketDataTickEvent
+
         mapping = get_event_type_mapping()
-        assert mapping[EventType.MARKET_DATA_TICK] == QuoteTick
+        # Note: MARKET_DATA_TICK now uses MarketDataTickEvent, not QuoteTick
+        assert mapping[EventType.MARKET_DATA_TICK] == MarketDataTickEvent
         assert mapping[EventType.MARKET_DATA_BATCH] == BarData
         assert mapping[EventType.ORDER_FILLED] == TradeFill
         assert mapping[EventType.POSITION_UPDATED] == PositionSnapshot
@@ -436,7 +439,10 @@ class TestEventTypeMapping:
 
     def test_validate_event_payload_valid(self):
         """Test validation passes for correct payload type."""
-        tick = QuoteTick(symbol="AAPL", last=150.0)
+        from src.domain.events.domain_events import MarketDataTickEvent
+
+        # Use MarketDataTickEvent instead of QuoteTick for MARKET_DATA_TICK
+        tick = MarketDataTickEvent(symbol="AAPL", bid=150.0, ask=150.10, quality="good")
         assert validate_event_payload(EventType.MARKET_DATA_TICK, tick) is True
 
     def test_validate_event_payload_invalid(self):

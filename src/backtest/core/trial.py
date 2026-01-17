@@ -39,7 +39,7 @@ class TrialSpec(BaseModel):
     # Computed
     trial_id: Optional[str] = Field(default=None, description="Generated trial ID")
 
-    def model_post_init(self, __context) -> None:
+    def model_post_init(self, __context: Any) -> None:
         """Generate trial ID after initialization."""
         if self.trial_id is None:
             self.trial_id = generate_trial_id(

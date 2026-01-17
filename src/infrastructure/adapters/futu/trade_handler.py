@@ -7,14 +7,14 @@ Handles real-time trade notifications from Futu OpenD.
 from __future__ import annotations
 
 import threading
-from typing import Callable
+from typing import Any, Callable
 
 from ....utils.logging_setup import get_logger
 
 logger = get_logger(__name__)
 
 
-def create_trade_handler(on_trade_callback: Callable[[dict], None]):
+def create_trade_handler(on_trade_callback: Callable[[dict], None]) -> Any:
     """
     Factory function to create a Futu trade handler.
 
@@ -45,7 +45,7 @@ def create_trade_handler(on_trade_callback: Callable[[dict], None]):
                 self._callback = callback
                 self._lock = threading.Lock()
 
-            def on_recv_rsp(self, rsp_str):
+            def on_recv_rsp(self, rsp_str: Any) -> None:
                 """
                 Called by Futu SDK when a trade notification is received.
 
@@ -83,8 +83,7 @@ def create_trade_handler(on_trade_callback: Callable[[dict], None]):
                                 )
 
                                 with self._lock:
-                                    if self._callback:
-                                        self._callback(trade_data)
+                                    self._callback(trade_data)
 
                 except Exception as e:
                     logger.error(f"Error processing Futu trade notification: {e}")

@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional, Union
 try:
     import duckdb
 except ImportError:
-    duckdb = None
+    duckdb = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ class DatabaseManager:
     def conn(self) -> "duckdb.DuckDBPyConnection":
         """Get database connection, creating if needed."""
         if self._conn is None:
-            if self.db_path != ":memory:":
+            if self.db_path != ":memory:" and isinstance(self.db_path, Path):
                 self.db_path.parent.mkdir(parents=True, exist_ok=True)
             self._conn = duckdb.connect(str(self.db_path))
         return self._conn
@@ -245,15 +245,16 @@ class DatabaseManager:
         """Execute query with multiple parameter sets."""
         self.conn.executemany(query, params_list)
 
-    def fetchall(self, query: str, params: Optional[tuple] = None) -> List[tuple]:
+    def fetchall(self, query: str, params: Optional[tuple] = None) -> List[tuple[Any, ...]]:
         """Execute query and fetch all results."""
         result = self.execute(query, params)
-        return result.fetchall()
+        return list(result.fetchall())
 
-    def fetchone(self, query: str, params: Optional[tuple] = None) -> Optional[tuple]:
+    def fetchone(self, query: str, params: Optional[tuple] = None) -> Optional[tuple[Any, ...]]:
         """Execute query and fetch one result."""
         result = self.execute(query, params)
-        return result.fetchone()
+        row = result.fetchone()
+        return tuple(row) if row is not None else None
 
     def insert_batch(self, table: str, records: List[Dict[str, Any]]) -> int:
         """
@@ -296,7 +297,8 @@ class DatabaseManager:
             raise FileNotFoundError(f"Parquet file not found: {path}")
 
         result = self.conn.execute(f"INSERT INTO {table} SELECT * FROM read_parquet('{path}')")
-        count = result.fetchone()[0] if result else 0
+        row = result.fetchone() if result else None
+        count: int = int(row[0]) if row else 0
         logger.info(f"Imported {count} records from {path} to {table}")
         return count
 
@@ -310,5 +312,5 @@ class DatabaseManager:
     def __enter__(self) -> "DatabaseManager":
         return self
 
-    def __exit__(self, *args) -> None:
+    def __exit__(self, *args: object) -> None:
         self.close()

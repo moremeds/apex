@@ -256,7 +256,7 @@ class RunMetrics:
         }
 
     @classmethod
-    def from_backtest_result(cls, result) -> "RunMetrics":
+    def from_backtest_result(cls, result: Any) -> "RunMetrics":
         """Create RunMetrics from BacktestResult."""
         return cls(
             total_return=result.performance.total_return,

@@ -232,7 +232,7 @@ class SignalLogger:
             data["logged_at"] = datetime.now().isoformat()
             data["logger_env"] = self.env
 
-            return data
+            return dict(data)
 
         except Exception as e:
             _logger.error(f"Signal serialization failed: {e}")

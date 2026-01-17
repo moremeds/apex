@@ -113,7 +113,7 @@ class UnifiedSignalsView(Container, can_focus=True):
         Binding("h", "toggle_history", "History", show=True),
     ]
 
-    def __init__(self, **kwargs) -> None:
+    def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         # Trading signal cache (unfiltered)
         self._signals: List[Any] = []
@@ -186,7 +186,7 @@ class UnifiedSignalsView(Container, can_focus=True):
             signals_table.signals = signals or []
             signals_table.snapshot = snapshot
         except Exception:
-            self.log.exception("Failed to update risk signals table")
+            self.log.error("Failed to update risk signals table")
 
     # -------------------------------------------------------------------------
     # Public API for Trading Signals (from event bus)
@@ -285,7 +285,7 @@ class UnifiedSignalsView(Container, can_focus=True):
             watchlist = self.query_one("#trading-watchlist", WatchlistPanel)
             watchlist.set_symbols_by_timeframe(symbols_by_timeframe)
         except Exception:
-            self.log.exception("Failed to load watchlist symbols")
+            self.log.error("Failed to load watchlist symbols")
 
     def refresh_view(self) -> None:
         """Refresh trading signals and confluence based on current selection."""
@@ -346,7 +346,7 @@ class UnifiedSignalsView(Container, can_focus=True):
             watchlist = self.query_one("#trading-watchlist", WatchlistPanel)
             watchlist.move_cursor(-1)
         except Exception:
-            self.log.exception("Failed to move up in watchlist")
+            self.log.error("Failed to move up in watchlist")
 
     def action_move_down(self) -> None:
         """Move selection down in watchlist."""
@@ -356,7 +356,7 @@ class UnifiedSignalsView(Container, can_focus=True):
             watchlist = self.query_one("#trading-watchlist", WatchlistPanel)
             watchlist.move_cursor(1)
         except Exception:
-            self.log.exception("Failed to move down in watchlist")
+            self.log.error("Failed to move down in watchlist")
 
     def action_cycle_timeframe(self) -> None:
         """Cycle watchlist timeframe."""
@@ -366,7 +366,7 @@ class UnifiedSignalsView(Container, can_focus=True):
             watchlist = self.query_one("#trading-watchlist", WatchlistPanel)
             watchlist.cycle_timeframe()
         except Exception:
-            self.log.exception("Failed to cycle timeframe")
+            self.log.error("Failed to cycle timeframe")
 
     def action_clear_signals(self) -> None:
         """Clear all trading signals."""
@@ -400,7 +400,7 @@ class UnifiedSignalsView(Container, can_focus=True):
             if panel_id == "trading-panel":
                 self.refresh_view()
         except Exception:
-            self.log.exception("Failed to switch signals panel")
+            self.log.error("Failed to switch signals panel")
 
     def _is_trading_active(self) -> bool:
         """Check if trading panel is currently active."""

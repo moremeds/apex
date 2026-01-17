@@ -17,7 +17,7 @@ import json
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple, cast
 
 import numpy as np
 import pandas as pd
@@ -318,7 +318,7 @@ class TurningPointExperiment:
 
         # Train model
         model = TurningPointModel(
-            model_type=self.config.model_type,
+            model_type=cast(Literal["logistic", "lightgbm"], self.config.model_type),
             confidence_threshold=self.config.confidence_threshold,
         )
 

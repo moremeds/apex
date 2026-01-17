@@ -188,7 +188,7 @@ class MarketAlertDetector:
 
         return alerts
 
-    def reset_state(self):
+    def reset_state(self) -> None:
         """Reset internal state (useful for testing or daily resets)."""
         self._prev_vix = None
         logger.info("Market alert detector state reset")

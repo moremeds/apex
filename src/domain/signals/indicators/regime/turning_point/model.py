@@ -144,14 +144,14 @@ class TurningPointModel:
         self.model_type = model_type
         self.confidence_threshold = confidence_threshold
 
-        self.top_model = None  # For TOP_RISK
-        self.bottom_model = None  # For BOTTOM_RISK
+        self.top_model: Any = None  # For TOP_RISK
+        self.bottom_model: Any = None  # For BOTTOM_RISK
         self.feature_names: List[str] = TurningPointFeatures.feature_names()
         self.is_fitted = False
         self.training_metrics_top: Optional[TrainingMetrics] = None
         self.training_metrics_bottom: Optional[TrainingMetrics] = None
 
-    def _create_model(self):
+    def _create_model(self) -> Any:
         """Create a new model instance."""
         if self.model_type == "logistic":
             from sklearn.linear_model import LogisticRegression
@@ -231,7 +231,7 @@ class TurningPointModel:
 
     def _train_single_model(
         self,
-        model,
+        model: Any,
         X: np.ndarray,
         y: np.ndarray,
         cv: PurgedTimeSeriesSplit,
@@ -347,7 +347,7 @@ class TurningPointModel:
     def _get_top_features(
         self,
         features: TurningPointFeatures,
-        model,
+        model: Any,
         top_k: int = 3,
     ) -> List[Tuple[str, float]]:
         """Get top contributing features for interpretability."""

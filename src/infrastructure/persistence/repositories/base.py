@@ -137,7 +137,8 @@ class BaseRepository(ABC, Generic[T]):
             Total record count.
         """
         query = f"SELECT COUNT(*) FROM {self.table_name}"
-        return await self._db.fetchval(query)
+        result = await self._db.fetchval(query)
+        return int(result) if result is not None else 0
 
     async def exists(self, **conditions: Any) -> bool:
         """
@@ -151,7 +152,8 @@ class BaseRepository(ABC, Generic[T]):
         """
         where_clause, params = self._build_where_clause(conditions)
         query = f"SELECT EXISTS(SELECT 1 FROM {self.table_name} WHERE {where_clause})"
-        return await self._db.fetchval(query, *params)
+        result = await self._db.fetchval(query, *params)
+        return bool(result)
 
     async def find_where(
         self,
@@ -398,4 +400,4 @@ class BaseRepository(ABC, Generic[T]):
             return None
         if isinstance(value, Decimal):
             return float(value)
-        return value
+        return float(value) if value is not None else None

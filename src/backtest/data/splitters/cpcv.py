@@ -76,9 +76,9 @@ class CPCVSplitter:
     """
 
     config: CPCVConfig
-    _trading_calendar: pd.DatetimeIndex = field(default=None, repr=False)
+    _trading_calendar: pd.DatetimeIndex = field(default=None, repr=False)  # type: ignore[assignment]
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self._trading_calendar is None:
             self._trading_calendar = self._generate_default_calendar()
 

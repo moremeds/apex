@@ -568,7 +568,9 @@ class DataValidator:
         lines = ["=" * 60, "Historical Data Validation Report", "=" * 60, ""]
 
         # Group by status
-        by_status = {s: [] for s in ValidationStatus}
+        by_status: Dict[ValidationStatus, List[Tuple[str, str, ValidationResult]]] = {
+            s: [] for s in ValidationStatus
+        }
         for (sym, tf), r in results.items():
             by_status[r.status].append((sym, tf, r))
 

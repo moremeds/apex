@@ -159,6 +159,6 @@ def _format_condition(condition_type: ConditionType, config: Dict[str, Any]) -> 
         return f"exits range [{low}, {high}]"
 
     elif condition_type == ConditionType.CUSTOM:
-        return config.get("description", "custom condition")
+        return str(config.get("description", "custom condition"))
 
     return str(config)

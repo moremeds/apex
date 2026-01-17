@@ -312,13 +312,13 @@ class YahooHistoricalAdapter:
         return self.MAX_HISTORY_DAYS.get(timeframe, 60)
 
 
-def _isna(value) -> bool:
+def _isna(value: object) -> bool:
     """Check if value is NaN/None."""
     if value is None:
         return True
     try:
         import pandas as pd
 
-        return pd.isna(value)
+        return bool(pd.isna(value))
     except (ImportError, TypeError):
         return False

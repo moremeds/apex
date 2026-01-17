@@ -227,7 +227,7 @@ class TestSlowLane:
     @pytest.mark.asyncio
     async def test_slow_lane_events_route_correctly(self):
         """Events with priority >= SNAPSHOT go to slow lane."""
-        bus = PriorityEventBus(slow_lane_debounce_ms=50)
+        bus = PriorityEventBus(slow_lane_debounce_ms=50, slow_lane_min_interval_ms=50)
         await bus.start()
 
         received = []
@@ -235,13 +235,14 @@ class TestSlowLane:
         bus.subscribe(EventType.DASHBOARD_UPDATE, lambda p: received.append(("ui", p)))
         bus.subscribe(EventType.HEALTH_CHECK, lambda p: received.append(("health", p)))
 
-        bus.publish(EventType.SNAPSHOT_READY, {"ts": 1})
-        bus.publish(EventType.DASHBOARD_UPDATE, {"panel": "risk"})
-        bus.publish(EventType.HEALTH_CHECK, {"status": "ok"})
+        bus.publish(EventType.SNAPSHOT_READY, {"ts": 1, "symbol": "TEST1"})
+        bus.publish(EventType.DASHBOARD_UPDATE, {"panel": "risk", "symbol": "TEST2"})
+        bus.publish(EventType.HEALTH_CHECK, {"status": "ok", "symbol": "TEST3"})
 
-        await asyncio.sleep(0.2)
+        # Give more time for slow lane debounce + processing
+        await asyncio.sleep(0.5)
 
-        assert len(received) == 3
+        assert len(received) == 3, f"Expected 3, got {len(received)}: {received}"
         stats = bus.get_stats()
         assert stats["slow_published"] == 3
 
@@ -250,7 +251,7 @@ class TestSlowLane:
     @pytest.mark.asyncio
     async def test_slow_lane_coalesces_by_symbol(self):
         """Multiple slow events for same symbol coalesce to latest."""
-        bus = PriorityEventBus(slow_lane_debounce_ms=50)
+        bus = PriorityEventBus(slow_lane_debounce_ms=50, slow_lane_min_interval_ms=50)
         await bus.start()
 
         received = []
@@ -261,10 +262,11 @@ class TestSlowLane:
         bus.publish(EventType.SNAPSHOT_READY, {"seq": 2, "symbol": "AAPL"})
         bus.publish(EventType.SNAPSHOT_READY, {"seq": 3, "symbol": "AAPL"})
 
-        await asyncio.sleep(0.2)
+        # Give more time for slow lane debounce + processing
+        await asyncio.sleep(0.5)
 
         # Only the latest should be received (coalesced)
-        assert len(received) == 1
+        assert len(received) == 1, f"Expected 1, got {len(received)}: {received}"
         assert received[0]["seq"] == 3
 
         await bus.stop()

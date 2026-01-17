@@ -99,7 +99,7 @@ class CorrelationAnalyzer:
         if not self.enabled:
             return []
 
-        signals = []
+        signals: List[RiskSignal] = []
 
         # Check sector concentration
         concentration_signal = self._check_sector_concentration(snapshot)

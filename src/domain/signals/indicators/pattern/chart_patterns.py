@@ -13,7 +13,7 @@ Note: Simplified detection using price structure analysis.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -66,7 +66,7 @@ class ChartPatternsIndicator(IndicatorBase):
         close = data["close"].values.astype(np.float64)
         n = len(close)
 
-        patterns = [None] * n
+        patterns: List[Optional[str]] = [None] * n
         confidence = np.zeros(n, dtype=np.float64)
 
         for i in range(lookback, n):
@@ -75,8 +75,8 @@ class ChartPatternsIndicator(IndicatorBase):
             window_close = close[i - lookback : i + 1]
 
             # Detect patterns
-            pattern, conf = self._detect_pattern(window_high, window_low, window_close, tolerance)
-            patterns[i] = pattern
+            detected_pattern, conf = self._detect_pattern(window_high, window_low, window_close, tolerance)
+            patterns[i] = detected_pattern
             confidence[i] = conf
 
         return pd.DataFrame({"cp_pattern": patterns, "cp_confidence": confidence}, index=data.index)
@@ -180,6 +180,9 @@ class ChartPatternsIndicator(IndicatorBase):
         reversal_bullish = {"double_bottom", "inverse_head_and_shoulders"}
         continuation = {"ascending_triangle", "descending_triangle", "symmetrical_triangle"}
 
+        pattern_type: Optional[str] = None
+        direction: Optional[str] = None
+
         if pattern in reversal_bearish:
             pattern_type = "reversal"
             direction = "bearish"
@@ -188,14 +191,10 @@ class ChartPatternsIndicator(IndicatorBase):
             direction = "bullish"
         elif pattern in continuation:
             pattern_type = "continuation"
-            direction = (
-                "bullish"
-                if "ascending" in pattern
-                else "bearish" if "descending" in pattern else None
-            )
-        else:
-            pattern_type = None
-            direction = None
+            if "ascending" in pattern:
+                direction = "bullish"
+            elif "descending" in pattern:
+                direction = "bearish"
 
         return {
             "pattern": pattern,

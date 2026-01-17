@@ -131,6 +131,7 @@ python_version = "3.13"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
+explicit_package_bases = true
 exclude = ["legacy/"]
 
 [[tool.mypy.overrides]]

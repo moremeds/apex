@@ -46,12 +46,12 @@ class PollResult:
     @property
     def has_data(self) -> bool:
         """Check if any data was received."""
-        return (
-            bool(self.signals)
-            or self.confluence
-            or self.alignment
-            or self.snapshot
-            or bool(self.deltas)
+        return bool(
+            self.signals
+            or self.confluence is not None
+            or self.alignment is not None
+            or self.snapshot is not None
+            or self.deltas
         )
 
 

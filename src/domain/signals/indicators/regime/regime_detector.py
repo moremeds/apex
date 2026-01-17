@@ -25,6 +25,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
+from src.utils.datetime_utils import now_utc
 from src.utils.logging_setup import get_logger
 
 from ...models import SignalCategory
@@ -908,7 +909,7 @@ class RegimeDetectorIndicator(IndicatorBase):
     _VALID_IV_STATES = {e.value for e in IVState}
 
     @staticmethod
-    def _parse_enum_value(value, enum_class, valid_set, default):
+    def _parse_enum_value(value: Any, enum_class: Any, valid_set: set, default: Any) -> Any:
         """
         Parse a value into an enum, handling both string and enum inputs.
 
@@ -1067,15 +1068,18 @@ class RegimeDetectorIndicator(IndicatorBase):
         # Phase 4: Get turning point prediction
         turning_point_output = self._get_turning_point_prediction(symbol, flat_state)
 
+        # Use timestamp or current time for output
+        effective_ts = timestamp or now_utc()
+
         return RegimeOutput(
             # Schema & Identity
             schema_version="regime_output@1.0",
             symbol=symbol,
-            asof_ts=timestamp,
+            asof_ts=effective_ts,
             bar_interval="1d",
             data_window=DataWindow(
-                start_ts=timestamp,
-                end_ts=timestamp,
+                start_ts=effective_ts,
+                end_ts=effective_ts,
                 bars=1,
             ),
             # Regime Classification (Separated)

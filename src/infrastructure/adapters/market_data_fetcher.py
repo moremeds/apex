@@ -12,7 +12,7 @@ import time
 from dataclasses import dataclass
 from math import isnan
 from threading import Lock
-from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
 
 from ...models.market_data import GreeksSource, MarketData
 from ...models.position import AssetType, Position
@@ -48,7 +48,7 @@ class MarketDataFetcher:
 
     def __init__(
         self,
-        ib,
+        ib: Any,
         data_timeout: float = 5.0,  # Increased from 3.0s for stocks
         option_data_timeout: float = 3.0,  # OPT-003: Reduced from 10s - Greeks typically populate in 2-3s
         poll_interval: float = 0.1,
@@ -69,7 +69,7 @@ class MarketDataFetcher:
             on_price_update: Callback when streaming price updates (symbol, MarketData)
         """
         self.ib = ib
-        self._active_tickers: Dict[str, object] = {}  # symbol -> ticker
+        self._active_tickers: Dict[str, Any] = {}  # symbol -> ticker
         self._ticker_to_symbol: Dict[int, str] = (
             {}
         )  # id(ticker) -> symbol for O(1) streaming lookup
@@ -359,7 +359,7 @@ class MarketDataFetcher:
 
                 # Check if we got valid data
                 if not self._has_valid_price(ticker):
-                    md.quality = md.quality if hasattr(md, "quality") else None
+                    # Mark as data_missing by logging; quality is already on the md object
                     logger.debug(f"Stock {pos.symbol} marked as data_missing (no price data)")
 
                 market_data_list.append(md)
@@ -408,7 +408,7 @@ class MarketDataFetcher:
         # Return final count on timeout
         return sum(1 for t in tickers if self._has_valid_price(t))
 
-    def _has_valid_price(self, ticker) -> bool:
+    def _has_valid_price(self, ticker: Any) -> bool:
         """Check if ticker has valid price data (live or previous close)."""
         if ticker.last and not isnan(ticker.last) and ticker.last > 0:
             return True
@@ -424,7 +424,7 @@ class MarketDataFetcher:
             return True
         return False
 
-    async def _wait_for_ticker_data(self, ticker, timeout: float = 3.0) -> bool:
+    async def _wait_for_ticker_data(self, ticker: Any, timeout: float = 3.0) -> bool:
         """
         Wait for ticker to have valid data.
 
@@ -549,7 +549,7 @@ class MarketDataFetcher:
             )
 
     async def _fetch_option_streaming(
-        self, contracts: List, contract_pos_pairs: List[Tuple]
+        self, contracts: List[Any], contract_pos_pairs: List[Tuple[Any, Position]]
     ) -> List[Optional[MarketData]]:
         """
         Fetch option market data using streaming (reqMktData with Greeks).
@@ -561,7 +561,7 @@ class MarketDataFetcher:
         Returns:
             List of MarketData objects (may contain None for failed requests)
         """
-        market_data_list = []
+        market_data_list: List[Optional[MarketData]] = []
 
         try:
             # NOTE: Do NOT cancel subscriptions here - it causes subscription churn.
@@ -685,7 +685,7 @@ class MarketDataFetcher:
 
         return market_data_list
 
-    def _extract_market_data(self, ticker, pos: Position) -> MarketData:
+    def _extract_market_data(self, ticker: Any, pos: Position) -> MarketData:
         """
         Extract market data from ticker object.
 
@@ -715,7 +715,7 @@ class MarketDataFetcher:
             timestamp=now_utc(),
         )
 
-    def _extract_greeks(self, ticker, md: MarketData, pos: Position) -> None:
+    def _extract_greeks(self, ticker: Any, md: MarketData, pos: Position) -> None:
         """
         Extract Greeks and IV from ticker and populate MarketData object.
 
@@ -748,7 +748,7 @@ class MarketDataFetcher:
                 md.underlying_price = und_price
 
     @staticmethod
-    def _safe_float(value: object) -> Optional[float]:
+    def _safe_float(value: Any) -> Optional[float]:
         """Convert value to float, treating NaN as None."""
         if value is None:
             return None
@@ -780,7 +780,7 @@ class MarketDataFetcher:
         self._streaming_enabled = False
         logger.info("Streaming market data disabled")
 
-    def _on_pending_tickers(self, tickers) -> None:
+    def _on_pending_tickers(self, tickers: Any) -> None:
         """
         Handle streaming ticker updates from IB.
 

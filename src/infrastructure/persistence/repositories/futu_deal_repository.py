@@ -301,13 +301,19 @@ class FutuDealRepository(BaseRepository[FutuRawDeal]):
                 SELECT MAX(create_time) FROM futu_raw_deals
                 WHERE account_id = $1 AND market = $2
             """
-            return await self._db.fetchval(query, account_id, market)
+            result = await self._db.fetchval(query, account_id, market)
         else:
             query = """
                 SELECT MAX(create_time) FROM futu_raw_deals
                 WHERE account_id = $1
             """
-            return await self._db.fetchval(query, account_id)
+            result = await self._db.fetchval(query, account_id)
+
+        if result is None:
+            return None
+        if isinstance(result, datetime):
+            return result
+        return None
 
     async def get_total_volume_by_code(
         self,
@@ -327,7 +333,7 @@ class FutuDealRepository(BaseRepository[FutuRawDeal]):
             Dictionary with 'buy_qty', 'sell_qty', 'net_qty'.
         """
         conditions = ["account_id = $1", "code = $2"]
-        params = [account_id, code]
+        params: List[Any] = [account_id, code]
 
         if start_date:
             conditions.append("create_time >= $3")
@@ -341,6 +347,9 @@ class FutuDealRepository(BaseRepository[FutuRawDeal]):
             WHERE {' AND '.join(conditions)}
         """
         record = await self._db.fetchrow(query, *params)
+
+        if record is None:
+            return {"buy_qty": Decimal(0), "sell_qty": Decimal(0), "net_qty": Decimal(0)}
 
         buy_qty = record["buy_qty"] or Decimal(0)
         sell_qty = record["sell_qty"] or Decimal(0)

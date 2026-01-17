@@ -197,7 +197,7 @@ class RiskSignalEngine:
             "strategy_detector_stats": self.strategy_detector.get_stats(),
         }
 
-    def reset_stats(self):
+    def reset_stats(self) -> None:
         """Reset statistics counters."""
         self._stats = {
             "total_evaluations": 0,

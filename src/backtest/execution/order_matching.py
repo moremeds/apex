@@ -220,6 +220,7 @@ class OrderMatcher:
 
     def _should_fill_reality(self, order: OrderRequest, tick: QuoteTick) -> bool:
         """Check if order should fill using reality pack fill model."""
+        assert self._reality_pack is not None
         fill_model = self._reality_pack.fill_model
 
         order_type_map = {
@@ -310,6 +311,7 @@ class OrderMatcher:
         order_type = order_type_map.get(req.order_type, RealityOrderType.MARKET)
 
         # 1. Simulate fill
+        assert self._reality_pack is not None
         fill_result = self._reality_pack.fill_model.simulate_fill(
             symbol=symbol,
             side=side,

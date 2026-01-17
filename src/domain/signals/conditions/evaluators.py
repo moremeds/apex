@@ -64,11 +64,11 @@ class ThresholdCrossUpEvaluator:
 
         if prev_state is None:
             if config.get("detect_initial", False):
-                return curr_val >= threshold
+                return bool(curr_val >= threshold)
             return False
 
         prev_val = prev_state.get(field, 0)
-        return prev_val < threshold <= curr_val
+        return bool(prev_val < threshold <= curr_val)
 
 
 class ThresholdCrossDownEvaluator:
@@ -95,11 +95,11 @@ class ThresholdCrossDownEvaluator:
 
         if prev_state is None:
             if config.get("detect_initial", False):
-                return curr_val <= threshold
+                return bool(curr_val <= threshold)
             return False
 
         prev_val = prev_state.get(field, 0)
-        return prev_val > threshold >= curr_val
+        return bool(prev_val > threshold >= curr_val)
 
 
 class StateChangeEvaluator:
@@ -159,7 +159,7 @@ class CrossUpEvaluator:
         curr_a = curr_state.get(line_a, 0)
         curr_b = curr_state.get(line_b, 0)
 
-        return prev_a <= prev_b and curr_a > curr_b
+        return bool(prev_a <= prev_b and curr_a > curr_b)
 
 
 class CrossDownEvaluator:
@@ -189,7 +189,7 @@ class CrossDownEvaluator:
         curr_a = curr_state.get(line_a, 0)
         curr_b = curr_state.get(line_b, 0)
 
-        return prev_a >= prev_b and curr_a < curr_b
+        return bool(prev_a >= prev_b and curr_a < curr_b)
 
 
 class RangeEntryEvaluator:
@@ -222,7 +222,7 @@ class RangeEntryEvaluator:
         was_outside = prev_val < lower or prev_val > upper
         is_inside = lower <= curr_val <= upper
 
-        return was_outside and is_inside
+        return bool(was_outside and is_inside)
 
 
 class RangeExitEvaluator:
@@ -255,7 +255,7 @@ class RangeExitEvaluator:
         was_inside = lower <= prev_val <= upper
         is_outside = curr_val < lower or curr_val > upper
 
-        return was_inside and is_outside
+        return bool(was_inside and is_outside)
 
 
 # Singleton instances (stateless, so safe to share)
@@ -268,7 +268,7 @@ _range_entry = RangeEntryEvaluator()
 _range_exit = RangeExitEvaluator()
 
 
-def _build_evaluators_dict():
+def _build_evaluators_dict() -> Dict["ConditionType", ConditionEvaluator]:
     """Build evaluators dict with lazy import to avoid circular dependency."""
     from ..models import ConditionType
 
@@ -301,8 +301,11 @@ class _EvaluatorsProxy:
     def __getitem__(self, key: "ConditionType") -> ConditionEvaluator:
         return get_evaluators()[key]
 
-    def get(self, key: "ConditionType", default=None) -> Optional[ConditionEvaluator]:
-        return get_evaluators().get(key, default)
+    def get(
+        self, key: "ConditionType", default: Optional[ConditionEvaluator] = None
+    ) -> Optional[ConditionEvaluator]:
+        evaluators = get_evaluators()
+        return evaluators.get(key, default)
 
     def __contains__(self, key: "ConditionType") -> bool:
         return key in get_evaluators()

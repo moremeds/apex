@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import time
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Generator, Optional
 
 from opentelemetry import metrics
 
@@ -276,7 +276,7 @@ class RiskMetricsContext:
         self._start = time.perf_counter()
         return self
 
-    def __exit__(self, *args) -> None:
+    def __exit__(self, *args: Any) -> None:
         """Stop timing and record duration."""
         if self._metrics:
             duration_ms = (time.perf_counter() - self._start) * 1000
@@ -284,7 +284,7 @@ class RiskMetricsContext:
 
 
 @contextmanager
-def time_risk_calculation(risk_metrics: Optional[RiskMetrics]):
+def time_risk_calculation(risk_metrics: Optional[RiskMetrics]) -> Generator[None, None, None]:
     """
     Context manager for timing risk calculations.
 

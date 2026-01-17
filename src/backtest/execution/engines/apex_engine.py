@@ -21,7 +21,7 @@ import asyncio
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
@@ -142,7 +142,7 @@ class ApexEngine(BaseEngine):
                 params=spec.params,
             )
 
-    def _run_async_safely(self, spec: RunSpec):
+    def _run_async_safely(self, spec: RunSpec) -> Any:
         """
         Run the async BacktestEngine safely.
 
@@ -183,7 +183,7 @@ class ApexEngine(BaseEngine):
         # Get strategy name from params
         strategy_name = spec.params.get("strategy_name") or spec.params.get("strategy")
 
-        async def run_backtest():
+        async def run_backtest() -> Any:
             engine = BacktestEngine(config)
 
             # Set strategy
@@ -207,7 +207,7 @@ class ApexEngine(BaseEngine):
                     secondary_timeframes=spec.secondary_timeframes,
                 )
             else:
-                feed = create_data_feed(
+                general_feed = create_data_feed(
                     source=self._apex_config.data_source,
                     symbols=config.symbols,
                     start_date=config.start_date,
@@ -215,6 +215,8 @@ class ApexEngine(BaseEngine):
                     streaming=self._apex_config.streaming,
                     bar_size=self._apex_config.bar_size,
                 )
+                engine.set_data_feed(general_feed)
+                return await engine.run()
             engine.set_data_feed(feed)
 
             return await engine.run()
@@ -235,7 +237,7 @@ class ApexEngine(BaseEngine):
     def _convert_result(
         self,
         spec: RunSpec,
-        backtest_result,
+        backtest_result: Any,
         started_at: datetime,
         completed_at: datetime,
         duration: float,

@@ -70,28 +70,28 @@ class SummaryView(Container):
             positions_table = self.query_one("#summary-positions", PositionsTable)
             positions_table.positions = position_risks
         except Exception:
-            self.log.exception("Failed to update positions table")
+            self.log.error("Failed to update positions table")
 
         # Update summary panel
         try:
             summary_panel = self.query_one("#summary-panel", SummaryPanel)
             summary_panel.snapshot = snapshot
         except Exception:
-            self.log.exception("Failed to update summary panel")
+            self.log.error("Failed to update summary panel")
 
         # Update alerts list
         try:
             alerts_list = self.query_one("#summary-alerts", AlertsList)
             alerts_list.alerts = alerts or []
         except Exception:
-            self.log.exception("Failed to update alerts list")
+            self.log.error("Failed to update alerts list")
 
         # Update health bar
         try:
             health_bar = self.query_one("#summary-health", HealthBar)
             health_bar.health = health or []
         except Exception:
-            self.log.exception("Failed to update health bar")
+            self.log.error("Failed to update health bar")
 
     def apply_deltas(self, deltas: Dict[str, "PositionDeltaEvent"]) -> None:
         """
@@ -106,4 +106,4 @@ class SummaryView(Container):
             positions_table = self.query_one("#summary-positions", PositionsTable)
             positions_table.apply_deltas(deltas)
         except Exception:
-            self.log.exception("Failed to apply position deltas")
+            self.log.error("Failed to apply position deltas")

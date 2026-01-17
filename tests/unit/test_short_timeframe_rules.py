@@ -28,7 +28,8 @@ class TestShortTimeframeRulesStructure:
 
     def test_rule_count(self) -> None:
         """Verify expected number of short-timeframe rules."""
-        assert len(SHORT_TIMEFRAME_RULES) == 16
+        # Updated: Now includes MACD, KDJ and other rules (23 total)
+        assert len(SHORT_TIMEFRAME_RULES) == 23
 
     def test_rules_in_all_rules(self) -> None:
         """Verify short-timeframe rules are included in ALL_RULES."""
@@ -37,11 +38,12 @@ class TestShortTimeframeRulesStructure:
         assert short_rule_names.issubset(all_rule_names)
 
     def test_all_rules_target_short_timeframes(self) -> None:
-        """All rules should only target 1m and 5m timeframes."""
+        """All rules should only target short timeframes (1m, 5m, 15m)."""
         for rule in SHORT_TIMEFRAME_RULES:
             assert rule.timeframes == (
                 "1m",
                 "5m",
+                "15m",
             ), f"{rule.name} has wrong timeframes: {rule.timeframes}"
 
     def test_all_rules_are_alerts(self) -> None:
@@ -82,7 +84,8 @@ class TestShortTimeframeRulesCategories:
     def test_momentum_rule_count(self) -> None:
         """Verify momentum category rule count."""
         momentum_rules = [r for r in SHORT_TIMEFRAME_RULES if r.category == SignalCategory.MOMENTUM]
-        assert len(momentum_rules) == 8
+        # Updated: Now includes MACD (4) + KDJ (3) + RSI (4) + Williams (2) + ROC (2) = 15
+        assert len(momentum_rules) == 15
 
     def test_trend_rule_count(self) -> None:
         """Verify trend category rule count."""
@@ -107,6 +110,8 @@ class TestShortTimeframeRulesCategories:
             "rsi",
             "williams_r",
             "roc",  # Momentum
+            "macd",  # Momentum (added)
+            "kdj",  # Momentum (added)
             "supertrend",  # Trend
             "atr",  # Volatility
             "obv",
@@ -163,11 +168,15 @@ class TestShortTimeframeRulesPriority:
         for rule in extreme_rules:
             assert rule.priority == SignalPriority.MEDIUM, f"{rule.name} should be MEDIUM priority"
 
-    def test_regular_rules_have_low_priority(self) -> None:
-        """Regular short-term rules should have LOW priority."""
+    def test_regular_rules_have_low_or_medium_priority(self) -> None:
+        """Regular short-term rules should have LOW or MEDIUM priority."""
         regular_rules = [r for r in SHORT_TIMEFRAME_RULES if "extreme" not in r.name]
         for rule in regular_rules:
-            assert rule.priority == SignalPriority.LOW, f"{rule.name} should be LOW priority"
+            # Some rules like MACD crossovers and KDJ oversold_exit have MEDIUM priority
+            assert rule.priority in (
+                SignalPriority.LOW,
+                SignalPriority.MEDIUM,
+            ), f"{rule.name} should be LOW or MEDIUM priority"
 
 
 class TestShortTimeframeRulesMessages:

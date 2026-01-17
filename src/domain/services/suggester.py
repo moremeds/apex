@@ -33,7 +33,7 @@ class SimpleSuggester:
     MVP scope: diagnosis only (no hedge suggestions).
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize suggester."""
 
     def top_delta_contributors(

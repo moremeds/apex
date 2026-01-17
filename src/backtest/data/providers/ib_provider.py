@@ -176,6 +176,8 @@ class IbBacktestDataProvider:
                 await self._rate_limit_wait()
 
                 # Use existing adapter's fetch_bars method
+                if self._adapter is None:
+                    raise RuntimeError("Adapter not connected")
                 bars = await self._adapter.fetch_bars(
                     symbol=symbol,
                     timeframe=timeframe,

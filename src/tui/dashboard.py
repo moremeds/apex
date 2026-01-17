@@ -24,11 +24,16 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 from .app import ApexApp
 
 if TYPE_CHECKING:
+    from ..application.services.ta_signal_service import TASignalService
+    from ..domain.events.priority_event_bus import PriorityEventBus
+    from ..domain.interfaces.signal_introspection import SignalIntrospectionPort
     from ..domain.interfaces.signal_persistence import SignalPersistencePort
     from ..infrastructure.monitoring import ComponentHealth
     from ..infrastructure.persistence.signal_listener import SignalListener
+    from ..infrastructure.stores.duckdb_coverage_store import DuckDBCoverageStore
     from ..models.risk_signal import RiskSignal
     from ..models.risk_snapshot import RiskSnapshot
+    from ..services.historical_data_service import HistoricalDataService
 
 
 @dataclass
@@ -71,10 +76,10 @@ class TextualDashboard:
         # It will be set to False when the app actually exits
         self._running = True
         self._quit_requested = False
-        self._ta_service = None
-        self._event_loop = None
-        self._historical_service = None
-        self._event_bus = None
+        self._ta_service: Optional["TASignalService"] = None
+        self._event_loop: Optional[asyncio.AbstractEventLoop] = None
+        self._historical_service: Optional["HistoricalDataService"] = None
+        self._event_bus: Optional["PriorityEventBus"] = None
         self._pending_universe: List[str] = []  # Symbols to apply when app starts
 
         # Signal persistence integration
@@ -82,10 +87,10 @@ class TextualDashboard:
         self._signal_listener: Optional["SignalListener"] = None
 
         # Tab 7 (Data) coverage store
-        self._coverage_store = None
+        self._coverage_store: Optional["DuckDBCoverageStore"] = None
 
         # Tab 7 (Intro) signal introspection
-        self._signal_introspection = None
+        self._signal_introspection: Optional["SignalIntrospectionPort"] = None
 
     def start(self) -> None:
         """
@@ -135,10 +140,10 @@ class TextualDashboard:
 
     def set_ta_service(
         self,
-        ta_service,
+        ta_service: Optional["TASignalService"],
         event_loop: asyncio.AbstractEventLoop,
-        historical_service=None,
-        event_bus=None,
+        historical_service: Optional["HistoricalDataService"] = None,
+        event_bus: Optional["PriorityEventBus"] = None,
     ) -> None:
         """
         Inject services for ATR calculation, backtesting, and signal events.
@@ -176,7 +181,9 @@ class TextualDashboard:
         if self._app:
             self._app.set_trading_universe(symbols)
 
-    def set_signal_introspection(self, introspection) -> None:
+    def set_signal_introspection(
+        self, introspection: Optional["SignalIntrospectionPort"]
+    ) -> None:
         """
         Set the signal introspection adapter for Tab 7 Intro view.
 
@@ -189,7 +196,7 @@ class TextualDashboard:
 
     def set_event_bus(
         self,
-        event_bus,
+        event_bus: Optional["PriorityEventBus"],
         event_loop: asyncio.AbstractEventLoop,
     ) -> None:
         """
@@ -249,7 +256,9 @@ class TextualDashboard:
                 self._coverage_store,
             )
 
-    def set_coverage_store(self, coverage_store) -> None:
+    def set_coverage_store(
+        self, coverage_store: Optional["DuckDBCoverageStore"]
+    ) -> None:
         """
         Set coverage store for Tab 7 historical data display.
 
@@ -317,7 +326,7 @@ class TextualDashboard:
         self._quit_requested = True
 
     @property
-    def running(self):
+    def running(self) -> bool:
         return self._running
 
 

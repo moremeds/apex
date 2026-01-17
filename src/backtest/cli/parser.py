@@ -51,7 +51,8 @@ class PositiveFloatAction(argparse.Action):
             return
 
         try:
-            value = float(values)
+            value_str = str(values)
+            value = float(value_str)
             if value <= 0:
                 parser.error(f"{option_string}: value must be positive (got {value})")
             setattr(namespace, self.dest, value)

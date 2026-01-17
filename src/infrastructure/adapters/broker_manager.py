@@ -163,8 +163,9 @@ class BrokerManager(BrokerAdapter):
         results = await asyncio.gather(*fetch_tasks, return_exceptions=True)
 
         for result in results:
-            if isinstance(result, Exception):
+            if isinstance(result, BaseException):
                 continue  # Already logged in _fetch_positions_from_adapter
+            # result is List[Position] at this point
             all_positions.extend(result)
 
         logger.info(f"Fetched {len(all_positions)} total positions from all brokers")

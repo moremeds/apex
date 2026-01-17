@@ -956,7 +956,8 @@ class RegimeOutput:
                 priority=rt_data.get("priority", 0),
                 threshold_info=parse_threshold_info(rt_data.get("threshold_info")),
                 failed_conditions=[
-                    parse_threshold_info(fc) for fc in rt_data.get("failed_conditions", []) if fc
+                    ti for fc in rt_data.get("failed_conditions", [])
+                    if fc and (ti := parse_threshold_info(fc)) is not None
                 ],
             )
 

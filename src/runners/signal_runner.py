@@ -25,7 +25,10 @@ import signal
 import sys
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, cast
+
+if TYPE_CHECKING:
+    from ..domain.interfaces.event_bus import EventBus
 
 import pandas as pd
 
@@ -120,7 +123,7 @@ class SignalRunner:
             from config.config_manager import ConfigManager
 
             config = ConfigManager().load()
-            display_tz = config.display.get("timezone", "Asia/Hong_Kong")
+            display_tz = config.display.timezone if config.display else "Asia/Hong_Kong"
         except Exception as e:
             logger.warning(f"Failed to load config for display timezone: {e}")
             display_tz = "Asia/Hong_Kong"
@@ -135,8 +138,9 @@ class SignalRunner:
             self._persistence = await self._create_persistence()
 
         # Create TASignalService
+        # Cast PriorityEventBus to EventBus interface (runtime compatible)
         self._service = TASignalService(
-            event_bus=self._event_bus,
+            event_bus=cast("EventBus", self._event_bus),
             persistence=self._persistence,
             timeframes=self.config.timeframes,
             max_workers=self.config.max_workers,
@@ -148,7 +152,7 @@ class SignalRunner:
         await self._service.start()
         logger.info(f"SignalRunner initialized: timeframes={self.config.timeframes}")
 
-    async def _create_persistence(self):
+    async def _create_persistence(self) -> Any:
         """Create persistence layer if database is available."""
         try:
             from config.config_manager import ConfigManager
@@ -260,6 +264,8 @@ class SignalRunner:
             print("Using Yahoo Finance for historical data (IB unavailable)")
 
         # Create bar preloader with indicator engine from TASignalService
+        assert self._service is not None, "TASignalService not initialized"
+        assert self._service._indicator_engine is not None, "IndicatorEngine not initialized"
         bar_preloader = BarPreloader(
             historical_data_manager=historical_manager,
             indicator_engine=self._service._indicator_engine,
@@ -318,7 +324,13 @@ class SignalRunner:
         Returns:
             Exit code (0 for success).
         """
+        from datetime import datetime as dt
+
         from ..domain.events.domain_events import BarCloseEvent
+
+        # Ensure service and event bus are initialized
+        assert self._service is not None, "TASignalService not initialized"
+        assert self._event_bus is not None, "EventBus not initialized"
 
         print("=" * 60)
         print("SIGNAL BACKFILL")
@@ -364,11 +376,14 @@ class SignalRunner:
                         break
 
                     # Convert timestamp string to datetime if needed
-                    timestamp = bar_dict.get("timestamp")
-                    if isinstance(timestamp, str):
-                        from datetime import datetime as dt
-
-                        timestamp = dt.fromisoformat(timestamp.replace("Z", "+00:00"))
+                    raw_timestamp = bar_dict.get("timestamp")
+                    if isinstance(raw_timestamp, str):
+                        timestamp = dt.fromisoformat(raw_timestamp.replace("Z", "+00:00"))
+                    elif isinstance(raw_timestamp, dt):
+                        timestamp = raw_timestamp
+                    else:
+                        # Skip bars without valid timestamps
+                        continue
 
                     bar_event = BarCloseEvent(
                         symbol=symbol,
@@ -487,8 +502,9 @@ class SignalRunner:
 
     def _setup_signal_handlers(self) -> None:
         """Set up signal handlers for graceful shutdown."""
+        from types import FrameType
 
-        def handle_signal(signum, frame):
+        def handle_signal(signum: int, frame: Optional[FrameType]) -> None:
             logger.info(f"Received signal {signum}, shutting down...")
             self._running = False
 
@@ -557,7 +573,7 @@ class SignalRunner:
         # Compute indicators on DataFrames
         indicators = (
             list(self._service._indicator_engine._indicators)
-            if self._service._indicator_engine
+            if self._service is not None and self._service._indicator_engine is not None
             else []
         )
         for key, df in data.items():
@@ -703,7 +719,7 @@ Examples:
     return parser
 
 
-async def main():
+async def main() -> None:
     """Main entry point."""
     parser = create_parser()
     args = parser.parse_args()

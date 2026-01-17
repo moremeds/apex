@@ -399,8 +399,9 @@ class YahooFinanceAdapter(MarketDataProvider):
             # Now get from cache
             with self._lock:
                 for symbol in to_fetch:
-                    if symbol in self._cache and self._cache[symbol].beta is not None:
-                        result[symbol] = self._cache[symbol].beta
+                    cached_beta = self._cache.get(symbol)
+                    if cached_beta is not None and cached_beta.beta is not None:
+                        result[symbol] = cached_beta.beta
                     else:
                         result[symbol] = self.DEFAULT_BETA
         else:

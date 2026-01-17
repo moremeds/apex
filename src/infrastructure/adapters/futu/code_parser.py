@@ -5,14 +5,14 @@ Parses Futu code formats to extract asset details.
 """
 
 import re
-from typing import Optional, Tuple
+from typing import Literal, Optional, Tuple
 
 from ....models.position import AssetType
 
 
 def parse_futu_code(
     code: str,
-) -> Tuple[AssetType, str, str, Optional[str], Optional[float], Optional[str]]:
+) -> Tuple[AssetType, str, str, Optional[str], Optional[float], Optional[Literal["C", "P"]]]:
     """
     Parse Futu security code to extract asset details.
 
@@ -41,7 +41,8 @@ def parse_futu_code(
     if match:
         underlying = match.group(1)
         date_str = match.group(2)  # YYMMDD
-        right = match.group(3)  # C or P
+        right_str = match.group(3)  # C or P
+        right: Optional[Literal["C", "P"]] = "C" if right_str == "C" else "P"
         strike_raw = match.group(4)
 
         # Convert YYMMDD to YYYYMMDD

@@ -12,7 +12,7 @@ Uses reserved execution client ID.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
 
 from ....domain.events.domain_events import OrderUpdate, TradeFill
 from ....domain.interfaces.event_bus import EventType
@@ -23,6 +23,9 @@ from ....domain.interfaces.execution_provider import (
 )
 from ....utils.logging_setup import get_logger
 from .base import IbBaseAdapter
+
+if TYPE_CHECKING:
+    from ib_async import LimitOrder, MarketOrder, Option, Stock, StopLimitOrder, StopOrder, Trade
 
 logger = get_logger(__name__)
 
@@ -42,7 +45,7 @@ class IbExecutionAdapter(IbBaseAdapter, ExecutionProvider):
 
     ADAPTER_TYPE = "execution"
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         """Initialize execution adapter."""
         super().__init__(*args, **kwargs)
 
@@ -51,7 +54,7 @@ class IbExecutionAdapter(IbBaseAdapter, ExecutionProvider):
         self._fill_callback: Optional[Callable[[TradeFill], None]] = None
 
         # Risk controls
-        self._trading_enabled = True
+        self._trading_enabled: bool = True
         self._disable_reason: str = ""
         self._max_order_size: Optional[float] = None
         self._max_position_sizes: Dict[str, float] = {}
@@ -115,6 +118,7 @@ class IbExecutionAdapter(IbBaseAdapter, ExecutionProvider):
             from ib_async import LimitOrder, MarketOrder, Option, Stock, StopLimitOrder, StopOrder
 
             # Create contract
+            contract: Union[Option, Stock]
             if request.asset_type == "OPTION":
                 expiry = self.format_expiry_for_ib(request.expiry)
                 if not expiry:
@@ -122,6 +126,12 @@ class IbExecutionAdapter(IbBaseAdapter, ExecutionProvider):
                         success=False,
                         message=f"Invalid expiry: {request.expiry}",
                         error_code="INVALID_EXPIRY",
+                    )
+                if request.strike is None or request.right is None:
+                    return OrderResult(
+                        success=False,
+                        message="Strike and right are required for option orders",
+                        error_code="MISSING_OPTION_PARAMS",
                     )
                 contract = Option(
                     symbol=request.underlying or request.symbol,
@@ -136,12 +146,19 @@ class IbExecutionAdapter(IbBaseAdapter, ExecutionProvider):
                 contract = Stock(request.symbol, "SMART", currency="USD")
 
             # Qualify contract
+            if self.ib is None:
+                return OrderResult(
+                    success=False,
+                    message="Not connected to IB",
+                    error_code="NOT_CONNECTED",
+                )
             await self.ib.qualifyContractsAsync(contract)
 
             # Create order
             action = "BUY" if request.side == "BUY" else "SELL"
             quantity = abs(request.quantity)
 
+            ib_order: Union[MarketOrder, LimitOrder, StopOrder, StopLimitOrder]
             if request.order_type == "MARKET":
                 ib_order = MarketOrder(action, quantity)
             elif request.order_type == "LIMIT":
@@ -248,6 +265,14 @@ class IbExecutionAdapter(IbBaseAdapter, ExecutionProvider):
         """Cancel an open order."""
         await self.ensure_connected()
 
+        if self.ib is None:
+            return OrderResult(
+                success=False,
+                order_id=order_id,
+                message="Not connected to IB",
+                error_code="NOT_CONNECTED",
+            )
+
         try:
             # Find the trade object
             for trade in self.ib.trades():
@@ -280,7 +305,10 @@ class IbExecutionAdapter(IbBaseAdapter, ExecutionProvider):
         """Cancel all open orders."""
         await self.ensure_connected()
 
-        results = []
+        if self.ib is None:
+            return []
+
+        results: List[OrderResult] = []
         try:
             open_orders = await self.ib.reqOpenOrdersAsync()
 
@@ -324,6 +352,14 @@ class IbExecutionAdapter(IbBaseAdapter, ExecutionProvider):
     ) -> OrderResult:
         """Modify an existing order."""
         await self.ensure_connected()
+
+        if self.ib is None:
+            return OrderResult(
+                success=False,
+                order_id=order_id,
+                message="Not connected to IB",
+                error_code="NOT_CONNECTED",
+            )
 
         try:
             for trade in self.ib.trades():
@@ -370,6 +406,9 @@ class IbExecutionAdapter(IbBaseAdapter, ExecutionProvider):
         """Get order status."""
         await self.ensure_connected()
 
+        if self.ib is None:
+            return None
+
         for trade in self.ib.trades():
             if str(trade.order.orderId) == order_id:
                 return self._trade_to_order_update(trade)
@@ -379,13 +418,18 @@ class IbExecutionAdapter(IbBaseAdapter, ExecutionProvider):
         """Get all open orders."""
         await self.ensure_connected()
 
+        if self.ib is None:
+            return []
+
         open_trades = await self.ib.reqOpenOrdersAsync()
-        orders = []
+        orders: List[OrderUpdate] = []
 
         for trade in open_trades:
             if symbol and trade.contract.symbol != symbol:
                 continue
-            orders.append(self._trade_to_order_update(trade))
+            order_update = self._trade_to_order_update(trade)
+            if order_update is not None:
+                orders.append(order_update)
 
         return orders
 
@@ -397,13 +441,18 @@ class IbExecutionAdapter(IbBaseAdapter, ExecutionProvider):
         """Get historical orders."""
         await self.ensure_connected()
 
+        if self.ib is None:
+            return []
+
         completed = await self.ib.reqCompletedOrdersAsync(apiOnly=False)
-        orders = []
+        orders: List[OrderUpdate] = []
 
         for trade in completed:
             if symbol and trade.contract.symbol != symbol:
                 continue
-            orders.append(self._trade_to_order_update(trade))
+            order_update = self._trade_to_order_update(trade)
+            if order_update is not None:
+                orders.append(order_update)
 
         return orders
 
@@ -420,6 +469,9 @@ class IbExecutionAdapter(IbBaseAdapter, ExecutionProvider):
         """Get trade fills."""
         await self.ensure_connected()
 
+        if self.ib is None:
+            return []
+
         try:
             from ib_async import ExecutionFilter
 
@@ -429,7 +481,7 @@ class IbExecutionAdapter(IbBaseAdapter, ExecutionProvider):
             exec_filter.clientId = self.client_id
 
             fills = await self.ib.reqExecutionsAsync(exec_filter)
-            result = []
+            result: List[TradeFill] = []
 
             for fill in fills:
                 if order_id and str(fill.execution.orderId) != order_id:
@@ -459,10 +511,13 @@ class IbExecutionAdapter(IbBaseAdapter, ExecutionProvider):
         """Set fill callback."""
         self._fill_callback = callback
 
-    def _on_order_status(self, trade) -> None:
+    def _on_order_status(self, trade: Any) -> None:
         """Handle IB order status event."""
         try:
             order_update = self._trade_to_order_update(trade)
+
+            if order_update is None:
+                return
 
             if self._order_callback:
                 self._order_callback(order_update)
@@ -479,7 +534,7 @@ class IbExecutionAdapter(IbBaseAdapter, ExecutionProvider):
         except Exception as e:
             logger.error(f"Error handling order status: {e}")
 
-    def _on_exec_details(self, trade, fill) -> None:
+    def _on_exec_details(self, trade: Any, fill: Any) -> None:
         """Handle IB execution details event."""
         try:
             trade_fill = self._fill_to_trade_fill(fill)
@@ -535,7 +590,7 @@ class IbExecutionAdapter(IbBaseAdapter, ExecutionProvider):
     # Converters
     # -------------------------------------------------------------------------
 
-    def _trade_to_order_update(self, trade) -> Optional[OrderUpdate]:
+    def _trade_to_order_update(self, trade: Any) -> Optional[OrderUpdate]:
         """Convert IB trade to OrderUpdate domain event."""
         contract = trade.contract
         order = trade.order
@@ -575,7 +630,7 @@ class IbExecutionAdapter(IbBaseAdapter, ExecutionProvider):
             timestamp=datetime.now(),
         )
 
-    def _fill_to_trade_fill(self, fill) -> Optional[TradeFill]:
+    def _fill_to_trade_fill(self, fill: Any) -> Optional[TradeFill]:
         """Convert IB fill to TradeFill domain event."""
         try:
             execution = fill.execution

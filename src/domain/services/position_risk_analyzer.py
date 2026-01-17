@@ -84,7 +84,7 @@ class PositionRiskAnalyzer:
         self._update_max_profit(position, pnl_pct)
 
         # Run all checks
-        signals = []
+        signals: List[RiskSignal] = []
         for check_fn in [
             lambda: self._check_stop_loss(position, pnl_pct, pos_risk.mark_price),
             lambda: self._check_take_profit(position, pnl_pct, pos_risk.mark_price),

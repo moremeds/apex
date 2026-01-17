@@ -13,7 +13,7 @@ Layout:
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from textual.app import ComposeResult
 from textual.message import Message
@@ -57,7 +57,7 @@ class WatchlistPanel(Widget):
     selected_symbol: reactive[Optional[str]] = reactive(None, init=False)
     selected_timeframe: reactive[str] = reactive("1d", init=False)
 
-    def __init__(self, **kwargs) -> None:
+    def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         # Universe map: timeframe -> symbols
         self._symbols_by_timeframe: Dict[str, List[str]] = {}
@@ -183,7 +183,7 @@ class WatchlistPanel(Widget):
         """Handle row highlight changes (cursor movement)."""
         self._handle_row_event(event.row_key)
 
-    def _handle_row_event(self, row_key) -> None:
+    def _handle_row_event(self, row_key: Any) -> None:
         """Process row selection/highlight event."""
         if row_key is None:
             return

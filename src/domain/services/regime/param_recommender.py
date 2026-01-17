@@ -56,7 +56,7 @@ class VolProxyConfig:
         def percentile_score(x: pd.Series) -> float:
             if len(x) < 2 or x.isna().all():
                 return 50.0
-            return stats.percentileofscore(x.dropna(), x.iloc[-1])
+            return float(stats.percentileofscore(x.dropna(), x.iloc[-1]))
 
         return rolling_stdev.rolling(self.reference_window).apply(percentile_score, raw=False)
 

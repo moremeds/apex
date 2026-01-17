@@ -299,7 +299,7 @@ def generate_trial_id(
     }
     # Include trial_index if provided (Bayesian can suggest duplicates)
     if trial_index is not None:
-        content["trial_index"] = trial_index
+        content["trial_index"] = trial_index  # type: ignore[assignment]
 
     json_str = canonical_json(content)
     hash_str = content_hash(json_str)
@@ -337,7 +337,7 @@ def generate_run_id(
     }
     # Include is_train if provided (disambiguates IS vs OOS runs)
     if is_train is not None:
-        content["is_train"] = is_train
+        content["is_train"] = is_train  # type: ignore[assignment]
 
     json_str = canonical_json(content)
     hash_str = content_hash(json_str)

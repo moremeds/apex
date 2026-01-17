@@ -14,7 +14,7 @@ Widget handles only rendering and UI state.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 
 from textual.app import ComposeResult
 from textual.reactive import reactive
@@ -41,7 +41,7 @@ class IndicatorStatusPanel(Widget):
     # Reactive data - list of indicator summaries with category
     summary: reactive[List[Dict]] = reactive(list, init=False)
 
-    def __init__(self, **kwargs) -> None:
+    def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         # ViewModel for data transformation
         self._view_model = IndicatorStatusViewModel()

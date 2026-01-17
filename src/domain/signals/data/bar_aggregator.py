@@ -221,8 +221,8 @@ class BarAggregator:
         if isinstance(tick, MarketDataTickEvent):
             return tick.symbol
         if isinstance(tick, dict):
-            return tick.get("symbol", "")
-        return getattr(tick, "symbol", "")
+            return str(tick.get("symbol", ""))
+        return str(getattr(tick, "symbol", ""))
 
     @staticmethod
     def _extract_timestamp(tick: Any) -> datetime:

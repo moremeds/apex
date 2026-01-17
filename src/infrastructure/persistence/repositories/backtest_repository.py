@@ -199,6 +199,19 @@ class BacktestRepository(BaseRepository[Backtest]):
         """
         record = await self._db.fetchrow(query, strategy)
 
+        if record is None:
+            return {
+                "strategy": strategy,
+                "run_count": 0,
+                "avg_return": None,
+                "avg_sharpe": None,
+                "avg_drawdown": None,
+                "avg_win_rate": None,
+                "best_sharpe": None,
+                "best_drawdown": None,
+                "best_return": None,
+            }
+
         return {
             "strategy": strategy,
             "run_count": record["run_count"] or 0,

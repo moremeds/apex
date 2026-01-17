@@ -11,6 +11,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, Optional, Union
 
+import pandas as pd
+
 from ....models.order import Order, OrderSide, OrderSource, OrderStatus, OrderType, Trade
 from ....models.position import AssetType, Position, PositionSource
 from ....utils.logging_setup import get_logger
@@ -72,7 +74,7 @@ def _parse_timestamp(ts_value: Any) -> Optional[datetime]:
     return parse_futu_timestamp(ts_value)
 
 
-def convert_position(row, acc_id: Optional[int] = None) -> Optional[Position]:
+def convert_position(row: pd.Series, acc_id: Optional[int] = None) -> Optional[Position]:
     """
     Convert Futu position row to internal Position model.
 
@@ -116,7 +118,7 @@ def convert_position(row, acc_id: Optional[int] = None) -> Optional[Position]:
         return None
 
 
-def convert_order(row, acc_id: Optional[int] = None) -> Optional[Order]:
+def convert_order(row: pd.Series, acc_id: Optional[int] = None) -> Optional[Order]:
     """
     Convert Futu order row to internal Order model.
 

@@ -234,9 +234,9 @@ class WalkForwardOptimizer:
 
         Returns Series of regime labels indexed by date.
         """
-        from src.domain.signals.indicators.regime.regime_detector import RegimeDetector
+        from src.domain.signals.indicators.regime.regime_detector import RegimeDetectorIndicator
 
-        detector = RegimeDetector()
+        detector = RegimeDetectorIndicator()
 
         # Override default params
         for key, value in params.items():
@@ -252,9 +252,10 @@ class WalkForwardOptimizer:
                 continue
 
             try:
-                result = detector.detect(row)
-                if result:
-                    regimes.append(result.regime.value)
+                result = detector.calculate(row, params)
+                if not result.empty and "regime" in result.columns:
+                    regime_val = result["regime"].iloc[-1]
+                    regimes.append(regime_val)
                     dates.append(ohlcv.index[idx])
             except Exception:
                 continue
@@ -343,7 +344,7 @@ class WalkForwardOptimizer:
 
         Uses heuristics to map objective performance to parameter adjustments.
         """
-        changes = {}
+        changes: Dict[str, float] = {}
 
         for obj_result in objective_result.objective_results:
             if obj_result.name == "regime_stability":
@@ -373,7 +374,7 @@ class WalkForwardOptimizer:
                             )
 
         # Clamp changes to max allowed
-        for param, change in changes.items():
+        for param, change in list(changes.items()):
             max_change = self.MAX_CHANGE.get(param, 5.0)
             changes[param] = max(-max_change, min(max_change, change))
 

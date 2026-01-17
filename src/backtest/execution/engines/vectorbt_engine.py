@@ -124,7 +124,7 @@ class VectorBTEngine(BaseEngine):
         # Lazy import: "src.domain.strategy.signals.ma_cross:MACrossSignalGenerator"
         module_path, class_name = signals_path.rsplit(":", 1)
         module = import_module(module_path)
-        return getattr(module, class_name)
+        return getattr(module, class_name)  # type: ignore[no-any-return]
 
     def run(
         self,
@@ -226,7 +226,7 @@ class VectorBTEngine(BaseEngine):
 
             completed_at = datetime.now()
             return RunResult(
-                run_id=spec.run_id,
+                run_id=spec.run_id or "",
                 trial_id=spec.trial_id,
                 experiment_id=spec.experiment_id or "",
                 symbol=spec.symbol,
@@ -422,7 +422,7 @@ class VectorBTEngine(BaseEngine):
                 col_name = f"param_{i}"
                 all_entries[col_name] = entries
                 all_exits[col_name] = exits
-                spec_map[col_name] = (idx, spec)
+                spec_map[col_name] = (idx, spec, "")  # Empty string for no error
             except Exception as e:
                 # Store error for later
                 spec_map[f"error_{i}"] = (idx, spec, str(e))
@@ -472,8 +472,8 @@ class VectorBTEngine(BaseEngine):
         completed_at = datetime.now()
 
         for col_name, value in spec_map.items():
+            idx, spec, error_msg = value
             if col_name.startswith("error_"):
-                idx, spec, error_msg = value
                 results.append(
                     (
                         idx,
@@ -483,7 +483,6 @@ class VectorBTEngine(BaseEngine):
                     )
                 )
             else:
-                idx, spec = value
                 try:
                     # Extract metrics for this specific column
                     col_pf = pf[col_name] if hasattr(pf, "__getitem__") else pf
@@ -493,7 +492,7 @@ class VectorBTEngine(BaseEngine):
                         (
                             idx,
                             RunResult(
-                                run_id=spec.run_id,
+                                run_id=spec.run_id or "",
                                 trial_id=spec.trial_id,
                                 experiment_id=spec.experiment_id or "",
                                 symbol=spec.symbol,
@@ -555,7 +554,7 @@ class VectorBTEngine(BaseEngine):
 
                 results.append(
                     RunResult(
-                        run_id=spec.run_id,
+                        run_id=spec.run_id or "",
                         trial_id=spec.trial_id,
                         experiment_id=spec.experiment_id or "",
                         symbol=spec.symbol,
@@ -579,7 +578,7 @@ class VectorBTEngine(BaseEngine):
 
         return results
 
-    def _extract_metrics(self, pf, data: pd.DataFrame) -> RunMetrics:
+    def _extract_metrics(self, pf: Any, data: pd.DataFrame) -> RunMetrics:
         """
         Extract comprehensive metrics from VectorBT portfolio.
 
@@ -644,7 +643,7 @@ class VectorBTEngine(BaseEngine):
         except Exception:
             return RunMetrics()
 
-    def _extract_trades(self, pf) -> List[Trade]:
+    def _extract_trades(self, pf: Any) -> List[Trade]:
         """
         Extract trade records from VectorBT portfolio.
 
@@ -696,7 +695,7 @@ class VectorBTEngine(BaseEngine):
             return 0.0
 
         # Annualize
-        return (mean_return * 252) / (downside_std * np.sqrt(252))
+        return float((mean_return * 252) / (downside_std * np.sqrt(252)))
 
     def _filter_date_range(self, data: pd.DataFrame, start: date, end: date) -> pd.DataFrame:
         """Filter DataFrame to date range."""
@@ -714,7 +713,7 @@ class VectorBTEngine(BaseEngine):
     ) -> RunResult:
         """Create an error RunResult."""
         return RunResult(
-            run_id=spec.run_id,
+            run_id=spec.run_id or "",
             trial_id=spec.trial_id,
             experiment_id=spec.experiment_id or "",
             symbol=spec.symbol,

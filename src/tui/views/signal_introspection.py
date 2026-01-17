@@ -15,7 +15,7 @@ Keyboard shortcuts:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional, Union
 
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -49,7 +49,7 @@ class SignalIntrospectionView(Container, can_focus=True):
         Binding("m", "toggle_trace", "Trace", show=True),
     ]
 
-    def __init__(self, **kwargs) -> None:
+    def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._introspection: Optional["SignalIntrospectionPort"] = None
         self._selected_symbol: Optional[str] = None

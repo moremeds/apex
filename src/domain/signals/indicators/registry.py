@@ -84,6 +84,9 @@ class IndicatorRegistry:
             return 0
 
         discovered = 0
+        if package.__file__ is None:
+            logger.warning(f"Package {package_name} has no __file__ attribute")
+            return 0
         package_path = Path(package.__file__).parent
 
         for module_info in pkgutil.iter_modules([str(package_path)]):

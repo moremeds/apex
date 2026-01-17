@@ -180,8 +180,8 @@ class TASignalRepository(SignalPersistencePort):
             TradingSignal,
         )
 
-        conditions = []
-        params = []
+        conditions: List[str] = []
+        params: List[Any] = []
         param_idx = 1
 
         if symbol:
@@ -248,7 +248,7 @@ class TASignalRepository(SignalPersistencePort):
         )
 
         conditions = ["time > $1"]
-        params = [since]
+        params: List[Any] = [since]
         param_idx = 2
 
         if symbol:
@@ -335,7 +335,7 @@ class TASignalRepository(SignalPersistencePort):
     ) -> List[Dict[str, Any]]:
         """Retrieve indicator history for charting."""
         conditions = ["symbol = $1", "timeframe = $2", "indicator = $3"]
-        params = [symbol, timeframe, indicator]
+        params: List[Any] = [symbol, timeframe, indicator]
         param_idx = 4
 
         if start:
@@ -443,7 +443,7 @@ class TASignalRepository(SignalPersistencePort):
     ) -> List[Dict[str, Any]]:
         """Retrieve confluence score history."""
         conditions = ["symbol = $1", "timeframe = $2"]
-        params = [symbol, timeframe]
+        params: List[Any] = [symbol, timeframe]
         param_idx = 3
 
         if start:
@@ -492,7 +492,7 @@ class TASignalRepository(SignalPersistencePort):
     ) -> Dict[str, int]:
         """Get count of signals grouped by indicator."""
         conditions = []
-        params = []
+        params: List[Any] = []
         param_idx = 1
 
         if since:

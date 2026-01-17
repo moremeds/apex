@@ -87,9 +87,9 @@ class VWAPIndicator(IndicatorBase):
                 prev_date = current_date
         else:
             # Single session / no reset - simple cumulative
-            cum_tp_vol = np.cumsum(tp * volume)
-            cum_vol = np.cumsum(volume)
-            vwap = np.where(cum_vol != 0, cum_tp_vol / cum_vol, np.nan)
+            cum_tp_vol_arr = np.cumsum(tp * volume)
+            cum_vol_arr = np.cumsum(volume)
+            vwap = np.where(cum_vol_arr != 0, cum_tp_vol_arr / cum_vol_arr, np.nan)
 
         return pd.DataFrame({"vwap": vwap, "vwap_close": close}, index=data.index)
 

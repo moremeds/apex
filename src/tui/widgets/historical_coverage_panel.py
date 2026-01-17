@@ -12,7 +12,7 @@ Layout:
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 
 from textual.app import ComposeResult
 from textual.reactive import reactive
@@ -61,7 +61,7 @@ class HistoricalCoveragePanel(Widget):
     # Reactive data
     coverage_data: reactive[Dict[str, List[Dict]]] = reactive(dict, init=False)
 
-    def __init__(self, **kwargs) -> None:
+    def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         # Track expanded symbols
         self._expanded: Set[str] = set()
@@ -167,10 +167,10 @@ class HistoricalCoveragePanel(Widget):
             symbol_label = f"[bold]{symbol}[/] ({tf_count} tf)"
 
             # Date range across all timeframes
-            all_earliest = [r.get("earliest") for r in records if r.get("earliest")]
-            all_latest = [r.get("latest") for r in records if r.get("latest")]
-            earliest = min(all_earliest) if all_earliest else None
-            latest = max(all_latest) if all_latest else None
+            all_earliest: List[datetime] = [r["earliest"] for r in records if r.get("earliest") is not None]
+            all_latest: List[datetime] = [r["latest"] for r in records if r.get("latest") is not None]
+            earliest: Optional[datetime] = min(all_earliest) if all_earliest else None
+            latest: Optional[datetime] = max(all_latest) if all_latest else None
             date_range = f"{format_date(earliest)} - {format_date(latest)}"
 
             table.add_row(

@@ -26,7 +26,7 @@ class OrdersPanel(Widget):
     # Reactive state - use factory to avoid mutable default sharing
     orders: reactive[List[Any]] = reactive(list, init=False)
 
-    def __init__(self, broker: str = "IB", **kwargs):
+    def __init__(self, broker: str = "IB", **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.broker = broker
         # OPT-011: ViewModel for incremental updates

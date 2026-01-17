@@ -103,6 +103,9 @@ class PositionFetcher:
 
         from futu import RET_OK, TrdEnv
 
+        if self._adapter._trd_ctx is None:
+            raise Exception("Trading context not initialized")
+
         positions = []
         try:
             trd_env_enum = getattr(TrdEnv, self._adapter.trd_env, TrdEnv.REAL)

@@ -63,11 +63,13 @@ async def test_wait_for_data_population_timeout():
     ticker1.bid = float("nan")
     ticker1.ask = float("nan")
     ticker1.last = float("nan")
+    ticker1.close = None  # Also set close to prevent MagicMock comparison issues
 
     ticker2 = MagicMock()
     ticker2.bid = None
     ticker2.ask = None
     ticker2.last = None
+    ticker2.close = None
 
     tickers = [ticker1, ticker2]
 
@@ -100,11 +102,13 @@ async def test_wait_for_data_population_partial():
     ticker1.bid = 100.0
     ticker1.ask = 101.0
     ticker1.last = 100.5
+    ticker1.close = None
 
     ticker2 = MagicMock()
     ticker2.bid = None
     ticker2.ask = None
     ticker2.last = None
+    ticker2.close = None
 
     tickers = [ticker1, ticker2]
 
@@ -129,6 +133,7 @@ async def test_wait_for_data_population_delayed():
     ticker.bid = None
     ticker.ask = None
     ticker.last = None
+    ticker.close = None
 
     tickers = [ticker]
 
@@ -170,6 +175,7 @@ async def test_wait_for_data_zero_timeout():
     ticker.bid = None
     ticker.ask = None
     ticker.last = None
+    ticker.close = None
 
     tickers = [ticker]
 

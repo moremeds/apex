@@ -74,7 +74,7 @@ class TradingSignalsTable(DataTable):
     # Reactive signal list
     signals: reactive[List[Any]] = reactive(list, init=False)
 
-    def __init__(self, max_signals: int = 100, **kwargs) -> None:
+    def __init__(self, max_signals: int = 100, **kwargs: Any) -> None:
         """
         Initialize the trading signals table.
 
@@ -135,7 +135,8 @@ class TradingSignalsTable(DataTable):
 
     def clear_signals(self) -> None:
         """Clear all signals from the table."""
-        self._view_model.invalidate()
+        if self._view_model is not None:
+            self._view_model.invalidate()
         self.signals = []
 
     def _full_rebuild(self, signals: List[Any]) -> None:
@@ -145,7 +146,11 @@ class TradingSignalsTable(DataTable):
 
         if not signals:
             self._add_placeholder_row()
-            self._view_model.invalidate()
+            if self._view_model is not None:
+                self._view_model.invalidate()
+            return
+
+        if self._view_model is None:
             return
 
         # Get display data from ViewModel
@@ -160,6 +165,8 @@ class TradingSignalsTable(DataTable):
 
     def _incremental_update(self, signals: List[Any]) -> None:
         """Incremental cell-level updates (efficient path - OPT-PERF)."""
+        if self._view_model is None:
+            return
         row_ops, cell_updates, new_order = self._view_model.compute_updates(signals)
 
         # Handle row removals first

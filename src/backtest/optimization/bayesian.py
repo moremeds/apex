@@ -10,6 +10,7 @@ Supports batched suggestions for parallel trial execution.
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 import optuna
+import pandas as pd
 from optuna.pruners import HyperbandPruner
 from optuna.samplers import TPESampler
 
@@ -80,16 +81,19 @@ class BayesianOptimizer:
 
     def _suggest_params(self, trial: optuna.Trial) -> Dict[str, Any]:
         """Suggest parameters for a single trial."""
-        params = {}
+        params: Dict[str, Any] = {}
         for name, defn in self.param_defs.items():
             if defn.type == "range":
+                defn_min = defn.min if defn.min is not None else 0.0
+                defn_max = defn.max if defn.max is not None else 1.0
+                defn_step = defn.step if defn.step is not None else None
                 # Use int if step is 1 and bounds are integers
-                if defn.step == 1 and defn.min == int(defn.min) and defn.max == int(defn.max):
-                    params[name] = trial.suggest_int(name, int(defn.min), int(defn.max))
+                if defn_step == 1 and defn_min == int(defn_min) and defn_max == int(defn_max):
+                    params[name] = trial.suggest_int(name, int(defn_min), int(defn_max))
                 else:
-                    params[name] = trial.suggest_float(name, defn.min, defn.max, step=defn.step)
+                    params[name] = trial.suggest_float(name, defn_min, defn_max, step=defn_step)
             elif defn.type == "categorical":
-                params[name] = trial.suggest_categorical(name, defn.values)
+                params[name] = trial.suggest_categorical(name, defn.values or [])
             elif defn.type == "fixed":
                 params[name] = defn.value
         return params
@@ -177,8 +181,9 @@ class BayesianOptimizer:
 
     def get_best_score(self) -> float:
         """Get best score found so far."""
-        return self.study.best_value
+        best = self.study.best_value
+        return best if best is not None else 0.0
 
-    def get_trials_dataframe(self):
+    def get_trials_dataframe(self) -> pd.DataFrame:
         """Get DataFrame of all trials."""
         return self.study.trials_dataframe()

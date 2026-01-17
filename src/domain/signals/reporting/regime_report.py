@@ -25,6 +25,9 @@ from src.domain.services.regime import (
     get_hierarchy_level,
 )
 from src.domain.signals.indicators.regime import (
+    ComponentStates,
+    ComponentValues,
+    DerivedMetrics,
     MarketRegime,
     RegimeOutput,
     RuleTrace,
@@ -536,7 +539,9 @@ def generate_components_4block_html(regime_output: RegimeOutput, theme: str = "d
     )
 
 
-def _render_trend_block(components, states, derived) -> str:
+def _render_trend_block(
+    components: ComponentValues, states: ComponentStates, derived: DerivedMetrics
+) -> str:
     """Render the Trend component 4-block."""
     state_color = _get_state_color(states.trend_state.value)
 
@@ -591,7 +596,9 @@ def _render_trend_block(components, states, derived) -> str:
     """
 
 
-def _render_volatility_block(components, states, derived) -> str:
+def _render_volatility_block(
+    components: ComponentValues, states: ComponentStates, derived: DerivedMetrics
+) -> str:
     """Render the Volatility component 4-block."""
     state_color = _get_state_color(states.vol_state.value)
 
@@ -645,7 +652,9 @@ def _render_volatility_block(components, states, derived) -> str:
     """
 
 
-def _render_choppiness_block(components, states, derived) -> str:
+def _render_choppiness_block(
+    components: ComponentValues, states: ComponentStates, derived: DerivedMetrics
+) -> str:
     """Render the Choppiness component 4-block."""
     state_color = _get_state_color(states.chop_state.value)
 
@@ -695,7 +704,9 @@ def _render_choppiness_block(components, states, derived) -> str:
     """
 
 
-def _render_extension_block(components, states, derived) -> str:
+def _render_extension_block(
+    components: ComponentValues, states: ComponentStates, derived: DerivedMetrics
+) -> str:
     """Render the Extension component 4-block."""
     state_color = _get_state_color(states.ext_state.value)
 
@@ -741,7 +752,9 @@ def _render_extension_block(components, states, derived) -> str:
     """
 
 
-def _render_iv_block(components, states, derived) -> str:
+def _render_iv_block(
+    components: ComponentValues, states: ComponentStates, derived: DerivedMetrics
+) -> str:
     """Render the IV component 4-block (market level only)."""
     state_color = _get_state_color(states.iv_state.value)
 
@@ -1042,14 +1055,14 @@ def generate_hysteresis_html(regime_output: RegimeOutput, theme: str = "dark") -
 
 def _load_experiment_result(symbol: str) -> Optional[Dict[str, Any]]:
     """Load experiment result for a symbol if available."""
-    import json
     from pathlib import Path
 
     exp_path = Path(f"experiments/turning_point/{symbol.lower()}_latest.json")
     if exp_path.exists():
         try:
             with open(exp_path) as f:
-                return json.load(f)
+                result: Dict[str, Any] = json.load(f)
+                return result
         except Exception:
             return None
     return None
@@ -1468,24 +1481,24 @@ def generate_action_summary_html(
         market_rc = REGIME_COLORS.get(regime.market_regime.value, REGIME_COLORS["R1"])
         sector_rc = (
             REGIME_COLORS.get(regime.sector_regime.value, REGIME_COLORS["R1"])
-            if regime.sector_regime
+            if regime.sector_regime is not None
             else None
         )
         stock_rc = (
             REGIME_COLORS.get(regime.stock_regime.value, REGIME_COLORS["R1"])
-            if regime.stock_regime
+            if regime.stock_regime is not None
             else None
         )
         action_color = ACTION_COLORS.get(regime.action.display_name, ACTION_COLORS["No Go"])
 
         sector_cell = (
             f'<span class="regime-badge" style="background: {sector_rc["bg"]}; color: {sector_rc["text"]}">{escape_html(regime.sector_regime.value)}</span>'
-            if sector_rc
+            if sector_rc is not None and regime.sector_regime is not None
             else "-"
         )
         stock_cell = (
             f'<span class="regime-badge" style="background: {stock_rc["bg"]}; color: {stock_rc["text"]}">{escape_html(regime.stock_regime.value)}</span>'
-            if stock_rc
+            if stock_rc is not None and regime.stock_regime is not None
             else "-"
         )
 
@@ -1529,10 +1542,10 @@ def generate_alerts_html(
     _get_theme_colors(theme)
 
     # Collect all alerts
-    all_alerts = []
+    all_alerts: List[Dict[str, str]] = []
     for symbol, regime in hierarchical_regimes.items():
-        for alert in regime.alerts:
-            all_alerts.append({"symbol": symbol, "message": alert})
+        for alert_msg in regime.alerts:
+            all_alerts.append({"symbol": symbol, "message": alert_msg})
 
     if not all_alerts:
         return f"""
@@ -3079,6 +3092,23 @@ def generate_optimization_html(
 
     # Use provenance from set if available
     prov = provenance_set.provenance if provenance_set else provenance
+
+    if prov is None:
+        # Provenance set exists but has no provenance data
+        body = """
+        <div class="optimization-content">
+            <div class="no-provenance">
+                <p>Parameter provenance data not available.</p>
+            </div>
+        </div>
+        """
+        return render_section(
+            title="Parameter Provenance",
+            body=body,
+            collapsed=True,
+            icon="⚙️",
+            section_id="optimization-section",
+        )
 
     # Source badge class
     source_class = prov.source.replace("-", "_").replace(" ", "_")

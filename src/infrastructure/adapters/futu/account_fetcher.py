@@ -76,6 +76,9 @@ class AccountFetcher:
 
         from futu import RET_OK, Currency, TrdEnv
 
+        if self._adapter._trd_ctx is None:
+            raise Exception("Trading context not initialized")
+
         try:
             trd_env_enum = getattr(TrdEnv, self._adapter.trd_env, TrdEnv.REAL)
 

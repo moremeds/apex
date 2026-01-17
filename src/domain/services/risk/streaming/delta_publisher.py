@@ -23,7 +23,8 @@ Usage:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from datetime import datetime
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, cast
 
 from src.domain.events.domain_events import MarketDataTickEvent
 from src.domain.events.event_types import EventType
@@ -268,29 +269,26 @@ class DeltaPublisher:
                 last = md.yesterday_close
 
             # Build synthetic tick from stored market data
-            # Build kwargs dynamically to handle optional timestamp
-            tick_kwargs = {
-                "symbol": pos.symbol,
-                "bid": md.bid,
-                "ask": md.ask,
-                "last": last,
-                "mid": mid,
-                "yesterday_close": md.yesterday_close,
-                "underlying_price": md.underlying_price,
+            # Build tick directly with proper types to avoid mypy issues with **kwargs
+            tick_timestamp = md.timestamp if md.timestamp is not None else datetime.now()
+            tick = MarketDataTickEvent(
+                timestamp=tick_timestamp,
+                symbol=pos.symbol,
+                bid=md.bid,
+                ask=md.ask,
+                last=last,
+                mid=mid,
+                yesterday_close=md.yesterday_close,
+                underlying_price=md.underlying_price,
                 # Greeks from stored data (if available)
-                "delta": md.delta,
-                "gamma": md.gamma,
-                "vega": md.vega,
-                "theta": md.theta,
-                "iv": md.iv,
+                delta=md.delta,
+                gamma=md.gamma,
+                vega=md.vega,
+                theta=md.theta,
+                iv=md.iv,
                 # Mark as stale so is_reliable=False, avoiding false readiness
-                "quality": "stale",
-            }
-            # Use actual timestamp from stored data if available (avoids false freshness)
-            if md.timestamp is not None:
-                tick_kwargs["timestamp"] = md.timestamp
-
-            tick = MarketDataTickEvent(**tick_kwargs)
+                quality="stale",
+            )
             synthetic_ticks[pos.symbol] = tick
 
         return synthetic_ticks

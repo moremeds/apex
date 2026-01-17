@@ -62,6 +62,9 @@ class OrderFetcher:
 
         from futu import RET_OK, TrdEnv
 
+        if self._adapter._trd_ctx is None:
+            raise Exception("Trading context not initialized")
+
         orders = []
         trd_env_enum = getattr(TrdEnv, self._adapter.trd_env, TrdEnv.REAL)
 
@@ -142,6 +145,9 @@ class OrderFetcher:
         from futu import OrderStatus as FutuOrderStatus
         from futu import TrdEnv
 
+        if self._adapter._trd_ctx is None:
+            raise Exception("Trading context not initialized")
+
         trd_env_enum = getattr(TrdEnv, self._adapter.trd_env, TrdEnv.REAL)
         end_date = datetime.now()
         start_date = end_date - timedelta(days=days_back)
@@ -198,6 +204,9 @@ class OrderFetcher:
     async def _fetch_deals(self, days_back: int) -> List[Dict]:
         """Fetch deals (executions) from Futu."""
         from futu import RET_OK, TrdEnv
+
+        if self._adapter._trd_ctx is None:
+            raise Exception("Trading context not initialized")
 
         trd_env_enum = getattr(TrdEnv, self._adapter.trd_env, TrdEnv.REAL)
         end_date = datetime.now()

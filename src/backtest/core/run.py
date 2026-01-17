@@ -122,7 +122,7 @@ class RunSpec(BaseModel):
     # Computed
     run_id: Optional[str] = Field(default=None, description="Generated run ID")
 
-    def model_post_init(self, __context) -> None:
+    def model_post_init(self, __context: Any) -> None:
         """Generate run ID after initialization."""
         if self.run_id is None:
             self.run_id = generate_run_id(

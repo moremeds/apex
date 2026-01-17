@@ -20,6 +20,7 @@ import pandas as pd
 
 from src.domain.events.domain_events import BarCloseEvent, IndicatorUpdateEvent
 from src.domain.events.event_types import EventType
+from src.utils.datetime_utils import now_utc
 from src.utils.logging_setup import get_logger
 
 from .indicators.base import Indicator
@@ -345,7 +346,7 @@ class IndicatorEngine:
 
         # Get latest bar timestamp for the computation
         latest_bar = bars[-1]
-        timestamp = latest_bar.get("timestamp")
+        timestamp: datetime = latest_bar.get("timestamp") or now_utc()
 
         # PERF: Create DataFrame ONCE and share across all indicator threads
         df = pd.DataFrame(bars)
@@ -393,7 +394,7 @@ class IndicatorEngine:
         # Publish results
         indicators_computed = 0
         for result in results:
-            if isinstance(result, Exception):
+            if isinstance(result, BaseException):
                 logger.error(f"Indicator computation error: {result}")
                 continue
 
@@ -438,8 +439,9 @@ class IndicatorEngine:
             return
 
         # Extract bar data from event
+        bar_timestamp = event.bar_end or event.timestamp
         bar_entry = {
-            "timestamp": event.bar_end or event.timestamp,
+            "timestamp": bar_timestamp,
             "open": event.open,
             "high": event.high,
             "low": event.low,
@@ -491,7 +493,7 @@ class IndicatorEngine:
                     df,  # Pass shared DataFrame instead of bars list
                     event.symbol,
                     event.timeframe,
-                    bar_entry["timestamp"],
+                    bar_timestamp,
                     prev_state,
                 )
                 tasks.append(task)
@@ -511,7 +513,7 @@ class IndicatorEngine:
         indicators_computed = 0
         errors = 0
         for result in results:
-            if isinstance(result, Exception):
+            if isinstance(result, BaseException):
                 errors += 1
                 if self._metrics:
                     self._metrics.record_error("indicator_engine", "batch_compute")

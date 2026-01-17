@@ -34,7 +34,7 @@ class ATRPanel(Widget):
     atr_data: reactive[Optional[Any]] = reactive(None, init=False)
     position: reactive[Optional[Any]] = reactive(None, init=False)
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._period = 14
         self._timeframe = "Daily"
@@ -329,14 +329,14 @@ class ATRPanel(Widget):
                 pr_symbol = getattr(pr, "symbol", None)
                 if pr_symbol == symbol and not getattr(pr, "expiry", None):
                     price = getattr(pr, "mark_price", None)
-                    if price:
-                        return price
+                    if price is not None:
+                        return float(price)
         except Exception as e:
             self.log.error(f"Failed to resolve spot price for {symbol}: {e}")
 
         if self.position:
             price = getattr(self.position, "mark_price", None)
-            if price:
-                return price
+            if price is not None:
+                return float(price)
 
         return None

@@ -15,7 +15,7 @@ Each pattern returns:
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Set
 
 import numpy as np
 import pandas as pd
@@ -26,7 +26,7 @@ try:
     HAS_TALIB = True
 
     # All 61 TA-Lib candlestick pattern functions
-    PATTERN_FUNCTIONS = {
+    PATTERN_FUNCTIONS: Dict[str, Callable[..., np.ndarray]] = {
         # Single candle patterns
         "doji": talib.CDLDOJI,
         "doji_star": talib.CDLDOJISTAR,
@@ -105,8 +105,8 @@ try:
     }
 except ImportError:
     HAS_TALIB = False
-    PATTERN_FUNCTIONS = {}
-    PENETRATION_PATTERNS = set()
+    PATTERN_FUNCTIONS = {}  # type: ignore[misc]
+    PENETRATION_PATTERNS = set()  # type: ignore[misc]
 
 from ...models import SignalCategory
 from ..base import IndicatorBase

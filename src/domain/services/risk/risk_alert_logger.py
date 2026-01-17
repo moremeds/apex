@@ -236,7 +236,7 @@ class RiskAlertLogger:
             return str(self.log_dir / f"risk_alerts_{self.env}_{date_str}.log")
         return default_name
 
-    def _log_rotator(self, source: str, dest: str):
+    def _log_rotator(self, source: str, dest: str) -> None:
         """
         Custom rotator that renames the source file to the dated destination.
 
@@ -260,8 +260,8 @@ class RiskAlertLogger:
         vix: Optional[float] = None,
         spy_price: Optional[float] = None,
         qqq_price: Optional[float] = None,
-        market_data_store=None,
-    ):
+        market_data_store: Optional[Any] = None,
+    ) -> None:
         """
         Update cached market indicators for context enrichment.
 
@@ -295,7 +295,7 @@ class RiskAlertLogger:
         self,
         alert: Dict[str, Any],
         snapshot: Optional[RiskSnapshot] = None,
-    ):
+    ) -> None:
         """
         Log a market alert (VIX spike, market drop, etc.) with full context.
 
@@ -341,7 +341,7 @@ class RiskAlertLogger:
         snapshot: Optional[RiskSnapshot] = None,
         position_risk: Optional[PositionRisk] = None,
         market_data: Optional[MarketData] = None,
-    ):
+    ) -> None:
         """
         Log a risk signal with full context.
 
@@ -449,8 +449,8 @@ class RiskAlertLogger:
         risk_signals: List[RiskSignal],
         snapshot: Optional[RiskSnapshot] = None,
         position_risks: Optional[List[PositionRisk]] = None,
-        market_data_store=None,
-    ):
+        market_data_store: Optional[Any] = None,
+    ) -> None:
         """
         Log a batch of alerts and signals from a single evaluation cycle.
 
@@ -505,7 +505,7 @@ class RiskAlertLogger:
         elif "VOLATILITY" in alert_type:
             return "Realized volatility elevated, increased price movements expected"
 
-        return alert.get("message", "Market condition alert triggered")
+        return str(alert.get("message", "Market condition alert triggered"))
 
     def _extract_reason_from_signal(self, signal: RiskSignal) -> str:
         """Extract human-readable reason from risk signal."""
@@ -534,7 +534,7 @@ class RiskAlertLogger:
 
         return signal.action_details or f"Risk rule '{signal.trigger_rule}' triggered"
 
-    def _write_log(self, context: AlertContext):
+    def _write_log(self, context: AlertContext) -> None:
         """Write log entry to file."""
         try:
             self._logger.info(context.to_json())

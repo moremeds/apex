@@ -17,6 +17,8 @@ from textual.reactive import reactive
 from textual.widget import Widget
 from textual.widgets import Static, Tab, Tabs
 
+from typing import Any
+
 from ...utils.market_hours import MarketHours
 from ..base import VIEW_TABS
 
@@ -29,7 +31,7 @@ class HeaderWidget(Widget):
 
     active_tab: reactive[str] = reactive("summary", init=False)
 
-    def __init__(self, env: str = "dev", display_tz: str = "Asia/Hong_Kong", **kwargs):
+    def __init__(self, env: str = "dev", display_tz: str = "Asia/Hong_Kong", **kwargs: Any) -> None:
         """
         Initialize header widget.
 
@@ -40,7 +42,7 @@ class HeaderWidget(Widget):
         super().__init__(**kwargs)
         self.env = env
         self._display_tz_name = display_tz
-        self._display_tz = None
+        self._display_tz: Any = None  # DisplayTimezone, lazy-initialized
 
     def compose(self) -> ComposeResult:
         """Compose the header layout."""

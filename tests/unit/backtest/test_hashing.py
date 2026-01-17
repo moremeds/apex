@@ -119,7 +119,8 @@ class TestIdGeneration:
             data_version="v1",
         )
         assert exp_id.startswith("exp_")
-        assert len(exp_id) == 16  # exp_ + 12 hex chars
+        # Format: exp_ + timestamp(14) + hash(8) = 26 chars
+        assert len(exp_id) == 26
 
     def test_trial_id_format(self) -> None:
         """Test trial ID format."""

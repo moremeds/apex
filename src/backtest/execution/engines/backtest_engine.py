@@ -441,7 +441,7 @@ class BacktestEngine:
 
         return self._generate_result(run_duration)
 
-    def _handle_order(self, order) -> None:
+    def _handle_order(self, order: Any) -> None:
         """Handle order request from strategy."""
         # Use sync version for backtest context
         self._execution.submit_order_sync(order)
@@ -475,7 +475,8 @@ class BacktestEngine:
                 del self._context.positions[fill.symbol]
 
             # Route fill to strategy
-            self._strategy.on_fill(fill)
+            if self._strategy is not None:
+                self._strategy.on_fill(fill)
 
             # Track fill for entry/exit matching
             trade = self._trade_tracker.record_fill(fill)
@@ -573,9 +574,14 @@ class BacktestEngine:
             cost_pct_of_capital=(total_costs / initial * 100) if initial > 0 else 0,
         )
 
+        strategy_name = self._config.strategy_name
+        if strategy_name is None and self._strategy is not None:
+            strategy_name = self._strategy.__class__.__name__
+        strategy_id = self._strategy.strategy_id if self._strategy is not None else ""
+
         return BacktestResult(
-            strategy_name=self._config.strategy_name or self._strategy.__class__.__name__,
-            strategy_id=self._strategy.strategy_id,
+            strategy_name=strategy_name or "unknown",
+            strategy_id=strategy_id,
             start_date=self._config.start_date,
             end_date=self._config.end_date,
             trading_days=trading_days,
@@ -599,7 +605,7 @@ class BacktestEngine:
         years = days / 252  # Trading days per year
         if years <= 0:
             return 0.0
-        return ((final / initial) ** (1 / years) - 1) * 100
+        return float(((final / initial) ** (1 / years) - 1) * 100)
 
     def _calculate_sharpe(self, risk_free_rate: float = 0.0) -> float:
         """
@@ -641,7 +647,7 @@ class BacktestEngine:
         # Annualize using 252 trading days
         daily_rf = risk_free_rate / 252
         sharpe = (mean_return - daily_rf) / std_return * (252**0.5)
-        return sharpe
+        return float(sharpe)
 
     def stop(self) -> None:
         """Stop the backtest early."""
