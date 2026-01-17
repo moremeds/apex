@@ -11,6 +11,7 @@ Key Features:
 - Priority-based decision tree prevents parallel regime triggers
 - Proper hysteresis with pending_regime/pending_count pattern
 - Component-based architecture for testability and optimization
+- Full explainability with RuleTrace for every decision
 """
 
 from __future__ import annotations
@@ -18,12 +19,13 @@ from __future__ import annotations
 import threading
 from dataclasses import replace
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 
 from src.utils.logging_setup import get_logger
+
 from ...models import SignalCategory
 from ..base import IndicatorBase
 from .components import (
@@ -36,22 +38,28 @@ from .components import (
 from .models import (
     ENTRY_HYSTERESIS,
     EXIT_HYSTERESIS,
+    MARKET_BENCHMARKS,
+    BarSnapshot,
     ChopState,
     ComponentStates,
     ComponentValues,
+    DataQuality,
+    DataWindow,
+    DerivedMetrics,
     ExtState,
+    FallbackReason,
+    InputsUsed,
     IVState,
     MarketRegime,
     RegimeOutput,
     RegimeState,
+    RegimeTransitionState,
     TrendState,
     VolState,
 )
+from .rule_trace import RuleTrace, ThresholdInfo
 
 logger = get_logger(__name__)
-
-# Market benchmark symbols that receive IV analysis
-MARKET_BENCHMARKS = {"QQQ", "SPY", "IWM", "DIA"}
 
 
 class RegimeDetectorIndicator(IndicatorBase):
@@ -173,21 +181,34 @@ class RegimeDetectorIndicator(IndicatorBase):
         except Exception as e:
             logger.error(f"Trend state calculation failed: {e}", exc_info=True)
             trend_states = np.array([TrendState.NEUTRAL] * n)
-            trend_details = {"ma50": np.full(n, np.nan), "ma200": np.full(n, np.nan), "ma50_slope": np.full(n, np.nan)}
+            trend_details = {
+                "ma50": np.full(n, np.nan),
+                "ma200": np.full(n, np.nan),
+                "ma50_slope": np.full(n, np.nan),
+            }
 
         try:
             vol_states, vol_details = calculate_vol_state(high, low, close, params)
         except Exception as e:
             logger.error(f"Vol state calculation failed: {e}", exc_info=True)
             vol_states = np.array([VolState.NORMAL] * n)
-            vol_details = {"atr": np.full(n, np.nan), "atr_pct": np.full(n, np.nan), "atr_pct_63": np.full(n, 50.0), "atr_pct_252": np.full(n, 50.0)}
+            vol_details = {
+                "atr": np.full(n, np.nan),
+                "atr_pct": np.full(n, np.nan),
+                "atr_pct_63": np.full(n, 50.0),
+                "atr_pct_252": np.full(n, 50.0),
+            }
 
         try:
             chop_states, chop_details = calculate_chop_state(high, low, close, params)
         except Exception as e:
             logger.error(f"Chop state calculation failed: {e}", exc_info=True)
             chop_states = np.array([ChopState.NEUTRAL] * n)
-            chop_details = {"chop": np.full(n, 50.0), "chop_pct_252": np.full(n, 50.0), "ma20_crosses": np.zeros(n)}
+            chop_details = {
+                "chop": np.full(n, 50.0),
+                "chop_pct_252": np.full(n, 50.0),
+                "ma20_crosses": np.zeros(n),
+            }
 
         try:
             ext_states, ext_details = calculate_ext_state(high, low, close, params)
@@ -216,7 +237,9 @@ class RegimeDetectorIndicator(IndicatorBase):
                 "ma50": trend_details["ma50"][i],
                 "ma200": trend_details["ma200"][i],
                 "ma50_slope": trend_details["ma50_slope"][i],
-                "last_5_bar_high": last_5_bar_high[i] if not np.isnan(last_5_bar_high[i]) else close[i],
+                "last_5_bar_high": (
+                    last_5_bar_high[i] if not np.isnan(last_5_bar_high[i]) else close[i]
+                ),
                 "trend_state": trend_states[i],
                 "vol_state": vol_states[i],
                 "chop_state": chop_states[i],
@@ -226,7 +249,7 @@ class RegimeDetectorIndicator(IndicatorBase):
             }
 
             # Compute regime (without hysteresis for batch calculation)
-            regime = self._compute_candidate_regime(state)
+            regime, _ = self._evaluate_decision_tree(state)
             confidence = self._compute_confidence(state, regime)
 
             regimes.append(regime.value)
@@ -334,16 +357,27 @@ class RegimeDetectorIndicator(IndicatorBase):
             "previous_regime": previous_regime.value if previous_regime else None,
         }
 
-    def _compute_candidate_regime(self, state: Dict[str, Any]) -> MarketRegime:
+    def _evaluate_decision_tree(
+        self, state: Dict[str, Any]
+    ) -> Tuple[MarketRegime, List[RuleTrace]]:
         """
-        Priority-based regime classification.
+        Evaluate the priority-based decision tree with full rule tracing.
+
+        This is a PURE function - it only computes the decision regime based on
+        current state without any hysteresis. Hysteresis is applied separately.
 
         Priority Order (highest to lowest):
         1. R2 (Risk-Off) - Veto power, always checked first
         2. R3 (Rebound)  - Only if NOT in active downtrend + structural confirm
         3. R1 (Choppy)   - Only if NOT in strong trend acceleration
         4. R0 (Healthy)  - Default when conditions are favorable
+
+        Returns:
+            Tuple of (decision_regime, rules_fired) where rules_fired contains
+            traces for all rules evaluated with pass/fail status.
         """
+        rules_fired: List[RuleTrace] = []
+
         close = state["close"]
         ma20 = state["ma20"]
         ma50 = state["ma50"]
@@ -358,35 +392,247 @@ class RegimeDetectorIndicator(IndicatorBase):
         iv_state = state.get("iv_state", IVState.NA)
         is_market_level = state.get("is_market_level", False)
 
-        # Handle NaN values
+        # Handle NaN values - fallback to R1
         if np.isnan(ma50) or np.isnan(ma200):
-            return MarketRegime.R1_CHOPPY_EXTENDED
+            rules_fired.append(
+                RuleTrace(
+                    rule_id="fallback_nan",
+                    description="Fallback: MA values are NaN",
+                    passed=True,
+                    evidence={"ma50": ma50, "ma200": ma200},
+                    regime_target="R1",
+                    category="fallback",
+                    priority=0,
+                )
+            )
+            return MarketRegime.R1_CHOPPY_EXTENDED, rules_fired
 
-        # === R2 CHECK (Highest Priority - Veto) ===
-        r2_condition = (
-            trend_state == TrendState.DOWN
-            or (vol_state == VolState.HIGH and close < ma50)
-            or (iv_state == IVState.HIGH and is_market_level)
+        # ========================================================================
+        # R2 CHECK (Highest Priority - Veto)
+        # ========================================================================
+        # R2 Rule 1: Trend is DOWN
+        r2_trend_down = trend_state == TrendState.DOWN
+        r2_trend_rule = RuleTrace(
+            rule_id="r2_trend_down",
+            description="R2: Trend state is DOWN",
+            passed=r2_trend_down,
+            evidence={
+                "trend_state": (
+                    trend_state.value if hasattr(trend_state, "value") else str(trend_state)
+                )
+            },
+            regime_target="R2",
+            category="trend",
+            priority=1,
+            failed_conditions=(
+                []
+                if r2_trend_down
+                else [
+                    ThresholdInfo(
+                        metric_name="trend_state",
+                        current_value=0,  # Categorical
+                        threshold=0,
+                        operator="==",
+                        gap=float("inf"),  # Categorical gap
+                        unit="",
+                    )
+                ]
+            ),
         )
-        if r2_condition:
-            return MarketRegime.R2_RISK_OFF
+        rules_fired.append(r2_trend_rule)
 
-        # === R3 CHECK (Rebound Window) ===
-        # CRITICAL: Explicit downtrend exclusion + structural confirmation
+        # R2 Rule 2: High vol + below MA50
+        r2_vol_breakdown = vol_state == VolState.HIGH and close < ma50
+        vol_state_str = vol_state.value if hasattr(vol_state, "value") else str(vol_state)
+        r2_vol_rule = RuleTrace(
+            rule_id="r2_vol_breakdown",
+            description="R2: High volatility + close < MA50",
+            passed=r2_vol_breakdown,
+            evidence={
+                "vol_state": vol_state_str,
+                "close": close,
+                "ma50": ma50,
+            },
+            regime_target="R2",
+            category="vol",
+            priority=1,
+            threshold_info=ThresholdInfo(
+                metric_name="close",
+                current_value=close,
+                threshold=ma50,
+                operator="<",
+                gap=close - ma50,
+                unit="$",
+            ),
+            failed_conditions=(
+                []
+                if r2_vol_breakdown
+                else [
+                    ThresholdInfo(
+                        metric_name="close_vs_ma50",
+                        current_value=close,
+                        threshold=ma50,
+                        operator="<",
+                        gap=close - ma50,
+                        unit="$",
+                    )
+                ]
+            ),
+        )
+        rules_fired.append(r2_vol_rule)
+
+        # R2 Rule 3: IV HIGH at market level
+        r2_iv_high = iv_state == IVState.HIGH and is_market_level
+        iv_state_str = iv_state.value if hasattr(iv_state, "value") else str(iv_state)
+        r2_iv_rule = RuleTrace(
+            rule_id="r2_iv_high",
+            description="R2: IV is HIGH (market level)",
+            passed=r2_iv_high,
+            evidence={
+                "iv_state": iv_state_str,
+                "is_market_level": is_market_level,
+            },
+            regime_target="R2",
+            category="iv",
+            priority=1,
+        )
+        rules_fired.append(r2_iv_rule)
+
+        # R2 aggregate check
+        if r2_trend_down or r2_vol_breakdown or r2_iv_high:
+            return MarketRegime.R2_RISK_OFF, rules_fired
+
+        # ========================================================================
+        # R3 CHECK (Rebound Window)
+        # ========================================================================
+        # R3 requires ALL conditions:
         structural_confirm = close > ma20 or close > last_5_bar_high
 
-        r3_condition = (
-            vol_state == VolState.HIGH
-            and ext_state == ExtState.OVERSOLD
-            and trend_state != TrendState.DOWN
-            and close > ma200
-            and (np.isnan(ma50_slope) or ma50_slope > -0.02)
-            and structural_confirm
-        )
-        if r3_condition:
-            return MarketRegime.R3_REBOUND_WINDOW
+        r3_vol_high = vol_state == VolState.HIGH
+        r3_oversold = ext_state == ExtState.OVERSOLD
+        r3_not_downtrend = trend_state != TrendState.DOWN
+        r3_above_ma200 = close > ma200
+        r3_slope_ok = np.isnan(ma50_slope) or ma50_slope > -0.02
+        r3_structural = structural_confirm
 
-        # === R1 CHECK (Choppy/Extended) ===
+        ext_state_str = ext_state.value if hasattr(ext_state, "value") else str(ext_state)
+
+        # Create rule traces for each R3 condition
+        rules_fired.append(
+            RuleTrace(
+                rule_id="r3_vol_high",
+                description="R3: Volatility is HIGH",
+                passed=r3_vol_high,
+                evidence={"vol_state": vol_state_str},
+                regime_target="R3",
+                category="vol",
+                priority=2,
+            )
+        )
+
+        rules_fired.append(
+            RuleTrace(
+                rule_id="r3_oversold",
+                description="R3: Extension is OVERSOLD",
+                passed=r3_oversold,
+                evidence={"ext_state": ext_state_str},
+                regime_target="R3",
+                category="ext",
+                priority=2,
+            )
+        )
+
+        rules_fired.append(
+            RuleTrace(
+                rule_id="r3_not_downtrend",
+                description="R3: Trend is NOT DOWN",
+                passed=r3_not_downtrend,
+                evidence={
+                    "trend_state": (
+                        trend_state.value if hasattr(trend_state, "value") else str(trend_state)
+                    )
+                },
+                regime_target="R3",
+                category="trend",
+                priority=2,
+            )
+        )
+
+        rules_fired.append(
+            RuleTrace(
+                rule_id="r3_above_ma200",
+                description="R3: Close > MA200",
+                passed=r3_above_ma200,
+                evidence={"close": close, "ma200": ma200},
+                regime_target="R3",
+                category="trend",
+                priority=2,
+                threshold_info=ThresholdInfo(
+                    metric_name="close",
+                    current_value=close,
+                    threshold=ma200,
+                    operator=">",
+                    gap=ma200 - close,
+                    unit="$",
+                ),
+            )
+        )
+
+        rules_fired.append(
+            RuleTrace(
+                rule_id="r3_slope_ok",
+                description="R3: MA50 slope > -2%",
+                passed=r3_slope_ok,
+                evidence={"ma50_slope": ma50_slope},
+                regime_target="R3",
+                category="trend",
+                priority=2,
+                threshold_info=ThresholdInfo(
+                    metric_name="ma50_slope",
+                    current_value=ma50_slope if not np.isnan(ma50_slope) else 0,
+                    threshold=-0.02,
+                    operator=">",
+                    gap=-0.02 - ma50_slope if not np.isnan(ma50_slope) else 0,
+                    unit="%",
+                ),
+            )
+        )
+
+        rules_fired.append(
+            RuleTrace(
+                rule_id="r3_structural",
+                description="R3: Structural confirm (close > MA20 or 5-bar high)",
+                passed=r3_structural,
+                evidence={
+                    "close": close,
+                    "ma20": ma20,
+                    "last_5_bar_high": last_5_bar_high,
+                },
+                regime_target="R3",
+                category="ext",
+                priority=2,
+            )
+        )
+
+        # R3 aggregate check (ALL must pass)
+        r3_all_pass = (
+            r3_vol_high
+            and r3_oversold
+            and r3_not_downtrend
+            and r3_above_ma200
+            and r3_slope_ok
+            and r3_structural
+        )
+        if r3_all_pass:
+            return MarketRegime.R3_REBOUND_WINDOW, rules_fired
+
+        # ========================================================================
+        # R1 CHECK (Choppy/Extended)
+        # ========================================================================
+        chop_state_str = chop_state.value if hasattr(chop_state, "value") else str(chop_state)
+        trend_state_str = trend_state.value if hasattr(trend_state, "value") else str(trend_state)
+
+        # Check for strong trend acceleration (exception to R1)
         is_strong_trend_acceleration = (
             trend_state == TrendState.UP
             and not np.isnan(ma50_slope)
@@ -394,24 +640,127 @@ class RegimeDetectorIndicator(IndicatorBase):
             and chop_state == ChopState.TRENDING
         )
 
-        r1_condition = trend_state == TrendState.UP and (
-            chop_state == ChopState.CHOPPY
-            or (ext_state == ExtState.OVERBOUGHT and not is_strong_trend_acceleration)
+        rules_fired.append(
+            RuleTrace(
+                rule_id="r1_trend_acceleration",
+                description="R1 Exception: Strong trend acceleration",
+                passed=is_strong_trend_acceleration,
+                evidence={
+                    "trend_state": trend_state_str,
+                    "ma50_slope": ma50_slope,
+                    "chop_state": chop_state_str,
+                },
+                regime_target="R0",  # This exception favors R0
+                category="trend",
+                priority=3,
+            )
         )
-        if r1_condition:
-            return MarketRegime.R1_CHOPPY_EXTENDED
 
-        # === R0 CHECK (Healthy Uptrend) ===
-        r0_condition = (
+        # R1 Rule 1: Trend UP + Choppy
+        r1_trend_choppy = trend_state == TrendState.UP and chop_state == ChopState.CHOPPY
+        rules_fired.append(
+            RuleTrace(
+                rule_id="r1_trend_choppy",
+                description="R1: Trend UP + Choppy market",
+                passed=r1_trend_choppy,
+                evidence={
+                    "trend_state": trend_state_str,
+                    "chop_state": chop_state_str,
+                },
+                regime_target="R1",
+                category="chop",
+                priority=3,
+            )
+        )
+
+        # R1 Rule 2: Trend UP + Overbought (unless strong acceleration)
+        r1_trend_overbought = (
             trend_state == TrendState.UP
-            and vol_state != VolState.HIGH
-            and chop_state != ChopState.CHOPPY
+            and ext_state == ExtState.OVERBOUGHT
+            and not is_strong_trend_acceleration
         )
-        if r0_condition:
-            return MarketRegime.R0_HEALTHY_UPTREND
+        rules_fired.append(
+            RuleTrace(
+                rule_id="r1_trend_overbought",
+                description="R1: Trend UP + Overbought (not accelerating)",
+                passed=r1_trend_overbought,
+                evidence={
+                    "trend_state": trend_state_str,
+                    "ext_state": ext_state_str,
+                    "is_strong_trend_acceleration": is_strong_trend_acceleration,
+                },
+                regime_target="R1",
+                category="ext",
+                priority=3,
+            )
+        )
 
-        # === FALLBACK ===
-        return MarketRegime.R1_CHOPPY_EXTENDED
+        # R1 aggregate check
+        if r1_trend_choppy or r1_trend_overbought:
+            return MarketRegime.R1_CHOPPY_EXTENDED, rules_fired
+
+        # ========================================================================
+        # R0 CHECK (Healthy Uptrend)
+        # ========================================================================
+        r0_trend_up = trend_state == TrendState.UP
+        r0_vol_not_high = vol_state != VolState.HIGH
+        r0_not_choppy = chop_state != ChopState.CHOPPY
+
+        rules_fired.append(
+            RuleTrace(
+                rule_id="r0_trend_up",
+                description="R0: Trend is UP",
+                passed=r0_trend_up,
+                evidence={"trend_state": trend_state_str},
+                regime_target="R0",
+                category="trend",
+                priority=4,
+            )
+        )
+
+        rules_fired.append(
+            RuleTrace(
+                rule_id="r0_vol_not_high",
+                description="R0: Volatility is NOT HIGH",
+                passed=r0_vol_not_high,
+                evidence={"vol_state": vol_state_str},
+                regime_target="R0",
+                category="vol",
+                priority=4,
+            )
+        )
+
+        rules_fired.append(
+            RuleTrace(
+                rule_id="r0_not_choppy",
+                description="R0: Market is NOT Choppy",
+                passed=r0_not_choppy,
+                evidence={"chop_state": chop_state_str},
+                regime_target="R0",
+                category="chop",
+                priority=4,
+            )
+        )
+
+        # R0 aggregate check (ALL must pass)
+        if r0_trend_up and r0_vol_not_high and r0_not_choppy:
+            return MarketRegime.R0_HEALTHY_UPTREND, rules_fired
+
+        # ========================================================================
+        # FALLBACK to R1
+        # ========================================================================
+        rules_fired.append(
+            RuleTrace(
+                rule_id="fallback_r1",
+                description="Fallback: No regime conditions fully met",
+                passed=True,
+                evidence={},
+                regime_target="R1",
+                category="fallback",
+                priority=5,
+            )
+        )
+        return MarketRegime.R1_CHOPPY_EXTENDED, rules_fired
 
     def _compute_confidence(self, state: Dict[str, Any], regime: MarketRegime) -> int:
         """
@@ -503,13 +852,16 @@ class RegimeDetectorIndicator(IndicatorBase):
             timestamp: Optional timestamp for the update
 
         Returns:
-            RegimeOutput with stable regime classification
+            RegimeOutput with stable regime classification and full explainability
         """
         # Flatten state if components are nested (from get_state())
         flat_state = self._flatten_state(state)
 
-        # Compute candidate regime (outside lock - pure computation)
-        candidate = self._compute_candidate_regime(flat_state)
+        # Evaluate decision tree (outside lock - pure computation)
+        decision_regime, rules_fired_decision = self._evaluate_decision_tree(flat_state)
+
+        # Compute confidence for decision regime
+        confidence = self._compute_confidence(flat_state, decision_regime)
 
         # Thread-safe state access
         with self._state_lock:
@@ -522,34 +874,122 @@ class RegimeDetectorIndicator(IndicatorBase):
             # Save old regime BEFORE applying hysteresis (fixes previous_regime bug)
             old_regime = regime_state.current_regime
 
-            # Apply hysteresis (creates copy internally)
-            updated_state = self._apply_hysteresis(regime_state, candidate, timestamp)
+            # Apply hysteresis (creates copy internally, returns traces)
+            updated_state, rules_fired_hysteresis, transition_reason = self._apply_hysteresis(
+                regime_state, decision_regime, timestamp
+            )
             self._regime_states[symbol] = updated_state
 
         # Build output (outside lock - uses immutable updated_state)
         regime_changed = updated_state.current_regime != old_regime
+        final_regime = updated_state.current_regime
 
         # Convert string states to enums for ComponentStates (using helper)
         trend_state_val = self._parse_enum_value(
-            flat_state.get("trend_state"), TrendState, self._VALID_TREND_STATES, TrendState.NEUTRAL
+            flat_state.get("trend_state"),
+            TrendState,
+            self._VALID_TREND_STATES,
+            TrendState.NEUTRAL,
         )
         vol_state_val = self._parse_enum_value(
-            flat_state.get("vol_state"), VolState, self._VALID_VOL_STATES, VolState.NORMAL
+            flat_state.get("vol_state"),
+            VolState,
+            self._VALID_VOL_STATES,
+            VolState.NORMAL,
         )
         chop_state_val = self._parse_enum_value(
-            flat_state.get("chop_state"), ChopState, self._VALID_CHOP_STATES, ChopState.NEUTRAL
+            flat_state.get("chop_state"),
+            ChopState,
+            self._VALID_CHOP_STATES,
+            ChopState.NEUTRAL,
         )
         ext_state_val = self._parse_enum_value(
-            flat_state.get("ext_state"), ExtState, self._VALID_EXT_STATES, ExtState.NEUTRAL
+            flat_state.get("ext_state"),
+            ExtState,
+            self._VALID_EXT_STATES,
+            ExtState.NEUTRAL,
         )
         iv_state_val = self._parse_enum_value(
             flat_state.get("iv_state"), IVState, self._VALID_IV_STATES, IVState.NA
         )
 
+        # Build component values
+        component_values = ComponentValues(
+            close=flat_state.get("close", 0.0),
+            ma20=flat_state.get("ma20", 0.0),
+            ma50=flat_state.get("ma50", 0.0),
+            ma200=flat_state.get("ma200", 0.0),
+            ma50_slope=flat_state.get("ma50_slope", 0.0),
+            atr20=flat_state.get("atr20", 0.0),
+            atr_pct=flat_state.get("atr_pct", 0.0),
+            atr_pct_63=flat_state.get("atr_pct_63", 50.0),
+            atr_pct_252=flat_state.get("atr_pct_252", 50.0),
+            chop=flat_state.get("chop", 50.0),
+            chop_pct_252=flat_state.get("chop_pct_252", 50.0),
+            ma20_crosses=flat_state.get("ma20_crosses", 0),
+            ext=flat_state.get("ext", 0.0),
+            last_5_bar_high=flat_state.get("last_5_bar_high", 0.0),
+        )
+
+        # Build derived metrics with explicit naming
+        derived_metrics = DerivedMetrics.from_component_values(component_values)
+
+        # Build inputs used
+        inputs_used = InputsUsed(
+            close=flat_state.get("close", 0.0),
+            high=flat_state.get("high", 0.0),
+            low=flat_state.get("low", 0.0),
+            volume=flat_state.get("volume", 0.0),
+        )
+
+        # Build data quality
+        is_market = symbol.upper() in MARKET_BENCHMARKS
+        quality = DataQuality(
+            warmup_ok=True,  # Assume warmup OK at this point
+            warmup_bars_needed=self.warmup_periods,
+            warmup_bars_available=self.warmup_periods,  # Conservative
+            component_validity={
+                "trend": True,
+                "vol": True,
+                "chop": True,
+                "ext": True,
+                "iv": is_market,
+            },
+            component_issues=({} if is_market else {"iv": "not available for non-market symbols"}),
+        )
+
+        # Build transition state
+        transition = RegimeTransitionState(
+            pending_regime=updated_state.pending_regime,
+            pending_count=updated_state.pending_count,
+            entry_threshold=(
+                ENTRY_HYSTERESIS.get(updated_state.pending_regime, 0)
+                if updated_state.pending_regime
+                else 0
+            ),
+            exit_threshold=EXIT_HYSTERESIS.get(final_regime, 0),
+            bars_in_current=updated_state.bars_in_current,
+            last_transition_ts=updated_state.last_regime_change,
+            transition_reason=transition_reason,
+        )
+
         return RegimeOutput(
-            regime=updated_state.current_regime,
-            regime_name=updated_state.current_regime.display_name,
-            confidence=self._compute_confidence(flat_state, updated_state.current_regime),
+            # Schema & Identity
+            schema_version="regime_output@1.0",
+            symbol=symbol,
+            asof_ts=timestamp,
+            bar_interval="1d",
+            data_window=DataWindow(
+                start_ts=timestamp,
+                end_ts=timestamp,
+                bars=1,
+            ),
+            # Regime Classification (Separated)
+            decision_regime=decision_regime,
+            final_regime=final_regime,
+            regime_name=final_regime.display_name,
+            confidence=confidence,
+            # Component States & Values
             component_states=ComponentStates(
                 trend_state=trend_state_val,
                 vol_state=vol_state_val,
@@ -557,28 +997,17 @@ class RegimeDetectorIndicator(IndicatorBase):
                 ext_state=ext_state_val,
                 iv_state=iv_state_val,
             ),
-            component_values=ComponentValues(
-                close=flat_state.get("close", 0.0),
-                ma20=flat_state.get("ma20", 0.0),
-                ma50=flat_state.get("ma50", 0.0),
-                ma200=flat_state.get("ma200", 0.0),
-                ma50_slope=flat_state.get("ma50_slope", 0.0),
-                atr20=flat_state.get("atr20", 0.0),
-                atr_pct=flat_state.get("atr_pct", 0.0),
-                atr_pct_63=flat_state.get("atr_pct_63", 50.0),
-                atr_pct_252=flat_state.get("atr_pct_252", 50.0),
-                chop=flat_state.get("chop", 50.0),
-                chop_pct_252=flat_state.get("chop_pct_252", 50.0),
-                ma20_crosses=flat_state.get("ma20_crosses", 0),
-                ext=flat_state.get("ext", 0.0),
-                last_5_bar_high=flat_state.get("last_5_bar_high", 0.0),
-            ),
+            component_values=component_values,
+            # Explainability
+            inputs_used=inputs_used,
+            derived_metrics=derived_metrics,
+            rules_fired_decision=rules_fired_decision,
+            rules_fired_hysteresis=rules_fired_hysteresis,
+            quality=quality,
+            # Transition State
+            transition=transition,
             regime_changed=regime_changed,
             previous_regime=old_regime if regime_changed else None,
-            bars_in_regime=updated_state.bars_in_current,
-            timestamp=timestamp,
-            symbol=symbol,
-            is_market_level=symbol.upper() in MARKET_BENCHMARKS,
         )
 
     def _apply_hysteresis(
@@ -586,9 +1015,9 @@ class RegimeDetectorIndicator(IndicatorBase):
         regime_state: RegimeState,
         candidate: MarketRegime,
         timestamp: Optional[datetime] = None,
-    ) -> RegimeState:
+    ) -> Tuple[RegimeState, List[RuleTrace], Optional[str]]:
         """
-        Apply hysteresis to regime transition.
+        Apply hysteresis to regime transition with full tracing.
 
         Creates a copy of the input state to avoid mutation side effects.
 
@@ -597,17 +1026,53 @@ class RegimeDetectorIndicator(IndicatorBase):
         3. If candidate == pending: increment pending_count
         4. If pending_count >= entry_threshold: switch regime
         5. Exit hysteresis: can't leave current until bars_in_current >= exit_threshold
+
+        Returns:
+            Tuple of (updated_state, rules_fired_hysteresis, transition_reason)
         """
         # Create a copy to avoid mutating the input
         state = replace(regime_state)
+        rules_fired: List[RuleTrace] = []
+        transition_reason: Optional[str] = None
 
         # === STEP 1: Exit hysteresis check ===
         if candidate != state.current_regime:
             exit_threshold = EXIT_HYSTERESIS[state.current_regime]
-            if state.bars_in_current < exit_threshold:
-                # Stay in current regime
+
+            # Add exit hysteresis rule trace
+            exit_blocked = state.bars_in_current < exit_threshold
+            rules_fired.append(
+                RuleTrace(
+                    rule_id="hysteresis_exit_check",
+                    description=f"Exit check: bars_in_current >= exit_threshold",
+                    passed=not exit_blocked,
+                    evidence={
+                        "bars_in_current": state.bars_in_current,
+                        "exit_threshold": exit_threshold,
+                        "current_regime": state.current_regime.value,
+                    },
+                    regime_target=state.current_regime.value,
+                    category="hysteresis",
+                    priority=0,
+                    threshold_info=ThresholdInfo(
+                        metric_name="bars_in_current",
+                        current_value=state.bars_in_current,
+                        threshold=exit_threshold,
+                        operator=">=",
+                        gap=exit_threshold - state.bars_in_current,
+                        unit=" bars",
+                    ),
+                )
+            )
+
+            if exit_blocked:
+                # Stay in current regime - blocked by exit hysteresis
                 state.bars_in_current += 1
-                return state
+                transition_reason = (
+                    f"Exit blocked: need {exit_threshold} bars in "
+                    f"{state.current_regime.value}, have {state.bars_in_current - 1}"
+                )
+                return state, rules_fired, transition_reason
 
         # === STEP 2: Entry hysteresis (pending/count) ===
         if candidate != state.current_regime:
@@ -615,36 +1080,121 @@ class RegimeDetectorIndicator(IndicatorBase):
                 # New candidate - reset pending
                 state.pending_regime = candidate
                 state.pending_count = 1
+
+                rules_fired.append(
+                    RuleTrace(
+                        rule_id="hysteresis_new_candidate",
+                        description=f"New candidate regime detected",
+                        passed=True,
+                        evidence={
+                            "candidate": candidate.value,
+                            "previous_pending": (
+                                regime_state.pending_regime.value
+                                if regime_state.pending_regime
+                                else None
+                            ),
+                        },
+                        regime_target=candidate.value,
+                        category="hysteresis",
+                        priority=0,
+                    )
+                )
             else:
                 # Same candidate - increment count
                 state.pending_count += 1
 
+                rules_fired.append(
+                    RuleTrace(
+                        rule_id="hysteresis_accumulate",
+                        description=f"Accumulating confirmation for {candidate.value}",
+                        passed=True,
+                        evidence={
+                            "candidate": candidate.value,
+                            "pending_count": state.pending_count,
+                        },
+                        regime_target=candidate.value,
+                        category="hysteresis",
+                        priority=0,
+                    )
+                )
+
             # Check if candidate confirmed
             entry_threshold = ENTRY_HYSTERESIS[candidate]
-            if state.pending_count >= entry_threshold:
+            entry_confirmed = state.pending_count >= entry_threshold
+
+            rules_fired.append(
+                RuleTrace(
+                    rule_id="hysteresis_entry_check",
+                    description=f"Entry check: pending_count >= entry_threshold",
+                    passed=entry_confirmed,
+                    evidence={
+                        "pending_count": state.pending_count,
+                        "entry_threshold": entry_threshold,
+                        "candidate": candidate.value,
+                    },
+                    regime_target=candidate.value,
+                    category="hysteresis",
+                    priority=0,
+                    threshold_info=ThresholdInfo(
+                        metric_name="pending_count",
+                        current_value=state.pending_count,
+                        threshold=entry_threshold,
+                        operator=">=",
+                        gap=entry_threshold - state.pending_count,
+                        unit=" bars",
+                    ),
+                )
+            )
+
+            if entry_confirmed:
                 # SWITCH to new regime
+                old_regime = state.current_regime
                 state.current_regime = candidate
                 state.pending_regime = None
                 state.pending_count = 0
                 state.bars_in_current = 1
                 state.last_regime_change = timestamp
+                transition_reason = (
+                    f"Confirmed: {old_regime.value} -> {candidate.value} "
+                    f"(after {entry_threshold} bars confirmation)"
+                )
             else:
                 # Stay in current, waiting for confirmation
                 state.bars_in_current += 1
+                transition_reason = (
+                    f"Pending: {candidate.value} " f"({state.pending_count}/{entry_threshold} bars)"
+                )
         else:
             # Candidate == current, clear pending
+            if state.pending_regime:
+                rules_fired.append(
+                    RuleTrace(
+                        rule_id="hysteresis_pending_cleared",
+                        description="Pending regime cleared (candidate = current)",
+                        passed=True,
+                        evidence={
+                            "candidate": candidate.value,
+                            "cleared_pending": state.pending_regime.value,
+                        },
+                        regime_target=candidate.value,
+                        category="hysteresis",
+                        priority=0,
+                    )
+                )
+
             state.pending_regime = None
             state.pending_count = 0
             state.bars_in_current += 1
+            transition_reason = f"Stable: {candidate.value} (no pending transition)"
 
-        return state
+        return state, rules_fired, transition_reason
 
     def _flatten_state(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """
         Flatten state dict by merging nested 'components' into top level.
 
         The get_state() method returns component values nested under 'components' key,
-        but _compute_candidate_regime() expects them at the top level.
+        but _evaluate_decision_tree() expects them at the top level.
 
         Args:
             state: State dict from get_state() or already flat
@@ -673,7 +1223,8 @@ class RegimeDetectorIndicator(IndicatorBase):
             return default
         try:
             return float(value)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as e:
+            logger.debug(f"_safe_float conversion failed: {value!r} -> {default}, error: {e}")
             return default
 
     def reset_state(self, symbol: Optional[str] = None) -> None:
