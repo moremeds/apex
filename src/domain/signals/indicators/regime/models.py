@@ -614,6 +614,8 @@ class RegimeOutput:
                 return obj.value
             elif isinstance(obj, datetime):
                 return obj.isoformat()
+            elif hasattr(obj, "item"):  # numpy scalar types (float64, int64, etc.)
+                return round_floats(obj.item(), prec)
             else:
                 return obj
 

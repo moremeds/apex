@@ -1329,9 +1329,10 @@ class RegimeDetectorIndicator(IndicatorBase):
         # If components are nested, merge them to top level
         if "components" in flat:
             components = flat.pop("components")
-            for key, value in components.items():
-                if key not in flat:  # Don't overwrite existing top-level keys
-                    flat[key] = value
+            if components:  # Guard against None
+                for key, value in components.items():
+                    if key not in flat:  # Don't overwrite existing top-level keys
+                        flat[key] = value
 
         # Ensure last_5_bar_high has a default
         if "last_5_bar_high" not in flat:

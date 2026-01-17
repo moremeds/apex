@@ -31,12 +31,16 @@ from .regime_report import (
     generate_decision_tree_html,
     generate_hysteresis_html,
     generate_methodology_html,
+    generate_optimization_html,
     generate_quality_html,
+    generate_recommendations_html,
     generate_regime_one_liner_html,
     generate_regime_styles,
 )
 
 if TYPE_CHECKING:
+    from src.domain.services.regime import ParamProvenanceSet, RecommenderResult
+
     from ..indicators.base import Indicator
     from ..indicators.regime import RegimeOutput
     from ..models import SignalRule
@@ -524,6 +528,9 @@ class SignalReportGenerator:
         if regime_outputs is None:
             regime_outputs = self._compute_regime_outputs(data, indicators)
 
+        # Compute parameter provenance and recommendations
+        provenance_dict, recommendations_dict = self._compute_param_analysis(data, indicators)
+
         # Render HTML
         html = self._render_html(
             symbols=symbols,
@@ -533,6 +540,8 @@ class SignalReportGenerator:
             signal_history=signal_history,
             confluence_data=confluence_data,
             regime_outputs=regime_outputs,
+            provenance_dict=provenance_dict,
+            recommendations_dict=recommendations_dict,
         )
 
         output_path = Path(output_path)
@@ -671,6 +680,105 @@ class SignalReportGenerator:
 
         return regime_outputs
 
+    def _compute_param_analysis(
+        self,
+        data: Dict[Tuple[str, str], pd.DataFrame],
+        indicators: List["Indicator"],
+    ) -> Tuple[Dict[str, "ParamProvenance"], Dict[str, "RecommenderResult"]]:
+        """
+        Compute parameter provenance and recommendations for each symbol.
+
+        Uses the ParamRecommender to analyze threshold calibration and
+        creates ParamProvenance to track parameter sources.
+
+        Args:
+            data: Dict mapping (symbol, timeframe) to DataFrame
+            indicators: List of indicators (to get regime detector params)
+
+        Returns:
+            Tuple of (provenance_dict, recommendations_dict) mapping symbol to results
+        """
+        from src.domain.services.regime import (
+            ParamProvenance,
+            ParamProvenanceSet,
+            ParamRecommender,
+            ParamSource,
+            RecommenderResult,
+            get_regime_params,
+        )
+        from ..indicators.regime import RegimeDetectorIndicator
+
+        provenance_dict: Dict[str, ParamProvenanceSet] = {}
+        recommendations_dict: Dict[str, RecommenderResult] = {}
+
+        # Find regime detector to get default params
+        regime_detector = None
+        for ind in indicators:
+            if isinstance(ind, RegimeDetectorIndicator):
+                regime_detector = ind
+                break
+
+        if not regime_detector:
+            return provenance_dict, recommendations_dict
+
+        # Create recommender instance
+        recommender = ParamRecommender(lookback_days=63)
+
+        # Process each symbol
+        symbols_processed = set()
+        for (symbol, timeframe), df in data.items():
+            if symbol in symbols_processed:
+                continue
+            if len(df) < 63:  # Need minimum data for analysis
+                continue
+
+            try:
+                # Get params for this symbol (may be symbol-specific or default)
+                params = get_regime_params(symbol)
+
+                # Create provenance from params
+                provenance = ParamProvenance.from_params(
+                    params=params,
+                    symbol=symbol,
+                    source="default",  # Currently all use defaults
+                )
+
+                # Create param sources for each parameter (for detailed display)
+                param_sources = {}
+                for param_name, value in params.items():
+                    param_sources[param_name] = ParamSource(
+                        param_name=param_name,
+                        value=value,
+                        source="default",
+                        trained_on=None,
+                    )
+
+                # Create full provenance set with param details
+                provenance_set = ParamProvenanceSet(
+                    symbol=symbol,
+                    provenance=provenance,
+                    param_sources=param_sources,
+                )
+                provenance_dict[symbol] = provenance_set
+
+                # Run recommender analysis
+                result = recommender.analyze(
+                    symbol=symbol,
+                    ohlcv=df,
+                    current_params=params,
+                )
+                recommendations_dict[symbol] = result
+
+                logger.debug(
+                    f"Param analysis for {symbol}: "
+                    f"has_recommendations={result.has_recommendations}"
+                )
+                symbols_processed.add(symbol)
+            except Exception as e:
+                logger.warning(f"Failed to compute param analysis for {symbol}: {e}")
+
+        return provenance_dict, recommendations_dict
+
     def _get_theme_colors(self, theme: str) -> Dict[str, str]:
         if theme == "dark":
             return {
@@ -799,10 +907,14 @@ class SignalReportGenerator:
         signal_history: Dict[str, List[Dict[str, Any]]],
         confluence_data: Dict[str, Dict[str, Any]],
         regime_outputs: Optional[Dict[str, "RegimeOutput"]] = None,
+        provenance_dict: Optional[Dict[str, "ParamProvenanceSet"]] = None,
+        recommendations_dict: Optional[Dict[str, "RecommenderResult"]] = None,
     ) -> str:
         c = self._colors
         generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
         regime_outputs = regime_outputs or {}
+        provenance_dict = provenance_dict or {}
+        recommendations_dict = recommendations_dict or {}
 
         return f"""<!DOCTYPE html>
 <html lang="en">
@@ -854,7 +966,7 @@ class SignalReportGenerator:
             </div>
         </div>
 
-        {self._render_regime_sections(regime_outputs)}
+        {self._render_regime_sections(regime_outputs, provenance_dict, recommendations_dict)}
 
         <div class="signal-history-section">
             <h2 class="section-header" onclick="toggleSection('signal-history-content')">
@@ -1374,18 +1486,27 @@ body {{
         )
         return f"""<div class="rules"><h4>Rules</h4>{rule_items}</div>"""
 
-    def _render_regime_sections(self, regime_outputs: Optional[Dict[str, "RegimeOutput"]]) -> str:
+    def _render_regime_sections(
+        self,
+        regime_outputs: Optional[Dict[str, "RegimeOutput"]],
+        provenance_dict: Optional[Dict[str, "ParamProvenanceSet"]] = None,
+        recommendations_dict: Optional[Dict[str, "RecommenderResult"]] = None,
+    ) -> str:
         """
         Render regime analysis sections for all symbols with regime data.
 
         Returns HTML for methodology, decision tree, component analysis,
-        quality, and hysteresis sections (PR1 + PR2).
+        quality, hysteresis, optimization, and recommendations sections
+        (PR1 + PR2 + PR3).
 
         Each symbol's section has data-symbol attribute for JavaScript filtering.
         Only the selected symbol's section is shown (controlled by updateRegimeSection).
         """
         if not regime_outputs:
             return ""
+
+        provenance_dict = provenance_dict or {}
+        recommendations_dict = recommendations_dict or {}
 
         # Build regime sections for each symbol
         sections_html = []
@@ -1404,6 +1525,19 @@ body {{
             quality = generate_quality_html(output, self.theme)
             hysteresis = generate_hysteresis_html(output, self.theme)
 
+            # PR3: Generate optimization and recommendations sections with real data
+            provenance_set = provenance_dict.get(symbol)
+            recommendations_result = recommendations_dict.get(symbol)
+            optimization = generate_optimization_html(
+                provenance=None,
+                provenance_set=provenance_set,
+                theme=self.theme,
+            )
+            recommendations = generate_recommendations_html(
+                result=recommendations_result,
+                theme=self.theme,
+            )
+
             # Add data-symbol attribute for JavaScript filtering
             sections_html.append(
                 f"""
@@ -1414,6 +1548,8 @@ body {{
                 {components}
                 {hysteresis}
                 {quality}
+                {optimization}
+                {recommendations}
             </div>
             """
             )

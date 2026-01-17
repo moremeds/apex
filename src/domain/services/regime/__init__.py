@@ -49,6 +49,19 @@ from .regime_hierarchy import (
     resolve_market_action,
     synthesize_regimes,
 )
+from .param_provenance import (
+    ParamProvenance,
+    ParamProvenanceSet,
+    ParamSource,
+)
+from .param_recommender import (
+    AnalysisMetrics,
+    ParamRecommendation,
+    ParamRecommender,
+    RecommendationEvidence,
+    RecommenderResult,
+    VolProxyConfig,
+)
 
 __all__ = [
     # Models
@@ -86,4 +99,15 @@ __all__ = [
     "get_action_summary",
     "should_reduce_exposure",
     "get_defensive_actions",
+    # Parameter provenance
+    "ParamProvenance",
+    "ParamProvenanceSet",
+    "ParamSource",
+    # Parameter recommender
+    "AnalysisMetrics",
+    "ParamRecommender",
+    "ParamRecommendation",
+    "RecommendationEvidence",
+    "RecommenderResult",
+    "VolProxyConfig",
 ]
