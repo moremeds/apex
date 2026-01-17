@@ -75,7 +75,9 @@ class ChartPatternsIndicator(IndicatorBase):
             window_close = close[i - lookback : i + 1]
 
             # Detect patterns
-            detected_pattern, conf = self._detect_pattern(window_high, window_low, window_close, tolerance)
+            detected_pattern, conf = self._detect_pattern(
+                window_high, window_low, window_close, tolerance
+            )
             patterns[i] = detected_pattern
             confidence[i] = conf
 

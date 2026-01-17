@@ -807,7 +807,9 @@ def _run_vectorbt_backtest(spec: "RunSpec") -> "RunResult":
     if _vectorbt_secondary_data and spec.symbol in _vectorbt_secondary_data:
         symbol_secondary = _vectorbt_secondary_data[spec.symbol]
 
-    result: RunResult = _vectorbt_engine.run(spec, data=symbol_data, secondary_data=symbol_secondary)
+    result: RunResult = _vectorbt_engine.run(
+        spec, data=symbol_data, secondary_data=symbol_secondary
+    )
     return result
 
 
@@ -1227,7 +1229,9 @@ def _build_equity_curve(
     return equity_curve
 
 
-def _query_trade_summary(runner: Any, experiment_id: str, best_trial_id: str) -> List[Dict[str, Any]]:
+def _query_trade_summary(
+    runner: Any, experiment_id: str, best_trial_id: str
+) -> List[Dict[str, Any]]:
     """Query trade summary per run (individual trades not stored, return run-level summaries)."""
     rows = runner._db.fetchall(
         """
@@ -1276,7 +1280,9 @@ def _query_trade_summary(runner: Any, experiment_id: str, best_trial_id: str) ->
     return trades
 
 
-def _generate_experiment_report(runner: Any, experiment_id: str, spec: Any, output_dir: Path) -> Path:
+def _generate_experiment_report(
+    runner: Any, experiment_id: str, spec: Any, output_dir: Path
+) -> Path:
     """Generate HTML report for completed experiment."""
     import numpy as np
 

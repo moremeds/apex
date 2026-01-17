@@ -17,7 +17,7 @@ for proper separation of concerns.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from textual import work
 from textual.app import ComposeResult
@@ -219,7 +219,7 @@ class LabView(Container, can_focus=True):
             timeout=10.0,
         )
 
-    def update_health(self, health: List[Any]) -> None:
+    def update_health(self, health: list[Any]) -> None:
         """Update health bar."""
         try:
             health_bar = self.query_one("#lab-health", HealthBar)

@@ -128,7 +128,9 @@ class ContextLogger(logging.LoggerAdapter):
         super().__init__(logger, {})
         self.context = context
 
-    def process(self, msg: str, kwargs: MutableMapping[str, Any]) -> Tuple[str, MutableMapping[str, Any]]:
+    def process(
+        self, msg: str, kwargs: MutableMapping[str, Any]
+    ) -> Tuple[str, MutableMapping[str, Any]]:
         # Merge context
         extra = kwargs.get("extra", {})
         extra["context"] = self.context

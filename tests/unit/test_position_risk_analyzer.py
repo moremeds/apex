@@ -34,7 +34,6 @@ def analyzer(config):
 
 def create_pos_risk(position: Position, mark_price: float) -> PositionRisk:
     """Helper to create PositionRisk from position and mark price."""
-    cost_basis = position.avg_price * abs(position.quantity) * position.multiplier
     unrealized_pnl = (mark_price - position.avg_price) * position.quantity * position.multiplier
     return PositionRisk(
         position=position,

@@ -343,6 +343,7 @@ class IbExecutionRepository(BaseRepository[IbRawExecution]):
         if result is None:
             return None
         from datetime import datetime as dt
+
         if isinstance(result, dt):
             return result
         return None

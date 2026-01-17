@@ -44,7 +44,11 @@ class Constraint(BaseModel):
         }
 
         if self.operator == "between":
-            passed = self.value <= actual_value <= (self.value_max if self.value_max is not None else float('inf'))
+            passed = (
+                self.value
+                <= actual_value
+                <= (self.value_max if self.value_max is not None else float("inf"))
+            )
             if not passed:
                 return False, f"{name}: {actual_value:.4f} not in [{self.value}, {self.value_max}]"
             return True, ""

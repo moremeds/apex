@@ -181,9 +181,7 @@ class TextualDashboard:
         if self._app:
             self._app.set_trading_universe(symbols)
 
-    def set_signal_introspection(
-        self, introspection: Optional["SignalIntrospectionPort"]
-    ) -> None:
+    def set_signal_introspection(self, introspection: Optional["SignalIntrospectionPort"]) -> None:
         """
         Set the signal introspection adapter for Tab 7 Intro view.
 
@@ -256,9 +254,7 @@ class TextualDashboard:
                 self._coverage_store,
             )
 
-    def set_coverage_store(
-        self, coverage_store: Optional["DuckDBCoverageStore"]
-    ) -> None:
+    def set_coverage_store(self, coverage_store: Optional["DuckDBCoverageStore"]) -> None:
         """
         Set coverage store for Tab 7 historical data display.
 

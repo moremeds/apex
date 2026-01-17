@@ -127,15 +127,31 @@ class WalkForwardSplitter:
             mask = calendar >= from_ts
             future_days = calendar[mask]
             if len(future_days) > trading_days:
-                return date(future_days[trading_days].year, future_days[trading_days].month, future_days[trading_days].day)
-            return date(future_days[-1].year, future_days[-1].month, future_days[-1].day) if len(future_days) > 0 else from_date
+                return date(
+                    future_days[trading_days].year,
+                    future_days[trading_days].month,
+                    future_days[trading_days].day,
+                )
+            return (
+                date(future_days[-1].year, future_days[-1].month, future_days[-1].day)
+                if len(future_days) > 0
+                else from_date
+            )
         else:
             # Find trading days before from_date
             mask = calendar <= from_ts
             past_days = calendar[mask]
             if len(past_days) > abs(trading_days):
-                return date(past_days[trading_days].year, past_days[trading_days].month, past_days[trading_days].day)  # negative index
-            return date(past_days[0].year, past_days[0].month, past_days[0].day) if len(past_days) > 0 else from_date
+                return date(
+                    past_days[trading_days].year,
+                    past_days[trading_days].month,
+                    past_days[trading_days].day,
+                )  # negative index
+            return (
+                date(past_days[0].year, past_days[0].month, past_days[0].day)
+                if len(past_days) > 0
+                else from_date
+            )
 
     def _count_trading_days(self, start: date, end: date) -> int:
         """Count trading days between two dates (inclusive)."""

@@ -180,9 +180,7 @@ class MarketDataManager(MarketDataProvider):
                 # Always wire provider streaming → MarketDataManager._on_provider_data.
                 # _on_provider_data publishes to EventBus (and optionally forwards to _streaming_callback).
                 if provider.supports_streaming():
-                    provider.set_streaming_callback(
-                        self._create_provider_callback(name)
-                    )
+                    provider.set_streaming_callback(self._create_provider_callback(name))
                 return
 
             # Not connected yet, try to connect
@@ -198,9 +196,7 @@ class MarketDataManager(MarketDataProvider):
                 # Always wire provider streaming → MarketDataManager._on_provider_data.
                 # _on_provider_data publishes to EventBus (and optionally forwards to _streaming_callback).
                 if provider.supports_streaming():
-                    provider.set_streaming_callback(
-                        self._create_provider_callback(name)
-                    )
+                    provider.set_streaming_callback(self._create_provider_callback(name))
             else:
                 logger.warning(f"⚠ Provider {name} connected but reports not connected")
                 self._update_health(name, "DEGRADED", "Connection state mismatch")
@@ -408,9 +404,7 @@ class MarketDataManager(MarketDataProvider):
 
         return None
 
-    def _create_provider_callback(
-        self, provider_name: str
-    ) -> Callable[[str, MarketData], None]:
+    def _create_provider_callback(self, provider_name: str) -> Callable[[str, MarketData], None]:
         """
         Create a typed callback function for a specific provider.
 
@@ -442,9 +436,7 @@ class MarketDataManager(MarketDataProvider):
         # keeps working even when the optional external callback is unset.
         for name, provider in self._providers.items():
             if provider.supports_streaming() and self._status[name].connected:
-                provider.set_streaming_callback(
-                    self._create_provider_callback(name)
-                )
+                provider.set_streaming_callback(self._create_provider_callback(name))
 
     def enable_streaming(self) -> None:
         """Enable streaming mode on all providers that support it."""

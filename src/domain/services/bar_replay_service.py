@@ -19,8 +19,6 @@ from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple
 
 from ...domain.events.domain_events import BarCloseEvent, BarData
 from ...domain.events.event_types import EventType
-
-
 from ...infrastructure.stores.parquet_historical_store import ParquetHistoricalStore
 from ...utils.logging_setup import get_logger
 from .bar_count_calculator import BarCountCalculator

@@ -167,8 +167,12 @@ class HistoricalCoveragePanel(Widget):
             symbol_label = f"[bold]{symbol}[/] ({tf_count} tf)"
 
             # Date range across all timeframes
-            all_earliest: List[datetime] = [r["earliest"] for r in records if r.get("earliest") is not None]
-            all_latest: List[datetime] = [r["latest"] for r in records if r.get("latest") is not None]
+            all_earliest: List[datetime] = [
+                r["earliest"] for r in records if r.get("earliest") is not None
+            ]
+            all_latest: List[datetime] = [
+                r["latest"] for r in records if r.get("latest") is not None
+            ]
             earliest: Optional[datetime] = min(all_earliest) if all_earliest else None
             latest: Optional[datetime] = max(all_latest) if all_latest else None
             date_range = f"{format_date(earliest)} - {format_date(latest)}"
