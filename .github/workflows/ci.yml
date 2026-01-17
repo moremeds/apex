@@ -74,17 +74,22 @@ jobs:
       - name: Install dependencies (without TA-Lib)
         run: |
           # Install in non-editable mode for CI (more reliable)
-          pip install ".[dev,observability]"
+          # Use --no-cache-dir to ensure fresh build with correct .gitignore
+          pip install --no-cache-dir ".[dev,observability]"
           # Ensure TA-Lib is not required for contract tests
           pip uninstall -y TA-Lib 2>/dev/null || true
-          # Debug: verify package structure
+          # Debug: verify package structure from installed package (not source)
           echo "Checking src.domain.signals.data module..."
-          python -c "from src.domain.signals.data import BarAggregator; print('Module import OK')"
+          cd /tmp && python -c "from src.domain.signals.data import BarAggregator; print('Module import OK')"
 
       - name: Run signal contract verification
+        env:
+          PYTHONSAFEPATH: "1"
         run: python -m src.verification.signal_verifier --all --profile signal_dev
 
       - name: Run regime contract verification
+        env:
+          PYTHONSAFEPATH: "1"
         run: python -m src.verification.regime_verifier --all --profile dev
 
       - name: Run ALL unit tests
@@ -139,7 +144,7 @@ jobs:
           python-version: "3.13"
 
       - name: Install Python dependencies
-        run: pip install ".[dev,observability]"
+        run: pip install --no-cache-dir ".[dev,observability]"
 
       - name: Try TA-Lib wheels first (fast)
         id: talib-wheels
@@ -197,7 +202,7 @@ jobs:
           python-version: "3.13"
 
       - name: Install dependencies
-        run: pip install ".[dev,observability]"
+        run: pip install --no-cache-dir ".[dev,observability]"
 
       - name: Run integration tests
         run: |
