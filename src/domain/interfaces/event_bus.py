@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Callable, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Optional, TypeVar
 
 # Re-export EventType from the enhanced event_types module
 # This provides backward compatibility for existing imports
@@ -37,7 +37,7 @@ class EventBus(ABC):
     """
 
     @abstractmethod
-    def publish(self, event_type: EventType, payload: Any) -> None:
+    def publish(self, event_type: EventType, payload: Any, priority: Optional[int] = None) -> None:
         """
         Publish an event to all subscribers.
 
@@ -45,6 +45,7 @@ class EventBus(ABC):
             event_type: Type of event being published.
             payload: Event data - preferably a DomainEvent subclass,
                     but dict is still supported for backward compatibility.
+            priority: Optional priority for event processing (used by PriorityEventBus).
         """
 
     @abstractmethod
