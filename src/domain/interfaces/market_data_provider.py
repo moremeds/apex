@@ -24,17 +24,14 @@ class MarketDataProvider(ABC):
         Raises:
             ConnectionError: If unable to connect.
         """
-        pass
 
     @abstractmethod
     async def disconnect(self) -> None:
         """Disconnect from the market data source."""
-        pass
 
     @abstractmethod
     def is_connected(self) -> bool:
         """Check if the provider is connected."""
-        pass
 
     @abstractmethod
     async def fetch_market_data(self, positions: List[Position]) -> List[MarketData]:
@@ -50,7 +47,6 @@ class MarketDataProvider(ABC):
         Raises:
             ConnectionError: If unable to connect to data source.
         """
-        pass
 
     @abstractmethod
     async def fetch_quotes(self, symbols: List[str]) -> Dict[str, MarketData]:
@@ -65,22 +61,18 @@ class MarketDataProvider(ABC):
         Returns:
             Dict mapping symbol to MarketData.
         """
-        pass
 
     @abstractmethod
     async def subscribe(self, symbols: List[str]) -> None:
         """Subscribe to real-time market data updates."""
-        pass
 
     @abstractmethod
     async def unsubscribe(self, symbols: List[str]) -> None:
         """Unsubscribe from market data updates."""
-        pass
 
     @abstractmethod
     def get_latest(self, symbol: str) -> Optional[MarketData]:
         """Get latest cached market data for a symbol."""
-        pass
 
     def set_streaming_callback(self, callback: Optional[Callable[[str, MarketData], None]]) -> None:
         """

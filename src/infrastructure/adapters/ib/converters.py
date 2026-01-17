@@ -8,7 +8,6 @@ IB returns timezone-aware UTC timestamps.
 
 from __future__ import annotations
 
-from datetime import datetime
 from math import isnan
 from typing import Optional
 

@@ -4,18 +4,15 @@ Systematic runner - main experiment orchestrator.
 Executes backtests across parameter space, symbols, and time windows.
 """
 
-import asyncio
 import logging
 import multiprocessing as mp
 import time
-from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterator, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union
 
 from ..analysis import (
-    AggregationConfig,
     Aggregator,
     Constraint,
     ConstraintValidator,
@@ -43,7 +40,7 @@ from ..data import (
     WalkForwardSplitter,
 )
 from ..optimization import BayesianOptimizer, GridOptimizer
-from .parallel import ExecutionProgress, ParallelConfig, ParallelRunner
+from .parallel import ParallelConfig, ParallelRunner
 
 logger = logging.getLogger(__name__)
 

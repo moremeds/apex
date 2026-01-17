@@ -1,14 +1,10 @@
 """Unit tests for ReadinessManager."""
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, List, Tuple
 
-import pytest
-
 from src.application.readiness_manager import (
-    BrokerStatus,
     DataFreshness,
-    MarketDataStatus,
     ReadinessManager,
     ReadinessState,
 )

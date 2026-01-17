@@ -11,13 +11,9 @@ from __future__ import annotations
 class FutuError(Exception):
     """Base exception for all Futu adapter errors."""
 
-    pass
-
 
 class FutuConnectionError(FutuError):
     """Connection to Futu OpenD lost or unavailable."""
-
-    pass
 
 
 class FutuRateLimitError(FutuError):
@@ -31,13 +27,9 @@ class FutuRateLimitError(FutuError):
 class FutuDataError(FutuError):
     """Invalid or missing data from Futu API."""
 
-    pass
-
 
 class FutuAuthError(FutuError):
     """Authentication or authorization error with Futu."""
-
-    pass
 
 
 def classify_futu_exception(e: Exception) -> FutuError:

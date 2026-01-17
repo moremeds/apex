@@ -10,16 +10,16 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional
 
 from ...domain.interfaces.broker_adapter import BrokerAdapter
 from ...models.account import AccountInfo
 from ...models.order import Order, Trade
-from ...models.position import Position, PositionSource
+from ...models.position import Position
 from ...utils.logging_setup import get_logger
 
 if TYPE_CHECKING:
-    from ...infrastructure.monitoring import HealthMonitor, HealthStatus
+    from ...infrastructure.monitoring import HealthMonitor
 
 
 logger = get_logger(__name__)

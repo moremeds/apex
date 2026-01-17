@@ -7,7 +7,7 @@ tick data into OHLCV values. Thread-safe for single-bar updates.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Dict, Optional
 
@@ -142,9 +142,7 @@ class BarBuilder:
         return bar_start, bar_end
 
     @classmethod
-    def create_for_timestamp(
-        cls, symbol: str, timeframe: str, timestamp: datetime
-    ) -> "BarBuilder":
+    def create_for_timestamp(cls, symbol: str, timeframe: str, timestamp: datetime) -> "BarBuilder":
         """
         Factory method to create a BarBuilder for a given timestamp.
 

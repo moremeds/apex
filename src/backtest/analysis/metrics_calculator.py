@@ -13,7 +13,7 @@ Computes all extended metrics from returns and trade data:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
 import numpy as np
 import pandas as pd

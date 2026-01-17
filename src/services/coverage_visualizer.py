@@ -13,13 +13,12 @@ from __future__ import annotations
 
 import html
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from ..domain.services.bar_count_calculator import BarCountCalculator
-from ..domain.services.data_validator import DataValidator, ValidationStatus
+from ..domain.services.data_validator import DataValidator
 from ..infrastructure.stores.parquet_historical_store import ParquetHistoricalStore
 from ..utils.logging_setup import get_logger
 

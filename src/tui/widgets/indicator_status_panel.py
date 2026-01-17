@@ -14,7 +14,7 @@ Widget handles only rendering and UI state.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set
 
 from textual.app import ComposeResult
 from textual.reactive import reactive

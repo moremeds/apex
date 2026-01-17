@@ -21,16 +21,10 @@ from ...domain.interfaces.execution_provider import OrderRequest, OrderResult
 # Reality models (optional)
 from ...domain.reality import (
     AssetType,
-    FeeBreakdown,
-)
-from ...domain.reality import FillModel as RealityFillModel
-from ...domain.reality import (
-    FillResult,
 )
 from ...domain.reality import OrderType as RealityOrderType
 from ...domain.reality import (
     RealityModelPack,
-    SlippageResult,
 )
 
 if TYPE_CHECKING:

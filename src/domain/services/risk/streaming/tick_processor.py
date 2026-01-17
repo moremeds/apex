@@ -38,7 +38,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Optional
 
 from src.utils.market_hours import MarketHours
-from src.utils.timezone import now_utc
 
 from ..calculators.greeks_calculator import calculate_position_greeks
 from ..calculators.notional_calculator import calculate_delta_dollars, calculate_notional

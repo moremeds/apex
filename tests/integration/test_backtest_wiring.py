@@ -12,10 +12,7 @@ Tests cover:
 - MTF (Multi-Timeframe) data alignment
 """
 
-from datetime import date
 from pathlib import Path
-from typing import Any, Dict
-from unittest.mock import MagicMock, patch
 
 import pytest
 import yaml
@@ -26,7 +23,6 @@ class TestParallelRunnerWiring:
 
     def test_systematic_runner_uses_parallel_when_configured(self):
         """Verify parallel_workers > 1 uses ParallelRunner."""
-        from src.backtest.execution.parallel import ParallelRunner
         from src.backtest.execution.systematic import RunnerConfig, SystematicRunner
 
         # Create config with parallel workers

@@ -12,12 +12,12 @@ Layout:
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set
 
 from textual.app import ComposeResult
 from textual.reactive import reactive
 from textual.widget import Widget
-from textual.widgets import DataTable, Static
+from textual.widgets import DataTable
 
 
 def format_date(dt: Optional[datetime]) -> str:

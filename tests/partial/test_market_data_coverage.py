@@ -76,7 +76,7 @@ def test_market_data_coverage_display():
     dashboard = TerminalDashboard({"show_positions": False})
     dashboard.update(snapshot, [], health_all_good)
 
-    panel = dashboard._render_health(health_all_good)
+    dashboard._render_health(health_all_good)
     print("   ✓ Health panel rendered")
     print(f"   - Border style should be green")
     print(f"   - All 4 components should show ✓")
@@ -112,7 +112,7 @@ def test_market_data_coverage_display():
     ]
 
     dashboard.update(snapshot, [], health_md_degraded)
-    panel = dashboard._render_health(health_md_degraded)
+    dashboard._render_health(health_md_degraded)
     print("   ✓ Health panel rendered")
     print(f"   - Border style should be yellow (degraded)")
     print(f"   - market_data_coverage should show ⚠")
@@ -149,7 +149,7 @@ def test_market_data_coverage_display():
     ]
 
     dashboard.update(snapshot, [], health_connection_down)
-    panel = dashboard._render_health(health_connection_down)
+    dashboard._render_health(health_connection_down)
     print("   ✓ Health panel rendered")
     print(f"   - Border style should be red (unhealthy)")
     print(f"   - ib_adapter should show ✗")
@@ -167,7 +167,7 @@ def test_market_data_coverage_display():
         ),
     ]
 
-    panel = dashboard._render_health(health_message_only)
+    dashboard._render_health(health_message_only)
     print("   ✓ Health panel rendered")
     print(f"   - Should display message: 'Custom warning message'")
 

@@ -10,7 +10,6 @@ This service monitors market-wide conditions and generates alerts for:
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from ...utils.logging_setup import get_logger

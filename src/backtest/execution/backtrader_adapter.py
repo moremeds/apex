@@ -44,7 +44,7 @@ except ImportError:
     bt = None
 
 from ...domain.clock import BacktraderClock
-from ...domain.events.domain_events import BarData, PositionSnapshot, QuoteTick
+from ...domain.events.domain_events import BarData, PositionSnapshot
 from ...domain.interfaces.execution_provider import OrderRequest
 from ...domain.reality import RealityModelPack
 from ...domain.strategy.base import Strategy, StrategyContext

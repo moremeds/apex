@@ -8,7 +8,6 @@ Implements HistoricalSourcePort for the historical data management system.
 from __future__ import annotations
 
 import asyncio
-import time
 from datetime import datetime, timedelta
 from typing import List, Optional
 
@@ -18,7 +17,6 @@ except ImportError:
     yf = None
 
 from ....domain.events.domain_events import BarData
-from ....domain.interfaces.historical_source import HistoricalSourcePort
 from ....utils.logging_setup import get_logger
 from ....utils.timezone import now_utc
 

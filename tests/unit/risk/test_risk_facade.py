@@ -1,14 +1,9 @@
 """Unit tests for RiskFacade."""
 
-from datetime import datetime
-from unittest.mock import MagicMock
-
 import pytest
 
 from src.domain.events.domain_events import MarketDataTickEvent
 from src.domain.services.risk.risk_facade import RiskFacade
-from src.domain.services.risk.state.portfolio_state import PortfolioState
-from src.domain.services.risk.state.position_state import PositionState
 from src.models.position import AssetType, Position
 
 

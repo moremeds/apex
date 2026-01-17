@@ -10,8 +10,8 @@ Features are extracted from regime components:
 All features use PAST data only to avoid leakage with forward-looking labels.
 """
 
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass
+from typing import Dict, List, Optional
 
 import numpy as np
 import pandas as pd

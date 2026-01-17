@@ -24,20 +24,12 @@ from ...core import TimeWindow
 class CPCVConfig(BaseModel):
     """Configuration for CPCV splitting."""
 
-    n_groups: int = Field(
-        default=6, description="Total number of time groups to divide data into"
-    )
-    n_test_groups: int = Field(
-        default=2, description="Number of groups to use as test per path"
-    )
+    n_groups: int = Field(default=6, description="Total number of time groups to divide data into")
+    n_test_groups: int = Field(default=2, description="Number of groups to use as test per path")
 
     # Gap settings
-    purge_days: int = Field(
-        default=5, description="Gap between train and test for each boundary"
-    )
-    embargo_days: int = Field(
-        default=2, description="Gap after test periods"
-    )
+    purge_days: int = Field(default=5, description="Gap between train and test for each boundary")
+    embargo_days: int = Field(default=2, description="Gap after test periods")
 
 
 @dataclass
@@ -101,9 +93,7 @@ class CPCVSplitter:
         """Get number of CPCV paths: C(n_groups, n_test_groups)."""
         return comb(self.config.n_groups, self.config.n_test_groups)
 
-    def _divide_into_groups(
-        self, start_date: date, end_date: date
-    ) -> List[Tuple[date, date]]:
+    def _divide_into_groups(self, start_date: date, end_date: date) -> List[Tuple[date, date]]:
         """Divide date range into equal groups."""
         # Get trading days in range
         mask = (self._trading_calendar >= pd.Timestamp(start_date)) & (
@@ -123,15 +113,11 @@ class CPCVSplitter:
             else:
                 end_idx = (i + 1) * group_size - 1
 
-            groups.append(
-                (trading_days[start_idx].date(), trading_days[end_idx].date())
-            )
+            groups.append((trading_days[start_idx].date(), trading_days[end_idx].date()))
 
         return groups
 
-    def _is_adjacent_to_test(
-        self, train_idx: int, test_indices: Tuple[int, ...]
-    ) -> bool:
+    def _is_adjacent_to_test(self, train_idx: int, test_indices: Tuple[int, ...]) -> bool:
         """Check if a training group is adjacent to any test group."""
         for test_idx in test_indices:
             if abs(train_idx - test_idx) == 1:

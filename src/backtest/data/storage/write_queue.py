@@ -20,9 +20,9 @@ import logging
 import queue
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -113,9 +113,7 @@ class WriteQueue:
         self.config = config or WriterConfig()
         self.stats = WriterStats()
 
-        self._queue: queue.Queue[WriteRequest] = queue.Queue(
-            maxsize=self.config.max_queue_size
-        )
+        self._queue: queue.Queue[WriteRequest] = queue.Queue(maxsize=self.config.max_queue_size)
         self._writer_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
         self._flush_event = threading.Event()
@@ -179,9 +177,7 @@ class WriteQueue:
             logger.error(f"Write queue full, dropping insert for {table}")
             self.stats.total_errors += 1
 
-    def upsert(
-        self, table: str, data: Dict[str, Any], key_columns: List[str]
-    ) -> None:
+    def upsert(self, table: str, data: Dict[str, Any], key_columns: List[str]) -> None:
         """
         Queue an upsert (insert or update) operation.
 
@@ -190,9 +186,7 @@ class WriteQueue:
             data: Record data as dictionary
             key_columns: Columns that form the primary key for conflict resolution
         """
-        request = WriteRequest(
-            WriteOperation.UPSERT, table, data, key_columns=key_columns
-        )
+        request = WriteRequest(WriteOperation.UPSERT, table, data, key_columns=key_columns)
         try:
             self._queue.put(request, timeout=5.0)
         except queue.Full:
@@ -228,9 +222,7 @@ class WriteQueue:
             try:
                 # Get next request with timeout for batch flushing
                 try:
-                    request = self._queue.get(
-                        timeout=self.config.batch_timeout_seconds
-                    )
+                    request = self._queue.get(timeout=self.config.batch_timeout_seconds)
                 except queue.Empty:
                     # Timeout - check if we need to flush pending batches
                     self._maybe_flush_batches()
@@ -331,7 +323,7 @@ class WriteQueue:
                     logger.debug(f"Flushed {count} records to {table}")
                     return
 
-                except Exception as e:
+                except Exception:
                     self.db.conn.execute("ROLLBACK")
                     raise
 

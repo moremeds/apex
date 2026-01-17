@@ -116,8 +116,7 @@ class IbBacktestDataProvider:
             await self._adapter.disconnect()
             self._connected = False
             logger.info(
-                f"IB backtest provider disconnected "
-                f"(requests made: {self._request_count})"
+                f"IB backtest provider disconnected " f"(requests made: {self._request_count})"
             )
 
     async def ensure_connected(self) -> None:
@@ -168,8 +167,7 @@ class IbBacktestDataProvider:
         total = len(symbols)
 
         logger.info(
-            f"Fetching {timeframe} bars for {total} symbols "
-            f"({start.date()} to {end.date()})"
+            f"Fetching {timeframe} bars for {total} symbols " f"({start.date()} to {end.date()})"
         )
 
         for i, symbol in enumerate(symbols):
@@ -187,17 +185,19 @@ class IbBacktestDataProvider:
 
                 # Convert List[BarData] -> DataFrame
                 if bars:
-                    df = pd.DataFrame([
-                        {
-                            "timestamp": bar.timestamp,
-                            "open": bar.open,
-                            "high": bar.high,
-                            "low": bar.low,
-                            "close": bar.close,
-                            "volume": bar.volume or 0,
-                        }
-                        for bar in bars
-                    ])
+                    df = pd.DataFrame(
+                        [
+                            {
+                                "timestamp": bar.timestamp,
+                                "open": bar.open,
+                                "high": bar.high,
+                                "low": bar.low,
+                                "close": bar.close,
+                                "volume": bar.volume or 0,
+                            }
+                            for bar in bars
+                        ]
+                    )
                     df.set_index("timestamp", inplace=True)
                     df.sort_index(inplace=True)
                     results[symbol] = df
@@ -248,11 +248,7 @@ class IbBacktestDataProvider:
         if self._adapter:
             return self._adapter.get_supported_timeframes()
         # Fallback from IbHistoricalAdapter.TIMEFRAME_TO_IB_BAR_SIZE
-        return [
-            "1s", "5s", "15s", "30s",
-            "1m", "5m", "15m", "30m",
-            "1h", "4h", "1d", "1w", "1M"
-        ]
+        return ["1s", "5s", "15s", "30s", "1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w", "1M"]
 
     @property
     def client_id(self) -> int:

@@ -8,7 +8,7 @@ import json
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from ...core import RunMetrics, RunResult, RunStatus, TrialAggregates, TrialResult
+from ...core import RunMetrics, RunResult, RunStatus, TrialResult
 from ...core.hashing import canonical_json
 from .database import DatabaseManager
 
@@ -75,15 +75,32 @@ class ExperimentRepository:
             return None
 
         cols = [
-            "experiment_id", "base_experiment_id", "run_version",
-            "name", "strategy", "parameters", "universe",
-            "temporal", "optimization", "profiles", "reproducibility",
-            "created_at", "completed_at", "status"
+            "experiment_id",
+            "base_experiment_id",
+            "run_version",
+            "name",
+            "strategy",
+            "parameters",
+            "universe",
+            "temporal",
+            "optimization",
+            "profiles",
+            "reproducibility",
+            "created_at",
+            "completed_at",
+            "status",
         ]
         result = dict(zip(cols, row))
 
         # Parse JSON fields
-        json_fields = ["parameters", "universe", "temporal", "optimization", "profiles", "reproducibility"]
+        json_fields = [
+            "parameters",
+            "universe",
+            "temporal",
+            "optimization",
+            "profiles",
+            "reproducibility",
+        ]
         for field in json_fields:
             if field in result and result[field] and isinstance(result[field], str):
                 try:
@@ -107,7 +124,9 @@ class TrialRepository:
     def __init__(self, db: DatabaseManager):
         self.db = db
 
-    def create_stub(self, trial_id: str, experiment_id: str, params: dict, trial_index: Optional[int] = None) -> None:
+    def create_stub(
+        self, trial_id: str, experiment_id: str, params: dict, trial_index: Optional[int] = None
+    ) -> None:
         """Create a minimal trial record (for FK constraint before runs are inserted)."""
         self.db.execute(
             """
@@ -182,14 +201,28 @@ class TrialRepository:
             WHERE trial_id = ?
             """,
             (
-                agg.median_sharpe, agg.median_return, agg.median_max_dd,
-                agg.median_win_rate, agg.median_profit_factor, agg.mad_sharpe,
-                agg.p10_sharpe, agg.p90_sharpe, agg.p10_max_dd, agg.p90_max_dd,
-                agg.stability_score, agg.degradation_ratio,
-                agg.is_median_sharpe, agg.oos_median_sharpe, trial.trial_score,
-                agg.total_runs, agg.successful_runs, agg.failed_runs,
-                trial.constraints_met, json.dumps(trial.constraint_violations),
-                trial.completed_at, trial.total_duration_seconds,
+                agg.median_sharpe,
+                agg.median_return,
+                agg.median_max_dd,
+                agg.median_win_rate,
+                agg.median_profit_factor,
+                agg.mad_sharpe,
+                agg.p10_sharpe,
+                agg.p90_sharpe,
+                agg.p10_max_dd,
+                agg.p90_max_dd,
+                agg.stability_score,
+                agg.degradation_ratio,
+                agg.is_median_sharpe,
+                agg.oos_median_sharpe,
+                trial.trial_score,
+                agg.total_runs,
+                agg.successful_runs,
+                agg.failed_runs,
+                trial.constraints_met,
+                json.dumps(trial.constraint_violations),
+                trial.completed_at,
+                trial.total_duration_seconds,
                 trial.trial_id,
             ),
         )
@@ -254,16 +287,43 @@ class RunRepository:
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                run.run_id, run.trial_id, run.experiment_id, run.symbol, run.window_id,
-                run.profile_version, run.data_version, run.status.value, run.error,
-                run.is_train, run.is_oos,
-                m.total_return, m.cagr, m.annualized_return, m.sharpe, m.sortino, m.calmar,
-                m.max_drawdown, m.avg_drawdown, m.max_dd_duration_days,
-                m.total_trades, m.win_rate, m.profit_factor, m.expectancy, m.sqn,
-                m.best_trade_pct, m.worst_trade_pct, m.avg_win_pct, m.avg_loss_pct,
-                m.exposure_pct, m.avg_trade_duration_days,
-                m.total_commission, m.total_slippage, m.total_costs,
-                run.started_at, run.completed_at, run.duration_seconds,
+                run.run_id,
+                run.trial_id,
+                run.experiment_id,
+                run.symbol,
+                run.window_id,
+                run.profile_version,
+                run.data_version,
+                run.status.value,
+                run.error,
+                run.is_train,
+                run.is_oos,
+                m.total_return,
+                m.cagr,
+                m.annualized_return,
+                m.sharpe,
+                m.sortino,
+                m.calmar,
+                m.max_drawdown,
+                m.avg_drawdown,
+                m.max_dd_duration_days,
+                m.total_trades,
+                m.win_rate,
+                m.profit_factor,
+                m.expectancy,
+                m.sqn,
+                m.best_trade_pct,
+                m.worst_trade_pct,
+                m.avg_win_pct,
+                m.avg_loss_pct,
+                m.exposure_pct,
+                m.avg_trade_duration_days,
+                m.total_commission,
+                m.total_slippage,
+                m.total_costs,
+                run.started_at,
+                run.completed_at,
+                run.duration_seconds,
                 json.dumps(run.params) if run.params else None,
             ),
         )
@@ -276,46 +336,48 @@ class RunRepository:
         records = []
         for run in runs:
             m = run.metrics
-            records.append({
-                "run_id": run.run_id,
-                "trial_id": run.trial_id,
-                "experiment_id": run.experiment_id,
-                "symbol": run.symbol,
-                "window_id": run.window_id,
-                "profile_version": run.profile_version,
-                "data_version": run.data_version,
-                "status": run.status.value,
-                "error": run.error,
-                "is_train": run.is_train,
-                "is_oos": run.is_oos,
-                "total_return": m.total_return,
-                "cagr": m.cagr,
-                "annualized_return": m.annualized_return,
-                "sharpe": m.sharpe,
-                "sortino": m.sortino,
-                "calmar": m.calmar,
-                "max_drawdown": m.max_drawdown,
-                "avg_drawdown": m.avg_drawdown,
-                "max_dd_duration_days": m.max_dd_duration_days,
-                "total_trades": m.total_trades,
-                "win_rate": m.win_rate,
-                "profit_factor": m.profit_factor,
-                "expectancy": m.expectancy,
-                "sqn": m.sqn,
-                "best_trade_pct": m.best_trade_pct,
-                "worst_trade_pct": m.worst_trade_pct,
-                "avg_win_pct": m.avg_win_pct,
-                "avg_loss_pct": m.avg_loss_pct,
-                "exposure_pct": m.exposure_pct,
-                "avg_trade_duration_days": m.avg_trade_duration_days,
-                "total_commission": m.total_commission,
-                "total_slippage": m.total_slippage,
-                "total_costs": m.total_costs,
-                "started_at": run.started_at,
-                "completed_at": run.completed_at,
-                "duration_seconds": run.duration_seconds,
-                "params": json.dumps(run.params) if run.params else None,
-            })
+            records.append(
+                {
+                    "run_id": run.run_id,
+                    "trial_id": run.trial_id,
+                    "experiment_id": run.experiment_id,
+                    "symbol": run.symbol,
+                    "window_id": run.window_id,
+                    "profile_version": run.profile_version,
+                    "data_version": run.data_version,
+                    "status": run.status.value,
+                    "error": run.error,
+                    "is_train": run.is_train,
+                    "is_oos": run.is_oos,
+                    "total_return": m.total_return,
+                    "cagr": m.cagr,
+                    "annualized_return": m.annualized_return,
+                    "sharpe": m.sharpe,
+                    "sortino": m.sortino,
+                    "calmar": m.calmar,
+                    "max_drawdown": m.max_drawdown,
+                    "avg_drawdown": m.avg_drawdown,
+                    "max_dd_duration_days": m.max_dd_duration_days,
+                    "total_trades": m.total_trades,
+                    "win_rate": m.win_rate,
+                    "profit_factor": m.profit_factor,
+                    "expectancy": m.expectancy,
+                    "sqn": m.sqn,
+                    "best_trade_pct": m.best_trade_pct,
+                    "worst_trade_pct": m.worst_trade_pct,
+                    "avg_win_pct": m.avg_win_pct,
+                    "avg_loss_pct": m.avg_loss_pct,
+                    "exposure_pct": m.exposure_pct,
+                    "avg_trade_duration_days": m.avg_trade_duration_days,
+                    "total_commission": m.total_commission,
+                    "total_slippage": m.total_slippage,
+                    "total_costs": m.total_costs,
+                    "started_at": run.started_at,
+                    "completed_at": run.completed_at,
+                    "duration_seconds": run.duration_seconds,
+                    "params": json.dumps(run.params) if run.params else None,
+                }
+            )
 
         return self.db.insert_batch("runs", records)
 
@@ -367,30 +429,30 @@ class RunRepository:
                 total_costs=row[33] or 0,
             )
 
-            results.append(RunResult(
-                run_id=row[0],
-                trial_id=row[1],
-                experiment_id=row[2],
-                symbol=row[3],
-                window_id=row[4],
-                profile_version=row[5] or "",
-                data_version=row[6] or "",
-                status=RunStatus(row[7]),
-                error=row[8],
-                is_train=row[9],
-                is_oos=row[10],
-                metrics=metrics,
-                started_at=row[34],
-                completed_at=row[35],
-                duration_seconds=row[36] or 0,
-                params=json.loads(row[37]) if row[37] else None,
-            ))
+            results.append(
+                RunResult(
+                    run_id=row[0],
+                    trial_id=row[1],
+                    experiment_id=row[2],
+                    symbol=row[3],
+                    window_id=row[4],
+                    profile_version=row[5] or "",
+                    data_version=row[6] or "",
+                    status=RunStatus(row[7]),
+                    error=row[8],
+                    is_train=row[9],
+                    is_oos=row[10],
+                    metrics=metrics,
+                    started_at=row[34],
+                    completed_at=row[35],
+                    duration_seconds=row[36] or 0,
+                    params=json.loads(row[37]) if row[37] else None,
+                )
+            )
 
         return results
 
     def exists(self, run_id: str) -> bool:
         """Check if run exists (for skip logic)."""
-        result = self.db.fetchone(
-            "SELECT 1 FROM runs WHERE run_id = ?", (run_id,)
-        )
+        result = self.db.fetchone("SELECT 1 FROM runs WHERE run_id = ?", (run_id,))
         return result is not None

@@ -17,15 +17,14 @@ This strategy demonstrates:
 """
 
 import logging
-import math
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from typing import Deque, Dict, List, Optional
 
 from ...events.domain_events import BarData, QuoteTick
 from ...interfaces.execution_provider import OrderRequest
-from ..base import Strategy, StrategyContext, TradingSignal
+from ..base import Strategy, StrategyContext
 from ..registry import register_strategy
 
 logger = logging.getLogger(__name__)
@@ -230,7 +229,6 @@ class TAMetricsStrategy(Strategy):
 
     def on_tick(self, tick: QuoteTick) -> None:
         """Process tick - delegates to on_bar logic."""
-        pass
 
     def on_bar(self, bar: BarData) -> None:
         """

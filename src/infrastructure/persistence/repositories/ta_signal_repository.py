@@ -18,11 +18,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from asyncpg import Record
-
 from src.domain.interfaces.signal_persistence import SignalPersistencePort
 from src.infrastructure.persistence.database import Database
-from src.infrastructure.persistence.repositories.base import BaseRepository
 
 if TYPE_CHECKING:
     from src.domain.signals.models import TradingSignal

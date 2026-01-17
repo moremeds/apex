@@ -13,9 +13,8 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
-import numpy as np
 import pandas as pd
 
 from src.utils.logging_setup import get_logger
@@ -81,7 +80,6 @@ class ObjectiveFunction(ABC):
         Returns:
             ObjectiveResult with value and details
         """
-        pass
 
 
 class RegimeStabilityObjective(ObjectiveFunction):

@@ -1,6 +1,6 @@
 """Pytest configuration and fixtures."""
 
-from datetime import date, datetime
+from datetime import datetime
 from typing import Dict
 
 import pytest

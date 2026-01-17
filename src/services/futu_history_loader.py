@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from typing import Any, Dict, List, Optional
 
 from config.models import FutuConfig
@@ -17,12 +17,8 @@ from src.infrastructure.persistence.repositories import (
     FutuDealRepository,
     FutuFeeRepository,
     FutuOrderRepository,
-    FutuRawDeal,
-    FutuRawFee,
-    FutuRawOrder,
     SyncStateRepository,
 )
-from src.utils.timezone import now_utc
 
 logger = logging.getLogger(__name__)
 
@@ -148,7 +144,7 @@ class FutuHistoryLoader:
         if self._futu_client is None:
             # Import here to avoid circular imports
             try:
-                from futu import OpenSecTradeContext, SecurityFirm, TrdEnv, TrdMarket
+                from futu import OpenSecTradeContext, SecurityFirm, TrdEnv
 
                 # Map config values to Futu enums
                 self._trd_env = (

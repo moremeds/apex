@@ -4,9 +4,6 @@ from __future__ import annotations
 
 import threading
 import time
-from unittest.mock import MagicMock, patch
-
-import pytest
 
 from src.backtest.data.storage.write_queue import (
     WriteOperation,
@@ -26,7 +23,6 @@ class MockDatabaseManager:
 
     def execute(self, query: str, params=None):
         """Track executed queries."""
-        pass
 
     def insert_batch(self, table: str, records: list) -> int:
         """Track inserted records."""

@@ -10,10 +10,9 @@ Provides async connection pooling using asyncpg with:
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator, Dict, List, Optional, Tuple, Type, TypeVar
+from typing import Any, AsyncIterator, Dict, List, Optional, Tuple, TypeVar
 
 import asyncpg
 from asyncpg import Connection, Pool, Record
@@ -28,19 +27,13 @@ T = TypeVar("T")
 class DatabaseError(Exception):
     """Base exception for database operations."""
 
-    pass
-
 
 class ConnectionError(DatabaseError):
     """Failed to establish database connection."""
 
-    pass
-
 
 class QueryError(DatabaseError):
     """Query execution failed."""
-
-    pass
 
 
 class Database:

@@ -8,10 +8,9 @@ Tests:
 - Category filtering
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import pandas as pd
-import pytest
 
 from src.domain.signals.indicators.base import IndicatorBase
 from src.domain.signals.indicators.registry import IndicatorRegistry
@@ -203,8 +202,8 @@ class TestIndicatorRegistry:
         """Test that calling discover() multiple times doesn't create duplicates."""
         registry = IndicatorRegistry()
 
-        count1 = registry.discover()
-        count2 = registry.discover()
+        registry.discover()
+        registry.discover()
 
         # Second discover should not add duplicates to categories
         momentum_inds = registry.get_by_category(SignalCategory.MOMENTUM)

@@ -16,12 +16,11 @@ Keyboard shortcuts:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Dict, Optional
 
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical
-from textual.widgets import Static
 
 from ..widgets.atr_panel import ATRPanel
 from ..widgets.orders_panel import OrdersPanel

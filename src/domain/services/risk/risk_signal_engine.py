@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from src.domain.exceptions import RecoverableError, RiskCheckError
+from src.domain.exceptions import RecoverableError
 from src.domain.services.correlation_analyzer import CorrelationAnalyzer
 from src.domain.services.event_risk_detector import EventRiskDetector
 from src.domain.services.position_risk_analyzer import PositionRiskAnalyzer

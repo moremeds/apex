@@ -8,7 +8,7 @@ Defers optimization/hedging efficiency to v1.2.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List
+from typing import Dict, List
 
 from ...models.market_data import MarketData
 from ...models.position import Position
@@ -35,7 +35,6 @@ class SimpleSuggester:
 
     def __init__(self):
         """Initialize suggester."""
-        pass
 
     def top_delta_contributors(
         self,

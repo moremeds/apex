@@ -16,7 +16,7 @@ Usage:
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 # Default parameters (conservative baseline)
 # These are used when no symbol-specific optimization has been performed

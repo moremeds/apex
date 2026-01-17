@@ -16,8 +16,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import pandas as pd
-
 from src.utils.logging_setup import get_logger
 
 logger = get_logger(__name__)

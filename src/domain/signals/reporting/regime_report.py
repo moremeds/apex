@@ -17,17 +17,11 @@ import json
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-import pandas as pd
-
 from src.domain.services.regime import (
-    MARKET_BENCHMARKS,
-    SECTOR_NAMES,
-    AccountType,
     HierarchicalRegime,
     ParamProvenance,
     ParamProvenanceSet,
     RecommenderResult,
-    TradingAction,
     get_hierarchy_level,
 )
 from src.domain.signals.indicators.regime import (
@@ -41,17 +35,14 @@ from .value_card import (
     escape_html,
     format_currency,
     format_percentage,
-    format_value,
     get_value_card_styles,
-    render_badge,
     render_info_row,
     render_one_liner_box,
     render_section,
-    render_value_card,
 )
 
 if TYPE_CHECKING:
-    from src.domain.signals.indicators.regime.rule_trace import ThresholdInfo
+    pass
 
 
 # Regime color mapping
@@ -1313,7 +1304,7 @@ def generate_regime_timeline_html(
 
     Shows historical regime changes with duration.
     """
-    colors = _get_theme_colors(theme)
+    _get_theme_colors(theme)
 
     html = f"""
     <div class="regime-timeline">
@@ -1454,7 +1445,7 @@ def generate_action_summary_html(
 
     Shows synthesized trading decisions per symbol.
     """
-    colors = _get_theme_colors(theme)
+    _get_theme_colors(theme)
 
     html = f"""
     <div class="action-summary">
@@ -1535,7 +1526,7 @@ def generate_alerts_html(
 
     Shows active 4H early warnings.
     """
-    colors = _get_theme_colors(theme)
+    _get_theme_colors(theme)
 
     # Collect all alerts
     all_alerts = []

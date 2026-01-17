@@ -8,12 +8,9 @@ Tests cover:
 4. sha256sums.txt generation and verification
 """
 
-import json
 import tempfile
 from datetime import datetime
 from pathlib import Path
-
-import pytest
 
 from src.backtest.core.manifest import (
     MANIFEST_VERSION,

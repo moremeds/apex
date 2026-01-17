@@ -12,7 +12,7 @@ from __future__ import annotations
 import threading
 from collections import defaultdict
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Tuple
 
 from src.domain.events.domain_events import BarCloseEvent, BarData
 from src.domain.events.event_types import EventType

@@ -23,8 +23,8 @@ Usage:
 from __future__ import annotations
 
 import asyncio
-from datetime import date, datetime, timedelta
-from typing import TYPE_CHECKING, Dict, List, Optional
+from datetime import date, datetime
+from typing import TYPE_CHECKING, Dict, List
 
 from ..domain.events.domain_events import BarData
 from ..utils.logging_setup import get_logger

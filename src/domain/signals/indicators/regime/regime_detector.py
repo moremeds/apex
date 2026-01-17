@@ -32,7 +32,6 @@ from ..base import IndicatorBase
 from .components import (
     calculate_chop_state,
     calculate_ext_state,
-    calculate_iv_state,
     calculate_trend_state,
     calculate_vol_state,
 )
@@ -40,7 +39,6 @@ from .models import (
     ENTRY_HYSTERESIS,
     EXIT_HYSTERESIS,
     MARKET_BENCHMARKS,
-    BarSnapshot,
     ChopState,
     ComponentStates,
     ComponentValues,
@@ -48,7 +46,6 @@ from .models import (
     DataWindow,
     DerivedMetrics,
     ExtState,
-    FallbackReason,
     InputsUsed,
     IVState,
     MarketRegime,
@@ -1425,7 +1422,7 @@ class RegimeDetectorIndicator(IndicatorBase):
         """
         # Lazy import to avoid circular dependency
         from .turning_point.features import TurningPointFeatures
-        from .turning_point.model import TurningPointModel, TurningPointOutput
+        from .turning_point.model import TurningPointModel
 
         # Try to load model if not attempted yet
         symbol_key = symbol.upper()

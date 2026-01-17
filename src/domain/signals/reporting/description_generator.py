@@ -78,7 +78,7 @@ def generate_indicator_description(indicator: "Indicator") -> str:
         Params: period=14, overbought=70, oversold=30
     """
     name = indicator.name.lower()
-    category = indicator.category.value
+    indicator.category.value
 
     # Get base description
     base = INDICATOR_TEMPLATES.get(name, f"{indicator.name.upper()} indicator")

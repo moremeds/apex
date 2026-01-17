@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.application.signal_router import SignalRouter, SignalRouterConfig, SignalStats
+from src.application.signal_router import SignalRouter, SignalRouterConfig
 from src.domain.events.event_types import EventType
 from src.domain.strategy.base import TradingSignal
 

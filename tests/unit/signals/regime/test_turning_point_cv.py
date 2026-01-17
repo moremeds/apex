@@ -149,12 +149,10 @@ class TestPurgedTimeSeriesSplit:
             embargo=2,
         )
 
-        prev_train_size = 0
-
         for train_idx, test_idx in splitter.split(X):
             # Train always starts from 0 (expanding window)
             assert train_idx[0] == 0
-            prev_train_size = len(train_idx)
+            len(train_idx)
 
     def test_invalid_params(self):
         """Test that invalid parameters raise errors."""

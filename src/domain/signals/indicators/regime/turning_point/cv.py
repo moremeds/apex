@@ -145,7 +145,7 @@ class PurgedTimeSeriesSplit:
 
             # Apply embargo for subsequent folds (affects next fold's train)
             # This is tracked but doesn't change current fold
-            embargo_end = min(test_end + self.embargo, n_samples)
+            min(test_end + self.embargo, n_samples)
 
             if len(train_indices) >= min_train_size and len(test_indices) > 0:
                 yield train_indices, test_indices
@@ -178,9 +178,9 @@ class PurgedTimeSeriesSplit:
         n_samples = len(X)
 
         if self.test_size is not None:
-            test_size = self.test_size
+            self.test_size
         else:
-            test_size = max(1, n_samples // (self.n_splits + 1))
+            max(1, n_samples // (self.n_splits + 1))
 
         purge_size = self.label_horizon + self.gap
 

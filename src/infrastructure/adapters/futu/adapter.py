@@ -23,7 +23,7 @@ from typing import Any, Callable, List, Optional
 
 from ....domain.events import PriorityEventBus
 from ....domain.interfaces.broker_adapter import BrokerAdapter
-from ....domain.interfaces.event_bus import EventBus, EventType
+from ....domain.interfaces.event_bus import EventType
 from ....models.account import AccountInfo
 from ....models.order import Order, Trade
 from ....models.position import Position

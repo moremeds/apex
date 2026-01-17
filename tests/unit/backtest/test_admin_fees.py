@@ -2,16 +2,13 @@
 Unit tests for AdminFeeModel and its integration in BacktestEngine.
 """
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 
 import pytest
 
 from src.backtest.data.feeds import InMemoryDataFeed
 from src.backtest.execution.engines.backtest_engine import BacktestConfig, BacktestEngine
-from src.domain.clock import SimulatedClock
-from src.domain.events.domain_events import QuoteTick
-from src.domain.reality import ConstantAdminFeeModel, RealityModelPack, create_zero_cost_pack
-from src.domain.strategy.base import Strategy, StrategyContext
+from src.domain.reality import ConstantAdminFeeModel, create_zero_cost_pack
 
 
 class TestAdminFeeModel:
@@ -62,7 +59,6 @@ class TestBacktestEngineAdminFees:
         engine = BacktestEngine(config)
 
         # Use buy and hold strategy
-        from src.domain.strategy.examples import BuyAndHoldStrategy
 
         engine.set_strategy(strategy_name="buy_and_hold")
 

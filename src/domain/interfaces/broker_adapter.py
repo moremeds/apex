@@ -38,17 +38,14 @@ class BrokerAdapter(ABC):
         Raises:
             ConnectionError: If unable to connect to broker.
         """
-        pass
 
     @abstractmethod
     async def disconnect(self) -> None:
         """Close connection to the broker."""
-        pass
 
     @abstractmethod
     def is_connected(self) -> bool:
         """Check if the adapter is connected and ready."""
-        pass
 
     # -------------------------------------------------------------------------
     # Position Operations
@@ -65,7 +62,6 @@ class BrokerAdapter(ABC):
         Raises:
             ConnectionError: If unable to connect to broker.
         """
-        pass
 
     # -------------------------------------------------------------------------
     # Account Operations
@@ -82,7 +78,6 @@ class BrokerAdapter(ABC):
         Raises:
             ConnectionError: If unable to connect to broker.
         """
-        pass
 
     # -------------------------------------------------------------------------
     # Order Operations
@@ -109,7 +104,6 @@ class BrokerAdapter(ABC):
         Raises:
             ConnectionError: If unable to connect to broker.
         """
-        pass
 
     # -------------------------------------------------------------------------
     # Trade Operations
@@ -129,4 +123,3 @@ class BrokerAdapter(ABC):
         Raises:
             ConnectionError: If unable to connect to broker.
         """
-        pass

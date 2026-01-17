@@ -4,8 +4,8 @@ Unit tests for StrategyDetector - Multi-leg strategy detection.
 
 import pytest
 
-from src.domain.services.strategy_detector import DetectedStrategy, StrategyDetector
-from src.models.position import AssetType, Position, PositionSource
+from src.domain.services.strategy_detector import StrategyDetector
+from src.models.position import AssetType, Position
 
 
 @pytest.fixture

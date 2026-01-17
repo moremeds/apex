@@ -8,10 +8,9 @@ and identifies discrepancies.
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import datetime
 from typing import Dict, List, Optional, Set
 
-from ...models.position import AssetType, Position, PositionSource
+from ...models.position import AssetType, Position
 from ...models.reconciliation import IssueType, ReconciliationIssue
 from ...utils.logging_setup import get_logger
 from ...utils.timezone import age_seconds

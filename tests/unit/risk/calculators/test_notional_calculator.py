@@ -3,7 +3,6 @@
 import pytest
 
 from src.domain.services.risk.calculators.notional_calculator import (
-    NotionalResult,
     calculate_concentration,
     calculate_delta_dollars,
     calculate_notional,

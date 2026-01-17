@@ -1,14 +1,12 @@
 """Unit tests for DeltaPublisher."""
 
-from datetime import datetime
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
 from src.domain.events.domain_events import MarketDataTickEvent
 from src.domain.events.event_types import EventType
 from src.domain.services.risk.risk_facade import RiskFacade
-from src.domain.services.risk.state.position_state import PositionDelta
 from src.domain.services.risk.streaming.delta_publisher import DeltaPublisher
 from src.models.position import AssetType, Position
 

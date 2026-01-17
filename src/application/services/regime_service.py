@@ -22,12 +22,8 @@ from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 
 from src.domain.services.regime import (
-    MARKET_BENCHMARKS,
-    SECTOR_ETFS,
     AccountType,
-    ActionContext,
     HierarchicalRegime,
-    TradingAction,
     apply_weekly_veto,
     get_4h_alerts,
     get_hierarchy_level,

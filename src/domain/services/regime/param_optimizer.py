@@ -13,7 +13,7 @@ Key features:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -22,7 +22,7 @@ import pandas as pd
 
 from src.utils.logging_setup import get_logger
 
-from .objectives import CombinedObjectiveResult, ObjectiveEvaluator, ObjectiveResult
+from .objectives import CombinedObjectiveResult, ObjectiveEvaluator
 
 logger = get_logger(__name__)
 
@@ -409,7 +409,7 @@ class WalkForwardOptimizer:
             # Calculate agreement ratio
             positive_count = sum(1 for c in changes if c > 0)
             negative_count = sum(1 for c in changes if c < 0)
-            zero_count = sum(1 for c in changes if c == 0)
+            _zero_count = sum(1 for c in changes if c == 0)  # noqa: F841
 
             total_non_zero = positive_count + negative_count
             if total_non_zero == 0:

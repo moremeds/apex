@@ -20,7 +20,7 @@ from ...utils.logging_setup import get_logger
 from ...utils.timezone import now_utc
 
 if TYPE_CHECKING:
-    from ...infrastructure.stores.market_data_store import MarketDataStore
+    pass
 
 logger = get_logger(__name__)
 

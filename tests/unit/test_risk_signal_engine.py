@@ -102,10 +102,10 @@ def test_portfolio_limit_breach_signal(risk_signal_engine):
     )
 
     # First call - signals will be pending (debounce)
-    signals1 = risk_signal_engine.evaluate(snapshot)
+    risk_signal_engine.evaluate(snapshot)
 
     # Second call - signals should fire (debounce elapsed)
-    signals2 = risk_signal_engine.evaluate(snapshot)
+    risk_signal_engine.evaluate(snapshot)
 
     # At least one of the calls should have signals (or check stats)
     stats = risk_signal_engine.get_stats()

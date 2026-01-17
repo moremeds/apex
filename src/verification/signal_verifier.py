@@ -10,32 +10,30 @@ Verifies the APEX signal service including:
 - Service payload contracts
 
 Usage:
-    python -m src.verification.signal_verifier --all --profile dev
-    python -m src.verification.signal_verifier --phase S1 --profile dev
-    python -m src.verification.signal_verifier --profile talib_alignment
+    python -m src.verification.signal_verifier --all --profile signal_dev
+    python -m src.verification.signal_verifier --phase S1 --profile signal_dev
+    python -m src.verification.signal_verifier --all --profile signal_talib
+    python -m src.verification.signal_verifier --all --profile signal_nightly
 """
 
 from __future__ import annotations
 
 import argparse
-import copy
 import json
 import logging
 import math
-import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 
-from .base_verifier import BaseVerifier, PhaseResult, VerificationResult
+from .base_verifier import BaseVerifier, VerificationResult
 from .invariants import (
     BoundsInvariant,
     CausalityInvariant,
     IdentityInvariant,
     NoNaNInvariant,
-    evaluate_expression,
 )
 
 logger = logging.getLogger(__name__)
@@ -55,7 +53,7 @@ class SignalVerifier(BaseVerifier):
     def __init__(
         self,
         manifest_path: Optional[Path] = None,
-        profile: str = "dev",
+        profile: str = "signal_dev",
     ):
         super().__init__(manifest_path, profile)
 
@@ -72,7 +70,6 @@ class SignalVerifier(BaseVerifier):
     def _register_handlers(self) -> None:
         """Register signal-specific check handlers."""
         # Additional handlers can be registered here
-        pass
 
     def _load_fixtures(self) -> None:
         """Load OHLCV and snapshot fixtures."""
@@ -126,7 +123,6 @@ class SignalVerifier(BaseVerifier):
         """Generate sample indicator output for schema validation."""
         try:
             from src.domain.signals.indicators.registry import get_indicator_registry
-            from src.domain.signals.models import SignalCategory
 
             registry = get_indicator_registry()
             indicator = registry.get("rsi")
@@ -285,7 +281,7 @@ class SignalVerifier(BaseVerifier):
 
             registry = get_indicator_registry()
             runs = check.get("runs", 2)
-            compare_mode = check.get("compare", "byte_equal")
+            check.get("compare", "byte_equal")
 
             # Use a fixed fixture
             df = self._get_test_ohlcv(100, seed=42)
@@ -814,8 +810,8 @@ def main():
     parser.add_argument(
         "--profile",
         type=str,
-        default="dev",
-        help="Verification profile (dev, talib_alignment, nightly)",
+        default="signal_dev",
+        help="Verification profile (signal_dev, signal_talib, signal_nightly)",
     )
     parser.add_argument(
         "--manifest",
@@ -849,7 +845,7 @@ def main():
             manifest_path=Path(args.manifest),
             profile=args.profile,
         )
-    except FileNotFoundError as e:
+    except FileNotFoundError:
         print(f"Error: Manifest not found: {args.manifest}")
         print("Run from project root or specify --manifest path")
         return 1

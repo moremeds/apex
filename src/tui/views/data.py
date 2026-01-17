@@ -14,7 +14,7 @@ Keyboard shortcuts:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Dict, List
 
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -232,8 +232,6 @@ from textual.message import Message
 
 class DataRefreshRequested(Message):
     """Request manual data refresh."""
-
-    pass
 
 
 class IndicatorDetailsRequested(Message):

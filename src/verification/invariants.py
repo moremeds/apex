@@ -108,8 +108,6 @@ ALLOWED_NODES: Set[Type[ast.AST]] = {
 class ExpressionError(ValueError):
     """Raised when expression parsing/evaluation fails."""
 
-    pass
-
 
 def parse_expression(expr: str, allowed_fields: Set[str]) -> ast.AST:
     """
@@ -382,10 +380,10 @@ class NoNaNInvariant:
         if self.fields == ["*"] and all_fields:
             fields_to_check = all_fields
 
-        for field in fields_to_check:
-            if field not in row:
+        for field_name in fields_to_check:
+            if field_name not in row:
                 continue
-            value = row[field]
+            value = row[field_name]
             if isinstance(value, (int, float)):
                 if math.isnan(value) or math.isinf(value):
                     return False

@@ -24,7 +24,7 @@ import logging
 import signal
 import sys
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Any, Dict, List, Optional
 
 import pandas as pd

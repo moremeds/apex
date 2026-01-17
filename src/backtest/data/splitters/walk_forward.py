@@ -13,8 +13,8 @@ Key features:
 """
 
 from dataclasses import dataclass, field
-from datetime import date, timedelta
-from typing import Iterator, List, Optional, Tuple
+from datetime import date
+from typing import Iterator, Optional, Tuple
 
 import pandas as pd
 from pydantic import BaseModel, Field
@@ -182,15 +182,11 @@ class WalkForwardSplitter:
             else:
                 train_start = current_train_start
 
-            train_end = self._trading_date_offset(
-                train_start, self.config.train_days - 1
-            )
+            train_end = self._trading_date_offset(train_start, self.config.train_days - 1)
 
             # Calculate test start (after purge gap, accounting for label horizon)
             effective_purge = self.config.effective_purge_days
-            test_start = self._trading_date_offset(
-                train_end, effective_purge + 1
-            )
+            test_start = self._trading_date_offset(train_end, effective_purge + 1)
 
             # Calculate test end
             test_end = self._trading_date_offset(test_start, self.config.test_days - 1)
@@ -235,9 +231,7 @@ class WalkForwardSplitter:
 
             # Move to next fold
             fold += 1
-            current_train_start = self._trading_date_offset(
-                current_train_start, step_days
-            )
+            current_train_start = self._trading_date_offset(current_train_start, step_days)
 
     def split_dataframe(
         self, df: pd.DataFrame, date_column: str = "date"

@@ -8,9 +8,7 @@ This test verifies:
 4. Naming convention: live_risk_{env}_{category}_{date}_{number}.log
 """
 
-import os
 import sys
-import time
 from pathlib import Path
 
 # Add project root to path

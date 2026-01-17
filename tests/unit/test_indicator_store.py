@@ -10,14 +10,12 @@ Verifies:
 - Metrics tracking
 """
 
-import asyncio
 import time
-from datetime import date
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
-from src.services.indicator_store import CachedIndicator, IndicatorStore
+from src.services.indicator_store import IndicatorStore
 
 
 class TestIndicatorStoreBasics:

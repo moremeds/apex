@@ -9,7 +9,6 @@ Tests:
 - Dynamic add/remove
 """
 
-import tempfile
 from pathlib import Path
 
 import pytest

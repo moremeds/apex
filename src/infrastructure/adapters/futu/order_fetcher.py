@@ -7,7 +7,7 @@ Extracted from FutuAdapter for single-responsibility.
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING, Dict, List
 
 from ....models.order import Order, Trade
 from ....utils.logging_setup import get_logger

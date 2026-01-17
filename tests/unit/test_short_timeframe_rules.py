@@ -11,8 +11,6 @@ Tests:
 - Category distribution across indicators
 """
 
-import pytest
-
 from src.domain.signals.models import (
     ConditionType,
     SignalCategory,

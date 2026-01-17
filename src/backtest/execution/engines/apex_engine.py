@@ -21,7 +21,7 @@ import asyncio
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 import pandas as pd
 
@@ -149,9 +149,8 @@ class ApexEngine(BaseEngine):
         Handles event loop creation/reuse for both main and worker processes.
         """
         # Import here to avoid circular dependency
-        from ...data.feeds import CsvDataFeed, HistoricalStoreDataFeed, create_data_feed
+        from ...data.feeds import create_data_feed
         from ..simulated import FillModel as SimFillModel
-        from ..simulated import SimulatedExecution
 
         # Build BacktestConfig from RunSpec
         from .backtest_engine import BacktestConfig, BacktestEngine
@@ -222,7 +221,7 @@ class ApexEngine(BaseEngine):
 
         # Run in event loop
         try:
-            loop = asyncio.get_running_loop()
+            asyncio.get_running_loop()
             # Already in async context - create task
             import concurrent.futures
 

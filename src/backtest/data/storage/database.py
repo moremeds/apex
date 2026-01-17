@@ -62,7 +62,8 @@ class DatabaseManager:
             return
 
         # Experiments table - create with original schema first for backwards compatibility
-        self.conn.execute("""
+        self.conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS experiments (
                 experiment_id VARCHAR PRIMARY KEY,
                 name VARCHAR NOT NULL,
@@ -77,35 +78,47 @@ class DatabaseManager:
                 completed_at TIMESTAMP,
                 status VARCHAR DEFAULT 'pending'
             )
-        """)
+        """
+        )
 
         # Schema migration: add version columns if they don't exist (for existing DBs)
         # MUST run BEFORE index creation that depends on these columns
         # Use ADD COLUMN IF NOT EXISTS and always backfill NULLs
-        self.conn.execute("""
+        self.conn.execute(
+            """
             ALTER TABLE experiments ADD COLUMN IF NOT EXISTS base_experiment_id VARCHAR
-        """)
-        self.conn.execute("""
+        """
+        )
+        self.conn.execute(
+            """
             UPDATE experiments SET base_experiment_id = experiment_id
             WHERE base_experiment_id IS NULL
-        """)
+        """
+        )
 
-        self.conn.execute("""
+        self.conn.execute(
+            """
             ALTER TABLE experiments ADD COLUMN IF NOT EXISTS run_version INTEGER DEFAULT 1
-        """)
-        self.conn.execute("""
+        """
+        )
+        self.conn.execute(
+            """
             UPDATE experiments SET run_version = 1
             WHERE run_version IS NULL
-        """)
+        """
+        )
 
         # Index for version lookups (AFTER migration ensures column exists)
-        self.conn.execute("""
+        self.conn.execute(
+            """
             CREATE INDEX IF NOT EXISTS idx_experiments_base_id
             ON experiments(base_experiment_id)
-        """)
+        """
+        )
 
         # Trials table
-        self.conn.execute("""
+        self.conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS trials (
                 trial_id VARCHAR PRIMARY KEY,
                 experiment_id VARCHAR NOT NULL,
@@ -141,10 +154,12 @@ class DatabaseManager:
                 duration_seconds DOUBLE,
                 FOREIGN KEY (experiment_id) REFERENCES experiments(experiment_id)
             )
-        """)
+        """
+        )
 
         # Runs table
-        self.conn.execute("""
+        self.conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS runs (
                 run_id VARCHAR PRIMARY KEY,
                 trial_id VARCHAR NOT NULL,
@@ -192,21 +207,30 @@ class DatabaseManager:
                 FOREIGN KEY (trial_id) REFERENCES trials(trial_id),
                 FOREIGN KEY (experiment_id) REFERENCES experiments(experiment_id)
             )
-        """)
+        """
+        )
 
         # Create indexes for common queries
-        self.conn.execute("""
+        self.conn.execute(
+            """
             CREATE INDEX IF NOT EXISTS idx_runs_trial_id ON runs(trial_id)
-        """)
-        self.conn.execute("""
+        """
+        )
+        self.conn.execute(
+            """
             CREATE INDEX IF NOT EXISTS idx_runs_experiment_id ON runs(experiment_id)
-        """)
-        self.conn.execute("""
+        """
+        )
+        self.conn.execute(
+            """
             CREATE INDEX IF NOT EXISTS idx_trials_experiment_id ON trials(experiment_id)
-        """)
-        self.conn.execute("""
+        """
+        )
+        self.conn.execute(
+            """
             CREATE INDEX IF NOT EXISTS idx_runs_symbol ON runs(symbol)
-        """)
+        """
+        )
 
         self._initialized = True
         logger.info(f"Database schema initialized: {self.db_path}")
@@ -271,9 +295,7 @@ class DatabaseManager:
         if not path.exists():
             raise FileNotFoundError(f"Parquet file not found: {path}")
 
-        result = self.conn.execute(
-            f"INSERT INTO {table} SELECT * FROM read_parquet('{path}')"
-        )
+        result = self.conn.execute(f"INSERT INTO {table} SELECT * FROM read_parquet('{path}')")
         count = result.fetchone()[0] if result else 0
         logger.info(f"Imported {count} records from {path} to {table}")
         return count

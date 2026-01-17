@@ -32,7 +32,6 @@ from src.utils.logging_setup import get_logger
 if TYPE_CHECKING:
     from src.domain.events.priority_event_bus import PriorityEventBus
     from src.infrastructure.stores import MarketDataStore, PositionStore
-    from src.models.market_data import MarketData
     from src.models.position import Position
 
     from ..risk_facade import RiskFacade

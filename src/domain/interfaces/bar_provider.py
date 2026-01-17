@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Callable, List, Optional, Protocol, runtime_checkable
 
-from ..events.domain_events import BarData, Timeframe
+from ..events.domain_events import BarData
 
 
 @runtime_checkable

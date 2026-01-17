@@ -2,13 +2,13 @@
 Unit tests for PositionRiskAnalyzer - Position-level risk rules.
 """
 
-from datetime import date, datetime
+from datetime import datetime
 
 import pytest
 
 from src.domain.services.position_risk_analyzer import PositionRiskAnalyzer
 from src.models.market_data import MarketData
-from src.models.position import AssetType, Position, PositionSource
+from src.models.position import AssetType, Position
 from src.models.risk_signal import SignalSeverity, SuggestedAction
 
 

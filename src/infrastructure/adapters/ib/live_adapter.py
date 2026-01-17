@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import OrderedDict
-from datetime import datetime, timedelta
+from datetime import datetime
 from math import isnan
 from threading import Lock
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -514,7 +514,6 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
 
     def unsubscribe_account(self) -> None:
         """Unsubscribe from account updates."""
-        pass
 
     def set_account_callback(self, callback: Optional[Callable[[AccountSnapshot], None]]) -> None:
         """Set account update callback."""

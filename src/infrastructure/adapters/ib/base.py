@@ -10,7 +10,7 @@ All IB adapters inherit from this base class which provides:
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from abc import ABC
 from datetime import date, datetime
 from typing import Any, Optional
 
@@ -147,7 +147,6 @@ class IbBaseAdapter(ABC):
 
         Override in subclasses to perform adapter-specific setup.
         """
-        pass
 
     async def _on_disconnecting(self) -> None:
         """
@@ -155,7 +154,6 @@ class IbBaseAdapter(ABC):
 
         Override in subclasses to perform adapter-specific cleanup.
         """
-        pass
 
     # -------------------------------------------------------------------------
     # Utilities

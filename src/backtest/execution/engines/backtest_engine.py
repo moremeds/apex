@@ -38,19 +38,18 @@ from ....domain.backtest.backtest_result import (
     CostMetrics,
     PerformanceMetrics,
     RiskMetrics,
-    TradeMetrics,
     TradeRecord,
 )
 from ....domain.backtest.backtest_spec import BacktestSpec
 from ....domain.clock import SimulatedClock
-from ....domain.events.domain_events import BarData, PositionSnapshot, QuoteTick
+from ....domain.events.domain_events import PositionSnapshot, QuoteTick
 from ....domain.reality import RealityModelPack, get_preset_pack
-from ....domain.strategy.base import Strategy, StrategyContext, StrategyProtocol
-from ....domain.strategy.cost_estimator import CostEstimator, SimpleFeeSchedule
+from ....domain.strategy.base import Strategy, StrategyContext
+from ....domain.strategy.cost_estimator import CostEstimator
 from ....domain.strategy.registry import get_strategy_class
 from ....domain.strategy.risk_gate import RiskGate
 from ....domain.strategy.scheduler import SimulatedScheduler
-from ...data.feeds import AlignedBarBuffer, CsvDataFeed, DataFeed
+from ...data.feeds import AlignedBarBuffer, DataFeed
 from ..simulated import FillModel, SimulatedExecution
 from ..trade_tracker import TradeTracker
 

@@ -16,7 +16,6 @@ Usage:
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
@@ -46,7 +45,7 @@ from .orchestrator import Orchestrator
 from .readiness_manager import ReadinessManager
 
 if TYPE_CHECKING:
-    from config.config_manager import Config
+    pass
 
 # Observability imports (optional)
 try:

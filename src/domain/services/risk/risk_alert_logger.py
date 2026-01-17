@@ -22,7 +22,7 @@ from typing import Any, Dict, List, Optional
 
 from src.models.market_data import MarketData
 from src.models.position_risk import PositionRisk
-from src.models.risk_signal import RiskSignal, SignalLevel, SignalSeverity, SuggestedAction
+from src.models.risk_signal import RiskSignal
 from src.models.risk_snapshot import RiskSnapshot
 from src.utils.logging_setup import get_logger
 
@@ -491,7 +491,7 @@ class RiskAlertLogger:
 
         if "VIX" in alert_type:
             vix = alert.get("value") or self._market_cache.get("vix")
-            threshold = alert.get("threshold")
+            alert.get("threshold")
             if "SPIKE" in alert_type:
                 return f"VIX spiked significantly, indicating increased market fear/volatility"
             elif "CRITICAL" in alert_type:

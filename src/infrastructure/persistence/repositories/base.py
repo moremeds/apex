@@ -10,9 +10,8 @@ from __future__ import annotations
 import json
 import logging
 from abc import ABC, abstractmethod
-from datetime import datetime
 from decimal import Decimal
-from typing import Any, Dict, Generic, List, Optional, Tuple, Type, TypeVar
+from typing import Any, Dict, Generic, List, Optional, Tuple, TypeVar
 
 from asyncpg import Record
 
@@ -52,7 +51,6 @@ class BaseRepository(ABC, Generic[T]):
     @abstractmethod
     def table_name(self) -> str:
         """The database table name for this repository."""
-        pass
 
     @property
     def primary_key_columns(self) -> List[str]:
@@ -84,7 +82,6 @@ class BaseRepository(ABC, Generic[T]):
         Returns:
             Entity object.
         """
-        pass
 
     @abstractmethod
     def _to_row(self, entity: T) -> Dict[str, Any]:
@@ -97,7 +94,6 @@ class BaseRepository(ABC, Generic[T]):
         Returns:
             Dictionary with column names as keys.
         """
-        pass
 
     # -------------------------------------------------------------------------
     # Common Query Methods

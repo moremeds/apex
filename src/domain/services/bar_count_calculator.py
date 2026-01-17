@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from typing import ClassVar, Dict, List, Optional, Tuple
+from typing import ClassVar, Dict, List
 
 import pandas as pd
 

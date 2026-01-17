@@ -27,16 +27,18 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
-import sys
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import pandas as pd
+import pyarrow as pa
 import yaml
 
 from ..domain.backtest.backtest_result import BacktestResult
 from ..domain.backtest.backtest_spec import BacktestSpec
-from ..domain.strategy.registry import get_strategy_class, get_strategy_info, list_strategies
+from ..domain.strategy.registry import get_strategy_class, list_strategies
+from .core import RunResult, RunSpec
 from .data.feeds import (
     CachedBarDataFeed,
     CsvDataFeed,
@@ -1069,7 +1071,7 @@ async def run_systematic_experiment(
 
         if generate_report:
             try:
-                from .analysis.reporting import HTMLReportGenerator, ReportConfig, ReportData
+                pass
 
                 report_path = _generate_experiment_report(runner, experiment_id, spec, output_path)
                 print(f"\nHTML Report: {report_path}")
@@ -1588,7 +1590,7 @@ class BacktraderRunner:
 # =============================================================================
 
 # Re-export CLI functions for backward compatibility
-from .cli import create_parser, main, main_async
+from .cli import main
 
 if __name__ == "__main__":
     main()

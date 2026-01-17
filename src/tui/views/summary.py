@@ -14,7 +14,6 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, Vertical
-from textual.widgets import Static
 
 from ..widgets.alerts_list import AlertsList
 from ..widgets.health_bar import HealthBar

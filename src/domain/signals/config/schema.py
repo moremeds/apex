@@ -10,12 +10,9 @@ Provides:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
 from typing import Any, Dict, List, Optional, Set
 
 from src.utils.logging_setup import get_logger
-
-from ..models import ConditionType, SignalDirection, SignalPriority
 
 logger = get_logger(__name__)
 

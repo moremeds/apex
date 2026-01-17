@@ -6,8 +6,7 @@ References:
 - Bailey & Lopez de Prado, "The Deflated Sharpe Ratio"
 """
 
-import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
 import numpy as np
@@ -55,10 +54,10 @@ class PBOCalculator:
 
         # Find best IS performer
         best_is_idx = np.argmax(is_sharpes)
-        best_is_oos = oos_sharpes[best_is_idx]
+        oos_sharpes[best_is_idx]
 
         # Compare to OOS median
-        oos_median = np.median(oos_sharpes)
+        np.median(oos_sharpes)
 
         # Simple PBO: probability best IS underperforms OOS median
         # Using simulation for robustness

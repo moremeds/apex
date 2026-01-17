@@ -216,7 +216,6 @@ def get_event_type_mapping() -> Dict[EventType, Type["DomainEvent"]]:
         OrderUpdate,
         PositionDeltaEvent,
         PositionSnapshot,
-        QuoteTick,
         RiskBreachEvent,
         TradeFill,
     )

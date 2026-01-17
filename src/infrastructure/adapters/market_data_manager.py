@@ -12,7 +12,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from threading import Lock
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional
 
 from ...domain.interfaces.market_data_provider import MarketDataProvider
 from ...models.market_data import MarketData
@@ -22,7 +22,7 @@ from ...utils.timezone import age_seconds
 
 if TYPE_CHECKING:
     from ...application.event_bus import EventBusProtocol
-    from ...infrastructure.monitoring import HealthMonitor, HealthStatus
+    from ...infrastructure.monitoring import HealthMonitor
 
 
 logger = get_logger(__name__)

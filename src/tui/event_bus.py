@@ -17,12 +17,10 @@ from __future__ import annotations
 import queue
 import threading
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 if TYPE_CHECKING:
     from ..domain.events.domain_events import PositionDeltaEvent
-    from ..infrastructure.monitoring import ComponentHealth
-    from ..models.risk_snapshot import RiskSnapshot
 
 
 @dataclass

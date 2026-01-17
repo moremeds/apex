@@ -106,9 +106,7 @@ class BarAggregator:
         """
         symbol = self._extract_symbol(tick)
         if not symbol:
-            logger.warning(
-                f"Could not extract symbol from tick: type={type(tick).__name__}"
-            )
+            logger.warning(f"Could not extract symbol from tick: type={type(tick).__name__}")
             return None
 
         price = self._extract_price(tick)

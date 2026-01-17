@@ -8,7 +8,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from datetime import datetime
 
 from ib_async import IB, Option
 

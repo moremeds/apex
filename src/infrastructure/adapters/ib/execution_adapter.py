@@ -21,10 +21,8 @@ from ....domain.interfaces.execution_provider import (
     OrderRequest,
     OrderResult,
 )
-from ....models.order import Order, Trade
 from ....utils.logging_setup import get_logger
 from .base import IbBaseAdapter
-from .converters import convert_fill, convert_order
 
 logger = get_logger(__name__)
 

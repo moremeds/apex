@@ -93,7 +93,6 @@ class TextualDashboard:
 
         The actual start happens when run_async() is called.
         """
-        pass
 
     def stop(self) -> None:
         """Stop the dashboard."""

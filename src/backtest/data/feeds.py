@@ -157,17 +157,25 @@ class AlignedBarBuffer:
     def timeframe_order(timeframe: str) -> int:
         """Get sort order for timeframe (smaller timeframes first)."""
         order = {
-            "1s": 0, "5s": 1, "15s": 2, "30s": 3,
-            "1m": 4, "5m": 5, "15m": 6, "30m": 7,
-            "1h": 8, "2h": 9, "4h": 10,
-            "1d": 11, "1w": 12, "1M": 13,
+            "1s": 0,
+            "5s": 1,
+            "15s": 2,
+            "30s": 3,
+            "1m": 4,
+            "5m": 5,
+            "15m": 6,
+            "30m": 7,
+            "1h": 8,
+            "2h": 9,
+            "4h": 10,
+            "1d": 11,
+            "1w": 12,
+            "1M": 13,
         }
         return order.get(timeframe, 99)
 
     @classmethod
-    def sort_key(
-        cls, bar: "BarData", primary_timeframe: str
-    ) -> Tuple[datetime, int, int, str]:
+    def sort_key(cls, bar: "BarData", primary_timeframe: str) -> Tuple[datetime, int, int, str]:
         """
         Sort bars so secondary timeframes at same timestamp precede primary.
 
@@ -251,8 +259,7 @@ class CsvDataFeed(DataFeed):
         self._loaded = True
 
         logger.info(
-            f"CsvDataFeed loaded {len(self._bars)} bars "
-            f"for {len(self._symbols)} symbols"
+            f"CsvDataFeed loaded {len(self._bars)} bars " f"for {len(self._symbols)} symbols"
         )
 
     def _load_csv_file(self, path: Path, symbol: str) -> None:
@@ -564,8 +571,7 @@ class ParquetDataFeed(DataFeed):
         self._loaded = True
 
         logger.info(
-            f"ParquetDataFeed loaded {len(self._bars)} bars "
-            f"for {len(self._symbols)} symbols"
+            f"ParquetDataFeed loaded {len(self._bars)} bars " f"for {len(self._symbols)} symbols"
         )
 
     def _load_parquet_file(self, path: Path, symbol: str, pd) -> None:
@@ -704,15 +710,9 @@ class HistoricalStoreDataFeed(DataFeed):
         self._bars.clear()
 
         start_dt = (
-            datetime.combine(self._start_date, datetime.min.time())
-            if self._start_date
-            else None
+            datetime.combine(self._start_date, datetime.min.time()) if self._start_date else None
         )
-        end_dt = (
-            datetime.combine(self._end_date, datetime.max.time())
-            if self._end_date
-            else None
-        )
+        end_dt = datetime.combine(self._end_date, datetime.max.time()) if self._end_date else None
 
         store = self._get_store()
         timeframes = [self._bar_size] + self._secondary_timeframes
@@ -725,7 +725,7 @@ class HistoricalStoreDataFeed(DataFeed):
                     logger.log(
                         level,
                         f"Historical store file not found: {file_path}. "
-                        f"Run with --coverage-mode download to fetch missing data."
+                        f"Run with --coverage-mode download to fetch missing data.",
                     )
                     continue
 
@@ -746,7 +746,9 @@ class HistoricalStoreDataFeed(DataFeed):
 
         self._loaded = True
 
-        timeframe_str = f"[{', '.join(timeframes)}]" if self._secondary_timeframes else self._bar_size
+        timeframe_str = (
+            f"[{', '.join(timeframes)}]" if self._secondary_timeframes else self._bar_size
+        )
         logger.info(
             f"HistoricalStoreDataFeed loaded {len(self._bars)} bars "
             f"for {len(self._symbols)} symbols ({timeframe_str}) from {self._base_dir}"
@@ -836,9 +838,7 @@ class StreamingParquetDataFeed(DataFeed):
         try:
             import pyarrow.parquet  # noqa: F401
         except ImportError:
-            raise ImportError(
-                "pyarrow required for Parquet streaming: pip install pyarrow"
-            )
+            raise ImportError("pyarrow required for Parquet streaming: pip install pyarrow")
 
         # Verify files exist
         missing = []
@@ -1031,8 +1031,7 @@ class FixtureDataFeed(DataFeed):
         self._loaded = True
 
         logger.info(
-            f"FixtureDataFeed loaded {len(self._bars)} bars "
-            f"for {len(self._symbols)} symbols"
+            f"FixtureDataFeed loaded {len(self._bars)} bars " f"for {len(self._symbols)} symbols"
         )
 
     async def stream_bars(self) -> AsyncIterator[BarData]:
@@ -1204,9 +1203,16 @@ class MultiTimeframeDataFeed(DataFeed):
     def _timeframe_order(timeframe: str) -> int:
         """Get sort order for timeframe (smaller timeframes first)."""
         order = {
-            "1m": 1, "5m": 2, "15m": 3, "30m": 4,
-            "1h": 5, "2h": 6, "4h": 7,
-            "1d": 8, "1w": 9, "1M": 10,
+            "1m": 1,
+            "5m": 2,
+            "15m": 3,
+            "30m": 4,
+            "1h": 5,
+            "2h": 6,
+            "4h": 7,
+            "1d": 8,
+            "1w": 9,
+            "1M": 10,
         }
         return order.get(timeframe, 99)
 
@@ -1293,8 +1299,7 @@ class CachedBarDataFeed(DataFeed):
         self._loaded = True
 
         logger.info(
-            f"CachedBarDataFeed loaded {len(self._bars)} bars "
-            f"for {len(self._symbols)} symbols"
+            f"CachedBarDataFeed loaded {len(self._bars)} bars " f"for {len(self._symbols)} symbols"
         )
 
     async def stream_bars(self) -> AsyncIterator[BarData]:

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import time
 from threading import RLock
-from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional
 
 from ...models.market_data import MarketData
 from ...utils.logging_setup import get_logger

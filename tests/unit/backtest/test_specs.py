@@ -9,9 +9,7 @@ import pytest
 
 from src.backtest import (
     ExperimentSpec,
-    OptimizationConfig,
     ParameterDef,
-    ProfileConfig,
     RunSpec,
     TemporalConfig,
     TimeWindow,

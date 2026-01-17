@@ -18,7 +18,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
-import numpy as np
 import pandas as pd
 
 from src.utils.logging_setup import get_logger
@@ -42,6 +41,7 @@ from .regime_report import (
 
 if TYPE_CHECKING:
     from src.domain.services.regime import ParamProvenanceSet, RecommenderResult
+    from src.domain.services.regime.param_provenance import ParamProvenance
 
     from ..indicators.base import Indicator
     from ..indicators.regime import RegimeOutput
@@ -913,7 +913,7 @@ class SignalReportGenerator:
         provenance_dict: Optional[Dict[str, "ParamProvenanceSet"]] = None,
         recommendations_dict: Optional[Dict[str, "RecommenderResult"]] = None,
     ) -> str:
-        c = self._colors
+        self._colors
         generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
         regime_outputs = regime_outputs or {}
         provenance_dict = provenance_dict or {}

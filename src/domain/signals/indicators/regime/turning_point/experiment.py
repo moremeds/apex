@@ -24,7 +24,7 @@ import pandas as pd
 
 from src.utils.logging_setup import get_logger
 
-from .features import TurningPointFeatures, extract_features
+from .features import extract_features
 from .labels import TurningPointLabeler
 from .model import TurningPointModel
 

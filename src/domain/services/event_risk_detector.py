@@ -13,10 +13,9 @@ Future: API integration with Earnings Whispers / Yahoo Finance
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 
-from ...models.position import AssetType
 from ...models.risk_signal import (
     RiskSignal,
     SignalLevel,

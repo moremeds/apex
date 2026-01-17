@@ -18,6 +18,7 @@ Use for: Fast screening, parameter space exploration
 Use Apex for: Final validation, complex strategies, realistic execution
 """
 
+import logging
 from dataclasses import dataclass
 from datetime import date, datetime
 from importlib import import_module
@@ -27,6 +28,8 @@ from typing import Any, Dict, List, Optional, Tuple, Type
 import numpy as np
 import pandas as pd
 import yaml
+
+logger = logging.getLogger(__name__)
 
 from ...analysis import MetricsCalculator, Trade
 from ...core import RunMetrics, RunResult, RunSpec, RunStatus
@@ -334,7 +337,6 @@ class VectorBTEngine(BaseEngine):
             data: Primary timeframe OHLCV data
             secondary_data: Optional secondary timeframe data {timeframe: DataFrame}
         """
-        import vectorbt as vbt
 
         if data is None or data.empty:
             return [
@@ -461,7 +463,7 @@ class VectorBTEngine(BaseEngine):
                 slippage=first_spec.slippage_bps / 10000,
                 freq=self._vbt_config.freq,
             )
-        except Exception as e:
+        except Exception:
             # Fallback to sequential if vectorized fails
             return self._vectorized_ma_cross_sequential(indexed_specs, data, close)
 

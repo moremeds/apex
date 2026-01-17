@@ -207,7 +207,6 @@ class TurningPointModel:
         Returns:
             Tuple of (top_metrics, bottom_metrics)
         """
-        from sklearn.calibration import CalibratedClassifierCV
 
         cv = PurgedTimeSeriesSplit(
             n_splits=cv_splits,

@@ -526,7 +526,6 @@ class YahooFinanceAdapter(MarketDataProvider):
 
     async def unsubscribe(self, symbols: List[str]) -> None:
         """Unsubscribe (no-op)."""
-        pass
 
     def get_latest(self, symbol: str) -> Optional[MarketData]:
         """Get latest cached market data."""

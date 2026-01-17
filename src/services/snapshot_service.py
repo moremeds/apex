@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, Optional
 
 from config.models import SnapshotConfig
 from src.infrastructure.persistence.database import Database
@@ -18,7 +18,6 @@ from src.infrastructure.persistence.repositories import (
     AccountSnapshotRepository,
     PositionSnapshot,
     PositionSnapshotRepository,
-    RiskSnapshotRecord,
     RiskSnapshotRepository,
 )
 from src.utils.timezone import now_utc
@@ -287,7 +286,6 @@ class SnapshotService:
         - datetimes become ISO strings
         - lists are preserved as lists
         """
-        from decimal import Decimal
 
         # Handle both dataclass and dict
         if hasattr(position, "__dict__"):

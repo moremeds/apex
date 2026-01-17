@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import math
 from unittest.mock import patch
-
-import pytest
 
 from src.backtest import (
     canonical_json,

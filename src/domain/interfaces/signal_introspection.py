@@ -68,7 +68,6 @@ class SignalIntrospectionPort(ABC):
             Indicator state dict or None if not cached.
             Example: {"value": 45.2, "zone": "neutral", "direction": "bullish"}
         """
-        pass
 
     @abstractmethod
     def get_indicator_states(
@@ -86,7 +85,6 @@ class SignalIntrospectionPort(ABC):
         Returns:
             Dict mapping (symbol, timeframe) -> {indicator_name: state_dict}
         """
-        pass
 
     # -------------------------------------------------------------------------
     # Warmup Status (from IndicatorEngine._history)
@@ -118,7 +116,6 @@ class SignalIntrospectionPort(ABC):
                 "status": str,  # "ready" or "warming_up"
             }
         """
-        pass
 
     @abstractmethod
     def get_all_warmup_status(self) -> List[Dict[str, Any]]:
@@ -128,7 +125,6 @@ class SignalIntrospectionPort(ABC):
         Returns:
             List of warmup status dicts.
         """
-        pass
 
     # -------------------------------------------------------------------------
     # Rule Evaluations (gated behind trace_mode)
@@ -164,7 +160,6 @@ class SignalIntrospectionPort(ABC):
                 "timestamp": datetime,
             }
         """
-        pass
 
     # -------------------------------------------------------------------------
     # Cooldown Status (from RuleEngine._last_triggered)
@@ -203,7 +198,6 @@ class SignalIntrospectionPort(ABC):
                 "active": bool,
             }
         """
-        pass
 
     @abstractmethod
     def get_all_cooldowns(self) -> List[Dict[str, Any]]:
@@ -213,7 +207,6 @@ class SignalIntrospectionPort(ABC):
         Returns:
             List of active cooldown dicts.
         """
-        pass
 
     # -------------------------------------------------------------------------
     # Recent Signals
@@ -232,7 +225,6 @@ class SignalIntrospectionPort(ABC):
         Returns:
             List of signal dicts, most recent first.
         """
-        pass
 
     # -------------------------------------------------------------------------
     # Pipeline Statistics
@@ -255,4 +247,3 @@ class SignalIntrospectionPort(ABC):
                 "timeframes": List[str],
             }
         """
-        pass

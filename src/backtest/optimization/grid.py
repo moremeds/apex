@@ -5,7 +5,7 @@ Grid search optimizer - exhaustive parameter space search.
 from itertools import product
 from typing import Any, Dict, Iterator, List
 
-from ..core import ExperimentSpec, ParameterDef
+from ..core import ExperimentSpec
 
 
 class GridOptimizer:

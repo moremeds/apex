@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from .run_result import RunResult, RunStatus
+from .run_result import RunResult
 
 
 @dataclass

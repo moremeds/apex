@@ -7,13 +7,13 @@ parameter search in large spaces.
 Supports batched suggestions for parallel trial execution.
 """
 
-from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 import optuna
 from optuna.pruners import HyperbandPruner
 from optuna.samplers import TPESampler
 
-from ..core import ExperimentSpec, ParameterDef
+from ..core import ExperimentSpec
 
 
 class BayesianOptimizer:

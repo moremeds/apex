@@ -2,11 +2,7 @@
 
 from __future__ import annotations
 
-import pytest
-
 from src.backtest.execution.parallel import (
-    DETERMINISTIC_ERROR_TYPES,
-    TRANSIENT_ERROR_TYPES,
     ParallelConfig,
     is_transient_error,
 )

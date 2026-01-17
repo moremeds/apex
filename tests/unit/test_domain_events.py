@@ -1,7 +1,6 @@
 """Unit tests for domain events."""
 
 import json
-from datetime import datetime
 
 import pytest
 
@@ -10,7 +9,6 @@ from src.domain.events.domain_events import (
     AccountSnapshot,
     BarData,
     ConnectionEvent,
-    DomainEvent,
     OrderSide,
     OrderStatus,
     OrderType,
