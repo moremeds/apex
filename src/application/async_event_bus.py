@@ -87,7 +87,9 @@ class AsyncEventBus(EventBus):
         self._heavy_semaphore = asyncio.Semaphore(4)  # Limit concurrent heavy callbacks
         self._heavy_tasks: set[asyncio.Task] = set()  # Track tasks for cleanup on shutdown
 
-    def publish(self, event_type: EventType, payload: DomainEvent, priority: Optional[int] = None) -> None:
+    def publish(
+        self, event_type: EventType, payload: DomainEvent, priority: Optional[int] = None
+    ) -> None:
         """
         Publish an event (non-blocking, thread-safe).
 
