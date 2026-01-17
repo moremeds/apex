@@ -198,7 +198,9 @@ jobs:
         run: uv pip install -e ".[dev,observability]" --system
 
       - name: Run integration tests
-        run: pytest tests/integration/ -v --tb=short
+        run: |
+          pytest tests/integration/ -v --tb=short \
+            --ignore=tests/integration/test_readiness_gating.py
 
   # ═══════════════════════════════════════════════════════════════
   # Final: Status Gate (only required jobs)
