@@ -17,17 +17,18 @@ from __future__ import annotations
 import queue
 import threading
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 if TYPE_CHECKING:
-    from ..models.risk_snapshot import RiskSnapshot
-    from ..infrastructure.monitoring import ComponentHealth
     from ..domain.events.domain_events import PositionDeltaEvent
+    from ..infrastructure.monitoring import ComponentHealth
+    from ..models.risk_snapshot import RiskSnapshot
 
 
 @dataclass
 class DashboardUpdate:
     """Bundled update for the TUI dashboard."""
+
     snapshot: Optional[Any] = None
     signals: Optional[List[Any]] = None
     health: Optional[List[Any]] = None
@@ -37,6 +38,7 @@ class DashboardUpdate:
 @dataclass
 class PollResult:
     """Result of polling all event queues."""
+
     signals: List[Any]
     confluence: Optional[Any]
     alignment: Optional[Any]
@@ -46,7 +48,13 @@ class PollResult:
     @property
     def has_data(self) -> bool:
         """Check if any data was received."""
-        return bool(self.signals) or self.confluence or self.alignment or self.snapshot or bool(self.deltas)
+        return (
+            bool(self.signals)
+            or self.confluence
+            or self.alignment
+            or self.snapshot
+            or bool(self.deltas)
+        )
 
 
 class TUIEventBus:
@@ -74,13 +82,13 @@ class TUIEventBus:
     """
 
     __slots__ = (
-        '_signal_queue',
-        '_confluence_queue',
-        '_alignment_queue',
-        '_snapshot_queue',
-        '_delta_buffer',
-        '_delta_lock',
-        '_max_signals_per_poll',
+        "_signal_queue",
+        "_confluence_queue",
+        "_alignment_queue",
+        "_snapshot_queue",
+        "_delta_buffer",
+        "_delta_lock",
+        "_max_signals_per_poll",
     )
 
     def __init__(

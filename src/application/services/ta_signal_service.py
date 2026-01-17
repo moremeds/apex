@@ -15,12 +15,12 @@ import asyncio
 import logging
 import time
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
-from ...utils.logging_setup import get_logger
-from ...utils.timezone import now_utc
 from ...domain.events.event_types import EventType
 from ...domain.signals.signal_state_tracker import SignalStateTracker
+from ...utils.logging_setup import get_logger
+from ...utils.timezone import now_utc
 
 if TYPE_CHECKING:
     from ...domain.interfaces.event_bus import EventBus
@@ -145,7 +145,9 @@ class TASignalService:
             f"TASignalService started",
             extra={
                 "timeframes": self._timeframes,
-                "indicators": self._indicator_engine.indicator_count if self._indicator_engine else 0,
+                "indicators": (
+                    self._indicator_engine.indicator_count if self._indicator_engine else 0
+                ),
                 "persistence_enabled": self._persistence is not None,
                 "max_workers": self._max_workers,
             },
@@ -232,7 +234,9 @@ class TASignalService:
             "indicators_computed": self._indicators_computed,
             "signals_emitted": self._signals_emitted,
             "signals_persisted": self._signals_persisted,
-            "indicator_count": self._indicator_engine.indicator_count if self._indicator_engine else 0,
+            "indicator_count": (
+                self._indicator_engine.indicator_count if self._indicator_engine else 0
+            ),
             "uptime_seconds": round(uptime_seconds, 1),
         }
 
@@ -244,8 +248,8 @@ class TASignalService:
         """Initialize pipeline components."""
         # Import here to avoid circular imports
         from ...domain.signals import BarAggregator, IndicatorEngine, RuleEngine, RuleRegistry
-        from ...domain.signals.rules import ALL_RULES
         from ...domain.signals.divergence import CrossIndicatorAnalyzer, MTFDivergenceAnalyzer
+        from ...domain.signals.rules import ALL_RULES
 
         # Create bar aggregators for each timeframe
         self._bar_aggregators = {
@@ -350,14 +354,16 @@ class TASignalService:
 
         # Persist indicator value if persistence enabled
         if self._persistence:
-            asyncio.create_task(self._persist_indicator(
-                symbol=symbol,
-                timeframe=timeframe,
-                indicator=indicator,
-                timestamp=timestamp,
-                state=state,
-                previous_state=previous_state,
-            ))
+            asyncio.create_task(
+                self._persist_indicator(
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    indicator=indicator,
+                    timestamp=timestamp,
+                    state=state,
+                    previous_state=previous_state,
+                )
+            )
 
         # Maybe calculate confluence (debounced)
         self._maybe_calculate_confluence(symbol, timeframe)
@@ -391,9 +397,7 @@ class TASignalService:
                     "replaced_by": signal.signal_id,
                 },
             )
-            logger.debug(
-                f"Signal invalidated: {invalidated.signal_id} -> {signal.signal_id}"
-            )
+            logger.debug(f"Signal invalidated: {invalidated.signal_id} -> {signal.signal_id}")
 
         # Persist signal if persistence enabled
         if self._persistence:
@@ -519,6 +523,7 @@ class TASignalService:
 
         # Publish confluence update event
         from ...domain.events.domain_events import ConfluenceUpdateEvent
+
         event = ConfluenceUpdateEvent(
             symbol=symbol,
             timeframe=timeframe,
@@ -533,16 +538,18 @@ class TASignalService:
 
         # Persist confluence if enabled
         if self._persistence:
-            asyncio.create_task(self._persist_confluence(
-                symbol=symbol,
-                timeframe=timeframe,
-                alignment_score=alignment_score,
-                bullish_count=bullish_count,
-                bearish_count=bearish_count,
-                neutral_count=neutral_count,
-                total_indicators=total,
-                dominant_direction=dominant_direction,
-            ))
+            asyncio.create_task(
+                self._persist_confluence(
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    alignment_score=alignment_score,
+                    bullish_count=bullish_count,
+                    bearish_count=bearish_count,
+                    neutral_count=neutral_count,
+                    total_indicators=total,
+                    dominant_direction=dominant_direction,
+                )
+            )
 
     # -------------------------------------------------------------------------
     # Historical Data Integration

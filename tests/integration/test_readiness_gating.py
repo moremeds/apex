@@ -1,15 +1,16 @@
 """Integration tests for ReadinessManager with event bus."""
 
 import asyncio
-import pytest
 from datetime import datetime
 from typing import Any, List, Tuple
+
+import pytest
 
 from src.application.readiness_manager import (
     ReadinessManager,
     ReadinessState,
 )
-from src.domain.events import PriorityEventBus, EventType
+from src.domain.events import EventType, PriorityEventBus
 
 
 class TestReadinessWithEventBus:

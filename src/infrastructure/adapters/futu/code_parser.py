@@ -5,12 +5,14 @@ Parses Futu code formats to extract asset details.
 """
 
 import re
-from typing import Tuple, Optional
+from typing import Optional, Tuple
 
 from ....models.position import AssetType
 
 
-def parse_futu_code(code: str) -> Tuple[AssetType, str, str, Optional[str], Optional[float], Optional[str]]:
+def parse_futu_code(
+    code: str,
+) -> Tuple[AssetType, str, str, Optional[str], Optional[float], Optional[str]]:
     """
     Parse Futu security code to extract asset details.
 

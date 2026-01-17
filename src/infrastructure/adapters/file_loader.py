@@ -5,18 +5,19 @@ Implements BrokerAdapter interface for loading positions from YAML files.
 """
 
 from __future__ import annotations
+
+from datetime import date, datetime
 from pathlib import Path
 from typing import List
-from datetime import datetime, date
+
 import yaml
 
 from ...domain.interfaces.broker_adapter import BrokerAdapter
-from ...models.position import Position, AssetType, PositionSource
 from ...models.account import AccountInfo
 from ...models.order import Order, Trade
-from ...utils.timezone import now_utc, age_seconds
+from ...models.position import AssetType, Position, PositionSource
 from ...utils.logging_setup import get_logger
-
+from ...utils.timezone import age_seconds, now_utc
 
 logger = get_logger(__name__)
 

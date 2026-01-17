@@ -98,11 +98,11 @@ class BacktestService:
         Raises:
             Exception: If backtest fails (engine error, data error, etc.)
         """
+        from src.backtest.data.feeds import BarCacheDataFeed
         from src.backtest.execution.engines.backtest_engine import (
             BacktestConfig,
             BacktestEngine,
         )
-        from src.backtest.data.feeds import BarCacheDataFeed
 
         # Create engine config
         config = BacktestConfig(

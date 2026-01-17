@@ -6,22 +6,23 @@ and provides aggregated market data with fallback mechanisms.
 """
 
 from __future__ import annotations
-from typing import Dict, List, Optional, Any, Callable, TYPE_CHECKING
-from datetime import datetime
-from dataclasses import dataclass, field
+
 import asyncio
 import time
+from dataclasses import dataclass, field
+from datetime import datetime
 from threading import Lock
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
+from ...domain.interfaces.market_data_provider import MarketDataProvider
+from ...models.market_data import MarketData
+from ...models.position import Position
 from ...utils.logging_setup import get_logger
 from ...utils.timezone import age_seconds
-from ...domain.interfaces.market_data_provider import MarketDataProvider
-from ...models.position import Position
-from ...models.market_data import MarketData
 
 if TYPE_CHECKING:
-    from ...infrastructure.monitoring import HealthMonitor, HealthStatus
     from ...application.event_bus import EventBusProtocol
+    from ...infrastructure.monitoring import HealthMonitor, HealthStatus
 
 
 logger = get_logger(__name__)
@@ -30,6 +31,7 @@ logger = get_logger(__name__)
 @dataclass
 class MarketDataProviderStatus:
     """Status of a market data provider connection."""
+
     name: str
     connected: bool = False
     last_error: Optional[str] = None
@@ -96,10 +98,7 @@ class MarketDataManager(MarketDataProvider):
         self._last_cache_eviction_time = 0.0
 
     def register_provider(
-        self,
-        name: str,
-        provider: MarketDataProvider,
-        priority: int = 100
+        self, name: str, provider: MarketDataProvider, priority: int = 100
     ) -> None:
         """
         Register a market data provider.
@@ -248,9 +247,7 @@ class MarketDataManager(MarketDataProvider):
 
         # Fast path: single connected provider - skip all iteration overhead
         connected_providers = [
-            (name, self._providers[name])
-            for name in self._priority
-            if self._status[name].connected
+            (name, self._providers[name]) for name in self._priority if self._status[name].connected
         ]
 
         if len(connected_providers) == 1:
@@ -279,9 +276,7 @@ class MarketDataManager(MarketDataProvider):
         for name, provider in connected_providers:
             # Get positions we still need
             positions_to_fetch = [
-                symbol_to_position[sym]
-                for sym in symbols_needed
-                if sym in symbol_to_position
+                symbol_to_position[sym] for sym in symbols_needed if sym in symbol_to_position
             ]
 
             if not positions_to_fetch:
@@ -413,10 +408,7 @@ class MarketDataManager(MarketDataProvider):
 
         return None
 
-    def set_streaming_callback(
-        self,
-        callback: Optional[Callable[[str, MarketData], None]]
-    ) -> None:
+    def set_streaming_callback(self, callback: Optional[Callable[[str, MarketData], None]]) -> None:
         """
         Set callback for streaming market data updates.
 
@@ -449,15 +441,13 @@ class MarketDataManager(MarketDataProvider):
     def supports_streaming(self) -> bool:
         """Check if any provider supports streaming."""
         return any(
-            p.supports_streaming() and self._status[n].connected
-            for n, p in self._providers.items()
+            p.supports_streaming() and self._status[n].connected for n, p in self._providers.items()
         )
 
     def supports_greeks(self) -> bool:
         """Check if any provider supports Greeks."""
         return any(
-            p.supports_greeks() and self._status[n].connected
-            for n, p in self._providers.items()
+            p.supports_greeks() and self._status[n].connected for n, p in self._providers.items()
         )
 
     def _on_provider_data(self, provider_name: str, symbol: str, md: MarketData) -> None:
@@ -478,8 +468,8 @@ class MarketDataManager(MarketDataProvider):
         # Publish to EventBus (thread-safe after P0-001/P0-002 fixes)
         if self._event_bus:
             # Lazy imports to avoid circular dependency
-            from ...domain.interfaces.event_bus import EventType
             from ...domain.events.domain_events import MarketDataTickEvent
+            from ...domain.interfaces.event_bus import EventType
 
             # Create typed event (MAJ-018: no dict payloads)
             event = MarketDataTickEvent(
@@ -543,13 +533,15 @@ class MarketDataManager(MarketDataProvider):
         provider_status = self._status.get(provider_name)
         full_metadata = metadata or {}
         if provider_status:
-            full_metadata.update({
-                "connected": provider_status.connected,
-                "symbols_fetched": provider_status.symbols_fetched,
-                "last_error": provider_status.last_error,
-                "supports_streaming": provider_status.supports_streaming,
-                "supports_greeks": provider_status.supports_greeks,
-            })
+            full_metadata.update(
+                {
+                    "connected": provider_status.connected,
+                    "symbols_fetched": provider_status.symbols_fetched,
+                    "last_error": provider_status.last_error,
+                    "supports_streaming": provider_status.supports_streaming,
+                    "supports_greeks": provider_status.supports_greeks,
+                }
+            )
 
         self._health_monitor.update_component_health(
             component_name=component_name,
@@ -595,14 +587,16 @@ class MarketDataManager(MarketDataProvider):
     def get_providers_with_greeks(self) -> List[str]:
         """Get list of connected provider names that support Greeks."""
         return [
-            name for name, provider in self._providers.items()
+            name
+            for name, provider in self._providers.items()
             if provider.supports_greeks() and self._status[name].connected
         ]
 
     def get_streaming_providers(self) -> List[str]:
         """Get list of connected provider names that support streaming."""
         return [
-            name for name, provider in self._providers.items()
+            name
+            for name, provider in self._providers.items()
             if provider.supports_streaming() and self._status[name].connected
         ]
 
@@ -639,7 +633,7 @@ class MarketDataManager(MarketDataProvider):
             # Sort by timestamp and remove oldest
             sorted_items = sorted(
                 self._latest_data.items(),
-                key=lambda x: x[1].timestamp if x[1].timestamp else datetime.min
+                key=lambda x: x[1].timestamp if x[1].timestamp else datetime.min,
             )
             excess = len(self._latest_data) - self._max_cache_symbols
             for symbol, _ in sorted_items[:excess]:

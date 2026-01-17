@@ -10,11 +10,10 @@ All datetime objects in the system should be timezone-aware UTC for consistency.
 """
 
 from __future__ import annotations
+
 from datetime import datetime, timezone
 from typing import Optional
-
 from zoneinfo import ZoneInfo
-
 
 # Standard timezones
 UTC = timezone.utc
@@ -159,7 +158,7 @@ def parse_futu_timestamp(
     if fallback is None:
         fallback = now_utc()
 
-    if not time_str or time_str in ('N/A', '', 'None', None):
+    if not time_str or time_str in ("N/A", "", "None", None):
         return fallback
 
     # Try formats: with milliseconds first, then without, then date-only
@@ -172,6 +171,7 @@ def parse_futu_timestamp(
     else:
         # No format matched - return fallback
         import logging
+
         logging.getLogger(__name__).warning(f"Could not parse Futu timestamp: {time_str}")
         return fallback
 
@@ -237,7 +237,7 @@ def age_seconds(dt: datetime) -> float:
         Age in seconds (always positive).
     """
     if dt is None:
-        return float('inf')
+        return float("inf")
 
     # Ensure both are UTC for comparison
     utc_dt = ensure_utc(dt)

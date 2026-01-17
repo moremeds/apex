@@ -12,15 +12,15 @@ This strategy demonstrates:
 - Signal emission via emit_signal()
 """
 
-from collections import deque
-from typing import Deque, Optional, List
-import uuid
 import logging
+import uuid
+from collections import deque
+from typing import Deque, List, Optional
 
-from ..base import Strategy, StrategyContext, TradingSignal
-from ..registry import register_strategy
 from ...events.domain_events import QuoteTick
 from ...interfaces.execution_provider import OrderRequest
+from ..base import Strategy, StrategyContext, TradingSignal
+from ..registry import register_strategy
 
 logger = logging.getLogger(__name__)
 
@@ -131,7 +131,7 @@ class MovingAverageCrossStrategy(Strategy):
 
         # Calculate MAs
         prices_list = list(self._prices[symbol])
-        self._short_ma[symbol] = sum(prices_list[-self.short_window:]) / self.short_window
+        self._short_ma[symbol] = sum(prices_list[-self.short_window :]) / self.short_window
         self._long_ma[symbol] = sum(prices_list) / self.long_window
 
         # Check for crossover signals

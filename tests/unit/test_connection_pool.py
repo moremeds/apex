@@ -9,14 +9,15 @@ Verifies:
 - Disconnect behavior
 """
 
-import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from src.infrastructure.adapters.ib.connection_pool import (
-    IbConnectionPool,
-    ConnectionPoolConfig,
-)
+import pytest
+
 from config.models import IbClientIdsConfig
+from src.infrastructure.adapters.ib.connection_pool import (
+    ConnectionPoolConfig,
+    IbConnectionPool,
+)
 
 
 class TestConnectionPoolConfig:

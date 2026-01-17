@@ -15,6 +15,7 @@ import time
 from typing import Dict, Optional, Set
 
 from opentelemetry import metrics
+
 from ...utils.logging_setup import get_logger
 
 logger = get_logger(__name__)
@@ -362,7 +363,8 @@ class HealthMetrics:
 
         # Count symbols that received a tick recently
         active_count = sum(
-            1 for symbol in self._subscribed_symbols
+            1
+            for symbol in self._subscribed_symbols
             if symbol in self._last_tick_times
             and (now - self._last_tick_times[symbol]) < active_threshold_seconds
         )

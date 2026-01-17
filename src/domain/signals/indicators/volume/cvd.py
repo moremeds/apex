@@ -83,9 +83,7 @@ class CVDIndicator(IndicatorBase):
         for i in range(signal_period - 1, n):
             cvd_signal[i] = np.mean(cvd[i - signal_period + 1 : i + 1])
 
-        return pd.DataFrame(
-            {"cvd": cvd, "cvd_signal": cvd_signal}, index=data.index
-        )
+        return pd.DataFrame({"cvd": cvd, "cvd_signal": cvd_signal}, index=data.index)
 
     def _get_state(
         self,

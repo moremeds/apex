@@ -7,7 +7,7 @@ Supports:
 - Random search
 """
 
-from .grid import GridOptimizer
 from .bayesian import BayesianOptimizer
+from .grid import GridOptimizer
 
 __all__ = ["GridOptimizer", "BayesianOptimizer"]

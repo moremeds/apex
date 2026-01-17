@@ -18,13 +18,13 @@ Usage:
     now = clock.now()  # Returns advanced time
 """
 
-from abc import ABC, abstractmethod
-from datetime import datetime, timedelta
-from typing import Optional, Callable, List, Dict, Tuple
 import asyncio
-import time
 import heapq
 import logging
+import time
+from abc import ABC, abstractmethod
+from datetime import datetime, timedelta
+from typing import Callable, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -266,9 +266,7 @@ class SimulatedClock(Clock):
             ValueError: If new_time is before current time.
         """
         if new_time < self._current_time:
-            raise ValueError(
-                f"Cannot advance backwards: {self._current_time} -> {new_time}"
-            )
+            raise ValueError(f"Cannot advance backwards: {self._current_time} -> {new_time}")
 
         timers_fired = 0
 
@@ -326,10 +324,7 @@ class SimulatedClock(Clock):
     @property
     def pending_timers(self) -> int:
         """Get count of pending (non-cancelled) timers."""
-        return sum(
-            1 for _, tid, _ in self._timers
-            if tid not in self._cancelled_timers
-        )
+        return sum(1 for _, tid, _ in self._timers if tid not in self._cancelled_timers)
 
 
 class BacktraderClock(Clock):

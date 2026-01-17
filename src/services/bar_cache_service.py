@@ -19,7 +19,6 @@ from typing import List, Optional, Tuple
 
 from ..domain.events.domain_events import BarData
 
-
 # -----------------------------------------------------------------------------
 # BarPeriod - period selector for bar requests
 # -----------------------------------------------------------------------------

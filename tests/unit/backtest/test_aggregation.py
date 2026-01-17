@@ -6,8 +6,7 @@ from typing import List
 
 import pytest
 
-from src.backtest import AggregationConfig, Aggregator
-from src.backtest import RunMetrics, RunResult, RunStatus
+from src.backtest import AggregationConfig, Aggregator, RunMetrics, RunResult, RunStatus
 
 
 class TestAggregatorStatistics:

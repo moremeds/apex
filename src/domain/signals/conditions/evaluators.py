@@ -11,7 +11,7 @@ Performance: Direct dict lookup + method call, no reflection.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Protocol, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, Optional, Protocol
 
 if TYPE_CHECKING:
     from ..models import ConditionType

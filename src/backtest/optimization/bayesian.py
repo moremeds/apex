@@ -9,11 +9,11 @@ Supports batched suggestions for parallel trial execution.
 
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 
-from ..core import ExperimentSpec, ParameterDef
-
 import optuna
-from optuna.samplers import TPESampler
 from optuna.pruners import HyperbandPruner
+from optuna.samplers import TPESampler
+
+from ..core import ExperimentSpec, ParameterDef
 
 
 class BayesianOptimizer:
@@ -66,11 +66,7 @@ class BayesianOptimizer:
         self.sampler = TPESampler(seed=seed, n_startup_trials=max(10, batch_size))
         self.pruner = HyperbandPruner()
 
-        direction = (
-            "maximize"
-            if spec.optimization.direction == "maximize"
-            else "minimize"
-        )
+        direction = "maximize" if spec.optimization.direction == "maximize" else "minimize"
 
         self.study = optuna.create_study(
             direction=direction,
@@ -88,18 +84,10 @@ class BayesianOptimizer:
         for name, defn in self.param_defs.items():
             if defn.type == "range":
                 # Use int if step is 1 and bounds are integers
-                if (
-                    defn.step == 1
-                    and defn.min == int(defn.min)
-                    and defn.max == int(defn.max)
-                ):
-                    params[name] = trial.suggest_int(
-                        name, int(defn.min), int(defn.max)
-                    )
+                if defn.step == 1 and defn.min == int(defn.min) and defn.max == int(defn.max):
+                    params[name] = trial.suggest_int(name, int(defn.min), int(defn.max))
                 else:
-                    params[name] = trial.suggest_float(
-                        name, defn.min, defn.max, step=defn.step
-                    )
+                    params[name] = trial.suggest_float(name, defn.min, defn.max, step=defn.step)
             elif defn.type == "categorical":
                 params[name] = trial.suggest_categorical(name, defn.values)
             elif defn.type == "fixed":

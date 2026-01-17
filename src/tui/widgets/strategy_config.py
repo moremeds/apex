@@ -13,11 +13,11 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from textual.widget import Widget
-from textual.reactive import reactive
-from textual.widgets import Static
-from textual.containers import Vertical
 from textual.app import ComposeResult
+from textual.containers import Vertical
+from textual.reactive import reactive
+from textual.widget import Widget
+from textual.widgets import Static
 
 from ..viewmodels.strategy_config_vm import StrategyConfigViewModel
 

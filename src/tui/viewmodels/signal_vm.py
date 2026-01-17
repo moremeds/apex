@@ -178,9 +178,7 @@ class SignalViewModel(BaseViewModel[List[Any]]):
         breach_str = f"{breach:.1f}%" if breach is not None else "-"
 
         action = getattr(signal, "suggested_action", None)
-        action_str = (
-            action.value if hasattr(action, "value") else str(action) if action else "-"
-        )
+        action_str = action.value if hasattr(action, "value") else str(action) if action else "-"
 
         first_str = ps.first_seen.strftime("%H:%M:%S")
         last_str = ps.last_seen.strftime("%H:%M:%S")

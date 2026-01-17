@@ -6,20 +6,21 @@ Implements HistoricalSourcePort for the historical data management system.
 """
 
 from __future__ import annotations
+
 import asyncio
+import time
 from datetime import datetime, timedelta
 from typing import List, Optional
-import time
 
 try:
     import yfinance as yf
 except ImportError:
     yf = None
 
-from ....domain.interfaces.historical_source import HistoricalSourcePort
 from ....domain.events.domain_events import BarData
-from ....utils.timezone import now_utc
+from ....domain.interfaces.historical_source import HistoricalSourcePort
 from ....utils.logging_setup import get_logger
+from ....utils.timezone import now_utc
 
 logger = get_logger(__name__)
 
@@ -44,7 +45,7 @@ class YahooHistoricalAdapter:
     # Supports both short ("5m") and long ("5min") formats for compatibility
     TIMEFRAME_MAP = {
         # Short format (used by BarAggregator and config)
-        "1m": "1m",      # Yahoo supports 1m with 7-day limit
+        "1m": "1m",  # Yahoo supports 1m with 7-day limit
         "5m": "5m",
         "15m": "15m",
         "30m": "30m",
@@ -63,13 +64,13 @@ class YahooHistoricalAdapter:
     # Yahoo returns from IPO (stocks) or inception (ETFs) automatically
     # Intraday limits are hard Yahoo API limits
     MAX_HISTORY_DAYS = {
-        "1m": 7,        # 7 days only for 1-minute data
+        "1m": 7,  # 7 days only for 1-minute data
         "5m": 60,
         "15m": 60,
         "30m": 60,
         "1h": 730,
         "4h": 730,
-        "1d": 18250,    # ~50 years (Yahoo returns from IPO/inception)
+        "1d": 18250,  # ~50 years (Yahoo returns from IPO/inception)
         "1w": 18250,
         "1M": 18250,
         # Long format aliases
@@ -207,7 +208,7 @@ class YahooHistoricalAdapter:
                 end=end + timedelta(days=1),  # yfinance end is exclusive
                 interval=yf_interval,
                 auto_adjust=True,  # Adjust for splits/dividends
-                prepost=False,     # Regular market hours only
+                prepost=False,  # Regular market hours only
             )
 
             if df.empty:
@@ -226,6 +227,7 @@ class YahooHistoricalAdapter:
                 # Ensure timezone-aware
                 if bar_time.tzinfo is None:
                     import pytz
+
                     bar_time = pytz.UTC.localize(bar_time)
 
                 bar = BarData(
@@ -318,6 +320,7 @@ def _isna(value) -> bool:
         return True
     try:
         import pandas as pd
+
         return pd.isna(value)
     except (ImportError, TypeError):
         return False

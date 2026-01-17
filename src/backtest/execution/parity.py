@@ -42,7 +42,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
-from ..core import RunSpec, RunResult, RunMetrics, RunStatus
+from ..core import RunMetrics, RunResult, RunSpec, RunStatus
 from .engines import BacktestEngine, EngineType
 
 
@@ -254,8 +254,7 @@ class StrategyParityHarness:
 
         # Determine parity
         is_parity = len(drifts) == 0 or (
-            not self.config.fail_on_warnings
-            and all(not d.is_critical for d in drifts)
+            not self.config.fail_on_warnings and all(not d.is_critical for d in drifts)
         )
 
         total_time = (datetime.now() - start_time).total_seconds()
@@ -308,15 +307,17 @@ class StrategyParityHarness:
 
         # Check status
         if ref.status != test.status:
-            drifts.append(DriftDetail(
-                drift_type=DriftType.STATUS_MISMATCH,
-                field="status",
-                reference_value=ref.status.value,
-                test_value=test.status.value,
-                difference=1.0,
-                tolerance=0.0,
-                message=f"Status mismatch: {ref.status.value} vs {test.status.value}",
-            ))
+            drifts.append(
+                DriftDetail(
+                    drift_type=DriftType.STATUS_MISMATCH,
+                    field="status",
+                    reference_value=ref.status.value,
+                    test_value=test.status.value,
+                    difference=1.0,
+                    tolerance=0.0,
+                    message=f"Status mismatch: {ref.status.value} vs {test.status.value}",
+                )
+            )
             # If statuses differ, skip metric comparison
             return drifts
 
@@ -331,68 +332,78 @@ class StrategyParityHarness:
         # Trade count
         trade_diff = abs(ref_m.total_trades - test_m.total_trades)
         if trade_diff > self.config.trade_count_tolerance:
-            drifts.append(DriftDetail(
-                drift_type=DriftType.TRADE_COUNT,
-                field="total_trades",
-                reference_value=ref_m.total_trades,
-                test_value=test_m.total_trades,
-                difference=trade_diff,
-                tolerance=self.config.trade_count_tolerance,
-                message=f"Trade count differs by {trade_diff}",
-            ))
+            drifts.append(
+                DriftDetail(
+                    drift_type=DriftType.TRADE_COUNT,
+                    field="total_trades",
+                    reference_value=ref_m.total_trades,
+                    test_value=test_m.total_trades,
+                    difference=trade_diff,
+                    tolerance=self.config.trade_count_tolerance,
+                    message=f"Trade count differs by {trade_diff}",
+                )
+            )
 
         # Total return (critical)
         return_diff = abs(ref_m.total_return - test_m.total_return)
         if return_diff > self.config.return_tolerance:
-            drifts.append(DriftDetail(
-                drift_type=DriftType.PNL_MISMATCH,
-                field="total_return",
-                reference_value=ref_m.total_return,
-                test_value=test_m.total_return,
-                difference=return_diff,
-                tolerance=self.config.return_tolerance,
-                message=f"Return differs by {return_diff:.4f}",
-            ))
+            drifts.append(
+                DriftDetail(
+                    drift_type=DriftType.PNL_MISMATCH,
+                    field="total_return",
+                    reference_value=ref_m.total_return,
+                    test_value=test_m.total_return,
+                    difference=return_diff,
+                    tolerance=self.config.return_tolerance,
+                    message=f"Return differs by {return_diff:.4f}",
+                )
+            )
 
         # Max drawdown
         dd_diff = abs(ref_m.max_drawdown - test_m.max_drawdown)
         if dd_diff > self.config.max_dd_tolerance:
-            drifts.append(DriftDetail(
-                drift_type=DriftType.METRIC_MISMATCH,
-                field="max_drawdown",
-                reference_value=ref_m.max_drawdown,
-                test_value=test_m.max_drawdown,
-                difference=dd_diff,
-                tolerance=self.config.max_dd_tolerance,
-                message=f"Max drawdown differs by {dd_diff:.4f}",
-            ))
+            drifts.append(
+                DriftDetail(
+                    drift_type=DriftType.METRIC_MISMATCH,
+                    field="max_drawdown",
+                    reference_value=ref_m.max_drawdown,
+                    test_value=test_m.max_drawdown,
+                    difference=dd_diff,
+                    tolerance=self.config.max_dd_tolerance,
+                    message=f"Max drawdown differs by {dd_diff:.4f}",
+                )
+            )
 
         # Sharpe ratio (relative comparison)
         if ref_m.sharpe != 0:
             sharpe_rel_diff = abs(ref_m.sharpe - test_m.sharpe) / abs(ref_m.sharpe)
             if sharpe_rel_diff > self.config.sharpe_tolerance:
-                drifts.append(DriftDetail(
-                    drift_type=DriftType.METRIC_MISMATCH,
-                    field="sharpe",
-                    reference_value=ref_m.sharpe,
-                    test_value=test_m.sharpe,
-                    difference=sharpe_rel_diff,
-                    tolerance=self.config.sharpe_tolerance,
-                    message=f"Sharpe ratio differs by {sharpe_rel_diff:.1%}",
-                ))
+                drifts.append(
+                    DriftDetail(
+                        drift_type=DriftType.METRIC_MISMATCH,
+                        field="sharpe",
+                        reference_value=ref_m.sharpe,
+                        test_value=test_m.sharpe,
+                        difference=sharpe_rel_diff,
+                        tolerance=self.config.sharpe_tolerance,
+                        message=f"Sharpe ratio differs by {sharpe_rel_diff:.1%}",
+                    )
+                )
 
         # Win rate
         wr_diff = abs(ref_m.win_rate - test_m.win_rate)
         if wr_diff > self.config.win_rate_tolerance:
-            drifts.append(DriftDetail(
-                drift_type=DriftType.METRIC_MISMATCH,
-                field="win_rate",
-                reference_value=ref_m.win_rate,
-                test_value=test_m.win_rate,
-                difference=wr_diff,
-                tolerance=self.config.win_rate_tolerance,
-                message=f"Win rate differs by {wr_diff:.1%}",
-            ))
+            drifts.append(
+                DriftDetail(
+                    drift_type=DriftType.METRIC_MISMATCH,
+                    field="win_rate",
+                    reference_value=ref_m.win_rate,
+                    test_value=test_m.win_rate,
+                    difference=wr_diff,
+                    tolerance=self.config.win_rate_tolerance,
+                    message=f"Win rate differs by {wr_diff:.1%}",
+                )
+            )
 
         return drifts
 
@@ -422,26 +433,30 @@ class StrategyParityHarness:
         extra_in_test = test_entries - ref_entries
 
         if missing_in_test:
-            drifts.append(DriftDetail(
-                drift_type=DriftType.SIGNAL_TIMING,
-                field="entry_signals",
-                reference_value=len(ref_entries),
-                test_value=len(test_entries),
-                difference=len(missing_in_test),
-                tolerance=0,
-                message=f"Missing {len(missing_in_test)} entry signals in test",
-            ))
+            drifts.append(
+                DriftDetail(
+                    drift_type=DriftType.SIGNAL_TIMING,
+                    field="entry_signals",
+                    reference_value=len(ref_entries),
+                    test_value=len(test_entries),
+                    difference=len(missing_in_test),
+                    tolerance=0,
+                    message=f"Missing {len(missing_in_test)} entry signals in test",
+                )
+            )
 
         if extra_in_test:
-            drifts.append(DriftDetail(
-                drift_type=DriftType.SIGNAL_TIMING,
-                field="entry_signals",
-                reference_value=len(ref_entries),
-                test_value=len(test_entries),
-                difference=len(extra_in_test),
-                tolerance=0,
-                message=f"Extra {len(extra_in_test)} entry signals in test",
-            ))
+            drifts.append(
+                DriftDetail(
+                    drift_type=DriftType.SIGNAL_TIMING,
+                    field="entry_signals",
+                    reference_value=len(ref_entries),
+                    test_value=len(test_entries),
+                    difference=len(extra_in_test),
+                    tolerance=0,
+                    message=f"Extra {len(extra_in_test)} entry signals in test",
+                )
+            )
 
         return drifts
 
@@ -473,13 +488,19 @@ class StrategyParityHarness:
         if results:
             ref_times = [r.reference_time for r in results]
             test_times = [r.test_time for r in results]
-            lines.extend([
-                "",
-                "TIMING:",
-                f"  Reference engine avg: {np.mean(ref_times):.3f}s",
-                f"  Test engine avg: {np.mean(test_times):.3f}s",
-                f"  Speedup: {np.mean(ref_times) / np.mean(test_times):.1f}x" if np.mean(test_times) > 0 else "",
-            ])
+            lines.extend(
+                [
+                    "",
+                    "TIMING:",
+                    f"  Reference engine avg: {np.mean(ref_times):.3f}s",
+                    f"  Test engine avg: {np.mean(test_times):.3f}s",
+                    (
+                        f"  Speedup: {np.mean(ref_times) / np.mean(test_times):.1f}x"
+                        if np.mean(test_times) > 0
+                        else ""
+                    ),
+                ]
+            )
 
         lines.append("=" * 60)
         return "\n".join(lines)

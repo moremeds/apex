@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from src.utils.logging_setup import setup_category_logging
-from src.utils.structured_logger import StructuredLogger, LogCategory
+from src.utils.structured_logger import LogCategory, StructuredLogger
 
 
 def test_updated_naming():

@@ -1,0 +1,47 @@
+# Signal Service Development Profile
+#
+# Fast CI - contract + invariants + causality (no TA-Lib dependency)
+# Runs on Python 3.14
+#
+# Usage:
+#   python -m src.verification.signal_verifier --all --profile signal_dev
+
+profile: "development"
+description: "Fast CI verification - schema, invariants, causality (no TA-Lib)"
+
+# Checks to run in this profile
+checks:
+  # S1: Discovery & Metadata
+  - S1_REGISTRY
+  - S1_METADATA
+
+  # S2: Determinism & Causality (CRITICAL)
+  - S2_DETERMINISTIC
+  - S2_MOMENTUM_CAUSALITY
+  - S2_TREND_CAUSALITY
+
+  # S3: Semantic Invariants
+  - S3_RSI_BOUNDS
+  - S3_ADX_BOUNDS
+  - S3_ATR_NONNEG
+  - S3_MACD_IDENTITY
+  - S3_NO_NAN
+
+  # S5: Output Contract
+  - S5_INDICATOR_SCHEMA
+  - S5_PAYLOAD_SCHEMA
+  - S5_ROUNDTRIP
+  - S5_STABLE_ORDER
+
+# Skip in dev (need TA-Lib or are slow)
+skip:
+  - S2_PARALLEL_SAFE      # Slow
+  - S4_MOMENTUM_SNAP      # Needs TA-Lib (Py3.13)
+  - S4_TREND_SNAP         # Needs TA-Lib (Py3.13)
+  - S6_PERF               # Run in nightly
+
+# Fail behavior
+fail_action: "block_merge"
+
+# Expected runtime
+expected_runtime_seconds: 30

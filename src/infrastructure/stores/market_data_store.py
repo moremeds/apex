@@ -5,12 +5,13 @@ OPT-014: Uses RCU pattern for lock-free reads on the main data path.
 """
 
 from __future__ import annotations
-from typing import Any, Dict, Iterable, List, Optional, Union, TYPE_CHECKING
-from threading import RLock
-import time
 
-from ...utils.logging_setup import get_logger
+import time
+from threading import RLock
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Union
+
 from ...models.market_data import MarketData
+from ...utils.logging_setup import get_logger
 from ...utils.timezone import age_seconds, now_utc
 from .rcu_store import RCUDict
 
@@ -138,7 +139,10 @@ class MarketDataStore:
         if self._tick_buffer_lock.acquire(blocking=False):
             try:
                 # Double-check after acquiring lock
-                if self._tick_buffer and (time.time() - self._last_flush_time) * 1000 >= self._tick_flush_interval_ms:
+                if (
+                    self._tick_buffer
+                    and (time.time() - self._last_flush_time) * 1000 >= self._tick_flush_interval_ms
+                ):
                     self._flush_tick_buffer_locked()
             finally:
                 self._tick_buffer_lock.release()
@@ -193,12 +197,14 @@ class MarketDataStore:
             # Get fresh snapshot and sort by timestamp (oldest first)
             sorted_entries = sorted(
                 self._market_data.items(),
-                key=lambda x: x[1].timestamp.timestamp() if x[1].timestamp else 0
+                key=lambda x: x[1].timestamp.timestamp() if x[1].timestamp else 0,
             )
             # HIGH-008: Use batch_delete for O(n) instead of O(n²)
             symbols_to_evict = [symbol for symbol, _ in sorted_entries[:excess]]
             deleted = self._market_data.batch_delete(symbols_to_evict)
-            logger.debug(f"Evicted {deleted} oldest market data entries (over max {self._max_symbols})")
+            logger.debug(
+                f"Evicted {deleted} oldest market data entries (over max {self._max_symbols})"
+            )
 
     def get(self, symbol: str) -> Optional[MarketData]:
         """
@@ -403,7 +409,11 @@ class MarketDataStore:
                     existing.iv = payload.iv
 
                 # OPT-016: Only recalculate mid if bid or ask actually changed
-                if (bid_changed or ask_changed) and existing.bid is not None and existing.ask is not None:
+                if (
+                    (bid_changed or ask_changed)
+                    and existing.bid is not None
+                    and existing.ask is not None
+                ):
                     existing.mid = (existing.bid + existing.ask) / 2
 
                 existing.timestamp = now_utc()

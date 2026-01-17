@@ -7,12 +7,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.backtest.core import RunSpec, TimeWindow, RunResult, RunStatus
+from src.backtest.core import RunResult, RunSpec, RunStatus, TimeWindow
 from src.backtest.execution.engines import (
-    VectorBTEngine,
-    VectorBTConfig,
-    EngineType,
     BacktestEngine,
+    EngineType,
+    VectorBTConfig,
+    VectorBTEngine,
 )
 
 

@@ -14,15 +14,15 @@ This strategy demonstrates:
 - on_stop cleanup
 """
 
-from datetime import time
-from typing import List, Dict, Optional
-import uuid
 import logging
+import uuid
+from datetime import time
+from typing import Dict, List, Optional
 
+from ...events.domain_events import BarData, QuoteTick, TradeFill
+from ...interfaces.execution_provider import OrderRequest
 from ..base import Strategy, StrategyContext
 from ..registry import register_strategy
-from ...events.domain_events import QuoteTick, BarData, TradeFill
-from ...interfaces.execution_provider import OrderRequest
 
 logger = logging.getLogger(__name__)
 
@@ -112,10 +112,7 @@ class ScheduledRebalanceStrategy(Strategy):
             callback=self._on_bar_close,
         )
 
-        logger.info(
-            f"Scheduled daily rebalance at {self.rebalance_time} "
-            f"and on each bar close"
-        )
+        logger.info(f"Scheduled daily rebalance at {self.rebalance_time} " f"and on each bar close")
 
     def on_bar(self, bar: BarData) -> None:
         """Update prices from bar data."""
@@ -148,9 +145,7 @@ class ScheduledRebalanceStrategy(Strategy):
     def _scheduled_rebalance_check(self) -> None:
         """Scheduled daily rebalance check."""
         current_time = self.context.now()
-        logger.info(
-            f"[{self.strategy_id}] Scheduled rebalance check at {current_time}"
-        )
+        logger.info(f"[{self.strategy_id}] Scheduled rebalance check at {current_time}")
 
         if not self._initialized:
             logger.warning("Portfolio not yet initialized")
@@ -230,9 +225,7 @@ class ScheduledRebalanceStrategy(Strategy):
     def _do_rebalance(self) -> None:
         """Execute rebalancing trades."""
         self._rebalance_count += 1
-        logger.info(
-            f"[{self.strategy_id}] Executing rebalance #{self._rebalance_count}"
-        )
+        logger.info(f"[{self.strategy_id}] Executing rebalance #{self._rebalance_count}")
 
         if not all(self._current_prices.values()):
             logger.warning("Missing prices - cannot rebalance")
@@ -298,8 +291,7 @@ class ScheduledRebalanceStrategy(Strategy):
     def on_stop(self) -> None:
         """Cleanup on strategy stop."""
         logger.info(
-            f"[{self.strategy_id}] Strategy stopped. "
-            f"Total rebalances: {self._rebalance_count}"
+            f"[{self.strategy_id}] Strategy stopped. " f"Total rebalances: {self._rebalance_count}"
         )
 
         # Log final portfolio state

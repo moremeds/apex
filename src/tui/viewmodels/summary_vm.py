@@ -46,9 +46,7 @@ class SummaryViewModel:
 
         ib_netliq = getattr(snapshot, "ib_net_liquidation", 0) or 0
         futu_netliq = getattr(snapshot, "futu_net_liquidation", 0) or 0
-        total_netliq = (
-            getattr(snapshot, "total_net_liquidation", 0) or ib_netliq + futu_netliq
-        )
+        total_netliq = getattr(snapshot, "total_net_liquidation", 0) or ib_netliq + futu_netliq
 
         unrealized = getattr(snapshot, "total_unrealized_pnl", 0) or 0
         daily = getattr(snapshot, "total_daily_pnl", 0) or 0

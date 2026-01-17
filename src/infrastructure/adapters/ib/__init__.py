@@ -12,11 +12,11 @@ Each adapter uses a reserved client ID to allow simultaneous connections.
 """
 
 from .base import IbBaseAdapter
-from .live_adapter import IbLiveAdapter
-from .historical_adapter import IbHistoricalAdapter
-from .execution_adapter import IbExecutionAdapter
 from .composite_adapter import IbCompositeAdapter
-from .connection_pool import IbConnectionPool, ConnectionPoolConfig
+from .connection_pool import ConnectionPoolConfig, IbConnectionPool
+from .execution_adapter import IbExecutionAdapter
+from .historical_adapter import IbHistoricalAdapter
+from .live_adapter import IbLiveAdapter
 
 __all__ = [
     # Main adapter

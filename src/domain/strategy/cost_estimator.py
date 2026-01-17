@@ -22,10 +22,10 @@ Usage:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Dict, Any, Optional, Protocol
-from enum import Enum
 import logging
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Any, Dict, Optional, Protocol
 
 from ..interfaces.execution_provider import OrderRequest
 from .base import StrategyContext
@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 
 class AssetClass(Enum):
     """Asset class for fee calculation."""
+
     STOCK = "stock"
     OPTION = "option"
     FUTURE = "future"
@@ -78,12 +79,7 @@ class CostEstimate:
     @property
     def total_cost(self) -> float:
         """Total estimated cost."""
-        return (
-            self.total_commission
-            + self.total_slippage
-            + self.borrow_cost
-            + self.financing_cost
-        )
+        return self.total_commission + self.total_slippage + self.borrow_cost + self.financing_cost
 
     @property
     def cost_bps(self) -> float:
@@ -335,9 +331,7 @@ class CostEstimator:
         # Calculate exchange fees
         exchange_fee = 0.0
         if isinstance(self._fee_schedule, IBFeeSchedule):
-            exchange_fee = self._fee_schedule.calculate_exchange_fees(
-                order.quantity, asset_class
-            )
+            exchange_fee = self._fee_schedule.calculate_exchange_fees(order.quantity, asset_class)
 
         # Calculate regulatory fees
         regulatory_fee = 0.0

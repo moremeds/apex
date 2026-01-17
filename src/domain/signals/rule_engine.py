@@ -458,9 +458,7 @@ class RuleEngine:
         """
         with self._lock:
             # Build signal_id matching _build_signal format
-            signal_id = (
-                f"{rule.category.value}:{rule.indicator}:{event.symbol}:{event.timeframe}"
-            )
+            signal_id = f"{rule.category.value}:{rule.indicator}:{event.symbol}:{event.timeframe}"
             cooldown_entry = self._last_triggered.get(signal_id)
 
             if cooldown_entry is not None:
@@ -507,9 +505,7 @@ class RuleEngine:
             cooldown_until = event.timestamp + timedelta(seconds=rule.cooldown_seconds)
 
         # Build unique signal ID
-        signal_id = (
-            f"{rule.category.value}:{rule.indicator}:{event.symbol}:{event.timeframe}"
-        )
+        signal_id = f"{rule.category.value}:{rule.indicator}:{event.symbol}:{event.timeframe}"
 
         return TradingSignal(
             signal_id=signal_id,
@@ -543,9 +539,7 @@ class RuleEngine:
 
             # Record signal emission metric
             if self._metrics:
-                self._metrics.record_signal_emitted(
-                    signal.trigger_rule, signal.direction.value
-                )
+                self._metrics.record_signal_emitted(signal.trigger_rule, signal.direction.value)
 
             # Structured info log for signal emission (most important event)
             logger.info(
@@ -765,15 +759,17 @@ class RuleEngine:
                     continue
 
                 category, indicator, symbol, timeframe = self._parse_cooldown_key(key)
-                result.append({
-                    "key": key,
-                    "category": category,
-                    "indicator": indicator,
-                    "symbol": symbol,
-                    "timeframe": timeframe,
-                    "last_triggered": last_time,
-                    "cooldown_seconds": cooldown_seconds,
-                    "remaining_seconds": remaining_seconds,
-                })
+                result.append(
+                    {
+                        "key": key,
+                        "category": category,
+                        "indicator": indicator,
+                        "symbol": symbol,
+                        "timeframe": timeframe,
+                        "last_triggered": last_time,
+                        "cooldown_seconds": cooldown_seconds,
+                        "remaining_seconds": remaining_seconds,
+                    }
+                )
 
         return result

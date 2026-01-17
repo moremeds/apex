@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 def _sanitize_decimal(value: Any, default: Decimal | None = None) -> Decimal | None:
     """Convert Futu value to Decimal, handling N/A and empty strings."""
-    if value is None or value == '' or value == 'N/A' or str(value).upper() == 'N/A':
+    if value is None or value == "" or value == "N/A" or str(value).upper() == "N/A":
         return default
     try:
         return Decimal(str(value))
@@ -39,7 +39,7 @@ def _sanitize_decimal(value: Any, default: Decimal | None = None) -> Decimal | N
 
 def _sanitize_int(value: Any, default: int = 0) -> int:
     """Convert Futu value to int, handling N/A and empty strings."""
-    if value is None or value == '' or value == 'N/A' or str(value).upper() == 'N/A':
+    if value is None or value == "" or value == "N/A" or str(value).upper() == "N/A":
         return default
     try:
         return int(float(value))  # Handle "123.0" strings
@@ -49,20 +49,20 @@ def _sanitize_int(value: Any, default: int = 0) -> int:
 
 def _sanitize_bool(value: Any, default: bool | None = None) -> bool | None:
     """Convert Futu value to bool, handling N/A and empty strings."""
-    if value is None or value == '' or value == 'N/A' or str(value).upper() == 'N/A':
+    if value is None or value == "" or value == "N/A" or str(value).upper() == "N/A":
         return default
     if isinstance(value, bool):
         return value
     if isinstance(value, str):
-        return value.lower() in ('true', '1', 'yes', 'y')
+        return value.lower() in ("true", "1", "yes", "y")
     return bool(value)
 
 
 def _sanitize_str(value: Any, default: str | None = None) -> str | None:
     """Convert Futu value to string, handling N/A."""
-    if value is None or value == 'N/A' or str(value).upper() == 'N/A':
+    if value is None or value == "N/A" or str(value).upper() == "N/A":
         return default
-    return str(value) if value != '' else default
+    return str(value) if value != "" else default
 
 
 @dataclass
@@ -183,9 +183,7 @@ class FutuOrderRepository(BaseRepository[FutuRawOrder]):
     # Query Methods
     # -------------------------------------------------------------------------
 
-    async def find_by_order_id(
-        self, order_id: str, account_id: str
-    ) -> Optional[FutuRawOrder]:
+    async def find_by_order_id(self, order_id: str, account_id: str) -> Optional[FutuRawOrder]:
         """
         Find order by order_id and account_id.
 

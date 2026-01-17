@@ -6,14 +6,15 @@ and identifies discrepancies.
 """
 
 from __future__ import annotations
-from typing import Dict, List, Set, Optional
-from datetime import datetime
-from dataclasses import replace
-from ...models.position import Position, PositionSource, AssetType
-from ...models.reconciliation import ReconciliationIssue, IssueType
-from ...utils.timezone import age_seconds
-from ...utils.logging_setup import get_logger
 
+from dataclasses import replace
+from datetime import datetime
+from typing import Dict, List, Optional, Set
+
+from ...models.position import AssetType, Position, PositionSource
+from ...models.reconciliation import IssueType, ReconciliationIssue
+from ...utils.logging_setup import get_logger
+from ...utils.timezone import age_seconds
 
 logger = get_logger(__name__)
 
@@ -69,8 +70,10 @@ class Reconciler:
 
         # All unique keys across sources
         all_keys: Set[tuple] = (
-            set(ib_map.keys()) | set(manual_map.keys()) |
-            set(cached_map.keys()) | set(futu_map.keys())
+            set(ib_map.keys())
+            | set(manual_map.keys())
+            | set(cached_map.keys())
+            | set(futu_map.keys())
         )
 
         for key in all_keys:
@@ -262,7 +265,9 @@ class Reconciler:
             source_counts[src] = source_counts.get(src, 0) + 1
             if len(pos.all_sources) > 1:
                 multi_source_count += 1
-        logger.info(f"Merged position sources: {source_counts}, multi-source positions: {multi_source_count}")
+        logger.info(
+            f"Merged position sources: {source_counts}, multi-source positions: {multi_source_count}"
+        )
 
         return list(merged.values())
 

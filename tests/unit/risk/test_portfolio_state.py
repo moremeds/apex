@@ -1,17 +1,18 @@
 """Unit tests for PortfolioState."""
 
-import pytest
-from datetime import datetime
 import threading
 import time
+from datetime import datetime
+
+import pytest
 
 from src.domain.services.risk.state.portfolio_state import (
-    PortfolioState,
     PortfolioAggregates,
+    PortfolioState,
 )
 from src.domain.services.risk.state.position_state import (
-    PositionState,
     PositionDelta,
+    PositionState,
 )
 
 
@@ -293,15 +294,9 @@ class TestPortfolioState:
         """to_snapshot() should calculate concentration correctly."""
         state = PortfolioState()
         # Add positions with different notionals
-        state.add_position(self._create_test_position(
-            "AAPL", "AAPL", notional=25000.0
-        ))
-        state.add_position(self._create_test_position(
-            "TSLA", "TSLA", notional=15000.0
-        ))
-        state.add_position(self._create_test_position(
-            "SPY", "SPY", notional=10000.0
-        ))
+        state.add_position(self._create_test_position("AAPL", "AAPL", notional=25000.0))
+        state.add_position(self._create_test_position("TSLA", "TSLA", notional=15000.0))
+        state.add_position(self._create_test_position("SPY", "SPY", notional=10000.0))
 
         snapshot = state.to_snapshot()
 

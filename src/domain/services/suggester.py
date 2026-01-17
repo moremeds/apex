@@ -6,16 +6,19 @@ Defers optimization/hedging efficiency to v1.2.
 """
 
 from __future__ import annotations
-from typing import Dict, List, Any
+
 from dataclasses import dataclass
-from ...models.position import Position
+from typing import Any, Dict, List
+
 from ...models.market_data import MarketData
+from ...models.position import Position
 from ...models.risk_snapshot import RiskSnapshot
 
 
 @dataclass
 class Contributor:
     """Position contributing to a risk metric."""
+
     symbol: str
     underlying: str
     contribution: float
@@ -61,7 +64,11 @@ class SimpleSuggester:
                 continue
 
             delta_contrib = (md.delta or 0.0) * pos.quantity * pos.multiplier
-            pct = (abs(delta_contrib) / abs(snapshot.portfolio_delta) * 100) if snapshot.portfolio_delta != 0 else 0
+            pct = (
+                (abs(delta_contrib) / abs(snapshot.portfolio_delta) * 100)
+                if snapshot.portfolio_delta != 0
+                else 0
+            )
 
             contributions.append(
                 Contributor(
@@ -92,7 +99,11 @@ class SimpleSuggester:
                 continue
 
             vega_contrib = (md.vega or 0.0) * pos.quantity * pos.multiplier
-            pct = (abs(vega_contrib) / abs(snapshot.portfolio_vega) * 100) if snapshot.portfolio_vega != 0 else 0
+            pct = (
+                (abs(vega_contrib) / abs(snapshot.portfolio_vega) * 100)
+                if snapshot.portfolio_vega != 0
+                else 0
+            )
 
             contributions.append(
                 Contributor(
@@ -126,7 +137,11 @@ class SimpleSuggester:
                 continue
 
             notional = mark * pos.quantity * pos.multiplier
-            pct = (abs(notional) / snapshot.total_gross_notional * 100) if snapshot.total_gross_notional != 0 else 0
+            pct = (
+                (abs(notional) / snapshot.total_gross_notional * 100)
+                if snapshot.total_gross_notional != 0
+                else 0
+            )
 
             contributions.append(
                 Contributor(

@@ -1,9 +1,10 @@
 """Position Risk Model - Calculated risk metrics for a single position."""
 
 from __future__ import annotations
+
 from dataclasses import dataclass, field
-from typing import Optional
 from datetime import datetime
+from typing import Optional
 
 from .position import Position
 

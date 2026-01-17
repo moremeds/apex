@@ -9,26 +9,27 @@ Responsibilities:
 """
 
 from __future__ import annotations
+
 import asyncio
 from datetime import datetime
-from typing import Dict, List, Optional, Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
+from ...domain.events.domain_events import MDQCValidationTrigger
+from ...domain.interfaces.event_bus import EventType
+from ...infrastructure.monitoring import HealthStatus
+from ...models.account import AccountInfo
+from ...models.position import Position
 from ...utils.logging_setup import get_logger
 from ...utils.perf_logger import log_timing_async
-from ...models.position import Position
-from ...models.account import AccountInfo
-from ...infrastructure.monitoring import HealthStatus
-from ...domain.interfaces.event_bus import EventType
-from ...domain.events.domain_events import MDQCValidationTrigger
 
 if TYPE_CHECKING:
+    from ...domain.interfaces.event_bus import EventBus
+    from ...domain.services.mdqc import MDQC
+    from ...domain.services.pos_reconciler import Reconciler
     from ...infrastructure.adapters.broker_manager import BrokerManager
     from ...infrastructure.adapters.market_data_manager import MarketDataManager
-    from ...infrastructure.stores import PositionStore, MarketDataStore, AccountStore
-    from ...domain.services.pos_reconciler import Reconciler
-    from ...domain.services.mdqc import MDQC
     from ...infrastructure.monitoring import HealthMonitor
-    from ...domain.interfaces.event_bus import EventBus
+    from ...infrastructure.stores import AccountStore, MarketDataStore, PositionStore
     from ..readiness_manager import ReadinessManager
 
 logger = get_logger(__name__)
@@ -81,8 +82,7 @@ class DataCoordinator:
         # Subscribe to MDQC validation events (slow lane handler)
         if self._event_bus is not None:
             self._event_bus.subscribe(
-                EventType.MDQC_VALIDATION_TRIGGER,
-                self._handle_mdqc_validation
+                EventType.MDQC_VALIDATION_TRIGGER, self._handle_mdqc_validation
             )
 
     @log_timing_async("fetch_and_reconcile", warn_threshold_ms=500)
@@ -136,15 +136,12 @@ class DataCoordinator:
         market_data = self.market_data_store.get_all()
         if self._event_bus is not None:
             event = MDQCValidationTrigger(
-                symbol_count=len(market_data),
-                source="fetch_and_reconcile"
+                symbol_count=len(market_data), source="fetch_and_reconcile"
             )
             self._event_bus.publish(EventType.MDQC_VALIDATION_TRIGGER, event)
         else:
             # Fallback: run async in thread to avoid blocking event loop
-            asyncio.create_task(
-                asyncio.to_thread(self.mdqc.validate_all, market_data)
-            )
+            asyncio.create_task(asyncio.to_thread(self.mdqc.validate_all, market_data))
 
         # Notify dirty callback if provided
         if on_dirty_callback:
@@ -173,9 +170,7 @@ class DataCoordinator:
 
         return merged
 
-    def _aggregate_account_info(
-        self, accounts_by_broker: Dict[str, AccountInfo]
-    ) -> AccountInfo:
+    def _aggregate_account_info(self, accounts_by_broker: Dict[str, AccountInfo]) -> AccountInfo:
         """Aggregate account info from all brokers."""
         if not accounts_by_broker:
             return AccountInfo(
@@ -243,9 +238,7 @@ class DataCoordinator:
         elif not self.market_data_manager.is_connected():
             logger.warning("No market data providers connected")
             self.health_monitor.update_component_health(
-                "market_data_feed",
-                HealthStatus.UNHEALTHY,
-                "No market data providers connected"
+                "market_data_feed", HealthStatus.UNHEALTHY, "No market data providers connected"
             )
 
     async def _subscribe_market_data_background(
@@ -299,9 +292,7 @@ class DataCoordinator:
         except Exception as e:
             logger.error(f"Failed to subscribe market data: {e}")
             self.health_monitor.update_component_health(
-                "market_data_feed",
-                HealthStatus.DEGRADED,
-                f"Subscription error: {str(e)[:50]}"
+                "market_data_feed", HealthStatus.DEGRADED, f"Subscription error: {str(e)[:50]}"
             )
 
     async def fetch_account_info_cached(self) -> AccountInfo:

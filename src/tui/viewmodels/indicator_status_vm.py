@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional, Set
 
 class RowType(Enum):
     """Type of row in the indicator hierarchy."""
+
     EMPTY = auto()
     CATEGORY = auto()
     INDICATOR = auto()
@@ -30,6 +31,7 @@ class RowType(Enum):
 @dataclass(slots=True)
 class IndicatorRow:
     """A single renderable row in the indicator hierarchy."""
+
     row_type: RowType
     key: str
     # Category/indicator rows
@@ -118,21 +120,21 @@ class IndicatorStatusViewModel:
             # Compute oldest (most stale) update in category
             oldest = self._find_oldest_timestamp(indicators)
 
-            rows.append(IndicatorRow(
-                row_type=RowType.CATEGORY,
-                key=f"cat:{category}",
-                label=cat_label,
-                is_expanded=is_expanded,
-                indicator_count=len(indicators),
-                timestamp=oldest,
-            ))
+            rows.append(
+                IndicatorRow(
+                    row_type=RowType.CATEGORY,
+                    key=f"cat:{category}",
+                    label=cat_label,
+                    is_expanded=is_expanded,
+                    indicator_count=len(indicators),
+                    timestamp=oldest,
+                )
+            )
 
             # Add indicator rows if category expanded
             if is_expanded:
                 for record in sorted(indicators, key=lambda r: r.get("indicator", "")):
-                    self._add_indicator_rows(
-                        rows, record, expanded_indicators, details
-                    )
+                    self._add_indicator_rows(rows, record, expanded_indicators, details)
 
         return rows
 
@@ -152,43 +154,51 @@ class IndicatorStatusViewModel:
         is_expanded = indicator in expanded_indicators
 
         # Indicator row
-        rows.append(IndicatorRow(
-            row_type=RowType.INDICATOR,
-            key=f"ind:{indicator}",
-            label=indicator,
-            full_name=full_name,
-            is_expanded=is_expanded,
-            symbol_count=symbol_count,
-            timestamp=oldest_update,
-        ))
+        rows.append(
+            IndicatorRow(
+                row_type=RowType.INDICATOR,
+                key=f"ind:{indicator}",
+                label=indicator,
+                full_name=full_name,
+                is_expanded=is_expanded,
+                symbol_count=symbol_count,
+                timestamp=oldest_update,
+            )
+        )
 
         # Detail rows if expanded
         if is_expanded:
             # Description row
             if description:
-                rows.append(IndicatorRow(
-                    row_type=RowType.DESCRIPTION,
-                    key=f"desc:{indicator}",
-                    description=description,
-                ))
+                rows.append(
+                    IndicatorRow(
+                        row_type=RowType.DESCRIPTION,
+                        key=f"desc:{indicator}",
+                        description=description,
+                    )
+                )
 
             # Symbol detail rows
             indicator_details = details.get(indicator, [])
             if not indicator_details:
-                rows.append(IndicatorRow(
-                    row_type=RowType.LOADING,
-                    key=f"det:{indicator}/loading",
-                    label="Loading symbols...",
-                ))
+                rows.append(
+                    IndicatorRow(
+                        row_type=RowType.LOADING,
+                        key=f"det:{indicator}/loading",
+                        label="Loading symbols...",
+                    )
+                )
             else:
                 for detail in sorted(indicator_details, key=lambda d: d.get("symbol", "")):
-                    rows.append(IndicatorRow(
-                        row_type=RowType.DETAIL,
-                        key=f"det:{indicator}/{detail.get('symbol', '?')}/{detail.get('timeframe', '?')}",
-                        symbol=detail.get("symbol", "?"),
-                        timeframe=detail.get("timeframe", "?"),
-                        timestamp=detail.get("last_update"),
-                    ))
+                    rows.append(
+                        IndicatorRow(
+                            row_type=RowType.DETAIL,
+                            key=f"det:{indicator}/{detail.get('symbol', '?')}/{detail.get('timeframe', '?')}",
+                            symbol=detail.get("symbol", "?"),
+                            timeframe=detail.get("timeframe", "?"),
+                            timestamp=detail.get("last_update"),
+                        )
+                    )
 
     @staticmethod
     def _find_oldest_timestamp(indicators: List[Dict[str, Any]]) -> Optional[datetime]:

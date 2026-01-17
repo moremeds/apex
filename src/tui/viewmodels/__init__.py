@@ -12,15 +12,15 @@ ViewModels MUST NOT:
 - Contain display/rendering logic
 """
 
+from .alert_vm import AlertViewModel  # OPT-011
 from .base import BaseViewModel, CellUpdate, RowUpdate
+from .indicator_status_vm import IndicatorRow, IndicatorStatusViewModel, RowType
+from .order_vm import OrderViewModel  # OPT-011
 from .position_vm import PositionViewModel
 from .signal_vm import SignalViewModel
-from .trading_signal_vm import TradingSignalViewModel
 from .strategy_vm import StrategyDisplayState, StrategyViewModel
 from .summary_vm import SummaryViewModel
-from .alert_vm import AlertViewModel  # OPT-011
-from .order_vm import OrderViewModel  # OPT-011
-from .indicator_status_vm import IndicatorStatusViewModel, IndicatorRow, RowType
+from .trading_signal_vm import TradingSignalViewModel
 
 __all__ = [
     "BaseViewModel",

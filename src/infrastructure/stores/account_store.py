@@ -1,8 +1,9 @@
 """Thread-safe in-memory account store with event subscription."""
 
 from __future__ import annotations
-from typing import Optional, TYPE_CHECKING
+
 from threading import RLock
+from typing import TYPE_CHECKING, Optional
 
 from ...models.account import AccountInfo
 from ...utils.logging_setup import get_logger

@@ -16,19 +16,35 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Tuple, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 
 from src.utils.logging_setup import get_logger
+
 from ..divergence.cross_divergence import CrossIndicatorAnalyzer
 from ..models import ConfluenceScore
-
 from .description_generator import generate_indicator_description, generate_rule_description
+from .regime_report import (
+    generate_components_4block_html,
+    generate_decision_tree_html,
+    generate_hysteresis_html,
+    generate_methodology_html,
+    generate_optimization_html,
+    generate_quality_html,
+    generate_recommendations_html,
+    generate_regime_one_liner_html,
+    generate_regime_styles,
+    generate_report_header_html,
+    generate_turning_point_html,
+)
 
 if TYPE_CHECKING:
+    from src.domain.services.regime import ParamProvenanceSet, RecommenderResult
+
     from ..indicators.base import Indicator
+    from ..indicators.regime import RegimeOutput
     from ..models import SignalRule
 
 logger = get_logger(__name__)
@@ -48,7 +64,16 @@ TIMEFRAME_SECONDS = {
 
 # Indicator grouping for chart layout
 # Overlays: Same Y-axis as price
-OVERLAY_INDICATORS = {"bollinger", "supertrend", "sma", "ema", "vwap", "keltner", "donchian", "ichimoku"}
+OVERLAY_INDICATORS = {
+    "bollinger",
+    "supertrend",
+    "sma",
+    "ema",
+    "vwap",
+    "keltner",
+    "donchian",
+    "ichimoku",
+}
 # Bounded oscillators (0-100 or similar fixed range)
 BOUNDED_OSCILLATORS = {"rsi", "stochastic", "kdj", "williams_r", "mfi", "cci", "adx"}
 # Unbounded oscillators (MACD-style, centered around 0)
@@ -90,18 +115,31 @@ def derive_indicator_states(df: pd.DataFrame) -> Dict[str, Dict[str, Any]]:
     if hist_col and pd.notna(last_row[hist_col]):
         hist_val = float(last_row[hist_col])
         macd_val = float(last_row[macd_col]) if macd_col and pd.notna(last_row[macd_col]) else 0
-        signal_val = float(last_row[signal_col]) if signal_col and pd.notna(last_row[signal_col]) else 0
+        signal_val = (
+            float(last_row[signal_col]) if signal_col and pd.notna(last_row[signal_col]) else 0
+        )
         # Detect cross from last two rows
         cross = "neutral"
         if len(df) >= 2:
-            prev_macd = df[macd_col].iloc[-2] if macd_col and pd.notna(df[macd_col].iloc[-2]) else None
-            prev_signal = df[signal_col].iloc[-2] if signal_col and pd.notna(df[signal_col].iloc[-2]) else None
+            prev_macd = (
+                df[macd_col].iloc[-2] if macd_col and pd.notna(df[macd_col].iloc[-2]) else None
+            )
+            prev_signal = (
+                df[signal_col].iloc[-2]
+                if signal_col and pd.notna(df[signal_col].iloc[-2])
+                else None
+            )
             if prev_macd is not None and prev_signal is not None:
                 if prev_macd <= prev_signal and macd_val > signal_val:
                     cross = "bullish"
                 elif prev_macd >= prev_signal and macd_val < signal_val:
                     cross = "bearish"
-        states["macd"] = {"histogram": hist_val, "macd": macd_val, "signal": signal_val, "cross": cross}
+        states["macd"] = {
+            "histogram": hist_val,
+            "macd": macd_val,
+            "signal": signal_val,
+            "cross": cross,
+        }
 
     # SuperTrend state derivation
     st_col = next((c for c in df.columns if "supertrend_direction" in c.lower()), None)
@@ -112,7 +150,12 @@ def derive_indicator_states(df: pd.DataFrame) -> Dict[str, Dict[str, Any]]:
         # Infer from SuperTrend vs price
         st_val_col = next((c for c in df.columns if "supertrend_supertrend" in c.lower()), None)
         close_col = "close" if "close" in df.columns else None
-        if st_val_col and close_col and pd.notna(last_row[st_val_col]) and pd.notna(last_row[close_col]):
+        if (
+            st_val_col
+            and close_col
+            and pd.notna(last_row[st_val_col])
+            and pd.notna(last_row[close_col])
+        ):
             st_val = float(last_row[st_val_col])
             close_val = float(last_row[close_col])
             direction = "bullish" if close_val > st_val else "bearish"
@@ -123,7 +166,11 @@ def derive_indicator_states(df: pd.DataFrame) -> Dict[str, Dict[str, Any]]:
     bb_lower = next((c for c in df.columns if "bollinger_bb_lower" in c.lower()), None)
     close_col = "close" if "close" in df.columns else None
     if bb_upper and bb_lower and close_col:
-        if pd.notna(last_row[bb_upper]) and pd.notna(last_row[bb_lower]) and pd.notna(last_row[close_col]):
+        if (
+            pd.notna(last_row[bb_upper])
+            and pd.notna(last_row[bb_lower])
+            and pd.notna(last_row[close_col])
+        ):
             upper = float(last_row[bb_upper])
             lower = float(last_row[bb_lower])
             close = float(last_row[close_col])
@@ -156,8 +203,12 @@ def derive_indicator_states(df: pd.DataFrame) -> Dict[str, Dict[str, Any]]:
 
     # ADX state derivation
     adx_col = next((c for c in df.columns if c.lower().startswith("adx_adx")), None)
-    di_plus_col = next((c for c in df.columns if "di_plus" in c.lower() or "di_p" in c.lower()), None)
-    di_minus_col = next((c for c in df.columns if "di_minus" in c.lower() or "di_m" in c.lower()), None)
+    di_plus_col = next(
+        (c for c in df.columns if "di_plus" in c.lower() or "di_p" in c.lower()), None
+    )
+    di_minus_col = next(
+        (c for c in df.columns if "di_minus" in c.lower() or "di_m" in c.lower()), None
+    )
     if di_plus_col and di_minus_col:
         if pd.notna(last_row[di_plus_col]) and pd.notna(last_row[di_minus_col]):
             di_plus = float(last_row[di_plus_col])
@@ -168,9 +219,7 @@ def derive_indicator_states(df: pd.DataFrame) -> Dict[str, Dict[str, Any]]:
     return states
 
 
-def calculate_confluence(
-    data: Dict[Tuple[str, str], pd.DataFrame]
-) -> Dict[str, ConfluenceScore]:
+def calculate_confluence(data: Dict[Tuple[str, str], pd.DataFrame]) -> Dict[str, ConfluenceScore]:
     """
     Calculate confluence scores for all symbol/timeframe combinations.
 
@@ -250,16 +299,23 @@ def detect_historical_signals(
                 a_vals = df[col_a].values
                 b_vals = df[col_b].values
                 for i in range(1, len(df)):
-                    if pd.notna(a_vals[i]) and pd.notna(b_vals[i]) and pd.notna(a_vals[i-1]) and pd.notna(b_vals[i-1]):
-                        if a_vals[i-1] <= b_vals[i-1] and a_vals[i] > b_vals[i]:
-                            signals.append({
-                                "timestamp": timestamps[i],
-                                "rule": rule.name,
-                                "direction": rule.direction.value,
-                                "indicator": rule.indicator,
-                                "message": rule.message_template.format(symbol=symbol),
-                                "value": float(a_vals[i]),
-                            })
+                    if (
+                        pd.notna(a_vals[i])
+                        and pd.notna(b_vals[i])
+                        and pd.notna(a_vals[i - 1])
+                        and pd.notna(b_vals[i - 1])
+                    ):
+                        if a_vals[i - 1] <= b_vals[i - 1] and a_vals[i] > b_vals[i]:
+                            signals.append(
+                                {
+                                    "timestamp": timestamps[i],
+                                    "rule": rule.name,
+                                    "direction": rule.direction.value,
+                                    "indicator": rule.indicator,
+                                    "message": rule.message_template.format(symbol=symbol),
+                                    "value": float(a_vals[i]),
+                                }
+                            )
 
         elif rule.condition_type == ConditionType.CROSS_DOWN:
             line_a = cond.get("line_a", "")
@@ -271,16 +327,23 @@ def detect_historical_signals(
                 a_vals = df[col_a].values
                 b_vals = df[col_b].values
                 for i in range(1, len(df)):
-                    if pd.notna(a_vals[i]) and pd.notna(b_vals[i]) and pd.notna(a_vals[i-1]) and pd.notna(b_vals[i-1]):
-                        if a_vals[i-1] >= b_vals[i-1] and a_vals[i] < b_vals[i]:
-                            signals.append({
-                                "timestamp": timestamps[i],
-                                "rule": rule.name,
-                                "direction": rule.direction.value,
-                                "indicator": rule.indicator,
-                                "message": rule.message_template.format(symbol=symbol),
-                                "value": float(a_vals[i]),
-                            })
+                    if (
+                        pd.notna(a_vals[i])
+                        and pd.notna(b_vals[i])
+                        and pd.notna(a_vals[i - 1])
+                        and pd.notna(b_vals[i - 1])
+                    ):
+                        if a_vals[i - 1] >= b_vals[i - 1] and a_vals[i] < b_vals[i]:
+                            signals.append(
+                                {
+                                    "timestamp": timestamps[i],
+                                    "rule": rule.name,
+                                    "direction": rule.direction.value,
+                                    "indicator": rule.indicator,
+                                    "message": rule.message_template.format(symbol=symbol),
+                                    "value": float(a_vals[i]),
+                                }
+                            )
 
         elif rule.condition_type == ConditionType.THRESHOLD_CROSS_UP:
             field = cond.get("field", "value")
@@ -290,17 +353,21 @@ def detect_historical_signals(
             if col and threshold is not None:
                 vals = df[col].values
                 for i in range(1, len(df)):
-                    if pd.notna(vals[i]) and pd.notna(vals[i-1]):
-                        if vals[i-1] <= threshold < vals[i]:
-                            signals.append({
-                                "timestamp": timestamps[i],
-                                "rule": rule.name,
-                                "direction": rule.direction.value,
-                                "indicator": rule.indicator,
-                                "message": rule.message_template.format(symbol=symbol, value=vals[i], threshold=threshold),
-                                "value": float(vals[i]),
-                                "threshold": threshold,
-                            })
+                    if pd.notna(vals[i]) and pd.notna(vals[i - 1]):
+                        if vals[i - 1] <= threshold < vals[i]:
+                            signals.append(
+                                {
+                                    "timestamp": timestamps[i],
+                                    "rule": rule.name,
+                                    "direction": rule.direction.value,
+                                    "indicator": rule.indicator,
+                                    "message": rule.message_template.format(
+                                        symbol=symbol, value=vals[i], threshold=threshold
+                                    ),
+                                    "value": float(vals[i]),
+                                    "threshold": threshold,
+                                }
+                            )
 
         elif rule.condition_type == ConditionType.THRESHOLD_CROSS_DOWN:
             field = cond.get("field", "value")
@@ -310,17 +377,21 @@ def detect_historical_signals(
             if col and threshold is not None:
                 vals = df[col].values
                 for i in range(1, len(df)):
-                    if pd.notna(vals[i]) and pd.notna(vals[i-1]):
-                        if vals[i-1] >= threshold > vals[i]:
-                            signals.append({
-                                "timestamp": timestamps[i],
-                                "rule": rule.name,
-                                "direction": rule.direction.value,
-                                "indicator": rule.indicator,
-                                "message": rule.message_template.format(symbol=symbol, value=vals[i], threshold=threshold),
-                                "value": float(vals[i]),
-                                "threshold": threshold,
-                            })
+                    if pd.notna(vals[i]) and pd.notna(vals[i - 1]):
+                        if vals[i - 1] >= threshold > vals[i]:
+                            signals.append(
+                                {
+                                    "timestamp": timestamps[i],
+                                    "rule": rule.name,
+                                    "direction": rule.direction.value,
+                                    "indicator": rule.indicator,
+                                    "message": rule.message_template.format(
+                                        symbol=symbol, value=vals[i], threshold=threshold
+                                    ),
+                                    "value": float(vals[i]),
+                                    "threshold": threshold,
+                                }
+                            )
 
         # MACD signal/zero line cross detection
         if indicator == "macd":
@@ -331,29 +402,49 @@ def detect_historical_signals(
                 macd_vals = df[macd_col].values
                 signal_vals = df[signal_col].values
                 for i in range(1, len(df)):
-                    if all(pd.notna(v) for v in [macd_vals[i], macd_vals[i-1], signal_vals[i], signal_vals[i-1]]):
+                    if all(
+                        pd.notna(v)
+                        for v in [
+                            macd_vals[i],
+                            macd_vals[i - 1],
+                            signal_vals[i],
+                            signal_vals[i - 1],
+                        ]
+                    ):
                         # Bullish cross
-                        if macd_vals[i-1] <= signal_vals[i-1] and macd_vals[i] > signal_vals[i]:
-                            if not any(s["timestamp"] == timestamps[i] and "macd" in s["rule"].lower() for s in signals):
-                                signals.append({
-                                    "timestamp": timestamps[i],
-                                    "rule": "macd_bullish_cross",
-                                    "direction": "buy",
-                                    "indicator": "macd",
-                                    "message": f"{symbol} MACD crossed above signal line",
-                                    "value": float(macd_vals[i]),
-                                })
+                        if macd_vals[i - 1] <= signal_vals[i - 1] and macd_vals[i] > signal_vals[i]:
+                            if not any(
+                                s["timestamp"] == timestamps[i] and "macd" in s["rule"].lower()
+                                for s in signals
+                            ):
+                                signals.append(
+                                    {
+                                        "timestamp": timestamps[i],
+                                        "rule": "macd_bullish_cross",
+                                        "direction": "buy",
+                                        "indicator": "macd",
+                                        "message": f"{symbol} MACD crossed above signal line",
+                                        "value": float(macd_vals[i]),
+                                    }
+                                )
                         # Bearish cross
-                        elif macd_vals[i-1] >= signal_vals[i-1] and macd_vals[i] < signal_vals[i]:
-                            if not any(s["timestamp"] == timestamps[i] and "macd" in s["rule"].lower() for s in signals):
-                                signals.append({
-                                    "timestamp": timestamps[i],
-                                    "rule": "macd_bearish_cross",
-                                    "direction": "sell",
-                                    "indicator": "macd",
-                                    "message": f"{symbol} MACD crossed below signal line",
-                                    "value": float(macd_vals[i]),
-                                })
+                        elif (
+                            macd_vals[i - 1] >= signal_vals[i - 1] and macd_vals[i] < signal_vals[i]
+                        ):
+                            if not any(
+                                s["timestamp"] == timestamps[i] and "macd" in s["rule"].lower()
+                                for s in signals
+                            ):
+                                signals.append(
+                                    {
+                                        "timestamp": timestamps[i],
+                                        "rule": "macd_bearish_cross",
+                                        "direction": "sell",
+                                        "indicator": "macd",
+                                        "message": f"{symbol} MACD crossed below signal line",
+                                        "value": float(macd_vals[i]),
+                                    }
+                                )
 
     # Sort by timestamp
     signals.sort(key=lambda x: x["timestamp"])
@@ -381,6 +472,7 @@ class SignalReportGenerator:
         indicators: List["Indicator"],
         rules: List["SignalRule"],
         output_path: Path,
+        regime_outputs: Optional[Dict[str, "RegimeOutput"]] = None,
     ) -> Path:
         """
         Generate combined HTML report with symbol selector.
@@ -390,6 +482,7 @@ class SignalReportGenerator:
             indicators: List of computed indicators
             rules: List of signal rules
             output_path: Where to save HTML
+            regime_outputs: Optional dict mapping symbol to RegimeOutput for regime sections
 
         Returns:
             Path to generated HTML file
@@ -414,8 +507,7 @@ class SignalReportGenerator:
                 "neutral_count": score.neutral_count,
                 "alignment_score": score.alignment_score,
                 "diverging_pairs": [
-                    {"ind1": p[0], "ind2": p[1], "reason": p[2]}
-                    for p in score.diverging_pairs
+                    {"ind1": p[0], "ind2": p[1], "reason": p[2]} for p in score.diverging_pairs
                 ],
                 "strongest_signal": score.strongest_signal,
             }
@@ -434,6 +526,13 @@ class SignalReportGenerator:
         # Build indicator and rule descriptions
         indicator_info = self._build_indicator_info(indicators, rules)
 
+        # Compute regime outputs if not provided
+        if regime_outputs is None:
+            regime_outputs = self._compute_regime_outputs(data, indicators)
+
+        # Compute parameter provenance and recommendations
+        provenance_dict, recommendations_dict = self._compute_param_analysis(data, indicators)
+
         # Render HTML
         html = self._render_html(
             symbols=symbols,
@@ -442,6 +541,9 @@ class SignalReportGenerator:
             indicator_info=indicator_info,
             signal_history=signal_history,
             confluence_data=confluence_data,
+            regime_outputs=regime_outputs,
+            provenance_dict=provenance_dict,
+            recommendations_dict=recommendations_dict,
         )
 
         output_path = Path(output_path)
@@ -450,6 +552,235 @@ class SignalReportGenerator:
 
         logger.info(f"Signal report generated: {output_path}")
         return output_path
+
+    def _compute_regime_outputs(
+        self,
+        data: Dict[Tuple[str, str], pd.DataFrame],
+        indicators: List["Indicator"],
+    ) -> Dict[str, "RegimeOutput"]:
+        """
+        Compute regime outputs for each symbol using the regime detector indicator.
+
+        Args:
+            data: Dict mapping (symbol, timeframe) to DataFrame
+            indicators: List of indicators (should include regime_detector)
+
+        Returns:
+            Dict mapping symbol to RegimeOutput
+        """
+        from ..indicators.regime import RegimeDetectorIndicator, RegimeOutput
+
+        regime_outputs: Dict[str, RegimeOutput] = {}
+
+        # Find regime detector indicator
+        regime_detector = None
+        for ind in indicators:
+            if isinstance(ind, RegimeDetectorIndicator):
+                regime_detector = ind
+                break
+
+        if not regime_detector:
+            logger.debug("No regime detector indicator found, skipping regime sections")
+            return regime_outputs
+
+        # Compute regime for each symbol (use daily timeframe preferentially)
+        symbols_processed = set()
+        for (symbol, timeframe), df in data.items():
+            if symbol in symbols_processed:
+                continue
+            if len(df) < regime_detector.warmup_periods:
+                continue
+
+            try:
+                # Use the indicator's calculate method to get all component values
+                result_df = regime_detector.calculate(df, regime_detector.default_params)
+
+                if result_df.empty:
+                    logger.debug(f"Skipping regime for {symbol}: empty result")
+                    continue
+
+                # Get the last row which has all computed values
+                last_row = result_df.iloc[-1]
+                ohlc_row = df.iloc[-1]
+                timestamp = df.index[-1] if hasattr(df.index[-1], "isoformat") else None
+
+                # Build the flat state dict with all required values from result_df
+                flat_state = {
+                    # OHLC
+                    "close": float(ohlc_row.get("close", 0)),
+                    "high": float(ohlc_row.get("high", 0)),
+                    "low": float(ohlc_row.get("low", 0)),
+                    "volume": float(ohlc_row.get("volume", 0)),
+                    # Component states (as strings from result_df)
+                    "trend_state": str(last_row.get("trend_state", "neutral")),
+                    "vol_state": str(last_row.get("vol_state", "vol_normal")),
+                    "chop_state": str(last_row.get("chop_state", "neutral")),
+                    "ext_state": str(last_row.get("ext_state", "neutral")),
+                    "iv_state": "na",  # IV handled at service level
+                    # Component values
+                    "ma20": float(last_row.get("ma20", 0)) if pd.notna(last_row.get("ma20")) else 0,
+                    "ma50": float(last_row.get("ma50", 0)) if pd.notna(last_row.get("ma50")) else 0,
+                    "ma200": (
+                        float(last_row.get("ma200", 0)) if pd.notna(last_row.get("ma200")) else 0
+                    ),
+                    "ma50_slope": (
+                        float(last_row.get("ma50_slope", 0))
+                        if pd.notna(last_row.get("ma50_slope"))
+                        else 0
+                    ),
+                    "atr20": (
+                        float(last_row.get("atr20", 0)) if pd.notna(last_row.get("atr20")) else 0
+                    ),
+                    "atr_pct": (
+                        float(last_row.get("atr_pct", 0))
+                        if pd.notna(last_row.get("atr_pct"))
+                        else 0
+                    ),
+                    "atr_pct_63": (
+                        float(last_row.get("atr_pct_63", 50))
+                        if pd.notna(last_row.get("atr_pct_63"))
+                        else 50
+                    ),
+                    "atr_pct_252": (
+                        float(last_row.get("atr_pct_252", 50))
+                        if pd.notna(last_row.get("atr_pct_252"))
+                        else 50
+                    ),
+                    "chop": (
+                        float(last_row.get("chop", 50)) if pd.notna(last_row.get("chop")) else 50
+                    ),
+                    "chop_pct_252": (
+                        float(last_row.get("chop_pct_252", 50))
+                        if pd.notna(last_row.get("chop_pct_252"))
+                        else 50
+                    ),
+                    "ma20_crosses": (
+                        int(last_row.get("ma20_crosses", 0))
+                        if pd.notna(last_row.get("ma20_crosses"))
+                        else 0
+                    ),
+                    "ext": float(last_row.get("ext", 0)) if pd.notna(last_row.get("ext")) else 0,
+                    "last_5_bar_high": (
+                        float(last_row.get("last_5_bar_high", 0))
+                        if pd.notna(last_row.get("last_5_bar_high"))
+                        else float(ohlc_row.get("high", 0))
+                    ),
+                    "is_market_level": symbol.upper() in {"QQQ", "SPY", "IWM", "DIA"},
+                }
+
+                # Compute full regime output with hysteresis
+                output = regime_detector.update_with_hysteresis(
+                    symbol=symbol,
+                    state=flat_state,
+                    timestamp=timestamp,
+                )
+                regime_outputs[symbol] = output
+                symbols_processed.add(symbol)
+                logger.debug(f"Computed regime for {symbol}: {output.final_regime.value}")
+            except Exception as e:
+                logger.warning(f"Failed to compute regime for {symbol}: {e}")
+
+        return regime_outputs
+
+    def _compute_param_analysis(
+        self,
+        data: Dict[Tuple[str, str], pd.DataFrame],
+        indicators: List["Indicator"],
+    ) -> Tuple[Dict[str, "ParamProvenance"], Dict[str, "RecommenderResult"]]:
+        """
+        Compute parameter provenance and recommendations for each symbol.
+
+        Uses the ParamRecommender to analyze threshold calibration and
+        creates ParamProvenance to track parameter sources.
+
+        Args:
+            data: Dict mapping (symbol, timeframe) to DataFrame
+            indicators: List of indicators (to get regime detector params)
+
+        Returns:
+            Tuple of (provenance_dict, recommendations_dict) mapping symbol to results
+        """
+        from src.domain.services.regime import (
+            ParamProvenance,
+            ParamProvenanceSet,
+            ParamRecommender,
+            ParamSource,
+            RecommenderResult,
+            get_regime_params,
+        )
+
+        from ..indicators.regime import RegimeDetectorIndicator
+
+        provenance_dict: Dict[str, ParamProvenanceSet] = {}
+        recommendations_dict: Dict[str, RecommenderResult] = {}
+
+        # Find regime detector to get default params
+        regime_detector = None
+        for ind in indicators:
+            if isinstance(ind, RegimeDetectorIndicator):
+                regime_detector = ind
+                break
+
+        if not regime_detector:
+            return provenance_dict, recommendations_dict
+
+        # Create recommender instance
+        recommender = ParamRecommender(lookback_days=63)
+
+        # Process each symbol
+        symbols_processed = set()
+        for (symbol, timeframe), df in data.items():
+            if symbol in symbols_processed:
+                continue
+            if len(df) < 63:  # Need minimum data for analysis
+                continue
+
+            try:
+                # Get params for this symbol (may be symbol-specific or default)
+                params = get_regime_params(symbol)
+
+                # Create provenance from params
+                provenance = ParamProvenance.from_params(
+                    params=params,
+                    symbol=symbol,
+                    source="default",  # Currently all use defaults
+                )
+
+                # Create param sources for each parameter (for detailed display)
+                param_sources = {}
+                for param_name, value in params.items():
+                    param_sources[param_name] = ParamSource(
+                        param_name=param_name,
+                        value=value,
+                        source="default",
+                        trained_on=None,
+                    )
+
+                # Create full provenance set with param details
+                provenance_set = ParamProvenanceSet(
+                    symbol=symbol,
+                    provenance=provenance,
+                    param_sources=param_sources,
+                )
+                provenance_dict[symbol] = provenance_set
+
+                # Run recommender analysis
+                result = recommender.analyze(
+                    symbol=symbol,
+                    ohlcv=df,
+                    current_params=params,
+                )
+                recommendations_dict[symbol] = result
+
+                logger.debug(
+                    f"Param analysis for {symbol}: "
+                    f"has_recommendations={result.has_recommendations}"
+                )
+                symbols_processed.add(symbol)
+            except Exception as e:
+                logger.warning(f"Failed to compute param analysis for {symbol}: {e}")
+
+        return provenance_dict, recommendations_dict
 
     def _get_theme_colors(self, theme: str) -> Dict[str, str]:
         if theme == "dark":
@@ -478,9 +809,7 @@ class SignalReportGenerator:
             "candle_down": "#dc2626",
         }
 
-    def _build_chart_data(
-        self, data: Dict[Tuple[str, str], pd.DataFrame]
-    ) -> Dict[str, Any]:
+    def _build_chart_data(self, data: Dict[Tuple[str, str], pd.DataFrame]) -> Dict[str, Any]:
         """Build chart data structure for JavaScript with indicator grouping."""
         chart_data = {}
         oscillator_names = BOUNDED_OSCILLATORS | UNBOUNDED_OSCILLATORS
@@ -550,12 +879,14 @@ class SignalReportGenerator:
         """Build indicator information with descriptions and linked rules."""
         rules_by_indicator: Dict[str, List[Dict[str, str]]] = {}
         for rule in rules:
-            rules_by_indicator.setdefault(rule.indicator, []).append({
-                "name": rule.name,
-                "description": generate_rule_description(rule),
-                "direction": rule.direction.value,
-                "timeframes": list(rule.timeframes),
-            })
+            rules_by_indicator.setdefault(rule.indicator, []).append(
+                {
+                    "name": rule.name,
+                    "description": generate_rule_description(rule),
+                    "direction": rule.direction.value,
+                    "timeframes": list(rule.timeframes),
+                }
+            )
 
         info_list = [
             {
@@ -578,9 +909,15 @@ class SignalReportGenerator:
         indicator_info: List[Dict[str, Any]],
         signal_history: Dict[str, List[Dict[str, Any]]],
         confluence_data: Dict[str, Dict[str, Any]],
+        regime_outputs: Optional[Dict[str, "RegimeOutput"]] = None,
+        provenance_dict: Optional[Dict[str, "ParamProvenanceSet"]] = None,
+        recommendations_dict: Optional[Dict[str, "RecommenderResult"]] = None,
     ) -> str:
         c = self._colors
         generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
+        regime_outputs = regime_outputs or {}
+        provenance_dict = provenance_dict or {}
+        recommendations_dict = recommendations_dict or {}
 
         return f"""<!DOCTYPE html>
 <html lang="en">
@@ -632,6 +969,8 @@ class SignalReportGenerator:
             </div>
         </div>
 
+        {self._render_regime_sections(regime_outputs, provenance_dict, recommendations_dict)}
+
         <div class="signal-history-section">
             <h2 class="section-header" onclick="toggleSection('signal-history-content')">
                 <span class="toggle-icon">▼</span> Signal History
@@ -659,7 +998,8 @@ class SignalReportGenerator:
 
     def _get_styles(self) -> str:
         c = self._colors
-        return f"""
+        return (
+            f"""
 * {{ margin: 0; padding: 0; box-sizing: border-box; }}
 
 body {{
@@ -1078,12 +1418,56 @@ body {{
         grid-template-columns: 1fr;
     }}
 }}
+
+/* Regime Analysis Section */
+.regime-analysis-section {{
+    background: {c['card_bg']};
+    border-radius: 12px;
+    border: 1px solid {c['border']};
+    padding: 24px;
+    margin-bottom: 24px;
+}}
+
+.regime-symbol-section {{
+    margin-bottom: 32px;
+    padding-bottom: 24px;
+    border-bottom: 1px solid {c['border']};
+}}
+
+.regime-symbol-section:last-child {{
+    border-bottom: none;
+    margin-bottom: 0;
+    padding-bottom: 0;
+}}
+
+.regime-symbol-header {{
+    font-size: 20px;
+    font-weight: 600;
+    margin-bottom: 16px;
+    color: {c['primary']};
+}}
+
+.regime-symbols-container {{
+    margin-top: 24px;
+}}
+
+/* CSS Variables for regime report */
+:root {{
+    --bg: {c['bg']};
+    --card-bg: {c['card_bg']};
+    --text: {c['text']};
+    --text-muted: {c['text_muted']};
+    --border: {c['border']};
+    --header-bg: {c['bg']};
+    --highlight-bg: {c['bg']};
+    --code-bg: {c['bg']};
+}}
 """
+            + generate_regime_styles()
+        )
 
     def _render_symbol_options(self, symbols: List[str]) -> str:
-        return "\n".join(
-            f'<option value="{s}">{s}</option>' for s in symbols
-        )
+        return "\n".join(f'<option value="{s}">{s}</option>' for s in symbols)
 
     def _render_timeframe_buttons(self, timeframes: List[str]) -> str:
         return "\n".join(
@@ -1104,6 +1488,103 @@ body {{
             for rule in rules
         )
         return f"""<div class="rules"><h4>Rules</h4>{rule_items}</div>"""
+
+    def _render_regime_sections(
+        self,
+        regime_outputs: Optional[Dict[str, "RegimeOutput"]],
+        provenance_dict: Optional[Dict[str, "ParamProvenanceSet"]] = None,
+        recommendations_dict: Optional[Dict[str, "RecommenderResult"]] = None,
+    ) -> str:
+        """
+        Render regime analysis sections for all symbols with regime data.
+
+        Returns HTML for methodology, decision tree, component analysis,
+        quality, hysteresis, optimization, and recommendations sections
+        (PR1 + PR2 + PR3).
+
+        Each symbol's section has data-symbol attribute for JavaScript filtering.
+        Only the selected symbol's section is shown (controlled by updateRegimeSection).
+        """
+        if not regime_outputs:
+            return ""
+
+        provenance_dict = provenance_dict or {}
+        recommendations_dict = recommendations_dict or {}
+
+        # Build regime sections for each symbol
+        sections_html = []
+
+        for symbol, output in sorted(regime_outputs.items()):
+            # Generate one-liner for this symbol
+            one_liner = generate_regime_one_liner_html(output)
+
+            # Generate decision tree
+            decision_tree = generate_decision_tree_html(output, self.theme)
+
+            # Generate component analysis
+            components = generate_components_4block_html(output, self.theme)
+
+            # PR2: Generate quality and hysteresis sections
+            quality = generate_quality_html(output, self.theme)
+            hysteresis = generate_hysteresis_html(output, self.theme)
+
+            # Phase 4: Generate turning point detection section
+            turning_point = generate_turning_point_html(output, self.theme)
+
+            # PR3: Generate optimization and recommendations sections with real data
+            provenance_set = provenance_dict.get(symbol)
+            recommendations_result = recommendations_dict.get(symbol)
+            optimization = generate_optimization_html(
+                provenance=None,
+                provenance_set=provenance_set,
+                theme=self.theme,
+            )
+            recommendations = generate_recommendations_html(
+                result=recommendations_result,
+                theme=self.theme,
+            )
+
+            # PR4: Generate report header with metadata
+            report_header = generate_report_header_html(
+                regime_output=output,
+                provenance_set=provenance_set,
+                recommendations_result=recommendations_result,
+                theme=self.theme,
+            )
+
+            # Add data-symbol attribute for JavaScript filtering
+            sections_html.append(
+                f"""
+            <div class="regime-symbol-section" id="regime-{symbol}" data-symbol="{symbol}" style="display: none;">
+                {report_header}
+                {one_liner}
+                {decision_tree}
+                {components}
+                {hysteresis}
+                {turning_point}
+                {quality}
+                {optimization}
+                {recommendations}
+            </div>
+            """
+            )
+
+        # Wrap with methodology at the top
+        methodology = generate_methodology_html(self.theme)
+
+        return f"""
+        <div class="regime-analysis-section">
+            <h2 class="section-header" onclick="toggleSection('regime-content')">
+                <span class="toggle-icon">▼</span> Regime Analysis
+            </h2>
+            <div id="regime-content" class="section-content">
+                {methodology}
+                <div class="regime-symbols-container" id="regime-symbols-container">
+                    {''.join(sections_html)}
+                </div>
+            </div>
+        </div>
+        """
 
     def _render_indicator_cards(self, indicator_info: List[Dict[str, Any]]) -> str:
         categories: Dict[str, List[Dict[str, Any]]] = {}
@@ -1127,22 +1608,26 @@ body {{
             cards_html = []
             for ind in categories[cat]:
                 rules_html = self._render_rules(ind["rules"])
-                cards_html.append(f"""
+                cards_html.append(
+                    f"""
                     <div class="indicator-card">
                         <h3>{ind['name'].upper()}</h3>
                         <div class="description">{ind['description']}</div>
                         {rules_html}
                     </div>
-                """)
+                """
+                )
 
-            html_parts.append(f"""
+            html_parts.append(
+                f"""
                 <div class="category-group">
                     <div class="category-title">{category_labels.get(cat, cat.title())}</div>
                     <div class="indicator-cards">
                         {''.join(cards_html)}
                     </div>
                 </div>
-            """)
+            """
+            )
 
         return "\n".join(html_parts)
 
@@ -1196,6 +1681,21 @@ function updateChart() {{
     renderMainChart(data);
     updateSignalHistoryTable();
     updateConfluencePanel();
+    updateRegimeSection();
+}}
+
+function updateRegimeSection() {{
+    // Hide all regime symbol sections
+    const sections = document.querySelectorAll('.regime-symbol-section');
+    sections.forEach(section => {{
+        section.style.display = 'none';
+    }});
+
+    // Show the selected symbol's section
+    const selectedSection = document.getElementById('regime-' + currentSymbol);
+    if (selectedSection) {{
+        selectedSection.style.display = 'block';
+    }}
 }}
 
 function renderMainChart(data) {{
@@ -1648,13 +2148,31 @@ function updateConfluencePanel() {{
     `;
 }}
 
-function toggleSection(contentId) {{
-    const content = document.getElementById(contentId);
-    const header = content.previousElementSibling;
-    const icon = header.querySelector('.toggle-icon');
+function toggleSection(arg) {{
+    // Handle both string ID and DOM element (for regime report sections)
+    if (typeof arg === 'string') {{
+        // Original behavior: arg is content ID
+        const content = document.getElementById(arg);
+        if (!content) return;
+        const header = content.previousElementSibling;
+        const icon = header ? header.querySelector('.toggle-icon') : null;
 
-    content.classList.toggle('collapsed');
-    icon.style.transform = content.classList.contains('collapsed') ? 'rotate(-90deg)' : 'rotate(0deg)';
+        content.classList.toggle('collapsed');
+        if (icon) {{
+            icon.style.transform = content.classList.contains('collapsed') ? 'rotate(-90deg)' : 'rotate(0deg)';
+        }}
+    }} else {{
+        // New behavior: arg is the header element (from onclick="toggleSection(this)")
+        const header = arg;
+        const section = header.parentElement;
+        if (!section || !section.classList.contains('report-section')) return;
+
+        section.classList.toggle('collapsed');
+        const indicator = header.querySelector('.collapse-indicator');
+        if (indicator) {{
+            indicator.style.transform = section.classList.contains('collapsed') ? 'rotate(-90deg)' : 'rotate(0deg)';
+        }}
+    }}
 }}
 
 // Initialize on load
@@ -1662,5 +2180,6 @@ document.addEventListener('DOMContentLoaded', () => {{
     updateChart();
     updateSignalHistoryTable();
     updateConfluencePanel();
+    updateRegimeSection();
 }});
 """

@@ -9,11 +9,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from src.backtest.data.storage.write_queue import (
+    WriteOperation,
     WriteQueue,
     WriterConfig,
-    WriterStats,
     WriteRequest,
-    WriteOperation,
+    WriterStats,
 )
 
 
@@ -245,11 +245,14 @@ class TestWriteQueue:
         config = WriterConfig(batch_timeout_seconds=0.1)
 
         with WriteQueue(db, config) as queue:
-            queue.insert("runs", {
-                "run_id": "run_1",
-                "params": {"fast": 10, "slow": 50},  # Dict should be JSON serialized
-                "symbols": ["AAPL", "MSFT"],  # List should be JSON serialized
-            })
+            queue.insert(
+                "runs",
+                {
+                    "run_id": "run_1",
+                    "params": {"fast": 10, "slow": 50},  # Dict should be JSON serialized
+                    "symbols": ["AAPL", "MSFT"],  # List should be JSON serialized
+                },
+            )
             queue.flush()
 
         assert len(db.inserted_records) == 1
@@ -287,10 +290,13 @@ class TestWriteQueue:
             # Simulate concurrent inserts from multiple threads
             def insert_records(thread_id: int, count: int):
                 for i in range(count):
-                    queue.insert("runs", {
-                        "run_id": f"run_{thread_id}_{i}",
-                        "thread": thread_id,
-                    })
+                    queue.insert(
+                        "runs",
+                        {
+                            "run_id": f"run_{thread_id}_{i}",
+                            "thread": thread_id,
+                        },
+                    )
 
             threads = []
             for t in range(4):

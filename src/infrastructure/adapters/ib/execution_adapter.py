@@ -10,22 +10,21 @@ Uses reserved execution client ID.
 """
 
 from __future__ import annotations
-from typing import List, Optional, Callable, Dict
-from datetime import datetime, timedelta, timezone
 
-from ....utils.logging_setup import get_logger
+from datetime import datetime, timedelta, timezone
+from typing import Callable, Dict, List, Optional
+
+from ....domain.events.domain_events import OrderUpdate, TradeFill
+from ....domain.interfaces.event_bus import EventType
 from ....domain.interfaces.execution_provider import (
     ExecutionProvider,
     OrderRequest,
     OrderResult,
 )
-from ....domain.interfaces.event_bus import EventType
-from ....domain.events.domain_events import OrderUpdate, TradeFill
 from ....models.order import Order, Trade
-
+from ....utils.logging_setup import get_logger
 from .base import IbBaseAdapter
-from .converters import convert_order, convert_fill
-
+from .converters import convert_fill, convert_order
 
 logger = get_logger(__name__)
 
@@ -115,9 +114,7 @@ class IbExecutionAdapter(IbBaseAdapter, ExecutionProvider):
         await self.ensure_connected()
 
         try:
-            from ib_async import (
-                Stock, Option, MarketOrder, LimitOrder, StopOrder, StopLimitOrder
-            )
+            from ib_async import LimitOrder, MarketOrder, Option, Stock, StopLimitOrder, StopOrder
 
             # Create contract
             if request.asset_type == "OPTION":
@@ -172,9 +169,7 @@ class IbExecutionAdapter(IbBaseAdapter, ExecutionProvider):
                         message="Stop and limit prices required for STOP_LIMIT order",
                         error_code="MISSING_PRICES",
                     )
-                ib_order = StopLimitOrder(
-                    action, quantity, request.limit_price, request.stop_price
-                )
+                ib_order = StopLimitOrder(action, quantity, request.limit_price, request.stop_price)
             else:
                 return OrderResult(
                     success=False,
@@ -200,13 +195,16 @@ class IbExecutionAdapter(IbBaseAdapter, ExecutionProvider):
                 f"@ {request.order_type} (order_id={order_id})"
             )
 
-            self.publish_event(EventType.ORDER_SUBMITTED, {
-                "order_id": order_id,
-                "symbol": request.symbol,
-                "side": request.side,
-                "quantity": quantity,
-                "order_type": request.order_type,
-            })
+            self.publish_event(
+                EventType.ORDER_SUBMITTED,
+                {
+                    "order_id": order_id,
+                    "symbol": request.symbol,
+                    "side": request.side,
+                    "quantity": quantity,
+                    "order_type": request.order_type,
+                },
+            )
 
             return OrderResult(
                 success=True,
@@ -295,18 +293,22 @@ class IbExecutionAdapter(IbBaseAdapter, ExecutionProvider):
 
                 try:
                     self.ib.cancelOrder(trade.order)
-                    results.append(OrderResult(
-                        success=True,
-                        order_id=str(trade.order.orderId),
-                        message="Cancel requested",
-                    ))
+                    results.append(
+                        OrderResult(
+                            success=True,
+                            order_id=str(trade.order.orderId),
+                            message="Cancel requested",
+                        )
+                    )
                 except Exception as e:
-                    results.append(OrderResult(
-                        success=False,
-                        order_id=str(trade.order.orderId),
-                        message=str(e),
-                        error_code="CANCEL_FAILED",
-                    ))
+                    results.append(
+                        OrderResult(
+                            success=False,
+                            order_id=str(trade.order.orderId),
+                            message=str(e),
+                            error_code="CANCEL_FAILED",
+                        )
+                    )
 
             logger.info(f"Cancelled {len(results)} orders")
 
@@ -451,17 +453,11 @@ class IbExecutionAdapter(IbBaseAdapter, ExecutionProvider):
     # Callbacks
     # -------------------------------------------------------------------------
 
-    def set_order_callback(
-        self,
-        callback: Optional[Callable[[OrderUpdate], None]]
-    ) -> None:
+    def set_order_callback(self, callback: Optional[Callable[[OrderUpdate], None]]) -> None:
         """Set order status callback."""
         self._order_callback = callback
 
-    def set_fill_callback(
-        self,
-        callback: Optional[Callable[[TradeFill], None]]
-    ) -> None:
+    def set_fill_callback(self, callback: Optional[Callable[[TradeFill], None]]) -> None:
         """Set fill callback."""
         self._fill_callback = callback
 
@@ -473,11 +469,14 @@ class IbExecutionAdapter(IbBaseAdapter, ExecutionProvider):
             if self._order_callback:
                 self._order_callback(order_update)
 
-            self.publish_event(EventType.ORDER_SUBMITTED, {
-                "order_id": order_update.order_id,
-                "status": order_update.status,
-                "symbol": order_update.symbol,
-            })
+            self.publish_event(
+                EventType.ORDER_SUBMITTED,
+                {
+                    "order_id": order_update.order_id,
+                    "status": order_update.status,
+                    "symbol": order_update.symbol,
+                },
+            )
 
         except Exception as e:
             logger.error(f"Error handling order status: {e}")
@@ -491,12 +490,15 @@ class IbExecutionAdapter(IbBaseAdapter, ExecutionProvider):
                 self._fill_callback(trade_fill)
 
             if trade_fill:
-                self.publish_event(EventType.ORDER_FILLED, {
-                    "exec_id": trade_fill.exec_id,
-                    "symbol": trade_fill.symbol,
-                    "quantity": trade_fill.quantity,
-                    "price": trade_fill.price,
-                })
+                self.publish_event(
+                    EventType.ORDER_FILLED,
+                    {
+                        "exec_id": trade_fill.exec_id,
+                        "symbol": trade_fill.symbol,
+                        "quantity": trade_fill.quantity,
+                        "price": trade_fill.price,
+                    },
+                )
 
         except Exception as e:
             logger.error(f"Error handling execution: {e}")
@@ -567,10 +569,10 @@ class IbExecutionAdapter(IbBaseAdapter, ExecutionProvider):
             quantity=float(order.totalQuantity),
             filled_quantity=float(status.filled),
             remaining_quantity=float(status.remaining),
-            limit_price=order.lmtPrice if hasattr(order, 'lmtPrice') else None,
-            stop_price=order.auxPrice if hasattr(order, 'auxPrice') else None,
+            limit_price=order.lmtPrice if hasattr(order, "lmtPrice") else None,
+            stop_price=order.auxPrice if hasattr(order, "auxPrice") else None,
             avg_fill_price=float(status.avgFillPrice) if status.avgFillPrice else None,
-            asset_type=getattr(contract, 'secType', None) or "UNKNOWN",
+            asset_type=getattr(contract, "secType", None) or "UNKNOWN",
             source="IB",
             timestamp=datetime.now(),
         )
@@ -592,10 +594,12 @@ class IbExecutionAdapter(IbBaseAdapter, ExecutionProvider):
                 side=execution.side,
                 quantity=float(execution.shares),
                 price=float(execution.price),
-                commission=float(fill.commissionReport.commission) if fill.commissionReport else 0.0,
+                commission=(
+                    float(fill.commissionReport.commission) if fill.commissionReport else 0.0
+                ),
                 exec_id=execution.execId,
                 order_id=str(execution.orderId),
-                asset_type=getattr(contract, 'secType', None) or "UNKNOWN",
+                asset_type=getattr(contract, "secType", None) or "UNKNOWN",
                 multiplier=int(contract.multiplier) if contract.multiplier else 1,
                 source="IB",
                 timestamp=datetime.now(),

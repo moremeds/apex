@@ -29,8 +29,8 @@ from ..widgets.trading_signals_table import TradingSignalsTable, extract_signal_
 from ..widgets.watchlist_panel import WatchlistPanel
 
 if TYPE_CHECKING:
-    from ...models.risk_snapshot import RiskSnapshot
     from ...models.risk_signal import RiskSignal
+    from ...models.risk_snapshot import RiskSnapshot
 
 
 class UnifiedSignalsView(Container, can_focus=True):
@@ -202,7 +202,9 @@ class UnifiedSignalsView(Container, can_focus=True):
         self._signals.insert(0, signal)
         if len(self._signals) > self._max_signals:
             self._signals = self._signals[: self._max_signals]
-        self.log.info(f"Signal received: {getattr(signal, 'symbol', '?')} - Total cached: {len(self._signals)}")
+        self.log.info(
+            f"Signal received: {getattr(signal, 'symbol', '?')} - Total cached: {len(self._signals)}"
+        )
         self._refresh_trading_signals()
 
     def add_signal(self, signal: Any) -> None:
@@ -244,8 +246,7 @@ class UnifiedSignalsView(Container, can_focus=True):
         if scores is None:
             return
         self._confluence_scores = {
-            (getattr(s, "symbol", ""), getattr(s, "timeframe", "")): s
-            for s in scores
+            (getattr(s, "symbol", ""), getattr(s, "timeframe", "")): s for s in scores
         }
         self._refresh_confluence()
 
@@ -311,16 +312,12 @@ class UnifiedSignalsView(Container, can_focus=True):
     # Watchlist event handlers
     # -------------------------------------------------------------------------
 
-    def on_watchlist_panel_symbol_selected(
-        self, event: WatchlistPanel.SymbolSelected
-    ) -> None:
+    def on_watchlist_panel_symbol_selected(self, event: WatchlistPanel.SymbolSelected) -> None:
         """Handle symbol selection changes."""
         self._refresh_trading_signals()
         self._refresh_confluence()
 
-    def on_watchlist_panel_timeframe_changed(
-        self, event: WatchlistPanel.TimeframeChanged
-    ) -> None:
+    def on_watchlist_panel_timeframe_changed(self, event: WatchlistPanel.TimeframeChanged) -> None:
         """Handle timeframe changes."""
         self._refresh_trading_signals()
         self._refresh_confluence()
@@ -428,9 +425,7 @@ class UnifiedSignalsView(Container, can_focus=True):
         """Update trading panel title to reflect current mode."""
         try:
             title = self.query_one("#trading-signals-title", Static)
-            mode_indicator = (
-                "[dim](History)[/]" if self._history_mode else "[green](Current)[/]"
-            )
+            mode_indicator = "[dim](History)[/]" if self._history_mode else "[green](Current)[/]"
             title.update(f"Trading Signals {mode_indicator}")
         except Exception:
             pass

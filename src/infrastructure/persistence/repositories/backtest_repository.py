@@ -139,9 +139,7 @@ class BacktestRepository(BaseRepository[Backtest]):
 
         return [self._to_entity(r) for r in records]
 
-    async def find_by_backtest_id(
-        self, backtest_id: uuid.UUID
-    ) -> Optional[Backtest]:
+    async def find_by_backtest_id(self, backtest_id: uuid.UUID) -> Optional[Backtest]:
         """Find backtest by UUID."""
         query = """
             SELECT * FROM backtests
@@ -184,9 +182,7 @@ class BacktestRepository(BaseRepository[Backtest]):
 
         return [self._to_entity(r) for r in records]
 
-    async def get_strategy_summary(
-        self, strategy: str
-    ) -> Dict[str, Any]:
+    async def get_strategy_summary(self, strategy: str) -> Dict[str, Any]:
         """Get summary statistics for a strategy's backtests."""
         query = """
             SELECT
@@ -264,9 +260,7 @@ class BacktestRepository(BaseRepository[Backtest]):
             SET metrics = $2, updated_at = $3
             WHERE id = $1
         """
-        result = await self._db.execute(
-            query, backtest_id, self._to_json(metrics), now_utc()
-        )
+        result = await self._db.execute(query, backtest_id, self._to_json(metrics), now_utc())
         return "UPDATE 1" in result
 
     async def delete_old_backtests(

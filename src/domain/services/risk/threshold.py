@@ -1,13 +1,15 @@
 """Threshold helper for standardized alert severity checking."""
 
 from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import Optional
 from enum import Enum
+from typing import Optional
 
 
 class ThresholdDirection(Enum):
     """Direction for threshold comparison."""
+
     ABOVE = "above"  # Alert when value >= threshold (e.g., VIX)
     BELOW = "below"  # Alert when value <= threshold (e.g., stop loss)
 
@@ -27,6 +29,7 @@ class Threshold:
         stop_loss_threshold = Threshold(warning=-0.40, critical=-0.60, direction=ThresholdDirection.BELOW)
         severity = stop_loss_threshold.check(pnl_pct)  # Returns severity based on loss
     """
+
     warning: float
     critical: float
     direction: ThresholdDirection = ThresholdDirection.ABOVE
@@ -86,6 +89,7 @@ class RangeThreshold:
 
     Used for portfolio Greeks (e.g., delta should be within [-50000, 50000]).
     """
+
     min_value: float
     max_value: float
     soft_margin_pct: float = 0.80  # Warning at 80% of limit

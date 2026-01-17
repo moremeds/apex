@@ -19,13 +19,13 @@ from __future__ import annotations
 import asyncio
 import re
 from datetime import datetime
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from ...utils.logging_setup import get_logger
-from ...utils.timezone import now_utc
 from ...domain.events.event_types import EventType
 from ...domain.signals.confluence_calculator import ConfluenceCalculator
 from ...infrastructure.observability import SignalMetrics
+from ...utils.logging_setup import get_logger
+from ...utils.timezone import now_utc
 from .signal_pipeline import BarPreloader
 
 if TYPE_CHECKING:
@@ -163,9 +163,7 @@ class SignalCoordinator:
             max_workers=self._max_workers,
             signal_metrics=self._metrics,
         )
-        self._rule_engine = RuleEngine(
-            self._event_bus, registry, signal_metrics=self._metrics
-        )
+        self._rule_engine = RuleEngine(self._event_bus, registry, signal_metrics=self._metrics)
 
         # Start engines (they subscribe to their respective events)
         self._indicator_engine.start()
@@ -306,15 +304,15 @@ class SignalCoordinator:
 
         # Check for common option patterns: contains both letters and many digits
         # Pattern: 6+ digits (date YYMMDD + strike) anywhere in symbol
-        if re.search(r'\d{6,}', symbol):
+        if re.search(r"\d{6,}", symbol):
             return True
 
         # Pattern: C or P followed by digits (call/put + strike)
-        if re.search(r'[CP]\d{5,}', symbol, re.IGNORECASE):
+        if re.search(r"[CP]\d{5,}", symbol, re.IGNORECASE):
             return True
 
         # Pattern: colon-separated format (AAPL:OPT:...)
-        if ':OPT:' in symbol.upper():
+        if ":OPT:" in symbol.upper():
             return True
 
         return False
@@ -332,7 +330,7 @@ class SignalCoordinator:
 
         # Filter out options symbols if configured
         if self._exclude_options:
-            symbol = getattr(payload, 'symbol', None)
+            symbol = getattr(payload, "symbol", None)
             if symbol and self._is_options_symbol(symbol):
                 return  # Skip options - don't aggregate their ticks
 
@@ -341,9 +339,7 @@ class SignalCoordinator:
             try:
                 aggregator.on_tick(payload)
             except Exception as e:
-                logger.error(
-                    f"Bar aggregation error for {aggregator.timeframe}: {e}"
-                )
+                logger.error(f"Bar aggregation error for {aggregator.timeframe}: {e}")
 
     def get_stats(self) -> Dict[str, Any]:
         """
@@ -360,8 +356,7 @@ class SignalCoordinator:
 
         if self._started:
             stats["bars_emitted"] = {
-                tf: agg.bars_emitted
-                for tf, agg in self._bar_aggregators.items()
+                tf: agg.bars_emitted for tf, agg in self._bar_aggregators.items()
             }
             if self._indicator_engine:
                 stats["bars_processed"] = self._indicator_engine.bars_processed
@@ -468,14 +463,16 @@ class SignalCoordinator:
         if self._persistence:
             previous_state = getattr(payload, "previous_state", None)
             timestamp = getattr(payload, "timestamp", None) or now_utc()
-            asyncio.create_task(self._persist_indicator(
-                symbol=symbol,
-                timeframe=timeframe,
-                indicator=indicator,
-                timestamp=timestamp,
-                state=state,
-                previous_state=previous_state,
-            ))
+            asyncio.create_task(
+                self._persist_indicator(
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    indicator=indicator,
+                    timestamp=timestamp,
+                    state=state,
+                    previous_state=previous_state,
+                )
+            )
 
     # -------------------------------------------------------------------------
     # Persistence Handlers

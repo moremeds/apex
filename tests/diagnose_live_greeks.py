@@ -1,14 +1,16 @@
 """
 Diagnose live Greeks and option data retrieval from IBKR.
 """
+
 import asyncio
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from ib_async import IB, Option
 from datetime import datetime
+
+from ib_async import IB, Option
 
 
 async def diagnose_live_greeks():
@@ -22,19 +24,19 @@ async def diagnose_live_greeks():
     try:
         # Connect to IBKR
         print("\n1. Connecting to IBKR...")
-        await ib.connectAsync('127.0.0.1', 4002, clientId=999)  # Paper trading port
+        await ib.connectAsync("127.0.0.1", 4002, clientId=999)  # Paper trading port
         print("   ✓ Connected to IBKR")
 
         # Create option contract - TSLA 360C Dec 19
         print("\n2. Creating option contract...")
         contract = Option(
-            symbol='TSLA',
-            lastTradeDateOrContractMonth='20251219',
+            symbol="TSLA",
+            lastTradeDateOrContractMonth="20251219",
             strike=360.0,
-            right='C',
-            exchange='SMART',
-            multiplier='100',
-            currency='USD'
+            right="C",
+            exchange="SMART",
+            multiplier="100",
+            currency="USD",
         )
         print(f"   Contract: {contract}")
 
@@ -50,7 +52,7 @@ async def diagnose_live_greeks():
 
         # Request market data WITHOUT Greeks (baseline)
         print("\n4. Testing WITHOUT Greeks (tick type '')...")
-        ticker_no_greeks = ib.reqMktData(contract, '', False, False)
+        ticker_no_greeks = ib.reqMktData(contract, "", False, False)
         await asyncio.sleep(3)  # Wait for data
 
         print(f"   Bid: {ticker_no_greeks.bid}")
@@ -64,7 +66,7 @@ async def diagnose_live_greeks():
 
         # Request market data WITH Greeks (tick type 106)
         print("\n5. Testing WITH Greeks (tick type '106')...")
-        ticker_with_greeks = ib.reqMktData(contract, '106', False, False)
+        ticker_with_greeks = ib.reqMktData(contract, "106", False, False)
         print("   Requested tick 106, waiting for data...")
 
         # Wait and check periodically
@@ -105,6 +107,7 @@ async def diagnose_live_greeks():
     except Exception as e:
         print(f"\n✗ Error: {e}")
         import traceback
+
         traceback.print_exc()
 
     finally:

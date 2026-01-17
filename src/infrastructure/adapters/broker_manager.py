@@ -6,16 +6,17 @@ aggregated positions and account information.
 """
 
 from __future__ import annotations
-from typing import Dict, List, Optional, Any, Callable, TYPE_CHECKING
-from datetime import datetime
-from dataclasses import dataclass, field
-import asyncio
 
-from ...utils.logging_setup import get_logger
+import asyncio
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
+
 from ...domain.interfaces.broker_adapter import BrokerAdapter
-from ...models.position import Position, PositionSource
 from ...models.account import AccountInfo
 from ...models.order import Order, Trade
+from ...models.position import Position, PositionSource
+from ...utils.logging_setup import get_logger
 
 if TYPE_CHECKING:
     from ...infrastructure.monitoring import HealthMonitor, HealthStatus
@@ -27,6 +28,7 @@ logger = get_logger(__name__)
 @dataclass
 class BrokerStatus:
     """Status of a broker connection."""
+
     name: str
     connected: bool = False
     last_error: Optional[str] = None
@@ -218,7 +220,9 @@ class BrokerManager(BrokerAdapter):
                 account = await adapter.fetch_account_info()
                 aggregated = self._merge_account_info(aggregated, account)
                 account_count += 1
-                logger.debug(f"Fetched account info from {name}: NetLiq=${account.net_liquidation:,.2f}")
+                logger.debug(
+                    f"Fetched account info from {name}: NetLiq=${account.net_liquidation:,.2f}"
+                )
             except NotImplementedError:
                 logger.debug(f"{name} adapter does not support account info")
             except Exception as e:
@@ -268,13 +272,12 @@ class BrokerManager(BrokerAdapter):
         Returns:
             Dict mapping broker name to list of positions.
         """
-        positions_by_broker: Dict[str, List[Position]] = {
-            name: [] for name in self._adapters
-        }
+        positions_by_broker: Dict[str, List[Position]] = {name: [] for name in self._adapters}
 
         # Identify connected adapters
         connected = [
-            (name, adapter) for name, adapter in self._adapters.items()
+            (name, adapter)
+            for name, adapter in self._adapters.items()
             if self._status[name].connected
         ]
 
@@ -308,7 +311,8 @@ class BrokerManager(BrokerAdapter):
         """
         # Identify connected adapters
         connected = [
-            (name, adapter) for name, adapter in self._adapters.items()
+            (name, adapter)
+            for name, adapter in self._adapters.items()
             if self._status[name].connected
         ]
 
@@ -367,11 +371,13 @@ class BrokerManager(BrokerAdapter):
         broker_status = self._status.get(broker_name)
         full_metadata = metadata or {}
         if broker_status:
-            full_metadata.update({
-                "connected": broker_status.connected,
-                "position_count": broker_status.position_count,
-                "last_error": broker_status.last_error,
-            })
+            full_metadata.update(
+                {
+                    "connected": broker_status.connected,
+                    "position_count": broker_status.position_count,
+                    "last_error": broker_status.last_error,
+                }
+            )
 
         self._health_monitor.update_component_health(
             component_name=component_name,
@@ -402,7 +408,7 @@ class BrokerManager(BrokerAdapter):
                 is_connected = adapter.is_connected()
 
                 # Try to reconnect if disconnected
-                if not is_connected and hasattr(adapter, '_ensure_connected'):
+                if not is_connected and hasattr(adapter, "_ensure_connected"):
                     try:
                         await adapter._ensure_connected()
                         is_connected = adapter.is_connected()
@@ -522,11 +528,15 @@ class BrokerManager(BrokerAdapter):
                 continue
 
             # Check if adapter supports position subscription
-            if hasattr(adapter, 'set_position_callback') and hasattr(adapter, 'subscribe_positions'):
+            if hasattr(adapter, "set_position_callback") and hasattr(
+                adapter, "subscribe_positions"
+            ):
                 try:
                     # Set callback that routes to our aggregator
                     adapter.set_position_callback(
-                        lambda positions, broker=name: self._on_broker_position_update(broker, positions)
+                        lambda positions, broker=name: self._on_broker_position_update(
+                            broker, positions
+                        )
                     )
                     await adapter.subscribe_positions()
                     logger.info(f"Subscribed to position updates from {name}")
@@ -541,7 +551,7 @@ class BrokerManager(BrokerAdapter):
     def unsubscribe_positions(self) -> None:
         """Unsubscribe from position updates on all brokers."""
         for name, adapter in self._adapters.items():
-            if hasattr(adapter, 'unsubscribe_positions'):
+            if hasattr(adapter, "unsubscribe_positions"):
                 try:
                     adapter.unsubscribe_positions()
                 except Exception as e:

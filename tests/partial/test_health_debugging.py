@@ -3,15 +3,15 @@ Debug test to check if health components are being created and displayed.
 """
 
 import sys
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src.tui.dashboard import TerminalDashboard
+from src.infrastructure.monitoring import ComponentHealth, HealthMonitor, HealthStatus
 from src.models.risk_snapshot import RiskSnapshot
-from src.infrastructure.monitoring import ComponentHealth, HealthStatus, HealthMonitor
+from src.tui.dashboard import TerminalDashboard
 
 
 def test_health_creation():
@@ -25,23 +25,15 @@ def test_health_creation():
     health_monitor = HealthMonitor()
 
     # Add components
-    health_monitor.update_component_health(
-        "ib_adapter",
-        HealthStatus.HEALTHY,
-        "Connected"
-    )
+    health_monitor.update_component_health("ib_adapter", HealthStatus.HEALTHY, "Connected")
 
-    health_monitor.update_component_health(
-        "file_loader",
-        HealthStatus.HEALTHY,
-        "Loaded"
-    )
+    health_monitor.update_component_health("file_loader", HealthStatus.HEALTHY, "Loaded")
 
     health_monitor.update_component_health(
         "market_data_coverage",
         HealthStatus.DEGRADED,
         "Missing MD: 15.0%",
-        {"missing_count": 3, "total": 20}
+        {"missing_count": 3, "total": 20},
     )
 
     health_monitor.update_component_health(
@@ -93,6 +85,7 @@ def test_health_creation():
     # Try to print the panel
     print("\n6. Health panel content:")
     from rich.console import Console
+
     console = Console()
     console.print(panel)
 

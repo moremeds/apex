@@ -1,7 +1,8 @@
 """Account provider protocol for account data."""
 
 from __future__ import annotations
-from typing import Protocol, Optional, Callable, Dict, runtime_checkable
+
+from typing import Callable, Dict, Optional, Protocol, runtime_checkable
 
 from ..events.domain_events import AccountSnapshot
 
@@ -71,10 +72,7 @@ class AccountProvider(Protocol):
         """Unsubscribe from account updates."""
         ...
 
-    def set_account_callback(
-        self,
-        callback: Optional[Callable[[AccountSnapshot], None]]
-    ) -> None:
+    def set_account_callback(self, callback: Optional[Callable[[AccountSnapshot], None]]) -> None:
         """
         Set callback for account updates.
 

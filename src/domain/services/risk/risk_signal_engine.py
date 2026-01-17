@@ -13,22 +13,22 @@ Applies debounce/cooldown filtering via RiskSignalManager.
 """
 
 from __future__ import annotations
-from typing import List, Dict, Any
 
-from src.models.risk_snapshot import RiskSnapshot
-from src.models.risk_signal import RiskSignal
-from src.models.position_risk import PositionRisk
+from typing import Any, Dict, List
+
 from src.domain.exceptions import RecoverableError, RiskCheckError
-
-from .rule_engine import RuleEngine
-from .risk_signal_manager import RiskSignalManager
+from src.domain.services.correlation_analyzer import CorrelationAnalyzer
+from src.domain.services.event_risk_detector import EventRiskDetector
 from src.domain.services.position_risk_analyzer import PositionRiskAnalyzer
 from src.domain.services.strategy_detector import StrategyDetector
 from src.domain.services.strategy_risk_analyzer import StrategyRiskAnalyzer
-from src.domain.services.correlation_analyzer import CorrelationAnalyzer
-from src.domain.services.event_risk_detector import EventRiskDetector
+from src.models.position_risk import PositionRisk
+from src.models.risk_signal import RiskSignal
+from src.models.risk_snapshot import RiskSnapshot
 from src.utils.logging_setup import get_logger
 
+from .risk_signal_manager import RiskSignalManager
+from .rule_engine import RuleEngine
 
 logger = get_logger(__name__)
 
@@ -153,9 +153,7 @@ class RiskSignalEngine:
 
         # Only log when there are signals (reduces log volume 90%+)
         if filtered_signals:
-            logger.info(
-                f"Risk signals: {len(raw_signals)} raw → {len(filtered_signals)} filtered"
-            )
+            logger.info(f"Risk signals: {len(raw_signals)} raw → {len(filtered_signals)} filtered")
 
         return filtered_signals
 

@@ -31,9 +31,12 @@ Usage:
 
 from __future__ import annotations
 
+import logging
+import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import Enum
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -44,26 +47,23 @@ from typing import (
     Protocol,
     runtime_checkable,
 )
-from enum import Enum
-import uuid
-import logging
 
 from ..events.domain_events import (
-    QuoteTick,
-    BarData,
-    PositionSnapshot,
     AccountSnapshot,
-    TradeFill,
+    BarData,
     OrderUpdate,
+    PositionSnapshot,
+    QuoteTick,
+    TradeFill,
 )
 from ..interfaces.event_bus import EventBus, EventType
 from ..interfaces.execution_provider import OrderRequest
 
 if TYPE_CHECKING:
     from ..clock import Clock
-    from .scheduler import Scheduler
     from .cost_estimator import CostEstimator
     from .risk_gate import RiskGate
+    from .scheduler import Scheduler
 
 logger = logging.getLogger(__name__)
 
@@ -531,8 +531,7 @@ class Strategy(ABC):
                 logger.error(f"Signal callback error: {e}")
 
         logger.debug(
-            f"Strategy {self.strategy_id} emitted signal: "
-            f"{signal.symbol} {signal.direction}"
+            f"Strategy {self.strategy_id} emitted signal: " f"{signal.symbol} {signal.direction}"
         )
 
     def request_order(self, order: OrderRequest) -> None:
@@ -559,9 +558,7 @@ class Strategy(ABC):
             f"{order.side} {order.quantity} {order.symbol}"
         )
 
-    def on_signal_callback(
-        self, callback: Callable[[TradingSignal], None]
-    ) -> None:
+    def on_signal_callback(self, callback: Callable[[TradingSignal], None]) -> None:
         """
         Register callback for signal emission.
 
@@ -572,9 +569,7 @@ class Strategy(ABC):
         """
         self._signal_callbacks.append(callback)
 
-    def on_order_callback(
-        self, callback: Callable[[OrderRequest], None]
-    ) -> None:
+    def on_order_callback(self, callback: Callable[[OrderRequest], None]) -> None:
         """
         Register callback for order requests.
 
@@ -596,10 +591,7 @@ class Strategy(ABC):
         Called by the strategy runner. Sets state to RUNNING and calls on_start.
         """
         if self._state not in (StrategyState.INITIALIZED, StrategyState.STOPPED):
-            logger.warning(
-                f"Cannot start strategy {self.strategy_id} "
-                f"from state {self._state}"
-            )
+            logger.warning(f"Cannot start strategy {self.strategy_id} " f"from state {self._state}")
             return
 
         self._state = StrategyState.STARTING
@@ -670,7 +662,7 @@ class Strategy(ABC):
 
         # OPT-007: Register callbacks as heavy to offload to thread pool
         # This prevents user strategy code from blocking the event loop
-        if hasattr(event_bus, 'register_heavy_callback'):
+        if hasattr(event_bus, "register_heavy_callback"):
             event_bus.register_heavy_callback(self._handle_tick_event)
             event_bus.register_heavy_callback(self._handle_position_event)
             event_bus.register_heavy_callback(self._handle_fill_event)
@@ -687,7 +679,7 @@ class Strategy(ABC):
         event_bus.unsubscribe(EventType.ACCOUNT_UPDATED, self._handle_account_event)
 
         # OPT-007: Unregister heavy callbacks
-        if hasattr(event_bus, 'unregister_heavy_callback'):
+        if hasattr(event_bus, "unregister_heavy_callback"):
             event_bus.unregister_heavy_callback(self._handle_tick_event)
             event_bus.unregister_heavy_callback(self._handle_position_event)
             event_bus.unregister_heavy_callback(self._handle_fill_event)

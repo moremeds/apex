@@ -26,6 +26,7 @@ class SignalCategory(Enum):
     VOLATILITY = "volatility"
     VOLUME = "volume"
     PATTERN = "pattern"
+    REGIME = "regime"
 
 
 class SignalDirection(Enum):
@@ -48,7 +49,9 @@ class SignalStatus(Enum):
     """Lifecycle status of a trading signal."""
 
     ACTIVE = "active"  # Signal is current and actionable
-    INVALIDATED = "invalidated"  # Superseded by newer signal for same (symbol, indicator, timeframe)
+    INVALIDATED = (
+        "invalidated"  # Superseded by newer signal for same (symbol, indicator, timeframe)
+    )
 
 
 class ConditionType(Enum):
@@ -137,9 +140,7 @@ class TradingSignal:
 
     def __str__(self) -> str:
         """Human-readable string representation."""
-        direction_symbol = {"buy": "▲", "sell": "▼", "alert": "●"}.get(
-            self.direction.value, "?"
-        )
+        direction_symbol = {"buy": "▲", "sell": "▼", "alert": "●"}.get(self.direction.value, "?")
         return (
             f"{direction_symbol} [{self.priority.value.upper()}] "
             f"{self.symbol} {self.indicator} ({self.timeframe}) - {self.message}"
@@ -299,6 +300,86 @@ class Divergence:
             f"{self.type.value.upper()} divergence: "
             f"{self.symbol} {self.indicator} ({self.timeframe}) "
             f"strength={self.strength}"
+        )
+
+
+@dataclass
+class IndicatorTrace:
+    """
+    Trace of indicator calculation for observability (Phase 3).
+
+    Links signals to raw indicator values and regime decisions,
+    enabling full auditability of the signal generation pipeline.
+
+    Each IndicatorTrace captures a single indicator's state at a given bar,
+    including the raw values, derived state, and which rules triggered.
+    """
+
+    indicator_name: str  # e.g., "rsi", "macd", "atr", "regime"
+    timeframe: str  # e.g., "1m", "5m", "1h", "1d"
+    bar_ts: datetime  # Timestamp of the bar
+    symbol: str = ""  # Symbol this trace belongs to
+
+    # Raw indicator values: {"rsi": 28.5, "macd": -1.2, "macd_signal": -1.0}
+    raw: Dict[str, float] = field(default_factory=dict)
+
+    # Derived state: {"zone": "oversold", "direction": "down", "strength": "strong"}
+    state: Dict[str, Any] = field(default_factory=dict)
+
+    # Rules that triggered on this bar: ["rsi_oversold_entry", "rsi_bullish_divergence"]
+    rules_triggered_now: List[str] = field(default_factory=list)
+
+    # Lookback period used in calculation (for context)
+    lookback: int = 0
+
+    # Optional previous raw values for delta calculation
+    prev_raw: Optional[Dict[str, float]] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize to dictionary for logging/storage."""
+        return {
+            "indicator_name": self.indicator_name,
+            "timeframe": self.timeframe,
+            "bar_ts": self.bar_ts.isoformat(),
+            "symbol": self.symbol,
+            "raw": self.raw,
+            "state": self.state,
+            "rules_triggered_now": self.rules_triggered_now,
+            "lookback": self.lookback,
+            "prev_raw": self.prev_raw,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "IndicatorTrace":
+        """Deserialize from dictionary."""
+        return cls(
+            indicator_name=data.get("indicator_name", ""),
+            timeframe=data.get("timeframe", ""),
+            bar_ts=(
+                datetime.fromisoformat(data["bar_ts"]) if data.get("bar_ts") else datetime.utcnow()
+            ),
+            symbol=data.get("symbol", ""),
+            raw=data.get("raw", {}),
+            state=data.get("state", {}),
+            rules_triggered_now=data.get("rules_triggered_now", []),
+            lookback=data.get("lookback", 0),
+            prev_raw=data.get("prev_raw"),
+        )
+
+    def get_delta(self, key: str) -> Optional[float]:
+        """Calculate delta from previous raw value for a key."""
+        if self.prev_raw is None:
+            return None
+        if key not in self.raw or key not in self.prev_raw:
+            return None
+        return self.raw[key] - self.prev_raw[key]
+
+    def __str__(self) -> str:
+        """Human-readable representation."""
+        rules_str = ", ".join(self.rules_triggered_now) if self.rules_triggered_now else "none"
+        return (
+            f"IndicatorTrace({self.indicator_name}@{self.timeframe}, "
+            f"raw={self.raw}, state={self.state}, rules=[{rules_str}])"
         )
 
 

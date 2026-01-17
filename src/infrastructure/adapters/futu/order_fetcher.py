@@ -5,16 +5,17 @@ Extracted from FutuAdapter for single-responsibility.
 """
 
 from __future__ import annotations
-from typing import List, Dict, Optional, TYPE_CHECKING
-from datetime import datetime, timedelta
 
-from ....utils.logging_setup import get_logger
+from datetime import datetime, timedelta
+from typing import TYPE_CHECKING, Dict, List, Optional
+
 from ....models.order import Order, Trade
+from ....utils.logging_setup import get_logger
 from .converters import (
+    build_trade_from_order,
     convert_order,
     convert_trade,
     convert_trade_with_fee,
-    build_trade_from_order,
 )
 
 if TYPE_CHECKING:
@@ -137,7 +138,9 @@ class OrderFetcher:
 
     async def _fetch_filled_orders_with_fees(self, days_back: int) -> List[Dict]:
         """Fetch filled orders and their associated fees."""
-        from futu import RET_OK, TrdEnv, OrderStatus as FutuOrderStatus
+        from futu import RET_OK
+        from futu import OrderStatus as FutuOrderStatus
+        from futu import TrdEnv
 
         trd_env_enum = getattr(TrdEnv, self._adapter.trd_env, TrdEnv.REAL)
         end_date = datetime.now()
@@ -164,11 +167,11 @@ class OrderFetcher:
 
         logger.debug(f"Fetched {len(data)} filled orders from Futu history")
 
-        order_ids = data['order_id'].astype(str).tolist()
+        order_ids = data["order_id"].astype(str).tolist()
 
         fees_by_order: Dict[str, float] = {}
         for i in range(0, len(order_ids), 400):
-            batch_ids = order_ids[i:i + 400]
+            batch_ids = order_ids[i : i + 400]
             ret_fee, fee_data = await self._adapter._run_blocking(
                 self._adapter._trd_ctx.order_fee_query,
                 order_id_list=batch_ids,
@@ -177,17 +180,17 @@ class OrderFetcher:
             )
             if ret_fee == RET_OK and not fee_data.empty:
                 for _, fee_row in fee_data.iterrows():
-                    oid = str(fee_row.get('order_id', ''))
-                    fee_amount = float(fee_row.get('fee_amount', 0) or 0)
+                    oid = str(fee_row.get("order_id", ""))
+                    fee_amount = float(fee_row.get("fee_amount", 0) or 0)
                     fees_by_order[oid] = fee_amount
                 logger.debug(f"Fetched fees for {len(fee_data)} orders")
             else:
                 logger.warning(f"Failed to fetch order fees: {fee_data}")
 
         for _, row in data.iterrows():
-            order_id = str(row.get('order_id', ''))
+            order_id = str(row.get("order_id", ""))
             order_dict = row.to_dict()
-            order_dict['fee_amount'] = fees_by_order.get(order_id, 0.0)
+            order_dict["fee_amount"] = fees_by_order.get(order_id, 0.0)
             orders_with_fees.append(order_dict)
 
         return orders_with_fees
@@ -212,7 +215,7 @@ class OrderFetcher:
         )
         if ret == RET_OK and not data.empty:
             for _, row in data.iterrows():
-                deal_id = str(row.get('deal_id', ''))
+                deal_id = str(row.get("deal_id", ""))
                 if deal_id and deal_id not in seen_deal_ids:
                     deals.append(row.to_dict())
                     seen_deal_ids.add(deal_id)
@@ -228,7 +231,7 @@ class OrderFetcher:
         )
         if ret == RET_OK and not data.empty:
             for _, row in data.iterrows():
-                deal_id = str(row.get('deal_id', ''))
+                deal_id = str(row.get("deal_id", ""))
                 if deal_id and deal_id not in seen_deal_ids:
                     deals.append(row.to_dict())
                     seen_deal_ids.add(deal_id)
@@ -260,7 +263,7 @@ class OrderFetcher:
         # Group deals by order
         deals_by_order: Dict[str, List[Dict]] = {}
         for deal in deals:
-            order_id = str(deal.get('order_id', ''))
+            order_id = str(deal.get("order_id", ""))
             if order_id:
                 if order_id not in deals_by_order:
                     deals_by_order[order_id] = []
@@ -273,7 +276,7 @@ class OrderFetcher:
             fee_per_deal = total_fee / len(order_deals) if order_deals else 0.0
 
             for deal in order_deals:
-                deal_id = str(deal.get('deal_id', ''))
+                deal_id = str(deal.get("deal_id", ""))
                 if deal_id in seen_deal_ids:
                     continue
                 seen_deal_ids.add(deal_id)
@@ -294,8 +297,8 @@ class OrderFetcher:
 
         # Add orphan deals (deals without matching orders)
         for deal in deals:
-            order_id = str(deal.get('order_id', ''))
-            deal_id = str(deal.get('deal_id', ''))
+            order_id = str(deal.get("order_id", ""))
+            deal_id = str(deal.get("deal_id", ""))
             if order_id and order_id not in trades_from_orders and deal_id not in seen_deal_ids:
                 logger.warning(
                     f"Deal {deal_id} has no corresponding filled order - "

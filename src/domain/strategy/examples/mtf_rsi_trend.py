@@ -15,18 +15,19 @@ This strategy demonstrates:
 - Using higher timeframe for context, lower for precision
 
 """
+
+import logging
 from collections import deque
 from typing import Deque, Dict, List, Optional
-import logging
 
 import numpy as np
 import pandas as pd
 
+from ...events.domain_events import BarData, QuoteTick, TradeFill
+from ...interfaces.execution_provider import OrderRequest
 from ..base import Strategy, StrategyContext
 from ..registry import register_strategy
 from ..signals.indicators import rsi as talib_rsi
-from ...events.domain_events import BarData, QuoteTick, TradeFill
-from ...interfaces.execution_provider import OrderRequest
 
 logger = logging.getLogger(__name__)
 
@@ -211,9 +212,7 @@ class MTFRsiTrendStrategy(Strategy):
         last_rsi = rsi_series.iloc[-1]
         return None if np.isnan(last_rsi) else float(last_rsi)
 
-    def _enter_long(
-        self, symbol: str, price: float, trend_rsi: float, entry_rsi: float
-    ) -> None:
+    def _enter_long(self, symbol: str, price: float, trend_rsi: float, entry_rsi: float) -> None:
         """Enter long position."""
         logger.info(
             f"[{self.strategy_id}] BUY SIGNAL: {symbol} @ {price:.2f} | "
@@ -229,9 +228,7 @@ class MTFRsiTrendStrategy(Strategy):
         )
         self.request_order(order)
 
-    def _enter_short(
-        self, symbol: str, price: float, trend_rsi: float, entry_rsi: float
-    ) -> None:
+    def _enter_short(self, symbol: str, price: float, trend_rsi: float, entry_rsi: float) -> None:
         """Enter short position."""
         logger.info(
             f"[{self.strategy_id}] SELL SIGNAL: {symbol} @ {price:.2f} | "
@@ -247,9 +244,7 @@ class MTFRsiTrendStrategy(Strategy):
         )
         self.request_order(order)
 
-    def _exit_position(
-        self, symbol: str, price: float, quantity: float, reason: str
-    ) -> None:
+    def _exit_position(self, symbol: str, price: float, quantity: float, reason: str) -> None:
         """Exit current position."""
         side = "SELL" if quantity > 0 else "BUY"
 

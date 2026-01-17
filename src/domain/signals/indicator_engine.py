@@ -155,10 +155,7 @@ class IndicatorEngine:
         Returns:
             List of warmup status dicts.
         """
-        return [
-            self.get_warmup_status(sym, tf)
-            for (sym, tf) in self._history.keys()
-        ]
+        return [self.get_warmup_status(sym, tf) for (sym, tf) in self._history.keys()]
 
     def get_indicator_state(
         self, symbol: str, timeframe: str, indicator: str
@@ -612,7 +609,22 @@ class IndicatorEngine:
 
             # Debug log with computation results - include state for rule debugging
             # Include numerical values for debugging signal generation issues
-            state_summary = {k: v for k, v in state.items() if k in ("zone", "direction", "trend", "volatility", "pressure", "value", "obv", "cvd", "ad")}
+            state_summary = {
+                k: v
+                for k, v in state.items()
+                if k
+                in (
+                    "zone",
+                    "direction",
+                    "trend",
+                    "volatility",
+                    "pressure",
+                    "value",
+                    "obv",
+                    "cvd",
+                    "ad",
+                )
+            }
             logger.debug(
                 f"Indicator computed: {indicator.name} symbol={symbol} tf={timeframe} state={state_summary}",
             )
@@ -635,9 +647,7 @@ class IndicatorEngine:
             )
             return None
 
-    def _publish_update(
-        self, event: IndicatorUpdateEvent, new_state: Dict[str, Any]
-    ) -> None:
+    def _publish_update(self, event: IndicatorUpdateEvent, new_state: Dict[str, Any]) -> None:
         """Publish INDICATOR_UPDATE event and update state cache."""
         try:
             self._event_bus.publish(EventType.INDICATOR_UPDATE, event)

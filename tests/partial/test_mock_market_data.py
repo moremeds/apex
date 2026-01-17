@@ -6,15 +6,15 @@ when IB is not connected.
 """
 
 import sys
-from pathlib import Path
 from datetime import date
+from pathlib import Path
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from src.infrastructure.adapters.mock_market_data import MockMarketDataProvider
-from src.models.position import Position, AssetType, PositionSource
-from src.models.market_data import GreeksSource, DataQuality
+from src.models.market_data import DataQuality, GreeksSource
+from src.models.position import AssetType, Position, PositionSource
 
 
 def test_mock_market_data():

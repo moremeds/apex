@@ -8,8 +8,8 @@ This test verifies:
 4. Naming convention: live_risk_{env}_{category}_{date}_{number}.log
 """
 
-import sys
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -17,7 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from src.utils.logging_setup import setup_category_logging
-from src.utils.structured_logger import StructuredLogger, LogCategory
+from src.utils.structured_logger import LogCategory, StructuredLogger
 
 
 def test_category_logging():
@@ -45,16 +45,24 @@ def test_category_logging():
     print("\n2. Writing test logs...")
 
     # System logs
-    system_structured.info(LogCategory.SYSTEM, "Application starting", {"env": "dev", "version": "1.0.0"})
-    system_structured.info(LogCategory.SYSTEM, "Configuration loaded", {"config_file": "risk_config.yaml"})
+    system_structured.info(
+        LogCategory.SYSTEM, "Application starting", {"env": "dev", "version": "1.0.0"}
+    )
+    system_structured.info(
+        LogCategory.SYSTEM, "Configuration loaded", {"config_file": "risk_config.yaml"}
+    )
     system_structured.warning(LogCategory.SYSTEM, "IB connection unavailable", {"retry_in": 5})
     system_structured.info(LogCategory.SYSTEM, "Using mock market data for testing")
 
     # Market logs
     market_structured.info(LogCategory.DATA, "Fetching market data", {"symbols": 10})
-    market_structured.info(LogCategory.TRADING, "Position reconciliation complete", {"positions": 6})
+    market_structured.info(
+        LogCategory.TRADING, "Position reconciliation complete", {"positions": 6}
+    )
     market_structured.info(LogCategory.DATA, "Market data quality check", {"stale": 0, "total": 10})
-    market_structured.warning(LogCategory.RISK, "Approaching delta limit", {"current": 45000, "limit": 50000})
+    market_structured.warning(
+        LogCategory.RISK, "Approaching delta limit", {"current": 45000, "limit": 50000}
+    )
 
     print(f"   ✓ Wrote 8 log entries")
 
@@ -69,7 +77,7 @@ def test_category_logging():
 
     if system_log.exists():
         size = system_log.stat().st_size
-        with open(system_log, 'r') as f:
+        with open(system_log, "r") as f:
             line_count = len(f.readlines())
         print(f"   ✓ System log: {system_log.name}")
         print(f"     - Size: {size} bytes")
@@ -80,7 +88,7 @@ def test_category_logging():
 
     if market_log.exists():
         size = market_log.stat().st_size
-        with open(market_log, 'r') as f:
+        with open(market_log, "r") as f:
             line_count = len(f.readlines())
         print(f"   ✓ Market log: {market_log.name}")
         print(f"     - Size: {size} bytes")
@@ -94,14 +102,14 @@ def test_category_logging():
 
     if system_log.exists():
         print(f"\n   System log (first 2 lines):")
-        with open(system_log, 'r') as f:
+        with open(system_log, "r") as f:
             for i, line in enumerate(f):
                 if i < 2:
                     print(f"     {line.rstrip()}")
 
     if market_log.exists():
         print(f"\n   Market log (first 2 lines):")
-        with open(market_log, 'r') as f:
+        with open(market_log, "r") as f:
             for i, line in enumerate(f):
                 if i < 2:
                     print(f"     {line.rstrip()}")

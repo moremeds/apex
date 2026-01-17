@@ -9,44 +9,44 @@ Thin coordination layer that:
 """
 
 from __future__ import annotations
+
 import asyncio
 from datetime import datetime
-from typing import Dict, Any, Optional, List, Union, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
-from ...utils.logging_setup import get_logger
-from ...utils.trace_context import new_cycle
-from ...utils.market_hours import MarketHours
-from ...domain.interfaces.event_bus import EventBus
 from ...domain.events import PriorityEventBus
-from ...domain.exceptions import RecoverableError, FatalError
-from ...models.risk_snapshot import RiskSnapshot
-from ...models.risk_signal import RiskSignal
+from ...domain.exceptions import FatalError, RecoverableError
+from ...domain.interfaces.event_bus import EventBus
+from ...infrastructure.monitoring import HealthStatus
 from ...models.account import AccountInfo
 from ...models.position import Position
-from ...infrastructure.monitoring import HealthStatus
-
+from ...models.risk_signal import RiskSignal
+from ...models.risk_snapshot import RiskSnapshot
+from ...utils.logging_setup import get_logger
+from ...utils.market_hours import MarketHours
+from ...utils.trace_context import new_cycle
 from ..async_event_bus import AsyncEventBus
 from .data_coordinator import DataCoordinator
-from .snapshot_coordinator import SnapshotCoordinator
 from .signal_coordinator import SignalCoordinator
+from .snapshot_coordinator import SnapshotCoordinator
 
 if TYPE_CHECKING:
-    from ...domain.services.pos_reconciler import Reconciler
-    from ...domain.services.mdqc import MDQC
-    from ...domain.services.risk.rule_engine import RuleEngine
+    from ...domain.interfaces.signal_persistence import SignalPersistencePort
     from ...domain.services.market_alert_detector import MarketAlertDetector
-    from ...domain.services.risk.risk_signal_engine import RiskSignalEngine
+    from ...domain.services.mdqc import MDQC
+    from ...domain.services.pos_reconciler import Reconciler
     from ...domain.services.risk.risk_alert_logger import RiskAlertLogger
     from ...domain.services.risk.risk_facade import RiskFacade
-    from ...domain.interfaces.signal_persistence import SignalPersistencePort
-    from ...infrastructure.stores import PositionStore, MarketDataStore, AccountStore
-    from ...infrastructure.monitoring import HealthMonitor, Watchdog
+    from ...domain.services.risk.risk_signal_engine import RiskSignalEngine
+    from ...domain.services.risk.rule_engine import RuleEngine
     from ...infrastructure.adapters.broker_manager import BrokerManager
     from ...infrastructure.adapters.market_data_manager import MarketDataManager
-    from ...infrastructure.observability import RiskMetrics, HealthMetrics, SignalMetrics
-    from ..readiness_manager import ReadinessManager
+    from ...infrastructure.monitoring import HealthMonitor, Watchdog
+    from ...infrastructure.observability import HealthMetrics, RiskMetrics, SignalMetrics
+    from ...infrastructure.stores import AccountStore, MarketDataStore, PositionStore
     from ...services.snapshot_service import SnapshotService
     from ...services.warm_start_service import WarmStartService
+    from ..readiness_manager import ReadinessManager
 
 logger = get_logger(__name__)
 
@@ -177,7 +177,7 @@ class Orchestrator:
         # Start event bus FIRST - must be running before any streaming/callbacks
         # that might publish events (C1: event bus start order fix)
         # Use duck typing: check for start() method rather than concrete types
-        if hasattr(self.event_bus, 'start'):
+        if hasattr(self.event_bus, "start"):
             await self.event_bus.start()
             logger.debug("Event bus started before providers")
 
@@ -253,7 +253,7 @@ class Orchestrator:
             await self._snapshot_service.stop()
 
         # Stop event bus (duck typing - check for stop() method)
-        if hasattr(self.event_bus, 'stop'):
+        if hasattr(self.event_bus, "stop"):
             await self.event_bus.stop()
 
         # Stop watchdog
@@ -330,14 +330,12 @@ class Orchestrator:
                 # Log unexpected errors with full traceback for debugging
                 logger.error(f"Unexpected timer loop error: {e}", exc_info=True)
                 # Increment error counter for monitoring (if available)
-                self._consecutive_errors = getattr(self, '_consecutive_errors', 0) + 1
+                self._consecutive_errors = getattr(self, "_consecutive_errors", 0) + 1
                 if self._consecutive_errors >= 5:
                     logger.critical("Too many consecutive errors in timer loop")
                     # Don't break - let the loop continue but alert is logged
 
-    def _on_broker_position_update(
-        self, broker_name: str, positions: List[Position]
-    ) -> None:
+    def _on_broker_position_update(self, broker_name: str, positions: List[Position]) -> None:
         """Handle position update from broker."""
         logger.debug(f"Position update from {broker_name}: {len(positions)} positions")
         self.position_store.upsert_positions(positions)
@@ -381,7 +379,7 @@ class Orchestrator:
         # Clean up expired cooldowns in RiskSignalManager to prevent memory leak
         try:
             risk_signal_engine = self._snapshot_coordinator.risk_signal_engine
-            if risk_signal_engine and hasattr(risk_signal_engine, 'signal_manager'):
+            if risk_signal_engine and hasattr(risk_signal_engine, "signal_manager"):
                 risk_signal_engine.signal_manager.cleanup_expired()
                 logger.debug("RiskSignalManager cleanup completed")
         except Exception as e:
@@ -429,11 +427,7 @@ class Orchestrator:
 
         # Get symbols from positions (use underlying for options, symbol for stocks)
         positions = self.position_store.get_all()
-        symbols = list({
-            p.underlying or p.symbol
-            for p in positions
-            if p.underlying or p.symbol
-        })
+        symbols = list({p.underlying or p.symbol for p in positions if p.underlying or p.symbol})
 
         if not symbols:
             logger.debug("No symbols to preload (empty position store)")
@@ -480,7 +474,7 @@ class Orchestrator:
 
     def get_event_bus_stats(self) -> Dict[str, Any]:
         """Get event bus statistics."""
-        if hasattr(self.event_bus, 'get_stats'):
+        if hasattr(self.event_bus, "get_stats"):
             return self.event_bus.get_stats()
         return {}
 

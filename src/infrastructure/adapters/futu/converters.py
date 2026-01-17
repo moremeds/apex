@@ -7,15 +7,15 @@ Futu returns timestamps in US Eastern time for US market.
 """
 
 from __future__ import annotations
-from typing import Any, Optional, Dict, Union
-from datetime import datetime
 
-from ....models.position import Position, AssetType, PositionSource
-from ....models.order import Order, Trade, OrderSource, OrderStatus, OrderSide, OrderType
+from datetime import datetime
+from typing import Any, Dict, Optional, Union
+
+from ....models.order import Order, OrderSide, OrderSource, OrderStatus, OrderType, Trade
+from ....models.position import AssetType, Position, PositionSource
+from ....utils.logging_setup import get_logger
 from ....utils.timezone import now_utc, parse_futu_timestamp
 from .code_parser import parse_futu_code
-from ....utils.logging_setup import get_logger
-
 
 logger = get_logger(__name__)
 
@@ -191,7 +191,9 @@ def convert_order(row, acc_id: Optional[int] = None) -> Optional[Order]:
             limit_price=float(row.get("price", 0)) if row.get("price") else None,
             status=status,
             filled_quantity=float(row.get("dealt_qty", 0) or 0),
-            avg_fill_price=float(row.get("dealt_avg_price", 0)) if row.get("dealt_avg_price") else None,
+            avg_fill_price=(
+                float(row.get("dealt_avg_price", 0)) if row.get("dealt_avg_price") else None
+            ),
             created_time=create_time,
             filled_time=filled_time,
             updated_time=updated_time or now_utc(),
@@ -203,7 +205,9 @@ def convert_order(row, acc_id: Optional[int] = None) -> Optional[Order]:
         )
 
     except Exception as e:
-        logger.warning(f"Failed to convert Futu order: {e}, row={row.to_dict() if hasattr(row, 'to_dict') else row}")
+        logger.warning(
+            f"Failed to convert Futu order: {e}, row={row.to_dict() if hasattr(row, 'to_dict') else row}"
+        )
         return None
 
 
@@ -222,7 +226,7 @@ def convert_trade(row: Union[Dict, object], acc_id: Optional[int] = None) -> Opt
     """
     try:
         # Handle both dict and pandas row
-        if hasattr(row, 'get'):
+        if hasattr(row, "get"):
             get_val = row.get
         else:
             get_val = lambda k, d=None: getattr(row, k, d)
@@ -260,12 +264,14 @@ def convert_trade(row: Union[Dict, object], acc_id: Optional[int] = None) -> Opt
         )
 
     except Exception as e:
-        row_dict = row.to_dict() if hasattr(row, 'to_dict') else row
+        row_dict = row.to_dict() if hasattr(row, "to_dict") else row
         logger.warning(f"Failed to convert Futu trade: {e}, row={row_dict}")
         return None
 
 
-def convert_trade_with_fee(row: Dict, commission: float, acc_id: Optional[int] = None) -> Optional[Trade]:
+def convert_trade_with_fee(
+    row: Dict, commission: float, acc_id: Optional[int] = None
+) -> Optional[Trade]:
     """
     Convert Futu deal dict to Trade model with commission.
 

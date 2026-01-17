@@ -22,9 +22,7 @@ class Constraint(BaseModel):
         description="Comparison operator"
     )
     value: float = Field(description="Constraint value")
-    value_max: Optional[float] = Field(
-        default=None, description="Max value for 'between' operator"
-    )
+    value_max: Optional[float] = Field(default=None, description="Max value for 'between' operator")
     name: Optional[str] = Field(default=None, description="Optional constraint name")
 
     def check(self, actual_value: float) -> Tuple[bool, str]:
@@ -94,9 +92,7 @@ class ConstraintValidator:
         passed, _ = self.validate_with_details(trial)
         return passed
 
-    def validate_with_details(
-        self, trial: TrialResult
-    ) -> Tuple[bool, List[str]]:
+    def validate_with_details(self, trial: TrialResult) -> Tuple[bool, List[str]]:
         """
         Validate trial and return violation details.
 
@@ -122,15 +118,11 @@ class ConstraintValidator:
 
         return len(violations) == 0, violations
 
-    def _get_metric_value(
-        self, agg: TrialAggregates, metric: str
-    ) -> Optional[float]:
+    def _get_metric_value(self, agg: TrialAggregates, metric: str) -> Optional[float]:
         """Get metric value from aggregates."""
         return getattr(agg, metric, None)
 
     @classmethod
     def from_config(cls, constraints: List[Dict[str, Any]]) -> "ConstraintValidator":
         """Create validator from config dictionaries."""
-        return cls(
-            constraints=[Constraint(**c) for c in constraints]
-        )
+        return cls(constraints=[Constraint(**c) for c in constraints])

@@ -15,7 +15,7 @@ Keyboard shortcuts:
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -157,9 +157,7 @@ class SignalIntrospectionView(Container, can_focus=True):
         table = self.query_one("#intro-indicator-table", DataTable)
         table.clear()
 
-        states = self._introspection.get_indicator_states(
-            timeframe=self._selected_timeframe
-        )
+        states = self._introspection.get_indicator_states(timeframe=self._selected_timeframe)
 
         for (symbol, tf), indicators in states.items():
             for indicator_name, state in indicators.items():

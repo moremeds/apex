@@ -10,11 +10,11 @@ Uses PositionViewModel for business logic and incremental updates.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from textual.widgets import DataTable
-from textual.reactive import reactive
 from textual.message import Message
+from textual.reactive import reactive
+from textual.widgets import DataTable
 
 from ..viewmodels.position_vm import PositionViewModel
 

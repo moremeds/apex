@@ -14,10 +14,10 @@ ATR Formula (Wilder's):
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -361,9 +361,7 @@ class ATROptimizer:
             take_profit = entry_price + (atr * profit_mult)
 
             # Simulate forward to see which level is hit first
-            hit_tp, hit_sl = cls._check_exit(
-                bars[i + 1 :], stop_loss, take_profit
-            )
+            hit_tp, hit_sl = cls._check_exit(bars[i + 1 :], stop_loss, take_profit)
 
             if hit_tp:
                 wins += 1
@@ -419,7 +417,7 @@ class ATROptimizer:
         return (False, False)
 
     @classmethod
-    def get_recommendation( # TODO this is not wired!!!!
+    def get_recommendation(  # TODO this is not wired!!!!
         cls,
         bars: List,
     ) -> Optional[ATROptimizationResult]:

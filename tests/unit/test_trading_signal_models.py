@@ -8,19 +8,20 @@ Tests:
 - Divergence and ConfluenceScore models
 """
 
-import pytest
 from datetime import datetime
 
+import pytest
+
 from src.domain.signals.models import (
-    TradingSignal,
-    SignalRule,
+    ConditionType,
+    ConfluenceScore,
+    Divergence,
+    DivergenceType,
     SignalCategory,
     SignalDirection,
     SignalPriority,
-    ConditionType,
-    Divergence,
-    DivergenceType,
-    ConfluenceScore,
+    SignalRule,
+    TradingSignal,
 )
 
 
@@ -109,22 +110,31 @@ class TestSignalRule:
         )
 
         # Crossing up from below
-        assert rule.check_condition(
-            {"value": 45},
-            {"value": 55},
-        ) is True
+        assert (
+            rule.check_condition(
+                {"value": 45},
+                {"value": 55},
+            )
+            is True
+        )
 
         # Already above - no cross
-        assert rule.check_condition(
-            {"value": 55},
-            {"value": 60},
-        ) is False
+        assert (
+            rule.check_condition(
+                {"value": 55},
+                {"value": 60},
+            )
+            is False
+        )
 
         # No previous state
-        assert rule.check_condition(
-            None,
-            {"value": 55},
-        ) is False
+        assert (
+            rule.check_condition(
+                None,
+                {"value": 55},
+            )
+            is False
+        )
 
     def test_threshold_cross_down(self) -> None:
         """Test THRESHOLD_CROSS_DOWN condition."""
@@ -140,16 +150,22 @@ class TestSignalRule:
         )
 
         # Crossing down from above
-        assert rule.check_condition(
-            {"value": 35},
-            {"value": 25},
-        ) is True
+        assert (
+            rule.check_condition(
+                {"value": 35},
+                {"value": 25},
+            )
+            is True
+        )
 
         # Already below - no cross
-        assert rule.check_condition(
-            {"value": 25},
-            {"value": 20},
-        ) is False
+        assert (
+            rule.check_condition(
+                {"value": 25},
+                {"value": 20},
+            )
+            is False
+        )
 
     def test_state_change(self) -> None:
         """Test STATE_CHANGE condition."""
@@ -169,22 +185,31 @@ class TestSignalRule:
         )
 
         # Valid state change
-        assert rule.check_condition(
-            {"zone": "oversold", "value": 25},
-            {"zone": "neutral", "value": 35},
-        ) is True
+        assert (
+            rule.check_condition(
+                {"zone": "oversold", "value": 25},
+                {"zone": "neutral", "value": 35},
+            )
+            is True
+        )
 
         # Wrong transition
-        assert rule.check_condition(
-            {"zone": "neutral", "value": 50},
-            {"zone": "overbought", "value": 75},
-        ) is False
+        assert (
+            rule.check_condition(
+                {"zone": "neutral", "value": 50},
+                {"zone": "overbought", "value": 75},
+            )
+            is False
+        )
 
         # No previous state
-        assert rule.check_condition(
-            None,
-            {"zone": "neutral", "value": 35},
-        ) is False
+        assert (
+            rule.check_condition(
+                None,
+                {"zone": "neutral", "value": 35},
+            )
+            is False
+        )
 
     def test_cross_up(self) -> None:
         """Test CROSS_UP condition (line A crosses above line B)."""
@@ -200,16 +225,22 @@ class TestSignalRule:
         )
 
         # MACD crosses above signal
-        assert rule.check_condition(
-            {"macd": -0.5, "signal": 0.0},
-            {"macd": 0.5, "signal": 0.0},
-        ) is True
+        assert (
+            rule.check_condition(
+                {"macd": -0.5, "signal": 0.0},
+                {"macd": 0.5, "signal": 0.0},
+            )
+            is True
+        )
 
         # MACD already above
-        assert rule.check_condition(
-            {"macd": 0.5, "signal": 0.0},
-            {"macd": 0.8, "signal": 0.0},
-        ) is False
+        assert (
+            rule.check_condition(
+                {"macd": 0.5, "signal": 0.0},
+                {"macd": 0.8, "signal": 0.0},
+            )
+            is False
+        )
 
     def test_cross_down(self) -> None:
         """Test CROSS_DOWN condition (line A crosses below line B)."""
@@ -225,10 +256,13 @@ class TestSignalRule:
         )
 
         # MACD crosses below signal
-        assert rule.check_condition(
-            {"macd": 0.5, "signal": 0.0},
-            {"macd": -0.5, "signal": 0.0},
-        ) is True
+        assert (
+            rule.check_condition(
+                {"macd": 0.5, "signal": 0.0},
+                {"macd": -0.5, "signal": 0.0},
+            )
+            is True
+        )
 
     def test_range_entry(self) -> None:
         """Test RANGE_ENTRY condition."""
@@ -244,22 +278,31 @@ class TestSignalRule:
         )
 
         # Entering range from below
-        assert rule.check_condition(
-            {"value": 25},
-            {"value": 35},
-        ) is True
+        assert (
+            rule.check_condition(
+                {"value": 25},
+                {"value": 35},
+            )
+            is True
+        )
 
         # Entering range from above
-        assert rule.check_condition(
-            {"value": 75},
-            {"value": 65},
-        ) is True
+        assert (
+            rule.check_condition(
+                {"value": 75},
+                {"value": 65},
+            )
+            is True
+        )
 
         # Already inside
-        assert rule.check_condition(
-            {"value": 50},
-            {"value": 55},
-        ) is False
+        assert (
+            rule.check_condition(
+                {"value": 50},
+                {"value": 55},
+            )
+            is False
+        )
 
     def test_range_exit(self) -> None:
         """Test RANGE_EXIT condition."""
@@ -275,22 +318,31 @@ class TestSignalRule:
         )
 
         # Exiting range below
-        assert rule.check_condition(
-            {"value": 35},
-            {"value": 25},
-        ) is True
+        assert (
+            rule.check_condition(
+                {"value": 35},
+                {"value": 25},
+            )
+            is True
+        )
 
         # Exiting range above
-        assert rule.check_condition(
-            {"value": 65},
-            {"value": 75},
-        ) is True
+        assert (
+            rule.check_condition(
+                {"value": 65},
+                {"value": 75},
+            )
+            is True
+        )
 
         # Still inside
-        assert rule.check_condition(
-            {"value": 50},
-            {"value": 60},
-        ) is False
+        assert (
+            rule.check_condition(
+                {"value": 50},
+                {"value": 60},
+            )
+            is False
+        )
 
     def test_custom_raises_not_implemented(self) -> None:
         """Test that CUSTOM condition type raises NotImplementedError."""

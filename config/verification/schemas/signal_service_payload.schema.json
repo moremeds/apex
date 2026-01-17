@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://apex.trading/schemas/signal_service_payload.schema.json",
+  "title": "SignalServicePayload",
+  "description": "Schema for signal service output payload",
+  "type": "object",
+  "required": ["signals", "timestamp"],
+  "properties": {
+    "signals": {
+      "type": "array",
+      "description": "Array of trading signals",
+      "items": {
+        "$ref": "#/$defs/trading_signal"
+      }
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Payload generation timestamp"
+    },
+    "symbol_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of symbols analyzed"
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Optional service metadata",
+      "additionalProperties": true
+    }
+  },
+  "$defs": {
+    "trading_signal": {
+      "type": "object",
+      "description": "Individual trading signal",
+      "required": [
+        "signal_id",
+        "symbol",
+        "category",
+        "indicator",
+        "direction",
+        "strength",
+        "priority",
+        "timeframe",
+        "trigger_rule",
+        "current_value",
+        "timestamp"
+      ],
+      "properties": {
+        "signal_id": {
+          "type": "string",
+          "description": "Unique signal identifier: {category}:{indicator}:{symbol}:{timeframe}",
+          "pattern": "^[a-z]+:[a-z_]+:[A-Z0-9]+:[0-9]+[mhdw]$"
+        },
+        "symbol": {
+          "type": "string",
+          "description": "Trading symbol",
+          "minLength": 1
+        },
+        "category": {
+          "type": "string",
+          "enum": ["momentum", "trend", "volatility", "volume", "pattern", "regime"],
+          "description": "Signal category"
+        },
+        "indicator": {
+          "type": "string",
+          "description": "Source indicator name",
+          "minLength": 1
+        },
+        "direction": {
+          "type": "string",
+          "enum": ["buy", "sell", "alert"],
+          "description": "Signal direction"
+        },
+        "strength": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Signal strength (0-100)"
+        },
+        "priority": {
+          "type": "string",
+          "enum": ["high", "medium", "low"],
+          "description": "Signal priority for display/filtering"
+        },
+        "timeframe": {
+          "type": "string",
+          "enum": ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"],
+          "description": "Signal timeframe"
+        },
+        "trigger_rule": {
+          "type": "string",
+          "description": "Rule name that triggered this signal",
+          "minLength": 1
+        },
+        "current_value": {
+          "type": "number",
+          "description": "Current indicator value at trigger"
+        },
+        "threshold": {
+          "type": ["number", "null"],
+          "description": "Threshold value if applicable"
+        },
+        "previous_value": {
+          "type": ["number", "null"],
+          "description": "Previous value for state change detection"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Signal generation timestamp"
+        },
+        "cooldown_until": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "Cooldown expiry timestamp"
+        },
+        "message": {
+          "type": "string",
+          "description": "Human-readable signal description"
+        },
+        "metadata": {
+          "type": "object",
+          "description": "Additional signal metadata",
+          "additionalProperties": true
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active", "invalidated"],
+          "default": "active",
+          "description": "Signal lifecycle status"
+        },
+        "invalidated_by": {
+          "type": ["string", "null"],
+          "description": "signal_id of superseding signal"
+        },
+        "invalidated_at": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "Invalidation timestamp"
+        }
+      }
+    }
+  }
+}

@@ -23,17 +23,18 @@ Usage:
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from src.domain.events.event_types import EventType
 from src.domain.events.domain_events import MarketDataTickEvent
+from src.domain.events.event_types import EventType
 from src.utils.logging_setup import get_logger
 
 if TYPE_CHECKING:
     from src.domain.events.priority_event_bus import PriorityEventBus
-    from src.infrastructure.stores import PositionStore, MarketDataStore
-    from src.models.position import Position
+    from src.infrastructure.stores import MarketDataStore, PositionStore
     from src.models.market_data import MarketData
+    from src.models.position import Position
+
     from ..risk_facade import RiskFacade
 
 logger = get_logger(__name__)
@@ -236,9 +237,7 @@ class DeltaPublisher:
             len(initial_ticks),
         )
 
-    def _build_synthetic_ticks(
-        self, positions: List["Position"]
-    ) -> Dict[str, MarketDataTickEvent]:
+    def _build_synthetic_ticks(self, positions: List["Position"]) -> Dict[str, MarketDataTickEvent]:
         """
         Build synthetic tick events from stored market data.
 
@@ -307,8 +306,6 @@ class DeltaPublisher:
             "positions_synced": self._positions_synced,
             "facade_position_count": self._facade.position_count,
             "filter_rate": (
-                self._ticks_filtered / self._ticks_received
-                if self._ticks_received > 0
-                else 0.0
+                self._ticks_filtered / self._ticks_received if self._ticks_received > 0 else 0.0
             ),
         }

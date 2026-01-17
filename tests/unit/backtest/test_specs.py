@@ -149,9 +149,7 @@ class TestExperimentSpec:
         assert sample_experiment_spec.experiment_id is not None
         assert sample_experiment_spec.experiment_id.startswith("exp_")
 
-    def test_parameter_grid_expansion(
-        self, sample_experiment_spec: ExperimentSpec
-    ) -> None:
+    def test_parameter_grid_expansion(self, sample_experiment_spec: ExperimentSpec) -> None:
         """Test parameter grid expansion."""
         grid = sample_experiment_spec.expand_parameter_grid()
         # 3 fast_period values × 3 slow_period values = 9 combinations

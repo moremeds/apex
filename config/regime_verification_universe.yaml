@@ -1,0 +1,134 @@
+# Verification Universe for Regime Report Testing
+# Covers major sectors with representative liquid names
+
+version: "1.0"
+description: "Test universe for regime classification verification"
+
+# Market-level ETFs (required for hierarchy testing)
+market:
+  - symbol: QQQ
+    name: "Invesco QQQ Trust"
+    role: "Tech/Growth benchmark"
+  - symbol: SPY
+    name: "SPDR S&P 500 ETF"
+    role: "Broad market benchmark"
+
+# Sector ETFs
+sectors:
+  technology:
+    etf: XLK
+    stocks:
+      - AAPL   # Mega-cap, low vol
+      - MSFT   # Mega-cap, steady
+      - NVDA   # High vol, momentum
+      - AMD    # Semiconductor, cyclical
+      - CRM    # SaaS, growth
+
+  semiconductors:
+    etf: SMH
+    stocks:
+      - NVDA   # AI leader
+      - AMD    # CPU/GPU
+      - AVGO   # Diversified semi
+      - QCOM   # Mobile/wireless
+      - MU     # Memory, cyclical
+
+  financials:
+    etf: XLF
+    stocks:
+      - JPM    # Mega-cap bank
+      - GS     # Investment bank
+      - V      # Payments
+      - MA     # Payments
+      - BRK-B  # Diversified
+
+  healthcare:
+    etf: XLV
+    stocks:
+      - UNH    # Health insurance
+      - JNJ    # Pharma/consumer
+      - LLY    # Pharma, high growth
+      - PFE    # Large pharma
+      - ABBV   # Biotech
+
+  energy:
+    etf: XLE
+    stocks:
+      - XOM    # Integrated oil
+      - CVX    # Integrated oil
+      - COP    # E&P
+      - SLB    # Services
+      - OXY    # E&P
+
+  consumer_discretionary:
+    etf: XLY
+    stocks:
+      - AMZN   # E-commerce
+      - TSLA   # EV, high vol
+      - HD     # Retail
+      - NKE    # Consumer brand
+      - SBUX   # Consumer brand
+
+  industrials:
+    etf: XLI
+    stocks:
+      - CAT    # Machinery
+      - DE     # Agriculture
+      - BA     # Aerospace
+      - UPS    # Logistics
+      - HON    # Diversified
+
+# Quick test subset (for rapid iteration)
+quick_test:
+  - QQQ
+  - SPY
+  - NVDA
+  - AAPL
+  - TSLA
+  - XLF
+  - JPM
+
+# Full test (all unique symbols)
+full_test:
+  - QQQ
+  - SPY
+  - XLK
+  - SMH
+  - XLF
+  - XLV
+  - XLE
+  - XLY
+  - XLI
+  - AAPL
+  - MSFT
+  - NVDA
+  - AMD
+  - CRM
+  - AVGO
+  - QCOM
+  - MU
+  - JPM
+  - GS
+  - V
+  - MA
+  - BRK-B
+  - UNH
+  - JNJ
+  - LLY
+  - PFE
+  - ABBV
+  - XOM
+  - CVX
+  - COP
+  - SLB
+  - OXY
+  - AMZN
+  - TSLA
+  - HD
+  - NKE
+  - SBUX
+  - CAT
+  - DE
+  - BA
+  - UPS
+  - HON

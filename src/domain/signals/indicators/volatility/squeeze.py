@@ -92,9 +92,7 @@ class SqueezeIndicator(IndicatorBase):
             kc_middle = talib.EMA(close, timeperiod=kc_period)
             atr = talib.ATR(high, low, close, timeperiod=kc_atr_period)
         else:
-            bb_middle, bb_upper, bb_lower = self._calculate_bbands(
-                close, bb_period, bb_std
-            )
+            bb_middle, bb_upper, bb_lower = self._calculate_bbands(close, bb_period, bb_std)
             kc_middle = self._calculate_ema(close, kc_period)
             atr = self._calculate_atr(high, low, close, kc_atr_period)
 
@@ -104,10 +102,7 @@ class SqueezeIndicator(IndicatorBase):
         # Squeeze = 1 if BB inside KC, -1 otherwise
         squeeze = np.full(n, np.nan, dtype=np.float64)
         for i in range(max(bb_period, kc_period, kc_atr_period), n):
-            if not any(
-                np.isnan(v)
-                for v in [bb_upper[i], bb_lower[i], kc_upper[i], kc_lower[i]]
-            ):
+            if not any(np.isnan(v) for v in [bb_upper[i], bb_lower[i], kc_upper[i], kc_lower[i]]):
                 if bb_lower[i] > kc_lower[i] and bb_upper[i] < kc_upper[i]:
                     squeeze[i] = 1  # Squeeze on
                 else:
@@ -121,9 +116,7 @@ class SqueezeIndicator(IndicatorBase):
                 deviation = hl2[i] - (bb_middle[i] + kc_middle[i]) / 2
                 squeeze_mom[i] = deviation
 
-        return pd.DataFrame(
-            {"squeeze": squeeze, "squeeze_mom": squeeze_mom}, index=data.index
-        )
+        return pd.DataFrame({"squeeze": squeeze, "squeeze_mom": squeeze_mom}, index=data.index)
 
     def _calculate_bbands(
         self, close: np.ndarray, period: int, std_dev: float

@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 
 import pandas as pd
 
-from ...core import RunSpec, RunResult, RunMetrics, RunStatus
+from ...core import RunMetrics, RunResult, RunSpec, RunStatus
 
 
 class EngineType(str, Enum):
@@ -163,12 +163,7 @@ class BaseEngine(ABC):
         """Override in engines that support vectorization."""
         return False
 
-    def load_data(
-        self,
-        symbol: str,
-        start_date: date,
-        end_date: date
-    ) -> Optional[pd.DataFrame]:
+    def load_data(self, symbol: str, start_date: date, end_date: date) -> Optional[pd.DataFrame]:
         """
         Load OHLCV data for a symbol.
 
@@ -186,12 +181,7 @@ class BaseEngine(ABC):
 
         return df
 
-    def _fetch_data(
-        self,
-        symbol: str,
-        start_date: date,
-        end_date: date
-    ) -> Optional[pd.DataFrame]:
+    def _fetch_data(self, symbol: str, start_date: date, end_date: date) -> Optional[pd.DataFrame]:
         """
         Fetch OHLCV data from configured source.
 
@@ -204,15 +194,11 @@ class BaseEngine(ABC):
         else:
             raise ValueError(f"Unknown data source: {self.config.data_source}")
 
-    def _fetch_ib(
-        self,
-        symbol: str,
-        start_date: date,
-        end_date: date
-    ) -> Optional[pd.DataFrame]:
+    def _fetch_ib(self, symbol: str, start_date: date, end_date: date) -> Optional[pd.DataFrame]:
         """Fetch data from IB using existing adapter infrastructure."""
         try:
             from datetime import datetime
+
             from ...data.providers import IbBacktestDataProvider
 
             provider = IbBacktestDataProvider(
@@ -241,15 +227,11 @@ class BaseEngine(ABC):
 
         except Exception as e:
             import logging
+
             logging.getLogger(__name__).warning(f"IB fetch failed for {symbol}: {e}")
             return None
 
-    def _fetch_yahoo(
-        self,
-        symbol: str,
-        start_date: date,
-        end_date: date
-    ) -> Optional[pd.DataFrame]:
+    def _fetch_yahoo(self, symbol: str, start_date: date, end_date: date) -> Optional[pd.DataFrame]:
         """Fetch data from Yahoo Finance via yfinance."""
         try:
             import yfinance as yf

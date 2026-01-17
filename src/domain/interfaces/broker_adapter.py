@@ -1,12 +1,13 @@
 """Broker adapter interface for order and trade operations."""
 
 from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from typing import List
 
-from ...models.position import Position
 from ...models.account import AccountInfo
 from ...models.order import Order, Trade
+from ...models.position import Position
 
 
 class BrokerAdapter(ABC):

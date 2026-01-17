@@ -1,9 +1,10 @@
 """Risk snapshot model for aggregated portfolio metrics."""
 
 from __future__ import annotations
+
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List
 
 from ..utils.timezone import now_utc
 
@@ -50,7 +51,7 @@ class RiskSnapshot:
 
     # Greeks concentration (near-term)
     gamma_notional_near_term: float = 0.0  # 0-7 DTE
-    vega_notional_near_term: float = 0.0   # 0-30 DTE
+    vega_notional_near_term: float = 0.0  # 0-30 DTE
 
     # Account metrics (aggregated)
     margin_utilization: float = 0.0

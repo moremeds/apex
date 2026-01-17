@@ -24,16 +24,17 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 from .app import ApexApp
 
 if TYPE_CHECKING:
-    from ..models.risk_snapshot import RiskSnapshot
-    from ..models.risk_signal import RiskSignal
-    from ..infrastructure.monitoring import ComponentHealth
     from ..domain.interfaces.signal_persistence import SignalPersistencePort
+    from ..infrastructure.monitoring import ComponentHealth
     from ..infrastructure.persistence.signal_listener import SignalListener
+    from ..models.risk_signal import RiskSignal
+    from ..models.risk_snapshot import RiskSnapshot
 
 
 @dataclass
 class DashboardUpdate:
     """Data update for the dashboard."""
+
     snapshot: Any
     signals: List[Any]
     health: List[Any]

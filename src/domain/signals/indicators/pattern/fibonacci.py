@@ -28,7 +28,6 @@ import pandas as pd
 from ...models import SignalCategory
 from ..base import IndicatorBase
 
-
 FIB_LEVELS = [0.0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0]
 
 

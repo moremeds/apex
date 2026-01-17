@@ -1,0 +1,96 @@
+# Sector Regime Parameter Optimization
+#
+# Optimizes regime detection thresholds for sector ETFs.
+# Sectors have different volatility profiles than market benchmarks.
+#
+# Run with:
+#   python -m src.runners.systematic_backtest_runner --spec config/backtest/regime/sector_regime_opt.yaml
+
+name: "Sector_Regime_Optimization"
+description: "Optimize regime thresholds for sector ETFs"
+strategy: "regime_validation"
+
+# Parameter search space (slightly wider ranges than market)
+parameters:
+  vol_high_short_pct:
+    type: range
+    min: 75
+    max: 95
+    step: 5
+  vol_high_long_pct:
+    type: range
+    min: 80
+    max: 98
+    step: 5
+  chop_high_pct:
+    type: range
+    min: 65
+    max: 85
+    step: 5
+  ext_overbought:
+    type: range
+    min: 2.0
+    max: 3.5
+    step: 0.25
+  ext_oversold:
+    type: range
+    min: -3.5
+    max: -2.0
+    step: 0.25
+
+# Major sector ETFs
+universe:
+  type: static
+  symbols:
+    - SMH    # Semiconductors (high vol)
+    - XLK    # Technology
+    - XLV    # Healthcare
+    - XLF    # Financials
+    - XLE    # Energy (very high vol)
+    - XLY    # Consumer Discretionary
+
+# Walk-forward configuration
+temporal:
+  primary_method: walk_forward
+  train_days: 252
+  test_days: 63
+  folds: 4
+  purge_days: 5
+  embargo_days: 2
+  start_date: "2020-01-01"
+  end_date: "2025-12-30"
+
+# Bayesian optimization
+optimization:
+  method: bayesian
+  sampler: TPE
+  n_trials: 150
+  metric: regime_utility
+  direction: maximize
+  constraints:
+    - metric: oos_sharpe_improvement
+      operator: ">="
+      value: 0.0
+    - metric: regime_stability
+      operator: ">="
+      value: 0.65   # Slightly lower stability requirement for sectors
+    - metric: pbo
+      operator: "<="
+      value: 0.50
+  weights:
+    oos_sharpe: 1.0
+    missed_r2_rate: -2.5   # Slightly lower penalty than market
+    false_r2_rate: -0.5
+    regime_stability: 0.5
+
+profiles:
+  default:
+    name: sector_regime
+    version: v1
+    slippage_bps: 5.0
+    commission_per_share: 0.005
+    fill_model: close
+
+reproducibility:
+  random_seed: 42
+  data_version: "apex_2024.12"

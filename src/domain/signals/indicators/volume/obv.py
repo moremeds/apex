@@ -71,9 +71,7 @@ class OBVIndicator(IndicatorBase):
         # Signal line (SMA of OBV)
         obv_signal = self._calculate_sma(obv, signal_period)
 
-        return pd.DataFrame(
-            {"obv": obv, "obv_signal": obv_signal}, index=data.index
-        )
+        return pd.DataFrame({"obv": obv, "obv_signal": obv_signal}, index=data.index)
 
     def _calculate_manual(self, close: np.ndarray, volume: np.ndarray) -> np.ndarray:
         """Calculate OBV without TA-Lib."""

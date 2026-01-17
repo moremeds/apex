@@ -1,18 +1,19 @@
 """Event bus interface for publish-subscribe pattern."""
 
 from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from typing import Callable, Any, TypeVar, Generic, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Generic, TypeVar
 
 # Re-export EventType from the enhanced event_types module
 # This provides backward compatibility for existing imports
-from ..events.event_types import EventType, EventPriority
+from ..events.event_types import EventPriority, EventType
 
 if TYPE_CHECKING:
     from ..events.domain_events import DomainEvent
 
 # Type variable for typed event callbacks
-T = TypeVar('T', bound='DomainEvent')
+T = TypeVar("T", bound="DomainEvent")
 
 
 class EventBus(ABC):

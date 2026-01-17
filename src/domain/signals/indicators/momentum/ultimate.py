@@ -71,18 +71,14 @@ class UltimateOscillatorIndicator(IndicatorBase):
         close = data["close"].values.astype(np.float64)
 
         if HAS_TALIB:
-            ultosc = talib.ULTOSC(
-                high, low, close,
-                timeperiod1=p1, timeperiod2=p2, timeperiod3=p3
-            )
+            ultosc = talib.ULTOSC(high, low, close, timeperiod1=p1, timeperiod2=p2, timeperiod3=p3)
         else:
             ultosc = self._calculate_manual(high, low, close, p1, p2, p3)
 
         return pd.DataFrame({"ultosc": ultosc}, index=data.index)
 
     def _calculate_manual(
-        self, high: np.ndarray, low: np.ndarray, close: np.ndarray,
-        p1: int, p2: int, p3: int
+        self, high: np.ndarray, low: np.ndarray, close: np.ndarray, p1: int, p2: int, p3: int
     ) -> np.ndarray:
         """Calculate Ultimate Oscillator without TA-Lib."""
         n = len(close)

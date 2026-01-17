@@ -154,8 +154,12 @@ class PivotPointsIndicator(IndicatorBase):
         if pd.isna(pp):
             return {
                 "pivot": 0,
-                "r1": 0, "r2": 0, "r3": 0,
-                "s1": 0, "s2": 0, "s3": 0,
+                "r1": 0,
+                "r2": 0,
+                "r3": 0,
+                "s1": 0,
+                "s2": 0,
+                "s3": 0,
                 "position": "neutral",
             }
 

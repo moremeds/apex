@@ -8,12 +8,13 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Optional
 from enum import Enum
+from typing import Optional
 
 
 class AssetType(Enum):
     """Asset type for fee calculation."""
+
     STOCK = "stock"
     OPTION = "option"
     FUTURE = "future"
@@ -23,6 +24,7 @@ class AssetType(Enum):
 @dataclass
 class FeeBreakdown:
     """Detailed fee breakdown."""
+
     commission: float = 0.0
     exchange_fee: float = 0.0
     clearing_fee: float = 0.0

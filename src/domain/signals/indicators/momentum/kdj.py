@@ -68,7 +68,11 @@ class KDJIndicator(IndicatorBase):
 
         if len(data) == 0:
             return pd.DataFrame(
-                {"k": pd.Series(dtype=float), "d": pd.Series(dtype=float), "j": pd.Series(dtype=float)},
+                {
+                    "k": pd.Series(dtype=float),
+                    "d": pd.Series(dtype=float),
+                    "j": pd.Series(dtype=float),
+                },
                 index=data.index,
             )
 
@@ -78,7 +82,9 @@ class KDJIndicator(IndicatorBase):
 
         if HAS_TALIB:
             k, d = talib.STOCH(
-                high, low, close,
+                high,
+                low,
+                close,
                 fastk_period=fastk,
                 slowk_period=slowk,
                 slowk_matype=0,  # SMA
@@ -94,8 +100,13 @@ class KDJIndicator(IndicatorBase):
         return pd.DataFrame({"k": k, "d": d, "j": j}, index=data.index)
 
     def _calculate_manual(
-        self, high: np.ndarray, low: np.ndarray, close: np.ndarray,
-        fastk: int, slowk: int, slowd: int
+        self,
+        high: np.ndarray,
+        low: np.ndarray,
+        close: np.ndarray,
+        fastk: int,
+        slowk: int,
+        slowd: int,
     ) -> tuple[np.ndarray, np.ndarray]:
         """Calculate Stochastic without TA-Lib."""
         n = len(close)

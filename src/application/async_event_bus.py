@@ -1,17 +1,17 @@
 """Async event bus with non-blocking publish and debounced dispatch."""
 
 from __future__ import annotations
+
 import asyncio
 import time
-from typing import Callable, Any, Dict, List, Optional, Tuple
 from collections import defaultdict
 from dataclasses import dataclass, field
 from threading import Lock
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from ..domain.interfaces.event_bus import EventBus, EventType
 from ..domain.events.domain_events import DomainEvent
+from ..domain.interfaces.event_bus import EventBus, EventType
 from ..utils.logging_setup import get_logger
-
 
 logger = get_logger(__name__)
 
@@ -19,6 +19,7 @@ logger = get_logger(__name__)
 @dataclass
 class EventEnvelope:
     """Wrapper for event with metadata."""
+
     event_type: EventType
     payload: DomainEvent
     timestamp: float = field(default_factory=time.time)
@@ -50,7 +51,9 @@ class AsyncEventBus(EventBus):
             debounce_ms: Debounce window for high-frequency events
         """
         self._subscribers: Dict[EventType, List[Callable[[DomainEvent], None]]] = defaultdict(list)
-        self._async_subscribers: Dict[EventType, List[Callable[[DomainEvent], Any]]] = defaultdict(list)
+        self._async_subscribers: Dict[EventType, List[Callable[[DomainEvent], Any]]] = defaultdict(
+            list
+        )
         self._queue: asyncio.Queue[EventEnvelope] = None  # Created in start()
         self._max_queue_size = max_queue_size
         self._debounce_ms = debounce_ms
@@ -96,23 +99,23 @@ class AsyncEventBus(EventBus):
             payload: Event data (Must be DomainEvent)
         """
         if not isinstance(payload, (DomainEvent, dict)) and event_type != EventType.SHUTDOWN:
-             # Allow dict for SHUTDOWN or strictly enforce DomainEvent elsewhere?
-             # For now, let's enforce DomainEvent but keep dict for SHUTDOWN if payload is dict.
-             # Actually, DomainEvent base class is good.
-             # Wait, SHUTDOWN payload in existing code is `{"timestamp": time.time()}`.
-             # I should probably create a ShutdownEvent or allow dict for legacy compatibility
-             # BUT the instruction said "no need to be backward compatible".
-             # So I will enforce DomainEvent and update callers.
-             pass
-        
+            # Allow dict for SHUTDOWN or strictly enforce DomainEvent elsewhere?
+            # For now, let's enforce DomainEvent but keep dict for SHUTDOWN if payload is dict.
+            # Actually, DomainEvent base class is good.
+            # Wait, SHUTDOWN payload in existing code is `{"timestamp": time.time()}`.
+            # I should probably create a ShutdownEvent or allow dict for legacy compatibility
+            # BUT the instruction said "no need to be backward compatible".
+            # So I will enforce DomainEvent and update callers.
+            pass
+
         if isinstance(payload, dict):
-             # STRICT MODE: Reject dicts
-             if event_type == EventType.SHUTDOWN:
-                 # Exception for shutdown as it's internal control
-                 pass
-             else:
-                 raise TypeError(f"Payload must be DomainEvent, got dict: {payload}")
-        
+            # STRICT MODE: Reject dicts
+            if event_type == EventType.SHUTDOWN:
+                # Exception for shutdown as it's internal control
+                pass
+            else:
+                raise TypeError(f"Payload must be DomainEvent, got dict: {payload}")
+
         envelope = EventEnvelope(
             event_type=event_type,
             payload=payload,
@@ -296,10 +299,7 @@ class AsyncEventBus(EventBus):
             try:
                 # Wait for event with timeout (allows checking _running flag)
                 try:
-                    envelope = await asyncio.wait_for(
-                        self._queue.get(),
-                        timeout=0.1
-                    )
+                    envelope = await asyncio.wait_for(self._queue.get(), timeout=0.1)
                 except asyncio.TimeoutError:
                     # Flush any pending debounced ticks
                     await self._flush_pending_ticks()
@@ -385,7 +385,9 @@ class AsyncEventBus(EventBus):
                 self._stats["dispatched"] += 1
             except Exception as e:
                 self._stats["errors"] += 1
-                logger.error(f"Error in async subscriber for {event_type.value}: {e}", exc_info=True)
+                logger.error(
+                    f"Error in async subscriber for {event_type.value}: {e}", exc_info=True
+                )
 
     async def _run_heavy_callback(self, callback: Callable, payload: Any) -> None:
         """Run heavy callback in thread pool with semaphore limiting."""
@@ -413,8 +415,7 @@ class AsyncEventBus(EventBus):
             stats["queue_size"] = self._queue.qsize() if self._queue else 0
             stats["queue_max"] = self._max_queue_size
             stats["queue_utilization_pct"] = (
-                100 * stats["queue_size"] // self._max_queue_size
-                if self._max_queue_size > 0 else 0
+                100 * stats["queue_size"] // self._max_queue_size if self._max_queue_size > 0 else 0
             )
             stats["subscriber_count"] = sum(len(v) for v in self._subscribers.values())
             stats["async_subscriber_count"] = sum(len(v) for v in self._async_subscribers.values())

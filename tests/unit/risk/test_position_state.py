@@ -1,13 +1,14 @@
 """Unit tests for PositionState and PositionDelta."""
 
-import pytest
 from datetime import datetime
 
-from src.domain.services.risk.state.position_state import (
-    PositionState,
-    PositionDelta,
-)
+import pytest
+
 from src.domain.events.domain_events import PositionDeltaEvent
+from src.domain.services.risk.state.position_state import (
+    PositionDelta,
+    PositionState,
+)
 
 
 class TestPositionDelta:

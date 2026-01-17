@@ -25,24 +25,28 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import logging
 import signal
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Type
-import logging
+from typing import Any, Dict, List, Optional, Type
 
 import yaml
 
 from ..domain.clock import SystemClock
-from ..domain.strategy.base import Strategy, StrategyContext
-from ..domain.strategy.scheduler import LiveScheduler
-from ..domain.strategy.registry import get_strategy_class, list_strategies
-from ..domain.strategy.risk_gate import RiskGate, ValidationResult
-from ..domain.strategy.cost_estimator import create_ib_cost_estimator, create_futu_cost_estimator, create_zero_cost_estimator
 from ..domain.events.domain_events import QuoteTick, TradeFill
 from ..domain.interfaces.execution_provider import OrderRequest
+from ..domain.strategy.base import Strategy, StrategyContext
+from ..domain.strategy.cost_estimator import (
+    create_futu_cost_estimator,
+    create_ib_cost_estimator,
+    create_zero_cost_estimator,
+)
+from ..domain.strategy.registry import get_strategy_class, list_strategies
+from ..domain.strategy.risk_gate import RiskGate, ValidationResult
+from ..domain.strategy.scheduler import LiveScheduler
 
 logger = logging.getLogger(__name__)
 
@@ -228,7 +232,7 @@ class TradingRunner:
                 f"     {self.strategy_name}:\n"
                 f"       validation:\n"
                 f"         validated_by_apex: true\n"
-                f"         validation_date: \"YYYY-MM-DD\"\n"
+                f'         validation_date: "YYYY-MM-DD"\n'
                 f"         validation_sharpe: 1.42  # optional\n"
                 f"{'=' * 60}"
             )
@@ -330,8 +334,7 @@ class TradingRunner:
         strategy_class = get_strategy_class(self.strategy_name)
         if strategy_class is None:
             raise ValueError(
-                f"Unknown strategy: {self.strategy_name}. "
-                f"Available: {list_strategies()}"
+                f"Unknown strategy: {self.strategy_name}. " f"Available: {list_strategies()}"
             )
 
         # Create scheduler
@@ -525,6 +528,7 @@ class TradingRunner:
 
     def _setup_signal_handlers(self) -> None:
         """Set up signal handlers for graceful shutdown."""
+
         def handle_signal(signum, frame):
             logger.info(f"Received signal {signum}, shutting down...")
             self._running = False
@@ -543,8 +547,7 @@ class TradingRunner:
             self._scheduler.stop()
 
         logger.info(
-            f"Trading stopped: orders={self._order_count}, "
-            f"rejected={self._rejected_count}"
+            f"Trading stopped: orders={self._order_count}, " f"rejected={self._rejected_count}"
         )
 
     def _print_config(self) -> None:
@@ -606,7 +609,8 @@ def create_parser() -> argparse.ArgumentParser:
         help="Strategy parameters (key=value)",
     )
     parser.add_argument(
-        "-v", "--verbose",
+        "-v",
+        "--verbose",
         action="store_true",
         help="Verbose output",
     )

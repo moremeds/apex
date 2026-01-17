@@ -9,13 +9,13 @@ All IB adapters inherit from this base class which provides:
 """
 
 from __future__ import annotations
-from typing import Optional, Any
-from datetime import datetime, date
+
 from abc import ABC, abstractmethod
+from datetime import date, datetime
+from typing import Any, Optional
 
-from ....utils.logging_setup import get_logger
 from ....domain.interfaces.event_bus import EventBus
-
+from ....utils.logging_setup import get_logger
 
 logger = get_logger(__name__)
 
@@ -93,12 +93,7 @@ class IbBaseAdapter(ABC):
 
             actual_client_id = self.client_id
             self.ib = IB()
-            await self.ib.connectAsync(
-                self.host,
-                self.port,
-                clientId=actual_client_id,
-                timeout=5
-            )
+            await self.ib.connectAsync(self.host, self.port, clientId=actual_client_id, timeout=5)
             self._connected = True
             self._connect_time = datetime.now()
             self._last_error = None

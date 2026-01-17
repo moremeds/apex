@@ -23,12 +23,12 @@ Usage:
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, date, timedelta
-from typing import List, Dict, Optional, TYPE_CHECKING
+from datetime import date, datetime, timedelta
+from typing import TYPE_CHECKING, Dict, List, Optional
 
-from ..utils.logging_setup import get_logger
 from ..domain.events.domain_events import BarData
-from .bar_cache_service import BarPeriod, BarCacheStore
+from ..utils.logging_setup import get_logger
+from .bar_cache_service import BarCacheStore, BarPeriod
 
 if TYPE_CHECKING:
     from ib_async import IB
@@ -189,24 +189,26 @@ class HistoricalDataService:
                     results[symbol] = cached
                     continue
 
-            to_fetch.append({
-                "symbol": symbol,
-                "timeframe": timeframe,
-                "period": period,
-            })
+            to_fetch.append(
+                {
+                    "symbol": symbol,
+                    "timeframe": timeframe,
+                    "period": period,
+                }
+            )
 
         if not to_fetch:
             logger.debug(f"Batch: all {len(requests)} symbols from cache")
             return results
 
-        logger.info(f"Batch: fetching {len(to_fetch)} symbols from IB "
-                   f"({len(results)} from cache)")
+        logger.info(
+            f"Batch: fetching {len(to_fetch)} symbols from IB " f"({len(results)} from cache)"
+        )
 
         # Note: Rate limiting moved to HistoricalRequestScheduler (A1)
         # This service now does simple concurrent fetch
         tasks = [
-            self._fetch_from_ib(req["symbol"], req["timeframe"], req["period"])
-            for req in to_fetch
+            self._fetch_from_ib(req["symbol"], req["timeframe"], req["period"]) for req in to_fetch
         ]
 
         fetched = await asyncio.gather(*tasks, return_exceptions=True)
@@ -244,10 +246,7 @@ class HistoricalDataService:
             return 0
 
         period = BarPeriod.bars(lookback_days)
-        requests = [
-            {"symbol": sym, "timeframe": "1d", "period": period}
-            for sym in symbols
-        ]
+        requests = [{"symbol": sym, "timeframe": "1d", "period": period} for sym in symbols]
 
         logger.info(f"Pre-fetching {lookback_days}d daily bars for {len(symbols)} symbols")
         results = await self.fetch_bars_batch(requests, use_cache=True)
@@ -276,7 +275,7 @@ class HistoricalDataService:
         for attempt in range(max_retries):
             if not self.is_connected():
                 if attempt < max_retries - 1:
-                    delay = base_delay * (2 ** attempt)  # Exponential backoff
+                    delay = base_delay * (2**attempt)  # Exponential backoff
                     logger.warning(
                         f"IB not connected for {symbol}, retry {attempt + 1}/{max_retries} in {delay}s"
                     )
@@ -290,9 +289,13 @@ class HistoricalDataService:
                 last_error = e
                 error_str = str(e).lower()
                 # M12: Retry on connection-related errors
-                if "disconnect" in error_str or "not connected" in error_str or "timeout" in error_str:
+                if (
+                    "disconnect" in error_str
+                    or "not connected" in error_str
+                    or "timeout" in error_str
+                ):
                     if attempt < max_retries - 1:
-                        delay = base_delay * (2 ** attempt)
+                        delay = base_delay * (2**attempt)
                         logger.warning(
                             f"IB connection error for {symbol}: {e}, retry {attempt + 1}/{max_retries} in {delay}s"
                         )
@@ -347,7 +350,7 @@ class HistoricalDataService:
 
             result = []
             for bar in bars:
-                bar_ts = bar.date if hasattr(bar, 'date') else datetime.now()
+                bar_ts = bar.date if hasattr(bar, "date") else datetime.now()
                 if isinstance(bar_ts, date) and not isinstance(bar_ts, datetime):
                     bar_ts = datetime.combine(bar_ts, datetime.min.time())
 
@@ -367,13 +370,16 @@ class HistoricalDataService:
 
             # Filter by start date if range mode
             if period.mode == "range" and period.start:
-                start_dt = period.start if isinstance(period.start, datetime) else \
-                          datetime.combine(period.start, datetime.min.time())
+                start_dt = (
+                    period.start
+                    if isinstance(period.start, datetime)
+                    else datetime.combine(period.start, datetime.min.time())
+                )
                 result = [b for b in result if b.timestamp and b.timestamp >= start_dt]
 
             # Apply count limit if specified
             if period.mode == "bars" and period.count and len(result) > period.count:
-                result = result[-period.count:]
+                result = result[-period.count :]
 
             logger.debug(f"Fetched {len(result)} {timeframe} bars for {symbol}")
             return result

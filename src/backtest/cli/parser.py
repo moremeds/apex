@@ -93,20 +93,20 @@ Examples:
     # Single backtest options
     parser.add_argument("--strategy", type=str, help="Strategy name (e.g., ma_cross)")
     parser.add_argument("--symbols", type=str, help="Comma-separated symbols (e.g., AAPL,MSFT)")
+    parser.add_argument("--start", action=DateAction, help="Start date (YYYY-MM-DD)")
+    parser.add_argument("--end", action=DateAction, help="End date (YYYY-MM-DD)")
     parser.add_argument(
-        "--start", action=DateAction, help="Start date (YYYY-MM-DD)"
-    )
-    parser.add_argument(
-        "--end", action=DateAction, help="End date (YYYY-MM-DD)"
-    )
-    parser.add_argument(
-        "--capital", action=PositiveFloatAction, default=100000.0,
-        help="Initial capital (must be positive, default: 100000)"
+        "--capital",
+        action=PositiveFloatAction,
+        default=100000.0,
+        help="Initial capital (must be positive, default: 100000)",
     )
 
     # Systematic experiment options
     parser.add_argument("--spec", type=str, help="Path to experiment YAML spec")
-    parser.add_argument("--output", type=str, default="results/experiments", help="Output directory")
+    parser.add_argument(
+        "--output", type=str, default="results/experiments", help="Output directory"
+    )
     parser.add_argument(
         "--parallel",
         type=int,
@@ -135,13 +135,19 @@ Examples:
     parser.add_argument("--data-dir", type=str, default="./data", help="Data directory")
     parser.add_argument("--bar-size", type=str, default="1d", help="Bar size")
     parser.add_argument("--params", type=str, nargs="*", help="Strategy params as key=value")
-    parser.add_argument("--fill-model", type=str, default="immediate", choices=["immediate", "slippage"])
+    parser.add_argument(
+        "--fill-model", type=str, default="immediate", choices=["immediate", "slippage"]
+    )
     parser.add_argument("--slippage", type=float, default=5.0, help="Slippage in bps")
     parser.add_argument("--commission", type=float, default=0.005, help="Commission per share")
 
     # Streaming options
-    parser.add_argument("--streaming", action="store_true", default=True, help="Use streaming feeds")
-    parser.add_argument("--no-streaming", action="store_false", dest="streaming", help="Use full-load feeds")
+    parser.add_argument(
+        "--streaming", action="store_true", default=True, help="Use streaming feeds"
+    )
+    parser.add_argument(
+        "--no-streaming", action="store_false", dest="streaming", help="Use full-load feeds"
+    )
 
     # Historical coverage options
     parser.add_argument(

@@ -16,14 +16,14 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from textual.widget import Widget
-from textual.reactive import reactive
-from textual.widgets import Static
-from textual.containers import Vertical
-from textual.app import ComposeResult
 from textual import work
+from textual.app import ComposeResult
+from textual.containers import Vertical
+from textual.reactive import reactive
+from textual.widget import Widget
+from textual.widgets import Static
 
-from ..viewmodels.atr_vm import ATRViewModel, ATRLevels
+from ..viewmodels.atr_vm import ATRLevels, ATRViewModel
 
 
 class ATRPanel(Widget):
@@ -163,7 +163,9 @@ class ATRPanel(Widget):
         # Row 1: Header line
         qty_str = ""
         if lv.quantity > 0:
-            qty_str = f"  [#7ee787]{lv.quantity:,.0f} sh[/]  [#c9d1d9]Cost: ${lv.cost_basis:,.0f}[/]"
+            qty_str = (
+                f"  [#7ee787]{lv.quantity:,.0f} sh[/]  [#c9d1d9]Cost: ${lv.cost_basis:,.0f}[/]"
+            )
         lines.append(
             f"[bold #5fd7ff]{lv.symbol}[/] [bold #c9d1d9]${lv.price:,.2f}[/]  "
             f"[bold #f6d365]ATR ${lv.atr:.2f}[/] [#f6d365]({lv.atr_pct:.1f}%)[/]  "
@@ -226,9 +228,7 @@ class ATRPanel(Widget):
                 f"[#f6d365]Sell {lv.q3:,} @ 3R (${lv.r3:,.0f})[/]  "
                 f"[#f6d365]+${lv.profit_3r:,.0f}[/]  [#f6d365]+{lv.pct_3r:.1f}%[/]"
             )
-            lines.append(
-                f"[#5fd7ff]Trail {lv.runners:,} (2xATR) -> runners 5R-8R[/]"
-            )
+            lines.append(f"[#5fd7ff]Trail {lv.runners:,} (2xATR) -> runners 5R-8R[/]")
             lines.append("")
 
         # Row 5: Summary

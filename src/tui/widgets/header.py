@@ -11,11 +11,11 @@ Displays:
 
 from __future__ import annotations
 
-from textual.widget import Widget
-from textual.reactive import reactive
-from textual.widgets import Static, Tabs, Tab
-from textual.containers import Horizontal
 from textual.app import ComposeResult
+from textual.containers import Horizontal
+from textual.reactive import reactive
+from textual.widget import Widget
+from textual.widgets import Static, Tab, Tabs
 
 from ...utils.market_hours import MarketHours
 from ..base import VIEW_TABS
@@ -48,15 +48,13 @@ class HeaderWidget(Widget):
         # Center() inside a 1-row height widget causes layout issues
         with Horizontal(id="header-content"):
             yield Static(self._build_header_text(), id="header-left")
-            tabs = [
-                Tab(f"[{key}]{label}", id=tab_id)
-                for key, label, tab_id, _view in VIEW_TABS
-            ]
+            tabs = [Tab(f"[{key}]{label}", id=tab_id) for key, label, tab_id, _view in VIEW_TABS]
             yield Tabs(*tabs, id="header-tabs", active=self.active_tab)
 
     def _build_header_text(self) -> str:
         """Build the header text with all components."""
         from ...utils.timezone import DisplayTimezone
+
         # Get current time using configured timezone
         if self._display_tz is None:
             self._display_tz = DisplayTimezone(self._display_tz_name)

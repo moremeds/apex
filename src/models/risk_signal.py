@@ -6,33 +6,37 @@ Used by the Risk Signal Engine to provide structured output to the dashboard.
 """
 
 from __future__ import annotations
+
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
 
 
 class SignalLevel(Enum):
     """Level at which the signal was detected."""
+
     PORTFOLIO = "PORTFOLIO"  # Portfolio-wide risk (e.g., total delta breach)
-    POSITION = "POSITION"    # Single position risk (e.g., stop loss hit)
-    STRATEGY = "STRATEGY"    # Multi-leg strategy risk (e.g., diagonal delta flip)
+    POSITION = "POSITION"  # Single position risk (e.g., stop loss hit)
+    STRATEGY = "STRATEGY"  # Multi-leg strategy risk (e.g., diagonal delta flip)
 
 
 class SignalSeverity(Enum):
     """Severity of the risk signal."""
-    INFO = "INFO"            # Informational - monitor
-    WARNING = "WARNING"      # Warning - take action soon
-    CRITICAL = "CRITICAL"    # Critical - immediate action required
+
+    INFO = "INFO"  # Informational - monitor
+    WARNING = "WARNING"  # Warning - take action soon
+    CRITICAL = "CRITICAL"  # Critical - immediate action required
 
 
 class SuggestedAction(Enum):
     """Suggested action to address the risk."""
-    MONITOR = "MONITOR"                # Continue monitoring
-    REDUCE = "REDUCE"                  # Reduce position size
-    CLOSE = "CLOSE"                    # Close position entirely
-    ROLL = "ROLL"                      # Roll to different expiry/strike
-    HEDGE = "HEDGE"                    # Add hedge position
+
+    MONITOR = "MONITOR"  # Continue monitoring
+    REDUCE = "REDUCE"  # Reduce position size
+    CLOSE = "CLOSE"  # Close position entirely
+    ROLL = "ROLL"  # Roll to different expiry/strike
+    HEDGE = "HEDGE"  # Add hedge position
     HALT_NEW_TRADES = "HALT_NEW_TRADES"  # Stop opening new positions
 
 

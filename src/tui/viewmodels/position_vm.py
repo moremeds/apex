@@ -11,7 +11,7 @@ Extracts business logic from PositionsTable:
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from .base import BaseViewModel, CellUpdate
 
@@ -64,9 +64,7 @@ class PositionViewModel(BaseViewModel[List[Any]]):
         # Sort underlyings by absolute market value
         sorted_underlyings = sorted(
             by_underlying.keys(),
-            key=lambda u: sum(
-                abs(getattr(p, "market_value", 0) or 0) for p in by_underlying[u]
-            ),
+            key=lambda u: sum(abs(getattr(p, "market_value", 0) or 0) for p in by_underlying[u]),
             reverse=True,
         )
         self._underlying_order = sorted_underlyings
@@ -447,9 +445,7 @@ class PositionViewModel(BaseViewModel[List[Any]]):
             "mark_price": getattr(pos, "mark_price", 0) or 0,
         }
 
-    def apply_deltas(
-        self, deltas: Dict[str, "PositionDeltaEvent"]
-    ) -> List[CellUpdate]:
+    def apply_deltas(self, deltas: Dict[str, "PositionDeltaEvent"]) -> List[CellUpdate]:
         """
         Apply position deltas and return cell updates.
 
@@ -514,19 +510,25 @@ class PositionViewModel(BaseViewModel[List[Any]]):
             # Skip aggregate rows (__portfolio__, __total__) as Spot is meaningless for them
             if not row_key.startswith("__"):
                 updates.append(
-                    CellUpdate(row_key, 2, self._fmt_price(delta.underlying_price, is_close=False, decimals=2))
+                    CellUpdate(
+                        row_key,
+                        2,
+                        self._fmt_price(delta.underlying_price, is_close=False, decimals=2),
+                    )
                 )
 
-            updates.extend([
-                CellUpdate(row_key, 4, self._fmt_number(values["mkt_value"])),
-                CellUpdate(row_key, 5, self._fmt_number(values["pnl"], color=True)),
-                CellUpdate(row_key, 6, self._fmt_number(values["upnl"], color=True)),
-                CellUpdate(row_key, 7, self._fmt_number(values["delta_$"])),  # Delta $ column
-                CellUpdate(row_key, 8, self._fmt_number(values["delta"])),
-                CellUpdate(row_key, 9, self._fmt_number(values["gamma"])),
-                CellUpdate(row_key, 10, self._fmt_number(values["vega"])),
-                CellUpdate(row_key, 11, self._fmt_number(values["theta"])),
-            ])
+            updates.extend(
+                [
+                    CellUpdate(row_key, 4, self._fmt_number(values["mkt_value"])),
+                    CellUpdate(row_key, 5, self._fmt_number(values["pnl"], color=True)),
+                    CellUpdate(row_key, 6, self._fmt_number(values["upnl"], color=True)),
+                    CellUpdate(row_key, 7, self._fmt_number(values["delta_$"])),  # Delta $ column
+                    CellUpdate(row_key, 8, self._fmt_number(values["delta"])),
+                    CellUpdate(row_key, 9, self._fmt_number(values["gamma"])),
+                    CellUpdate(row_key, 10, self._fmt_number(values["vega"])),
+                    CellUpdate(row_key, 11, self._fmt_number(values["theta"])),
+                ]
+            )
         else:
             # Detailed view: Ticker, Qty, Spot, IV, Beta, Mkt Value, P&L, UP&L, Delta $, D, G, V, Th
             # Indices:           0      1     2    3    4       5        6      7       8    9 10 11 12
@@ -537,18 +539,22 @@ class PositionViewModel(BaseViewModel[List[Any]]):
                 is_close = False  # Delta events are live, not close prices
                 decimals = 3 if "-stock" not in row_key else 2
                 updates.append(
-                    CellUpdate(row_key, 2, self._fmt_price(delta.new_mark_price, is_close, decimals))
+                    CellUpdate(
+                        row_key, 2, self._fmt_price(delta.new_mark_price, is_close, decimals)
+                    )
                 )
 
-            updates.extend([
-                CellUpdate(row_key, 5, self._fmt_number(values["mkt_value"])),
-                CellUpdate(row_key, 6, self._fmt_number(values["pnl"], color=True)),
-                CellUpdate(row_key, 7, self._fmt_number(values["upnl"], color=True)),
-                CellUpdate(row_key, 8, self._fmt_number(values["delta_$"])),  # Delta $ column
-                CellUpdate(row_key, 9, self._fmt_number(values["delta"])),
-                CellUpdate(row_key, 10, self._fmt_number(values["gamma"])),
-                CellUpdate(row_key, 11, self._fmt_number(values["vega"])),
-                CellUpdate(row_key, 12, self._fmt_number(values["theta"])),
-            ])
+            updates.extend(
+                [
+                    CellUpdate(row_key, 5, self._fmt_number(values["mkt_value"])),
+                    CellUpdate(row_key, 6, self._fmt_number(values["pnl"], color=True)),
+                    CellUpdate(row_key, 7, self._fmt_number(values["upnl"], color=True)),
+                    CellUpdate(row_key, 8, self._fmt_number(values["delta_$"])),  # Delta $ column
+                    CellUpdate(row_key, 9, self._fmt_number(values["delta"])),
+                    CellUpdate(row_key, 10, self._fmt_number(values["gamma"])),
+                    CellUpdate(row_key, 11, self._fmt_number(values["vega"])),
+                    CellUpdate(row_key, 12, self._fmt_number(values["theta"])),
+                ]
+            )
 
         return updates

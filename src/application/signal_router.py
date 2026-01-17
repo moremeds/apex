@@ -61,9 +61,7 @@ class SignalRouterConfig:
 
     # Filtering
     min_strength: float = 0.0  # Ignore signals below this strength
-    allowed_directions: Set[str] = field(
-        default_factory=lambda: {"LONG", "SHORT", "FLAT"}
-    )
+    allowed_directions: Set[str] = field(default_factory=lambda: {"LONG", "SHORT", "FLAT"})
 
 
 @dataclass
@@ -231,9 +229,7 @@ class SignalRouter:
 
         # Clean old entries
         cutoff = now_ms - self._config.dedupe_window_ms
-        self._recent_signals = {
-            k: v for k, v in self._recent_signals.items() if v > cutoff
-        }
+        self._recent_signals = {k: v for k, v in self._recent_signals.items() if v > cutoff}
 
         # Create signal hash
         signal_hash = f"{signal.symbol}:{signal.direction}:{signal.strength}"
@@ -279,9 +275,7 @@ class SignalRouter:
         except Exception as e:
             logger.error(f"Signal execution error: {e}")
 
-    def add_pre_route_callback(
-        self, callback: Callable[["TradingSignal"], bool]
-    ) -> None:
+    def add_pre_route_callback(self, callback: Callable[["TradingSignal"], bool]) -> None:
         """
         Add callback to run before routing.
 
@@ -289,9 +283,7 @@ class SignalRouter:
         """
         self._pre_route_callbacks.append(callback)
 
-    def add_post_route_callback(
-        self, callback: Callable[["TradingSignal"], None]
-    ) -> None:
+    def add_post_route_callback(self, callback: Callable[["TradingSignal"], None]) -> None:
         """Add callback to run after successful routing."""
         self._post_route_callbacks.append(callback)
 

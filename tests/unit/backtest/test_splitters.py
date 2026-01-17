@@ -77,8 +77,17 @@ class TestWalkForwardSplitter:
             train_window, test_window = folds[0]
             # Window attributes are date objects
             from datetime import date as date_type
-            train_end = train_window.train_end if isinstance(train_window.train_end, date_type) else datetime.strptime(train_window.train_end, "%Y-%m-%d").date()
-            test_start = test_window.test_start if isinstance(test_window.test_start, date_type) else datetime.strptime(test_window.test_start, "%Y-%m-%d").date()
+
+            train_end = (
+                train_window.train_end
+                if isinstance(train_window.train_end, date_type)
+                else datetime.strptime(train_window.train_end, "%Y-%m-%d").date()
+            )
+            test_start = (
+                test_window.test_start
+                if isinstance(test_window.test_start, date_type)
+                else datetime.strptime(test_window.test_start, "%Y-%m-%d").date()
+            )
             gap_days = (test_start - train_end).days
 
             # Gap should include purge days (using trading days, so gap may vary)
@@ -128,6 +137,7 @@ class TestWalkForwardSplitter:
         folds = list(splitter.split("2020-01-01", "2024-12-31"))
 
         from datetime import date as date_type
+
         for train_window, test_window in folds:
             # Handle both date objects and strings
             if isinstance(train_window.train_end, date_type):

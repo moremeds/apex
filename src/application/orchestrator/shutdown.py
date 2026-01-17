@@ -15,7 +15,7 @@ Provides unified shutdown with:
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Callable, Coroutine, Dict, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Coroutine, Dict, List, Optional
 
 from ...utils.logging_setup import get_logger
 
@@ -79,9 +79,7 @@ class ShutdownCoordinator:
         """Register a background task to cancel on shutdown."""
         self._tasks.append(task)
 
-    def register_connection_closer(
-        self, closer: Callable[[], Coroutine]
-    ) -> None:
+    def register_connection_closer(self, closer: Callable[[], Coroutine]) -> None:
         """Register a connection closer to call on shutdown."""
         self._connection_closers.append(closer)
 
@@ -234,6 +232,7 @@ def create_shutdown_handler(
         signal.signal(signal.SIGINT, handler)
         signal.signal(signal.SIGTERM, handler)
     """
+
     def handler(signum, frame):
         logger.info(f"Received signal {signum}, initiating shutdown")
         if coordinator.shutdown_requested:

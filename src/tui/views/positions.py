@@ -16,20 +16,20 @@ Keyboard shortcuts:
 
 from __future__ import annotations
 
-from typing import Any, Dict, TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
-from textual.containers import Container, Horizontal, Vertical
-from textual.widgets import Static
 from textual.app import ComposeResult
 from textual.binding import Binding
+from textual.containers import Container, Horizontal, Vertical
+from textual.widgets import Static
 
-from ..widgets.positions_table import PositionsTable
 from ..widgets.atr_panel import ATRPanel
 from ..widgets.orders_panel import OrdersPanel
+from ..widgets.positions_table import PositionsTable
 
 if TYPE_CHECKING:
-    from ...models.risk_snapshot import RiskSnapshot
     from ...domain.events.domain_events import PositionDeltaEvent
+    from ...models.risk_snapshot import RiskSnapshot
 
 
 class PositionsView(Container, can_focus=True):
@@ -85,9 +85,7 @@ class PositionsView(Container, can_focus=True):
                 yield ATRPanel(id=f"{self.broker}-atr")
                 yield OrdersPanel(broker=self.broker_display, id=f"{self.broker}-orders")
 
-    def on_positions_table_position_selected(
-        self, event: PositionsTable.PositionSelected
-    ) -> None:
+    def on_positions_table_position_selected(self, event: PositionsTable.PositionSelected) -> None:
         """Handle position selection from the table."""
         try:
             atr_panel = self.query_one(f"#{self.broker}-atr", ATRPanel)

@@ -59,18 +59,18 @@ class CoverageVisualizer:
 
     # Source colors for chart segments
     SOURCE_COLORS = {
-        "ib": "#3b82f6",      # Blue
-        "yahoo": "#f97316",   # Orange
-        "live": "#22c55e",    # Green
-        "unknown": "#6b7280", # Gray
+        "ib": "#3b82f6",  # Blue
+        "yahoo": "#f97316",  # Orange
+        "live": "#22c55e",  # Green
+        "unknown": "#6b7280",  # Gray
     }
 
     # Validation status colors
     STATUS_COLORS = {
-        "PASS": "#22c55e",     # Green
-        "WARN": "#eab308",     # Yellow
+        "PASS": "#22c55e",  # Green
+        "WARN": "#eab308",  # Yellow
         "CAUTION": "#f97316",  # Orange
-        "FAIL": "#ef4444",     # Red
+        "FAIL": "#ef4444",  # Red
         "UNKNOWN": "#6b7280",  # Gray
     }
 
@@ -412,7 +412,8 @@ class CoverageVisualizer:
                     """
                     charts_html.append(chart_html)
                 else:
-                    charts_html.append(f"""
+                    charts_html.append(
+                        f"""
                     <div class="chart-container no-data">
                         <div class="chart-header">
                             <span class="chart-title">{tf}</span>
@@ -420,7 +421,8 @@ class CoverageVisualizer:
                             <span class="chart-info">No data</span>
                         </div>
                     </div>
-                    """)
+                    """
+                    )
 
             section = f"""
             <div class="symbol-section">

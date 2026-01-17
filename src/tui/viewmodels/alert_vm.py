@@ -41,7 +41,9 @@ class AlertDisplayRow:
             style = "cyan"
             suffix = ""
 
-        return f"[{style}]{icon} {self.alert_type}: {self.message}{suffix}[/] [dim]{self.time_str}[/]"
+        return (
+            f"[{style}]{icon} {self.alert_type}: {self.message}{suffix}[/] [dim]{self.time_str}[/]"
+        )
 
 
 class AlertViewModel:

@@ -11,10 +11,11 @@ Exposes per-adapter operational metrics for Prometheus:
 from __future__ import annotations
 
 import time
-from typing import Optional, Dict, Any
 from contextlib import contextmanager
+from typing import Any, Dict, Optional
 
 from opentelemetry import metrics
+
 from ...utils.logging_setup import get_logger
 
 logger = get_logger(__name__)
@@ -429,6 +430,4 @@ def time_adapter_operation(
     finally:
         if adapter_metrics:
             latency_ms = (time.perf_counter() - start) * 1000
-            adapter_metrics.record_request_latency(
-                adapter_name, broker, latency_ms, operation
-            )
+            adapter_metrics.record_request_latency(adapter_name, broker, latency_ms, operation)

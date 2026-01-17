@@ -331,9 +331,7 @@ class BaseRepository(ABC, Generic[T]):
     # Helper Methods
     # -------------------------------------------------------------------------
 
-    def _build_where_clause(
-        self, conditions: Dict[str, Any]
-    ) -> Tuple[str, List[Any]]:
+    def _build_where_clause(self, conditions: Dict[str, Any]) -> Tuple[str, List[Any]]:
         """
         Build WHERE clause from conditions dictionary.
 

@@ -1,7 +1,8 @@
 """Quote provider protocol for real-time market data streaming."""
 
 from __future__ import annotations
-from typing import Protocol, List, Optional, Callable, Dict, runtime_checkable
+
+from typing import Callable, Dict, List, Optional, Protocol, runtime_checkable
 
 from ..events.domain_events import QuoteTick
 
@@ -59,10 +60,7 @@ class QuoteProvider(Protocol):
         """
         ...
 
-    def set_quote_callback(
-        self,
-        callback: Optional[Callable[[QuoteTick], None]]
-    ) -> None:
+    def set_quote_callback(self, callback: Optional[Callable[[QuoteTick], None]]) -> None:
         """
         Set callback for incoming quotes.
 

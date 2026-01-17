@@ -40,16 +40,16 @@ Usage:
 """
 
 from __future__ import annotations
-from typing import Dict, List, Optional, Callable
+
 import logging
+from typing import Callable, Dict, List, Optional
 
 from ...domain.clock import Clock
 from ...domain.events.domain_events import QuoteTick, TradeFill
 from ...domain.interfaces.execution_provider import OrderRequest, OrderResult
 from ...domain.reality import RealityModelPack
-
 from .ledger import PositionLedger, SimulatedPosition
-from .order_matching import OrderMatcher, FillModel, SimulatedOrder
+from .order_matching import FillModel, OrderMatcher, SimulatedOrder
 
 logger = logging.getLogger(__name__)
 

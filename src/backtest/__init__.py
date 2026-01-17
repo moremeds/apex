@@ -26,27 +26,44 @@ Example:
     experiment_id = runner.run(spec)
 """
 
+# Internal: Logging
+from ._internal import (
+    ContextLogger,
+    LogContext,
+    StructuredFormatter,
+    get_logger,
+    setup_logging,
+)
+
+# Analysis: Aggregation, Validation, Constraints
+from .analysis import (
+    AggregationConfig,
+    Aggregator,
+    Constraint,
+    ConstraintValidator,
+    DSRCalculator,
+    MonteCarloSimulator,
+    PBOCalculator,
+)
+
 # Core: Specs, Results, Hashing
-from .core import (
-    # Specs
+from .core import (  # Specs; Results; Hashing
+    ExperimentResult,
     ExperimentSpec,
-    TrialSpec,
-    RunSpec,
-    TimeWindow,
-    ParameterDef,
-    UniverseConfig,
-    TemporalConfig,
     OptimizationConfig,
+    ParameterDef,
     ProfileConfig,
     ReproducibilityConfig,
-    # Results
-    RunResult,
     RunMetrics,
+    RunResult,
+    RunSpec,
     RunStatus,
-    TrialResult,
+    TemporalConfig,
+    TimeWindow,
     TrialAggregates,
-    ExperimentResult,
-    # Hashing
+    TrialResult,
+    TrialSpec,
+    UniverseConfig,
     canonical_json,
     generate_experiment_id,
     generate_run_id,
@@ -57,53 +74,33 @@ from .core import (
 
 # Data: Splitters, Storage, Calendar
 from .data import (
-    WalkForwardSplitter,
-    CPCVSplitter,
-    SplitConfig,
     CPCVConfig,
+    CPCVSplitter,
     DatabaseManager,
     ExperimentRepository,
-    TrialRepository,
     RunRepository,
+    SplitConfig,
     TradingCalendar,
+    TrialRepository,
+    WalkForwardSplitter,
     WeekdayCalendar,
     get_calendar,
 )
 
 # Execution: Runners
 from .execution import (
-    SystematicRunner,
-    RunnerConfig,
-    ParallelRunner,
-    ParallelConfig,
     ExecutionProgress,
+    ParallelConfig,
+    ParallelRunner,
     ProgressMonitor,
-)
-
-# Analysis: Aggregation, Validation, Constraints
-from .analysis import (
-    Aggregator,
-    AggregationConfig,
-    PBOCalculator,
-    DSRCalculator,
-    MonteCarloSimulator,
-    ConstraintValidator,
-    Constraint,
+    RunnerConfig,
+    SystematicRunner,
 )
 
 # Optimization
 from .optimization import (
-    GridOptimizer,
     BayesianOptimizer,
-)
-
-# Internal: Logging
-from ._internal import (
-    LogContext,
-    ContextLogger,
-    StructuredFormatter,
-    setup_logging,
-    get_logger,
+    GridOptimizer,
 )
 
 __all__ = [

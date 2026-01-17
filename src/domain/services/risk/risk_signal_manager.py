@@ -8,12 +8,12 @@ Prevents alert fatigue by:
 """
 
 from __future__ import annotations
+
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple
 
 from src.models.risk_signal import RiskSignal, SignalSeverity
 from src.utils.logging_setup import get_logger
-
 
 logger = get_logger(__name__)
 
@@ -102,9 +102,7 @@ class RiskSignalManager:
         if signal_id not in self._pending:
             # First occurrence - start debounce timer
             self._pending[signal_id] = (signal, now)
-            logger.debug(
-                f"Signal {signal_id} pending (debounce for {self.debounce_seconds}s)"
-            )
+            logger.debug(f"Signal {signal_id} pending (debounce for {self.debounce_seconds}s)")
             self._stats["debounced"] += 1
             return []
         else:

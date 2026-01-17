@@ -9,15 +9,15 @@ This test verifies all scenarios:
 """
 
 import sys
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src.tui.dashboard import TerminalDashboard
-from src.models.risk_snapshot import RiskSnapshot
 from src.infrastructure.monitoring import ComponentHealth, HealthStatus
+from src.models.risk_snapshot import RiskSnapshot
+from src.tui.dashboard import TerminalDashboard
 
 
 def test_all_scenarios():

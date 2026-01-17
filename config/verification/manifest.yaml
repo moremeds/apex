@@ -1,0 +1,134 @@
+# Regime Verification Manifest
+#
+# Machine-readable specification for verifying RegimeDetector implementation.
+# Each phase has specific checks that can be run in different profiles (dev/research/prod).
+#
+# Run with:
+#   python -m src.verification.regime_verifier --phase P1 --profile dev
+
+version: "1.0"
+project: "APEX RegimeDetector"
+
+env:
+  timezone: "America/New_York"
+  data_requirements:
+    min_history_bars:
+      "1d": 400
+      "1w": 260
+      "4h": 500
+
+schemas:
+  regime_state: "schemas/regime_state.schema.json"
+  hierarchical_regime: "schemas/hierarchical_regime.schema.json"
+
+phases:
+  - id: "P1"
+    name: "Core Regime Indicator"
+    artifacts:
+      - "src/domain/signals/indicators/regime/regime_detector.py"
+      - "src/domain/signals/indicators/regime/models.py"
+      - "src/domain/signals/indicators/regime/components/*.py"
+    checks:
+      - id: "P1_SCHEMA_VALID"
+        type: "json_schema"
+        target: "regime_state"
+        must_pass: true
+        description: "RegimeOutput must conform to schema"
+      - id: "P1_NO_NAN_AFTER_WARMUP"
+        type: "assertion"
+        expr: "after_warmup(no_nan(fields=['ma20','ma50','ma200','atr20','chop','ext']))"
+        description: "No NaN values in indicators after warmup period"
+      - id: "P1_MUTUAL_EXCLUSIVE_REGIME"
+        type: "assertion"
+        expr: "exactly_one_true(['is_R0','is_R1','is_R2','is_R3'])"
+        description: "Exactly one regime must be active at any time"
+      - id: "P1_HYSTERESIS_WORKS"
+        type: "assertion"
+        expr: "pending_regime_counter_used == true"
+        description: "Hysteresis uses pending_regime/pending_count pattern"
+      - id: "P1_R2_IMMEDIATE"
+        type: "golden_case"
+        dataset: "tests/fixtures/qqq_crash_window.csv"
+        expect: "R2 triggers same-bar when condition true"
+        description: "R2 (Risk-Off) must trigger immediately without hysteresis delay"
+      - id: "P1_PERF_BUDGET"
+        type: "performance"
+        target: "regime_detector.calculate"
+        max_runtime_ms_per_symbol: 50
+        timeframe: "1d"
+        description: "Regime calculation must complete within 50ms per symbol"
+
+  - id: "P2"
+    name: "Hierarchical Service"
+    artifacts:
+      - "src/application/services/regime_service.py"
+      - "src/domain/services/regime/*.py"
+    checks:
+      - id: "P2_SCHEMA_VALID"
+        type: "json_schema"
+        target: "hierarchical_regime"
+        must_pass: true
+      - id: "P2_MARKET_DISAGREE_CONSERVATIVE"
+        type: "assertion"
+        expr: "resolve_market_action_severity == max_severity_action"
+        description: "When QQQ/SPY disagree, take more conservative action"
+      - id: "P2_DECISION_TABLE_COVERAGE"
+        type: "assertion"
+        expr: "all_market_regimes_have_fallback"
+        description: "Each market regime (R0-R3) has baseline fallback entry"
+
+  - id: "P3"
+    name: "Multi-Timeframe"
+    artifacts:
+      - "src/domain/services/regime/regime_hierarchy.py"
+    checks:
+      - id: "P3_WEEKLY_VETO_TIGHTENS"
+        type: "assertion"
+        expr: "weekly_veto.never_downgrades_severity"
+        description: "Weekly veto can only tighten, never loosen severity"
+      - id: "P3_WEEKLY_RELEASE_DEFINED"
+        type: "assertion"
+        expr: "weekly_veto.has_release_conditions"
+        description: "Weekly veto has explicit release conditions"
+      - id: "P3_R3_EXEMPT_FROM_VETO"
+        type: "assertion"
+        expr: "weekly_veto.exempt_regimes includes 'R3'"
+        description: "R3 (Rebound Window) exempt from weekly veto"
+      - id: "P3_4H_ALERTS_USE_ROC"
+        type: "assertion"
+        expr: "alerts.use_delta_percentile"
+        description: "4H alerts use rate-of-change (delta percentile)"
+
+  - id: "P5"
+    name: "Parameter Optimization"
+    artifacts:
+      - "src/domain/services/regime/params_store.py"
+      - "config/backtest/regime/*.yaml"
+    checks:
+      - id: "P5_DSR_GATE"
+        type: "threshold"
+        metric: "DSR"
+        op: ">="
+        value: 0.3
+        description: "Deflated Sharpe Ratio must be >= 0.3"
+      - id: "P5_PBO_GATE"
+        type: "threshold"
+        metric: "PBO"
+        op: "<="
+        value: 0.5
+        description: "Probability of Backtest Overfitting must be <= 50%"
+      - id: "P5_ASYMMETRIC_WEIGHTS"
+        type: "assertion"
+        expr: "abs(weights.missed_r2_rate) >= 2 * abs(weights.false_r2_rate)"
+        description: "Missed R2 penalty must be >= 2x false R2 penalty"
+      - id: "P5_PARAMS_VALID"
+        type: "assertion"
+        expr: "all_params_pass_validation"
+        description: "All stored params pass validate_params()"
+
+validation_gates:
+  # Hard rejection criteria for optimized params
+  pbo_max: 0.50
+  dsr_min: 0.30
+  oos_sharpe_min: 0.0
+  regime_stability_min: 0.7

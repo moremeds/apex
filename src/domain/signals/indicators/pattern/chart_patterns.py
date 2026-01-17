@@ -75,15 +75,11 @@ class ChartPatternsIndicator(IndicatorBase):
             window_close = close[i - lookback : i + 1]
 
             # Detect patterns
-            pattern, conf = self._detect_pattern(
-                window_high, window_low, window_close, tolerance
-            )
+            pattern, conf = self._detect_pattern(window_high, window_low, window_close, tolerance)
             patterns[i] = pattern
             confidence[i] = conf
 
-        return pd.DataFrame(
-            {"cp_pattern": patterns, "cp_confidence": confidence}, index=data.index
-        )
+        return pd.DataFrame({"cp_pattern": patterns, "cp_confidence": confidence}, index=data.index)
 
     def _detect_pattern(
         self,
@@ -114,7 +110,7 @@ class ChartPatternsIndicator(IndicatorBase):
             h1, h2 = last_two_highs[0][1], last_two_highs[1][1]
             if abs(h1 - h2) / h1 < tolerance:
                 # Check for neckline break
-                neckline = min(low[last_two_highs[0][0]:last_two_highs[1][0]])
+                neckline = min(low[last_two_highs[0][0] : last_two_highs[1][0]])
                 if close[-1] < neckline:
                     return "double_top", 75
 
@@ -124,7 +120,7 @@ class ChartPatternsIndicator(IndicatorBase):
             l1, l2 = last_two_lows[0][1], last_two_lows[1][1]
             if abs(l1 - l2) / l1 < tolerance:
                 # Check for neckline break
-                neckline = max(high[last_two_lows[0][0]:last_two_lows[1][0]])
+                neckline = max(high[last_two_lows[0][0] : last_two_lows[1][0]])
                 if close[-1] > neckline:
                     return "double_bottom", 75
 
@@ -192,7 +188,11 @@ class ChartPatternsIndicator(IndicatorBase):
             direction = "bullish"
         elif pattern in continuation:
             pattern_type = "continuation"
-            direction = "bullish" if "ascending" in pattern else "bearish" if "descending" in pattern else None
+            direction = (
+                "bullish"
+                if "ascending" in pattern
+                else "bearish" if "descending" in pattern else None
+            )
         else:
             pattern_type = None
             direction = None

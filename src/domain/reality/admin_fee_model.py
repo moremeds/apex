@@ -13,6 +13,7 @@ from typing import Optional
 @dataclass
 class AdminFeeResult:
     """Result of admin fee calculation."""
+
     amount: float  # Absolute fee amount (always positive for costs)
     description: str  # Fee description
     fee_type: str  # e.g., "mgmt_fee", "margin_interest", "borrow_fee"
@@ -98,19 +99,23 @@ class ConstantAdminFeeModel(AdminFeeModel):
         # 1. Management fee (accrued on NAV)
         if self.mgmt_fee_rate > 0:
             amount = net_asset_value * self.mgmt_fee_rate
-            results.append(AdminFeeResult(
-                amount=amount,
-                description=f"Management fee ({self.mgmt_fee_rate*365*100:.2f}% p.a.)",
-                fee_type="mgmt_fee"
-            ))
+            results.append(
+                AdminFeeResult(
+                    amount=amount,
+                    description=f"Management fee ({self.mgmt_fee_rate*365*100:.2f}% p.a.)",
+                    fee_type="mgmt_fee",
+                )
+            )
 
         # 2. Margin interest (on negative cash)
         if self.margin_rate > 0 and cash < 0:
             amount = abs(cash) * self.margin_rate
-            results.append(AdminFeeResult(
-                amount=amount,
-                description=f"Margin interest ({self.margin_rate*365*100:.2f}% p.a.)",
-                fee_type="margin_interest"
-            ))
+            results.append(
+                AdminFeeResult(
+                    amount=amount,
+                    description=f"Margin interest ({self.margin_rate*365*100:.2f}% p.a.)",
+                    fee_type="margin_interest",
+                )
+            )
 
         return results

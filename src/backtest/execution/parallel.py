@@ -15,15 +15,16 @@ from concurrent.futures import (
     BrokenExecutor,
     Future,
     ProcessPoolExecutor,
-    TimeoutError as FuturesTimeoutError,
+)
+from concurrent.futures import TimeoutError as FuturesTimeoutError
+from concurrent.futures import (
     as_completed,
 )
 from dataclasses import dataclass, field
 from threading import Event, Thread
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, Type
 
-from ..core import RunResult, RunStatus
-from ..core import RunSpec
+from ..core import RunResult, RunSpec, RunStatus
 
 logger = logging.getLogger(__name__)
 
@@ -159,20 +160,14 @@ class ExecutionProgress:
     def eta_seconds(self) -> float:
         if self.runs_per_second == 0:
             return float("inf")
-        remaining = (
-            self.total_runs - self.completed_runs - self.failed_runs - self.skipped_runs
-        )
+        remaining = self.total_runs - self.completed_runs - self.failed_runs - self.skipped_runs
         return remaining / self.runs_per_second
 
     @property
     def completion_pct(self) -> float:
         if self.total_runs == 0:
             return 100.0
-        return (
-            (self.completed_runs + self.failed_runs + self.skipped_runs)
-            / self.total_runs
-            * 100
-        )
+        return (self.completed_runs + self.failed_runs + self.skipped_runs) / self.total_runs * 100
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -183,9 +178,7 @@ class ExecutionProgress:
             "retried": self.retried_runs,
             "elapsed_s": round(self.elapsed_seconds, 1),
             "runs_per_s": round(self.runs_per_second, 2),
-            "eta_s": round(self.eta_seconds, 1)
-            if self.eta_seconds != float("inf")
-            else None,
+            "eta_s": round(self.eta_seconds, 1) if self.eta_seconds != float("inf") else None,
             "pct": round(self.completion_pct, 1),
         }
 
@@ -284,8 +277,7 @@ class ParallelRunner:
         retry_queue: List[Tuple[RunSpec, int, BaseException]] = []
 
         logger.debug(
-            f"Parallel execution: {len(run_specs)} runs, "
-            f"{self.config.max_workers} workers"
+            f"Parallel execution: {len(run_specs)} runs, " f"{self.config.max_workers} workers"
         )
 
         # Persistent mode: use existing executor
@@ -366,9 +358,7 @@ class ParallelRunner:
                         self.progress.completed_runs += 1
                         if attempt > 0:
                             self.progress.retried_runs += 1
-                            logger.info(
-                                f"Run {spec.run_id} succeeded after {attempt} retry(ies)"
-                            )
+                            logger.info(f"Run {spec.run_id} succeeded after {attempt} retry(ies)")
                     else:
                         self.progress.failed_runs += 1
 
@@ -397,9 +387,7 @@ class ParallelRunner:
                                 f"Run {spec.run_id} failed after {self.config.max_retries} retries: {e}"
                             )
                         else:
-                            logger.error(
-                                f"Run {spec.run_id} failed with deterministic error: {e}"
-                            )
+                            logger.error(f"Run {spec.run_id} failed with deterministic error: {e}")
 
                         self.progress.failed_runs += 1
 

@@ -7,32 +7,36 @@ in a separate file.
 """
 
 from __future__ import annotations
-from pathlib import Path
+
 from datetime import datetime
+from pathlib import Path
 from typing import List, Optional
+
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from ...utils.logging_setup import get_logger
 from ...domain.events.domain_events import BarData
+from ...utils.logging_setup import get_logger
 
 logger = get_logger(__name__)
 
 
 # PyArrow schema for bar data
-BAR_SCHEMA = pa.schema([
-    ("timestamp", pa.timestamp("us", tz="UTC")),
-    ("open", pa.float64()),
-    ("high", pa.float64()),
-    ("low", pa.float64()),
-    ("close", pa.float64()),
-    ("volume", pa.int64()),
-    ("vwap", pa.float64()),
-    ("trade_count", pa.int64()),
-    ("source", pa.string()),
-    ("ingested_at", pa.timestamp("us", tz="UTC")),
-])
+BAR_SCHEMA = pa.schema(
+    [
+        ("timestamp", pa.timestamp("us", tz="UTC")),
+        ("open", pa.float64()),
+        ("high", pa.float64()),
+        ("low", pa.float64()),
+        ("close", pa.float64()),
+        ("volume", pa.int64()),
+        ("vwap", pa.float64()),
+        ("trade_count", pa.int64()),
+        ("source", pa.string()),
+        ("ingested_at", pa.timestamp("us", tz="UTC")),
+    ]
+)
 
 
 class ParquetHistoricalStore:
@@ -115,6 +119,7 @@ class ParquetHistoricalStore:
         if start or end:
             # Normalize timestamps to compare
             import pandas as pd
+
             ts_col = df["timestamp"]
 
             # Make filter timestamps timezone-aware if data is timezone-aware
@@ -195,10 +200,7 @@ class ParquetHistoricalStore:
         )
 
         final_count = merged.num_rows
-        logger.info(
-            f"Upserted {len(bars)} bars into {file_path} "
-            f"(total: {final_count} bars)"
-        )
+        logger.info(f"Upserted {len(bars)} bars into {file_path} " f"(total: {final_count} bars)")
         return len(bars)
 
     def _merge_tables(
@@ -331,7 +333,11 @@ class ParquetHistoricalStore:
                 close=row["close"] if not pd_isna(row["close"]) else None,
                 volume=int(row["volume"]) if not pd_isna(row["volume"]) else None,
                 vwap=row["vwap"] if has_vwap and not pd_isna(row["vwap"]) else None,
-                trade_count=int(row["trade_count"]) if has_trade_count and not pd_isna(row["trade_count"]) else None,
+                trade_count=(
+                    int(row["trade_count"])
+                    if has_trade_count and not pd_isna(row["trade_count"])
+                    else None
+                ),
                 bar_start=ts_dt,
                 source=row["source"] if has_source else "historical",
                 timestamp=ts_dt,
@@ -415,6 +421,7 @@ class ParquetHistoricalStore:
 
         # Delete entire symbol directory
         import shutil
+
         shutil.rmtree(symbol_dir)
         return True
 
@@ -423,10 +430,9 @@ class ParquetHistoricalStore:
         if not self._base_dir.exists():
             return []
 
-        return sorted([
-            d.name for d in self._base_dir.iterdir()
-            if d.is_dir() and not d.name.startswith("_")
-        ])
+        return sorted(
+            [d.name for d in self._base_dir.iterdir() if d.is_dir() and not d.name.startswith("_")]
+        )
 
     def list_timeframes(self, symbol: str) -> List[str]:
         """List available timeframes for a symbol."""
@@ -435,9 +441,7 @@ class ParquetHistoricalStore:
         if not symbol_dir.exists():
             return []
 
-        return sorted([
-            f.stem for f in symbol_dir.glob("*.parquet")
-        ])
+        return sorted([f.stem for f in symbol_dir.glob("*.parquet")])
 
     def get_all_file_sizes(self) -> dict[tuple[str, str], int]:
         """
@@ -471,8 +475,9 @@ def pd_isna(value: object) -> bool:
     if value is None:
         return True
     try:
-        import pandas as pd
         import numpy as np
+        import pandas as pd
+
         if isinstance(value, (float, np.floating)) and np.isnan(value):  # type: ignore[arg-type]
             return True
         return False

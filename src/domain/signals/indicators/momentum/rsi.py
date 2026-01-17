@@ -19,6 +19,7 @@ import pandas as pd
 
 try:
     import talib
+
     HAS_TALIB = True
 except ImportError:
     HAS_TALIB = False
@@ -118,8 +119,8 @@ class RSIIndicator(IndicatorBase):
         avg_losses = np.zeros(n, dtype=np.float64)
 
         # Initialize with SMA for first period
-        avg_gains[period] = np.mean(gains[1:period + 1])
-        avg_losses[period] = np.mean(losses[1:period + 1])
+        avg_gains[period] = np.mean(gains[1 : period + 1])
+        avg_losses[period] = np.mean(losses[1 : period + 1])
 
         # Calculate EMA for remaining periods
         for i in range(period + 1, n):

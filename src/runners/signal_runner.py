@@ -29,11 +29,11 @@ from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
+from ..application.services.ta_signal_service import TASignalService
 from ..domain.events.event_types import EventType
 from ..domain.events.priority_event_bus import PriorityEventBus
-from ..application.services.ta_signal_service import TASignalService
 from ..utils.logging_setup import get_logger
-from ..utils.timezone import now_utc, DisplayTimezone
+from ..utils.timezone import DisplayTimezone, now_utc
 
 logger = get_logger(__name__)
 
@@ -118,6 +118,7 @@ class SignalRunner:
         # Initialize display timezone from config (same pattern as header.py)
         try:
             from config.config_manager import ConfigManager
+
             config = ConfigManager().load()
             display_tz = config.display.get("timezone", "Asia/Hong_Kong")
         except Exception as e:
@@ -151,8 +152,11 @@ class SignalRunner:
         """Create persistence layer if database is available."""
         try:
             from config.config_manager import ConfigManager
+
             from ..infrastructure.persistence.database import get_database
-            from ..infrastructure.persistence.repositories.ta_signal_repository import TASignalRepository
+            from ..infrastructure.persistence.repositories.ta_signal_repository import (
+                TASignalRepository,
+            )
 
             config = ConfigManager().load()
             db = await get_database(config.database)
@@ -189,7 +193,9 @@ class SignalRunner:
                 ts_str = self._display_tz.format_with_tz(timestamp, "%H:%M:%S %Z")
             else:
                 ts_str = now_utc().strftime("%H:%M:%S")
-            print(f"  SIGNAL [{ts_str}]: {signal_type.upper()} {symbol} [{indicator}] strength={strength}")
+            print(
+                f"  SIGNAL [{ts_str}]: {signal_type.upper()} {symbol} [{indicator}] strength={strength}"
+            )
 
     # -------------------------------------------------------------------------
     # Live Mode
@@ -206,8 +212,9 @@ class SignalRunner:
             Exit code (0 for success).
         """
         from pathlib import Path
-        from ..services.historical_data_manager import HistoricalDataManager
+
         from ..application.orchestrator.signal_pipeline import BarPreloader
+        from ..services.historical_data_manager import HistoricalDataManager
 
         print("=" * 60)
         print("SIGNAL PIPELINE (Historical Bars)")
@@ -229,6 +236,7 @@ class SignalRunner:
         # Try to set IB source for better data quality
         try:
             from config.config_manager import ConfigManager
+
             from ..infrastructure.adapters.ib.historical_adapter import IbHistoricalAdapter
 
             config = ConfigManager().load()
@@ -238,7 +246,11 @@ class SignalRunner:
                 ib_adapter = IbHistoricalAdapter(
                     host=ib_config.host,
                     port=ib_config.port,
-                    client_id=ib_config.client_ids.historical_pool[0] if ib_config.client_ids.historical_pool else 3,
+                    client_id=(
+                        ib_config.client_ids.historical_pool[0]
+                        if ib_config.client_ids.historical_pool
+                        else 3
+                    ),
                 )
                 await ib_adapter.connect()
                 historical_manager.set_ib_source(ib_adapter)
@@ -275,7 +287,11 @@ class SignalRunner:
 
         # Show final stats
         stats = self._service.stats
-        time_str = self._display_tz.format_with_tz(now_utc(), "%H:%M:%S %Z") if self._display_tz else now_utc().strftime("%H:%M:%S")
+        time_str = (
+            self._display_tz.format_with_tz(now_utc(), "%H:%M:%S %Z")
+            if self._display_tz
+            else now_utc().strftime("%H:%M:%S")
+        )
         print(f"\n[{time_str}] Pipeline complete:")
         print(f"  Bars processed:      {stats['bars_processed']}")
         print(f"  Indicators computed: {stats['indicators_computed']}")
@@ -351,6 +367,7 @@ class SignalRunner:
                     timestamp = bar_dict.get("timestamp")
                     if isinstance(timestamp, str):
                         from datetime import datetime as dt
+
                         timestamp = dt.fromisoformat(timestamp.replace("Z", "+00:00"))
 
                     bar_event = BarCloseEvent(
@@ -416,6 +433,7 @@ class SignalRunner:
             ValueError: If no historical data is available after attempting download.
         """
         from pathlib import Path
+
         from ..services.historical_data_manager import HistoricalDataManager
 
         end_date = now_utc()
@@ -430,6 +448,7 @@ class SignalRunner:
         # Try to set up IB source for better data quality
         try:
             from config.config_manager import ConfigManager
+
             from ..infrastructure.adapters.ib.historical_adapter import IbHistoricalAdapter
 
             config = ConfigManager().load()
@@ -439,7 +458,11 @@ class SignalRunner:
                 ib_adapter = IbHistoricalAdapter(
                     host=ib_config.host,
                     port=ib_config.port,
-                    client_id=ib_config.client_ids.historical_pool[0] if ib_config.client_ids.historical_pool else 3,
+                    client_id=(
+                        ib_config.client_ids.historical_pool[0]
+                        if ib_config.client_ids.historical_pool
+                        else 3
+                    ),
                 )
                 await ib_adapter.connect()
                 manager.set_ib_source(ib_adapter)
@@ -464,6 +487,7 @@ class SignalRunner:
 
     def _setup_signal_handlers(self) -> None:
         """Set up signal handlers for graceful shutdown."""
+
         def handle_signal(signum, frame):
             logger.info(f"Received signal {signum}, shutting down...")
             self._running = False
@@ -492,6 +516,7 @@ class SignalRunner:
         """
         from pathlib import Path
         from typing import Tuple
+
         from ..domain.signals.reporting import SignalReportGenerator
         from ..domain.signals.rules import ALL_RULES
 
@@ -503,7 +528,7 @@ class SignalRunner:
 
         for symbol in self.config.symbols:
             for tf in self.config.timeframes:
-                start = end - timedelta(days=365)  # 1 year of history
+                start = end - timedelta(days=550)  # ~1.5 years to get 350+ trading days
                 try:
                     bars = await historical_manager.ensure_data(symbol, tf, start, end)
                     if bars:
@@ -520,7 +545,7 @@ class SignalRunner:
                         ]
                         df = pd.DataFrame(records)
                         df.set_index("timestamp", inplace=True)
-                        df = df.tail(100)  # Last 100 bars for report
+                        df = df.tail(350)  # Last 350 bars for report (252+ for regime warmup)
                         data[(symbol, tf)] = df
                 except Exception as e:
                     logger.warning(f"Failed to load {symbol}/{tf} for report: {e}")
@@ -530,7 +555,11 @@ class SignalRunner:
             return
 
         # Compute indicators on DataFrames
-        indicators = list(self._service._indicator_engine._indicators) if self._service._indicator_engine else []
+        indicators = (
+            list(self._service._indicator_engine._indicators)
+            if self._service._indicator_engine
+            else []
+        )
         for key, df in data.items():
             data[key] = self._compute_indicators_on_df(df, indicators)
 
@@ -665,7 +694,8 @@ Examples:
         help="Seconds between stats output in live mode (default: 10)",
     )
     parser.add_argument(
-        "-v", "--verbose",
+        "-v",
+        "--verbose",
         action="store_true",
         help="Verbose output (show individual signals)",
     )

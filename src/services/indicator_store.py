@@ -31,7 +31,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import date
 from threading import RLock
-from typing import Any, Awaitable, Callable, Dict, Optional, Tuple, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, Optional, Tuple
 
 from ..utils.logging_setup import get_logger
 from ..utils.timezone import now_utc
@@ -45,6 +45,7 @@ logger = get_logger(__name__)
 @dataclass
 class CachedIndicator:
     """Cached indicator value with metadata."""
+
     value: Any
     computed_at: float  # time.time()
     as_of_date: date  # Trading date this value is for
@@ -54,6 +55,7 @@ class CachedIndicator:
 @dataclass
 class IndicatorStoreMetrics:
     """Metrics for indicator store performance."""
+
     hits: int = 0
     misses: int = 0
     evictions: int = 0
@@ -126,8 +128,7 @@ class IndicatorStore:
         invalidated = self.invalidate(symbol=symbol, timeframe=timeframe)
         if invalidated > 0:
             logger.debug(
-                "IndicatorStore invalidated %d entries for %s/%s",
-                invalidated, symbol, timeframe
+                "IndicatorStore invalidated %d entries for %s/%s", invalidated, symbol, timeframe
             )
 
     @staticmethod
@@ -321,10 +322,7 @@ class IndicatorStore:
             return
 
         # Sort by computed_at (oldest first)
-        sorted_keys = sorted(
-            self._cache.keys(),
-            key=lambda k: self._cache[k].computed_at
-        )
+        sorted_keys = sorted(self._cache.keys(), key=lambda k: self._cache[k].computed_at)
 
         # Evict 10% of cache
         evict_count = max(1, len(self._cache) // 10)

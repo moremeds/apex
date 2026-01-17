@@ -25,7 +25,7 @@ from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
-from ...core import RunSpec, RunResult, RunMetrics, RunStatus
+from ...core import RunMetrics, RunResult, RunSpec, RunStatus
 from .interface import BaseEngine, EngineConfig, EngineType
 
 logger = logging.getLogger(__name__)
@@ -149,11 +149,12 @@ class ApexEngine(BaseEngine):
         Handles event loop creation/reuse for both main and worker processes.
         """
         # Import here to avoid circular dependency
-        from ..simulated import SimulatedExecution, FillModel as SimFillModel
-        from ...data.feeds import HistoricalStoreDataFeed, CsvDataFeed, create_data_feed
+        from ...data.feeds import CsvDataFeed, HistoricalStoreDataFeed, create_data_feed
+        from ..simulated import FillModel as SimFillModel
+        from ..simulated import SimulatedExecution
 
         # Build BacktestConfig from RunSpec
-        from .backtest_engine import BacktestEngine, BacktestConfig
+        from .backtest_engine import BacktestConfig, BacktestEngine
 
         backtest_dict = spec.to_backtest_config()
 
@@ -192,8 +193,8 @@ class ApexEngine(BaseEngine):
 
             # Create data feed based on config
             # Use HistoricalStoreDataFeed directly for MTF support
-            from ...data.feeds import HistoricalStoreDataFeed
             from ....backtest.runner import load_historical_data_config
+            from ...data.feeds import HistoricalStoreDataFeed
 
             if self._apex_config.data_source == "historical" or spec.secondary_timeframes:
                 historical_cfg = load_historical_data_config()
@@ -224,6 +225,7 @@ class ApexEngine(BaseEngine):
             loop = asyncio.get_running_loop()
             # Already in async context - create task
             import concurrent.futures
+
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 future = executor.submit(asyncio.run, run_backtest())
                 return future.result()
@@ -269,21 +271,25 @@ class ApexEngine(BaseEngine):
             is_train=spec.window.is_train,
             is_oos=spec.window.is_oos,
             equity_curve=backtest_result.equity_curve,
-            trade_log=[
-                {
-                    "trade_id": t.trade_id,
-                    "symbol": t.symbol,
-                    "side": t.side,
-                    "entry_time": t.entry_time.isoformat() if t.entry_time else None,
-                    "exit_time": t.exit_time.isoformat() if t.exit_time else None,
-                    "entry_price": t.entry_price,
-                    "exit_price": t.exit_price,
-                    "quantity": t.quantity,
-                    "pnl": t.pnl,
-                    "pnl_pct": t.pnl_pct,
-                }
-                for t in backtest_result.trade_log
-            ] if backtest_result.trade_log else None,
+            trade_log=(
+                [
+                    {
+                        "trade_id": t.trade_id,
+                        "symbol": t.symbol,
+                        "side": t.side,
+                        "entry_time": t.entry_time.isoformat() if t.entry_time else None,
+                        "exit_time": t.exit_time.isoformat() if t.exit_time else None,
+                        "entry_price": t.entry_price,
+                        "exit_price": t.exit_price,
+                        "quantity": t.quantity,
+                        "pnl": t.pnl,
+                        "pnl_pct": t.pnl_pct,
+                    }
+                    for t in backtest_result.trade_log
+                ]
+                if backtest_result.trade_log
+                else None
+            ),
             params=spec.params,
         )
 

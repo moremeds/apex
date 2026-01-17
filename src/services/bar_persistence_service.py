@@ -12,12 +12,12 @@ from __future__ import annotations
 import threading
 from collections import defaultdict
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
+from src.domain.events.domain_events import BarCloseEvent, BarData
+from src.domain.events.event_types import EventType
 from src.utils.logging_setup import get_logger
 from src.utils.timezone import now_utc
-from src.domain.events.event_types import EventType
-from src.domain.events.domain_events import BarCloseEvent, BarData
 
 if TYPE_CHECKING:
     from src.domain.interfaces.event_bus import EventBus

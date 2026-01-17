@@ -84,14 +84,8 @@ class TradingSignalViewModel(BaseViewModel[List[Any]]):
         timeframe, indicator = self._extract_signal_metadata(signal)
 
         # Rule and message
-        rule = (
-            getattr(signal, "trigger_rule", None)
-            or getattr(signal, "strategy_id", "")
-            or "-"
-        )
-        message = (
-            getattr(signal, "message", None) or getattr(signal, "reason", "") or "-"
-        )
+        rule = getattr(signal, "trigger_rule", None) or getattr(signal, "strategy_id", "") or "-"
+        message = getattr(signal, "message", None) or getattr(signal, "reason", "") or "-"
 
         return [
             timestamp,

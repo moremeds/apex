@@ -8,19 +8,19 @@ Tests:
 - Edge cases and invalid values
 """
 
-import pytest
 import tempfile
 from pathlib import Path
 
+import pytest
 import yaml
 
 from src.domain.signals.config.schema import (
     ConfigError,
     ValidationResult,
-    validate_universe_config,
-    validate_rules_config,
-    load_and_validate_universe,
     load_and_validate_rules,
+    load_and_validate_universe,
+    validate_rules_config,
+    validate_universe_config,
 )
 
 

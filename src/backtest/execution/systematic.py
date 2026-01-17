@@ -14,16 +14,36 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, List, Optional, Union
 
-from ..core import ExperimentSpec, TrialSpec, RunSpec, TimeWindow
-from ..core import RunResult, RunMetrics, RunStatus, TrialResult, ExperimentResult
+from ..analysis import (
+    AggregationConfig,
+    Aggregator,
+    Constraint,
+    ConstraintValidator,
+    DSRCalculator,
+    PBOCalculator,
+)
+from ..core import (
+    ExperimentResult,
+    ExperimentSpec,
+    RunMetrics,
+    RunResult,
+    RunSpec,
+    RunStatus,
+    TimeWindow,
+    TrialResult,
+    TrialSpec,
+)
 from ..core.hashing import get_next_version
-from ..data import DatabaseManager, ExperimentRepository, TrialRepository, RunRepository
-from ..data import WalkForwardSplitter, SplitConfig
-from ..analysis import Aggregator, AggregationConfig
-from ..analysis import ConstraintValidator, Constraint
-from ..analysis import PBOCalculator, DSRCalculator
-from ..optimization import GridOptimizer, BayesianOptimizer
-from .parallel import ParallelRunner, ParallelConfig, ExecutionProgress
+from ..data import (
+    DatabaseManager,
+    ExperimentRepository,
+    RunRepository,
+    SplitConfig,
+    TrialRepository,
+    WalkForwardSplitter,
+)
+from ..optimization import BayesianOptimizer, GridOptimizer
+from .parallel import ExecutionProgress, ParallelConfig, ParallelRunner
 
 logger = logging.getLogger(__name__)
 
@@ -137,7 +157,9 @@ class SystematicRunner:
                     continue
                 raise
 
-        logger.info(f"Starting experiment: {spec.name} ({versioned_experiment_id}) [v{run_version}]")
+        logger.info(
+            f"Starting experiment: {spec.name} ({versioned_experiment_id}) [v{run_version}]"
+        )
 
         # Select optimizer based on spec.optimization.method
         grid_optimizer = GridOptimizer(spec)
@@ -157,14 +179,16 @@ class SystematicRunner:
             # - Minimum 30 (enough for TPE to learn)
             n_trials = min(
                 max(30, int(grid_size * 0.1)),  # 10% of grid, min 30
-                int(grid_size ** 0.5 * 10),     # sqrt scaling
-                500,                             # upper cap
+                int(grid_size**0.5 * 10),  # sqrt scaling
+                500,  # upper cap
             )
             logger.info(f"Auto-scaled n_trials to {n_trials} (grid_size={grid_size})")
 
         # Auto-fallback to grid if search space is smaller than n_trials
         if method == "bayesian" and grid_size <= n_trials:
-            logger.info(f"Auto-fallback: grid size ({grid_size}) <= n_trials ({n_trials}), using grid search")
+            logger.info(
+                f"Auto-fallback: grid size ({grid_size}) <= n_trials ({n_trials}), using grid search"
+            )
             method = "grid"
 
         if method == "bayesian":
@@ -227,9 +251,7 @@ class SystematicRunner:
         logger.info(f"Workers: {effective_workers} (parallel runs per trial)")
 
         # Prepare constraint validator
-        constraints = [
-            Constraint(**c) for c in spec.optimization.constraints
-        ]
+        constraints = [Constraint(**c) for c in spec.optimization.constraints]
         validator = ConstraintValidator(constraints) if constraints else None
 
         # Process trials
@@ -334,9 +356,7 @@ class SystematicRunner:
         end_time = datetime.now()
         duration = (end_time - start_time).total_seconds()
 
-        self._exp_repo.update_status(
-            versioned_experiment_id, "completed", completed_at=end_time
-        )
+        self._exp_repo.update_status(versioned_experiment_id, "completed", completed_at=end_time)
 
         logger.info(
             f"Experiment complete: {versioned_experiment_id} "
@@ -375,11 +395,7 @@ class SystematicRunner:
         trial_start = datetime.now()
         runs: List[RunResult] = []
 
-        profile_version = (
-            next(iter(spec.profiles.values())).version
-            if spec.profiles
-            else "default"
-        )
+        profile_version = next(iter(spec.profiles.values())).version if spec.profiles else "default"
 
         run_index = 0
         for symbol in symbols:
@@ -495,11 +511,7 @@ class SystematicRunner:
         """
         trial_start = datetime.now()
 
-        profile_version = (
-            next(iter(spec.profiles.values())).version
-            if spec.profiles
-            else "default"
-        )
+        profile_version = next(iter(spec.profiles.values())).version if spec.profiles else "default"
 
         # Build all run specs upfront (both IS and OOS windows)
         run_specs: List[RunSpec] = []
@@ -572,9 +584,7 @@ class SystematicRunner:
 
         return trial_result
 
-    def _create_mock_result(
-        self, run_spec: RunSpec, window: TimeWindow
-    ) -> RunResult:
+    def _create_mock_result(self, run_spec: RunSpec, window: TimeWindow) -> RunResult:
         """Create a mock result for testing without actual backtest."""
         import random
 
@@ -721,8 +731,9 @@ class SystematicRunner:
                 )
 
             logger.debug(
-                f"Statistical validation: PBO={pbo:.3f}, DSR={dsr:.3f}" if pbo and dsr else
-                f"Statistical validation: insufficient data (paired_trials={len(paired_sharpes) if paired_sharpes else 0})"
+                f"Statistical validation: PBO={pbo:.3f}, DSR={dsr:.3f}"
+                if pbo and dsr
+                else f"Statistical validation: insufficient data (paired_trials={len(paired_sharpes) if paired_sharpes else 0})"
             )
 
         # Count parameter combinations (from stored parameters)
@@ -730,6 +741,7 @@ class SystematicRunner:
         if parameters_data:
             # Try to expand if we have the parameter definitions
             from ..core import ParameterDef
+
             try:
                 combo_count = 1
                 for name, defn in parameters_data.items():
@@ -761,8 +773,16 @@ class SystematicRunner:
             best_params=best.get("params") if best else None,
             best_sharpe=best.get("median_sharpe") if best else None,
             best_return=best.get("median_return") if best else None,
-            data_version=reproducibility_data.get("data_version", "") if isinstance(reproducibility_data, dict) else "",
-            random_seed=reproducibility_data.get("random_seed", 42) if isinstance(reproducibility_data, dict) else 42,
+            data_version=(
+                reproducibility_data.get("data_version", "")
+                if isinstance(reproducibility_data, dict)
+                else ""
+            ),
+            random_seed=(
+                reproducibility_data.get("random_seed", 42)
+                if isinstance(reproducibility_data, dict)
+                else 42
+            ),
         )
 
     def close(self) -> None:

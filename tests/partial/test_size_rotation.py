@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from config.models import LoggingConfig
 from src.utils.logging_setup import setup_logging
-from src.utils.structured_logger import StructuredLogger, LogCategory
+from src.utils.structured_logger import LogCategory, StructuredLogger
 
 
 def main():
@@ -49,7 +49,7 @@ def main():
         struct_logger.info(
             LogCategory.SYSTEM,
             f"Size test log entry {i} with some extra text to increase size",
-            {"iteration": i, "data": "x" * 50}
+            {"iteration": i, "data": "x" * 50},
         )
     print(f"   ✓ Wrote 20 log entries")
 
@@ -61,7 +61,7 @@ def main():
     print(f"   ✓ Found {len(log_files)} log file(s):")
     for log_file in log_files:
         size = log_file.stat().st_size
-        with open(log_file, 'r') as f:
+        with open(log_file, "r") as f:
             line_count = len(f.readlines())
         print(f"     - {log_file.name} ({size} bytes, {line_count} lines)")
 

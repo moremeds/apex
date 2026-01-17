@@ -1,5 +1,5 @@
 """
-Comprehensive unit tests for all 44 trading signal indicators.
+Comprehensive unit tests for all 45 trading signal indicators.
 
 Tests cover:
 - Indicator properties (name, category, required_fields, warmup_periods)
@@ -106,9 +106,7 @@ def _assert_allclose_with_nan(
     """Assert arrays are close, handling NaN values."""
     assert actual.shape == expected.shape
     expected_mask = ~np.isnan(expected)
-    np.testing.assert_allclose(
-        actual[expected_mask], expected[expected_mask], rtol=rtol, atol=atol
-    )
+    np.testing.assert_allclose(actual[expected_mask], expected[expected_mask], rtol=rtol, atol=atol)
     if np.isnan(expected).any():
         assert np.isnan(actual[~expected_mask]).all()
 
@@ -117,17 +115,27 @@ class TestIndicatorDiscovery:
     """Tests for indicator discovery."""
 
     def test_total_indicator_count(self, registry: IndicatorRegistry):
-        """Verify all 44 indicators are discovered."""
+        """Verify all 45 indicators are discovered."""
         indicators = registry.get_all()
-        assert len(indicators) == 44, f"Expected 44 indicators, found {len(indicators)}"
+        assert len(indicators) == 45, f"Expected 45 indicators, found {len(indicators)}"
 
     def test_momentum_indicators(self, registry: IndicatorRegistry):
         """Verify all 12 momentum indicators."""
         indicators = registry.get_by_category(SignalCategory.MOMENTUM)
         names = {ind.name for ind in indicators}
         expected = {
-            "rsi", "rsi_harmonics", "macd", "kdj", "cci", "williams_r",
-            "mfi", "roc", "momentum", "tsi", "ultimate", "awesome",
+            "rsi",
+            "rsi_harmonics",
+            "macd",
+            "kdj",
+            "cci",
+            "williams_r",
+            "mfi",
+            "roc",
+            "momentum",
+            "tsi",
+            "ultimate",
+            "awesome",
         }
         assert names == expected, f"Missing momentum indicators: {expected - names}"
 
@@ -136,8 +144,16 @@ class TestIndicatorDiscovery:
         indicators = registry.get_by_category(SignalCategory.TREND)
         names = {ind.name for ind in indicators}
         expected = {
-            "ema", "sma", "supertrend", "adx", "ichimoku",
-            "psar", "aroon", "zerolag", "trix", "vortex",
+            "ema",
+            "sma",
+            "supertrend",
+            "adx",
+            "ichimoku",
+            "psar",
+            "aroon",
+            "zerolag",
+            "trix",
+            "vortex",
         }
         assert names == expected, f"Missing trend indicators: {expected - names}"
 
@@ -146,8 +162,14 @@ class TestIndicatorDiscovery:
         indicators = registry.get_by_category(SignalCategory.VOLATILITY)
         names = {ind.name for ind in indicators}
         expected = {
-            "bollinger", "atr", "keltner", "donchian",
-            "stddev", "chaikin_vol", "hvol", "squeeze",
+            "bollinger",
+            "atr",
+            "keltner",
+            "donchian",
+            "stddev",
+            "chaikin_vol",
+            "hvol",
+            "squeeze",
         }
         assert names == expected, f"Missing volatility indicators: {expected - names}"
 
@@ -156,8 +178,14 @@ class TestIndicatorDiscovery:
         indicators = registry.get_by_category(SignalCategory.VOLUME)
         names = {ind.name for ind in indicators}
         expected = {
-            "obv", "vwap", "cvd", "volume_ratio",
-            "ad", "cmf", "force", "vpvr",
+            "obv",
+            "vwap",
+            "cvd",
+            "volume_ratio",
+            "ad",
+            "cmf",
+            "force",
+            "vpvr",
         }
         assert names == expected, f"Missing volume indicators: {expected - names}"
 
@@ -166,10 +194,21 @@ class TestIndicatorDiscovery:
         indicators = registry.get_by_category(SignalCategory.PATTERN)
         names = {ind.name for ind in indicators}
         expected = {
-            "candlestick", "support_resistance", "trendline",
-            "chart_patterns", "fibonacci", "pivot",
+            "candlestick",
+            "support_resistance",
+            "trendline",
+            "chart_patterns",
+            "fibonacci",
+            "pivot",
         }
         assert names == expected, f"Missing pattern indicators: {expected - names}"
+
+    def test_regime_indicators(self, registry: IndicatorRegistry):
+        """Verify regime indicator."""
+        indicators = registry.get_by_category(SignalCategory.REGIME)
+        names = {ind.name for ind in indicators}
+        expected = {"regime_detector"}
+        assert names == expected, f"Missing regime indicators: {expected - names}"
 
 
 class TestIndicatorProperties:
@@ -186,13 +225,17 @@ class TestIndicatorProperties:
         """All indicators must have a category."""
         for ind in all_indicators:
             assert hasattr(ind, "category"), f"{ind.name} missing 'category'"
-            assert isinstance(ind.category, SignalCategory), f"{ind.name}.category not SignalCategory"
+            assert isinstance(
+                ind.category, SignalCategory
+            ), f"{ind.name}.category not SignalCategory"
 
     def test_all_have_required_fields(self, all_indicators):
         """All indicators must have required_fields."""
         for ind in all_indicators:
             assert hasattr(ind, "required_fields"), f"{ind.name} missing 'required_fields'"
-            assert isinstance(ind.required_fields, (list, tuple)), f"{ind.name}.required_fields not list/tuple"
+            assert isinstance(
+                ind.required_fields, (list, tuple)
+            ), f"{ind.name}.required_fields not list/tuple"
             assert len(ind.required_fields) > 0, f"{ind.name}.required_fields is empty"
 
     def test_all_have_warmup_periods(self, all_indicators):
@@ -221,7 +264,9 @@ class TestIndicatorCalculation:
 
             result = ind.calculate(data, ind.default_params)
 
-            assert isinstance(result, pd.DataFrame), f"{ind.name}.calculate() didn't return DataFrame"
+            assert isinstance(
+                result, pd.DataFrame
+            ), f"{ind.name}.calculate() didn't return DataFrame"
             assert len(result) == len(data), f"{ind.name}.calculate() length mismatch"
 
     def test_calculate_empty_data(self, all_indicators, empty_ohlcv_data):
@@ -268,8 +313,7 @@ class TestIndicatorCalculation:
             allowed_overlap = {c for c in overlap if c.endswith("_close")}
             unexpected_overlap = overlap - allowed_overlap
 
-            assert not unexpected_overlap, \
-                f"{ind.name} output overlaps input: {unexpected_overlap}"
+            assert not unexpected_overlap, f"{ind.name} output overlaps input: {unexpected_overlap}"
 
 
 class TestIndicatorState:
@@ -306,13 +350,26 @@ class TestIndicatorState:
                 # Some keys are allowed to be None when no signal/pattern is detected
                 allowed_none_keys = {
                     # Cross detection (when no crossover occurs)
-                    "tk_cross", "cross_zero", "signal", "cross", "kumo_twist",
+                    "tk_cross",
+                    "cross_zero",
+                    "signal",
+                    "cross",
+                    "kumo_twist",
                     # Pattern detection outputs (when no pattern found)
-                    "pattern", "pattern_type", "reversal_signal", "direction", "nearest_level",
+                    "pattern",
+                    "pattern_type",
+                    "reversal_signal",
+                    "direction",
+                    "nearest_level",
+                    # Regime detector: regime transition tracking (None when no pending change)
+                    "pending_regime",
+                    "previous_regime",
+                    "iv_state",
                 }
                 for key, value in state.items():
-                    assert value is not None or key in allowed_none_keys, \
-                        f"{ind.name} state[{key}] is None"
+                    assert (
+                        value is not None or key in allowed_none_keys
+                    ), f"{ind.name} state[{key}] is None"
 
 
 class TestSpecificIndicators:
@@ -334,7 +391,9 @@ class TestSpecificIndicators:
         data = sample_ohlcv_data[["close"]].copy()
         result = bb.calculate(data, bb.default_params)
 
-        valid_idx = ~(result["bb_upper"].isna() | result["bb_middle"].isna() | result["bb_lower"].isna())
+        valid_idx = ~(
+            result["bb_upper"].isna() | result["bb_middle"].isna() | result["bb_lower"].isna()
+        )
         valid = result[valid_idx]
 
         if len(valid) > 0:
@@ -480,25 +539,17 @@ class TestSpecificIndicators:
         params = sr.default_params
 
         # Test case: price at 100, support at 95, resistance at 110
-        current = pd.Series(
-            {"sr_support": 95.0, "sr_resistance": 110.0, "sr_close": 100.0}
-        )
+        current = pd.Series({"sr_support": 95.0, "sr_resistance": 110.0, "sr_close": 100.0})
         state = sr._get_state(current, None, params)
 
         # Distance to support: (100 - 95) / 95 * 100 = 5.26%
-        assert state["support_distance_pct"] == pytest.approx(
-            (100.0 - 95.0) / 95.0 * 100
-        )
+        assert state["support_distance_pct"] == pytest.approx((100.0 - 95.0) / 95.0 * 100)
         # Distance to resistance: (110 - 100) / 110 * 100 = 9.09%
-        assert state["resistance_distance_pct"] == pytest.approx(
-            (110.0 - 100.0) / 110.0 * 100
-        )
+        assert state["resistance_distance_pct"] == pytest.approx((110.0 - 100.0) / 110.0 * 100)
         assert state["position"] == "between"
 
         # Test at_support position (within 1% proximity)
-        current = pd.Series(
-            {"sr_support": 99.5, "sr_resistance": 110.0, "sr_close": 100.0}
-        )
+        current = pd.Series({"sr_support": 99.5, "sr_resistance": 110.0, "sr_close": 100.0})
         state = sr._get_state(current, None, params)
         assert state["position"] == "at_support"
 
@@ -536,9 +587,7 @@ class TestSpecificIndicators:
 
         # ATR test
         atr_vals = talib.ATR(high, low, close, timeperiod=14)
-        atr_result = registry.get("atr").calculate(
-            data[["high", "low", "close"]], {"period": 14}
-        )
+        atr_result = registry.get("atr").calculate(data[["high", "low", "close"]], {"period": 14})
         _assert_allclose_with_nan(atr_result["atr"].to_numpy(), atr_vals)
 
         # MACD test
@@ -602,7 +651,17 @@ class TestEdgeCases:
 
     def test_zero_volume(self, all_indicators):
         """Volume indicators should handle zero volume."""
-        volume_indicators = {"obv", "vwap", "cvd", "volume_ratio", "ad", "cmf", "force", "vpvr", "mfi"}
+        volume_indicators = {
+            "obv",
+            "vwap",
+            "cvd",
+            "volume_ratio",
+            "ad",
+            "cmf",
+            "force",
+            "vpvr",
+            "mfi",
+        }
 
         dates = pd.date_range("2024-01-01", periods=100, freq="1h")
         data = pd.DataFrame(

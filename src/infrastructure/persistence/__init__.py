@@ -8,12 +8,12 @@ Provides:
 """
 
 from src.infrastructure.persistence.database import (
+    ConnectionError,
     Database,
     DatabaseError,
-    ConnectionError,
     QueryError,
-    get_database,
     close_database,
+    get_database,
 )
 from src.infrastructure.persistence.signal_listener import SignalListener
 

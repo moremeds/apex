@@ -4,14 +4,15 @@ Tests for MTF RSI Trend Strategy.
 Tests the multi-timeframe RSI calculation and signal generation.
 """
 
-import pytest
 from collections import deque
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock
 
-from src.domain.strategy.examples.mtf_rsi_trend import MTFRsiTrendStrategy
-from src.domain.strategy.base import StrategyContext
+import pytest
+
 from src.domain.events.domain_events import BarData
+from src.domain.strategy.base import StrategyContext
+from src.domain.strategy.examples.mtf_rsi_trend import MTFRsiTrendStrategy
 
 
 @pytest.fixture
@@ -128,12 +129,10 @@ class TestMTFRsiStrategy:
             strategy._prices["AAPL"]["1h"].append(150 - i * 3)
 
         trend_rsi = strategy._calculate_rsi(
-            strategy._prices["AAPL"]["1d"],
-            strategy.trend_rsi_period
+            strategy._prices["AAPL"]["1d"], strategy.trend_rsi_period
         )
         entry_rsi = strategy._calculate_rsi(
-            strategy._prices["AAPL"]["1h"],
-            strategy.entry_rsi_period
+            strategy._prices["AAPL"]["1h"], strategy.entry_rsi_period
         )
 
         # Verify conditions
@@ -161,11 +160,13 @@ class TestTALibIntegration:
     def test_indicators_module_import(self):
         """Test indicators module imports correctly."""
         from src.domain.strategy.signals.indicators import rsi
+
         assert callable(rsi)
 
     def test_rsi_matches_expected_range(self):
         """Test RSI output is in valid range."""
         import pandas as pd
+
         from src.domain.strategy.signals.indicators import rsi
 
         # Create test data

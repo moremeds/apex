@@ -19,8 +19,9 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
-from ..core.run_result import RunMetrics
 from src.utils.logging_setup import get_logger
+
+from ..core.run_result import RunMetrics
 
 logger = get_logger(__name__)
 
@@ -140,9 +141,9 @@ class MetricsCalculator:
         # Annualized return
         n_days = len(returns)
         if n_days > 0:
-            metrics.annualized_return = (
-                (1 + metrics.total_return) ** (TRADING_DAYS_PER_YEAR / n_days) - 1
-            )
+            metrics.annualized_return = (1 + metrics.total_return) ** (
+                TRADING_DAYS_PER_YEAR / n_days
+            ) - 1
 
         # CAGR
         n_years = n_days / TRADING_DAYS_PER_YEAR
@@ -153,25 +154,19 @@ class MetricsCalculator:
     # RISK-ADJUSTED METRICS
     # =========================================================================
 
-    def _compute_risk_adjusted_metrics(
-        self, metrics: RunMetrics, returns: pd.Series
-    ) -> None:
+    def _compute_risk_adjusted_metrics(self, metrics: RunMetrics, returns: pd.Series) -> None:
         """Compute Sharpe, Sortino, Calmar."""
         excess_returns = returns - self._daily_rf
 
         # Sharpe ratio (annualized)
         if returns.std() > 0:
-            metrics.sharpe = (
-                excess_returns.mean() / returns.std() * np.sqrt(TRADING_DAYS_PER_YEAR)
-            )
+            metrics.sharpe = excess_returns.mean() / returns.std() * np.sqrt(TRADING_DAYS_PER_YEAR)
 
         # Sortino ratio (downside deviation)
         downside_returns = returns[returns < 0]
         if len(downside_returns) > 0 and downside_returns.std() > 0:
             downside_std = downside_returns.std()
-            metrics.sortino = (
-                excess_returns.mean() / downside_std * np.sqrt(TRADING_DAYS_PER_YEAR)
-            )
+            metrics.sortino = excess_returns.mean() / downside_std * np.sqrt(TRADING_DAYS_PER_YEAR)
 
         # Calmar ratio (CAGR / max drawdown)
         if metrics.max_drawdown > 0:
@@ -181,9 +176,7 @@ class MetricsCalculator:
     # DRAWDOWN METRICS
     # =========================================================================
 
-    def _compute_drawdown_metrics(
-        self, metrics: RunMetrics, returns: pd.Series
-    ) -> None:
+    def _compute_drawdown_metrics(self, metrics: RunMetrics, returns: pd.Series) -> None:
         """Compute drawdown-related metrics."""
         cumulative = (1 + returns).cumprod()
         running_max = cumulative.cummax()
@@ -199,9 +192,7 @@ class MetricsCalculator:
         is_underwater = drawdown < 0
         if is_underwater.any():
             # Find consecutive underwater periods
-            underwater_groups = (
-                (~is_underwater).cumsum().where(is_underwater)
-            )
+            underwater_groups = (~is_underwater).cumsum().where(is_underwater)
             if underwater_groups.notna().any():
                 durations = underwater_groups.groupby(underwater_groups).count()
                 metrics.max_dd_duration_days = int(durations.max())
@@ -210,9 +201,7 @@ class MetricsCalculator:
     # TAIL RISK METRICS
     # =========================================================================
 
-    def _compute_tail_risk_metrics(
-        self, metrics: RunMetrics, returns: pd.Series
-    ) -> None:
+    def _compute_tail_risk_metrics(self, metrics: RunMetrics, returns: pd.Series) -> None:
         """Compute VaR, CVaR, skewness, kurtosis."""
         # VaR (Value at Risk) - loss at given percentile
         metrics.var_95 = abs(np.percentile(returns, 5))
@@ -243,9 +232,7 @@ class MetricsCalculator:
     # STABILITY METRICS
     # =========================================================================
 
-    def _compute_stability_metrics(
-        self, metrics: RunMetrics, returns: pd.Series
-    ) -> None:
+    def _compute_stability_metrics(self, metrics: RunMetrics, returns: pd.Series) -> None:
         """Compute Ulcer index, pain index, recovery factor."""
         cumulative = (1 + returns).cumprod()
         running_max = cumulative.cummax()
@@ -253,7 +240,7 @@ class MetricsCalculator:
 
         # Ulcer index: sqrt(mean(drawdown^2))
         # Penalizes both depth and duration of drawdowns
-        metrics.ulcer_index = np.sqrt((drawdown ** 2).mean())
+        metrics.ulcer_index = np.sqrt((drawdown**2).mean())
 
         # Pain index: mean(|drawdown|)
         metrics.pain_index = abs(drawdown).mean()
@@ -273,9 +260,7 @@ class MetricsCalculator:
     # STATISTICAL METRICS
     # =========================================================================
 
-    def _compute_statistical_metrics(
-        self, metrics: RunMetrics, returns: pd.Series
-    ) -> None:
+    def _compute_statistical_metrics(self, metrics: RunMetrics, returns: pd.Series) -> None:
         """Compute t-stat, p-value, Jarque-Bera, autocorrelation."""
         # t-test on mean return (H0: mean = 0)
         if len(returns) > 1:
@@ -310,12 +295,10 @@ class MetricsCalculator:
     # TIME-BASED METRICS
     # =========================================================================
 
-    def _compute_time_based_metrics(
-        self, metrics: RunMetrics, returns: pd.Series
-    ) -> None:
+    def _compute_time_based_metrics(self, metrics: RunMetrics, returns: pd.Series) -> None:
         """Compute monthly/yearly aggregates and rolling Sharpe."""
         # Monthly returns
-        if hasattr(returns.index, 'to_period'):
+        if hasattr(returns.index, "to_period"):
             try:
                 monthly = returns.resample("ME").apply(lambda x: (1 + x).prod() - 1)
                 if len(monthly) > 0:
@@ -339,9 +322,7 @@ class MetricsCalculator:
         if len(returns) >= self.rolling_window:
             rolling_mean = returns.rolling(self.rolling_window).mean()
             rolling_std = returns.rolling(self.rolling_window).std()
-            rolling_sharpe = (
-                rolling_mean / rolling_std * np.sqrt(TRADING_DAYS_PER_YEAR)
-            ).dropna()
+            rolling_sharpe = (rolling_mean / rolling_std * np.sqrt(TRADING_DAYS_PER_YEAR)).dropna()
 
             if len(rolling_sharpe) > 0:
                 metrics.rolling_sharpe_min = float(rolling_sharpe.min())
@@ -360,10 +341,12 @@ class MetricsCalculator:
     ) -> None:
         """Compute alpha, beta, information ratio, tracking error."""
         # Align returns
-        aligned = pd.DataFrame({
-            "strategy": returns,
-            "benchmark": benchmark_returns,
-        }).dropna()
+        aligned = pd.DataFrame(
+            {
+                "strategy": returns,
+                "benchmark": benchmark_returns,
+            }
+        ).dropna()
 
         if len(aligned) < 10:
             return
@@ -409,9 +392,7 @@ class MetricsCalculator:
     # TRADE METRICS
     # =========================================================================
 
-    def _compute_trade_metrics(
-        self, metrics: RunMetrics, trades: List[Trade]
-    ) -> None:
+    def _compute_trade_metrics(self, metrics: RunMetrics, trades: List[Trade]) -> None:
         """Compute trade-level metrics."""
         if not trades:
             return
@@ -489,6 +470,108 @@ class MetricsCalculator:
                 current_streak = 0
 
         return max_streak
+
+    # =========================================================================
+    # REGIME SENSITIVITY METRICS (Phase 2)
+    # =========================================================================
+
+    def compute_regime_metrics(
+        self,
+        metrics: RunMetrics,
+        regime_series: pd.Series,
+    ) -> None:
+        """
+        Compute regime sensitivity metrics from a series of regime classifications.
+
+        Args:
+            metrics: RunMetrics object to populate
+            regime_series: Series of regime values (R0, R1, R2, R3) indexed by bar timestamp
+
+        Metrics computed:
+            - regime_transition_rate: Regime switches per 100 bars (lower = more stable)
+            - regime_time_in_r0/r1/r2/r3: % time in each regime
+            - regime_avg_duration_bars: Average bars per regime stint
+        """
+        if regime_series is None or len(regime_series) < 2:
+            return
+
+        # Convert to string values for consistent comparison
+        regimes = regime_series.astype(str)
+        n_bars = len(regimes)
+
+        # Count transitions (regime changes)
+        transitions = (regimes != regimes.shift(1)).sum() - 1  # Subtract 1 for first bar
+        transitions = max(0, transitions)
+
+        # Transition rate per 100 bars
+        if n_bars > 0:
+            metrics.regime_transition_rate = (transitions / n_bars) * 100
+
+        # Time in each regime
+        regime_counts = regimes.value_counts(normalize=True)
+        metrics.regime_time_in_r0 = regime_counts.get("R0", 0.0) * 100
+        metrics.regime_time_in_r1 = regime_counts.get("R1", 0.0) * 100
+        metrics.regime_time_in_r2 = regime_counts.get("R2", 0.0) * 100
+        metrics.regime_time_in_r3 = regime_counts.get("R3", 0.0) * 100
+
+        # Average regime duration
+        # Count number of regime stints (consecutive periods in same regime)
+        regime_change_mask = regimes != regimes.shift(1)
+        n_stints = regime_change_mask.sum()
+        if n_stints > 0:
+            metrics.regime_avg_duration_bars = n_bars / n_stints
+
+    def compute_regime_switch_lag(
+        self,
+        predicted_regimes: pd.Series,
+        ground_truth_regimes: pd.Series,
+    ) -> float:
+        """
+        Compute median lag between predicted and ground truth regime changes.
+
+        This measures detection delay - how many bars after the ground truth
+        regime changed did the predicted regime catch up.
+
+        Args:
+            predicted_regimes: Series of predicted regime values
+            ground_truth_regimes: Series of "true" regime values (e.g., from lookback analysis)
+
+        Returns:
+            Median switch lag in bars (lower = more responsive)
+        """
+        if predicted_regimes is None or ground_truth_regimes is None:
+            return 0.0
+
+        # Align series
+        common_idx = predicted_regimes.index.intersection(ground_truth_regimes.index)
+        if len(common_idx) < 2:
+            return 0.0
+
+        pred = predicted_regimes.loc[common_idx].astype(str)
+        truth = ground_truth_regimes.loc[common_idx].astype(str)
+
+        # Find ground truth regime changes
+        truth_changes = truth != truth.shift(1)
+        change_indices = truth_changes[truth_changes].index.tolist()
+
+        if not change_indices:
+            return 0.0
+
+        # For each ground truth change, find when predicted caught up
+        lags = []
+        for change_idx in change_indices:
+            new_regime = truth.loc[change_idx]
+            # Look forward from change point to find when predicted matches
+            future_pred = pred.loc[change_idx:]
+            match_mask = future_pred == new_regime
+            if match_mask.any():
+                match_idx = match_mask.idxmax()
+                lag_bars = pred.index.get_loc(match_idx) - pred.index.get_loc(change_idx)
+                lags.append(lag_bars)
+
+        if lags:
+            return float(np.median(lags))
+        return 0.0
 
     # =========================================================================
     # HELPER METHODS

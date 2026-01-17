@@ -1,0 +1,20 @@
+{"indicator": "rsi", "scenario": "trend_uptrend", "bar_index": 14, "timestamp": "2024-01-23", "outputs": {"value": 68.5, "zone": "neutral"}, "warmup_complete": true}
+{"indicator": "rsi", "scenario": "trend_uptrend", "bar_index": 50, "timestamp": "2024-03-13", "outputs": {"value": 72.3, "zone": "neutral"}, "warmup_complete": true}
+{"indicator": "rsi", "scenario": "trend_uptrend", "bar_index": 99, "timestamp": "2024-05-23", "outputs": {"value": 75.1, "zone": "neutral"}, "warmup_complete": true}
+{"indicator": "rsi", "scenario": "trend_choppy", "bar_index": 14, "timestamp": "2024-01-23", "outputs": {"value": 48.2, "zone": "neutral"}, "warmup_complete": true}
+{"indicator": "rsi", "scenario": "trend_choppy", "bar_index": 50, "timestamp": "2024-03-13", "outputs": {"value": 52.1, "zone": "neutral"}, "warmup_complete": true}
+{"indicator": "rsi", "scenario": "trend_choppy", "bar_index": 99, "timestamp": "2024-05-23", "outputs": {"value": 49.8, "zone": "neutral"}, "warmup_complete": true}
+{"indicator": "rsi", "scenario": "trend_crash", "bar_index": 40, "timestamp": "2024-02-29", "outputs": {"value": 22.1, "zone": "oversold"}, "warmup_complete": true}
+{"indicator": "rsi", "scenario": "trend_crash", "bar_index": 50, "timestamp": "2024-03-13", "outputs": {"value": 18.5, "zone": "oversold"}, "warmup_complete": true}
+{"indicator": "rsi", "scenario": "trend_crash", "bar_index": 99, "timestamp": "2024-05-23", "outputs": {"value": 65.2, "zone": "neutral"}, "warmup_complete": true}
+{"indicator": "macd", "scenario": "trend_uptrend", "bar_index": 26, "timestamp": "2024-02-07", "outputs": {"macd_line": 1.25, "signal_line": 0.98, "histogram": 0.27}, "warmup_complete": true}
+{"indicator": "macd", "scenario": "trend_uptrend", "bar_index": 50, "timestamp": "2024-03-13", "outputs": {"macd_line": 2.15, "signal_line": 1.85, "histogram": 0.30}, "warmup_complete": true}
+{"indicator": "macd", "scenario": "trend_uptrend", "bar_index": 99, "timestamp": "2024-05-23", "outputs": {"macd_line": 3.05, "signal_line": 2.78, "histogram": 0.27}, "warmup_complete": true}
+{"indicator": "macd", "scenario": "trend_choppy", "bar_index": 26, "timestamp": "2024-02-07", "outputs": {"macd_line": 0.12, "signal_line": 0.08, "histogram": 0.04}, "warmup_complete": true}
+{"indicator": "macd", "scenario": "trend_choppy", "bar_index": 50, "timestamp": "2024-03-13", "outputs": {"macd_line": -0.15, "signal_line": -0.10, "histogram": -0.05}, "warmup_complete": true}
+{"indicator": "macd", "scenario": "trend_crash", "bar_index": 40, "timestamp": "2024-02-29", "outputs": {"macd_line": -8.50, "signal_line": -5.20, "histogram": -3.30}, "warmup_complete": true}
+{"indicator": "macd", "scenario": "trend_crash", "bar_index": 50, "timestamp": "2024-03-13", "outputs": {"macd_line": -10.25, "signal_line": -8.15, "histogram": -2.10}, "warmup_complete": true}
+{"indicator": "kdj", "scenario": "trend_uptrend", "bar_index": 14, "timestamp": "2024-01-23", "outputs": {"k": 75.5, "d": 68.2, "j": 89.1}, "warmup_complete": true}
+{"indicator": "kdj", "scenario": "trend_crash", "bar_index": 40, "timestamp": "2024-02-29", "outputs": {"k": 12.5, "d": 18.2, "j": 0.0}, "warmup_complete": true}
+{"indicator": "cci", "scenario": "trend_uptrend", "bar_index": 20, "timestamp": "2024-01-31", "outputs": {"value": 85.5}, "warmup_complete": true}
+{"indicator": "cci", "scenario": "trend_crash", "bar_index": 40, "timestamp": "2024-02-29", "outputs": {"value": -185.2}, "warmup_complete": true}

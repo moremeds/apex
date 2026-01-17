@@ -5,11 +5,11 @@ Handles real-time trade notifications from Futu OpenD.
 """
 
 from __future__ import annotations
-from typing import Callable
+
 import threading
+from typing import Callable
 
 from ....utils.logging_setup import get_logger
-
 
 logger = get_logger(__name__)
 
@@ -67,14 +67,14 @@ def create_trade_handler(on_trade_callback: Callable[[dict], None]):
                         if isinstance(data, pd.DataFrame) and not data.empty:
                             for _, row in data.iterrows():
                                 trade_data = {
-                                    'trade_id': row.get('deal_id', None),  # Futu calls it deal_id
-                                    'order_id': row.get('order_id', None),
-                                    'code': row.get('code', None),
-                                    'stock_name': row.get('stock_name', None),
-                                    'qty': float(row.get('qty', 0)),
-                                    'price': float(row.get('price', 0)),
-                                    'trd_side': row.get('trd_side', None),
-                                    'create_time': row.get('create_time', None),
+                                    "trade_id": row.get("deal_id", None),  # Futu calls it deal_id
+                                    "order_id": row.get("order_id", None),
+                                    "code": row.get("code", None),
+                                    "stock_name": row.get("stock_name", None),
+                                    "qty": float(row.get("qty", 0)),
+                                    "price": float(row.get("price", 0)),
+                                    "trd_side": row.get("trd_side", None),
+                                    "create_time": row.get("create_time", None),
                                 }
                                 logger.info(
                                     f"Futu trade received: {trade_data['code']} "

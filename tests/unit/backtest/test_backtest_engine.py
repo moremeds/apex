@@ -2,19 +2,20 @@
 Unit tests for the backtest engine.
 """
 
-import pytest
-from datetime import datetime, date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
+import pytest
+
+from src.backtest.data.feeds import CsvDataFeed, InMemoryDataFeed
+from src.backtest.execution.engines.backtest_engine import BacktestConfig, BacktestEngine
+from src.backtest.execution.simulated import FillModel, SimulatedExecution
 from src.domain.clock import SimulatedClock, SystemClock
-from src.domain.strategy.base import Strategy, StrategyContext, TradingSignal
-from src.domain.strategy.scheduler import SimulatedScheduler, LiveScheduler
-from src.domain.strategy.registry import StrategyRegistry, register_strategy
-from src.domain.events.domain_events import QuoteTick, BarData
+from src.domain.events.domain_events import BarData, QuoteTick
 from src.domain.interfaces.execution_provider import OrderRequest
-from src.backtest.execution.simulated import SimulatedExecution, FillModel
-from src.backtest.data.feeds import InMemoryDataFeed, CsvDataFeed
-from src.backtest.execution.engines.backtest_engine import BacktestEngine, BacktestConfig
+from src.domain.strategy.base import Strategy, StrategyContext, TradingSignal
+from src.domain.strategy.registry import StrategyRegistry, register_strategy
+from src.domain.strategy.scheduler import LiveScheduler, SimulatedScheduler
 
 
 class TestSimulatedClock:
@@ -203,6 +204,7 @@ class TestStrategy:
 
     def test_strategy_lifecycle(self):
         """Test strategy start/stop lifecycle."""
+
         # Create a simple test strategy
         @register_strategy("test_simple")
         class SimpleStrategy(Strategy):

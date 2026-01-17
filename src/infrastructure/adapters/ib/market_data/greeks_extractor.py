@@ -5,11 +5,12 @@ These are pure functions with no side effects, making them easy to test.
 """
 
 from __future__ import annotations
+
 from math import isnan
 from typing import TYPE_CHECKING
 
-from .....models.market_data import MarketData, GreeksSource
-from .....models.position import Position, AssetType
+from .....models.market_data import GreeksSource, MarketData
+from .....models.position import AssetType, Position
 from .....utils.timezone import now_utc
 
 if TYPE_CHECKING:
@@ -30,10 +31,10 @@ def extract_market_data(ticker, pos: Position) -> MarketData:
         MarketData with prices populated
     """
     # Get prices with NaN handling
-    bid = _safe_float(getattr(ticker, 'bid', None))
-    ask = _safe_float(getattr(ticker, 'ask', None))
-    last = _safe_float(getattr(ticker, 'last', None))
-    close = _safe_float(getattr(ticker, 'close', None))
+    bid = _safe_float(getattr(ticker, "bid", None))
+    ask = _safe_float(getattr(ticker, "ask", None))
+    last = _safe_float(getattr(ticker, "last", None))
+    close = _safe_float(getattr(ticker, "close", None))
 
     # Calculate mid price
     mid = None
@@ -80,25 +81,25 @@ def extract_greeks(ticker, md: MarketData, pos: Position) -> None:
         return
 
     # Extract IV (available directly on ticker)
-    if hasattr(ticker, 'impliedVolatility') and ticker.impliedVolatility:
+    if hasattr(ticker, "impliedVolatility") and ticker.impliedVolatility:
         iv = _safe_float(ticker.impliedVolatility)
         if iv is not None:
             md.iv = iv
 
     # Extract Greeks from modelGreeks
-    if not hasattr(ticker, 'modelGreeks') or not ticker.modelGreeks:
+    if not hasattr(ticker, "modelGreeks") or not ticker.modelGreeks:
         return
 
     greeks = ticker.modelGreeks
 
     # Extract each Greek with NaN handling
-    md.delta = _safe_float(getattr(greeks, 'delta', None))
-    md.gamma = _safe_float(getattr(greeks, 'gamma', None))
-    md.vega = _safe_float(getattr(greeks, 'vega', None))
-    md.theta = _safe_float(getattr(greeks, 'theta', None))
+    md.delta = _safe_float(getattr(greeks, "delta", None))
+    md.gamma = _safe_float(getattr(greeks, "gamma", None))
+    md.vega = _safe_float(getattr(greeks, "vega", None))
+    md.theta = _safe_float(getattr(greeks, "theta", None))
 
     # Extract underlying price (critical for delta dollars)
-    if hasattr(greeks, 'undPrice') and greeks.undPrice:
+    if hasattr(greeks, "undPrice") and greeks.undPrice:
         und_price = _safe_float(greeks.undPrice)
         if und_price is not None:
             md.underlying_price = und_price

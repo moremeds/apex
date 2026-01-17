@@ -1,16 +1,17 @@
 """
 Test VIX alert functionality - diagnose what's not working.
 """
+
 import asyncio
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+from config.config_manager import ConfigManager
+from src.domain.services.market_alert_detector import MarketAlertDetector
 from src.infrastructure.adapters import IbCompositeAdapter
 from src.infrastructure.adapters.ib import ConnectionPoolConfig
-from src.domain.services.market_alert_detector import MarketAlertDetector
-from config.config_manager import ConfigManager
 
 
 async def test_vix_alert():
@@ -24,8 +25,12 @@ async def test_vix_alert():
     config_manager = ConfigManager(config_dir="../config", env="dev")
     config = config_manager.load()
     print(f"   ✓ Config loaded")
-    print(f"   VIX warning threshold: {config.raw.get('market_alerts', {}).get('vix_warning_threshold')}")
-    print(f"   VIX critical threshold: {config.raw.get('market_alerts', {}).get('vix_critical_threshold')}")
+    print(
+        f"   VIX warning threshold: {config.raw.get('market_alerts', {}).get('vix_warning_threshold')}"
+    )
+    print(
+        f"   VIX critical threshold: {config.raw.get('market_alerts', {}).get('vix_critical_threshold')}"
+    )
     print(f"   VIX spike %: {config.raw.get('market_alerts', {}).get('vix_spike_pct')}")
 
     # Initialize IB adapter
@@ -76,6 +81,7 @@ async def test_vix_alert():
     except Exception as e:
         print(f"   ✗ Error fetching VIX: {e}")
         import traceback
+
         traceback.print_exc()
         return
 
@@ -109,20 +115,22 @@ async def test_vix_alert():
     else:
         print(f"   ⚠️  {len(alerts)} alert(s) triggered:")
         for alert in alerts:
-            severity = alert['severity']
-            alert_type = alert['type']
-            message = alert['message']
+            severity = alert["severity"]
+            alert_type = alert["type"]
+            message = alert["message"]
 
             icon = "🔴" if severity == "CRITICAL" else "⚠️" if severity == "WARNING" else "ℹ️"
             print(f"     {icon} [{severity}] {alert_type}: {message}")
 
     # Test manual alert trigger (lower thresholds)
     print("\n6. Testing with lowered thresholds (force trigger)...")
-    test_detector = MarketAlertDetector({
-        "vix_warning_threshold": vix_value - 5,  # 5 points below current
-        "vix_critical_threshold": vix_value - 2,  # 2 points below current
-        "vix_spike_pct": 5.0,  # Low spike threshold
-    })
+    test_detector = MarketAlertDetector(
+        {
+            "vix_warning_threshold": vix_value - 5,  # 5 points below current
+            "vix_critical_threshold": vix_value - 2,  # 2 points below current
+            "vix_spike_pct": 5.0,  # Low spike threshold
+        }
+    )
 
     test_alerts = test_detector.detect_alerts(indicators)
     print(f"   Triggered {len(test_alerts)} alert(s) with low thresholds:")

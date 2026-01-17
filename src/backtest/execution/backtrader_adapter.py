@@ -200,7 +200,10 @@ class BacktraderScheduler(Scheduler):
                     and bar_datetime.weekday() == action.day_of_week
                     and bar_time >= action.time_of_day
                 ):
-                    if action.last_triggered is None or (bar_date - action.last_triggered.date()).days >= 7:
+                    if (
+                        action.last_triggered is None
+                        or (bar_date - action.last_triggered.date()).days >= 7
+                    ):
                         triggered = True
 
             elif action.frequency == ScheduleFrequency.ON_SESSION_CLOSE:

@@ -295,9 +295,7 @@ class BacktestEngine:
         logger.info(f"Loaded {self._data_feed.bar_count} bars")
 
         # Detect MTF mode from data feed
-        secondary_timeframes = list(
-            getattr(self._data_feed, "secondary_timeframes", []) or []
-        )
+        secondary_timeframes = list(getattr(self._data_feed, "secondary_timeframes", []) or [])
         use_mtf = len(secondary_timeframes) > 0
         aligned_buffer = (
             AlignedBarBuffer(
@@ -371,7 +369,9 @@ class BacktestEngine:
             # OPT-006: Only calculate equity at day boundaries (not every bar)
             # This reduces O(bars * positions) to O(days * positions)
             current_date = bar.timestamp.date().isoformat()
-            is_day_change = self._last_equity_date is not None and self._last_equity_date != current_date
+            is_day_change = (
+                self._last_equity_date is not None and self._last_equity_date != current_date
+            )
             bar_count += 1
 
             # Detect day change - calculate END-of-previous-day equity, then flush

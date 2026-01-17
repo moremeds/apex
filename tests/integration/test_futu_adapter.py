@@ -70,11 +70,14 @@ async def test_fetch_positions_and_account():
             print(f"✓ Found {len(positions)} positions\n")
 
             for pos in positions:
-                print(f"  {pos.asset_type.value:8} | {pos.symbol:20} | "
-                      f"Qty: {pos.quantity:>8.0f} | AvgPrice: ${pos.avg_price:>10.2f}")
+                print(
+                    f"  {pos.asset_type.value:8} | {pos.symbol:20} | "
+                    f"Qty: {pos.quantity:>8.0f} | AvgPrice: ${pos.avg_price:>10.2f}"
+                )
                 if pos.asset_type.value == "OPTION":
-                    print(f"           └─ {pos.underlying} {pos.expiry} "
-                          f"${pos.strike} {pos.right}")
+                    print(
+                        f"           └─ {pos.underlying} {pos.expiry} " f"${pos.strike} {pos.right}"
+                    )
         except Exception as e:
             error_msg = str(e)
             if "disclaimer" in error_msg.lower():
@@ -120,6 +123,7 @@ async def test_fetch_positions_and_account():
     except Exception as e:
         print(f"\n✗ Error: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 

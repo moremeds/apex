@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from typing import List, Dict, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Dict, List, Optional
 
 from ..utils.logging_setup import get_logger
 from .bar_cache_service import BarPeriod
@@ -41,8 +41,9 @@ logger = get_logger(__name__)
 
 # Check if TA-Lib is available
 try:
-    import talib
     import numpy as np
+    import talib
+
     TALIB_AVAILABLE = True
 except ImportError:
     TALIB_AVAILABLE = False
@@ -55,6 +56,7 @@ except ImportError:
 @dataclass
 class ATRLevels:
     """ATR-based price levels for a symbol."""
+
     symbol: str
     spot: float  # Current spot price (used for levels)
     prev_close: float  # Previous bar close (used for ATR%)
@@ -131,15 +133,12 @@ class TAService:
 
             if len(bars) < period:
                 logger.warning(
-                    f"Insufficient data for {symbol} ATR: "
-                    f"got {len(bars)} bars, need {period}"
+                    f"Insufficient data for {symbol} ATR: " f"got {len(bars)} bars, need {period}"
                 )
                 return None
 
             # M22: Run CPU-bound TA-Lib computation in thread pool
-            return await asyncio.to_thread(
-                self._compute_atr_sync, bars, period
-            )
+            return await asyncio.to_thread(self._compute_atr_sync, bars, period)
 
         except Exception as e:
             logger.error(f"Failed to calculate ATR for {symbol}: {e}")
@@ -283,8 +282,7 @@ class TAService:
 
             # M22: Run CPU-bound computation in thread pool
             return await asyncio.to_thread(
-                self._compute_atr_levels_sync,
-                symbol, spot_price, bars, period, timeframe
+                self._compute_atr_levels_sync, symbol, spot_price, bars, period, timeframe
             )
 
         except Exception as e:
@@ -376,7 +374,11 @@ class TAService:
         # M22: Run CPU-bound batch computation in thread pool
         return await asyncio.to_thread(
             self._compute_atr_levels_batch_sync,
-            symbols, symbols_with_spots, bars_by_symbol, period, timeframe
+            symbols,
+            symbols_with_spots,
+            bars_by_symbol,
+            period,
+            timeframe,
         )
 
     def _compute_atr_levels_batch_sync(
@@ -466,9 +468,7 @@ class TAService:
             return None
 
         lookback = period + self._lookback_buffer
-        bars = await self._historical.fetch_bars(
-            symbol, timeframe, BarPeriod.bars(lookback)
-        )
+        bars = await self._historical.fetch_bars(symbol, timeframe, BarPeriod.bars(lookback))
 
         if len(bars) < period:
             return None
@@ -497,9 +497,7 @@ class TAService:
         if not TALIB_AVAILABLE:
             return None
 
-        bars = await self._historical.fetch_bars(
-            symbol, timeframe, BarPeriod.bars(period + 5)
-        )
+        bars = await self._historical.fetch_bars(symbol, timeframe, BarPeriod.bars(period + 5))
 
         if len(bars) < period:
             return None

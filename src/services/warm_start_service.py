@@ -177,9 +177,7 @@ class WarmStartService:
 
                         result.accounts_loaded += 1
                     else:
-                        logger.warning(
-                            f"Account snapshot too old for {broker_name}/{account_id}"
-                        )
+                        logger.warning(f"Account snapshot too old for {broker_name}/{account_id}")
                 else:
                     logger.info(f"No account snapshot found for {broker_name}/{account_id}")
 
@@ -251,14 +249,16 @@ class WarmStartService:
             )
             if position_snapshot:
                 age = (now - position_snapshot.snapshot_time).total_seconds()
-                status["position_snapshots"].append({
-                    "broker": broker_name,
-                    "account_id": account_id,
-                    "snapshot_time": str(position_snapshot.snapshot_time),
-                    "age_seconds": age,
-                    "position_count": position_snapshot.position_count,
-                    "is_valid": age <= self._max_age_seconds,
-                })
+                status["position_snapshots"].append(
+                    {
+                        "broker": broker_name,
+                        "account_id": account_id,
+                        "snapshot_time": str(position_snapshot.snapshot_time),
+                        "age_seconds": age,
+                        "position_count": position_snapshot.position_count,
+                        "is_valid": age <= self._max_age_seconds,
+                    }
+                )
 
             # Check account snapshot
             account_snapshot = await self._account_repo.get_latest(
@@ -266,13 +266,15 @@ class WarmStartService:
             )
             if account_snapshot:
                 age = (now - account_snapshot.snapshot_time).total_seconds()
-                status["account_snapshots"].append({
-                    "broker": broker_name,
-                    "account_id": account_id,
-                    "snapshot_time": str(account_snapshot.snapshot_time),
-                    "age_seconds": age,
-                    "is_valid": age <= self._max_age_seconds,
-                })
+                status["account_snapshots"].append(
+                    {
+                        "broker": broker_name,
+                        "account_id": account_id,
+                        "snapshot_time": str(account_snapshot.snapshot_time),
+                        "age_seconds": age,
+                        "is_valid": age <= self._max_age_seconds,
+                    }
+                )
 
         # Check risk snapshot
         risk_snapshot = await self._risk_repo.get_latest()
@@ -281,7 +283,9 @@ class WarmStartService:
             status["risk_snapshot"] = {
                 "snapshot_time": str(risk_snapshot.snapshot_time),
                 "age_seconds": age,
-                "portfolio_value": float(risk_snapshot.portfolio_value) if risk_snapshot.portfolio_value else None,
+                "portfolio_value": (
+                    float(risk_snapshot.portfolio_value) if risk_snapshot.portfolio_value else None
+                ),
                 "position_count": risk_snapshot.position_count,
                 "is_valid": age <= self._max_age_seconds,
             }
@@ -486,7 +490,11 @@ class WarmStartService:
             last_updated=deserialized.get("last_updated") or datetime.now(),
             account_id=deserialized.get("account_id"),
             entry_timestamp=deserialized.get("entry_timestamp"),
-            max_profit_reached=to_float(deserialized.get("max_profit_reached")) if deserialized.get("max_profit_reached") else None,
+            max_profit_reached=(
+                to_float(deserialized.get("max_profit_reached"))
+                if deserialized.get("max_profit_reached")
+                else None
+            ),
             strategy_label=deserialized.get("strategy_label"),
             related_position_ids=deserialized.get("related_position_ids", []),
         )

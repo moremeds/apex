@@ -6,9 +6,10 @@ Pure state container with no side effects beyond state updates.
 """
 
 from __future__ import annotations
+
+import logging
 from dataclasses import dataclass
 from typing import Dict, Optional
-import logging
 
 from ...domain.events.domain_events import QuoteTick, TradeFill
 
@@ -71,7 +72,7 @@ class PositionLedger:
             fill: Trade fill event.
         """
         symbol = fill.symbol
-        multiplier = getattr(fill, 'multiplier', 1) or 1
+        multiplier = getattr(fill, "multiplier", 1) or 1
 
         if symbol not in self._positions:
             self._positions[symbol] = SimulatedPosition(symbol=symbol, multiplier=multiplier)

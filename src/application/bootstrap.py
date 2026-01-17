@@ -15,34 +15,35 @@ Usage:
 """
 
 from __future__ import annotations
+
 import asyncio
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from ..domain.events import PriorityEventBus
 from ..domain.services import MarketAlertDetector
-from ..domain.services.risk.risk_facade import RiskFacade
-from ..domain.services.risk.rule_engine import RuleEngine
-from ..domain.services.risk.risk_signal_manager import RiskSignalManager
-from ..domain.services.risk.risk_signal_engine import RiskSignalEngine
-from ..domain.services.risk.risk_alert_logger import RiskAlertLogger
-from ..domain.services.risk.streaming import DeltaPublisher
-from ..domain.services.pos_reconciler import Reconciler
 from ..domain.services.mdqc import MDQC
-from ..infrastructure.adapters import FutuAdapter, FileLoader, BrokerManager, MarketDataManager
-from ..infrastructure.adapters.ib import IbConnectionPool, ConnectionPoolConfig, IbCompositeAdapter
-from ..infrastructure.stores import PositionStore, MarketDataStore, AccountStore
-from ..infrastructure.stores.duckdb_coverage_store import DuckDBCoverageStore
+from ..domain.services.pos_reconciler import Reconciler
+from ..domain.services.risk.risk_alert_logger import RiskAlertLogger
+from ..domain.services.risk.risk_facade import RiskFacade
+from ..domain.services.risk.risk_signal_engine import RiskSignalEngine
+from ..domain.services.risk.risk_signal_manager import RiskSignalManager
+from ..domain.services.risk.rule_engine import RuleEngine
+from ..domain.services.risk.streaming import DeltaPublisher
+from ..infrastructure.adapters import BrokerManager, FileLoader, FutuAdapter, MarketDataManager
+from ..infrastructure.adapters.ib import ConnectionPoolConfig, IbCompositeAdapter, IbConnectionPool
+from ..infrastructure.monitoring import HealthMonitor, Watchdog
 from ..infrastructure.persistence.database import Database
 from ..infrastructure.persistence.repositories.ta_signal_repository import TASignalRepository
-from ..infrastructure.monitoring import HealthMonitor, Watchdog
-from ..services.historical_data_manager import HistoricalDataManager
+from ..infrastructure.stores import AccountStore, MarketDataStore, PositionStore
+from ..infrastructure.stores.duckdb_coverage_store import DuckDBCoverageStore
 from ..services.bar_persistence_service import BarPersistenceService
+from ..services.historical_data_manager import HistoricalDataManager
 from ..utils import StructuredLogger
 from ..utils.structured_logger import LogCategory
-
-from . import Orchestrator, ReadinessManager
+from .orchestrator import Orchestrator
+from .readiness_manager import ReadinessManager
 
 if TYPE_CHECKING:
     from config.config_manager import Config
@@ -50,8 +51,13 @@ if TYPE_CHECKING:
 # Observability imports (optional)
 try:
     from ..infrastructure.observability import (
-        MetricsManager, get_metrics_manager, RiskMetrics, HealthMetrics, SignalMetrics
+        HealthMetrics,
+        MetricsManager,
+        RiskMetrics,
+        SignalMetrics,
+        get_metrics_manager,
     )
+
     OBSERVABILITY_AVAILABLE = True
 except ImportError:
     OBSERVABILITY_AVAILABLE = False
@@ -206,12 +212,17 @@ class AppContainer:
 
             # Wire perf logger
             from ..utils.perf_logger import set_perf_metrics
+
             set_perf_metrics(health_metrics=self.health_metrics, risk_metrics=self.risk_metrics)
 
-            self._log(LogCategory.SYSTEM, "Observability enabled", {
-                "metrics_port": self.metrics_port,
-                "endpoint": f"http://localhost:{self.metrics_port}/metrics"
-            })
+            self._log(
+                LogCategory.SYSTEM,
+                "Observability enabled",
+                {
+                    "metrics_port": self.metrics_port,
+                    "endpoint": f"http://localhost:{self.metrics_port}/metrics",
+                },
+            )
         except Exception as e:
             self._log(LogCategory.SYSTEM, f"Failed to start metrics server: {e}")
 
@@ -261,10 +272,14 @@ class AppContainer:
             # Create IB pool for historical data
             self.ib_pool = IbConnectionPool(pool_config)
 
-            self._log(LogCategory.SYSTEM, "IB composite adapter registered", {
-                "host": self.config.ibkr.host,
-                "port": self.config.ibkr.port,
-            })
+            self._log(
+                LogCategory.SYSTEM,
+                "IB composite adapter registered",
+                {
+                    "host": self.config.ibkr.host,
+                    "port": self.config.ibkr.port,
+                },
+            )
         else:
             self._log(LogCategory.SYSTEM, "IB adapter DISABLED")
 
@@ -279,10 +294,14 @@ class AppContainer:
                 event_bus=self.event_bus,
             )
             self.broker_manager.register_adapter("futu", futu_adapter)
-            self._log(LogCategory.SYSTEM, "Futu adapter registered", {
-                "host": self.config.futu.host,
-                "port": self.config.futu.port,
-            })
+            self._log(
+                LogCategory.SYSTEM,
+                "Futu adapter registered",
+                {
+                    "host": self.config.futu.host,
+                    "port": self.config.futu.port,
+                },
+            )
         else:
             self._log(LogCategory.SYSTEM, "Futu adapter DISABLED")
 
@@ -309,9 +328,7 @@ class AppContainer:
             soft_threshold=self.config.risk_limits.soft_breach_threshold,
         )
 
-        self.market_alert_detector = MarketAlertDetector(
-            self.config.raw.get("market_alerts", {})
-        )
+        self.market_alert_detector = MarketAlertDetector(self.config.raw.get("market_alerts", {}))
 
         self.watchdog = Watchdog(
             health_monitor=self.health_monitor,
@@ -375,12 +392,18 @@ class AppContainer:
             event_bus=self.event_bus,
             required_brokers=required_brokers,
             market_data_coverage_threshold=1.0,
-            startup_timeout_sec=self.config.raw.get("dashboard", {}).get("snapshot_ready_timeout_sec", 30.0),
+            startup_timeout_sec=self.config.raw.get("dashboard", {}).get(
+                "snapshot_ready_timeout_sec", 30.0
+            ),
         )
 
-        self._log(LogCategory.SYSTEM, "ReadinessManager created", {
-            "required_brokers": required_brokers,
-        })
+        self._log(
+            LogCategory.SYSTEM,
+            "ReadinessManager created",
+            {
+                "required_brokers": required_brokers,
+            },
+        )
 
     def _create_historical_data_manager(self) -> None:
         """Phase 4a: Create historical data manager."""
@@ -415,10 +438,14 @@ class AppContainer:
             self.db = Database(self.config.database)
             await self.db.connect()
             self.signal_repo = TASignalRepository(self.db)
-            self._log(LogCategory.DATA, "Signal persistence connected", {
-                "database": self.config.database.database,
-                "host": self.config.database.host,
-            })
+            self._log(
+                LogCategory.DATA,
+                "Signal persistence connected",
+                {
+                    "database": self.config.database.database,
+                    "host": self.config.database.host,
+                },
+            )
         except Exception as e:
             self._log(LogCategory.DATA, f"Signal persistence unavailable: {e}")
 
@@ -474,7 +501,7 @@ class AppContainer:
         if self.config.ibkr.enabled:
             ib_adapter = self.broker_manager.get_adapter("ib")
             if ib_adapter and ib_adapter.is_connected():
-                if hasattr(ib_adapter, '_historical_adapter') and ib_adapter._historical_adapter:
+                if hasattr(ib_adapter, "_historical_adapter") and ib_adapter._historical_adapter:
                     self.historical_data_manager.set_ib_source(ib_adapter._historical_adapter)
                     self._log(LogCategory.SYSTEM, "IB historical source registered")
 

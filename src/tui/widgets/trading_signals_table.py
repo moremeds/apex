@@ -191,9 +191,11 @@ class TradingSignalsTable(DataTable):
                 self.log.error(f"Failed to update cell {cell.row_key}: {e}")
 
         # Update row order tracking
-        self._row_keys = [k for k in new_order if k in self._row_keys or any(
-            op.action == "add" and op.row_key == k for op in row_ops
-        )]
+        self._row_keys = [
+            k
+            for k in new_order
+            if k in self._row_keys or any(op.action == "add" and op.row_key == k for op in row_ops)
+        ]
 
     def _add_placeholder_row(self) -> None:
         """Add a placeholder row when no signals exist."""

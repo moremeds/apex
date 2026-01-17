@@ -5,11 +5,12 @@ OPT-014: Uses RCU pattern for lock-free reads on the main data path.
 """
 
 from __future__ import annotations
-from typing import Iterable, List, Optional, TYPE_CHECKING
-from threading import RLock
 
-from ...utils.logging_setup import get_logger
+from threading import RLock
+from typing import TYPE_CHECKING, Iterable, List, Optional
+
 from ...models.position import Position
+from ...utils.logging_setup import get_logger
 from .rcu_store import RCUDict
 
 if TYPE_CHECKING:

@@ -6,12 +6,13 @@ Supports both legacy (simple) and reality pack (realistic) modes.
 """
 
 from __future__ import annotations
+
+import logging
+import uuid
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, List, Optional, Callable, TYPE_CHECKING
 from enum import Enum
-import uuid
-import logging
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional
 
 from ...domain.clock import Clock
 from ...domain.events.domain_events import QuoteTick, TradeFill
@@ -19,13 +20,17 @@ from ...domain.interfaces.execution_provider import OrderRequest, OrderResult
 
 # Reality models (optional)
 from ...domain.reality import (
-    RealityModelPack,
-    FillModel as RealityFillModel,
-    FeeBreakdown,
-    SlippageResult,
-    FillResult,
-    OrderType as RealityOrderType,
     AssetType,
+    FeeBreakdown,
+)
+from ...domain.reality import FillModel as RealityFillModel
+from ...domain.reality import (
+    FillResult,
+)
+from ...domain.reality import OrderType as RealityOrderType
+from ...domain.reality import (
+    RealityModelPack,
+    SlippageResult,
 )
 
 if TYPE_CHECKING:
@@ -137,9 +142,7 @@ class OrderMatcher:
 
         self._pending_orders[order.client_order_id or broker_order_id] = sim_order
 
-        logger.debug(
-            f"Simulated order submitted: {order.client_order_id} -> {broker_order_id}"
-        )
+        logger.debug(f"Simulated order submitted: {order.client_order_id} -> {broker_order_id}")
 
         # Immediate fill for market orders
         if self._fill_model == FillModel.IMMEDIATE and order.order_type == "MARKET":

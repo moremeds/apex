@@ -28,8 +28,8 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from ...core import RunSpec, RunResult, RunMetrics, RunStatus
 from ...analysis import MetricsCalculator, Trade
+from ...core import RunMetrics, RunResult, RunSpec, RunStatus
 from .interface import BaseEngine, EngineConfig, EngineType
 
 
@@ -112,15 +112,11 @@ class VectorBTEngine(BaseEngine):
         strategy_entry = strategies[strategy_name]
 
         if strategy_entry.get("apex_only"):
-            raise ValueError(
-                f"Strategy '{strategy_name}' is apex_only and cannot run in VectorBT"
-            )
+            raise ValueError(f"Strategy '{strategy_name}' is apex_only and cannot run in VectorBT")
 
         signals_path = strategy_entry.get("signals")
         if signals_path is None:
-            raise ValueError(
-                f"Strategy '{strategy_name}' has no SignalGenerator defined"
-            )
+            raise ValueError(f"Strategy '{strategy_name}' has no SignalGenerator defined")
 
         # Lazy import: "src.domain.strategy.signals.ma_cross:MACrossSignalGenerator"
         module_path, class_name = signals_path.rsplit(":", 1)
@@ -181,20 +177,19 @@ class VectorBTEngine(BaseEngine):
                 signal_generator_cls = self._get_signal_generator(strategy_type)
                 signal_generator = signal_generator_cls()
             except (KeyError, ValueError) as e:
-                return self._create_error_result(
-                    spec, RunStatus.FAIL_STRATEGY, str(e), started_at
-                )
+                return self._create_error_result(spec, RunStatus.FAIL_STRATEGY, str(e), started_at)
 
             # Generate signals (pass secondary data for MTF strategies)
             # Check if generator supports directional signals (long + short)
             close = data["close"]
 
-            if hasattr(signal_generator, 'generate_directional'):
+            if hasattr(signal_generator, "generate_directional"):
                 # Directional strategy: separate long/short signals
-                long_entries, long_exits, short_entries, short_exits = \
+                long_entries, long_exits, short_entries, short_exits = (
                     signal_generator.generate_directional(
                         data, spec.params, secondary_data=filtered_secondary
                     )
+                )
 
                 pf = vbt.Portfolio.from_signals(
                     close=close,
@@ -246,9 +241,7 @@ class VectorBTEngine(BaseEngine):
             )
 
         except Exception as e:
-            return self._create_error_result(
-                spec, RunStatus.FAIL_EXECUTION, str(e), started_at
-            )
+            return self._create_error_result(spec, RunStatus.FAIL_EXECUTION, str(e), started_at)
 
     def run_batch(
         self,
@@ -287,9 +280,7 @@ class VectorBTEngine(BaseEngine):
             symbol_data = data.get(symbol) if data else None
             if symbol_data is None and indexed_specs:
                 first_spec = indexed_specs[0][1]
-                symbol_data = self.load_data(
-                    symbol, first_spec.start_date, first_spec.end_date
-                )
+                symbol_data = self.load_data(symbol, first_spec.start_date, first_spec.end_date)
 
             # Get secondary data for this symbol
             symbol_secondary = secondary_data.get(symbol) if secondary_data else None
@@ -298,9 +289,7 @@ class VectorBTEngine(BaseEngine):
             can_vectorize = self._can_vectorize(indexed_specs)
 
             if can_vectorize and len(indexed_specs) > 1:
-                batch_results = self._run_vectorized(
-                    indexed_specs, symbol_data, symbol_secondary
-                )
+                batch_results = self._run_vectorized(indexed_specs, symbol_data, symbol_secondary)
                 for (idx, _), result in zip(indexed_specs, batch_results):
                     results[idx] = result
             else:
@@ -349,9 +338,7 @@ class VectorBTEngine(BaseEngine):
 
         if data is None or data.empty:
             return [
-                self._create_error_result(
-                    spec, RunStatus.FAIL_DATA, "No data", datetime.now()
-                )
+                self._create_error_result(spec, RunStatus.FAIL_DATA, "No data", datetime.now())
                 for _, spec in indexed_specs
             ]
 
@@ -392,26 +379,18 @@ class VectorBTEngine(BaseEngine):
             else:
                 # Fall back to sequential for unsupported strategies
                 # Pass secondary data for MTF support
-                return [
-                    self.run(spec, data, filtered_secondary)
-                    for _, spec in indexed_specs
-                ]
+                return [self.run(spec, data, filtered_secondary) for _, spec in indexed_specs]
 
             return results
 
         except Exception as e:
             return [
-                self._create_error_result(
-                    spec, RunStatus.FAIL_EXECUTION, str(e), started_at
-                )
+                self._create_error_result(spec, RunStatus.FAIL_EXECUTION, str(e), started_at)
                 for _, spec in indexed_specs
             ]
 
     def _vectorized_ma_cross(
-        self,
-        indexed_specs: List[Tuple[int, RunSpec]],
-        data: pd.DataFrame,
-        close: pd.Series
+        self, indexed_specs: List[Tuple[int, RunSpec]], data: pd.DataFrame, close: pd.Series
     ) -> List[RunResult]:
         """
         HIGH-011: True vectorized MA crossover using single Portfolio.
@@ -424,6 +403,7 @@ class VectorBTEngine(BaseEngine):
         This provides 10-20x speedup for parameter sweeps.
         """
         import vectorbt as vbt
+
         from src.domain.strategy.signals import MACrossSignalGenerator
 
         started_at = datetime.now()
@@ -447,7 +427,9 @@ class VectorBTEngine(BaseEngine):
 
         if all_entries.empty:
             return [
-                self._create_error_result(spec, RunStatus.FAIL_EXECUTION, "Signal generation failed", started_at)
+                self._create_error_result(
+                    spec, RunStatus.FAIL_EXECUTION, "Signal generation failed", started_at
+                )
                 for _, spec in indexed_specs
             ]
 
@@ -455,9 +437,9 @@ class VectorBTEngine(BaseEngine):
         # If they differ, fall back to sequential to avoid silent incorrect results
         first_spec = indexed_specs[0][1]
         fees_slippage_consistent = all(
-            spec.commission_per_share == first_spec.commission_per_share and
-            spec.slippage_bps == first_spec.slippage_bps and
-            spec.initial_capital == first_spec.initial_capital
+            spec.commission_per_share == first_spec.commission_per_share
+            and spec.slippage_bps == first_spec.slippage_bps
+            and spec.initial_capital == first_spec.initial_capital
             for _, spec in indexed_specs
         )
         if not fees_slippage_consistent:
@@ -490,50 +472,63 @@ class VectorBTEngine(BaseEngine):
         for col_name, value in spec_map.items():
             if col_name.startswith("error_"):
                 idx, spec, error_msg = value
-                results.append((idx, self._create_error_result(
-                    spec, RunStatus.FAIL_EXECUTION, error_msg, started_at
-                )))
+                results.append(
+                    (
+                        idx,
+                        self._create_error_result(
+                            spec, RunStatus.FAIL_EXECUTION, error_msg, started_at
+                        ),
+                    )
+                )
             else:
                 idx, spec = value
                 try:
                     # Extract metrics for this specific column
-                    col_pf = pf[col_name] if hasattr(pf, '__getitem__') else pf
+                    col_pf = pf[col_name] if hasattr(pf, "__getitem__") else pf
                     metrics = self._extract_metrics(col_pf, data)
 
-                    results.append((idx, RunResult(
-                        run_id=spec.run_id,
-                        trial_id=spec.trial_id,
-                        experiment_id=spec.experiment_id or "",
-                        symbol=spec.symbol,
-                        window_id=spec.window.window_id,
-                        profile_version=spec.profile_version,
-                        data_version=spec.data_version,
-                        status=RunStatus.SUCCESS,
-                        started_at=started_at,
-                        completed_at=completed_at,
-                        duration_seconds=(completed_at - started_at).total_seconds(),
-                        metrics=metrics,
-                        is_train=spec.window.is_train,
-                        is_oos=spec.window.is_oos,
-                        params=spec.params,
-                    )))
+                    results.append(
+                        (
+                            idx,
+                            RunResult(
+                                run_id=spec.run_id,
+                                trial_id=spec.trial_id,
+                                experiment_id=spec.experiment_id or "",
+                                symbol=spec.symbol,
+                                window_id=spec.window.window_id,
+                                profile_version=spec.profile_version,
+                                data_version=spec.data_version,
+                                status=RunStatus.SUCCESS,
+                                started_at=started_at,
+                                completed_at=completed_at,
+                                duration_seconds=(completed_at - started_at).total_seconds(),
+                                metrics=metrics,
+                                is_train=spec.window.is_train,
+                                is_oos=spec.window.is_oos,
+                                params=spec.params,
+                            ),
+                        )
+                    )
                 except Exception as e:
-                    results.append((idx, self._create_error_result(
-                        spec, RunStatus.FAIL_EXECUTION, str(e), started_at
-                    )))
+                    results.append(
+                        (
+                            idx,
+                            self._create_error_result(
+                                spec, RunStatus.FAIL_EXECUTION, str(e), started_at
+                            ),
+                        )
+                    )
 
         # Sort by original index and return just results
         results.sort(key=lambda x: x[0])
         return [r for _, r in results]
 
     def _vectorized_ma_cross_sequential(
-        self,
-        indexed_specs: List[Tuple[int, RunSpec]],
-        data: pd.DataFrame,
-        close: pd.Series
+        self, indexed_specs: List[Tuple[int, RunSpec]], data: pd.DataFrame, close: pd.Series
     ) -> List[RunResult]:
         """Fallback sequential execution if vectorized fails."""
         import vectorbt as vbt
+
         from src.domain.strategy.signals import MACrossSignalGenerator
 
         started_at = datetime.now()
@@ -556,27 +551,29 @@ class VectorBTEngine(BaseEngine):
                 metrics = self._extract_metrics(pf, data)
                 completed_at = datetime.now()
 
-                results.append(RunResult(
-                    run_id=spec.run_id,
-                    trial_id=spec.trial_id,
-                    experiment_id=spec.experiment_id or "",
-                    symbol=spec.symbol,
-                    window_id=spec.window.window_id,
-                    profile_version=spec.profile_version,
-                    data_version=spec.data_version,
-                    status=RunStatus.SUCCESS,
-                    started_at=started_at,
-                    completed_at=completed_at,
-                    duration_seconds=(completed_at - started_at).total_seconds(),
-                    metrics=metrics,
-                    is_train=spec.window.is_train,
-                    is_oos=spec.window.is_oos,
-                    params=spec.params,
-                ))
+                results.append(
+                    RunResult(
+                        run_id=spec.run_id,
+                        trial_id=spec.trial_id,
+                        experiment_id=spec.experiment_id or "",
+                        symbol=spec.symbol,
+                        window_id=spec.window.window_id,
+                        profile_version=spec.profile_version,
+                        data_version=spec.data_version,
+                        status=RunStatus.SUCCESS,
+                        started_at=started_at,
+                        completed_at=completed_at,
+                        duration_seconds=(completed_at - started_at).total_seconds(),
+                        metrics=metrics,
+                        is_train=spec.window.is_train,
+                        is_oos=spec.window.is_oos,
+                        params=spec.params,
+                    )
+                )
             except Exception as e:
-                results.append(self._create_error_result(
-                    spec, RunStatus.FAIL_EXECUTION, str(e), started_at
-                ))
+                results.append(
+                    self._create_error_result(spec, RunStatus.FAIL_EXECUTION, str(e), started_at)
+                )
 
         return results
 
@@ -654,7 +651,7 @@ class VectorBTEngine(BaseEngine):
         """
         try:
             # VectorBT stores trades in a DataFrame
-            if not hasattr(pf, 'trades') or pf.trades.count() == 0:
+            if not hasattr(pf, "trades") or pf.trades.count() == 0:
                 return []
 
             trades_df = pf.trades.records_readable
@@ -663,10 +660,14 @@ class VectorBTEngine(BaseEngine):
             for _, row in trades_df.iterrows():
                 try:
                     trade = Trade(
-                        entry_date=pd.Timestamp(row.get('Entry Timestamp', row.get('entry_idx', 0))),
-                        exit_date=pd.Timestamp(row.get('Exit Timestamp', row.get('exit_idx', 0))),
-                        return_pct=float(row.get('Return', row.get('return', 0))),
-                        bars_held=int(row.get('Duration', row.get('exit_idx', 0) - row.get('entry_idx', 0))),
+                        entry_date=pd.Timestamp(
+                            row.get("Entry Timestamp", row.get("entry_idx", 0))
+                        ),
+                        exit_date=pd.Timestamp(row.get("Exit Timestamp", row.get("exit_idx", 0))),
+                        return_pct=float(row.get("Return", row.get("return", 0))),
+                        bars_held=int(
+                            row.get("Duration", row.get("exit_idx", 0) - row.get("entry_idx", 0))
+                        ),
                     )
                     trades.append(trade)
                 except Exception:
@@ -695,9 +696,7 @@ class VectorBTEngine(BaseEngine):
         # Annualize
         return (mean_return * 252) / (downside_std * np.sqrt(252))
 
-    def _filter_date_range(
-        self, data: pd.DataFrame, start: date, end: date
-    ) -> pd.DataFrame:
+    def _filter_date_range(self, data: pd.DataFrame, start: date, end: date) -> pd.DataFrame:
         """Filter DataFrame to date range."""
         if data.index.tz is not None:
             data = data.copy()
@@ -709,11 +708,7 @@ class VectorBTEngine(BaseEngine):
         return data[(data.index >= start_ts) & (data.index <= end_ts)]
 
     def _create_error_result(
-        self,
-        spec: RunSpec,
-        status: RunStatus,
-        error: str,
-        started_at: datetime
+        self, spec: RunSpec, status: RunStatus, error: str, started_at: datetime
     ) -> RunResult:
         """Create an error RunResult."""
         return RunResult(

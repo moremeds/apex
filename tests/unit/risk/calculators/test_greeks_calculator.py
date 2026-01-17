@@ -1,10 +1,11 @@
 """Unit tests for Greeks calculator."""
 
 import pytest
+
 from src.domain.services.risk.calculators.greeks_calculator import (
-    calculate_position_greeks,
-    calculate_near_term_greeks,
     GreeksResult,
+    calculate_near_term_greeks,
+    calculate_position_greeks,
 )
 from src.models.position import AssetType
 

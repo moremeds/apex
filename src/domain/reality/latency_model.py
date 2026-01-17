@@ -9,16 +9,17 @@ Simulates delays in:
 
 from __future__ import annotations
 
+import random
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Optional, Dict
-import random
+from typing import Dict, Optional
 
 
 @dataclass
 class LatencyResult:
     """Result of latency calculation."""
+
     delay_ms: float  # Delay in milliseconds
     delayed_time: datetime  # Time after applying delay
 

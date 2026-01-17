@@ -12,10 +12,10 @@ Future: API integration with Earnings Whispers / Yahoo Finance
 """
 
 from __future__ import annotations
-from datetime import datetime, date, timedelta
-from typing import Dict, List, Any, Optional
 
-from ...models.risk_snapshot import RiskSnapshot
+from datetime import date, datetime, timedelta
+from typing import Any, Dict, List, Optional
+
 from ...models.position import AssetType
 from ...models.risk_signal import (
     RiskSignal,
@@ -23,9 +23,9 @@ from ...models.risk_signal import (
     SignalSeverity,
     SuggestedAction,
 )
-from .risk.threshold import Threshold, ThresholdDirection
+from ...models.risk_snapshot import RiskSnapshot
 from ...utils.logging_setup import get_logger
-
+from .risk.threshold import Threshold, ThresholdDirection
 
 logger = get_logger(__name__)
 
@@ -165,7 +165,7 @@ class EventRiskDetector:
 
         # Determine suggested action based on position type
         # Short options have higher risk (assignment, IV crush)
-        is_short = pos_risk.quantity < 0 if hasattr(pos_risk, 'quantity') else False
+        is_short = pos_risk.quantity < 0 if hasattr(pos_risk, "quantity") else False
         has_gamma = abs(pos_risk.gamma or 0.0) > 100  # Significant gamma exposure
 
         if is_short:

@@ -87,9 +87,7 @@ class IbCommissionRepository(BaseRepository[IbRawCommission]):
     # Query Methods
     # -------------------------------------------------------------------------
 
-    async def find_by_exec_id(
-        self, exec_id: str, account_id: str
-    ) -> Optional[IbRawCommission]:
+    async def find_by_exec_id(self, exec_id: str, account_id: str) -> Optional[IbRawCommission]:
         """
         Find commission by exec_id and account_id.
 
@@ -107,9 +105,7 @@ class IbCommissionRepository(BaseRepository[IbRawCommission]):
         record = await self._db.fetchrow(query, exec_id, account_id)
         return self._to_entity(record) if record else None
 
-    async def find_by_account(
-        self, account_id: str, limit: int = 1000
-    ) -> List[IbRawCommission]:
+    async def find_by_account(self, account_id: str, limit: int = 1000) -> List[IbRawCommission]:
         """
         Find commission records by account.
 
@@ -129,9 +125,7 @@ class IbCommissionRepository(BaseRepository[IbRawCommission]):
         records = await self._db.fetch(query, account_id, limit)
         return [self._to_entity(r) for r in records]
 
-    async def find_by_exec_ids(
-        self, exec_ids: List[str], account_id: str
-    ) -> List[IbRawCommission]:
+    async def find_by_exec_ids(self, exec_ids: List[str], account_id: str) -> List[IbRawCommission]:
         """
         Find commission records for multiple executions.
 
@@ -302,9 +296,7 @@ class IbCommissionRepository(BaseRepository[IbRawCommission]):
                 else None
             ),
             "yield_": (
-                float(commission_report.yield_)
-                if commission_report.yield_ is not None
-                else None
+                float(commission_report.yield_) if commission_report.yield_ is not None else None
             ),
             "yieldRedemptionDate": commission_report.yieldRedemptionDate,
         }

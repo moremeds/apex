@@ -10,28 +10,27 @@ Uses reserved monitoring client ID.
 """
 
 from __future__ import annotations
+
+import asyncio
 from collections import OrderedDict
-from threading import Lock
-from typing import List, Dict, Optional, Callable, Tuple, Any
 from datetime import datetime, timedelta
 from math import isnan
-import asyncio
+from threading import Lock
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from ....utils.logging_setup import get_logger
-from ....domain.interfaces.event_bus import EventType
-from ....domain.interfaces.quote_provider import QuoteProvider
-from ....domain.interfaces.position_provider import PositionProvider
+from ....domain.events.domain_events import AccountSnapshot, PositionSnapshot, QuoteTick
 from ....domain.interfaces.account_provider import AccountProvider
-from ....domain.events.domain_events import QuoteTick, PositionSnapshot, AccountSnapshot
-from ....models.position import Position, AssetType
-from ....models.market_data import MarketData
+from ....domain.interfaces.event_bus import EventType
+from ....domain.interfaces.position_provider import PositionProvider
+from ....domain.interfaces.quote_provider import QuoteProvider
 from ....models.account import AccountInfo
-
+from ....models.market_data import MarketData
+from ....models.position import AssetType, Position
+from ....utils.logging_setup import get_logger
 from ..market_data_fetcher import MarketDataFetcher
 from .base import IbBaseAdapter
-from .converters import convert_position
 from .contract_qualification_service import ContractQualificationService
-
+from .converters import convert_position
 
 logger = get_logger(__name__)
 
@@ -120,13 +119,13 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
         Returns:
             Hashable tuple key for the contract
         """
-        symbol = getattr(contract, 'symbol', '')
-        sec_type = getattr(contract, 'secType', 'STK')
+        symbol = getattr(contract, "symbol", "")
+        sec_type = getattr(contract, "secType", "STK")
 
-        if sec_type == 'OPT':
-            expiry = getattr(contract, 'lastTradeDateOrContractMonth', '')
-            strike = getattr(contract, 'strike', 0)
-            right = getattr(contract, 'right', '')
+        if sec_type == "OPT":
+            expiry = getattr(contract, "lastTradeDateOrContractMonth", "")
+            strike = getattr(contract, "strike", 0)
+            right = getattr(contract, "right", "")
             return (symbol, sec_type, expiry, strike, right)
         else:
             return (symbol, sec_type)
@@ -185,7 +184,9 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
                 last_bar = bars[-1]
                 prev_close = float(last_bar.close)
                 self._previous_close_cache[symbol] = (prev_close, datetime.now())
-                logger.debug(f"Fetched previous close for {symbol}: {prev_close} from {last_bar.date}")
+                logger.debug(
+                    f"Fetched previous close for {symbol}: {prev_close} from {last_bar.date}"
+                )
                 return prev_close
 
         except Exception as e:
@@ -272,10 +273,7 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
         """Get all cached quotes."""
         with self._market_data_cache_lock:
             items = list(self._market_data_cache.items())
-        return {
-            symbol: self._market_data_to_quote_tick(md)
-            for symbol, md in items
-        }
+        return {symbol: self._market_data_to_quote_tick(md) for symbol, md in items}
 
     def get_subscribed_symbols(self) -> List[str]:
         """Get subscribed symbols."""
@@ -284,10 +282,7 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
     async def fetch_snapshot(self, symbols: List[str]) -> Dict[str, QuoteTick]:
         """Fetch one-time quote snapshot."""
         market_data = await self.fetch_market_indicators(symbols)
-        return {
-            symbol: self._market_data_to_quote_tick(md)
-            for symbol, md in market_data.items()
-        }
+        return {symbol: self._market_data_to_quote_tick(md) for symbol, md in market_data.items()}
 
     def _market_data_to_quote_tick(self, md: MarketData) -> QuoteTick:
         """Convert MarketData to QuoteTick domain event."""
@@ -388,8 +383,7 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
         logger.info("IB position subscription disabled")
 
     def set_position_callback(
-        self,
-        callback: Optional[Callable[[List[PositionSnapshot]], None]]
+        self, callback: Optional[Callable[[List[PositionSnapshot]], None]]
     ) -> None:
         """Set position update callback."""
         self._position_callback = callback
@@ -482,16 +476,16 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
                     return default
 
             account_info = AccountInfo(
-                net_liquidation=safe_float('NetLiquidation'),
-                total_cash=safe_float('TotalCashValue'),
-                buying_power=safe_float('BuyingPower'),
-                margin_used=safe_float('InitMarginReq'),
-                margin_available=max(safe_float('ExcessLiquidity'), safe_float('AvailableFunds')),
-                maintenance_margin=safe_float('MaintMarginReq'),
-                init_margin_req=safe_float('InitMarginReq'),
-                excess_liquidity=safe_float('ExcessLiquidity'),
-                realized_pnl=safe_float('RealizedPnL'),
-                unrealized_pnl=safe_float('UnrealizedPnL'),
+                net_liquidation=safe_float("NetLiquidation"),
+                total_cash=safe_float("TotalCashValue"),
+                buying_power=safe_float("BuyingPower"),
+                margin_used=safe_float("InitMarginReq"),
+                margin_available=max(safe_float("ExcessLiquidity"), safe_float("AvailableFunds")),
+                maintenance_margin=safe_float("MaintMarginReq"),
+                init_margin_req=safe_float("InitMarginReq"),
+                excess_liquidity=safe_float("ExcessLiquidity"),
+                realized_pnl=safe_float("RealizedPnL"),
+                unrealized_pnl=safe_float("UnrealizedPnL"),
                 timestamp=datetime.now(),
                 account_id=account_id,
             )
@@ -522,10 +516,7 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
         """Unsubscribe from account updates."""
         pass
 
-    def set_account_callback(
-        self,
-        callback: Optional[Callable[[AccountSnapshot], None]]
-    ) -> None:
+    def set_account_callback(self, callback: Optional[Callable[[AccountSnapshot], None]]) -> None:
         """Set account update callback."""
         self._account_callback = callback
 
@@ -586,7 +577,7 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
                 return list(self._market_data_cache.values())
 
         async with self._market_data_fetch_lock:
-            from ib_async import Stock, Option
+            from ib_async import Option, Stock
 
             # OPT-012: Build contracts for all positions
             contracts = []
@@ -608,7 +599,7 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
                             currency="USD",
                         )
                     else:
-                        contract = Stock(pos.symbol, 'SMART', currency="USD")
+                        contract = Stock(pos.symbol, "SMART", currency="USD")
 
                     contracts.append(contract)
                     # Use a tuple key since contract objects might change after qualification
@@ -626,8 +617,7 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
                 # Fallback to direct qualification if service not available
                 logger.warning("Qualification service not available, using direct qualification")
                 qualified = await asyncio.wait_for(
-                    self.ib.qualifyContractsAsync(*contracts),
-                    timeout=30.0
+                    self.ib.qualifyContractsAsync(*contracts), timeout=30.0
                 )
                 qualified = [c for c in qualified if c is not None and c.conId]
 
@@ -637,8 +627,7 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
             # HIGH-007: O(n) hash-based contract matching (was O(n²) nested loops)
             # Build lookup dict: contract_key -> position
             orig_key_to_pos = {
-                self._make_contract_key(c): pos
-                for c, pos in zip(contracts, positions)
+                self._make_contract_key(c): pos for c, pos in zip(contracts, positions)
             }
             pos_map = {}
             for qc in qualified:
@@ -652,10 +641,8 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
                 # Add timeout to market data fetch
                 # OPT-004: Reduced from 60s - market data typically arrives in 5-10s
                 market_data_list = await asyncio.wait_for(
-                    self._market_data_fetcher.fetch_market_data(
-                        positions, qualified, pos_map
-                    ),
-                    timeout=15.0
+                    self._market_data_fetcher.fetch_market_data(positions, qualified, pos_map),
+                    timeout=15.0,
                 )
             except asyncio.TimeoutError:
                 logger.error(f"Timeout fetching market data after 15s")
@@ -674,7 +661,7 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
         if not symbols:
             return {}
 
-        from ib_async import Stock, Index
+        from ib_async import Index, Stock
 
         INDEX_SYMBOLS = {"VIX", "SPX", "NDX", "DJI", "RUT"}
 
@@ -709,8 +696,7 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
             # HIGH-007: O(n) hash-based contract matching (was O(n²) nested loops)
             # Build lookup dict: contract_key -> symbol
             orig_key_to_sym = {
-                self._make_contract_key(c): sym
-                for sym, c in zip(symbols, contracts)
+                self._make_contract_key(c): sym for sym, c in zip(symbols, contracts)
             }
             qualified_with_syms = []
             for qc in qualified:
@@ -733,7 +719,12 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
                     # ticker.close can be stale on weekends (showing Thursday instead of Friday)
                     prev_close = await self._get_previous_close(sym, sym_to_contract[sym])
                     # Fall back to ticker.close if historical fetch fails
-                    if prev_close is None and hasattr(ticker, "close") and ticker.close and not isnan(ticker.close):
+                    if (
+                        prev_close is None
+                        and hasattr(ticker, "close")
+                        and ticker.close
+                        and not isnan(ticker.close)
+                    ):
                         prev_close = float(ticker.close)
 
                     md = MarketData(
@@ -741,7 +732,14 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
                         last=float(ticker.last) if ticker.last and not isnan(ticker.last) else None,
                         bid=float(ticker.bid) if ticker.bid and not isnan(ticker.bid) else None,
                         ask=float(ticker.ask) if ticker.ask and not isnan(ticker.ask) else None,
-                        mid=float((ticker.bid + ticker.ask) / 2) if ticker.bid and ticker.ask and not isnan(ticker.bid) and not isnan(ticker.ask) else None,
+                        mid=(
+                            float((ticker.bid + ticker.ask) / 2)
+                            if ticker.bid
+                            and ticker.ask
+                            and not isnan(ticker.bid)
+                            and not isnan(ticker.ask)
+                            else None
+                        ),
                         yesterday_close=prev_close,
                         timestamp=datetime.now(),
                     )

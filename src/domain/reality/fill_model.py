@@ -9,16 +9,17 @@ Fill models determine how and when orders get filled:
 
 from __future__ import annotations
 
+import random
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional, List
 from enum import Enum
-import random
+from typing import List, Optional
 
 
 class OrderType(Enum):
     """Order type."""
+
     MARKET = "MARKET"
     LIMIT = "LIMIT"
     STOP = "STOP"
@@ -28,6 +29,7 @@ class OrderType(Enum):
 @dataclass
 class FillResult:
     """Result of fill simulation."""
+
     filled: bool  # Whether any quantity was filled
     filled_quantity: float  # Quantity filled
     remaining_quantity: float  # Quantity unfilled
@@ -355,7 +357,9 @@ class ProbabilisticFillModel(FillModel):
 
             if self._random.random() < fill_prob:
                 filled_qty = self._calculate_filled_quantity(quantity, volume)
-                actual_fill_price = min(limit_price, fill_price) if side == "BUY" else max(limit_price, fill_price)
+                actual_fill_price = (
+                    min(limit_price, fill_price) if side == "BUY" else max(limit_price, fill_price)
+                )
                 return FillResult(
                     filled=True,
                     filled_quantity=filled_qty,

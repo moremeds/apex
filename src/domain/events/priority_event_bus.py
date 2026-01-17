@@ -1,20 +1,25 @@
 """Priority-based event bus with dual-lane dispatch."""
 
 from __future__ import annotations
+
 import asyncio
 import time
-from typing import Callable, Any, Dict, List, Optional, TYPE_CHECKING
-from collections import defaultdict
-from threading import Lock
-from dataclasses import dataclass
 from abc import ABC
+from collections import defaultdict
+from dataclasses import dataclass
+from threading import Lock
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
+from ...utils.logging_setup import get_logger
 from .event_types import (
-    EventType, EventPriority, EVENT_PRIORITY_MAP,
-    FAST_LANE_THRESHOLD, PriorityEventEnvelope, DROPPABLE_EVENTS,
+    DROPPABLE_EVENTS,
+    EVENT_PRIORITY_MAP,
+    FAST_LANE_THRESHOLD,
+    EventPriority,
+    EventType,
+    PriorityEventEnvelope,
     validate_event_payload,
 )
-from ...utils.logging_setup import get_logger
 
 if TYPE_CHECKING:
     pass  # EventBus only needed for type checking, but we define methods inline
@@ -26,7 +31,7 @@ logger = get_logger(__name__)
 class AtomicCounter:
     """Thread-safe counter using fine-grained locking."""
 
-    __slots__ = ('_value', '_lock')
+    __slots__ = ("_value", "_lock")
 
     def __init__(self, initial: int = 0):
         self._value = initial
@@ -114,7 +119,9 @@ class PriorityEventBus:
         # HIGH-009: Fine-grained locks to reduce contention
         # Each lock protects a specific data structure
         self._sequence_lock = Lock()  # Protects _sequence counter
-        self._subscribers_lock = Lock()  # Protects _subscribers, _async_subscribers, _heavy_callbacks
+        self._subscribers_lock = (
+            Lock()
+        )  # Protects _subscribers, _async_subscribers, _heavy_callbacks
         self._slow_queue_lock = Lock()  # Protects _pending_slow dict
 
         # Slow lane configuration
@@ -205,9 +212,7 @@ class PriorityEventBus:
         else:
             # Cross-thread: use call_soon_threadsafe
             if self._loop is not None:
-                self._loop.call_soon_threadsafe(
-                    self._enqueue_to_lane, envelope, priority
-                )
+                self._loop.call_soon_threadsafe(self._enqueue_to_lane, envelope, priority)
             else:
                 # Fallback if loop not available
                 self._dispatch_sync(envelope)
@@ -245,10 +250,10 @@ class PriorityEventBus:
         """
         # Coalesce by (event_type, symbol) for meaningful deduplication
         symbol = ""
-        if hasattr(envelope.payload, 'symbol'):
+        if hasattr(envelope.payload, "symbol"):
             symbol = envelope.payload.symbol
         elif isinstance(envelope.payload, dict):
-            symbol = envelope.payload.get('symbol', '')
+            symbol = envelope.payload.get("symbol", "")
 
         key = f"{envelope.event_type.value}:{symbol}"
 
@@ -275,33 +280,33 @@ class PriorityEventBus:
         # Sort droppable events by priority (lower value = higher priority, but here we want to drop low priority first)
         # Wait, DROPPABLE_EVENTS values are: DASHBOARD_UPDATE=1 (First to drop).
         # So we want to drop keys starting with prefixes having lower sort order in DROPPABLE_EVENTS.
-        
+
         # Build a list of prefixes to drop in order
         drop_order = [e.value for e, _ in sorted(DROPPABLE_EVENTS.items(), key=lambda x: x[1])]
-        
+
         # We need to drop 'excess' items.
         # Strategy: Iterate through drop_order (types), and for each type, scan keys.
         # This IS O(N*M).
-        
+
         # To make it O(N):
         # Iterate keys once, categorize them into "buckets" by type.
         # Then empty buckets in drop_order.
-        
+
         to_drop = []
         buckets = defaultdict(list)
-        
+
         # Scan once - O(N)
         for key in self._pending_slow:
             # key format is "event_type:symbol"
-            type_prefix = key.split(':')[0]
+            type_prefix = key.split(":")[0]
             buckets[type_prefix].append(key)
-            
+
         # Select keys to drop based on priority - O(M)
         for prefix in drop_order:
             keys = buckets.get(prefix, [])
             if not keys:
                 continue
-                
+
             # Take as many as needed from this bucket
             count = len(keys)
             if count >= excess:
@@ -311,8 +316,8 @@ class PriorityEventBus:
             else:
                 to_drop.extend(keys)
                 excess -= count
-        
-        # If we still have excess (non-droppable types filling queue?), 
+
+        # If we still have excess (non-droppable types filling queue?),
         # we might need to force drop oldest or just warn.
         # For now, just execute the drops.
         for key in to_drop:
@@ -408,7 +413,7 @@ class PriorityEventBus:
         M3 fix: Use adaptive backoff - longer sleep when idle to reduce CPU burn.
         """
         idle_backoff_ms = 10  # Sleep longer when queue is empty (saves CPU)
-        busy_yield_ms = 2     # Short yield when more events are pending
+        busy_yield_ms = 2  # Short yield when more events are pending
 
         while self._running:
             try:
@@ -585,7 +590,9 @@ class PriorityEventBus:
         # HIGH-009: Fine-grained lock for subscribers
         with self._subscribers_lock:
             self._heavy_callbacks.add(callback)
-        logger.debug(f"Registered heavy callback: {callback.__name__ if hasattr(callback, '__name__') else callback}")
+        logger.debug(
+            f"Registered heavy callback: {callback.__name__ if hasattr(callback, '__name__') else callback}"
+        )
 
     def unregister_heavy_callback(self, callback: Callable) -> None:
         """Unregister a callback from the heavy callback set."""
@@ -630,7 +637,9 @@ class PriorityEventBus:
             Dict with health status, utilization percentages, and alerts.
         """
         fast_size = self._fast_queue.qsize() if self._fast_queue else 0
-        fast_pct = (fast_size / self._fast_lane_max_size) * 100 if self._fast_lane_max_size > 0 else 0
+        fast_pct = (
+            (fast_size / self._fast_lane_max_size) * 100 if self._fast_lane_max_size > 0 else 0
+        )
 
         with self._slow_queue_lock:
             slow_size = len(self._pending_slow)
@@ -647,13 +656,9 @@ class PriorityEventBus:
 
         # Log warnings/criticals
         if status == "critical":
-            logger.error(
-                f"HIGH-012: Queue CRITICAL - fast={fast_pct:.1f}%, slow={slow_pct:.1f}%"
-            )
+            logger.error(f"HIGH-012: Queue CRITICAL - fast={fast_pct:.1f}%, slow={slow_pct:.1f}%")
         elif status == "warning":
-            logger.warning(
-                f"HIGH-012: Queue warning - fast={fast_pct:.1f}%, slow={slow_pct:.1f}%"
-            )
+            logger.warning(f"HIGH-012: Queue warning - fast={fast_pct:.1f}%, slow={slow_pct:.1f}%")
 
         return {
             "status": status,

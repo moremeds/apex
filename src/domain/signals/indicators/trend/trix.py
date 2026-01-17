@@ -74,9 +74,7 @@ class TRIXIndicator(IndicatorBase):
             trix = self._calculate_trix(close, period)
             trix_signal = self._calculate_ema(trix, signal_p)
 
-        return pd.DataFrame(
-            {"trix": trix, "trix_signal": trix_signal}, index=data.index
-        )
+        return pd.DataFrame({"trix": trix, "trix_signal": trix_signal}, index=data.index)
 
     def _calculate_ema(self, data: np.ndarray, period: int) -> np.ndarray:
         """Calculate EMA."""
@@ -92,9 +90,7 @@ class TRIXIndicator(IndicatorBase):
             return ema
 
         alpha = 2.0 / (period + 1)
-        ema[first_valid + period - 1] = np.nanmean(
-            data[first_valid : first_valid + period]
-        )
+        ema[first_valid + period - 1] = np.nanmean(data[first_valid : first_valid + period])
 
         for i in range(first_valid + period, n):
             if not np.isnan(data[i]):

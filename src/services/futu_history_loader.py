@@ -148,10 +148,12 @@ class FutuHistoryLoader:
         if self._futu_client is None:
             # Import here to avoid circular imports
             try:
-                from futu import OpenSecTradeContext, TrdEnv, TrdMarket, SecurityFirm
+                from futu import OpenSecTradeContext, SecurityFirm, TrdEnv, TrdMarket
 
                 # Map config values to Futu enums
-                self._trd_env = TrdEnv.REAL if self._futu_config.trd_env == "REAL" else TrdEnv.SIMULATE
+                self._trd_env = (
+                    TrdEnv.REAL if self._futu_config.trd_env == "REAL" else TrdEnv.SIMULATE
+                )
                 security_firm_map = {
                     "FUTUSECURITIES": SecurityFirm.FUTUSECURITIES,
                     "FUTUINC": SecurityFirm.FUTUINC,
@@ -159,8 +161,7 @@ class FutuHistoryLoader:
                     "FUTUAU": SecurityFirm.FUTUAU,
                 }
                 security_firm = security_firm_map.get(
-                    self._futu_config.security_firm,
-                    SecurityFirm.FUTUSECURITIES
+                    self._futu_config.security_firm, SecurityFirm.FUTUSECURITIES
                 )
 
                 self._futu_client = OpenSecTradeContext(
@@ -214,10 +215,7 @@ class FutuHistoryLoader:
                 return len(orders)
 
             # Convert to entities and insert
-            entities = [
-                FutuOrderRepository.from_futu_order(o, account_id, market)
-                for o in orders
-            ]
+            entities = [FutuOrderRepository.from_futu_order(o, account_id, market) for o in orders]
 
             # Batch upsert
             total_inserted = 0
@@ -302,10 +300,7 @@ class FutuHistoryLoader:
                 logger.info(f"DRY RUN: Would insert {len(deals)} deals")
                 return len(deals)
 
-            entities = [
-                FutuDealRepository.from_futu_deal(d, account_id, market)
-                for d in deals
-            ]
+            entities = [FutuDealRepository.from_futu_deal(d, account_id, market) for d in deals]
 
             total_inserted = 0
             for i in range(0, len(entities), self._batch_size):
@@ -388,7 +383,7 @@ class FutuHistoryLoader:
 
         # Process in batches (SDK limit is 400 per call)
         for i in range(0, len(missing_ids), MAX_FEE_BATCH_SIZE):
-            batch_ids = missing_ids[i:i + MAX_FEE_BATCH_SIZE]
+            batch_ids = missing_ids[i : i + MAX_FEE_BATCH_SIZE]
 
             await self._rate_limiter.acquire()
 
@@ -448,7 +443,7 @@ class FutuHistoryLoader:
                 # Use correct SDK signature (positional args, not filter_conditions)
                 ret, data = client.history_order_list_query(
                     status_filter_list=[],  # Empty = all statuses
-                    code='',                 # Empty = all symbols
+                    code="",  # Empty = all symbols
                     start=start_str,
                     end=end_str,
                     trd_env=self._trd_env,
@@ -504,7 +499,7 @@ class FutuHistoryLoader:
 
                 # Use correct SDK signature (positional args)
                 ret, data = client.history_deal_list_query(
-                    code='',                 # Empty = all symbols
+                    code="",  # Empty = all symbols
                     start=start_str,
                     end=end_str,
                     trd_env=self._trd_env,

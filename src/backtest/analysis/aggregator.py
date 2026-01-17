@@ -7,13 +7,13 @@ Uses robust statistics:
 - Percentiles for constraint checking
 """
 
+import math
 from dataclasses import dataclass
 from typing import List, Optional
-import math
 
 from pydantic import BaseModel, Field
 
-from ..core import RunResult, RunStatus, TrialResult, TrialAggregates
+from ..core import RunResult, RunStatus, TrialAggregates, TrialResult
 
 
 class AggregationConfig(BaseModel):
@@ -22,9 +22,7 @@ class AggregationConfig(BaseModel):
     min_runs_for_aggregation: int = Field(
         default=3, description="Minimum runs needed for aggregation"
     )
-    require_oos: bool = Field(
-        default=True, description="Require OOS runs for degradation ratio"
-    )
+    require_oos: bool = Field(default=True, description="Require OOS runs for degradation ratio")
 
 
 @dataclass

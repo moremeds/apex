@@ -1,8 +1,9 @@
 """Bar provider protocol for historical market data."""
 
 from __future__ import annotations
-from typing import Protocol, List, Optional, Callable, runtime_checkable
+
 from datetime import datetime
+from typing import Callable, List, Optional, Protocol, runtime_checkable
 
 from ..events.domain_events import BarData, Timeframe
 
@@ -112,10 +113,7 @@ class BarProvider(Protocol):
         """
         ...
 
-    def set_bar_callback(
-        self,
-        callback: Optional[Callable[[BarData], None]]
-    ) -> None:
+    def set_bar_callback(self, callback: Optional[Callable[[BarData], None]]) -> None:
         """
         Set callback for incoming bar updates.
 

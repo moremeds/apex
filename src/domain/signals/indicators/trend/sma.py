@@ -73,9 +73,7 @@ class SMAIndicator(IndicatorBase):
             sma_fast = self._calculate_sma(close, fast_p)
             sma_slow = self._calculate_sma(close, slow_p)
 
-        return pd.DataFrame(
-            {"sma_fast": sma_fast, "sma_slow": sma_slow}, index=data.index
-        )
+        return pd.DataFrame({"sma_fast": sma_fast, "sma_slow": sma_slow}, index=data.index)
 
     def _calculate_sma(self, data: np.ndarray, period: int) -> np.ndarray:
         """Calculate SMA without TA-Lib."""

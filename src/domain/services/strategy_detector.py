@@ -10,13 +10,13 @@ Automatically detects common option strategies:
 """
 
 from __future__ import annotations
-from dataclasses import dataclass, field
-from typing import List, Dict, Optional
+
 from collections import defaultdict
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional
 
-from ...models.position import Position, AssetType
+from ...models.position import AssetType, Position
 from ...utils.logging_setup import get_logger
-
 
 logger = get_logger(__name__)
 
@@ -26,6 +26,7 @@ class DetectedStrategy:
     """
     Represents a detected multi-leg strategy.
     """
+
     strategy_type: str  # "VERTICAL_SPREAD", "DIAGONAL", "IRON_CONDOR", etc.
     underlying: str
     positions: List[Position]
@@ -136,8 +137,7 @@ class StrategyDetector:
             # Covered call: long stock + short call
             if stock.quantity > 0:
                 short_calls = [
-                    opt for opt in option_positions
-                    if opt.right == "C" and opt.quantity < 0
+                    opt for opt in option_positions if opt.right == "C" and opt.quantity < 0
                 ]
 
                 for call in short_calls:
@@ -146,24 +146,25 @@ class StrategyDetector:
                     call_contracts = abs(call.quantity)
 
                     if abs(stock_contracts - call_contracts) < 0.1:  # Allow small mismatch
-                        strategies.append(DetectedStrategy(
-                            strategy_type="COVERED_CALL",
-                            underlying=underlying,
-                            positions=[stock, call],
-                            is_credit=True,
-                            metadata={
-                                "stock_qty": stock.quantity,
-                                "call_strike": call.strike,
-                                "call_expiry": call.expiry,
-                            },
-                        ))
+                        strategies.append(
+                            DetectedStrategy(
+                                strategy_type="COVERED_CALL",
+                                underlying=underlying,
+                                positions=[stock, call],
+                                is_credit=True,
+                                metadata={
+                                    "stock_qty": stock.quantity,
+                                    "call_strike": call.strike,
+                                    "call_expiry": call.expiry,
+                                },
+                            )
+                        )
                         self._detection_stats["covered_positions"] += 1
 
             # Covered put: short stock + short put
             elif stock.quantity < 0:
                 short_puts = [
-                    opt for opt in option_positions
-                    if opt.right == "P" and opt.quantity < 0
+                    opt for opt in option_positions if opt.right == "P" and opt.quantity < 0
                 ]
 
                 for put in short_puts:
@@ -171,17 +172,19 @@ class StrategyDetector:
                     put_contracts = abs(put.quantity)
 
                     if abs(stock_contracts - put_contracts) < 0.1:
-                        strategies.append(DetectedStrategy(
-                            strategy_type="COVERED_PUT",
-                            underlying=underlying,
-                            positions=[stock, put],
-                            is_credit=True,
-                            metadata={
-                                "stock_qty": stock.quantity,
-                                "put_strike": put.strike,
-                                "put_expiry": put.expiry,
-                            },
-                        ))
+                        strategies.append(
+                            DetectedStrategy(
+                                strategy_type="COVERED_PUT",
+                                underlying=underlying,
+                                positions=[stock, put],
+                                is_credit=True,
+                                metadata={
+                                    "stock_qty": stock.quantity,
+                                    "put_strike": put.strike,
+                                    "put_expiry": put.expiry,
+                                },
+                            )
+                        )
                         self._detection_stats["covered_positions"] += 1
 
         return strategies
@@ -235,26 +238,25 @@ class StrategyDetector:
             if i in used_positions:
                 continue
 
-            for j, pos2 in enumerate(option_positions[i+1:], start=i+1):
+            for j, pos2 in enumerate(option_positions[i + 1 :], start=i + 1):
                 if j in used_positions:
                     continue
 
                 # Check if it's a vertical spread
                 if (
-                    pos1.expiry == pos2.expiry and  # Same expiry
-                    pos1.right == pos2.right and  # Same type (C or P)
-                    pos1.strike != pos2.strike and  # Different strikes
-                    pos1.quantity * pos2.quantity < 0 and  # Opposite signs
-                    abs(pos1.quantity) == abs(pos2.quantity)  # Same size
+                    pos1.expiry == pos2.expiry  # Same expiry
+                    and pos1.right == pos2.right  # Same type (C or P)
+                    and pos1.strike != pos2.strike  # Different strikes
+                    and pos1.quantity * pos2.quantity < 0  # Opposite signs
+                    and abs(pos1.quantity) == abs(pos2.quantity)  # Same size
                 ):
                     # Determine if credit or debit
                     long_leg = pos1 if pos1.quantity > 0 else pos2
                     short_leg = pos2 if pos1.quantity > 0 else pos1
 
                     # Credit spread: short leg closer to ATM (higher strike for calls, lower for puts)
-                    is_credit = (
-                        (pos1.right == "C" and short_leg.strike < long_leg.strike) or
-                        (pos1.right == "P" and short_leg.strike > long_leg.strike)
+                    is_credit = (pos1.right == "C" and short_leg.strike < long_leg.strike) or (
+                        pos1.right == "P" and short_leg.strike > long_leg.strike
                     )
 
                     strategy_type = (
@@ -262,18 +264,20 @@ class StrategyDetector:
                         f"{'CREDIT' if is_credit else 'DEBIT'}"
                     )
 
-                    strategies.append(DetectedStrategy(
-                        strategy_type=strategy_type,
-                        underlying=underlying,
-                        positions=[pos1, pos2],
-                        is_credit=is_credit,
-                        metadata={
-                            "expiry": pos1.expiry,
-                            "long_strike": long_leg.strike,
-                            "short_strike": short_leg.strike,
-                            "width": abs(pos1.strike - pos2.strike),
-                        },
-                    ))
+                    strategies.append(
+                        DetectedStrategy(
+                            strategy_type=strategy_type,
+                            underlying=underlying,
+                            positions=[pos1, pos2],
+                            is_credit=is_credit,
+                            metadata={
+                                "expiry": pos1.expiry,
+                                "long_strike": long_leg.strike,
+                                "short_strike": short_leg.strike,
+                                "width": abs(pos1.strike - pos2.strike),
+                            },
+                        )
+                    )
 
                     used_positions.add(i)
                     used_positions.add(j)
@@ -300,37 +304,39 @@ class StrategyDetector:
             if i in used_positions:
                 continue
 
-            for j, pos2 in enumerate(option_positions[i+1:], start=i+1):
+            for j, pos2 in enumerate(option_positions[i + 1 :], start=i + 1):
                 if j in used_positions:
                     continue
 
                 # Check for diagonal or calendar
                 if (
-                    pos1.expiry != pos2.expiry and  # Different expiries
-                    pos1.right == pos2.right and  # Same type
-                    pos1.quantity * pos2.quantity < 0 and  # Opposite signs
-                    abs(pos1.quantity) == abs(pos2.quantity)  # Same size
+                    pos1.expiry != pos2.expiry  # Different expiries
+                    and pos1.right == pos2.right  # Same type
+                    and pos1.quantity * pos2.quantity < 0  # Opposite signs
+                    and abs(pos1.quantity) == abs(pos2.quantity)  # Same size
                 ):
                     # Determine type
-                    is_calendar = (pos1.strike == pos2.strike)
+                    is_calendar = pos1.strike == pos2.strike
                     strategy_type = "CALENDAR_SPREAD" if is_calendar else "DIAGONAL_SPREAD"
 
                     long_leg = pos1 if pos1.quantity > 0 else pos2
                     short_leg = pos2 if pos1.quantity > 0 else pos1
 
-                    strategies.append(DetectedStrategy(
-                        strategy_type=strategy_type,
-                        underlying=underlying,
-                        positions=[pos1, pos2],
-                        is_credit=False,  # Typically debit strategies
-                        metadata={
-                            "long_expiry": long_leg.expiry,
-                            "short_expiry": short_leg.expiry,
-                            "long_strike": long_leg.strike,
-                            "short_strike": short_leg.strike,
-                            "is_calendar": is_calendar,
-                        },
-                    ))
+                    strategies.append(
+                        DetectedStrategy(
+                            strategy_type=strategy_type,
+                            underlying=underlying,
+                            positions=[pos1, pos2],
+                            is_credit=False,  # Typically debit strategies
+                            metadata={
+                                "long_expiry": long_leg.expiry,
+                                "short_expiry": short_leg.expiry,
+                                "long_strike": long_leg.strike,
+                                "short_strike": short_leg.strike,
+                                "is_calendar": is_calendar,
+                            },
+                        )
+                    )
 
                     used_positions.add(i)
                     used_positions.add(j)
@@ -376,27 +382,27 @@ class StrategyDetector:
             return strategies
 
         # Check if both are vertical spreads
-        call_is_spread = (
-            calls[0].quantity * calls[1].quantity < 0 and
-            abs(calls[0].quantity) == abs(calls[1].quantity)
-        )
-        put_is_spread = (
-            puts[0].quantity * puts[1].quantity < 0 and
-            abs(puts[0].quantity) == abs(puts[1].quantity)
+        call_is_spread = calls[0].quantity * calls[1].quantity < 0 and abs(
+            calls[0].quantity
+        ) == abs(calls[1].quantity)
+        put_is_spread = puts[0].quantity * puts[1].quantity < 0 and abs(puts[0].quantity) == abs(
+            puts[1].quantity
         )
 
         if call_is_spread and put_is_spread:
-            strategies.append(DetectedStrategy(
-                strategy_type="IRON_CONDOR",
-                underlying=underlying,
-                positions=option_positions,
-                is_credit=True,
-                metadata={
-                    "expiry": list(expiries)[0],
-                    "call_strikes": sorted([c.strike for c in calls]),
-                    "put_strikes": sorted([p.strike for p in puts]),
-                },
-            ))
+            strategies.append(
+                DetectedStrategy(
+                    strategy_type="IRON_CONDOR",
+                    underlying=underlying,
+                    positions=option_positions,
+                    is_credit=True,
+                    metadata={
+                        "expiry": list(expiries)[0],
+                        "call_strikes": sorted([c.strike for c in calls]),
+                        "put_strikes": sorted([p.strike for p in puts]),
+                    },
+                )
+            )
             self._detection_stats["iron_condors"] += 1
 
         return strategies

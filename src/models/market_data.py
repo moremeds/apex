@@ -1,16 +1,18 @@
 """Market data model with Greeks source tracking and quality flags."""
 
 from __future__ import annotations
+
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
 from enum import Enum
+from typing import Optional
 
 from ..utils.timezone import age_seconds
 
 
 class GreeksSource(Enum):
     """Source of Greeks calculation."""
+
     IBKR = "IBKR"  # From Interactive Brokers
     VENDOR = "VENDOR"  # From data vendor
     CALCULATED = "CALCULATED"  # Locally calculated (future use)
@@ -20,6 +22,7 @@ class GreeksSource(Enum):
 
 class DataQuality(Enum):
     """Market data quality flag."""
+
     GOOD = "GOOD"  # Fresh and valid
     STALE = "STALE"  # Exceeded staleness threshold
     SUSPICIOUS = "SUSPICIOUS"  # Failed bid/ask sanity check

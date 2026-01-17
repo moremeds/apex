@@ -77,6 +77,7 @@ def _normalize_parquet_filter_dt(value: datetime, ts_type: "pa.TimestampType") -
 
     try:
         from zoneinfo import ZoneInfo
+
         return value.astimezone(ZoneInfo(ts_type.tz))
     except Exception:
         return value.astimezone(timezone.utc)
@@ -322,7 +323,9 @@ class SingleBacktestRunner:
 
         source_priority = None
         if getattr(args, "source_priority", None):
-            source_priority = [s.strip().lower() for s in args.source_priority.split(",") if s.strip()]
+            source_priority = [
+                s.strip().lower() for s in args.source_priority.split(",") if s.strip()
+            ]
 
         return cls(
             strategy_name=args.strategy,
@@ -345,10 +348,12 @@ class SingleBacktestRunner:
 
     async def run(self) -> BacktestResult:
         """Run the backtest."""
-        from .execution.engines.backtest_engine import BacktestConfig, BacktestEngine
-
         # Import to register strategies
-        from ..domain.strategy.examples import BuyAndHoldStrategy, MovingAverageCrossStrategy  # noqa
+        from ..domain.strategy.examples import (  # noqa
+            BuyAndHoldStrategy,
+            MovingAverageCrossStrategy,
+        )
+        from .execution.engines.backtest_engine import BacktestConfig, BacktestEngine
 
         self._print_config()
         await self._ensure_historical_coverage()
@@ -370,7 +375,9 @@ class SingleBacktestRunner:
 
         strategy_class = get_strategy_class(self.strategy_name)
         if strategy_class is None:
-            raise ValueError(f"Unknown strategy: {self.strategy_name}. Available: {list_strategies()}")
+            raise ValueError(
+                f"Unknown strategy: {self.strategy_name}. Available: {list_strategies()}"
+            )
         engine.set_strategy(strategy_class, params=self.strategy_params)
 
         data_feed = self._create_data_feed()
@@ -440,7 +447,9 @@ class SingleBacktestRunner:
                     bar_size=self.bar_size,
                 )
         else:
-            raise ValueError(f"Unknown data source: {self.data_source}. Use 'cached', 'historical', 'csv', or 'parquet'.")
+            raise ValueError(
+                f"Unknown data source: {self.data_source}. Use 'cached', 'historical', 'csv', or 'parquet'."
+            )
 
     def _print_config(self) -> None:
         """Log backtest configuration using structured logging."""
@@ -457,8 +466,12 @@ class SingleBacktestRunner:
 
         if self.data_source == "historical":
             historical_cfg = load_historical_data_config()
-            config_info["historical_dir"] = self.historical_dir or historical_cfg.get("base_dir", "data/historical")
-            config_info["sources"] = self.source_priority or historical_cfg.get("source_priority", ["ib", "yahoo"])
+            config_info["historical_dir"] = self.historical_dir or historical_cfg.get(
+                "base_dir", "data/historical"
+            )
+            config_info["sources"] = self.source_priority or historical_cfg.get(
+                "source_priority", ["ib", "yahoo"]
+            )
             config_info["coverage_mode"] = self.coverage_mode or "download"
 
         if self.strategy_params:
@@ -488,7 +501,9 @@ class SingleBacktestRunner:
 
         historical_cfg = load_historical_data_config()
         base_dir = Path(self.historical_dir or historical_cfg.get("base_dir", "data/historical"))
-        source_priority = self.source_priority or historical_cfg.get("source_priority", ["ib", "yahoo"])
+        source_priority = self.source_priority or historical_cfg.get(
+            "source_priority", ["ib", "yahoo"]
+        )
 
         logger.info(f"Coverage check: mode={mode}, base_dir={base_dir}, sources={source_priority}")
 
@@ -501,7 +516,11 @@ class SingleBacktestRunner:
                 if ib_config:
                     from ..infrastructure.adapters.ib.historical_adapter import IbHistoricalAdapter
 
-                    client_id = ib_config.client_ids.historical_pool[0] if ib_config.client_ids.historical_pool else 10
+                    client_id = (
+                        ib_config.client_ids.historical_pool[0]
+                        if ib_config.client_ids.historical_pool
+                        else 10
+                    )
                     ib_adapter = IbHistoricalAdapter(
                         host=ib_config.host,
                         port=ib_config.port,
@@ -510,7 +529,9 @@ class SingleBacktestRunner:
                     try:
                         await ib_adapter.connect()
                         manager.set_ib_source(ib_adapter)
-                        logger.info(f"IB historical source connected: {ib_config.host}:{ib_config.port}")
+                        logger.info(
+                            f"IB historical source connected: {ib_config.host}:{ib_config.port}"
+                        )
                     except Exception as e:
                         logger.warning(f"IB connection failed, will use fallback sources: {e}")
                         ib_adapter = None
@@ -591,8 +612,9 @@ async def prefetch_data(
     Returns:
         Dict[symbol, DataFrame] with OHLCV data indexed by timestamp
     """
-    import pandas as pd
     from pathlib import Path
+
+    import pandas as pd
 
     logger.info(f"Pre-fetching data for {len(symbols)} symbols...")
 
@@ -644,7 +666,9 @@ async def prefetch_data(
                         logger.info(f"  {symbol}: loaded {len(df)} bars from cache")
                         continue
                     else:
-                        logger.info(f"  {symbol}: cache has {actual_days} bars (coverage {coverage:.0%}), will refresh")
+                        logger.info(
+                            f"  {symbol}: cache has {actual_days} bars (coverage {coverage:.0%}), will refresh"
+                        )
             except Exception as e:
                 logger.warning(f"  {symbol}: cache read failed ({e}), will fetch")
 
@@ -718,14 +742,18 @@ async def prefetch_data(
     else:
         # All retries failed
         if symbols_to_fetch and not any(s in results for s in symbols_to_fetch):
-            raise RuntimeError(f"Failed to pre-fetch data after {max_retries} attempts: {last_error}")
+            raise RuntimeError(
+                f"Failed to pre-fetch data after {max_retries} attempts: {last_error}"
+            )
 
     successful = sum(1 for df in results.values() if not df.empty)
     cached_count = len(symbols) - len(symbols_to_fetch)
     fetched_count = successful - cached_count
 
-    logger.info(f"Pre-fetch complete: {successful}/{len(symbols)} symbols with data "
-                f"({cached_count} cached, {fetched_count} fetched)")
+    logger.info(
+        f"Pre-fetch complete: {successful}/{len(symbols)} symbols with data "
+        f"({cached_count} cached, {fetched_count} fetched)"
+    )
     return results
 
 
@@ -795,6 +823,7 @@ def create_vectorbt_backtest_fn(
         secondary_data: Secondary timeframe data {symbol: {timeframe: DataFrame}}
     """
     from dataclasses import asdict
+
     from .execution.engines import VectorBTConfig
 
     if cached_data:
@@ -853,10 +882,7 @@ def is_apex_required(strategy_name: str) -> bool:
         return False
 
     entry = strategies[strategy_name]
-    return (
-        entry.get("apex_only", False) or
-        entry.get("signals") is None
-    )
+    return entry.get("apex_only", False) or entry.get("signals") is None
 
 
 def _init_apex_worker(
@@ -907,6 +933,7 @@ def create_apex_backtest_fn(
         Backtest function with multiprocessing metadata
     """
     from dataclasses import asdict
+
     from .execution.engines import ApexEngineConfig
 
     config = ApexEngineConfig(
@@ -1016,7 +1043,9 @@ async def run_systematic_experiment(
         experiment_id = runner.run(
             spec,
             backtest_fn=backtest_fn,
-            on_trial_complete=lambda t: logger.debug(f"  Trial {t.trial_index}: score={t.trial_score:.3f}"),
+            on_trial_complete=lambda t: logger.debug(
+                f"  Trial {t.trial_index}: score={t.trial_score:.3f}"
+            ),
         )
 
         duration = (datetime.now() - start_time).total_seconds()
@@ -1051,7 +1080,9 @@ async def run_systematic_experiment(
         runner.close()
 
 
-def _query_per_symbol_metrics(runner, experiment_id: str, best_trial_id: str) -> Dict[str, Dict[str, Any]]:
+def _query_per_symbol_metrics(
+    runner, experiment_id: str, best_trial_id: str
+) -> Dict[str, Dict[str, Any]]:
     """Query per-symbol aggregated metrics from the runs table for the best trial."""
     rows = runner._db.fetchall(
         """
@@ -1105,7 +1136,9 @@ def _query_per_symbol_metrics(runner, experiment_id: str, best_trial_id: str) ->
     return per_symbol
 
 
-def _query_per_window_metrics(runner, experiment_id: str, best_trial_id: str) -> List[Dict[str, Any]]:
+def _query_per_window_metrics(
+    runner, experiment_id: str, best_trial_id: str
+) -> List[Dict[str, Any]]:
     """Query per-window (fold) metrics from the runs table for the best trial."""
     rows = runner._db.fetchall(
         """
@@ -1135,23 +1168,27 @@ def _query_per_window_metrics(runner, experiment_id: str, best_trial_id: str) ->
         if is_sharpe != 0:
             degradation = (is_sharpe - oos_sharpe) / abs(is_sharpe) if is_sharpe else 0
 
-        per_window.append({
-            "window_id": row[0],
-            "is_sharpe": is_sharpe,
-            "oos_sharpe": oos_sharpe,
-            "is_return": row[3] or 0,
-            "oos_return": row[4] or 0,
-            "is_max_dd": row[5] or 0,
-            "oos_max_dd": row[6] or 0,
-            "degradation": degradation,
-            "start_time": str(row[7]) if row[7] else "",
-            "end_time": str(row[8]) if row[8] else "",
-        })
+        per_window.append(
+            {
+                "window_id": row[0],
+                "is_sharpe": is_sharpe,
+                "oos_sharpe": oos_sharpe,
+                "is_return": row[3] or 0,
+                "oos_return": row[4] or 0,
+                "is_max_dd": row[5] or 0,
+                "oos_max_dd": row[6] or 0,
+                "degradation": degradation,
+                "start_time": str(row[7]) if row[7] else "",
+                "end_time": str(row[8]) if row[8] else "",
+            }
+        )
 
     return per_window
 
 
-def _build_equity_curve(runner, experiment_id: str, best_trial_id: str, initial_capital: float = 100000.0) -> List[Dict[str, Any]]:
+def _build_equity_curve(
+    runner, experiment_id: str, best_trial_id: str, initial_capital: float = 100000.0
+) -> List[Dict[str, Any]]:
     """Build a simulated equity curve from OOS returns per window."""
     rows = runner._db.fetchall(
         """
@@ -1174,11 +1211,13 @@ def _build_equity_curve(runner, experiment_id: str, best_trial_id: str, initial_
         avg_return = row[1] or 0
         end_date = row[2]
         equity = equity * (1 + avg_return)
-        equity_curve.append({
-            "date": str(end_date)[:10] if end_date else row[0],
-            "equity": round(equity, 2),
-            "return": round(avg_return * 100, 2),
-        })
+        equity_curve.append(
+            {
+                "date": str(end_date)[:10] if end_date else row[0],
+                "equity": round(equity, 2),
+                "return": round(avg_return * 100, 2),
+            }
+        )
 
     return equity_curve
 
@@ -1211,21 +1250,23 @@ def _query_trade_summary(runner, experiment_id: str, best_trial_id: str) -> List
 
     trades = []
     for row in rows:
-        trades.append({
-            "run_id": row[0][:12] if row[0] else "",
-            "symbol": row[1],
-            "window": row[2],
-            "is_oos": "OOS" if row[3] else "IS",
-            "trade_count": int(row[4] or 0),
-            "win_rate": round((row[5] or 0) * 100, 1),
-            "profit_factor": round(row[6] or 0, 2),
-            "return_pct": round((row[7] or 0) * 100, 2),
-            "best_pct": round((row[8] or 0) * 100, 2),
-            "worst_pct": round((row[9] or 0) * 100, 2),
-            "avg_win_pct": round((row[10] or 0) * 100, 2),
-            "avg_loss_pct": round((row[11] or 0) * 100, 2),
-            "avg_duration": round(row[12] or 0, 1),
-        })
+        trades.append(
+            {
+                "run_id": row[0][:12] if row[0] else "",
+                "symbol": row[1],
+                "window": row[2],
+                "is_oos": "OOS" if row[3] else "IS",
+                "trade_count": int(row[4] or 0),
+                "win_rate": round((row[5] or 0) * 100, 1),
+                "profit_factor": round(row[6] or 0, 2),
+                "return_pct": round((row[7] or 0) * 100, 2),
+                "best_pct": round((row[8] or 0) * 100, 2),
+                "worst_pct": round((row[9] or 0) * 100, 2),
+                "avg_win_pct": round((row[10] or 0) * 100, 2),
+                "avg_loss_pct": round((row[11] or 0) * 100, 2),
+                "avg_duration": round(row[12] or 0, 1),
+            }
+        )
 
     return trades
 
@@ -1276,7 +1317,9 @@ def _generate_experiment_report(runner, experiment_id: str, spec, output_dir: Pa
             per_window = _query_per_window_metrics(runner, experiment_id, best_trial_id)
             equity_curve = _build_equity_curve(runner, experiment_id, best_trial_id)
             trades = _query_trade_summary(runner, experiment_id, best_trial_id)
-            logger.info(f"Loaded report data: {len(per_symbol)} symbols, {len(per_window)} windows, {len(trades)} trade summaries")
+            logger.info(
+                f"Loaded report data: {len(per_symbol)} symbols, {len(per_window)} windows, {len(trades)} trade summaries"
+            )
         except Exception as e:
             logger.warning(f"Failed to load detailed report data: {e}")
 
@@ -1302,7 +1345,9 @@ def _generate_experiment_report(runner, experiment_id: str, spec, output_dir: Pa
         metrics=agg_metrics,
         validation={
             "successful_trials": result.successful_trials,
-            "success_rate": result.successful_trials / result.total_trials if result.total_trials > 0 else 0,
+            "success_rate": (
+                result.successful_trials / result.total_trials if result.total_trials > 0 else 0
+            ),
             "total_runs": result.total_runs,
             "successful_runs": result.successful_runs,
             "pbo": result.pbo if result.pbo is not None else 0.0,
@@ -1377,7 +1422,11 @@ class BacktraderRunner:
                 except Exception as e:
                     logger.error(f"Failed to load reality_model from spec: {e}")
 
-            if reality_pack is None and hasattr(self._spec.execution, "reality_pack") and self._spec.execution.reality_pack:
+            if (
+                reality_pack is None
+                and hasattr(self._spec.execution, "reality_pack")
+                and self._spec.execution.reality_pack
+            ):
                 try:
                     reality_pack = get_preset_pack(self._spec.execution.reality_pack)
                 except Exception as e:
@@ -1387,7 +1436,9 @@ class BacktraderRunner:
 
         strategy_class = get_strategy_class(self.strategy_name)
         if strategy_class is None:
-            raise ValueError(f"Unknown strategy: {self.strategy_name}. Available: {list_strategies()}")
+            raise ValueError(
+                f"Unknown strategy: {self.strategy_name}. Available: {list_strategies()}"
+            )
 
         data_feeds = self._create_data_feeds()
 
@@ -1448,7 +1499,12 @@ class BacktraderRunner:
 
     def _convert_result(self, bt_results: Dict[str, Any], run_duration: float) -> BacktestResult:
         """Convert Backtrader results to BacktestResult."""
-        from ..domain.backtest.backtest_result import CostMetrics, PerformanceMetrics, RiskMetrics, TradeMetrics
+        from ..domain.backtest.backtest_result import (
+            CostMetrics,
+            PerformanceMetrics,
+            RiskMetrics,
+            TradeMetrics,
+        )
 
         initial = self.initial_capital
         final = bt_results.get("final_value", initial)

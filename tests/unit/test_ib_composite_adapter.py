@@ -22,6 +22,7 @@ from src.infrastructure.adapters.ib.connection_pool import ConnectionPoolConfig
 @dataclass
 class MockPosition:
     """Mock position for testing."""
+
     symbol: str
     quantity: float
     avg_cost: float
@@ -37,6 +38,7 @@ class MockPosition:
 @dataclass
 class MockPositionSnapshot:
     """Mock position snapshot for testing."""
+
     symbol: str
     quantity: float
     avg_cost: float
@@ -52,6 +54,7 @@ class MockPositionSnapshot:
 @dataclass
 class MockAccountSnapshot:
     """Mock account snapshot for testing."""
+
     account_id: str = "U12345"
     net_liquidation: float = 100000.0
     cash_balance: float = 50000.0
@@ -69,6 +72,7 @@ class MockAccountSnapshot:
 @dataclass
 class MockMarketData:
     """Mock market data for testing."""
+
     symbol: str
     bid: Optional[float] = None
     ask: Optional[float] = None
@@ -316,5 +320,3 @@ class TestIbCompositeAdapter:
         assert info["live_connected"] is False
         assert info["historical_connected"] is False
         assert info["execution_connected"] is False
-
-

@@ -9,10 +9,10 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from textual.widgets import DataTable
-from textual.reactive import reactive
-from textual.message import Message
 from textual import work
+from textual.message import Message
+from textual.reactive import reactive
+from textual.widgets import DataTable
 
 from ..viewmodels.strategy_vm import StrategyDisplayState, StrategyViewModel
 
@@ -55,9 +55,7 @@ class StrategyList(DataTable):
     ]
 
     # Single combined state reactive - avoids triple rebuild on related changes
-    state: reactive[StrategyDisplayState] = reactive(
-        StrategyDisplayState, init=False
-    )
+    state: reactive[StrategyDisplayState] = reactive(StrategyDisplayState, init=False)
 
     def __init__(self, **kwargs) -> None:
         super().__init__(cursor_type="row", zebra_stripes=False, **kwargs)
@@ -217,9 +215,7 @@ class StrategyList(DataTable):
 
         self._view_model.set_selected(selected_name)
 
-        row_ops, cell_updates, new_order = self._view_model.compute_updates(
-            self._strategy_list
-        )
+        row_ops, cell_updates, new_order = self._view_model.compute_updates(self._strategy_list)
 
         # Process row removals first
         for row_op in row_ops:
@@ -259,9 +255,7 @@ class StrategyList(DataTable):
             key = str(event.row_key.value)
             if key != "__empty__" and key in self._strategy_map:
                 self._selected_strategy = key
-                self.post_message(
-                    self.StrategyActivated(key, self._strategy_map[key])
-                )
+                self.post_message(self.StrategyActivated(key, self._strategy_map[key]))
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         """Handle row highlight (cursor movement)."""
@@ -269,9 +263,7 @@ class StrategyList(DataTable):
             key = str(event.row_key.value)
             if key != "__empty__" and key in self._strategy_map:
                 self._selected_strategy = key
-                self.post_message(
-                    self.StrategySelected(key, self._strategy_map[key])
-                )
+                self.post_message(self.StrategySelected(key, self._strategy_map[key]))
 
     def get_selected_strategy(self) -> Optional[str]:
         """Get the currently selected strategy name."""

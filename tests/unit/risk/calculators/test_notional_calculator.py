@@ -1,11 +1,12 @@
 """Unit tests for notional calculator."""
 
 import pytest
+
 from src.domain.services.risk.calculators.notional_calculator import (
-    calculate_notional,
-    calculate_delta_dollars,
-    calculate_concentration,
     NotionalResult,
+    calculate_concentration,
+    calculate_delta_dollars,
+    calculate_notional,
 )
 
 

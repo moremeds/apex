@@ -82,18 +82,14 @@ class UniverseConfig(BaseModel):
     type: Literal["static", "dynamic", "index"] = Field(
         default="static", description="Universe type"
     )
-    symbols: Optional[List[str]] = Field(
-        default=None, description="Static list of symbols"
-    )
+    symbols: Optional[List[str]] = Field(default=None, description="Static list of symbols")
     rules: Optional[str] = Field(
         default=None, description="Dynamic selection rules (e.g., 'top_500_by_adv')"
     )
     as_of: Optional[str] = Field(
         default=None, description="Point-in-time reference for dynamic universe"
     )
-    index: Optional[str] = Field(
-        default=None, description="Index name for index-based universe"
-    )
+    index: Optional[str] = Field(default=None, description="Index name for index-based universe")
 
     @model_validator(mode="after")
     def validate_universe(self) -> "UniverseConfig":
@@ -198,9 +194,7 @@ class ProfileConfig(BaseModel):
     volume_limit_pct: float = Field(default=0.1, description="Max volume participation")
 
     # Market impact
-    market_impact_model: Optional[str] = Field(
-        default=None, description="Market impact model name"
-    )
+    market_impact_model: Optional[str] = Field(default=None, description="Market impact model name")
 
 
 class ReproducibilityConfig(BaseModel):
@@ -240,9 +234,7 @@ class ExperimentSpec(BaseModel):
     temporal: TemporalConfig = Field(description="Temporal split configuration")
 
     # Data configuration (timeframes, sources)
-    data: DataConfig = Field(
-        default_factory=DataConfig, description="Data loading configuration"
-    )
+    data: DataConfig = Field(default_factory=DataConfig, description="Data loading configuration")
 
     # Optimization
     optimization: OptimizationConfig = Field(
@@ -274,9 +266,11 @@ class ExperimentSpec(BaseModel):
                 universe=self.universe.model_dump(),
                 temporal=self.temporal.model_dump(),
                 data_version=self.reproducibility.data_version,
-                profile_version=next(iter(self.profiles.values()), ProfileConfig(name="default")).version
-                if self.profiles
-                else None,
+                profile_version=(
+                    next(iter(self.profiles.values()), ProfileConfig(name="default")).version
+                    if self.profiles
+                    else None
+                ),
                 code_version=self.reproducibility.code_version,
             )
         return self
@@ -314,9 +308,7 @@ class ExperimentSpec(BaseModel):
         param_defs = self.get_parameter_defs()
 
         # Get all possible values for each parameter
-        param_values = {
-            name: defn.expand() for name, defn in param_defs.items()
-        }
+        param_values = {name: defn.expand() for name, defn in param_defs.items()}
 
         # Generate all combinations
         if not param_values:

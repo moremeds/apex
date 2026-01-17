@@ -27,8 +27,9 @@ Usage:
 """
 
 from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import TypeVar, Generic, Callable, Optional, Union
+from typing import Callable, Generic, Optional, TypeVar, Union
 
 T = TypeVar("T")  # Success type
 E = TypeVar("E")  # Error type
