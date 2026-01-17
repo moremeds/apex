@@ -78,12 +78,14 @@ jobs:
           pip uninstall -y TA-Lib 2>/dev/null || true
 
       - name: Run signal contract verification
-        run: python -m src.verification.signal_verifier --all --profile signal_dev
+        run: PYTHONPATH="${PYTHONPATH}:${PWD}" python -m src.verification.signal_verifier --all --profile signal_dev
 
       - name: Run regime contract verification
-        run: python -m src.verification.regime_verifier --all --profile dev
+        run: PYTHONPATH="${PYTHONPATH}:${PWD}" python -m src.verification.regime_verifier --all --profile dev
 
       - name: Run ALL unit tests
+        env:
+          PYTHONPATH: "${{ github.workspace }}"
         run: |
           # Ignore tests with circular imports or pre-existing failures
           pytest tests/unit/ -v \
@@ -158,11 +160,15 @@ jobs:
 
       - name: Run TA-Lib alignment verification
         if: steps.talib-wheels.outcome == 'success' || steps.talib-compile.outcome == 'success'
+        env:
+          PYTHONPATH: "${{ github.workspace }}"
         run: |
           python -m src.verification.signal_verifier --all --profile signal_talib || true
 
       - name: Run TA-Lib alignment tests
         if: steps.talib-wheels.outcome == 'success' || steps.talib-compile.outcome == 'success'
+        env:
+          PYTHONPATH: "${{ github.workspace }}"
         run: |
           pytest tests/unit/signals/test_talib_alignment.py -v || true
         continue-on-error: true
@@ -198,6 +204,8 @@ jobs:
         run: uv pip install -e ".[dev,observability]" --system
 
       - name: Run integration tests
+        env:
+          PYTHONPATH: "${{ github.workspace }}"
         run: |
           pytest tests/integration/ -v --tb=short \
             --ignore=tests/integration/test_readiness_gating.py
