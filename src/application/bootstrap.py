@@ -42,7 +42,8 @@ from ..services.bar_persistence_service import BarPersistenceService
 from ..services.historical_data_manager import HistoricalDataManager
 from ..utils import StructuredLogger
 from ..utils.structured_logger import LogCategory
-from . import Orchestrator, ReadinessManager
+from .orchestrator import Orchestrator
+from .readiness_manager import ReadinessManager
 
 if TYPE_CHECKING:
     from config.config_manager import Config
