@@ -378,6 +378,7 @@ class RegimeDetectorIndicator(IndicatorBase):
         """
         rules_fired: List[RuleTrace] = []
 
+        # Price and MA values
         close = state["close"]
         ma20 = state["ma20"]
         ma50 = state["ma50"]
@@ -385,6 +386,13 @@ class RegimeDetectorIndicator(IndicatorBase):
         ma50_slope = state["ma50_slope"]
         last_5_bar_high = state["last_5_bar_high"]
 
+        # Additional numeric metrics for evidence
+        atr_pct_63 = state.get("atr_pct_63", 50.0)
+        atr_pct_252 = state.get("atr_pct_252", 50.0)
+        chop_pct = state.get("chop_pct_252", 50.0)
+        ext_value = state.get("ext", 0.0)
+
+        # Component states
         trend_state = state["trend_state"]
         vol_state = state["vol_state"]
         chop_state = state["chop_state"]
@@ -419,11 +427,23 @@ class RegimeDetectorIndicator(IndicatorBase):
             evidence={
                 "trend_state": (
                     trend_state.value if hasattr(trend_state, "value") else str(trend_state)
-                )
+                ),
+                "close": close,
+                "ma50": ma50,
+                "ma200": ma200,
+                "ma50_slope": ma50_slope if not np.isnan(ma50_slope) else 0.0,
             },
             regime_target="R2",
             category="trend",
             priority=1,
+            threshold_info=ThresholdInfo(
+                metric_name="close_vs_ma200",
+                current_value=close,
+                threshold=ma200,
+                operator="<",
+                gap=close - ma200,
+                unit="$",
+            ),
             failed_conditions=(
                 []
                 if r2_trend_down
@@ -450,6 +470,8 @@ class RegimeDetectorIndicator(IndicatorBase):
             passed=r2_vol_breakdown,
             evidence={
                 "vol_state": vol_state_str,
+                "atr_pct_63": atr_pct_63,
+                "atr_pct_252": atr_pct_252,
                 "close": close,
                 "ma50": ma50,
             },
@@ -523,10 +545,22 @@ class RegimeDetectorIndicator(IndicatorBase):
                 rule_id="r3_vol_high",
                 description="R3: Volatility is HIGH",
                 passed=r3_vol_high,
-                evidence={"vol_state": vol_state_str},
+                evidence={
+                    "vol_state": vol_state_str,
+                    "atr_pct_63": atr_pct_63,
+                    "atr_pct_252": atr_pct_252,
+                },
                 regime_target="R3",
                 category="vol",
                 priority=2,
+                threshold_info=ThresholdInfo(
+                    metric_name="atr_pct_63",
+                    current_value=atr_pct_63,
+                    threshold=80.0,
+                    operator=">=",
+                    gap=80.0 - atr_pct_63,
+                    unit="%",
+                ),
             )
         )
 
@@ -535,10 +569,21 @@ class RegimeDetectorIndicator(IndicatorBase):
                 rule_id="r3_oversold",
                 description="R3: Extension is OVERSOLD",
                 passed=r3_oversold,
-                evidence={"ext_state": ext_state_str},
+                evidence={
+                    "ext_state": ext_state_str,
+                    "ext_value": ext_value,
+                },
                 regime_target="R3",
                 category="ext",
                 priority=2,
+                threshold_info=ThresholdInfo(
+                    metric_name="ext_atr_units",
+                    current_value=ext_value,
+                    threshold=-2.0,
+                    operator="<=",
+                    gap=ext_value - (-2.0),
+                    unit=" ATR",
+                ),
             )
         )
 
@@ -550,7 +595,10 @@ class RegimeDetectorIndicator(IndicatorBase):
                 evidence={
                     "trend_state": (
                         trend_state.value if hasattr(trend_state, "value") else str(trend_state)
-                    )
+                    ),
+                    "close": close,
+                    "ma50": ma50,
+                    "ma200": ma200,
                 },
                 regime_target="R3",
                 category="trend",
@@ -647,12 +695,21 @@ class RegimeDetectorIndicator(IndicatorBase):
                 passed=is_strong_trend_acceleration,
                 evidence={
                     "trend_state": trend_state_str,
-                    "ma50_slope": ma50_slope,
+                    "ma50_slope": ma50_slope if not np.isnan(ma50_slope) else 0.0,
                     "chop_state": chop_state_str,
+                    "chop_pct": chop_pct,
                 },
                 regime_target="R0",  # This exception favors R0
                 category="trend",
                 priority=3,
+                threshold_info=ThresholdInfo(
+                    metric_name="ma50_slope",
+                    current_value=ma50_slope if not np.isnan(ma50_slope) else 0.0,
+                    threshold=0.03,
+                    operator=">",
+                    gap=0.03 - (ma50_slope if not np.isnan(ma50_slope) else 0.0),
+                    unit="%",
+                ),
             )
         )
 
@@ -666,10 +723,21 @@ class RegimeDetectorIndicator(IndicatorBase):
                 evidence={
                     "trend_state": trend_state_str,
                     "chop_state": chop_state_str,
+                    "chop_pct": chop_pct,
+                    "close": close,
+                    "ma50": ma50,
                 },
                 regime_target="R1",
                 category="chop",
                 priority=3,
+                threshold_info=ThresholdInfo(
+                    metric_name="chop_pct",
+                    current_value=chop_pct,
+                    threshold=70.0,
+                    operator=">=",
+                    gap=70.0 - chop_pct,
+                    unit="%",
+                ),
             )
         )
 
@@ -687,11 +755,20 @@ class RegimeDetectorIndicator(IndicatorBase):
                 evidence={
                     "trend_state": trend_state_str,
                     "ext_state": ext_state_str,
+                    "ext_value": ext_value,
                     "is_strong_trend_acceleration": is_strong_trend_acceleration,
                 },
                 regime_target="R1",
                 category="ext",
                 priority=3,
+                threshold_info=ThresholdInfo(
+                    metric_name="ext_atr_units",
+                    current_value=ext_value,
+                    threshold=2.0,
+                    operator=">=",
+                    gap=2.0 - ext_value,
+                    unit=" ATR",
+                ),
             )
         )
 
@@ -711,10 +788,24 @@ class RegimeDetectorIndicator(IndicatorBase):
                 rule_id="r0_trend_up",
                 description="R0: Trend is UP",
                 passed=r0_trend_up,
-                evidence={"trend_state": trend_state_str},
+                evidence={
+                    "trend_state": trend_state_str,
+                    "close": close,
+                    "ma50": ma50,
+                    "ma200": ma200,
+                    "ma50_slope": ma50_slope if not np.isnan(ma50_slope) else 0.0,
+                },
                 regime_target="R0",
                 category="trend",
                 priority=4,
+                threshold_info=ThresholdInfo(
+                    metric_name="close_vs_ma50",
+                    current_value=close,
+                    threshold=ma50,
+                    operator=">",
+                    gap=ma50 - close,
+                    unit="$",
+                ),
             )
         )
 
@@ -723,10 +814,22 @@ class RegimeDetectorIndicator(IndicatorBase):
                 rule_id="r0_vol_not_high",
                 description="R0: Volatility is NOT HIGH",
                 passed=r0_vol_not_high,
-                evidence={"vol_state": vol_state_str},
+                evidence={
+                    "vol_state": vol_state_str,
+                    "atr_pct_63": atr_pct_63,
+                    "atr_pct_252": atr_pct_252,
+                },
                 regime_target="R0",
                 category="vol",
                 priority=4,
+                threshold_info=ThresholdInfo(
+                    metric_name="atr_pct_63",
+                    current_value=atr_pct_63,
+                    threshold=80.0,
+                    operator="<",
+                    gap=atr_pct_63 - 80.0,
+                    unit="%",
+                ),
             )
         )
 
@@ -735,10 +838,21 @@ class RegimeDetectorIndicator(IndicatorBase):
                 rule_id="r0_not_choppy",
                 description="R0: Market is NOT Choppy",
                 passed=r0_not_choppy,
-                evidence={"chop_state": chop_state_str},
+                evidence={
+                    "chop_state": chop_state_str,
+                    "chop_pct": chop_pct,
+                },
                 regime_target="R0",
                 category="chop",
                 priority=4,
+                threshold_info=ThresholdInfo(
+                    metric_name="chop_pct",
+                    current_value=chop_pct,
+                    threshold=70.0,
+                    operator="<",
+                    gap=chop_pct - 70.0,
+                    unit="%",
+                ),
             )
         )
 
@@ -754,7 +868,15 @@ class RegimeDetectorIndicator(IndicatorBase):
                 rule_id="fallback_r1",
                 description="Fallback: No regime conditions fully met",
                 passed=True,
-                evidence={},
+                evidence={
+                    "trend_state": trend_state_str,
+                    "vol_state": vol_state_str,
+                    "chop_state": chop_state_str,
+                    "ext_state": ext_state_str,
+                    "close": close,
+                    "ma50": ma50,
+                    "ma200": ma200,
+                },
                 regime_target="R1",
                 category="fallback",
                 priority=5,

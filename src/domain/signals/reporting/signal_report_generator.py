@@ -1380,6 +1380,9 @@ body {{
 
         Returns HTML for methodology, decision tree, component analysis,
         quality, and hysteresis sections (PR1 + PR2).
+
+        Each symbol's section has data-symbol attribute for JavaScript filtering.
+        Only the selected symbol's section is shown (controlled by updateRegimeSection).
         """
         if not regime_outputs:
             return ""
@@ -1401,9 +1404,10 @@ body {{
             quality = generate_quality_html(output, self.theme)
             hysteresis = generate_hysteresis_html(output, self.theme)
 
+            # Add data-symbol attribute for JavaScript filtering
             sections_html.append(
                 f"""
-            <div class="regime-symbol-section" id="regime-{symbol}">
+            <div class="regime-symbol-section" id="regime-{symbol}" data-symbol="{symbol}" style="display: none;">
                 <h3 class="regime-symbol-header">{symbol}</h3>
                 {one_liner}
                 {decision_tree}
@@ -1424,7 +1428,7 @@ body {{
             </h2>
             <div id="regime-content" class="section-content">
                 {methodology}
-                <div class="regime-symbols-container">
+                <div class="regime-symbols-container" id="regime-symbols-container">
                     {''.join(sections_html)}
                 </div>
             </div>
@@ -1526,6 +1530,21 @@ function updateChart() {{
     renderMainChart(data);
     updateSignalHistoryTable();
     updateConfluencePanel();
+    updateRegimeSection();
+}}
+
+function updateRegimeSection() {{
+    // Hide all regime symbol sections
+    const sections = document.querySelectorAll('.regime-symbol-section');
+    sections.forEach(section => {{
+        section.style.display = 'none';
+    }});
+
+    // Show the selected symbol's section
+    const selectedSection = document.getElementById('regime-' + currentSymbol);
+    if (selectedSection) {{
+        selectedSection.style.display = 'block';
+    }}
 }}
 
 function renderMainChart(data) {{
@@ -1978,13 +1997,31 @@ function updateConfluencePanel() {{
     `;
 }}
 
-function toggleSection(contentId) {{
-    const content = document.getElementById(contentId);
-    const header = content.previousElementSibling;
-    const icon = header.querySelector('.toggle-icon');
+function toggleSection(arg) {{
+    // Handle both string ID and DOM element (for regime report sections)
+    if (typeof arg === 'string') {{
+        // Original behavior: arg is content ID
+        const content = document.getElementById(arg);
+        if (!content) return;
+        const header = content.previousElementSibling;
+        const icon = header ? header.querySelector('.toggle-icon') : null;
 
-    content.classList.toggle('collapsed');
-    icon.style.transform = content.classList.contains('collapsed') ? 'rotate(-90deg)' : 'rotate(0deg)';
+        content.classList.toggle('collapsed');
+        if (icon) {{
+            icon.style.transform = content.classList.contains('collapsed') ? 'rotate(-90deg)' : 'rotate(0deg)';
+        }}
+    }} else {{
+        // New behavior: arg is the header element (from onclick="toggleSection(this)")
+        const header = arg;
+        const section = header.parentElement;
+        if (!section || !section.classList.contains('report-section')) return;
+
+        section.classList.toggle('collapsed');
+        const indicator = header.querySelector('.collapse-indicator');
+        if (indicator) {{
+            indicator.style.transform = section.classList.contains('collapsed') ? 'rotate(-90deg)' : 'rotate(0deg)';
+        }}
+    }}
 }}
 
 // Initialize on load
@@ -1992,5 +2029,6 @@ document.addEventListener('DOMContentLoaded', () => {{
     updateChart();
     updateSignalHistoryTable();
     updateConfluencePanel();
+    updateRegimeSection();
 }});
 """

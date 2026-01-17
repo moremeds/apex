@@ -281,22 +281,45 @@ def _render_rule_group(title: str, rules: List[RuleTrace], priority: int, matche
         status = "pass" if rule.passed else "fail"
         status_icon = "✓" if rule.passed else "✗"
 
-        # Format evidence
+        # Format evidence with actual values
         evidence_items = []
-        for k, v in list(rule.evidence.items())[:3]:
+        for k, v in rule.evidence.items():
             if isinstance(v, float):
                 evidence_items.append(f"{escape_html(k)}={v:.2f}")
+            elif isinstance(v, bool):
+                evidence_items.append(f"{escape_html(k)}={v}")
             else:
                 evidence_items.append(f"{escape_html(k)}={escape_html(str(v))}")
+
+        # Add threshold comparison if available (shows actual vs threshold)
+        threshold_html = ""
+        if rule.threshold_info:
+            ti = rule.threshold_info
+            unit = ti.unit if ti.unit else ""
+            threshold_html = f"""
+            <div class="rule-threshold">
+                <span class="threshold-metric">{escape_html(ti.metric_name)}:</span>
+                <span class="threshold-actual">{ti.current_value:.2f}{unit}</span>
+                <span class="threshold-op">{escape_html(ti.operator)}</span>
+                <span class="threshold-value">{ti.threshold:.2f}{unit}</span>
+                <span class="threshold-gap">(gap: {ti.gap:.2f}{unit})</span>
+            </div>
+            """
+
         evidence_str = ", ".join(evidence_items)
 
         rules_html += f"""
         <div class="rule-item {status}">
-            <span class="rule-icon">{status_icon}</span>
-            <span class="rule-id">{escape_html(rule.rule_id)}</span>
-            <span class="rule-desc">{escape_html(rule.description)}</span>
-            <span class="rule-status">{status.upper()}</span>
-            <span class="rule-evidence">({evidence_str})</span>
+            <div class="rule-main">
+                <span class="rule-icon">{status_icon}</span>
+                <span class="rule-id">{escape_html(rule.rule_id)}</span>
+                <span class="rule-desc">{escape_html(rule.description)}</span>
+                <span class="rule-status">{status.upper()}</span>
+            </div>
+            <div class="rule-details">
+                <span class="rule-evidence">{escape_html(evidence_str)}</span>
+                {threshold_html}
+            </div>
         </div>
         """
 
@@ -422,7 +445,7 @@ def generate_components_4block_html(regime_output: RegimeOutput, theme: str = "d
     return render_section(
         title="Component Analysis",
         body=body,
-        collapsed=True,
+        collapsed=False,  # Start expanded - users want to see the values
         icon="🔬",
         section_id="components-section",
     )
@@ -797,7 +820,7 @@ def generate_quality_html(regime_output: RegimeOutput, theme: str = "dark") -> s
     return render_section(
         title="Data Quality",
         body=body,
-        collapsed=True,
+        collapsed=False,  # Start expanded - users want to see the values
         icon="📊",
         section_id="quality-section",
     )
@@ -921,7 +944,7 @@ def generate_hysteresis_html(regime_output: RegimeOutput, theme: str = "dark") -
     return render_section(
         title="Hysteresis State Machine",
         body=body,
-        collapsed=True,
+        collapsed=False,  # Start expanded - users want to see the values
         icon="⚙️",
         section_id="hysteresis-section",
     )
@@ -1640,11 +1663,24 @@ def generate_regime_styles() -> str:
     }
 
     .rule-item {
+        padding: 8px 0;
+        font-size: 13px;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .rule-item:last-child {
+        border-bottom: none;
+    }
+
+    .rule-main {
         display: flex;
         align-items: center;
         gap: 8px;
-        padding: 6px 0;
-        font-size: 13px;
+    }
+
+    .rule-details {
+        margin-left: 28px;
+        margin-top: 4px;
     }
 
     .rule-icon {
@@ -1656,8 +1692,10 @@ def generate_regime_styles() -> str:
     .rule-item.fail .rule-icon { color: #ef4444; }
 
     .rule-id {
-        width: 160px;
+        width: 180px;
         font-weight: 500;
+        font-family: monospace;
+        font-size: 12px;
     }
 
     .rule-desc {
@@ -1675,13 +1713,48 @@ def generate_regime_styles() -> str:
     .rule-item.fail .rule-status { color: #ef4444; }
 
     .rule-evidence {
-        font-size: 11px;
+        font-size: 12px;
         color: var(--text-muted);
-        max-width: 200px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+        font-family: monospace;
     }
+
+    .rule-threshold {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 4px;
+        padding: 6px 10px;
+        background: var(--bg);
+        border-radius: 4px;
+        font-size: 12px;
+        font-family: monospace;
+    }
+
+    .threshold-metric {
+        color: var(--text-muted);
+    }
+
+    .threshold-actual {
+        font-weight: 600;
+        color: var(--text);
+    }
+
+    .threshold-op {
+        color: var(--text-muted);
+    }
+
+    .threshold-value {
+        font-weight: 600;
+        color: #3b82f6;
+    }
+
+    .threshold-gap {
+        color: var(--text-muted);
+        font-size: 11px;
+    }
+
+    .rule-item.pass .threshold-actual { color: #22c55e; }
+    .rule-item.fail .threshold-actual { color: #ef4444; }
 
     /* Counterfactual Section */
     .counterfactual-section {
