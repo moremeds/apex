@@ -135,8 +135,8 @@ dmypy.json
 logs/*.log
 logs/*.log.*
 
-# Data directories
-data/
+# Data directories (root level only, not src/*/data/)
+/data/
 *.csv
 *.json.bak
 *.yaml.bak
@@ -179,3 +179,4 @@ temp/
 /docs/rules/
 /models/
 /experiments/
+/docs/2.0blueprint/
