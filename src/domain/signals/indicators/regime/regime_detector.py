@@ -19,12 +19,16 @@ from __future__ import annotations
 import threading
 from dataclasses import replace
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 
 from src.utils.logging_setup import get_logger
+
+# Phase 4: Turning point imports (lazy loaded to avoid circular imports)
+# TurningPointModel, TurningPointFeatures, TurningPointOutput are imported in method
 
 from ...models import SignalCategory
 from ..base import IndicatorBase
@@ -57,7 +61,12 @@ from .models import (
     TrendState,
     VolState,
 )
-from .rule_trace import RuleTrace, ThresholdInfo
+from .rule_trace import (
+    RuleTrace,
+    ThresholdInfo,
+    create_categorical_rule_trace,
+    create_threshold_rule_trace,
+)
 
 logger = get_logger(__name__)
 
@@ -148,6 +157,10 @@ class RegimeDetectorIndicator(IndicatorBase):
         # Track regime state per symbol for hysteresis (thread-safe)
         self._regime_states: Dict[str, RegimeState] = {}
         self._state_lock = threading.Lock()
+
+        # Phase 4: Turning point models (loaded on demand)
+        self._turning_point_models: Dict[str, Any] = {}
+        self._tp_model_load_attempted: Dict[str, bool] = {}
 
     def _calculate(self, data: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
         """
@@ -392,13 +405,31 @@ class RegimeDetectorIndicator(IndicatorBase):
         chop_pct = state.get("chop_pct_252", 50.0)
         ext_value = state.get("ext", 0.0)
 
-        # Component states
-        trend_state = state["trend_state"]
-        vol_state = state["vol_state"]
-        chop_state = state["chop_state"]
-        ext_state = state["ext_state"]
-        iv_state = state.get("iv_state", IVState.NA)
+        # Component states - normalize to enums (state can be string or enum)
+        trend_state_raw = state["trend_state"]
+        vol_state_raw = state["vol_state"]
+        chop_state_raw = state["chop_state"]
+        ext_state_raw = state["ext_state"]
+        iv_state_raw = state.get("iv_state", IVState.NA)
         is_market_level = state.get("is_market_level", False)
+
+        # Convert strings to enums for consistent comparison
+        def _to_enum(val: Any, enum_class: type, default: Any) -> Any:
+            """Convert string value to enum, or return as-is if already enum."""
+            if isinstance(val, enum_class):
+                return val
+            if isinstance(val, str):
+                try:
+                    return enum_class(val)
+                except ValueError:
+                    return default
+            return default
+
+        trend_state = _to_enum(trend_state_raw, TrendState, TrendState.NEUTRAL)
+        vol_state = _to_enum(vol_state_raw, VolState, VolState.NORMAL)
+        chop_state = _to_enum(chop_state_raw, ChopState, ChopState.NEUTRAL)
+        ext_state = _to_enum(ext_state_raw, ExtState, ExtState.NEUTRAL)
+        iv_state = _to_enum(iv_state_raw, IVState, IVState.NA)
 
         # Handle NaN values - fallback to R1
         if np.isnan(ma50) or np.isnan(ma200):
@@ -418,107 +449,86 @@ class RegimeDetectorIndicator(IndicatorBase):
         # ========================================================================
         # R2 CHECK (Highest Priority - Veto)
         # ========================================================================
-        # R2 Rule 1: Trend is DOWN
-        r2_trend_down = trend_state == TrendState.DOWN
-        r2_trend_rule = RuleTrace(
-            rule_id="r2_trend_down",
-            description="R2: Trend state is DOWN",
-            passed=r2_trend_down,
-            evidence={
-                "trend_state": (
-                    trend_state.value if hasattr(trend_state, "value") else str(trend_state)
-                ),
-                "close": close,
-                "ma50": ma50,
-                "ma200": ma200,
-                "ma50_slope": ma50_slope if not np.isnan(ma50_slope) else 0.0,
-            },
-            regime_target="R2",
-            category="trend",
-            priority=1,
-            threshold_info=ThresholdInfo(
-                metric_name="close_vs_ma200",
-                current_value=close,
-                threshold=ma200,
-                operator="<",
-                gap=close - ma200,
-                unit="$",
-            ),
-            failed_conditions=(
-                []
-                if r2_trend_down
-                else [
-                    ThresholdInfo(
-                        metric_name="trend_state",
-                        current_value=0,  # Categorical
-                        threshold=0,
-                        operator="==",
-                        gap=float("inf"),  # Categorical gap
-                        unit="",
-                    )
-                ]
-            ),
-        )
-        rules_fired.append(r2_trend_rule)
-
-        # R2 Rule 2: High vol + below MA50
-        r2_vol_breakdown = vol_state == VolState.HIGH and close < ma50
+        trend_state_str = trend_state.value if hasattr(trend_state, "value") else str(trend_state)
         vol_state_str = vol_state.value if hasattr(vol_state, "value") else str(vol_state)
-        r2_vol_rule = RuleTrace(
-            rule_id="r2_vol_breakdown",
-            description="R2: High volatility + close < MA50",
-            passed=r2_vol_breakdown,
-            evidence={
-                "vol_state": vol_state_str,
-                "atr_pct_63": atr_pct_63,
-                "atr_pct_252": atr_pct_252,
-                "close": close,
-                "ma50": ma50,
-            },
-            regime_target="R2",
-            category="vol",
-            priority=1,
-            threshold_info=ThresholdInfo(
+        iv_state_str = iv_state.value if hasattr(iv_state, "value") else str(iv_state)
+
+        # R2 Rule 1: Trend is DOWN (categorical)
+        r2_trend_down = trend_state == TrendState.DOWN
+        rules_fired.append(
+            create_categorical_rule_trace(
+                rule_id="r2_trend_down",
+                description="R2: Trend state is DOWN",
+                passed=r2_trend_down,
+                evidence={
+                    "trend_state": trend_state_str,
+                    "close": close,
+                    "ma50": ma50,
+                    "ma200": ma200,
+                    "ma50_slope": ma50_slope if not np.isnan(ma50_slope) else 0.0,
+                },
+                regime_target="R2",
+                category="trend",
+                priority=1,
+            )
+        )
+
+        # R2 Rule 2: High vol + below MA50 (compound: categorical + threshold)
+        # Split into two sub-rules for better explainability
+        r2_vol_high = vol_state == VolState.HIGH
+        r2_below_ma50 = close < ma50
+        r2_vol_breakdown = r2_vol_high and r2_below_ma50
+
+        # Sub-rule 2a: Vol state is HIGH (categorical)
+        rules_fired.append(
+            create_categorical_rule_trace(
+                rule_id="r2_vol_high",
+                description="R2: Volatility is HIGH",
+                passed=r2_vol_high,
+                evidence={
+                    "vol_state": vol_state_str,
+                    "atr_pct_63": atr_pct_63,
+                    "atr_pct_252": atr_pct_252,
+                },
+                regime_target="R2",
+                category="vol",
+                priority=1,
+            )
+        )
+
+        # Sub-rule 2b: Close below MA50 (threshold) - uses eval_condition
+        rules_fired.append(
+            create_threshold_rule_trace(
+                rule_id="r2_below_ma50",
+                description="R2: Close < MA50",
                 metric_name="close",
                 current_value=close,
                 threshold=ma50,
                 operator="<",
-                gap=close - ma50,
                 unit="$",
-            ),
-            failed_conditions=(
-                []
-                if r2_vol_breakdown
-                else [
-                    ThresholdInfo(
-                        metric_name="close_vs_ma50",
-                        current_value=close,
-                        threshold=ma50,
-                        operator="<",
-                        gap=close - ma50,
-                        unit="$",
-                    )
-                ]
-            ),
+                evidence={"close": close, "ma50": ma50},
+                regime_target="R2",
+                category="vol",
+                priority=1,
+            )
         )
-        rules_fired.append(r2_vol_rule)
 
-        # R2 Rule 3: IV HIGH at market level
+        # R2 Rule 3: IV HIGH at market level (categorical)
         r2_iv_high = iv_state == IVState.HIGH and is_market_level
-        iv_state_str = iv_state.value if hasattr(iv_state, "value") else str(iv_state)
-        r2_iv_rule = RuleTrace(
-            rule_id="r2_iv_high",
-            description="R2: IV is HIGH (market level)",
-            passed=r2_iv_high,
-            evidence={
-                "iv_state": iv_state_str,
-                "is_market_level": is_market_level,
-            },
-            regime_target="R2",
-            category="iv",
-            priority=1,
+        rules_fired.append(
+            create_categorical_rule_trace(
+                rule_id="r2_iv_high",
+                description="R2: IV is HIGH (market level)",
+                passed=r2_iv_high,
+                evidence={
+                    "iv_state": iv_state_str,
+                    "is_market_level": is_market_level,
+                },
+                regime_target="R2",
+                category="iv",
+                priority=1,
+            )
         )
-        rules_fired.append(r2_iv_rule)
 
         # R2 aggregate check
         if r2_trend_down or r2_vol_breakdown or r2_iv_high:
@@ -538,10 +548,12 @@ class RegimeDetectorIndicator(IndicatorBase):
         r3_structural = structural_confirm
 
         ext_state_str = ext_state.value if hasattr(ext_state, "value") else str(ext_state)
+        trend_state_str = trend_state.value if hasattr(trend_state, "value") else str(trend_state)
 
-        # Create rule traces for each R3 condition
+        # Create rule traces for each R3 condition using helper functions
+        # R3 vol_high: categorical check with threshold context
         rules_fired.append(
-            RuleTrace(
+            create_categorical_rule_trace(
                 rule_id="r3_vol_high",
                 description="R3: Volatility is HIGH",
                 passed=r3_vol_high,
@@ -553,22 +565,19 @@ class RegimeDetectorIndicator(IndicatorBase):
                 regime_target="R3",
                 category="vol",
                 priority=2,
-                threshold_info=ThresholdInfo(
-                    metric_name="atr_pct_63",
-                    current_value=atr_pct_63,
-                    threshold=80.0,
-                    operator=">=",
-                    gap=80.0 - atr_pct_63,
-                    unit="%",
-                ),
             )
         )
 
+        # R3 oversold: threshold-based (ext_value <= -2.0 ATR)
         rules_fired.append(
-            RuleTrace(
+            create_threshold_rule_trace(
                 rule_id="r3_oversold",
                 description="R3: Extension is OVERSOLD",
-                passed=r3_oversold,
+                metric_name="ext_atr_units",
+                current_value=ext_value,
+                threshold=-2.0,
+                operator="<=",
+                unit=" ATR",
                 evidence={
                     "ext_state": ext_state_str,
                     "ext_value": ext_value,
@@ -576,26 +585,17 @@ class RegimeDetectorIndicator(IndicatorBase):
                 regime_target="R3",
                 category="ext",
                 priority=2,
-                threshold_info=ThresholdInfo(
-                    metric_name="ext_atr_units",
-                    current_value=ext_value,
-                    threshold=-2.0,
-                    operator="<=",
-                    gap=ext_value - (-2.0),
-                    unit=" ATR",
-                ),
             )
         )
 
+        # R3 not_downtrend: categorical check
         rules_fired.append(
-            RuleTrace(
+            create_categorical_rule_trace(
                 rule_id="r3_not_downtrend",
                 description="R3: Trend is NOT DOWN",
                 passed=r3_not_downtrend,
                 evidence={
-                    "trend_state": (
-                        trend_state.value if hasattr(trend_state, "value") else str(trend_state)
-                    ),
+                    "trend_state": trend_state_str,
                     "close": close,
                     "ma50": ma50,
                     "ma200": ma200,
@@ -606,48 +606,45 @@ class RegimeDetectorIndicator(IndicatorBase):
             )
         )
 
+        # R3 above_ma200: threshold-based (close > ma200)
         rules_fired.append(
-            RuleTrace(
+            create_threshold_rule_trace(
                 rule_id="r3_above_ma200",
                 description="R3: Close > MA200",
-                passed=r3_above_ma200,
+                metric_name="close",
+                current_value=close,
+                threshold=ma200,
+                operator=">",
+                unit="$",
                 evidence={"close": close, "ma200": ma200},
                 regime_target="R3",
                 category="trend",
                 priority=2,
-                threshold_info=ThresholdInfo(
-                    metric_name="close",
-                    current_value=close,
-                    threshold=ma200,
-                    operator=">",
-                    gap=ma200 - close,
-                    unit="$",
-                ),
             )
         )
 
+        # R3 slope_ok: threshold-based with NaN handling
+        # When slope is NaN, we treat it as passing (no penalty for missing data)
+        slope_for_eval = ma50_slope if not np.isnan(ma50_slope) else 0.0
         rules_fired.append(
-            RuleTrace(
+            create_threshold_rule_trace(
                 rule_id="r3_slope_ok",
                 description="R3: MA50 slope > -2%",
-                passed=r3_slope_ok,
-                evidence={"ma50_slope": ma50_slope},
+                metric_name="ma50_slope",
+                current_value=slope_for_eval,
+                threshold=-0.02,
+                operator=">",
+                unit="%",
+                evidence={"ma50_slope": ma50_slope, "is_nan": np.isnan(ma50_slope)},
                 regime_target="R3",
                 category="trend",
                 priority=2,
-                threshold_info=ThresholdInfo(
-                    metric_name="ma50_slope",
-                    current_value=ma50_slope if not np.isnan(ma50_slope) else 0,
-                    threshold=-0.02,
-                    operator=">",
-                    gap=-0.02 - ma50_slope if not np.isnan(ma50_slope) else 0,
-                    unit="%",
-                ),
             )
         )
 
+        # R3 structural: categorical compound check
         rules_fired.append(
-            RuleTrace(
+            create_categorical_rule_trace(
                 rule_id="r3_structural",
                 description="R3: Structural confirm (close > MA20 or 5-bar high)",
                 passed=r3_structural,
@@ -655,6 +652,8 @@ class RegimeDetectorIndicator(IndicatorBase):
                     "close": close,
                     "ma20": ma20,
                     "last_5_bar_high": last_5_bar_high,
+                    "close_above_ma20": close > ma20,
+                    "close_above_5bar_high": close > last_5_bar_high,
                 },
                 regime_target="R3",
                 category="ext",
@@ -678,7 +677,6 @@ class RegimeDetectorIndicator(IndicatorBase):
         # R1 CHECK (Choppy/Extended)
         # ========================================================================
         chop_state_str = chop_state.value if hasattr(chop_state, "value") else str(chop_state)
-        trend_state_str = trend_state.value if hasattr(trend_state, "value") else str(trend_state)
 
         # Check for strong trend acceleration (exception to R1)
         is_strong_trend_acceleration = (
@@ -688,35 +686,32 @@ class RegimeDetectorIndicator(IndicatorBase):
             and chop_state == ChopState.TRENDING
         )
 
+        # R1 acceleration exception: compound categorical check
+        accel_slope = ma50_slope if not np.isnan(ma50_slope) else 0.0
         rules_fired.append(
-            RuleTrace(
+            create_categorical_rule_trace(
                 rule_id="r1_trend_acceleration",
                 description="R1 Exception: Strong trend acceleration",
                 passed=is_strong_trend_acceleration,
                 evidence={
                     "trend_state": trend_state_str,
-                    "ma50_slope": ma50_slope if not np.isnan(ma50_slope) else 0.0,
+                    "ma50_slope": accel_slope,
                     "chop_state": chop_state_str,
                     "chop_pct": chop_pct,
+                    "trend_up": trend_state == TrendState.UP,
+                    "slope_above_3pct": accel_slope > 0.03,
+                    "is_trending": chop_state == ChopState.TRENDING,
                 },
                 regime_target="R0",  # This exception favors R0
                 category="trend",
                 priority=3,
-                threshold_info=ThresholdInfo(
-                    metric_name="ma50_slope",
-                    current_value=ma50_slope if not np.isnan(ma50_slope) else 0.0,
-                    threshold=0.03,
-                    operator=">",
-                    gap=0.03 - (ma50_slope if not np.isnan(ma50_slope) else 0.0),
-                    unit="%",
-                ),
             )
         )
 
-        # R1 Rule 1: Trend UP + Choppy
+        # R1 Rule 1: Trend UP + Choppy (compound categorical)
         r1_trend_choppy = trend_state == TrendState.UP and chop_state == ChopState.CHOPPY
         rules_fired.append(
-            RuleTrace(
+            create_categorical_rule_trace(
                 rule_id="r1_trend_choppy",
                 description="R1: Trend UP + Choppy market",
                 passed=r1_trend_choppy,
@@ -726,18 +721,12 @@ class RegimeDetectorIndicator(IndicatorBase):
                     "chop_pct": chop_pct,
                     "close": close,
                     "ma50": ma50,
+                    "trend_up": trend_state == TrendState.UP,
+                    "is_choppy": chop_state == ChopState.CHOPPY,
                 },
                 regime_target="R1",
                 category="chop",
                 priority=3,
-                threshold_info=ThresholdInfo(
-                    metric_name="chop_pct",
-                    current_value=chop_pct,
-                    threshold=70.0,
-                    operator=">=",
-                    gap=70.0 - chop_pct,
-                    unit="%",
-                ),
             )
         )
 
@@ -748,7 +737,7 @@ class RegimeDetectorIndicator(IndicatorBase):
             and not is_strong_trend_acceleration
         )
         rules_fired.append(
-            RuleTrace(
+            create_categorical_rule_trace(
                 rule_id="r1_trend_overbought",
                 description="R1: Trend UP + Overbought (not accelerating)",
                 passed=r1_trend_overbought,
@@ -757,18 +746,12 @@ class RegimeDetectorIndicator(IndicatorBase):
                     "ext_state": ext_state_str,
                     "ext_value": ext_value,
                     "is_strong_trend_acceleration": is_strong_trend_acceleration,
+                    "trend_up": trend_state == TrendState.UP,
+                    "is_overbought": ext_state == ExtState.OVERBOUGHT,
                 },
                 regime_target="R1",
                 category="ext",
                 priority=3,
-                threshold_info=ThresholdInfo(
-                    metric_name="ext_atr_units",
-                    current_value=ext_value,
-                    threshold=2.0,
-                    operator=">=",
-                    gap=2.0 - ext_value,
-                    unit=" ATR",
-                ),
             )
         )
 
@@ -783,8 +766,9 @@ class RegimeDetectorIndicator(IndicatorBase):
         r0_vol_not_high = vol_state != VolState.HIGH
         r0_not_choppy = chop_state != ChopState.CHOPPY
 
+        # R0 trend_up: categorical state check
         rules_fired.append(
-            RuleTrace(
+            create_categorical_rule_trace(
                 rule_id="r0_trend_up",
                 description="R0: Trend is UP",
                 passed=r0_trend_up,
@@ -794,26 +778,24 @@ class RegimeDetectorIndicator(IndicatorBase):
                     "ma50": ma50,
                     "ma200": ma200,
                     "ma50_slope": ma50_slope if not np.isnan(ma50_slope) else 0.0,
+                    "is_trend_up": trend_state == TrendState.UP,
                 },
                 regime_target="R0",
                 category="trend",
                 priority=4,
-                threshold_info=ThresholdInfo(
-                    metric_name="close_vs_ma50",
-                    current_value=close,
-                    threshold=ma50,
-                    operator=">",
-                    gap=ma50 - close,
-                    unit="$",
-                ),
             )
         )
 
+        # R0 vol_not_high: threshold-based (atr_pct_63 < 80)
         rules_fired.append(
-            RuleTrace(
+            create_threshold_rule_trace(
                 rule_id="r0_vol_not_high",
                 description="R0: Volatility is NOT HIGH",
-                passed=r0_vol_not_high,
+                metric_name="atr_pct_63",
+                current_value=atr_pct_63,
+                threshold=80.0,
+                operator="<",
+                unit="%",
                 evidence={
                     "vol_state": vol_state_str,
                     "atr_pct_63": atr_pct_63,
@@ -822,22 +804,19 @@ class RegimeDetectorIndicator(IndicatorBase):
                 regime_target="R0",
                 category="vol",
                 priority=4,
-                threshold_info=ThresholdInfo(
-                    metric_name="atr_pct_63",
-                    current_value=atr_pct_63,
-                    threshold=80.0,
-                    operator="<",
-                    gap=atr_pct_63 - 80.0,
-                    unit="%",
-                ),
             )
         )
 
+        # R0 not_choppy: threshold-based (chop_pct < 70)
         rules_fired.append(
-            RuleTrace(
+            create_threshold_rule_trace(
                 rule_id="r0_not_choppy",
                 description="R0: Market is NOT Choppy",
-                passed=r0_not_choppy,
+                metric_name="chop_pct",
+                current_value=chop_pct,
+                threshold=70.0,
+                operator="<",
+                unit="%",
                 evidence={
                     "chop_state": chop_state_str,
                     "chop_pct": chop_pct,
@@ -845,14 +824,6 @@ class RegimeDetectorIndicator(IndicatorBase):
                 regime_target="R0",
                 category="chop",
                 priority=4,
-                threshold_info=ThresholdInfo(
-                    metric_name="chop_pct",
-                    current_value=chop_pct,
-                    threshold=70.0,
-                    operator="<",
-                    gap=chop_pct - 70.0,
-                    unit="%",
-                ),
             )
         )
 
@@ -864,7 +835,7 @@ class RegimeDetectorIndicator(IndicatorBase):
         # FALLBACK to R1
         # ========================================================================
         rules_fired.append(
-            RuleTrace(
+            create_categorical_rule_trace(
                 rule_id="fallback_r1",
                 description="Fallback: No regime conditions fully met",
                 passed=True,
@@ -1095,6 +1066,9 @@ class RegimeDetectorIndicator(IndicatorBase):
             transition_reason=transition_reason,
         )
 
+        # Phase 4: Get turning point prediction
+        turning_point_output = self._get_turning_point_prediction(symbol, flat_state)
+
         return RegimeOutput(
             # Schema & Identity
             schema_version="regime_output@1.0",
@@ -1130,6 +1104,8 @@ class RegimeDetectorIndicator(IndicatorBase):
             transition=transition,
             regime_changed=regime_changed,
             previous_regime=old_regime if regime_changed else None,
+            # Phase 4: Turning Point Detection
+            turning_point=turning_point_output,
         )
 
     def _apply_hysteresis(
@@ -1349,6 +1325,188 @@ class RegimeDetectorIndicator(IndicatorBase):
         except (TypeError, ValueError) as e:
             logger.debug(f"_safe_float conversion failed: {value!r} -> {default}, error: {e}")
             return default
+
+    def _train_turning_point_model(self, symbol: str, days: int = 750) -> Optional[Any]:
+        """
+        Train a turning point model for a symbol on-demand.
+
+        Args:
+            symbol: Symbol to train model for
+            days: Days of historical data to use
+
+        Returns:
+            Trained TurningPointModel or None if training fails
+        """
+        from .turning_point import TurningPointLabeler, TurningPointModel
+        from .turning_point.features import extract_features
+
+        logger.info(f"Auto-training turning point model for {symbol}...")
+
+        try:
+            # Fetch historical data
+            import yfinance as yf
+
+            ticker = yf.Ticker(symbol)
+            df = ticker.history(period=f"{days + 50}d", interval="1d")
+            df.columns = df.columns.str.lower()
+
+            if len(df) < 300:
+                logger.warning(f"Insufficient data for {symbol}: only {len(df)} bars")
+                return None
+
+            # Generate labels
+            labeler = TurningPointLabeler(
+                atr_period=14,
+                zigzag_threshold=2.0,
+                risk_horizon=10,
+                risk_threshold=1.5,
+            )
+            y_top, y_bottom, _ = labeler.generate_combined_labels(df)
+
+            # Extract features
+            features_df = extract_features(df)
+
+            # Align data
+            valid_mask = ~features_df.isna().any(axis=1)
+            valid_idx = features_df.index[valid_mask][:-10]  # Exclude last horizon bars
+
+            X = features_df.loc[valid_idx].values
+            y_top_arr = y_top.loc[valid_idx].values
+            y_bottom_arr = y_bottom.loc[valid_idx].values
+
+            if len(X) < 200:
+                logger.warning(f"Insufficient training samples for {symbol}: {len(X)}")
+                return None
+
+            # Train model
+            model = TurningPointModel(model_type="logistic", confidence_threshold=0.7)
+            model.train(
+                X=X,
+                y_top=y_top_arr,
+                y_bottom=y_bottom_arr,
+                cv_splits=5,
+                label_horizon=10,
+                embargo=2,
+            )
+
+            # Save model
+            model_dir = Path("models/turning_point")
+            model_dir.mkdir(parents=True, exist_ok=True)
+            model_path = model_dir / f"{symbol.lower()}_logistic.pkl"
+            model.save(model_path)
+
+            logger.info(f"Auto-trained and saved turning point model for {symbol} to {model_path}")
+            return model
+
+        except Exception as e:
+            logger.warning(f"Auto-training failed for {symbol}: {e}")
+            return None
+
+    def _get_turning_point_prediction(
+        self,
+        symbol: str,
+        flat_state: Dict[str, Any],
+        auto_train: bool = True,
+    ) -> Optional[Any]:
+        """
+        Get turning point prediction for the current bar.
+
+        Loads model on demand from models/turning_point/{symbol.lower()}_logistic.pkl.
+        If model not found and auto_train=True, trains a new model automatically.
+
+        Args:
+            symbol: Symbol to predict for (used to find model file)
+            flat_state: Flattened state dict with component values
+            auto_train: Whether to auto-train if model not found (default: True)
+
+        Returns:
+            TurningPointOutput or None if model unavailable
+        """
+        # Lazy import to avoid circular dependency
+        from .turning_point.features import TurningPointFeatures
+        from .turning_point.model import TurningPointModel, TurningPointOutput
+
+        # Try to load model if not attempted yet
+        symbol_key = symbol.upper()
+        if symbol_key not in self._tp_model_load_attempted:
+            self._tp_model_load_attempted[symbol_key] = True
+            model_path = Path("models/turning_point") / f"{symbol.lower()}_logistic.pkl"
+            if model_path.exists():
+                try:
+                    self._turning_point_models[symbol_key] = TurningPointModel.load(model_path)
+                    logger.info(f"Loaded turning point model for {symbol} from {model_path}")
+                except Exception as e:
+                    logger.warning(f"Failed to load turning point model for {symbol}: {e}")
+            elif auto_train:
+                # Auto-train model if not found
+                model = self._train_turning_point_model(symbol)
+                if model:
+                    self._turning_point_models[symbol_key] = model
+            else:
+                logger.debug(f"No turning point model found at {model_path}")
+
+        # Get model if available
+        model = self._turning_point_models.get(symbol_key)
+        if model is None:
+            return None
+
+        # Build features from flat_state
+        # Note: Some features need to be computed from raw state, using defaults where unavailable
+        try:
+            # Map vol_state to vol_regime integer
+            vol_state_str = flat_state.get("vol_state", "vol_normal")
+            if vol_state_str == "vol_high":
+                vol_regime = 1
+            elif vol_state_str == "vol_low":
+                vol_regime = -1
+            else:
+                vol_regime = 0
+
+            # Compute features from available state
+            # Note: Some features like rsi_14, roc_*, adx_value are not in standard state
+            # so we use defaults for now. A full implementation would need these computed.
+            close = flat_state.get("close", 0.0)
+            ma20 = flat_state.get("ma20", close)
+            ma50 = flat_state.get("ma50", close)
+            ma200 = flat_state.get("ma200", close)
+            atr = flat_state.get("atr20", 1.0) or 1.0  # Avoid division by zero
+
+            features = TurningPointFeatures(
+                # Trend features (normalized by ATR where applicable)
+                price_vs_ma20=(close - ma20) / atr if atr > 0 else 0.0,
+                price_vs_ma50=(close - ma50) / atr if atr > 0 else 0.0,
+                price_vs_ma200=(close - ma200) / atr if atr > 0 else 0.0,
+                ma20_slope=flat_state.get("ma50_slope", 0.0),  # Using ma50_slope as proxy
+                ma50_slope=flat_state.get("ma50_slope", 0.0),
+                ma20_vs_ma50=(ma20 - ma50) / atr if atr > 0 else 0.0,
+                # Volatility features
+                atr_pct_63=flat_state.get("atr_pct_63", 50.0),
+                atr_pct_252=flat_state.get("atr_pct_252", 50.0),
+                atr_expansion_rate=0.0,  # Would need historical ATR
+                vol_regime=vol_regime,
+                # Chop/Range features
+                chop_pct_252=flat_state.get("chop_pct_252", 50.0),
+                adx_value=25.0,  # Default - would need ADX indicator
+                range_position=0.5,  # Default - would need range calculation
+                # Extension features
+                ext_atr_units=flat_state.get("ext", 0.0),
+                ext_zscore=flat_state.get("ext", 0.0),  # Using ext as proxy
+                rsi_14=50.0,  # Default - would need RSI indicator
+                # Rate of change features (defaults)
+                roc_5=0.0,
+                roc_10=0.0,
+                roc_20=0.0,
+                # Delta features (defaults - would need previous bar)
+                delta_atr_pct=0.0,
+                delta_chop_pct=0.0,
+                delta_ext=0.0,
+            )
+
+            return model.predict(features)
+
+        except Exception as e:
+            logger.warning(f"Turning point prediction failed for {symbol}: {e}")
+            return None
 
     def reset_state(self, symbol: Optional[str] = None) -> None:
         """

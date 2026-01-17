@@ -157,6 +157,17 @@ class RunMetrics:
     avg_mfe_pct: float = 0.0  # Avg Maximum Favorable Excursion
     edge_ratio: float = 0.0  # MFE / MAE ratio (>1 is good)
 
+    # =========================================================================
+    # REGIME SENSITIVITY METRICS (Phase 2)
+    # =========================================================================
+    regime_transition_rate: float = 0.0  # Regime switches per 100 bars (lower = more stable)
+    regime_switch_lag: float = 0.0  # Median bars delay vs ground truth (lower = more responsive)
+    regime_time_in_r0: float = 0.0  # % time in R0 (Healthy Uptrend)
+    regime_time_in_r1: float = 0.0  # % time in R1 (Choppy/Extended)
+    regime_time_in_r2: float = 0.0  # % time in R2 (Risk-Off)
+    regime_time_in_r3: float = 0.0  # % time in R3 (Rebound)
+    regime_avg_duration_bars: float = 0.0  # Average bars per regime stint
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
         return {
@@ -234,6 +245,14 @@ class RunMetrics:
             "avg_mae_pct": self.avg_mae_pct,
             "avg_mfe_pct": self.avg_mfe_pct,
             "edge_ratio": self.edge_ratio,
+            # Regime Sensitivity (Phase 2)
+            "regime_transition_rate": self.regime_transition_rate,
+            "regime_switch_lag": self.regime_switch_lag,
+            "regime_time_in_r0": self.regime_time_in_r0,
+            "regime_time_in_r1": self.regime_time_in_r1,
+            "regime_time_in_r2": self.regime_time_in_r2,
+            "regime_time_in_r3": self.regime_time_in_r3,
+            "regime_avg_duration_bars": self.regime_avg_duration_bars,
         }
 
     @classmethod

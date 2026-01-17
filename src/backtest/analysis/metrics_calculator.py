@@ -491,6 +491,108 @@ class MetricsCalculator:
         return max_streak
 
     # =========================================================================
+    # REGIME SENSITIVITY METRICS (Phase 2)
+    # =========================================================================
+
+    def compute_regime_metrics(
+        self,
+        metrics: RunMetrics,
+        regime_series: pd.Series,
+    ) -> None:
+        """
+        Compute regime sensitivity metrics from a series of regime classifications.
+
+        Args:
+            metrics: RunMetrics object to populate
+            regime_series: Series of regime values (R0, R1, R2, R3) indexed by bar timestamp
+
+        Metrics computed:
+            - regime_transition_rate: Regime switches per 100 bars (lower = more stable)
+            - regime_time_in_r0/r1/r2/r3: % time in each regime
+            - regime_avg_duration_bars: Average bars per regime stint
+        """
+        if regime_series is None or len(regime_series) < 2:
+            return
+
+        # Convert to string values for consistent comparison
+        regimes = regime_series.astype(str)
+        n_bars = len(regimes)
+
+        # Count transitions (regime changes)
+        transitions = (regimes != regimes.shift(1)).sum() - 1  # Subtract 1 for first bar
+        transitions = max(0, transitions)
+
+        # Transition rate per 100 bars
+        if n_bars > 0:
+            metrics.regime_transition_rate = (transitions / n_bars) * 100
+
+        # Time in each regime
+        regime_counts = regimes.value_counts(normalize=True)
+        metrics.regime_time_in_r0 = regime_counts.get("R0", 0.0) * 100
+        metrics.regime_time_in_r1 = regime_counts.get("R1", 0.0) * 100
+        metrics.regime_time_in_r2 = regime_counts.get("R2", 0.0) * 100
+        metrics.regime_time_in_r3 = regime_counts.get("R3", 0.0) * 100
+
+        # Average regime duration
+        # Count number of regime stints (consecutive periods in same regime)
+        regime_change_mask = regimes != regimes.shift(1)
+        n_stints = regime_change_mask.sum()
+        if n_stints > 0:
+            metrics.regime_avg_duration_bars = n_bars / n_stints
+
+    def compute_regime_switch_lag(
+        self,
+        predicted_regimes: pd.Series,
+        ground_truth_regimes: pd.Series,
+    ) -> float:
+        """
+        Compute median lag between predicted and ground truth regime changes.
+
+        This measures detection delay - how many bars after the ground truth
+        regime changed did the predicted regime catch up.
+
+        Args:
+            predicted_regimes: Series of predicted regime values
+            ground_truth_regimes: Series of "true" regime values (e.g., from lookback analysis)
+
+        Returns:
+            Median switch lag in bars (lower = more responsive)
+        """
+        if predicted_regimes is None or ground_truth_regimes is None:
+            return 0.0
+
+        # Align series
+        common_idx = predicted_regimes.index.intersection(ground_truth_regimes.index)
+        if len(common_idx) < 2:
+            return 0.0
+
+        pred = predicted_regimes.loc[common_idx].astype(str)
+        truth = ground_truth_regimes.loc[common_idx].astype(str)
+
+        # Find ground truth regime changes
+        truth_changes = truth != truth.shift(1)
+        change_indices = truth_changes[truth_changes].index.tolist()
+
+        if not change_indices:
+            return 0.0
+
+        # For each ground truth change, find when predicted caught up
+        lags = []
+        for change_idx in change_indices:
+            new_regime = truth.loc[change_idx]
+            # Look forward from change point to find when predicted matches
+            future_pred = pred.loc[change_idx:]
+            match_mask = future_pred == new_regime
+            if match_mask.any():
+                match_idx = match_mask.idxmax()
+                lag_bars = pred.index.get_loc(match_idx) - pred.index.get_loc(change_idx)
+                lags.append(lag_bars)
+
+        if lags:
+            return float(np.median(lags))
+        return 0.0
+
+    # =========================================================================
     # HELPER METHODS
     # =========================================================================
 

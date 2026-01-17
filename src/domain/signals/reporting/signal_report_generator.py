@@ -30,6 +30,7 @@ from .regime_report import (
     generate_components_4block_html,
     generate_decision_tree_html,
     generate_hysteresis_html,
+    generate_turning_point_html,
     generate_methodology_html,
     generate_optimization_html,
     generate_quality_html,
@@ -1526,6 +1527,9 @@ body {{
             quality = generate_quality_html(output, self.theme)
             hysteresis = generate_hysteresis_html(output, self.theme)
 
+            # Phase 4: Generate turning point detection section
+            turning_point = generate_turning_point_html(output, self.theme)
+
             # PR3: Generate optimization and recommendations sections with real data
             provenance_set = provenance_dict.get(symbol)
             recommendations_result = recommendations_dict.get(symbol)
@@ -1556,6 +1560,7 @@ body {{
                 {decision_tree}
                 {components}
                 {hysteresis}
+                {turning_point}
                 {quality}
                 {optimization}
                 {recommendations}

@@ -56,11 +56,28 @@ from .param_provenance import (
 )
 from .param_recommender import (
     AnalysisMetrics,
+    EnhancedParamRecommender,
+    EnhancedRecommenderResult,
     ParamRecommendation,
     ParamRecommender,
     RecommendationEvidence,
     RecommenderResult,
     VolProxyConfig,
+)
+from .objectives import (
+    CombinedObjectiveResult,
+    ObjectiveEvaluator,
+    ObjectiveResult,
+    RegimeStabilityObjective,
+    TradingProxyObjective,
+    TurningPointQualityObjective,
+)
+from .param_optimizer import (
+    FoldResult,
+    ParamStability,
+    WalkForwardConfig,
+    WalkForwardOptimizer,
+    WalkForwardResult,
 )
 
 __all__ = [
@@ -105,9 +122,24 @@ __all__ = [
     "ParamSource",
     # Parameter recommender
     "AnalysisMetrics",
+    "EnhancedParamRecommender",
+    "EnhancedRecommenderResult",
     "ParamRecommender",
     "ParamRecommendation",
     "RecommendationEvidence",
     "RecommenderResult",
     "VolProxyConfig",
+    # Objectives
+    "CombinedObjectiveResult",
+    "ObjectiveEvaluator",
+    "ObjectiveResult",
+    "RegimeStabilityObjective",
+    "TradingProxyObjective",
+    "TurningPointQualityObjective",
+    # Walk-forward optimizer
+    "FoldResult",
+    "ParamStability",
+    "WalkForwardConfig",
+    "WalkForwardOptimizer",
+    "WalkForwardResult",
 ]

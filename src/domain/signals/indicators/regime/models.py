@@ -7,7 +7,7 @@ Defines the core types for the 3-level hierarchical regime detection system:
 - RegimeState: Tracks regime with hysteresis for stable transitions
 - RegimeOutput: Complete output with explainability primitives
 
-Schema Version: regime_output@1.0
+Schema Version: regime_output@1.1
 """
 
 from __future__ import annotations
@@ -19,6 +19,61 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, cast
 
 if TYPE_CHECKING:
     from .rule_trace import RuleTrace
+
+
+# =============================================================================
+# SCHEMA VERSION (Phase 0)
+# =============================================================================
+
+# Schema version as tuple for programmatic comparison
+# Format: (major, minor) - breaking changes bump major, additions bump minor
+SCHEMA_VERSION: Tuple[int, int] = (1, 1)
+
+# Schema version as string for serialization
+SCHEMA_VERSION_STR: str = f"regime_output@{SCHEMA_VERSION[0]}.{SCHEMA_VERSION[1]}"
+
+
+class SchemaVersionError(Exception):
+    """Raised when schema version is incompatible."""
+
+    def __init__(self, expected: str, actual: str):
+        self.expected = expected
+        self.actual = actual
+        super().__init__(f"Schema version mismatch: expected {expected}, got {actual}")
+
+
+def validate_schema_version(version_str: str) -> Tuple[int, int]:
+    """
+    Validate and parse a schema version string.
+
+    Args:
+        version_str: Version string like "regime_output@1.1"
+
+    Returns:
+        Tuple of (major, minor) version numbers
+
+    Raises:
+        SchemaVersionError: If version format is invalid or incompatible
+    """
+    if not version_str or not version_str.startswith("regime_output@"):
+        raise SchemaVersionError(SCHEMA_VERSION_STR, version_str or "None")
+
+    try:
+        version_part = version_str.split("@")[1]
+        parts = version_part.split(".")
+        if len(parts) == 1:
+            # Legacy format "regime_output@1.0" might be stored as "1.0"
+            major, minor = int(parts[0].split(".")[0]), 0
+        else:
+            major, minor = int(parts[0]), int(parts[1])
+    except (IndexError, ValueError) as e:
+        raise SchemaVersionError(SCHEMA_VERSION_STR, version_str) from e
+
+    # Check major version compatibility (must match exactly)
+    if major != SCHEMA_VERSION[0]:
+        raise SchemaVersionError(SCHEMA_VERSION_STR, version_str)
+
+    return (major, minor)
 
 
 # Market benchmark symbols for regime hierarchy
@@ -172,6 +227,91 @@ EXIT_HYSTERESIS = {
     MarketRegime.R3_REBOUND_WINDOW: 3,  # Don't exit R3 too quickly
     MarketRegime.R1_CHOPPY_EXTENDED: 2,
     MarketRegime.R0_HEALTHY_UPTREND: 1,  # Can exit R0 quickly if conditions worsen
+}
+
+
+# =============================================================================
+# DUAL-THRESHOLD HYSTERESIS (Phase 2)
+# =============================================================================
+
+
+@dataclass(frozen=True)
+class ThresholdPair:
+    """
+    Dual-threshold pair for hysteresis-based condition evaluation.
+
+    Entry/exit use different thresholds to prevent oscillation:
+    - Entry threshold is crossed to enter a state
+    - Exit threshold (typically more lenient) must be crossed to exit
+
+    Example for volatility:
+        vol_high_threshold = ThresholdPair(entry=80.0, exit=70.0)
+        - Enter HIGH vol state when atr_pct >= 80%
+        - Exit HIGH vol state when atr_pct < 70%
+        - Between 70-80% stays in current state (hysteresis band)
+
+    This prevents rapid oscillation when values hover around a single threshold.
+    """
+
+    entry: float  # Threshold to enter the state
+    exit: float  # Threshold to exit the state (typically more lenient)
+    metric_name: str = ""  # Optional name for debugging
+
+    def __post_init__(self) -> None:
+        """Validate threshold pair logic."""
+        # For "high" states (entry > exit is typical)
+        # For "low" states (entry < exit is typical)
+        # We don't enforce ordering here since both directions are valid
+        pass
+
+    def should_enter(self, current_value: float, operator: str = ">=") -> bool:
+        """Check if value crosses entry threshold."""
+        if operator in (">=", ">"):
+            return current_value >= self.entry
+        else:  # "<", "<="
+            return current_value <= self.entry
+
+    def should_exit(self, current_value: float, operator: str = ">=") -> bool:
+        """Check if value crosses exit threshold (opposite direction)."""
+        if operator in (">=", ">"):
+            return current_value < self.exit
+        else:  # "<", "<="
+            return current_value > self.exit
+
+    def evaluate_with_hysteresis(
+        self, current_value: float, currently_in_state: bool, operator: str = ">="
+    ) -> bool:
+        """
+        Evaluate whether to be in the state considering hysteresis.
+
+        Args:
+            current_value: The metric value to evaluate
+            currently_in_state: Whether we're currently in this state
+            operator: Comparison direction (">=" for high states, "<=" for low states)
+
+        Returns:
+            bool: Whether to be in the state after applying hysteresis
+        """
+        if currently_in_state:
+            # Already in state - only exit if crosses exit threshold
+            return not self.should_exit(current_value, operator)
+        else:
+            # Not in state - only enter if crosses entry threshold
+            return self.should_enter(current_value, operator)
+
+
+# Default dual-threshold configs for regime conditions
+DUAL_THRESHOLD_CONFIG = {
+    # Volatility: HIGH state
+    "vol_high": ThresholdPair(entry=80.0, exit=70.0, metric_name="atr_pct_63"),
+    # Volatility: LOW state
+    "vol_low": ThresholdPair(entry=20.0, exit=30.0, metric_name="atr_pct_63"),
+    # Choppiness: CHOPPY state
+    "chop_high": ThresholdPair(entry=70.0, exit=60.0, metric_name="chop_pct"),
+    # Extension: OVERBOUGHT state
+    "ext_overbought": ThresholdPair(entry=2.0, exit=1.5, metric_name="ext_atr_units"),
+    # Extension: OVERSOLD state
+    "ext_oversold": ThresholdPair(entry=-2.0, exit=-1.5, metric_name="ext_atr_units"),
 }
 
 
@@ -534,11 +674,11 @@ class RegimeOutput:
     Combines regime classification, confidence, component states,
     transition information, and explainability primitives.
 
-    Schema version: regime_output@1.0
+    Schema version: regime_output@1.1
     """
 
     # === SCHEMA & IDENTITY ===
-    schema_version: str = "regime_output@1.0"
+    schema_version: str = SCHEMA_VERSION_STR
     symbol: str = ""
     asof_ts: Optional[datetime] = None  # Bar timestamp
     bar_interval: str = "1d"  # "1d", "4h", "1h", "30m"
@@ -567,6 +707,14 @@ class RegimeOutput:
     transition: RegimeTransitionState = field(default_factory=RegimeTransitionState)
     regime_changed: bool = False
     previous_regime: Optional[MarketRegime] = None
+
+    # === OBSERVABILITY (Phase 3) ===
+    # Links regime decisions to underlying indicator calculations
+    indicator_traces: List["IndicatorTrace"] = field(default_factory=list)
+
+    # === TURNING POINT (Phase 4) ===
+    # Prediction of TOP_RISK/BOTTOM_RISK to gate regime decisions
+    turning_point: Optional["TurningPointOutput"] = None
 
     # === LEGACY FIELDS (backward compatibility) ===
     # These mirror final_regime/bars_in_regime for existing code
@@ -642,6 +790,8 @@ class RegimeOutput:
             "previous_regime": (
                 self.previous_regime.value if self.previous_regime else None
             ),
+            "indicator_traces": [t.to_dict() for t in self.indicator_traces],
+            "turning_point": self.turning_point.to_dict() if self.turning_point else None,
         }
 
         return cast(Dict[str, Any], round_floats(result, precision))
@@ -669,3 +819,232 @@ class RegimeOutput:
             "symbol": self.symbol,
             "is_market_level": self.is_market_level,
         }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "RegimeOutput":
+        """
+        Deserialize from dictionary with schema validation.
+
+        Args:
+            data: Dictionary from to_dict() or JSON deserialization
+
+        Returns:
+            RegimeOutput instance
+
+        Raises:
+            SchemaVersionError: If schema version is incompatible
+        """
+        # Import here to avoid circular import
+        from .rule_trace import RuleTrace, ThresholdInfo
+
+        # Validate schema version
+        schema_version = data.get("schema_version", "")
+        validate_schema_version(schema_version)
+
+        # Parse datetime fields
+        asof_ts = None
+        if data.get("asof_ts"):
+            asof_ts = datetime.fromisoformat(data["asof_ts"])
+
+        # Parse DataWindow
+        dw_data = data.get("data_window", {})
+        data_window = DataWindow(
+            start_ts=(
+                datetime.fromisoformat(dw_data["start_ts"])
+                if dw_data.get("start_ts")
+                else datetime.now()
+            ),
+            end_ts=(
+                datetime.fromisoformat(dw_data["end_ts"])
+                if dw_data.get("end_ts")
+                else datetime.now()
+            ),
+            bars=dw_data.get("bars", 0),
+        )
+
+        # Parse regime enums
+        decision_regime = MarketRegime(data.get("decision_regime", "R1"))
+        final_regime = MarketRegime(data.get("final_regime", "R1"))
+        previous_regime = (
+            MarketRegime(data["previous_regime"]) if data.get("previous_regime") else None
+        )
+
+        # Parse component states
+        cs_data = data.get("component_states", {})
+        component_states = ComponentStates(
+            trend_state=TrendState(cs_data.get("trend_state", "neutral")),
+            vol_state=VolState(cs_data.get("vol_state", "vol_normal")),
+            chop_state=ChopState(cs_data.get("chop_state", "neutral")),
+            ext_state=ExtState(cs_data.get("ext_state", "neutral")),
+            iv_state=IVState(cs_data.get("iv_state", "na")),
+        )
+
+        # Parse component values
+        cv_data = data.get("component_values", {})
+        component_values = ComponentValues(
+            close=cv_data.get("close", 0.0),
+            ma20=cv_data.get("ma20", 0.0),
+            ma50=cv_data.get("ma50", 0.0),
+            ma200=cv_data.get("ma200", 0.0),
+            ma50_slope=cv_data.get("ma50_slope", 0.0),
+            atr20=cv_data.get("atr20", 0.0),
+            atr_pct=cv_data.get("atr_pct", 0.0),
+            atr_pct_63=cv_data.get("atr_pct_63", 50.0),
+            atr_pct_252=cv_data.get("atr_pct_252", 50.0),
+            iv_value=cv_data.get("iv_value"),
+            iv_pct_63=cv_data.get("iv_pct_63"),
+            chop=cv_data.get("chop", 50.0),
+            chop_pct_252=cv_data.get("chop_pct_252", 50.0),
+            ma20_crosses=cv_data.get("ma20_crosses", 0),
+            ext=cv_data.get("ext", 0.0),
+            last_5_bar_high=cv_data.get("last_5_bar_high", 0.0),
+        )
+
+        # Parse inputs used
+        iu_data = data.get("inputs_used", {})
+        history_list = []
+        for h in iu_data.get("history", []):
+            history_list.append(
+                BarSnapshot(
+                    ts=datetime.fromisoformat(h["ts"]) if h.get("ts") else datetime.now(),
+                    close=h.get("close", 0.0),
+                    key_metrics=h.get("key_metrics", {}),
+                    component_states=h.get("component_states", {}),
+                )
+            )
+        inputs_used = InputsUsed(
+            close=iu_data.get("close", 0.0),
+            high=iu_data.get("high", 0.0),
+            low=iu_data.get("low", 0.0),
+            volume=iu_data.get("volume", 0.0),
+            history=history_list,
+        )
+
+        # Parse derived metrics
+        dm_data = data.get("derived_metrics", {})
+        derived_metrics = DerivedMetrics(
+            ma20=dm_data.get("ma20", 0.0),
+            ma50=dm_data.get("ma50", 0.0),
+            ma200=dm_data.get("ma200", 0.0),
+            ma50_slope=dm_data.get("ma50_slope", 0.0),
+            atr_value=dm_data.get("atr_value", 0.0),
+            atr_pctile_short_window=dm_data.get("atr_pctile_short_window", 0.0),
+            atr_pctile_long_window=dm_data.get("atr_pctile_long_window", 0.0),
+            atr_reference_windows=tuple(dm_data.get("atr_reference_windows", [63, 252])),
+            chop_value=dm_data.get("chop_value", 0.0),
+            chop_pctile=dm_data.get("chop_pctile", 0.0),
+            chop_reference_window=dm_data.get("chop_reference_window", 252),
+            ma20_crosses=dm_data.get("ma20_crosses", 0),
+            ext_atr_units=dm_data.get("ext_atr_units", 0.0),
+            iv_value=dm_data.get("iv_value"),
+            iv_pctile=dm_data.get("iv_pctile"),
+            iv_reference_window=dm_data.get("iv_reference_window", 63),
+        )
+
+        # Parse rule traces (simplified - we store/restore the dict form)
+        def parse_threshold_info(ti_data: Optional[Dict[str, Any]]) -> Optional[ThresholdInfo]:
+            if not ti_data:
+                return None
+            return ThresholdInfo(
+                metric_name=ti_data.get("metric_name", ""),
+                current_value=ti_data.get("current_value", 0.0),
+                threshold=ti_data.get("threshold", 0.0),
+                operator=ti_data.get("operator", ""),
+                gap=ti_data.get("gap", 0.0),
+                unit=ti_data.get("unit", ""),
+            )
+
+        def parse_rule_trace(rt_data: Dict[str, Any]) -> RuleTrace:
+            return RuleTrace(
+                rule_id=rt_data.get("rule_id", ""),
+                description=rt_data.get("description", ""),
+                passed=rt_data.get("passed", False),
+                evidence=rt_data.get("evidence", {}),
+                regime_target=rt_data.get("regime_target", ""),
+                category=rt_data.get("category", ""),
+                priority=rt_data.get("priority", 0),
+                threshold_info=parse_threshold_info(rt_data.get("threshold_info")),
+                failed_conditions=[
+                    parse_threshold_info(fc)
+                    for fc in rt_data.get("failed_conditions", [])
+                    if fc
+                ],
+            )
+
+        rules_fired_decision = [
+            parse_rule_trace(rt) for rt in data.get("rules_fired_decision", [])
+        ]
+        rules_fired_hysteresis = [
+            parse_rule_trace(rt) for rt in data.get("rules_fired_hysteresis", [])
+        ]
+
+        # Parse data quality
+        q_data = data.get("quality", {})
+        quality = DataQuality(
+            warmup_ok=q_data.get("warmup_ok", False),
+            warmup_bars_needed=q_data.get("warmup_bars_needed", 252),
+            warmup_bars_available=q_data.get("warmup_bars_available", 0),
+            nan_counts=q_data.get("nan_counts", {}),
+            missing_columns=q_data.get("missing_columns", []),
+            fallback_reason=FallbackReason(q_data.get("fallback_reason", "none")),
+            fallback_active=q_data.get("fallback_active", False),
+            exception_msg=q_data.get("exception_msg"),
+            component_validity=q_data.get("component_validity", {}),
+            component_issues=q_data.get("component_issues", {}),
+        )
+
+        # Parse transition state
+        t_data = data.get("transition", {})
+        transition = RegimeTransitionState(
+            pending_regime=(
+                MarketRegime(t_data["pending_regime"]) if t_data.get("pending_regime") else None
+            ),
+            pending_count=t_data.get("pending_count", 0),
+            entry_threshold=t_data.get("entry_threshold", 0),
+            exit_threshold=t_data.get("exit_threshold", 0),
+            bars_in_current=t_data.get("bars_in_current", 0),
+            last_transition_ts=(
+                datetime.fromisoformat(t_data["last_transition_ts"])
+                if t_data.get("last_transition_ts")
+                else None
+            ),
+            transition_reason=t_data.get("transition_reason"),
+        )
+
+        # Parse indicator traces (Phase 3 observability)
+        from src.domain.signals.models import IndicatorTrace
+
+        indicator_traces = [
+            IndicatorTrace.from_dict(t) for t in data.get("indicator_traces", [])
+        ]
+
+        # Parse turning point (Phase 4)
+        from src.domain.signals.indicators.regime.turning_point.model import TurningPointOutput
+
+        turning_point = None
+        if data.get("turning_point"):
+            turning_point = TurningPointOutput.from_dict(data["turning_point"])
+
+        return cls(
+            schema_version=schema_version,
+            symbol=data.get("symbol", ""),
+            asof_ts=asof_ts,
+            bar_interval=data.get("bar_interval", "1d"),
+            data_window=data_window,
+            decision_regime=decision_regime,
+            final_regime=final_regime,
+            regime_name=data.get("regime_name", ""),
+            confidence=data.get("confidence", 50),
+            component_states=component_states,
+            component_values=component_values,
+            inputs_used=inputs_used,
+            derived_metrics=derived_metrics,
+            rules_fired_decision=rules_fired_decision,
+            rules_fired_hysteresis=rules_fired_hysteresis,
+            quality=quality,
+            transition=transition,
+            regime_changed=data.get("regime_changed", False),
+            previous_regime=previous_regime,
+            indicator_traces=indicator_traces,
+            turning_point=turning_point,
+        )

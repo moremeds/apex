@@ -627,3 +627,152 @@ class ParamRecommender:
             evidence=evidence,
             requires_manual_review=True,
         )
+
+
+@dataclass
+class EnhancedRecommenderResult:
+    """
+    Enhanced result from walk-forward parameter recommendation.
+
+    Includes fold agreement tracking and explicit stability metrics.
+    """
+
+    symbol: str
+    analysis_date: date
+    training_window: tuple[date, date]
+    validation_window: tuple[date, date]
+    n_folds: int
+    objective_summary: Dict[str, float]
+    param_stability: Dict[str, float]  # param -> variance across folds
+    fold_agreement: Dict[str, float]  # param -> % folds agreeing on direction
+    recommendations: Dict[str, Dict[str, Any]]  # param -> recommendation details
+    why_not_changed: List[str]  # Explicit reasons if no change
+    total_score_mean: float
+    total_score_std: float
+
+    # Legacy compatibility
+    has_recommendations: bool = False
+    current_params: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize result."""
+        return {
+            "symbol": self.symbol,
+            "analysis_date": self.analysis_date.isoformat(),
+            "training_window": [d.isoformat() for d in self.training_window],
+            "validation_window": [d.isoformat() for d in self.validation_window],
+            "n_folds": self.n_folds,
+            "objective_summary": self.objective_summary,
+            "param_stability": self.param_stability,
+            "fold_agreement": self.fold_agreement,
+            "recommendations": self.recommendations,
+            "why_not_changed": self.why_not_changed,
+            "total_score_mean": round(self.total_score_mean, 4),
+            "total_score_std": round(self.total_score_std, 4),
+            "has_recommendations": self.has_recommendations,
+            "current_params": self.current_params,
+        }
+
+
+class EnhancedParamRecommender:
+    """
+    Enhanced parameter recommender with walk-forward optimization.
+
+    Combines traditional boundary density analysis with walk-forward
+    optimization and fold agreement requirements.
+    """
+
+    def __init__(
+        self,
+        lookback_days: int = 63,
+        wfo_train_days: int = 252,
+        wfo_test_days: int = 63,
+        n_folds: int = 5,
+        min_fold_agreement: float = 0.7,
+    ):
+        """
+        Initialize enhanced recommender.
+
+        Args:
+            lookback_days: Days for boundary density analysis
+            wfo_train_days: Training days per fold
+            wfo_test_days: Test days per fold
+            n_folds: Number of walk-forward folds
+            min_fold_agreement: Minimum fold agreement for recommendation
+        """
+        from .param_optimizer import WalkForwardConfig, WalkForwardOptimizer
+
+        self.lookback_days = lookback_days
+        self.traditional_recommender = ParamRecommender(lookback_days=lookback_days)
+
+        self.wfo_config = WalkForwardConfig(
+            n_folds=n_folds,
+            train_days=wfo_train_days,
+            test_days=wfo_test_days,
+            min_fold_agreement=min_fold_agreement,
+        )
+        self.wfo_optimizer = WalkForwardOptimizer(config=self.wfo_config)
+
+    def analyze(
+        self,
+        symbol: str,
+        ohlcv: pd.DataFrame,
+        current_params: Dict[str, Any],
+        analysis_date: Optional[date] = None,
+    ) -> EnhancedRecommenderResult:
+        """
+        Perform enhanced analysis with walk-forward optimization.
+
+        Args:
+            symbol: Symbol to analyze
+            ohlcv: OHLCV DataFrame (needs sufficient history for WFO)
+            current_params: Current regime classifier parameters
+            analysis_date: Date of analysis (default: today)
+
+        Returns:
+            EnhancedRecommenderResult with recommendations and stability metrics
+        """
+        if analysis_date is None:
+            analysis_date = date.today()
+
+        # Run walk-forward optimization
+        wfo_result = self.wfo_optimizer.optimize(symbol, ohlcv, current_params)
+
+        # Calculate windows from fold results
+        if wfo_result.fold_results:
+            first_fold = wfo_result.fold_results[0]
+            last_fold = wfo_result.fold_results[-1]
+            training_window = (first_fold.train_start, last_fold.train_end)
+            validation_window = (first_fold.test_start, last_fold.test_end)
+        else:
+            training_window = (analysis_date - timedelta(days=self.wfo_config.train_days), analysis_date)
+            validation_window = (analysis_date - timedelta(days=self.wfo_config.test_days), analysis_date)
+
+        # Extract stability (variance) per parameter
+        param_stability = {
+            name: stability.std_change
+            for name, stability in wfo_result.param_stability.items()
+        }
+
+        # Extract fold agreement per parameter
+        fold_agreement = {
+            name: stability.agreement_ratio
+            for name, stability in wfo_result.param_stability.items()
+        }
+
+        return EnhancedRecommenderResult(
+            symbol=symbol,
+            analysis_date=analysis_date,
+            training_window=training_window,
+            validation_window=validation_window,
+            n_folds=len(wfo_result.fold_results),
+            objective_summary=wfo_result.objective_summary,
+            param_stability=param_stability,
+            fold_agreement=fold_agreement,
+            recommendations=wfo_result.recommendations,
+            why_not_changed=wfo_result.why_not_changed,
+            total_score_mean=wfo_result.total_score_mean,
+            total_score_std=wfo_result.total_score_std,
+            has_recommendations=bool(wfo_result.recommendations),
+            current_params=current_params,
+        )

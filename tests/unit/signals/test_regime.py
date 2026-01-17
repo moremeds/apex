@@ -623,6 +623,8 @@ class TestRegimeOutputSnapshot:
         result = output.to_dict(precision=4)
 
         # Golden reference - these are the expected keys at top level
+        # Note: indicator_traces added in Phase 3 for observability
+        # Note: turning_point added in Phase 4 for turning point detection
         expected_keys = {
             "schema_version",
             "symbol",
@@ -643,6 +645,8 @@ class TestRegimeOutputSnapshot:
             "transition",
             "regime_changed",
             "previous_regime",
+            "indicator_traces",  # Phase 3: Observability
+            "turning_point",  # Phase 4: Turning Point Detection
         }
 
         assert set(result.keys()) == expected_keys, f"Key mismatch: {set(result.keys())}"
