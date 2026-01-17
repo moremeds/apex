@@ -73,19 +73,21 @@ jobs:
 
       - name: Install dependencies (without TA-Lib)
         run: |
-          uv pip install -e ".[dev,observability]" --system
+          # Use pip for editable install (more reliable than uv for src layout)
+          pip install -e ".[dev,observability]"
           # Ensure TA-Lib is not required for contract tests
           pip uninstall -y TA-Lib 2>/dev/null || true
+          # Debug: verify package structure
+          echo "Checking src.domain.signals.data module..."
+          python -c "from src.domain.signals.data import BarAggregator; print('Module import OK')"
 
       - name: Run signal contract verification
-        run: PYTHONPATH="${PYTHONPATH}:${PWD}" python -m src.verification.signal_verifier --all --profile signal_dev
+        run: python -m src.verification.signal_verifier --all --profile signal_dev
 
       - name: Run regime contract verification
-        run: PYTHONPATH="${PYTHONPATH}:${PWD}" python -m src.verification.regime_verifier --all --profile dev
+        run: python -m src.verification.regime_verifier --all --profile dev
 
       - name: Run ALL unit tests
-        env:
-          PYTHONPATH: "${{ github.workspace }}"
         run: |
           # Ignore tests with circular imports or pre-existing failures
           pytest tests/unit/ -v \
@@ -137,7 +139,7 @@ jobs:
           python-version: "3.13"
 
       - name: Install Python dependencies
-        run: uv pip install -e ".[dev,observability]" --system
+        run: pip install -e ".[dev,observability]"
 
       - name: Try TA-Lib wheels first (fast)
         id: talib-wheels
@@ -160,17 +162,11 @@ jobs:
 
       - name: Run TA-Lib alignment verification
         if: steps.talib-wheels.outcome == 'success' || steps.talib-compile.outcome == 'success'
-        env:
-          PYTHONPATH: "${{ github.workspace }}"
-        run: |
-          python -m src.verification.signal_verifier --all --profile signal_talib || true
+        run: python -m src.verification.signal_verifier --all --profile signal_talib || true
 
       - name: Run TA-Lib alignment tests
         if: steps.talib-wheels.outcome == 'success' || steps.talib-compile.outcome == 'success'
-        env:
-          PYTHONPATH: "${{ github.workspace }}"
-        run: |
-          pytest tests/unit/signals/test_talib_alignment.py -v || true
+        run: pytest tests/unit/signals/test_talib_alignment.py -v || true
         continue-on-error: true
 
       - name: Skip TA-Lib alignment (fallback)
@@ -201,11 +197,9 @@ jobs:
           python-version: "3.13"
 
       - name: Install dependencies
-        run: uv pip install -e ".[dev,observability]" --system
+        run: pip install -e ".[dev,observability]"
 
       - name: Run integration tests
-        env:
-          PYTHONPATH: "${{ github.workspace }}"
         run: |
           pytest tests/integration/ -v --tb=short \
             --ignore=tests/integration/test_readiness_gating.py
