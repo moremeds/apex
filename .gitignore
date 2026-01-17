@@ -177,3 +177,5 @@ temp/
 /results/
 /docs/indicators/
 /docs/rules/
+/models/
+/experiments/

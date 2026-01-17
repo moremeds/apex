@@ -1,0 +1,247 @@
+# Signal Service Verification Manifest
+#
+# Four-layer verification for APEX signal service:
+# A. Structural: JSON Schema validation
+# B. Semantic: Bounds, identities, no-NaN invariants
+# C. Causality: No-lookahead verification (CRITICAL)
+# D. Golden Fixtures: Regression snapshots
+#
+# Usage:
+#   python -m src.verification.signal_verifier --all --profile dev
+#   python -m src.verification.signal_verifier --phase S1 --profile dev
+
+version: "1.0"
+contract_version: "2024.1"
+project: "APEX Signal Service"
+
+# ═══════════════════════════════════════════════════════════════
+# Layer A: Structural Contracts (JSON Schema)
+# ═══════════════════════════════════════════════════════════════
+schemas:
+  indicator_output: "schemas/indicator_output.schema.json"
+  signal_service_payload: "schemas/signal_service_payload.schema.json"
+
+# ═══════════════════════════════════════════════════════════════
+# Layer B: Semantic Invariants (Typed, No Eval)
+# ═══════════════════════════════════════════════════════════════
+invariants:
+  # Momentum bounds
+  - id: RSI_BOUNDS
+    type: bounds
+    indicator: rsi
+    field: value
+    min_val: 0
+    max_val: 100
+    after_warmup: true
+    description: "RSI must be in [0, 100]"
+
+  - id: CCI_NO_BOUNDS
+    type: bounds
+    indicator: cci
+    field: value
+    min_val: -500
+    max_val: 500
+    after_warmup: true
+    description: "CCI typically bounded but can exceed"
+
+  # Trend bounds
+  - id: ADX_BOUNDS
+    type: bounds
+    indicator: adx
+    field: adx
+    min_val: 0
+    max_val: 100
+    after_warmup: true
+    description: "ADX must be in [0, 100]"
+
+  # Volatility non-negative
+  - id: ATR_NONNEG
+    type: bounds
+    indicator: atr
+    field: value
+    min_val: 0
+    max_val: 1000000  # Effectively unbounded
+    after_warmup: true
+    description: "ATR must be non-negative"
+
+  # Identity relationships
+  - id: MACD_IDENTITY
+    type: identity
+    indicator: macd
+    result_field: histogram
+    expression: "macd - signal"
+    tolerance: 0.000001
+    description: "MACD histogram = MACD - Signal"
+
+  # No NaN after warmup
+  - id: NO_NAN_AFTER_WARMUP
+    type: no_nan
+    fields: ["*"]
+    after_warmup: true
+    description: "No NaN/Inf values after warmup period"
+
+  # Index alignment
+  - id: INDEX_ALIGNMENT
+    type: alignment
+    timeframes: ["1d", "4h", "1w"]
+    description: "Output index must match input bars"
+
+  # CRITICAL: Causality checks (no lookahead)
+  - id: MOMENTUM_CAUSALITY
+    type: causality
+    indicators: ["rsi", "macd", "kdj", "cci"]
+    perturb_offset: 10
+    perturb_field: "close"
+    perturb_factor: 1.5
+    tolerance: 0.0
+    description: "Perturbing future bar must not change past outputs"
+
+  - id: TREND_CAUSALITY
+    type: causality
+    indicators: ["sma", "ema", "adx", "supertrend"]
+    perturb_offset: 10
+    perturb_field: "close"
+    perturb_factor: 1.5
+    tolerance: 0.0
+    description: "Trend indicators must not look ahead"
+
+# ═══════════════════════════════════════════════════════════════
+# Layer C & D: Fixtures Configuration
+# ═══════════════════════════════════════════════════════════════
+fixtures:
+  ohlcv_dir: "tests/fixtures/signal_verification/ohlcv"
+  snapshots_dir: "tests/fixtures/signal_verification/snapshots"
+  tolerance:
+    abs_err: 1e-6
+    rel_err: 1e-4
+  warmup_slice: true
+
+# ═══════════════════════════════════════════════════════════════
+# Verification Phases
+# ═══════════════════════════════════════════════════════════════
+phases:
+  - id: "S1"
+    name: "Discovery & Metadata"
+    description: "Verify indicator registry and metadata completeness"
+    checks:
+      - id: "S1_REGISTRY"
+        type: "assertion"
+        assert: "registry_by_category_min"
+        params:
+          momentum: 8
+          trend: 6
+          volatility: 4
+          volume: 4
+        description: "Minimum indicators per category"
+
+      - id: "S1_METADATA"
+        type: "assertion"
+        assert: "all_have_metadata"
+        fields: ["name", "category", "warmup_periods", "required_fields"]
+        description: "All indicators have required metadata fields"
+
+  - id: "S2"
+    name: "Engine Determinism & Causality"
+    description: "Verify engine produces consistent, causal outputs"
+    checks:
+      - id: "S2_DETERMINISTIC"
+        type: "assertion"
+        assert: "engine_deterministic"
+        runs: 2
+        compare: "byte_equal"
+        description: "Same inputs must produce identical outputs"
+
+      - id: "S2_PARALLEL_SAFE"
+        type: "assertion"
+        assert: "parallel_vs_serial_equal"
+        description: "Parallel execution equals serial execution"
+
+      # CRITICAL: No-lookahead verification
+      - id: "S2_MOMENTUM_CAUSALITY"
+        type: "invariant"
+        refs: ["MOMENTUM_CAUSALITY"]
+        description: "Momentum indicators must not look ahead"
+
+      - id: "S2_TREND_CAUSALITY"
+        type: "invariant"
+        refs: ["TREND_CAUSALITY"]
+        description: "Trend indicators must not look ahead"
+
+  - id: "S3"
+    name: "Semantic Invariants"
+    description: "Verify indicator output contracts"
+    checks:
+      - id: "S3_RSI_BOUNDS"
+        type: "invariant"
+        refs: ["RSI_BOUNDS"]
+        description: "RSI in [0, 100]"
+
+      - id: "S3_ADX_BOUNDS"
+        type: "invariant"
+        refs: ["ADX_BOUNDS"]
+        description: "ADX in [0, 100]"
+
+      - id: "S3_ATR_NONNEG"
+        type: "invariant"
+        refs: ["ATR_NONNEG"]
+        description: "ATR non-negative"
+
+      - id: "S3_MACD_IDENTITY"
+        type: "invariant"
+        refs: ["MACD_IDENTITY"]
+        description: "MACD histogram identity"
+
+      - id: "S3_NO_NAN"
+        type: "invariant"
+        refs: ["NO_NAN_AFTER_WARMUP"]
+        description: "No NaN after warmup"
+
+  - id: "S4"
+    name: "Golden Fixtures (Regression)"
+    description: "Compare against known-good outputs"
+    checks:
+      - id: "S4_MOMENTUM_SNAP"
+        type: "fixture"
+        snapshot: "momentum_outputs.jsonl"
+        description: "Momentum indicator snapshots"
+
+      - id: "S4_TREND_SNAP"
+        type: "fixture"
+        snapshot: "trend_outputs.jsonl"
+        description: "Trend indicator snapshots"
+
+  - id: "S5"
+    name: "Output Contract (Service Payload)"
+    description: "Verify service-level output contract"
+    checks:
+      - id: "S5_INDICATOR_SCHEMA"
+        type: "schema"
+        target: "indicator_output"
+        description: "Indicator output schema validation"
+
+      - id: "S5_PAYLOAD_SCHEMA"
+        type: "schema"
+        target: "signal_service_payload"
+        description: "Service payload schema validation"
+
+      - id: "S5_ROUNDTRIP"
+        type: "assertion"
+        assert: "payload_roundtrip_equal"
+        description: "Payload serialization roundtrip"
+
+      - id: "S5_STABLE_ORDER"
+        type: "assertion"
+        assert: "output_ordering_stable"
+        description: "Output ordering stability"
+
+  - id: "S6"
+    name: "Performance (Warning + Degradation Gate)"
+    description: "Runtime performance checks"
+    checks:
+      - id: "S6_PERF"
+        type: "performance"
+        baseline: "tests/fixtures/signal_verification/baselines/perf_baseline.json"
+        thresholds:
+          warning_pct: 30
+          fail_pct: 100
+        description: "+30% = warning, +100% = fail"

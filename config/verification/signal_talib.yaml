@@ -1,0 +1,31 @@
+# Signal Service TA-Lib Alignment Profile
+#
+# Runs on Python 3.13 (TA-Lib wheels available)
+# Tests numerical alignment with TA-Lib reference implementation
+#
+# Usage:
+#   python -m src.verification.signal_verifier --all --profile signal_talib
+
+profile: "talib_alignment"
+description: "TA-Lib numerical alignment verification (Python 3.13)"
+
+# Only run fixture comparison checks
+checks:
+  - S4_MOMENTUM_SNAP
+  - S4_TREND_SNAP
+
+# Tolerance for TA-Lib comparison
+tolerance:
+  abs_err: 1e-6
+  rel_err: 1e-4
+  warmup_slice: true
+
+# Conditional: skip if TA-Lib not available
+require_talib: true
+fallback_action: "skip_with_warning"
+
+# Fail behavior
+fail_action: "block_merge"
+
+# Expected runtime
+expected_runtime_seconds: 60

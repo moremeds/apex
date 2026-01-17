@@ -1,0 +1,68 @@
+{
+  "version": "1.0",
+  "generated_at": "2024-01-15T00:00:00Z",
+  "hardware_context": {
+    "note": "Baseline generated on M1 MacBook Pro. Adjust for CI runners."
+  },
+  "indicators": {
+    "rsi": {
+      "p50_ms": 2.5,
+      "p95_ms": 5.0,
+      "warmup_periods": 14
+    },
+    "macd": {
+      "p50_ms": 3.0,
+      "p95_ms": 6.0,
+      "warmup_periods": 26
+    },
+    "kdj": {
+      "p50_ms": 3.5,
+      "p95_ms": 7.0,
+      "warmup_periods": 14
+    },
+    "cci": {
+      "p50_ms": 2.5,
+      "p95_ms": 5.0,
+      "warmup_periods": 20
+    },
+    "sma": {
+      "p50_ms": 1.5,
+      "p95_ms": 3.0,
+      "warmup_periods": 20
+    },
+    "ema": {
+      "p50_ms": 2.0,
+      "p95_ms": 4.0,
+      "warmup_periods": 20
+    },
+    "adx": {
+      "p50_ms": 4.0,
+      "p95_ms": 8.0,
+      "warmup_periods": 14
+    },
+    "supertrend": {
+      "p50_ms": 4.5,
+      "p95_ms": 9.0,
+      "warmup_periods": 14
+    },
+    "atr": {
+      "p50_ms": 2.0,
+      "p95_ms": 4.0,
+      "warmup_periods": 14
+    },
+    "bollinger": {
+      "p50_ms": 2.5,
+      "p95_ms": 5.0,
+      "warmup_periods": 20
+    },
+    "regime_detector": {
+      "p50_ms": 15.0,
+      "p95_ms": 30.0,
+      "warmup_periods": 250
+    }
+  },
+  "thresholds": {
+    "warning_pct": 30,
+    "fail_pct": 100
+  }
+}
