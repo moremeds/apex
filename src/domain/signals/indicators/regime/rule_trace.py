@@ -16,7 +16,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Literal, Optional
 
-
 # =============================================================================
 # EVAL RESULT & EVAL CONDITION (Phase 1 - Mathematical Integrity)
 # =============================================================================
@@ -332,9 +331,7 @@ class RuleTrace:
 
     # Structured failure info for counterfactuals
     threshold_info: Optional[ThresholdInfo] = None  # For threshold-based rules
-    failed_conditions: List[ThresholdInfo] = field(
-        default_factory=list
-    )  # Empty if passed
+    failed_conditions: List[ThresholdInfo] = field(default_factory=list)  # Empty if passed
 
     # Phase 1: EvalResult for mathematical integrity
     eval_result: Optional[EvalResult] = None
@@ -349,9 +346,7 @@ class RuleTrace:
             "regime_target": self.regime_target,
             "category": self.category,
             "priority": self.priority,
-            "threshold_info": (
-                self.threshold_info.to_dict() if self.threshold_info else None
-            ),
+            "threshold_info": (self.threshold_info.to_dict() if self.threshold_info else None),
             "failed_conditions": [c.to_dict() for c in self.failed_conditions],
         }
         if self.eval_result:
@@ -385,9 +380,7 @@ def generate_counterfactual(
         Top 2 failed conditions with smallest gaps (closest to triggering)
     """
     # Filter rules that support target regime and didn't pass
-    target_rules = [
-        r for r in rules_fired if r.regime_target == target_regime and not r.passed
-    ]
+    target_rules = [r for r in rules_fired if r.regime_target == target_regime and not r.passed]
 
     # Collect all failed conditions
     all_failures: List[ThresholdInfo] = []

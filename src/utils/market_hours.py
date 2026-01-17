@@ -5,11 +5,12 @@ Handles regular trading hours, extended hours, and market holidays.
 """
 
 from __future__ import annotations
+
+import threading
 from datetime import datetime, time
 from typing import Optional, Tuple
-import pytz
-import threading
 
+import pytz
 
 # Module-level cache for hot path performance
 # Format: (status, expiry_timestamp)
@@ -33,7 +34,7 @@ class MarketHours:
     """
 
     # US Eastern timezone
-    ET = pytz.timezone('US/Eastern')
+    ET = pytz.timezone("US/Eastern")
 
     # Regular market hours (ET)
     REGULAR_OPEN = time(9, 30)
@@ -127,6 +128,7 @@ class MarketHours:
 
         # Check cache for current time
         import time as time_module
+
         now_ts = time_module.time()
 
         cached_status, expiry_ts = _status_cache
@@ -156,7 +158,9 @@ class MarketHours:
             return "CLOSED"
 
     @classmethod
-    def should_use_extended_hours_price(cls, asset_type: str, dt: Optional[datetime] = None) -> bool:
+    def should_use_extended_hours_price(
+        cls, asset_type: str, dt: Optional[datetime] = None
+    ) -> bool:
         """
         Determine if extended hours price should be used for P&L calculation.
 

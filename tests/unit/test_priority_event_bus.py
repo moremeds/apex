@@ -2,12 +2,13 @@
 
 import asyncio
 import time
+
 import pytest
 
 from src.domain.events import (
-    PriorityEventBus,
-    EventType,
     EventPriority,
+    EventType,
+    PriorityEventBus,
     PriorityEventEnvelope,
 )
 
@@ -328,7 +329,9 @@ class TestStarvationPrevention:
         await asyncio.sleep(1.0)
 
         # Slow lane should have run multiple times (not starved)
-        assert len(slow_dispatch_times) >= 3, f"Slow lane was starved: only {len(slow_dispatch_times)} dispatches"
+        assert (
+            len(slow_dispatch_times) >= 3
+        ), f"Slow lane was starved: only {len(slow_dispatch_times)} dispatches"
 
         # Max gap between slow dispatches should be < 300ms
         for i in range(1, len(slow_dispatch_times)):

@@ -12,18 +12,18 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
+from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, Vertical
 from textual.widgets import Static
-from textual.app import ComposeResult
 
-from ..widgets.positions_table import PositionsTable
-from ..widgets.summary_panel import SummaryPanel
 from ..widgets.alerts_list import AlertsList
 from ..widgets.health_bar import HealthBar
+from ..widgets.positions_table import PositionsTable
+from ..widgets.summary_panel import SummaryPanel
 
 if TYPE_CHECKING:
-    from ...models.risk_snapshot import RiskSnapshot
     from ...domain.events.domain_events import PositionDeltaEvent
+    from ...models.risk_snapshot import RiskSnapshot
 
 
 class SummaryView(Container):

@@ -242,7 +242,11 @@ class RegimeService:
 
         if level == "stock":
             sector_symbol = get_sector_for_symbol(symbol)
-            if sector_symbol and sector_data is not None and len(sector_data) >= self._regime_detector.warmup_periods:
+            if (
+                sector_symbol
+                and sector_data is not None
+                and len(sector_data) >= self._regime_detector.warmup_periods
+            ):
                 sector_output = self.calculate_regime(sector_symbol, sector_data)
                 sector_regime = sector_output.regime
                 sector_confidence = sector_output.confidence
@@ -276,9 +280,7 @@ class RegimeService:
                 )
 
         # === Synthesize Action ===
-        action, context = resolve_action(
-            market_regime, sector_regime, stock_regime, account_type
-        )
+        action, context = resolve_action(market_regime, sector_regime, stock_regime, account_type)
 
         # === Generate Alerts ===
         alerts = []
@@ -365,8 +367,12 @@ class RegimeService:
         if is_available and len(iv_state) > 0:
             state["iv_state"] = iv_state[-1]
             if "components" in state:
-                state["components"]["iv_value"] = float(iv_data.iloc[-1]) if len(iv_data) > 0 else None
-                state["components"]["iv_pct_63"] = float(iv_details["iv_pct_63"][-1]) if len(iv_details["iv_pct_63"]) > 0 else None
+                state["components"]["iv_value"] = (
+                    float(iv_data.iloc[-1]) if len(iv_data) > 0 else None
+                )
+                state["components"]["iv_pct_63"] = (
+                    float(iv_details["iv_pct_63"][-1]) if len(iv_details["iv_pct_63"]) > 0 else None
+                )
 
         return state
 

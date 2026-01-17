@@ -14,11 +14,12 @@ Limitations:
 """
 
 from __future__ import annotations
+
 import asyncio
-from typing import List, Dict, Optional, Callable
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from threading import RLock
-from dataclasses import dataclass
+from typing import Callable, Dict, List, Optional
 
 try:
     import yfinance as yf
@@ -26,10 +27,10 @@ except ImportError:
     yf = None
 
 from ....domain.interfaces.market_data_provider import MarketDataProvider
-from ....models.position import Position, AssetType
-from ....models.market_data import MarketData, DataQuality, GreeksSource
-from ....utils.timezone import now_utc
+from ....models.market_data import DataQuality, GreeksSource, MarketData
+from ....models.position import AssetType, Position
 from ....utils.logging_setup import get_logger
+from ....utils.timezone import now_utc
 
 logger = get_logger(__name__)
 
@@ -37,6 +38,7 @@ logger = get_logger(__name__)
 @dataclass
 class CachedData:
     """Cached market data entry with timestamp."""
+
     data: MarketData
     beta: Optional[float]
     fetched_at: datetime
@@ -83,7 +85,9 @@ class YahooFinanceAdapter(MarketDataProvider):
         self._connected = False
         self._yf_available = yf is not None
         self._last_request_time: Optional[datetime] = None
-        self._min_request_interval = timedelta(seconds=1)  # Rate limit: 1 req/sec to avoid Yahoo 429
+        self._min_request_interval = timedelta(
+            seconds=1
+        )  # Rate limit: 1 req/sec to avoid Yahoo 429
 
         # Fetch metrics for observability
         self._fetch_success_count = 0
@@ -134,10 +138,7 @@ class YahooFinanceAdapter(MarketDataProvider):
         # Check if we need to evict before adding new entry
         if len(self._cache) >= self._max_cache_size:
             # Evict oldest entries (by fetched_at timestamp)
-            sorted_entries = sorted(
-                self._cache.items(),
-                key=lambda x: x[1].fetched_at
-            )
+            sorted_entries = sorted(self._cache.items(), key=lambda x: x[1].fetched_at)
             # Evict 10% of cache to avoid frequent eviction
             evict_count = max(1, self._max_cache_size // 10)
             for sym, _ in sorted_entries[:evict_count]:
@@ -166,10 +167,9 @@ class YahooFinanceAdapter(MarketDataProvider):
             return []
 
         # Extract unique stock symbols (options handled by IBKR)
-        stock_symbols = list(set(
-            pos.symbol for pos in positions
-            if pos.asset_type == AssetType.STOCK
-        ))
+        stock_symbols = list(
+            set(pos.symbol for pos in positions if pos.asset_type == AssetType.STOCK)
+        )
 
         if not stock_symbols:
             return []
@@ -257,17 +257,24 @@ class YahooFinanceAdapter(MarketDataProvider):
 
                     # Cache the result (m6: bounded cache with eviction)
                     with self._lock:
-                        self._cache_put(symbol, CachedData(
-                            data=md,
-                            beta=info.get("beta"),
-                            fetched_at=now_utc(),
-                        ))
+                        self._cache_put(
+                            symbol,
+                            CachedData(
+                                data=md,
+                                beta=info.get("beta"),
+                                fetched_at=now_utc(),
+                            ),
+                        )
             except Exception as e:
                 self._fetch_failure_count += 1
                 error_str = str(e)
 
                 # HIGH-016: Do NOT cache on rate limit - this causes silent failures
-                if "Too Many Requests" in error_str or "Rate limited" in error_str or "429" in error_str:
+                if (
+                    "Too Many Requests" in error_str
+                    or "Rate limited" in error_str
+                    or "429" in error_str
+                ):
                     self._rate_limit_count += 1
                     logger.warning(
                         f"Yahoo rate limited for {symbol} (total rate limits: {self._rate_limit_count})"
@@ -421,9 +428,9 @@ class YahooFinanceAdapter(MarketDataProvider):
         # Filter to symbols not in cache
         with self._lock:
             to_fetch = [
-                s for s in set(symbols)
-                if s not in self._cache or
-                (now_utc() - self._cache[s].fetched_at >= self._beta_ttl)
+                s
+                for s in set(symbols)
+                if s not in self._cache or (now_utc() - self._cache[s].fetched_at >= self._beta_ttl)
             ]
 
         if not to_fetch:
@@ -435,7 +442,7 @@ class YahooFinanceAdapter(MarketDataProvider):
         # Fetch in batches to avoid rate limits
         batch_size = 50
         for i in range(0, len(to_fetch), batch_size):
-            batch = to_fetch[i:i + batch_size]
+            batch = to_fetch[i : i + batch_size]
             fetched = self._fetch_from_yahoo(batch)
             success_count += len(fetched)
 
@@ -475,11 +482,14 @@ class YahooFinanceAdapter(MarketDataProvider):
                 else:
                     # Create minimal cache entry for beta
                     md = MarketData(symbol=symbol, timestamp=now_utc())
-                    self._cache_put(symbol, CachedData(
-                        data=md,
-                        beta=float(beta) if beta else None,
-                        fetched_at=now_utc(),
-                    ))
+                    self._cache_put(
+                        symbol,
+                        CachedData(
+                            data=md,
+                            beta=float(beta) if beta else None,
+                            fetched_at=now_utc(),
+                        ),
+                    )
 
             if beta is not None:
                 logger.debug(f"Fetched beta for {symbol}: {beta:.2f}")
@@ -491,7 +501,11 @@ class YahooFinanceAdapter(MarketDataProvider):
             error_str = str(e)
 
             # HIGH-016: Do NOT cache on rate limit - this causes silent failures
-            if "Too Many Requests" in error_str or "Rate limited" in error_str or "429" in error_str:
+            if (
+                "Too Many Requests" in error_str
+                or "Rate limited" in error_str
+                or "429" in error_str
+            ):
                 self._rate_limit_count += 1
                 logger.warning(
                     f"Yahoo rate limited for beta fetch {symbol} (total: {self._rate_limit_count})"
@@ -520,10 +534,7 @@ class YahooFinanceAdapter(MarketDataProvider):
             entry = self._cache.get(symbol)
             return entry.data if entry else None
 
-    def set_streaming_callback(
-        self,
-        callback: Optional[Callable[[str, MarketData], None]]
-    ) -> None:
+    def set_streaming_callback(self, callback: Optional[Callable[[str, MarketData], None]]) -> None:
         """Set streaming callback (no-op for yfinance)."""
         pass  # yfinance doesn't support streaming
 
@@ -539,7 +550,8 @@ class YahooFinanceAdapter(MarketDataProvider):
         """Get cache statistics."""
         with self._lock:
             fresh_count = sum(
-                1 for entry in self._cache.values()
+                1
+                for entry in self._cache.values()
                 if now_utc() - entry.fetched_at < self._price_ttl
             )
             return {

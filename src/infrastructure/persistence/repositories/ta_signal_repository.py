@@ -16,13 +16,13 @@ import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from asyncpg import Record
 
+from src.domain.interfaces.signal_persistence import SignalPersistencePort
 from src.infrastructure.persistence.database import Database
 from src.infrastructure.persistence.repositories.base import BaseRepository
-from src.domain.interfaces.signal_persistence import SignalPersistencePort
 
 if TYPE_CHECKING:
     from src.domain.signals.models import TradingSignal
@@ -177,10 +177,10 @@ class TASignalRepository(SignalPersistencePort):
     ) -> List["TradingSignal"]:
         """Retrieve recent signals for TUI startup."""
         from src.domain.signals.models import (
-            TradingSignal,
             SignalCategory,
             SignalDirection,
             SignalPriority,
+            TradingSignal,
         )
 
         conditions = []
@@ -244,10 +244,10 @@ class TASignalRepository(SignalPersistencePort):
     ) -> List["TradingSignal"]:
         """Retrieve signals since a given timestamp."""
         from src.domain.signals.models import (
-            TradingSignal,
             SignalCategory,
             SignalDirection,
             SignalPriority,
+            TradingSignal,
         )
 
         conditions = ["time > $1"]
@@ -394,7 +394,9 @@ class TASignalRepository(SignalPersistencePort):
         return {
             "time": record["time"],
             "state": json.loads(record["state"]),
-            "previous_state": json.loads(record["previous_state"]) if record["previous_state"] else None,
+            "previous_state": (
+                json.loads(record["previous_state"]) if record["previous_state"] else None
+            ),
             "bar_close": record["bar_close"],
         }
 
@@ -589,30 +591,74 @@ class TASignalRepository(SignalPersistencePort):
     # Indicator metadata: (category, full_name, description)
     INDICATOR_METADATA: Dict[str, tuple] = {
         # Momentum indicators
-        "rsi": ("momentum", "Relative Strength Index", "Measures speed/change of price movements (0-100)"),
-        "macd": ("momentum", "Moving Avg Convergence Divergence", "Trend-following momentum using EMA crossovers"),
+        "rsi": (
+            "momentum",
+            "Relative Strength Index",
+            "Measures speed/change of price movements (0-100)",
+        ),
+        "macd": (
+            "momentum",
+            "Moving Avg Convergence Divergence",
+            "Trend-following momentum using EMA crossovers",
+        ),
         "kdj": ("momentum", "KDJ Stochastic", "Enhanced stochastic with J line for divergence"),
-        "mfi": ("momentum", "Money Flow Index", "Volume-weighted RSI measuring buying/selling pressure"),
-        "cci": ("momentum", "Commodity Channel Index", "Measures price deviation from statistical mean"),
-        "roc": ("momentum", "Rate of Change", "Percentage change between current and N-period price"),
+        "mfi": (
+            "momentum",
+            "Money Flow Index",
+            "Volume-weighted RSI measuring buying/selling pressure",
+        ),
+        "cci": (
+            "momentum",
+            "Commodity Channel Index",
+            "Measures price deviation from statistical mean",
+        ),
+        "roc": (
+            "momentum",
+            "Rate of Change",
+            "Percentage change between current and N-period price",
+        ),
         "momentum": ("momentum", "Momentum", "Simple price difference over N periods"),
         "tsi": ("momentum", "True Strength Index", "Double-smoothed momentum oscillator"),
-        "ultimate": ("momentum", "Ultimate Oscillator", "Multi-timeframe momentum with weighted averages"),
+        "ultimate": (
+            "momentum",
+            "Ultimate Oscillator",
+            "Multi-timeframe momentum with weighted averages",
+        ),
         "williams_r": ("momentum", "Williams %R", "Overbought/oversold oscillator (-100 to 0)"),
-        "awesome": ("momentum", "Awesome Oscillator", "Difference between 5 and 34-period SMA of midpoints"),
+        "awesome": (
+            "momentum",
+            "Awesome Oscillator",
+            "Difference between 5 and 34-period SMA of midpoints",
+        ),
         "trix": ("momentum", "TRIX", "Triple-smoothed EMA rate of change"),
         "rsi_harmonics": ("momentum", "RSI Harmonics", "RSI with harmonic pattern detection"),
         # Trend indicators
-        "adx": ("trend", "Average Directional Index", "Measures trend strength regardless of direction"),
+        "adx": (
+            "trend",
+            "Average Directional Index",
+            "Measures trend strength regardless of direction",
+        ),
         "aroon": ("trend", "Aroon", "Identifies trend changes and strength using high/low timing"),
         "supertrend": ("trend", "SuperTrend", "ATR-based trend indicator with clear signals"),
         "psar": ("trend", "Parabolic SAR", "Stop and reverse points for trend following"),
-        "ichimoku": ("trend", "Ichimoku Cloud", "Multi-component system showing support/resistance/trend"),
-        "vortex": ("trend", "Vortex Indicator", "Identifies trend direction using +VI/-VI crossovers"),
+        "ichimoku": (
+            "trend",
+            "Ichimoku Cloud",
+            "Multi-component system showing support/resistance/trend",
+        ),
+        "vortex": (
+            "trend",
+            "Vortex Indicator",
+            "Identifies trend direction using +VI/-VI crossovers",
+        ),
         "trendline": ("trend", "Trendline", "Automated trendline detection and analysis"),
         "zerolag": ("trend", "Zero Lag EMA", "Reduced-lag exponential moving average"),
         # Volatility indicators
-        "atr": ("volatility", "Average True Range", "Measures market volatility using price ranges"),
+        "atr": (
+            "volatility",
+            "Average True Range",
+            "Measures market volatility using price ranges",
+        ),
         "bollinger": ("volatility", "Bollinger Bands", "Volatility bands using standard deviation"),
         "keltner": ("volatility", "Keltner Channel", "ATR-based volatility channel around EMA"),
         "donchian": ("volatility", "Donchian Channel", "Highest high/lowest low over N periods"),
@@ -629,13 +675,29 @@ class TASignalRepository(SignalPersistencePort):
         "force": ("volume", "Force Index", "Price change multiplied by volume"),
         # Moving averages
         "sma": ("moving_avg", "Simple Moving Average", "Arithmetic mean of prices over N periods"),
-        "ema": ("moving_avg", "Exponential Moving Average", "Weighted average favoring recent prices"),
+        "ema": (
+            "moving_avg",
+            "Exponential Moving Average",
+            "Weighted average favoring recent prices",
+        ),
         # Patterns & Levels
         "pivot": ("pattern", "Pivot Points", "Support/resistance levels from prior period"),
         "fibonacci": ("pattern", "Fibonacci Retracement", "Key levels based on Fibonacci ratios"),
-        "support_resistance": ("pattern", "Support/Resistance", "Detected price levels with high reaction"),
-        "candlestick": ("pattern", "Candlestick Patterns", "Japanese candlestick pattern recognition"),
-        "chart_patterns": ("pattern", "Chart Patterns", "Geometric pattern detection (H&S, triangles)"),
+        "support_resistance": (
+            "pattern",
+            "Support/Resistance",
+            "Detected price levels with high reaction",
+        ),
+        "candlestick": (
+            "pattern",
+            "Candlestick Patterns",
+            "Japanese candlestick pattern recognition",
+        ),
+        "chart_patterns": (
+            "pattern",
+            "Chart Patterns",
+            "Geometric pattern detection (H&S, triangles)",
+        ),
     }
 
     def _get_indicator_info(self, indicator: str) -> Dict[str, str]:
@@ -681,15 +743,17 @@ class TASignalRepository(SignalPersistencePort):
         result = []
         for r in records:
             info = self._get_indicator_info(r["indicator"])
-            result.append({
-                "category": info["category"],
-                "indicator": r["indicator"],
-                "full_name": info["full_name"],
-                "description": info["description"],
-                "symbol_count": r["symbol_count"],
-                "last_update": r["last_update"],
-                "oldest_update": r["oldest_update"],
-            })
+            result.append(
+                {
+                    "category": info["category"],
+                    "indicator": r["indicator"],
+                    "full_name": info["full_name"],
+                    "description": info["description"],
+                    "symbol_count": r["symbol_count"],
+                    "last_update": r["last_update"],
+                    "oldest_update": r["oldest_update"],
+                }
+            )
         return result
 
     async def get_indicator_details(self, indicator: str) -> List[Dict[str, Any]]:

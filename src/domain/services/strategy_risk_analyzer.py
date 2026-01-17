@@ -8,19 +8,19 @@ Implements risk checks for multi-leg strategies:
 """
 
 from __future__ import annotations
-from datetime import datetime
-from typing import List, Dict, Any, Optional
 
-from .strategy_detector import DetectedStrategy
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+from ...models.position_risk import PositionRisk
 from ...models.risk_signal import (
     RiskSignal,
     SignalLevel,
     SignalSeverity,
     SuggestedAction,
 )
-from ...models.position_risk import PositionRisk
 from ...utils.logging_setup import get_logger
-
+from .strategy_detector import DetectedStrategy
 
 logger = get_logger(__name__)
 
@@ -120,38 +120,50 @@ class StrategyRiskAnalyzer:
 
         # Check delta flip using pre-calculated delta from RiskEngine
         # Note: PositionRisk.delta is position-level (qty*multiplier applied), so use per-share
-        long_delta = abs(long_pr.delta / (abs(long_leg.quantity) * long_leg.multiplier)) if long_leg.quantity != 0 else 0.0
-        short_delta = abs(short_pr.delta / (abs(short_leg.quantity) * short_leg.multiplier)) if short_leg.quantity != 0 else 0.0
+        long_delta = (
+            abs(long_pr.delta / (abs(long_leg.quantity) * long_leg.multiplier))
+            if long_leg.quantity != 0
+            else 0.0
+        )
+        short_delta = (
+            abs(short_pr.delta / (abs(short_leg.quantity) * short_leg.multiplier))
+            if short_leg.quantity != 0
+            else 0.0
+        )
 
         if short_delta > long_delta:
             # Delta flip detected - critical risk
-            signals.append(RiskSignal(
-                signal_id=f"STRATEGY:{strategy.underlying}:Diagonal_Delta_Flip",
-                timestamp=datetime.now(),
-                level=SignalLevel.STRATEGY,
-                severity=SignalSeverity.CRITICAL,
-                symbol=strategy.underlying,
-                strategy_type=strategy.strategy_type,
-                trigger_rule="Diagonal_Delta_Flip",
-                current_value=short_delta,
-                threshold=long_delta,
-                breach_pct=((short_delta - long_delta) / long_delta * 100) if long_delta > 0 else 0,
-                suggested_action=SuggestedAction.CLOSE,
-                action_details=(
-                    f"Diagonal spread delta flip: short leg delta ({short_delta:.2f}) "
-                    f"> long leg delta ({long_delta:.2f}). "
-                    f"Short leg now ITM - high assignment risk. Close or roll immediately."
-                ),
-                layer=2,
-                metadata={
-                    "long_strike": long_leg.strike,
-                    "short_strike": short_leg.strike,
-                    "long_expiry": long_leg.expiry,
-                    "short_expiry": short_leg.expiry,
-                    "long_delta": long_delta,
-                    "short_delta": short_delta,
-                },
-            ))
+            signals.append(
+                RiskSignal(
+                    signal_id=f"STRATEGY:{strategy.underlying}:Diagonal_Delta_Flip",
+                    timestamp=datetime.now(),
+                    level=SignalLevel.STRATEGY,
+                    severity=SignalSeverity.CRITICAL,
+                    symbol=strategy.underlying,
+                    strategy_type=strategy.strategy_type,
+                    trigger_rule="Diagonal_Delta_Flip",
+                    current_value=short_delta,
+                    threshold=long_delta,
+                    breach_pct=(
+                        ((short_delta - long_delta) / long_delta * 100) if long_delta > 0 else 0
+                    ),
+                    suggested_action=SuggestedAction.CLOSE,
+                    action_details=(
+                        f"Diagonal spread delta flip: short leg delta ({short_delta:.2f}) "
+                        f"> long leg delta ({long_delta:.2f}). "
+                        f"Short leg now ITM - high assignment risk. Close or roll immediately."
+                    ),
+                    layer=2,
+                    metadata={
+                        "long_strike": long_leg.strike,
+                        "short_strike": short_leg.strike,
+                        "long_expiry": long_leg.expiry,
+                        "short_expiry": short_leg.expiry,
+                        "long_delta": long_delta,
+                        "short_delta": short_delta,
+                    },
+                )
+            )
 
         return signals
 
@@ -188,31 +200,33 @@ class StrategyRiskAnalyzer:
             if max_risk and abs(total_pnl) > max_risk * self.credit_spread_r_multiple:
                 breach_pct = (abs(total_pnl) / (max_risk * self.credit_spread_r_multiple) - 1) * 100
 
-                signals.append(RiskSignal(
-                    signal_id=f"STRATEGY:{strategy.underlying}:Credit_Spread_Stop",
-                    timestamp=datetime.now(),
-                    level=SignalLevel.STRATEGY,
-                    severity=SignalSeverity.CRITICAL,
-                    symbol=strategy.underlying,
-                    strategy_type=strategy.strategy_type,
-                    trigger_rule="Credit_Spread_R_Multiple_Stop",
-                    current_value=abs(total_pnl),
-                    threshold=max_risk * self.credit_spread_r_multiple,
-                    breach_pct=breach_pct,
-                    suggested_action=SuggestedAction.CLOSE,
-                    action_details=(
-                        f"Credit spread loss ${abs(total_pnl):.0f} exceeds "
-                        f"{self.credit_spread_r_multiple}x R-multiple stop "
-                        f"(${max_risk * self.credit_spread_r_multiple:.0f}). "
-                        f"Close or roll to limit losses."
-                    ),
-                    layer=2,
-                    metadata={
-                        "current_pnl": total_pnl,
-                        "max_risk": max_risk,
-                        "r_multiple": self.credit_spread_r_multiple,
-                    },
-                ))
+                signals.append(
+                    RiskSignal(
+                        signal_id=f"STRATEGY:{strategy.underlying}:Credit_Spread_Stop",
+                        timestamp=datetime.now(),
+                        level=SignalLevel.STRATEGY,
+                        severity=SignalSeverity.CRITICAL,
+                        symbol=strategy.underlying,
+                        strategy_type=strategy.strategy_type,
+                        trigger_rule="Credit_Spread_R_Multiple_Stop",
+                        current_value=abs(total_pnl),
+                        threshold=max_risk * self.credit_spread_r_multiple,
+                        breach_pct=breach_pct,
+                        suggested_action=SuggestedAction.CLOSE,
+                        action_details=(
+                            f"Credit spread loss ${abs(total_pnl):.0f} exceeds "
+                            f"{self.credit_spread_r_multiple}x R-multiple stop "
+                            f"(${max_risk * self.credit_spread_r_multiple:.0f}). "
+                            f"Close or roll to limit losses."
+                        ),
+                        layer=2,
+                        metadata={
+                            "current_pnl": total_pnl,
+                            "max_risk": max_risk,
+                            "r_multiple": self.credit_spread_r_multiple,
+                        },
+                    )
+                )
 
         return signals
 
@@ -241,30 +255,32 @@ class StrategyRiskAnalyzer:
         # For IV crush detection, we'd need historical IV
         # For now, check if vega is negative (losing value from IV drop)
         if pr.vega and pr.vega < -10:  # Significant negative vega
-            signals.append(RiskSignal(
-                signal_id=f"STRATEGY:{strategy.underlying}:Calendar_IV_Crush",
-                timestamp=datetime.now(),
-                level=SignalLevel.STRATEGY,
-                severity=SignalSeverity.WARNING,
-                symbol=strategy.underlying,
-                strategy_type=strategy.strategy_type,
-                trigger_rule="Calendar_IV_Crush",
-                current_value=pr.vega,
-                threshold=-10.0,
-                breach_pct=0.0,
-                suggested_action=SuggestedAction.MONITOR,
-                action_details=(
-                    f"Calendar spread showing negative vega ({pr.vega:.2f}), "
-                    f"indicating potential IV crush. Monitor closely."
-                ),
-                layer=2,
-                metadata={
-                    "long_strike": long_leg.strike,
-                    "long_expiry": long_leg.expiry,
-                    "implied_volatility": pr.iv,
-                    "vega": pr.vega,
-                },
-            ))
+            signals.append(
+                RiskSignal(
+                    signal_id=f"STRATEGY:{strategy.underlying}:Calendar_IV_Crush",
+                    timestamp=datetime.now(),
+                    level=SignalLevel.STRATEGY,
+                    severity=SignalSeverity.WARNING,
+                    symbol=strategy.underlying,
+                    strategy_type=strategy.strategy_type,
+                    trigger_rule="Calendar_IV_Crush",
+                    current_value=pr.vega,
+                    threshold=-10.0,
+                    breach_pct=0.0,
+                    suggested_action=SuggestedAction.MONITOR,
+                    action_details=(
+                        f"Calendar spread showing negative vega ({pr.vega:.2f}), "
+                        f"indicating potential IV crush. Monitor closely."
+                    ),
+                    layer=2,
+                    metadata={
+                        "long_strike": long_leg.strike,
+                        "long_expiry": long_leg.expiry,
+                        "implied_volatility": pr.iv,
+                        "vega": pr.vega,
+                    },
+                )
+            )
 
         return signals
 
@@ -296,29 +312,31 @@ class StrategyRiskAnalyzer:
         max_risk = self._estimate_spread_max_risk(strategy)
 
         if max_risk and total_pnl > max_risk * 0.5:  # 50% of max profit
-            signals.append(RiskSignal(
-                signal_id=f"STRATEGY:{strategy.underlying}:Iron_Condor_Early_Exit",
-                timestamp=datetime.now(),
-                level=SignalLevel.STRATEGY,
-                severity=SignalSeverity.INFO,
-                symbol=strategy.underlying,
-                strategy_type=strategy.strategy_type,
-                trigger_rule="Iron_Condor_Early_Profit",
-                current_value=total_pnl,
-                threshold=max_risk * 0.5,
-                breach_pct=0.0,
-                suggested_action=SuggestedAction.REDUCE,
-                action_details=(
-                    f"Iron condor at ${total_pnl:.0f} profit "
-                    f"(~{total_pnl/max_risk*100:.0f}% of max profit). "
-                    f"Consider closing early to lock in gains."
-                ),
-                layer=2,
-                metadata={
-                    "current_pnl": total_pnl,
-                    "max_profit": max_risk,
-                },
-            ))
+            signals.append(
+                RiskSignal(
+                    signal_id=f"STRATEGY:{strategy.underlying}:Iron_Condor_Early_Exit",
+                    timestamp=datetime.now(),
+                    level=SignalLevel.STRATEGY,
+                    severity=SignalSeverity.INFO,
+                    symbol=strategy.underlying,
+                    strategy_type=strategy.strategy_type,
+                    trigger_rule="Iron_Condor_Early_Profit",
+                    current_value=total_pnl,
+                    threshold=max_risk * 0.5,
+                    breach_pct=0.0,
+                    suggested_action=SuggestedAction.REDUCE,
+                    action_details=(
+                        f"Iron condor at ${total_pnl:.0f} profit "
+                        f"(~{total_pnl/max_risk*100:.0f}% of max profit). "
+                        f"Consider closing early to lock in gains."
+                    ),
+                    layer=2,
+                    metadata={
+                        "current_pnl": total_pnl,
+                        "max_profit": max_risk,
+                    },
+                )
+            )
 
         return signals
 

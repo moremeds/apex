@@ -164,7 +164,5 @@ def calculate_sma(data: np.ndarray, period: int) -> np.ndarray:
         return result
 
     cumsum = np.cumsum(data)
-    result[period - 1 :] = (
-        cumsum[period - 1 :] - np.concatenate([[0], cumsum[:-period]])
-    ) / period
+    result[period - 1 :] = (cumsum[period - 1 :] - np.concatenate([[0], cumsum[:-period]])) / period
     return result

@@ -10,9 +10,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.backtest import RunMetrics, RunResult, RunStatus
-from src.backtest import ExperimentSpec
-from src.backtest import DatabaseManager
+from src.backtest import DatabaseManager, ExperimentSpec, RunMetrics, RunResult, RunStatus
 
 
 @pytest.fixture

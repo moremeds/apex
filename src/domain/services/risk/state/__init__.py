@@ -13,8 +13,8 @@ Design principles:
 - Shallow dict copy for snapshots is safe because values are immutable
 """
 
-from .position_state import PositionState, PositionDelta
 from .portfolio_state import PortfolioState
+from .position_state import PositionDelta, PositionState
 
 __all__ = [
     "PositionState",

@@ -10,9 +10,11 @@ Validates market data for:
 """
 
 from __future__ import annotations
-from typing import Dict, List
+
 import math
-from ...models.market_data import MarketData, DataQuality
+from typing import Dict, List
+
+from ...models.market_data import DataQuality, MarketData
 
 
 class MDQC:
@@ -100,7 +102,5 @@ class MDQC:
     def get_suspicious_symbols(self, market_data: Dict[str, MarketData]) -> List[str]:
         """Get list of symbols with suspicious data."""
         return [
-            symbol
-            for symbol, md in market_data.items()
-            if md.quality == DataQuality.SUSPICIOUS
+            symbol for symbol, md in market_data.items() if md.quality == DataQuality.SUSPICIOUS
         ]

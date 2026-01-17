@@ -13,9 +13,9 @@ Modules:
 - notional_calculator: Notional and concentration metrics
 """
 
-from .pnl_calculator import PnLResult, calculate_pnl
 from .greeks_calculator import GreeksResult, calculate_position_greeks
 from .notional_calculator import NotionalResult, calculate_notional
+from .pnl_calculator import PnLResult, calculate_pnl
 
 __all__ = [
     "PnLResult",

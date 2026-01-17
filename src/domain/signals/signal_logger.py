@@ -27,7 +27,6 @@ from typing import Any, Optional
 
 from ..events.event_types import EventType
 
-
 # Module logger for internal messages
 _logger = logging.getLogger(__name__)
 
@@ -226,8 +225,7 @@ class SignalLogger:
                     "direction": str(getattr(signal, "direction", "")),
                     "strength": getattr(signal, "strength", None),
                     "timestamp": str(getattr(signal, "timestamp", "")),
-                    "message": getattr(signal, "message", None)
-                    or getattr(signal, "reason", None),
+                    "message": getattr(signal, "message", None) or getattr(signal, "reason", None),
                 }
 
             # Add logging metadata

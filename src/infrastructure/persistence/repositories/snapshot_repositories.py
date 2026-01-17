@@ -335,9 +335,13 @@ class RiskSnapshotRepository(BaseRepository[RiskSnapshotRecord]):
         return [
             {
                 "time": r["bucket"],
-                "portfolio_value": float(r["avg_portfolio_value"]) if r["avg_portfolio_value"] else None,
+                "portfolio_value": (
+                    float(r["avg_portfolio_value"]) if r["avg_portfolio_value"] else None
+                ),
                 "total_delta": float(r["avg_total_delta"]) if r["avg_total_delta"] else None,
-                "unrealized_pnl": float(r["avg_unrealized_pnl"]) if r["avg_unrealized_pnl"] else None,
+                "unrealized_pnl": (
+                    float(r["avg_unrealized_pnl"]) if r["avg_unrealized_pnl"] else None
+                ),
                 "daily_pnl": float(r["avg_daily_pnl"]) if r["avg_daily_pnl"] else None,
                 "position_count": r["max_position_count"],
             }
@@ -373,8 +377,12 @@ class RiskSnapshotRepository(BaseRepository[RiskSnapshotRecord]):
                 "min_portfolio": float(r["min_portfolio"]) if r["min_portfolio"] else None,
                 "max_portfolio": float(r["max_portfolio"]) if r["max_portfolio"] else None,
                 "avg_portfolio": float(r["avg_portfolio"]) if r["avg_portfolio"] else None,
-                "min_unrealized_pnl": float(r["min_unrealized_pnl"]) if r["min_unrealized_pnl"] else None,
-                "max_unrealized_pnl": float(r["max_unrealized_pnl"]) if r["max_unrealized_pnl"] else None,
+                "min_unrealized_pnl": (
+                    float(r["min_unrealized_pnl"]) if r["min_unrealized_pnl"] else None
+                ),
+                "max_unrealized_pnl": (
+                    float(r["max_unrealized_pnl"]) if r["max_unrealized_pnl"] else None
+                ),
                 "min_daily_pnl": float(r["min_daily_pnl"]) if r["min_daily_pnl"] else None,
                 "max_daily_pnl": float(r["max_daily_pnl"]) if r["max_daily_pnl"] else None,
                 "snapshot_count": r["snapshot_count"],
@@ -434,7 +442,9 @@ class RiskSnapshotRepository(BaseRepository[RiskSnapshotRecord]):
 
         # Serialize the full snapshot to dict
         snapshot_dict = {
-            "timestamp": str(snapshot.timestamp) if hasattr(snapshot, "timestamp") else str(snapshot_time),
+            "timestamp": (
+                str(snapshot.timestamp) if hasattr(snapshot, "timestamp") else str(snapshot_time)
+            ),
             "total_net_liquidation": float(portfolio_value) if portfolio_value else None,
             "total_unrealized_pnl": float(unrealized_pnl) if unrealized_pnl else None,
             "total_daily_pnl": float(daily_pnl) if daily_pnl else None,

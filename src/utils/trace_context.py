@@ -20,9 +20,9 @@ Usage:
 from __future__ import annotations
 
 import secrets
-from contextvars import ContextVar
 from contextlib import contextmanager
-from typing import Optional, Generator
+from contextvars import ContextVar
+from typing import Generator, Optional
 
 # Context variable for the current cycle ID (async-safe)
 _cycle_id: ContextVar[Optional[str]] = ContextVar("cycle_id", default=None)

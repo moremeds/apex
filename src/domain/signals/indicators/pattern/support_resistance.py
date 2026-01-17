@@ -84,17 +84,13 @@ class SupportResistanceIndicator(IndicatorBase):
                 # Swing high: higher than neighbors
                 if all(
                     window_high[j] >= window_high[j - k] for k in range(1, swing_period + 1)
-                ) and all(
-                    window_high[j] >= window_high[j + k] for k in range(1, swing_period + 1)
-                ):
+                ) and all(window_high[j] >= window_high[j + k] for k in range(1, swing_period + 1)):
                     swing_highs.append(window_high[j])
 
                 # Swing low: lower than neighbors
                 if all(
                     window_low[j] <= window_low[j - k] for k in range(1, swing_period + 1)
-                ) and all(
-                    window_low[j] <= window_low[j + k] for k in range(1, swing_period + 1)
-                ):
+                ) and all(window_low[j] <= window_low[j + k] for k in range(1, swing_period + 1)):
                     swing_lows.append(window_low[j])
 
             # Find nearest support (swing low below current price)

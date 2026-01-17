@@ -1,15 +1,16 @@
 """Unit tests for DeltaPublisher."""
 
-import pytest
 from datetime import datetime
 from unittest.mock import MagicMock, patch
 
-from src.domain.services.risk.streaming.delta_publisher import DeltaPublisher
-from src.domain.services.risk.risk_facade import RiskFacade
-from src.domain.services.risk.state.position_state import PositionDelta
+import pytest
+
 from src.domain.events.domain_events import MarketDataTickEvent
 from src.domain.events.event_types import EventType
-from src.models.position import Position, AssetType
+from src.domain.services.risk.risk_facade import RiskFacade
+from src.domain.services.risk.state.position_state import PositionDelta
+from src.domain.services.risk.streaming.delta_publisher import DeltaPublisher
+from src.models.position import AssetType, Position
 
 
 class TestDeltaPublisher:
@@ -109,9 +110,7 @@ class TestDeltaPublisher:
         assert publisher.stats["ticks_filtered"] == 1
         assert publisher.stats["deltas_published"] == 0
 
-    def test_on_tick_publishes_delta(
-        self, publisher, facade, mock_event_bus, stock_position
-    ):
+    def test_on_tick_publishes_delta(self, publisher, facade, mock_event_bus, stock_position):
         """_on_tick() should publish delta for valid tick."""
         # Initialize with position
         initial_tick = MarketDataTickEvent(
@@ -164,9 +163,7 @@ class TestDeltaPublisher:
         assert facade.has_position("AAPL")
         assert publisher.stats["positions_synced"] == 1
 
-    def test_on_positions_ready_empty_store(
-        self, publisher, facade, mock_position_store
-    ):
+    def test_on_positions_ready_empty_store(self, publisher, facade, mock_position_store):
         """_on_positions_ready() should handle empty store."""
         # Store returns no positions
         mock_position_store.get_all.return_value = []

@@ -3,8 +3,8 @@
 import pytest
 from textual.app import App, ComposeResult
 
-from src.tui.widgets.health_bar import HealthBar
 from src.infrastructure.monitoring.health_monitor import ComponentHealth, HealthStatus
+from src.tui.widgets.health_bar import HealthBar
 
 
 class HealthBarTestApp(App):

@@ -13,11 +13,11 @@ from __future__ import annotations
 
 from typing import Any, List
 
-from textual.widget import Widget
-from textual.reactive import reactive
-from textual.widgets import Static
-from textual.containers import HorizontalScroll
 from textual.app import ComposeResult
+from textual.containers import HorizontalScroll
+from textual.reactive import reactive
+from textual.widget import Widget
+from textual.widgets import Static
 
 
 class HealthBar(Widget):
@@ -98,4 +98,4 @@ class HealthBar(Widget):
         """Truncate text to fit within the health tile."""
         if len(text) <= max_len:
             return text
-        return text[:max_len - 3] + "..."
+        return text[: max_len - 3] + "..."

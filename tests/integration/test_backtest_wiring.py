@@ -12,11 +12,12 @@ Tests cover:
 - MTF (Multi-Timeframe) data alignment
 """
 
-import pytest
 from datetime import date
 from pathlib import Path
-from typing import Dict, Any
-from unittest.mock import patch, MagicMock
+from typing import Any, Dict
+from unittest.mock import MagicMock, patch
+
+import pytest
 import yaml
 
 
@@ -25,8 +26,8 @@ class TestParallelRunnerWiring:
 
     def test_systematic_runner_uses_parallel_when_configured(self):
         """Verify parallel_workers > 1 uses ParallelRunner."""
-        from src.backtest.execution.systematic import SystematicRunner, RunnerConfig
         from src.backtest.execution.parallel import ParallelRunner
+        from src.backtest.execution.systematic import RunnerConfig, SystematicRunner
 
         # Create config with parallel workers
         config = RunnerConfig(parallel_workers=4)
@@ -37,7 +38,7 @@ class TestParallelRunnerWiring:
 
     def test_parallel_runner_can_be_instantiated(self):
         """Verify ParallelRunner can be created with valid config."""
-        from src.backtest.execution.parallel import ParallelRunner, ParallelConfig
+        from src.backtest.execution.parallel import ParallelConfig, ParallelRunner
 
         config = ParallelConfig(max_workers=4)
         runner = ParallelRunner(config)
@@ -61,8 +62,8 @@ class TestWalkForwardSplitter:
 
     def test_wfo_splitter_returns_train_test_tuples(self):
         """Verify WalkForwardSplitter yields (train_window, test_window)."""
-        from src.backtest.data import WalkForwardSplitter, SplitConfig
         from src.backtest.core import TimeWindow
+        from src.backtest.data import SplitConfig, WalkForwardSplitter
 
         config = SplitConfig(
             train_days=252,
@@ -95,7 +96,7 @@ class TestWalkForwardSplitter:
 
     def test_wfo_splitter_respects_purge_gap(self):
         """Verify purge gap is respected between train and test."""
-        from src.backtest.data import WalkForwardSplitter, SplitConfig
+        from src.backtest.data import SplitConfig, WalkForwardSplitter
 
         config = SplitConfig(
             train_days=100,
@@ -108,9 +109,7 @@ class TestWalkForwardSplitter:
         for train_window, test_window in splitter.split("2022-01-01", "2024-12-31"):
             # Test should start after train + purge
             gap_days = (test_window.test_start - train_window.train_end).days
-            assert gap_days >= config.purge_days, (
-                f"Purge gap {gap_days} < {config.purge_days}"
-            )
+            assert gap_days >= config.purge_days, f"Purge gap {gap_days} < {config.purge_days}"
 
 
 class TestStrategyRegistryConsistency:
@@ -164,9 +163,7 @@ class TestStrategyRegistryConsistency:
         from src.domain.strategy.registry import StrategyRegistry
 
         registry = StrategyRegistry()
-        assert "mtf_rsi_trend" in registry._strategies, (
-            "mtf_rsi_trend strategy not registered"
-        )
+        assert "mtf_rsi_trend" in registry._strategies, "mtf_rsi_trend strategy not registered"
 
 
 class TestHTMLReportGenerator:
@@ -195,12 +192,13 @@ class TestHTMLReportGenerator:
 
     def test_report_generator_accepts_minimal_data(self):
         """Verify report generator can handle minimal valid data."""
+        import tempfile
+
         from src.backtest.analysis.reporting import (
             HTMLReportGenerator,
             ReportConfig,
             ReportData,
         )
-        import tempfile
 
         generator = HTMLReportGenerator(ReportConfig(title="Test Report"))
         data = ReportData(
@@ -239,20 +237,22 @@ class TestMTFDataFeedWiring:
     def test_historical_store_data_feed_accepts_secondary_timeframes(self):
         """Verify HistoricalStoreDataFeed accepts secondary_timeframes parameter."""
         import inspect
+
         from src.backtest.data.feeds import HistoricalStoreDataFeed
 
         sig = inspect.signature(HistoricalStoreDataFeed.__init__)
         params = list(sig.parameters.keys())
 
-        assert "secondary_timeframes" in params, (
-            "HistoricalStoreDataFeed missing secondary_timeframes parameter"
-        )
+        assert (
+            "secondary_timeframes" in params
+        ), "HistoricalStoreDataFeed missing secondary_timeframes parameter"
 
     def test_aligned_bar_buffer_sorting(self):
         """Verify secondary timeframes sort before primary at same timestamp."""
+        from datetime import datetime
+
         from src.backtest.data.feeds import AlignedBarBuffer
         from src.domain.events.domain_events import BarData
-        from datetime import datetime
 
         # Create bars at same timestamp
         ts = datetime(2024, 1, 15, 9, 30, 0)
@@ -281,9 +281,9 @@ class TestMTFDataFeedWiring:
         key_daily = AlignedBarBuffer.sort_key(daily, "1d")
         key_hourly = AlignedBarBuffer.sort_key(hourly, "1d")
 
-        assert key_hourly < key_daily, (
-            "Secondary timeframe should sort before primary at same timestamp"
-        )
+        assert (
+            key_hourly < key_daily
+        ), "Secondary timeframe should sort before primary at same timestamp"
 
 
 class TestRunSpecWiring:
@@ -291,8 +291,9 @@ class TestRunSpecWiring:
 
     def test_run_spec_has_secondary_timeframes(self):
         """Verify RunSpec has secondary_timeframes field."""
-        from src.backtest.core import RunSpec, TimeWindow
         from datetime import date
+
+        from src.backtest.core import RunSpec, TimeWindow
 
         window = TimeWindow(
             window_id="test",
@@ -318,8 +319,9 @@ class TestRunSpecWiring:
 
     def test_run_spec_bar_size_default(self):
         """Verify RunSpec has sensible bar_size default."""
-        from src.backtest.core import RunSpec, TimeWindow
         from datetime import date
+
+        from src.backtest.core import RunSpec, TimeWindow
 
         window = TimeWindow(
             window_id="test",
@@ -350,9 +352,9 @@ class TestVersionAutoIncrement:
         """Verify get_next_version function exists in hashing module."""
         from src.backtest.core import hashing
 
-        assert hasattr(hashing, "get_next_version"), (
-            "get_next_version function not found in hashing module"
-        )
+        assert hasattr(
+            hashing, "get_next_version"
+        ), "get_next_version function not found in hashing module"
 
     def test_experiment_result_has_run_version(self):
         """Verify ExperimentResult can store version information."""
@@ -383,7 +385,7 @@ class TestEngineWiring:
 
     def test_vectorbt_engine_implements_base_interface(self):
         """Verify VectorBTEngine implements BaseEngine interface."""
-        from src.backtest.execution.engines import VectorBTEngine, BaseEngine
+        from src.backtest.execution.engines import BaseEngine, VectorBTEngine
 
         engine = VectorBTEngine()
         assert isinstance(engine, BaseEngine)
@@ -391,6 +393,7 @@ class TestEngineWiring:
     def test_engines_have_run_method(self):
         """Verify both engines have run method with correct signature."""
         import inspect
+
         from src.backtest.execution.engines import ApexEngine, VectorBTEngine
 
         for engine_class in [ApexEngine, VectorBTEngine]:
@@ -420,10 +423,10 @@ class TestOptimizerWiring:
 
     def test_optimizers_share_interface(self):
         """Verify both optimizers have similar interfaces."""
-        from src.backtest.optimization import GridOptimizer, BayesianOptimizer
+        from src.backtest.optimization import BayesianOptimizer, GridOptimizer
 
         for optimizer_class in [GridOptimizer, BayesianOptimizer]:
             # Both should have generate_params method for parameter generation
-            assert hasattr(optimizer_class, "generate_params"), (
-                f"{optimizer_class.__name__} missing generate_params method"
-            )
+            assert hasattr(
+                optimizer_class, "generate_params"
+            ), f"{optimizer_class.__name__} missing generate_params method"

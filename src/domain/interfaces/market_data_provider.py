@@ -1,8 +1,9 @@
 """Market data provider interface for dependency injection."""
 
 from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from typing import List, Optional, Callable, Dict
+from typing import Callable, Dict, List, Optional
 
 from ...models import Position
 from ...models.market_data import MarketData
@@ -81,10 +82,7 @@ class MarketDataProvider(ABC):
         """Get latest cached market data for a symbol."""
         pass
 
-    def set_streaming_callback(
-        self,
-        callback: Optional[Callable[[str, MarketData], None]]
-    ) -> None:
+    def set_streaming_callback(self, callback: Optional[Callable[[str, MarketData], None]]) -> None:
         """
         Set callback for streaming market data updates.
 

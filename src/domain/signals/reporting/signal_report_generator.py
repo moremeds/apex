@@ -16,21 +16,20 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 
 from src.utils.logging_setup import get_logger
+
 from ..divergence.cross_divergence import CrossIndicatorAnalyzer
 from ..models import ConfluenceScore
-
 from .description_generator import generate_indicator_description, generate_rule_description
 from .regime_report import (
     generate_components_4block_html,
     generate_decision_tree_html,
     generate_hysteresis_html,
-    generate_turning_point_html,
     generate_methodology_html,
     generate_optimization_html,
     generate_quality_html,
@@ -38,6 +37,7 @@ from .regime_report import (
     generate_regime_one_liner_html,
     generate_regime_styles,
     generate_report_header_html,
+    generate_turning_point_html,
 )
 
 if TYPE_CHECKING:
@@ -708,6 +708,7 @@ class SignalReportGenerator:
             RecommenderResult,
             get_regime_params,
         )
+
         from ..indicators.regime import RegimeDetectorIndicator
 
         provenance_dict: Dict[str, ParamProvenanceSet] = {}

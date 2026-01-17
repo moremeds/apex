@@ -18,12 +18,12 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 from src.domain.signals.data.bar_aggregator import BarAggregator
 from src.domain.signals.indicator_engine import IndicatorEngine
-from src.domain.signals.rule_engine import RuleEngine, RuleRegistry
 from src.domain.signals.models import TradingSignal
+from src.domain.signals.rule_engine import RuleEngine, RuleRegistry
 from src.utils.logging_setup import get_logger
 from src.utils.timezone import now_utc
 
@@ -251,7 +251,9 @@ class SignalService:
 
         logger.info("SignalService initialized")
         logger.info(f"├─ timeframes: {self._timeframes}")
-        logger.info(f"├─ indicators: {len(indicator_names)} loaded ({', '.join(indicator_names[:5])}{'...' if len(indicator_names) > 5 else ''})")
+        logger.info(
+            f"├─ indicators: {len(indicator_names)} loaded ({', '.join(indicator_names[:5])}{'...' if len(indicator_names) > 5 else ''})"
+        )
         logger.info(f"└─ rules: {rule_count} loaded")
 
     def stop(self) -> None:
@@ -417,7 +419,9 @@ class SignalService:
         logger.info(f"├─ symbol: {signal.symbol}")
         logger.info(f"├─ indicator: {signal.indicator}")
 
-        direction = signal.direction.value if hasattr(signal.direction, "value") else signal.direction
+        direction = (
+            signal.direction.value if hasattr(signal.direction, "value") else signal.direction
+        )
         logger.info(f"├─ direction: {direction}")
 
         strength = signal.strength

@@ -152,9 +152,7 @@ class MTFDivergenceAnalyzer:
                 "timeframes": sorted_tfs,
                 "strength": alignment_strength,
                 "direction": dominant_direction,
-                "tf_directions": {
-                    tf: score.strongest_signal for tf, score in tf_scores.items()
-                },
+                "tf_directions": {tf: score.strongest_signal for tf, score in tf_scores.items()},
             },
         )
 

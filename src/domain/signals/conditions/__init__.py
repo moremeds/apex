@@ -18,15 +18,15 @@ Usage:
 """
 
 from .evaluators import (
+    EVALUATORS,
     ConditionEvaluator,
-    ThresholdCrossUpEvaluator,
-    ThresholdCrossDownEvaluator,
-    StateChangeEvaluator,
-    CrossUpEvaluator,
     CrossDownEvaluator,
+    CrossUpEvaluator,
     RangeEntryEvaluator,
     RangeExitEvaluator,
-    EVALUATORS,
+    StateChangeEvaluator,
+    ThresholdCrossDownEvaluator,
+    ThresholdCrossUpEvaluator,
 )
 
 __all__ = [

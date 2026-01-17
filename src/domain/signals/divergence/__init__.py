@@ -8,9 +8,9 @@ Provides tools for detecting:
 - Confluence scoring
 """
 
-from .price_divergence import PriceDivergenceDetector
-from .cross_divergence import CrossIndicatorAnalyzer
 from .confluence import MTFDivergenceAnalyzer
+from .cross_divergence import CrossIndicatorAnalyzer
+from .price_divergence import PriceDivergenceDetector
 
 __all__ = [
     "PriceDivergenceDetector",

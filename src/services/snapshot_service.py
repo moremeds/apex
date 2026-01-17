@@ -88,23 +88,17 @@ class SnapshotService:
 
         # Start position snapshot task
         if self._config.position_interval_sec > 0 and self._get_positions:
-            self._position_task = asyncio.create_task(
-                self._position_capture_loop()
-            )
+            self._position_task = asyncio.create_task(self._position_capture_loop())
             logger.info(f"Position snapshots: every {self._config.position_interval_sec}s")
 
         # Start account snapshot task
         if self._config.account_interval_sec > 0 and self._get_account:
-            self._account_task = asyncio.create_task(
-                self._account_capture_loop()
-            )
+            self._account_task = asyncio.create_task(self._account_capture_loop())
             logger.info(f"Account snapshots: every {self._config.account_interval_sec}s")
 
         # Start risk snapshot task
         if self._config.risk_interval_sec > 0 and self._get_risk_snapshot:
-            self._risk_task = asyncio.create_task(
-                self._risk_capture_loop()
-            )
+            self._risk_task = asyncio.create_task(self._risk_capture_loop())
             logger.info(f"Risk snapshots: every {self._config.risk_interval_sec}s")
 
     async def stop(self) -> None:
@@ -162,7 +156,9 @@ class SnapshotService:
                 )
                 await self._position_repo.upsert(snapshot)
 
-            logger.debug(f"Captured position snapshots for {len(positions_by_broker)} broker/accounts")
+            logger.debug(
+                f"Captured position snapshots for {len(positions_by_broker)} broker/accounts"
+            )
 
         except Exception as e:
             logger.error(f"Failed to capture position snapshot: {e}")
@@ -188,7 +184,9 @@ class SnapshotService:
                 )
                 await self._account_repo.upsert(snapshot)
 
-            logger.debug(f"Captured account snapshots for {len(accounts_by_broker)} broker/accounts")
+            logger.debug(
+                f"Captured account snapshots for {len(accounts_by_broker)} broker/accounts"
+            )
 
         except Exception as e:
             logger.error(f"Failed to capture account snapshot: {e}")
@@ -203,9 +201,7 @@ class SnapshotService:
             risk_snapshot = self._get_risk_snapshot()
 
             if risk_snapshot:
-                record = RiskSnapshotRepository.from_risk_snapshot(
-                    risk_snapshot, snapshot_time
-                )
+                record = RiskSnapshotRepository.from_risk_snapshot(risk_snapshot, snapshot_time)
                 await self._risk_repo.insert(record)
                 logger.debug("Captured risk snapshot")
 
@@ -325,10 +321,7 @@ class SnapshotService:
             return {k: self._serialize_value(v) for k, v in value.items()}
         elif hasattr(value, "__dict__"):
             # Nested dataclass/object
-            return {
-                "__type__": type(value).__name__,
-                **self._serialize_position(value)
-            }
+            return {"__type__": type(value).__name__, **self._serialize_position(value)}
         else:
             return str(value)
 

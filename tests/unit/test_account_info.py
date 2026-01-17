@@ -4,8 +4,10 @@ Unit tests for account info fetching from IBKR.
 Tests the mapping of IBKR account summary tags to AccountInfo model.
 """
 
-import pytest
 from datetime import datetime
+
+import pytest
+
 from src.models.account import AccountInfo
 
 
@@ -23,7 +25,7 @@ def test_account_info_model():
         realized_pnl=5000.0,
         unrealized_pnl=3000.0,
         timestamp=datetime.now(),
-        account_id="U12345678"
+        account_id="U12345678",
     )
 
     # Test margin utilization calculation

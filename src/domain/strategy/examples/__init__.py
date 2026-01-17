@@ -30,14 +30,14 @@ Feature coverage by strategy:
 +---------------------------+--------+--------+-------+------+-------+---------+------+
 """
 
-from .ma_cross import MovingAverageCrossStrategy
 from .buy_and_hold import BuyAndHoldStrategy
-from .rsi_mean_reversion import RsiMeanReversionStrategy
+from .ma_cross import MovingAverageCrossStrategy
 from .momentum_breakout import MomentumBreakoutStrategy
+from .mtf_rsi_trend import MTFRsiTrendStrategy
 from .pairs_trading import PairsTradingStrategy
+from .rsi_mean_reversion import RsiMeanReversionStrategy
 from .scheduled_rebalance import ScheduledRebalanceStrategy
 from .ta_metrics_strategy import TAMetricsStrategy
-from .mtf_rsi_trend import MTFRsiTrendStrategy
 
 __all__ = [
     # Basic strategies

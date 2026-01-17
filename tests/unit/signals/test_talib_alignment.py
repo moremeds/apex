@@ -41,13 +41,16 @@ def sample_ohlcv() -> pd.DataFrame:
 
     dates = pd.date_range("2024-01-01", periods=n, freq="D")
 
-    return pd.DataFrame({
-        "open": open_,
-        "high": high,
-        "low": low,
-        "close": close,
-        "volume": np.random.randint(1000000, 10000000, n).astype(float),
-    }, index=dates)
+    return pd.DataFrame(
+        {
+            "open": open_,
+            "high": high,
+            "low": low,
+            "close": close,
+            "volume": np.random.randint(1000000, 10000000, n).astype(float),
+        },
+        index=dates,
+    )
 
 
 class TestRSIAlignment:
@@ -57,6 +60,7 @@ class TestRSIAlignment:
     def apex_rsi(self):
         """Get APEX RSI indicator."""
         from src.domain.signals.indicators.registry import get_indicator_registry
+
         registry = get_indicator_registry()
         return registry.get("rsi")
 
@@ -84,9 +88,11 @@ class TestRSIAlignment:
 
         # Assert alignment
         np.testing.assert_allclose(
-            apex_clean, talib_clean,
-            atol=1e-6, rtol=1e-4,
-            err_msg="RSI values differ from TA-Lib reference"
+            apex_clean,
+            talib_clean,
+            atol=1e-6,
+            rtol=1e-4,
+            err_msg="RSI values differ from TA-Lib reference",
         )
 
 
@@ -97,6 +103,7 @@ class TestMACDAlignment:
     def apex_macd(self):
         """Get APEX MACD indicator."""
         from src.domain.signals.indicators.registry import get_indicator_registry
+
         registry = get_indicator_registry()
         return registry.get("macd")
 
@@ -106,12 +113,15 @@ class TestMACDAlignment:
             pytest.skip("MACD indicator not registered")
 
         # Calculate APEX MACD
-        result = apex_macd.calculate(sample_ohlcv, {
-            "symbol": "TEST",
-            "fast_period": 12,
-            "slow_period": 26,
-            "signal_period": 9,
-        })
+        result = apex_macd.calculate(
+            sample_ohlcv,
+            {
+                "symbol": "TEST",
+                "fast_period": 12,
+                "slow_period": 26,
+                "signal_period": 9,
+            },
+        )
 
         # Calculate TA-Lib MACD
         talib_macd, talib_signal, talib_hist = talib.MACD(
@@ -129,9 +139,11 @@ class TestMACDAlignment:
             talib_macd_clean = talib_macd[warmup:]
             mask = ~np.isnan(talib_macd_clean) & ~np.isnan(apex_macd_line)
             np.testing.assert_allclose(
-                apex_macd_line[mask], talib_macd_clean[mask],
-                atol=1e-6, rtol=1e-4,
-                err_msg="MACD line differs from TA-Lib"
+                apex_macd_line[mask],
+                talib_macd_clean[mask],
+                atol=1e-6,
+                rtol=1e-4,
+                err_msg="MACD line differs from TA-Lib",
             )
 
         # Compare histogram
@@ -140,9 +152,11 @@ class TestMACDAlignment:
             talib_hist_clean = talib_hist[warmup:]
             mask = ~np.isnan(talib_hist_clean) & ~np.isnan(apex_hist)
             np.testing.assert_allclose(
-                apex_hist[mask], talib_hist_clean[mask],
-                atol=1e-6, rtol=1e-4,
-                err_msg="MACD histogram differs from TA-Lib"
+                apex_hist[mask],
+                talib_hist_clean[mask],
+                atol=1e-6,
+                rtol=1e-4,
+                err_msg="MACD histogram differs from TA-Lib",
             )
 
 
@@ -153,6 +167,7 @@ class TestADXAlignment:
     def apex_adx(self):
         """Get APEX ADX indicator."""
         from src.domain.signals.indicators.registry import get_indicator_registry
+
         registry = get_indicator_registry()
         return registry.get("adx")
 
@@ -181,9 +196,11 @@ class TestADXAlignment:
 
             # ADX can have larger variance due to smoothing differences
             np.testing.assert_allclose(
-                apex_adx_vals[mask], talib_adx_clean[mask],
-                atol=1.0, rtol=0.05,  # More lenient for ADX
-                err_msg="ADX values differ from TA-Lib"
+                apex_adx_vals[mask],
+                talib_adx_clean[mask],
+                atol=1.0,
+                rtol=0.05,  # More lenient for ADX
+                err_msg="ADX values differ from TA-Lib",
             )
 
 
@@ -194,6 +211,7 @@ class TestATRAlignment:
     def apex_atr(self):
         """Get APEX ATR indicator."""
         from src.domain.signals.indicators.registry import get_indicator_registry
+
         registry = get_indicator_registry()
         return registry.get("atr")
 
@@ -230,9 +248,11 @@ class TestATRAlignment:
         mask = ~np.isnan(talib_atr_clean) & ~np.isnan(apex_atr_vals)
 
         np.testing.assert_allclose(
-            apex_atr_vals[mask], talib_atr_clean[mask],
-            atol=1e-6, rtol=1e-4,
-            err_msg="ATR values differ from TA-Lib"
+            apex_atr_vals[mask],
+            talib_atr_clean[mask],
+            atol=1e-6,
+            rtol=1e-4,
+            err_msg="ATR values differ from TA-Lib",
         )
 
 
@@ -243,6 +263,7 @@ class TestSMAAlignment:
     def apex_sma(self):
         """Get APEX SMA indicator."""
         from src.domain.signals.indicators.registry import get_indicator_registry
+
         registry = get_indicator_registry()
         return registry.get("sma")
 
@@ -275,9 +296,11 @@ class TestSMAAlignment:
         mask = ~np.isnan(talib_sma_clean) & ~np.isnan(apex_sma_vals)
 
         np.testing.assert_allclose(
-            apex_sma_vals[mask], talib_sma_clean[mask],
-            atol=1e-10, rtol=1e-10,  # SMA should be exact
-            err_msg=f"SMA({period}) values differ from TA-Lib"
+            apex_sma_vals[mask],
+            talib_sma_clean[mask],
+            atol=1e-10,
+            rtol=1e-10,  # SMA should be exact
+            err_msg=f"SMA({period}) values differ from TA-Lib",
         )
 
 
@@ -288,6 +311,7 @@ class TestEMAAlignment:
     def apex_ema(self):
         """Get APEX EMA indicator."""
         from src.domain.signals.indicators.registry import get_indicator_registry
+
         registry = get_indicator_registry()
         return registry.get("ema")
 
@@ -320,9 +344,11 @@ class TestEMAAlignment:
         mask = ~np.isnan(talib_ema_clean) & ~np.isnan(apex_ema_vals)
 
         np.testing.assert_allclose(
-            apex_ema_vals[mask], talib_ema_clean[mask],
-            atol=1e-4, rtol=1e-3,  # EMA can vary due to initialization
-            err_msg=f"EMA({period}) values differ from TA-Lib"
+            apex_ema_vals[mask],
+            talib_ema_clean[mask],
+            atol=1e-4,
+            rtol=1e-3,  # EMA can vary due to initialization
+            err_msg=f"EMA({period}) values differ from TA-Lib",
         )
 
 
@@ -333,6 +359,7 @@ class TestBBandsAlignment:
     def apex_bbands(self):
         """Get APEX Bollinger Bands indicator."""
         from src.domain.signals.indicators.registry import get_indicator_registry
+
         registry = get_indicator_registry()
         return registry.get("bollinger")
 
@@ -342,11 +369,14 @@ class TestBBandsAlignment:
             pytest.skip("Bollinger Bands indicator not registered")
 
         # Calculate APEX BBands
-        result = apex_bbands.calculate(sample_ohlcv, {
-            "symbol": "TEST",
-            "period": 20,
-            "std_dev": 2.0,
-        })
+        result = apex_bbands.calculate(
+            sample_ohlcv,
+            {
+                "symbol": "TEST",
+                "period": 20,
+                "std_dev": 2.0,
+            },
+        )
 
         # Calculate TA-Lib BBands
         upper, middle, lower = talib.BBANDS(
@@ -364,9 +394,11 @@ class TestBBandsAlignment:
             talib_middle = middle[warmup:]
             mask = ~np.isnan(talib_middle) & ~np.isnan(apex_middle)
             np.testing.assert_allclose(
-                apex_middle[mask], talib_middle[mask],
-                atol=1e-6, rtol=1e-4,
-                err_msg="Bollinger middle band differs from TA-Lib"
+                apex_middle[mask],
+                talib_middle[mask],
+                atol=1e-6,
+                rtol=1e-4,
+                err_msg="Bollinger middle band differs from TA-Lib",
             )
 
         # Compare upper band
@@ -375,9 +407,11 @@ class TestBBandsAlignment:
             talib_upper = upper[warmup:]
             mask = ~np.isnan(talib_upper) & ~np.isnan(apex_upper)
             np.testing.assert_allclose(
-                apex_upper[mask], talib_upper[mask],
-                atol=1e-6, rtol=1e-4,
-                err_msg="Bollinger upper band differs from TA-Lib"
+                apex_upper[mask],
+                talib_upper[mask],
+                atol=1e-6,
+                rtol=1e-4,
+                err_msg="Bollinger upper band differs from TA-Lib",
             )
 
 
@@ -388,6 +422,7 @@ class TestCCIAlignment:
     def apex_cci(self):
         """Get APEX CCI indicator."""
         from src.domain.signals.indicators.registry import get_indicator_registry
+
         registry = get_indicator_registry()
         return registry.get("cci")
 
@@ -424,7 +459,9 @@ class TestCCIAlignment:
         mask = ~np.isnan(talib_cci_clean) & ~np.isnan(apex_cci_vals)
 
         np.testing.assert_allclose(
-            apex_cci_vals[mask], talib_cci_clean[mask],
-            atol=1e-6, rtol=1e-4,
-            err_msg="CCI values differ from TA-Lib"
+            apex_cci_vals[mask],
+            talib_cci_clean[mask],
+            atol=1e-6,
+            rtol=1e-4,
+            err_msg="CCI values differ from TA-Lib",
         )

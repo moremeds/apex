@@ -24,10 +24,10 @@ from .cv import PurgedTimeSeriesSplit
 from .features import TurningPointFeatures, extract_features
 from .labels import (
     CurrentTurningPointState,
-    TurnType,
     TurningPointHistory,
     TurningPointLabeler,
     TurningPointRecord,
+    TurnType,
     ZigZagPivot,
 )
 from .model import TurningPointModel, TurningPointOutput

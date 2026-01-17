@@ -135,9 +135,7 @@ class ADXIndicator(IndicatorBase):
                 smoothed_plus_dm[i - 1] - (smoothed_plus_dm[i - 1] / period) + plus_dm[i]
             )
             smoothed_minus_dm[i] = (
-                smoothed_minus_dm[i - 1]
-                - (smoothed_minus_dm[i - 1] / period)
-                + minus_dm[i]
+                smoothed_minus_dm[i - 1] - (smoothed_minus_dm[i - 1] / period) + minus_dm[i]
             )
 
         # +DI and -DI

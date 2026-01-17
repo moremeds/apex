@@ -9,15 +9,15 @@ This script demonstrates:
 
 import sys
 import time
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from config.config_manager import ConfigManager
 from src.utils.logging_setup import setup_logging
-from src.utils.structured_logger import StructuredLogger, LogCategory
+from src.utils.structured_logger import LogCategory, StructuredLogger
 
 
 def main():
@@ -54,7 +54,7 @@ def main():
     # Get the file handler
     file_handler = None
     for handler in logger.handlers:
-        if hasattr(handler, 'doRollover'):
+        if hasattr(handler, "doRollover"):
             file_handler = handler
             break
 
@@ -113,7 +113,7 @@ def main():
 
     print(f"   ✓ Found {len(log_files)} log file(s):")
 
-    today = datetime.now().strftime('%Y-%m-%d')
+    today = datetime.now().strftime("%Y-%m-%d")
     expected_pattern = f"live_risk_{today}_"
 
     for log_file in log_files:
@@ -121,7 +121,7 @@ def main():
         print(f"     - {log_file.name} ({size} bytes)")
 
         # Count lines in file
-        with open(log_file, 'r') as f:
+        with open(log_file, "r") as f:
             line_count = len(f.readlines())
         print(f"       Lines: {line_count}")
 

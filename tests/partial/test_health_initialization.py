@@ -3,16 +3,16 @@ Test that health components are properly initialized and displayed.
 """
 
 import sys
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src.tui.dashboard import TerminalDashboard
-from src.models.risk_snapshot import RiskSnapshot
-from src.infrastructure.monitoring import ComponentHealth, HealthStatus, HealthMonitor, Watchdog
 from src.application.simple_event_bus import SimpleEventBus
+from src.infrastructure.monitoring import ComponentHealth, HealthMonitor, HealthStatus, Watchdog
+from src.models.risk_snapshot import RiskSnapshot
+from src.tui.dashboard import TerminalDashboard
 
 
 def test_health_initialization():
@@ -33,28 +33,16 @@ def test_health_initialization():
             "initial": 1,
             "max": 60,
             "factor": 2,
-        }
+        },
     }
 
-    watchdog = Watchdog(
-        health_monitor=health_monitor,
-        event_bus=event_bus,
-        config=watchdog_config
-    )
+    watchdog = Watchdog(health_monitor=health_monitor, event_bus=event_bus, config=watchdog_config)
     print("   ✓ Watchdog created")
 
     # Simulate connection health updates
     print("\n2. Simulating provider connections...")
-    health_monitor.update_component_health(
-        "ib_adapter",
-        HealthStatus.HEALTHY,
-        "Connected"
-    )
-    health_monitor.update_component_health(
-        "file_loader",
-        HealthStatus.HEALTHY,
-        "Loaded"
-    )
+    health_monitor.update_component_health("ib_adapter", HealthStatus.HEALTHY, "Connected")
+    health_monitor.update_component_health("file_loader", HealthStatus.HEALTHY, "Loaded")
     print("   ✓ Provider health updated")
 
     # Get all health components
@@ -63,7 +51,15 @@ def test_health_initialization():
     print(f"   ✓ Found {len(health_list)} health components:")
 
     for h in health_list:
-        icon = "✓" if h.status == HealthStatus.HEALTHY else "⚠" if h.status == HealthStatus.DEGRADED else "✗" if h.status == HealthStatus.UNHEALTHY else "○"
+        icon = (
+            "✓"
+            if h.status == HealthStatus.HEALTHY
+            else (
+                "⚠"
+                if h.status == HealthStatus.DEGRADED
+                else "✗" if h.status == HealthStatus.UNHEALTHY else "○"
+            )
+        )
         print(f"     {icon} {h.component_name}: {h.message}")
 
     # Create dashboard and render
@@ -77,6 +73,7 @@ def test_health_initialization():
 
     # Render health panel
     from rich.console import Console
+
     console = Console()
 
     print("\n5. Health panel:")
@@ -85,7 +82,12 @@ def test_health_initialization():
 
     # Verify all expected components are present
     print("\n6. Verification:")
-    expected_components = ["ib_adapter", "file_loader", "market_data_coverage", "snapshot_freshness"]
+    expected_components = [
+        "ib_adapter",
+        "file_loader",
+        "market_data_coverage",
+        "snapshot_freshness",
+    ]
     component_names = [h.component_name for h in health_list]
 
     all_present = all(name in component_names for name in expected_components)

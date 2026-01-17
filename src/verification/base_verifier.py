@@ -382,9 +382,7 @@ class BaseVerifier(ABC):
         )
 
     @abstractmethod
-    def _evaluate_assertion(
-        self, assert_name: str, check: Dict
-    ) -> Tuple[bool, str, Dict]:
+    def _evaluate_assertion(self, assert_name: str, check: Dict) -> Tuple[bool, str, Dict]:
         """Evaluate a named assertion. Subclass must implement."""
         ...
 

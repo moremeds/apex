@@ -100,8 +100,8 @@ class TestDSRCalculator:
         # With few observations, SE is high, so expected max in original units is high
         dsr, p_value = calc.calculate(
             observed_sharpe=0.2,  # Very low Sharpe
-            n_trials=1000,        # Many trials (data mining)
-            n_observations=63,    # Just 3 months of data (high variance)
+            n_trials=1000,  # Many trials (data mining)
+            n_observations=63,  # Just 3 months of data (high variance)
         )
 
         # Low Sharpe that doesn't exceed expected max should have low DSR
@@ -148,9 +148,9 @@ class TestDSRCalculator:
         # Use lower Sharpe and fewer observations to avoid CDF saturation
         # This makes the effect of multiple testing more visible
         dsr_few, _ = calc.calculate(
-            observed_sharpe=0.8,   # Moderate Sharpe
+            observed_sharpe=0.8,  # Moderate Sharpe
             n_trials=5,
-            n_observations=126,   # 6 months
+            n_observations=126,  # 6 months
         )
 
         # Many trials - same Sharpe less significant

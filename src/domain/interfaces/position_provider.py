@@ -1,7 +1,8 @@
 """Position provider protocol for position data."""
 
 from __future__ import annotations
-from typing import Protocol, List, Optional, Callable, Dict, runtime_checkable
+
+from typing import Callable, Dict, List, Optional, Protocol, runtime_checkable
 
 from ..events.domain_events import PositionSnapshot
 
@@ -62,10 +63,7 @@ class PositionProvider(Protocol):
         """
         ...
 
-    async def fetch_positions_by_underlying(
-        self,
-        underlying: str
-    ) -> List[PositionSnapshot]:
+    async def fetch_positions_by_underlying(self, underlying: str) -> List[PositionSnapshot]:
         """
         Fetch all positions for an underlying.
 
@@ -92,8 +90,7 @@ class PositionProvider(Protocol):
         ...
 
     def set_position_callback(
-        self,
-        callback: Optional[Callable[[List[PositionSnapshot]], None]]
+        self, callback: Optional[Callable[[List[PositionSnapshot]], None]]
     ) -> None:
         """
         Set callback for position updates.
@@ -124,10 +121,7 @@ class PositionProvider(Protocol):
         """
         ...
 
-    def get_positions_by_asset_type(
-        self,
-        asset_type: str
-    ) -> List[PositionSnapshot]:
+    def get_positions_by_asset_type(self, asset_type: str) -> List[PositionSnapshot]:
         """
         Get positions filtered by asset type.
 

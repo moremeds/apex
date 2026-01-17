@@ -107,9 +107,7 @@ def calculate_position_greeks(
 
     # Options/Futures: use market Greeks from IBKR
     # Missing Greeks are treated as zero (off-hours, connection issues)
-    has_any_greeks = any(
-        g is not None for g in (raw_delta, raw_gamma, raw_vega, raw_theta)
-    )
+    has_any_greeks = any(g is not None for g in (raw_delta, raw_gamma, raw_vega, raw_theta))
 
     return GreeksResult(
         delta=(raw_delta or 0.0) * qty_mult,
@@ -161,7 +159,7 @@ def calculate_near_term_greeks(
 
     # Near-term gamma (0-7 DTE by default)
     if days_to_expiry <= near_term_gamma_dte:
-        gamma_notional = abs((gamma or 0.0) * (mark_price ** 2) * gamma_factor * qty_mult)
+        gamma_notional = abs((gamma or 0.0) * (mark_price**2) * gamma_factor * qty_mult)
 
     # Near-term vega (0-30 DTE by default)
     if days_to_expiry <= near_term_vega_dte:

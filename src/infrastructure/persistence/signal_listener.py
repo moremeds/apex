@@ -13,7 +13,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 import asyncpg
 
@@ -284,8 +284,7 @@ class SignalListener:
                 self._connected = False
                 self._reconnect_count += 1
                 logger.error(
-                    f"SignalListener unexpected error: {e}, "
-                    f"reconnecting in {delay:.1f}s"
+                    f"SignalListener unexpected error: {e}, " f"reconnecting in {delay:.1f}s"
                 )
                 await self._disconnect()
                 await asyncio.sleep(delay)

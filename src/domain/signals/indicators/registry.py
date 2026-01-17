@@ -33,9 +33,7 @@ class IndicatorRegistry:
     def __init__(self) -> None:
         """Initialize empty registry."""
         self._indicators: Dict[str, Indicator] = {}
-        self._by_category: Dict[SignalCategory, Set[str]] = {
-            cat: set() for cat in SignalCategory
-        }
+        self._by_category: Dict[SignalCategory, Set[str]] = {cat: set() for cat in SignalCategory}
 
     def clear(self) -> None:
         """Clear all registered indicators."""

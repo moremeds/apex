@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 def _sanitize_decimal(value: Any, default: Decimal | None = None) -> Decimal | None:
     """Convert Futu value to Decimal, handling N/A and empty strings."""
-    if value is None or value == '' or value == 'N/A' or str(value).upper() == 'N/A':
+    if value is None or value == "" or value == "N/A" or str(value).upper() == "N/A":
         return default
     try:
         return Decimal(str(value))
@@ -39,7 +39,7 @@ def _sanitize_decimal(value: Any, default: Decimal | None = None) -> Decimal | N
 
 def _sanitize_int(value: Any, default: int | None = None) -> int | None:
     """Convert Futu value to int, handling N/A and empty strings."""
-    if value is None or value == '' or value == 'N/A' or str(value).upper() == 'N/A':
+    if value is None or value == "" or value == "N/A" or str(value).upper() == "N/A":
         return default
     try:
         return int(float(value))
@@ -49,9 +49,9 @@ def _sanitize_int(value: Any, default: int | None = None) -> int | None:
 
 def _sanitize_str(value: Any, default: str | None = None) -> str | None:
     """Convert Futu value to string, handling N/A."""
-    if value is None or value == 'N/A' or str(value).upper() == 'N/A':
+    if value is None or value == "N/A" or str(value).upper() == "N/A":
         return default
-    return str(value) if value != '' else default
+    return str(value) if value != "" else default
 
 
 @dataclass
@@ -139,9 +139,7 @@ class FutuDealRepository(BaseRepository[FutuRawDeal]):
     # Query Methods
     # -------------------------------------------------------------------------
 
-    async def find_by_deal_id(
-        self, deal_id: str, account_id: str
-    ) -> Optional[FutuRawDeal]:
+    async def find_by_deal_id(self, deal_id: str, account_id: str) -> Optional[FutuRawDeal]:
         """
         Find deal by deal_id and account_id.
 
@@ -159,9 +157,7 @@ class FutuDealRepository(BaseRepository[FutuRawDeal]):
         record = await self._db.fetchrow(query, deal_id, account_id)
         return self._to_entity(record) if record else None
 
-    async def find_by_order_id(
-        self, order_id: str, account_id: str
-    ) -> List[FutuRawDeal]:
+    async def find_by_order_id(self, order_id: str, account_id: str) -> List[FutuRawDeal]:
         """
         Find all deals for a specific order.
 

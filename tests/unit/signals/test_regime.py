@@ -42,7 +42,6 @@ from src.domain.signals.indicators.regime import (
     generate_counterfactual,
 )
 
-
 # =============================================================================
 # Unit Tests: Component State Classifications
 # =============================================================================

@@ -6,9 +6,11 @@ as SOFT (warning) or HARD (critical).
 """
 
 from __future__ import annotations
-from typing import Dict, List, Any
+
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any, Dict, List
+
 from src.models.risk_snapshot import RiskSnapshot
 from src.utils.logging_setup import get_logger
 
@@ -17,6 +19,7 @@ logger = get_logger(__name__)
 
 class BreachSeverity(Enum):
     """Breach severity levels."""
+
     SOFT = "SOFT"  # Warning threshold (e.g., 80% of limit)
     HARD = "HARD"  # Critical breach (limit exceeded)
 
@@ -24,6 +27,7 @@ class BreachSeverity(Enum):
 @dataclass
 class LimitBreach:
     """Represents a risk limit breach."""
+
     limit_name: str
     severity: BreachSeverity
     current_value: float
@@ -41,7 +45,9 @@ class LimitBreach:
         pct = self.breach_pct()
         if self.underlying:
             return f"{self.limit_name} [{self.underlying}]: {self.current_value:,.0f} / {self.limit_value:,.0f} ({pct:.1f}%)"
-        return f"{self.limit_name}: {self.current_value:,.0f} / {self.limit_value:,.0f} ({pct:.1f}%)"
+        return (
+            f"{self.limit_name}: {self.current_value:,.0f} / {self.limit_value:,.0f} ({pct:.1f}%)"
+        )
 
 
 class RuleEngine:
@@ -192,7 +198,9 @@ class RuleEngine:
 
         # Validate range_limits has exactly 2 elements
         if len(range_limits) != 2:
-            logger.error(f"Invalid range_limits for {name}: expected [min, max], got {range_limits}")
+            logger.error(
+                f"Invalid range_limits for {name}: expected [min, max], got {range_limits}"
+            )
             return []
 
         min_limit, max_limit = range_limits

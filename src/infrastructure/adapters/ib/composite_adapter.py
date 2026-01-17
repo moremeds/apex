@@ -28,20 +28,19 @@ Usage:
 from __future__ import annotations
 
 from collections import OrderedDict
-from typing import List, Dict, Optional, Callable, TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional
 
-from ....utils.logging_setup import get_logger
 from ....domain.interfaces.broker_adapter import BrokerAdapter
 from ....domain.interfaces.market_data_provider import MarketDataProvider
-from ....models.position import Position, AssetType, PositionSource
-from ....models.market_data import MarketData
 from ....models.account import AccountInfo
+from ....models.market_data import MarketData
 from ....models.order import Order, Trade
-
-from .connection_pool import IbConnectionPool, ConnectionPoolConfig
-from .live_adapter import IbLiveAdapter
-from .historical_adapter import IbHistoricalAdapter
+from ....models.position import AssetType, Position, PositionSource
+from ....utils.logging_setup import get_logger
+from .connection_pool import ConnectionPoolConfig, IbConnectionPool
 from .execution_adapter import IbExecutionAdapter
+from .historical_adapter import IbHistoricalAdapter
+from .live_adapter import IbLiveAdapter
 
 if TYPE_CHECKING:
     from ....domain.events import PriorityEventBus
@@ -336,18 +335,20 @@ class IbCompositeAdapter(BrokerAdapter, MarketDataProvider):
 
             trades = []
             for fill in fills:
-                trades.append(Trade(
-                    symbol=fill.symbol,
-                    underlying=fill.underlying,
-                    side=fill.side,
-                    quantity=fill.quantity,
-                    price=fill.price,
-                    commission=fill.commission,
-                    exec_id=fill.exec_id,
-                    order_id=fill.order_id,
-                    asset_type=fill.asset_type,
-                    timestamp=fill.timestamp,
-                ))
+                trades.append(
+                    Trade(
+                        symbol=fill.symbol,
+                        underlying=fill.underlying,
+                        side=fill.side,
+                        quantity=fill.quantity,
+                        price=fill.price,
+                        commission=fill.commission,
+                        exec_id=fill.exec_id,
+                        order_id=fill.order_id,
+                        asset_type=fill.asset_type,
+                        timestamp=fill.timestamp,
+                    )
+                )
 
             return trades
 
@@ -425,10 +426,7 @@ class IbCompositeAdapter(BrokerAdapter, MarketDataProvider):
             return self._live_adapter.get_latest(symbol)
         return self._market_data_cache.get(symbol)
 
-    def set_streaming_callback(
-        self,
-        callback: Optional[Callable[[str, MarketData], None]]
-    ) -> None:
+    def set_streaming_callback(self, callback: Optional[Callable[[str, MarketData], None]]) -> None:
         """Set callback for streaming market data updates."""
         self._streaming_callback = callback
         if self._live_adapter:
@@ -499,11 +497,9 @@ class IbCompositeAdapter(BrokerAdapter, MarketDataProvider):
         while len(self._market_data_cache) > self._market_data_cache_max_size:
             self._market_data_cache.popitem(last=False)
 
-    def _wrap_streaming_callback(
-        self,
-        callback: Callable[[str, MarketData], None]
-    ):
+    def _wrap_streaming_callback(self, callback: Callable[[str, MarketData], None]):
         """Wrap streaming callback to convert QuoteTick to symbol+MarketData."""
+
         def wrapper(quote_tick):
             # QuoteTick has symbol, bid, ask, last, timestamp
             md = MarketData(
@@ -515,6 +511,7 @@ class IbCompositeAdapter(BrokerAdapter, MarketDataProvider):
                 timestamp=quote_tick.timestamp,
             )
             callback(quote_tick.symbol, md)
+
         return wrapper
 
     def _order_update_to_order(self, order_update) -> Order:
@@ -547,6 +544,10 @@ class IbCompositeAdapter(BrokerAdapter, MarketDataProvider):
             "connected": self.is_connected(),
             "pool_status": self._pool.get_status() if self._pool else None,
             "live_connected": self._live_adapter.is_connected() if self._live_adapter else False,
-            "historical_connected": self._historical_adapter.is_connected() if self._historical_adapter else False,
-            "execution_connected": self._execution_adapter.is_connected() if self._execution_adapter else False,
+            "historical_connected": (
+                self._historical_adapter.is_connected() if self._historical_adapter else False
+            ),
+            "execution_connected": (
+                self._execution_adapter.is_connected() if self._execution_adapter else False
+            ),
         }

@@ -52,9 +52,7 @@ class VolumeRatioIndicator(IndicatorBase):
         period = params["period"]
 
         if len(data) == 0:
-            return pd.DataFrame(
-                {"volume_ratio": pd.Series(dtype=float)}, index=data.index
-            )
+            return pd.DataFrame({"volume_ratio": pd.Series(dtype=float)}, index=data.index)
 
         volume = data["volume"].values.astype(np.float64)
         n = len(volume)

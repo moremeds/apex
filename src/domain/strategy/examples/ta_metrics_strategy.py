@@ -16,23 +16,24 @@ This strategy demonstrates:
 - Walk-forward compatible design
 """
 
+import logging
+import math
 from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Deque, Dict, List, Optional
-import logging
-import math
 
+from ...events.domain_events import BarData, QuoteTick
+from ...interfaces.execution_provider import OrderRequest
 from ..base import Strategy, StrategyContext, TradingSignal
 from ..registry import register_strategy
-from ...events.domain_events import QuoteTick, BarData
-from ...interfaces.execution_provider import OrderRequest
 
 logger = logging.getLogger(__name__)
 
 
 class Signal(Enum):
     """Signal types from indicators."""
+
     STRONG_BUY = 2
     BUY = 1
     NEUTRAL = 0
@@ -43,6 +44,7 @@ class Signal(Enum):
 @dataclass
 class IndicatorValues:
     """Current values of all indicators."""
+
     # Moving Averages
     sma_fast: Optional[float] = None
     sma_slow: Optional[float] = None
@@ -77,6 +79,7 @@ class MetricsMatrix:
 
     Total score range: -7 to +7
     """
+
     ma_crossover_score: int = 0
     rsi_score: int = 0
     macd_score: int = 0
@@ -85,12 +88,7 @@ class MetricsMatrix:
     @property
     def total_score(self) -> int:
         """Total signal score."""
-        return (
-            self.ma_crossover_score +
-            self.rsi_score +
-            self.macd_score +
-            self.trend_score
-        )
+        return self.ma_crossover_score + self.rsi_score + self.macd_score + self.trend_score
 
     @property
     def signal(self) -> Signal:
@@ -206,8 +204,7 @@ class TAMetricsStrategy(Strategy):
 
         # Price history per symbol
         self._prices: Dict[str, Deque[float]] = {
-            symbol: deque(maxlen=self.max_lookback + 50)
-            for symbol in symbols
+            symbol: deque(maxlen=self.max_lookback + 50) for symbol in symbols
         }
 
         # EMA state (requires running calculation)
@@ -216,9 +213,7 @@ class TAMetricsStrategy(Strategy):
         self._macd_signal_ema: Dict[str, Optional[float]] = {s: None for s in symbols}
 
         # Previous indicator values for crossover detection
-        self._prev_indicators: Dict[str, Optional[IndicatorValues]] = {
-            s: None for s in symbols
-        }
+        self._prev_indicators: Dict[str, Optional[IndicatorValues]] = {s: None for s in symbols}
 
         # Track last action to avoid duplicate signals
         self._last_action: Dict[str, Optional[str]] = {s: None for s in symbols}
@@ -299,12 +294,8 @@ class TAMetricsStrategy(Strategy):
         indicators.sma_slow = self._sma(prices, self.sma_slow)
 
         # EMA (exponential moving average)
-        indicators.ema_fast = self._update_ema(
-            symbol, "_ema_fast", price, self.ema_fast
-        )
-        indicators.ema_slow = self._update_ema(
-            symbol, "_ema_slow", price, self.ema_slow
-        )
+        indicators.ema_fast = self._update_ema(symbol, "_ema_fast", price, self.ema_fast)
+        indicators.ema_slow = self._update_ema(symbol, "_ema_slow", price, self.ema_slow)
 
         # --- RSI ---
         indicators.rsi = self._calculate_rsi(prices, self.rsi_period)
@@ -325,9 +316,7 @@ class TAMetricsStrategy(Strategy):
 
         return indicators
 
-    def _build_metrics_matrix(
-        self, symbol: str, indicators: IndicatorValues
-    ) -> MetricsMatrix:
+    def _build_metrics_matrix(self, symbol: str, indicators: IndicatorValues) -> MetricsMatrix:
         """Build the signal scoring matrix."""
         matrix = MetricsMatrix()
         prev = self._prev_indicators.get(symbol)
@@ -389,9 +378,7 @@ class TAMetricsStrategy(Strategy):
 
         return matrix
 
-    def _execute_buy(
-        self, symbol: str, price: float, matrix: MetricsMatrix
-    ) -> None:
+    def _execute_buy(self, symbol: str, price: float, matrix: MetricsMatrix) -> None:
         """Execute buy order."""
         # Calculate position size based on signal strength
         if self.scale_by_strength:
@@ -442,9 +429,7 @@ class TAMetricsStrategy(Strategy):
             return None
         return sum(prices[-period:]) / period
 
-    def _update_ema(
-        self, symbol: str, attr: str, value: float, period: int
-    ) -> Optional[float]:
+    def _update_ema(self, symbol: str, attr: str, value: float, period: int) -> Optional[float]:
         """Update Exponential Moving Average with new value."""
         ema_dict = getattr(self, attr)
         prev_ema = ema_dict.get(symbol)
@@ -470,7 +455,7 @@ class TAMetricsStrategy(Strategy):
             return None
 
         # Calculate price changes
-        changes = [prices[i] - prices[i-1] for i in range(1, len(prices))]
+        changes = [prices[i] - prices[i - 1] for i in range(1, len(prices))]
 
         # Get last 'period' changes
         recent_changes = changes[-(period):]

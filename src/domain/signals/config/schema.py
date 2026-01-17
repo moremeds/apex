@@ -22,9 +22,21 @@ logger = get_logger(__name__)
 
 # Valid timeframe values (must match data provider capabilities)
 VALID_TIMEFRAMES: Set[str] = {
-    "1m", "2m", "3m", "5m", "10m", "15m", "30m",
-    "1h", "2h", "4h", "8h", "12h",
-    "1d", "1w", "1M",
+    "1m",
+    "2m",
+    "3m",
+    "5m",
+    "10m",
+    "15m",
+    "30m",
+    "1h",
+    "2h",
+    "4h",
+    "8h",
+    "12h",
+    "1d",
+    "1w",
+    "1M",
 }
 
 

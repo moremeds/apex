@@ -1,11 +1,12 @@
 """Integration tests for PriorityEventBus latency and performance."""
 
 import asyncio
-import time
-import pytest
 import statistics
+import time
 
-from src.domain.events import PriorityEventBus, EventType
+import pytest
+
+from src.domain.events import EventType, PriorityEventBus
 
 
 class TestTickLatency:
@@ -87,7 +88,9 @@ class TestTickLatency:
         avg_risk = statistics.mean(risk_latencies)
 
         # Risk should not be significantly worse (allows for some jitter)
-        assert avg_risk <= avg_tick * 2, f"Risk latency {avg_risk*1000:.2f}ms much worse than tick {avg_tick*1000:.2f}ms"
+        assert (
+            avg_risk <= avg_tick * 2
+        ), f"Risk latency {avg_risk*1000:.2f}ms much worse than tick {avg_tick*1000:.2f}ms"
 
         await bus.stop()
 
@@ -286,6 +289,8 @@ class TestPriorityFairness:
         risk_in_first_ten = sum(1 for event_type, _ in first_ten if event_type == "risk")
 
         # At least 5 of the 10 risk events should be in first 10 processed
-        assert risk_in_first_ten >= 5, f"Only {risk_in_first_ten} risk events in first 10, expected >= 5. Order: {first_ten}"
+        assert (
+            risk_in_first_ten >= 5
+        ), f"Only {risk_in_first_ten} risk events in first 10, expected >= 5. Order: {first_ten}"
 
         await bus.stop()

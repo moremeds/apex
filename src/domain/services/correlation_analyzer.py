@@ -8,20 +8,20 @@ Detects:
 """
 
 from __future__ import annotations
-from datetime import datetime
-from typing import Dict, List, Any, Optional
-from collections import defaultdict
 
-from ...models.risk_snapshot import RiskSnapshot
+from collections import defaultdict
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
 from ...models.risk_signal import (
     RiskSignal,
     SignalLevel,
     SignalSeverity,
     SuggestedAction,
 )
-from .risk.threshold import Threshold, ThresholdDirection
+from ...models.risk_snapshot import RiskSnapshot
 from ...utils.logging_setup import get_logger
-
+from .risk.threshold import Threshold, ThresholdDirection
 
 logger = get_logger(__name__)
 
@@ -138,7 +138,11 @@ class CorrelationAnalyzer:
             severity_str = self.concentration_threshold.check(concentration)
             if severity_str:
                 breach_pct = self.concentration_threshold.breach_pct(concentration) * 100
-                severity = SignalSeverity.CRITICAL if severity_str == "CRITICAL" else SignalSeverity.WARNING
+                severity = (
+                    SignalSeverity.CRITICAL
+                    if severity_str == "CRITICAL"
+                    else SignalSeverity.WARNING
+                )
 
                 # Get symbols in this sector
                 sector_symbols = [

@@ -13,27 +13,25 @@ Architecture:
 """
 
 from __future__ import annotations
-from typing import List, Optional, Callable, Any
-from datetime import datetime
-from concurrent.futures import ThreadPoolExecutor
-import threading
+
+import asyncio
 import functools
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
+from typing import Any, Callable, List, Optional
 
 from ....domain.events import PriorityEventBus
-from ....utils.logging_setup import get_logger
-import asyncio
-
 from ....domain.interfaces.broker_adapter import BrokerAdapter
 from ....domain.interfaces.event_bus import EventBus, EventType
-from ....models.position import Position
 from ....models.account import AccountInfo
 from ....models.order import Order, Trade
-
-from .trade_handler import create_trade_handler
-from .position_fetcher import PositionFetcher
+from ....models.position import Position
+from ....utils.logging_setup import get_logger
 from .account_fetcher import AccountFetcher
 from .order_fetcher import OrderFetcher
-
+from .position_fetcher import PositionFetcher
+from .trade_handler import create_trade_handler
 
 logger = get_logger(__name__)
 
@@ -142,11 +140,11 @@ class FutuAdapter(BrokerAdapter):
 
         try:
             from futu import (
+                RET_OK,
                 OpenSecTradeContext,
-                TrdMarket,
                 SecurityFirm,
                 TrdEnv,
-                RET_OK,
+                TrdMarket,
             )
 
             trd_market = getattr(TrdMarket, self.filter_trading_market, TrdMarket.US)
@@ -247,22 +245,24 @@ class FutuAdapter(BrokerAdapter):
     def _on_trade_received(self, trade_data: dict) -> None:
         """Callback invoked when a trade is received via push."""
         try:
-            code = trade_data.get('code', 'unknown')
-            qty = trade_data.get('qty', 0)
-            trd_side = trade_data.get('trd_side', 'unknown')
+            code = trade_data.get("code", "unknown")
+            qty = trade_data.get("qty", 0)
+            trd_side = trade_data.get("trd_side", "unknown")
 
             logger.info(
-                f"Trade notification: {code} qty={qty} side={trd_side} - "
-                "refreshing positions"
+                f"Trade notification: {code} qty={qty} side={trd_side} - " "refreshing positions"
             )
 
             if self._event_bus:
-                self._event_bus.publish(EventType.POSITION_UPDATED, {
-                    "symbol": code,
-                    "trade": trade_data,
-                    "source": "FUTU",
-                    "timestamp": datetime.now(),
-                })
+                self._event_bus.publish(
+                    EventType.POSITION_UPDATED,
+                    {
+                        "symbol": code,
+                        "trade": trade_data,
+                        "source": "FUTU",
+                        "timestamp": datetime.now(),
+                    },
+                )
 
             # Invalidate position cache
             self._position_fetcher.invalidate_cache()

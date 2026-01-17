@@ -15,17 +15,17 @@ This strategy demonstrates:
 - on_bar with synchronized data
 """
 
-from collections import deque
-from dataclasses import dataclass
-from typing import Deque, Optional, List, Dict
-import uuid
 import logging
 import statistics
+import uuid
+from collections import deque
+from dataclasses import dataclass
+from typing import Deque, Dict, List, Optional
 
+from ...events.domain_events import BarData, QuoteTick, TradeFill
+from ...interfaces.execution_provider import OrderRequest
 from ..base import Strategy, StrategyContext
 from ..registry import register_strategy
-from ...events.domain_events import QuoteTick, BarData, TradeFill
-from ...interfaces.execution_provider import OrderRequest
 
 logger = logging.getLogger(__name__)
 
@@ -244,9 +244,7 @@ class PairsTradingStrategy(Strategy):
             entry_zscore=self._current_zscore,
         )
 
-    def _close_position(
-        self, price_a: float, price_b: float, spread: float, reason: str
-    ) -> None:
+    def _close_position(self, price_a: float, price_b: float, spread: float, reason: str) -> None:
         """Close pairs position - reverse both legs."""
         pos = self._position
         if pos is None:
@@ -306,12 +304,14 @@ class PairsTradingStrategy(Strategy):
             "pair": f"{self.symbol_a}/{self.symbol_b}",
             "current_zscore": self._current_zscore,
             "spread_count": len(self._spreads),
-            "position": {
-                "long": self._position.long_symbol,
-                "short": self._position.short_symbol,
-                "entry_spread": self._position.entry_spread,
-                "entry_zscore": self._position.entry_zscore,
-            }
-            if self._position
-            else None,
+            "position": (
+                {
+                    "long": self._position.long_symbol,
+                    "short": self._position.short_symbol,
+                    "entry_spread": self._position.entry_spread,
+                    "entry_zscore": self._position.entry_zscore,
+                }
+                if self._position
+                else None
+            ),
         }

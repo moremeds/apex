@@ -83,9 +83,7 @@ class MTFRsiTrendSignalGenerator:
         Returns:
             (entries, exits): Combined signals (long entries only for safety).
         """
-        long_entries, long_exits, _, _ = self.generate_directional(
-            data, params, secondary_data
-        )
+        long_entries, long_exits, _, _ = self.generate_directional(data, params, secondary_data)
         # Return long-only signals for backward compatibility
         return long_entries, long_exits
 
@@ -125,9 +123,7 @@ class MTFRsiTrendSignalGenerator:
         bearish_trend = primary_rsi < trend_threshold
 
         # Get aligned secondary RSI
-        secondary_rsi = self._get_secondary_rsi(
-            index, close, entry_period, secondary_data
-        )
+        secondary_rsi = self._get_secondary_rsi(index, close, entry_period, secondary_data)
 
         # Long signals: bullish trend + oversold entry
         long_entries = bullish_trend & (secondary_rsi < oversold)

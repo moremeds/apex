@@ -28,22 +28,23 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass
-from typing import Dict, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Dict, List, Optional
 
-from .streaming.tick_processor import TickProcessor, create_initial_state
 from .state.portfolio_state import PortfolioState
-from .state.position_state import PositionState, PositionDelta
+from .state.position_state import PositionDelta, PositionState
+from .streaming.tick_processor import TickProcessor, create_initial_state
 
 if TYPE_CHECKING:
     from src.domain.events.domain_events import MarketDataTickEvent
+    from src.models.account import AccountInfo
     from src.models.position import Position
     from src.models.risk_snapshot import RiskSnapshot
-    from src.models.account import AccountInfo
 
 
 @dataclass
 class BrokerAccountInfo:
     """Per-broker account info for snapshot building."""
+
     net_liquidation: float = 0.0
     buying_power: float = 0.0
 

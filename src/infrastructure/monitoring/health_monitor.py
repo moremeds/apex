@@ -5,15 +5,15 @@ Tracks health status of all system components (IB connection, data freshness, et
 """
 
 from __future__ import annotations
+
 import logging
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, List
 from enum import Enum
+from typing import Dict, List
 
-from ...utils.timezone import now_utc
 from ...utils.logging_setup import get_logger
-
+from ...utils.timezone import now_utc
 
 logger = get_logger(__name__)
 _DEBUG_ENABLED = logger.isEnabledFor(logging.DEBUG)
@@ -21,6 +21,7 @@ _DEBUG_ENABLED = logger.isEnabledFor(logging.DEBUG)
 
 class HealthStatus(Enum):
     """Component health status."""
+
     HEALTHY = "HEALTHY"
     DEGRADED = "DEGRADED"
     UNHEALTHY = "UNHEALTHY"
@@ -30,6 +31,7 @@ class HealthStatus(Enum):
 @dataclass
 class ComponentHealth:
     """Health status for a single component."""
+
     component_name: str
     status: HealthStatus
     message: str = ""
@@ -103,15 +105,13 @@ class HealthMonitor:
         if not self._component_health:
             return False
 
-        return all(
-            h.status == HealthStatus.HEALTHY
-            for h in self._component_health.values()
-        )
+        return all(h.status == HealthStatus.HEALTHY for h in self._component_health.values())
 
     def get_unhealthy_components(self) -> List[ComponentHealth]:
         """Get list of unhealthy or degraded components."""
         return [
-            h for h in self._component_health.values()
+            h
+            for h in self._component_health.values()
             if h.status in [HealthStatus.DEGRADED, HealthStatus.UNHEALTHY]
         ]
 

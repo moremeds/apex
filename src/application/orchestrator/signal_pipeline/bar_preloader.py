@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import time
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from ....utils.logging_setup import get_logger
 from ....utils.timezone import now_utc
@@ -40,11 +40,11 @@ class BarPreloader:
     """
 
     __slots__ = (
-        '_historical_data_manager',
-        '_indicator_engine',
-        '_timeframes',
-        '_preload_config',
-        '_last_cache_refresh',
+        "_historical_data_manager",
+        "_indicator_engine",
+        "_timeframes",
+        "_preload_config",
+        "_last_cache_refresh",
     )
 
     def __init__(

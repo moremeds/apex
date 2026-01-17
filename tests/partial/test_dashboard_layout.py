@@ -1,12 +1,13 @@
 """Test script to visualize the dashboard layout with sample data."""
 
-from datetime import datetime
-from src.tui.dashboard import TerminalDashboard
-from src.models.risk_snapshot import RiskSnapshot
-from src.models.position import Position, AssetType, PositionSource
-from src.models.market_data import MarketData, GreeksSource, DataQuality
-from src.infrastructure.monitoring import ComponentHealth, HealthStatus
 import time
+from datetime import datetime
+
+from src.infrastructure.monitoring import ComponentHealth, HealthStatus
+from src.models.market_data import DataQuality, GreeksSource, MarketData
+from src.models.position import AssetType, Position, PositionSource
+from src.models.risk_snapshot import RiskSnapshot
+from src.tui.dashboard import TerminalDashboard
 
 
 def create_sample_positions():

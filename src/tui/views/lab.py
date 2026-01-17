@@ -19,20 +19,20 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, List, Optional
 
-from textual.containers import Container, Horizontal, Vertical
-from textual.widgets import Static
+from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual import work
+from textual.containers import Container, Horizontal, Vertical
+from textual.widgets import Static
 
-from ..widgets.strategy_list import StrategyList
-from ..widgets.strategy_config import StrategyConfigPanel
 from ..widgets.backtest_results import BacktestResultsPanel
 from ..widgets.health_bar import HealthBar
+from ..widgets.strategy_config import StrategyConfigPanel
+from ..widgets.strategy_list import StrategyList
 
 if TYPE_CHECKING:
-    from ...domain.backtest.backtest_result import BacktestResult
     from ...application.services.backtest_service import BacktestService
+    from ...domain.backtest.backtest_result import BacktestResult
 
 
 class LabView(Container, can_focus=True):
@@ -93,9 +93,7 @@ class LabView(Container, can_focus=True):
             yield Static("Component Health", id="lab-health-title", classes="panel-title")
             yield HealthBar(id="lab-health", classes="compact-health")
 
-    def on_strategy_list_strategy_selected(
-        self, event: StrategyList.StrategySelected
-    ) -> None:
+    def on_strategy_list_strategy_selected(self, event: StrategyList.StrategySelected) -> None:
         """Handle strategy selection."""
         try:
             config_title = self.query_one("#lab-config-title", Static)
@@ -112,9 +110,7 @@ class LabView(Container, can_focus=True):
         except Exception:
             self.log.exception("Failed to update results panel")
 
-    def on_strategy_list_strategy_activated(
-        self, event: StrategyList.StrategyActivated
-    ) -> None:
+    def on_strategy_list_strategy_activated(self, event: StrategyList.StrategyActivated) -> None:
         """Handle strategy activation (run backtest)."""
         self._execute_backtest(event.strategy_name)
 
@@ -131,7 +127,10 @@ class LabView(Container, can_focus=True):
         """Move selection down in the strategy list."""
         try:
             strategy_list = self.query_one("#lab-strategies", StrategyList)
-            if strategy_list.cursor_row is not None and strategy_list.cursor_row < strategy_list.row_count - 1:
+            if (
+                strategy_list.cursor_row is not None
+                and strategy_list.cursor_row < strategy_list.row_count - 1
+            ):
                 strategy_list.move_cursor(row=strategy_list.cursor_row + 1)
         except Exception:
             self.log.exception("Failed to move down in strategy list")
@@ -173,6 +172,7 @@ class LabView(Container, can_focus=True):
             else:
                 # Fallback: create service on demand
                 from ...application.services.backtest_service import BacktestService
+
                 service = BacktestService()
                 result = await service.run_strategy(strategy_name)
 

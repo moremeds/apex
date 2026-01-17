@@ -21,17 +21,18 @@ Categories:
 
 from __future__ import annotations
 
+import json
 import logging
 import logging.handlers
-import sys
 import os
 import re
-import json
-from queue import Queue
-from pathlib import Path
-from typing import Optional, Dict, List
+import sys
 from datetime import datetime
+from pathlib import Path
+from queue import Queue
+from typing import Dict, List, Optional
 from zoneinfo import ZoneInfo
+
 from config.models import LoggingConfig
 
 # Import trace context for cycle ID
@@ -90,18 +91,14 @@ MODULE_ROUTING: List[tuple[str, str]] = [
     ("src.infrastructure.adapters.market_data_manager", "adapter"),
     ("src.infrastructure.adapters.market_data_fetcher", "adapter"),
     ("src.infrastructure.adapters.file_loader", "data"),
-
     # Stores
     ("src.infrastructure.stores", "data"),
-
     # Signal pipeline (bar aggregation → indicators → signals → confluence)
     ("src.domain.signals", "signal"),
     ("src.application.orchestrator.signal_coordinator", "signal"),
     ("src.infrastructure.observability.signal_metrics", "signal"),
-
     # Risk domain
     ("src.domain.services.risk", "risk"),
-
     # Data domain (reconciler, mdqc, etc.)
     ("src.domain.services.pos_reconciler", "data"),
     ("src.domain.services.mdqc", "data"),
@@ -111,22 +108,16 @@ MODULE_ROUTING: List[tuple[str, str]] = [
     ("src.domain.services.event_risk_detector", "risk"),
     ("src.domain.services.position_risk_analyzer", "risk"),
     ("src.domain.services.strategy_risk_analyzer", "risk"),
-
     # Observability
     ("src.infrastructure.observability", "perf"),
-
     # Monitoring
     ("src.infrastructure.monitoring", "system"),
-
     # Application layer
     ("src.application", "system"),
-
     # TUI
     ("src.tui", "system"),
-
     # Models (rarely log, but route to data)
     ("src.models", "data"),
-
     # Default fallback
     ("src", "system"),
 ]
@@ -151,6 +142,7 @@ def get_category_for_module(module_name: str) -> str:
 # =============================================================================
 # TIMEZONE SUPPORT
 # =============================================================================
+
 
 def set_log_timezone(tz: Optional[str] = None) -> None:
     """
@@ -189,6 +181,7 @@ def get_current_timestamp() -> str:
 # =============================================================================
 # GLOBAL CONFIGURATION
 # =============================================================================
+
 
 def set_verbose_mode(enabled: bool) -> None:
     """Enable or disable verbose mode (DEBUG level logging)."""
@@ -231,6 +224,7 @@ def get_effective_log_level() -> str:
 # JSON FORMATTER WITH CYCLE ID
 # =============================================================================
 
+
 class JSONFormatter(logging.Formatter):
     """
     JSON formatter for structured logging with cycle ID support.
@@ -249,7 +243,7 @@ class JSONFormatter(logging.Formatter):
         # If the message is already JSON (from StructuredLogger), parse and enhance
         msg = record.getMessage()
 
-        if msg.startswith('{') and msg.endswith('}'):
+        if msg.startswith("{") and msg.endswith("}"):
             try:
                 log_entry = json.loads(msg)
                 # Normalize field names from StructuredLogger format
@@ -302,10 +296,10 @@ class ConsoleFormatter(logging.Formatter):
     """
 
     COLORS = {
-        "DEBUG": "\033[36m",     # Cyan
-        "INFO": "\033[32m",      # Green
-        "WARNING": "\033[33m",   # Yellow
-        "ERROR": "\033[31m",     # Red
+        "DEBUG": "\033[36m",  # Cyan
+        "INFO": "\033[32m",  # Green
+        "WARNING": "\033[33m",  # Yellow
+        "ERROR": "\033[31m",  # Red
         "CRITICAL": "\033[35m",  # Magenta
     }
     RESET = "\033[0m"
@@ -330,6 +324,7 @@ class ConsoleFormatter(logging.Formatter):
 # =============================================================================
 # LOGGER FACTORY
 # =============================================================================
+
 
 def get_logger(module_name: str) -> logging.Logger:
     """
@@ -367,6 +362,7 @@ def get_logger(module_name: str) -> logging.Logger:
 # RUN NUMBER MANAGEMENT
 # =============================================================================
 
+
 def _get_next_run_number(log_dir: str, env: str, date_str: str) -> int:
     """Find the next available run number for today's date."""
     # Look in the date-specific subdirectory
@@ -380,7 +376,7 @@ def _get_next_run_number(log_dir: str, env: str, date_str: str) -> int:
     suffixes = sorted(set(CATEGORY_SUFFIXES.values()) | set(legacy_suffixes))
     suffix_group = "|".join(re.escape(suffix) for suffix in suffixes)
     pattern = re.compile(
-        rf'^live_risk_{re.escape(env)}_(?:{suffix_group})_{re.escape(date_str)}_(\d+)\.log$'
+        rf"^live_risk_{re.escape(env)}_(?:{suffix_group})_{re.escape(date_str)}_(\d+)\.log$"
     )
 
     max_num = 0
@@ -398,7 +394,7 @@ def _get_session_run_number(log_dir: str, env: str) -> int:
     global _session_run_number
 
     if _session_run_number is None:
-        date_str = datetime.now().strftime('%Y-%m-%d')
+        date_str = datetime.now().strftime("%Y-%m-%d")
         _session_run_number = _get_next_run_number(log_dir, env, date_str)
 
     return _session_run_number
@@ -413,6 +409,7 @@ def reset_session_run_number() -> None:
 # =============================================================================
 # CATEGORY LOGGING SETUP
 # =============================================================================
+
 
 def setup_category_logging(
     env: str,
@@ -463,7 +460,7 @@ def setup_category_logging(
         set_log_level_override(level)
 
     # Create date-specific log directory (logs/{date}/)
-    date_str = datetime.now().strftime('%Y-%m-%d')
+    date_str = datetime.now().strftime("%Y-%m-%d")
     log_path = Path(log_dir) / date_str
     log_path.mkdir(parents=True, exist_ok=True)
 
@@ -486,11 +483,7 @@ def setup_category_logging(
 
         # File handler (actual disk writer)
         file_path = str(log_path / filename)
-        file_handler = logging.FileHandler(
-            filename=file_path,
-            mode='a',
-            encoding='utf-8'
-        )
+        file_handler = logging.FileHandler(filename=file_path, mode="a", encoding="utf-8")
         file_handler.setFormatter(json_formatter)
         file_handler.setLevel(getattr(logging, effective_level, logging.INFO))
 
@@ -552,6 +545,7 @@ def shutdown_logging() -> None:
 # BACKWARD COMPATIBILITY
 # =============================================================================
 
+
 # Keep old function for backward compatibility (now routes to new system)
 def setup_logging(config: LoggingConfig, logger_name: Optional[str] = None) -> logging.Logger:
     """
@@ -567,8 +561,7 @@ def setup_logging(config: LoggingConfig, logger_name: Optional[str] = None) -> l
         formatter = JSONFormatter()
     else:
         formatter = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
         )
 
     # Console handler
@@ -581,7 +574,7 @@ def setup_logging(config: LoggingConfig, logger_name: Optional[str] = None) -> l
         log_path = Path(config.file)
         log_path.parent.mkdir(parents=True, exist_ok=True)
 
-        file_handler = logging.FileHandler(filename=config.file, encoding='utf-8')
+        file_handler = logging.FileHandler(filename=config.file, encoding="utf-8")
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
 

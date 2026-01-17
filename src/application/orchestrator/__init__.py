@@ -8,10 +8,10 @@ Split into focused components:
 - ShutdownCoordinator: Graceful shutdown with timeouts
 """
 
-from .orchestrator import Orchestrator
 from .data_coordinator import DataCoordinator
-from .snapshot_coordinator import SnapshotCoordinator
+from .orchestrator import Orchestrator
 from .shutdown import ShutdownCoordinator, create_shutdown_handler
+from .snapshot_coordinator import SnapshotCoordinator
 
 __all__ = [
     "Orchestrator",

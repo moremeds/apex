@@ -141,9 +141,7 @@ class IchimokuIndicator(IndicatorBase):
             index=data.index,
         )
 
-    def _donchian_mid(
-        self, high: np.ndarray, low: np.ndarray, period: int
-    ) -> np.ndarray:
+    def _donchian_mid(self, high: np.ndarray, low: np.ndarray, period: int) -> np.ndarray:
         """Calculate Donchian channel midpoint."""
         n = len(high)
         result = np.full(n, np.nan, dtype=np.float64)

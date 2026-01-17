@@ -83,8 +83,8 @@ class PriceDivergenceDetector:
             return []
 
         # Align indices
-        price = price.iloc[-self._lookback:]
-        indicator = indicator.iloc[-self._lookback:]
+        price = price.iloc[-self._lookback :]
+        indicator = indicator.iloc[-self._lookback :]
 
         divergences: List[Divergence] = []
 
@@ -97,28 +97,24 @@ class PriceDivergenceDetector:
         # Detect regular divergences
         divergences.extend(
             self._check_bearish_divergence(
-                price_highs, ind_highs, price, indicator,
-                indicator_name, symbol, timeframe
+                price_highs, ind_highs, price, indicator, indicator_name, symbol, timeframe
             )
         )
         divergences.extend(
             self._check_bullish_divergence(
-                price_lows, ind_lows, price, indicator,
-                indicator_name, symbol, timeframe
+                price_lows, ind_lows, price, indicator, indicator_name, symbol, timeframe
             )
         )
 
         # Detect hidden divergences
         divergences.extend(
             self._check_hidden_bearish_divergence(
-                price_highs, ind_highs, price, indicator,
-                indicator_name, symbol, timeframe
+                price_highs, ind_highs, price, indicator, indicator_name, symbol, timeframe
             )
         )
         divergences.extend(
             self._check_hidden_bullish_divergence(
-                price_lows, ind_lows, price, indicator,
-                indicator_name, symbol, timeframe
+                price_lows, ind_lows, price, indicator, indicator_name, symbol, timeframe
             )
         )
 
@@ -189,22 +185,26 @@ class PriceDivergenceDetector:
             # Indicator makes higher low
             if indicator.iloc[ind_idx2] > indicator.iloc[ind_idx1]:
                 strength = self._calculate_strength(
-                    price.iloc[idx1], price.iloc[idx2],
-                    indicator.iloc[ind_idx1], indicator.iloc[ind_idx2]
+                    price.iloc[idx1],
+                    price.iloc[idx2],
+                    indicator.iloc[ind_idx1],
+                    indicator.iloc[ind_idx2],
                 )
 
-                divergences.append(Divergence(
-                    type=DivergenceType.BULLISH,
-                    indicator=indicator_name,
-                    symbol=symbol,
-                    timeframe=timeframe,
-                    price_point1=self._make_point(price, idx1),
-                    price_point2=self._make_point(price, idx2),
-                    indicator_point1=self._make_point(indicator, ind_idx1),
-                    indicator_point2=self._make_point(indicator, ind_idx2),
-                    strength=strength,
-                    bars_apart=idx2 - idx1,
-                ))
+                divergences.append(
+                    Divergence(
+                        type=DivergenceType.BULLISH,
+                        indicator=indicator_name,
+                        symbol=symbol,
+                        timeframe=timeframe,
+                        price_point1=self._make_point(price, idx1),
+                        price_point2=self._make_point(price, idx2),
+                        indicator_point1=self._make_point(indicator, ind_idx1),
+                        indicator_point2=self._make_point(indicator, ind_idx2),
+                        strength=strength,
+                        bars_apart=idx2 - idx1,
+                    )
+                )
 
         return divergences
 
@@ -242,22 +242,26 @@ class PriceDivergenceDetector:
             # Indicator makes lower high
             if indicator.iloc[ind_idx2] < indicator.iloc[ind_idx1]:
                 strength = self._calculate_strength(
-                    price.iloc[idx1], price.iloc[idx2],
-                    indicator.iloc[ind_idx1], indicator.iloc[ind_idx2]
+                    price.iloc[idx1],
+                    price.iloc[idx2],
+                    indicator.iloc[ind_idx1],
+                    indicator.iloc[ind_idx2],
                 )
 
-                divergences.append(Divergence(
-                    type=DivergenceType.BEARISH,
-                    indicator=indicator_name,
-                    symbol=symbol,
-                    timeframe=timeframe,
-                    price_point1=self._make_point(price, idx1),
-                    price_point2=self._make_point(price, idx2),
-                    indicator_point1=self._make_point(indicator, ind_idx1),
-                    indicator_point2=self._make_point(indicator, ind_idx2),
-                    strength=strength,
-                    bars_apart=idx2 - idx1,
-                ))
+                divergences.append(
+                    Divergence(
+                        type=DivergenceType.BEARISH,
+                        indicator=indicator_name,
+                        symbol=symbol,
+                        timeframe=timeframe,
+                        price_point1=self._make_point(price, idx1),
+                        price_point2=self._make_point(price, idx2),
+                        indicator_point1=self._make_point(indicator, ind_idx1),
+                        indicator_point2=self._make_point(indicator, ind_idx2),
+                        strength=strength,
+                        bars_apart=idx2 - idx1,
+                    )
+                )
 
         return divergences
 
@@ -295,22 +299,26 @@ class PriceDivergenceDetector:
             # Indicator makes lower low
             if indicator.iloc[ind_idx2] < indicator.iloc[ind_idx1]:
                 strength = self._calculate_strength(
-                    price.iloc[idx1], price.iloc[idx2],
-                    indicator.iloc[ind_idx1], indicator.iloc[ind_idx2]
+                    price.iloc[idx1],
+                    price.iloc[idx2],
+                    indicator.iloc[ind_idx1],
+                    indicator.iloc[ind_idx2],
                 )
 
-                divergences.append(Divergence(
-                    type=DivergenceType.HIDDEN_BULLISH,
-                    indicator=indicator_name,
-                    symbol=symbol,
-                    timeframe=timeframe,
-                    price_point1=self._make_point(price, idx1),
-                    price_point2=self._make_point(price, idx2),
-                    indicator_point1=self._make_point(indicator, ind_idx1),
-                    indicator_point2=self._make_point(indicator, ind_idx2),
-                    strength=strength,
-                    bars_apart=idx2 - idx1,
-                ))
+                divergences.append(
+                    Divergence(
+                        type=DivergenceType.HIDDEN_BULLISH,
+                        indicator=indicator_name,
+                        symbol=symbol,
+                        timeframe=timeframe,
+                        price_point1=self._make_point(price, idx1),
+                        price_point2=self._make_point(price, idx2),
+                        indicator_point1=self._make_point(indicator, ind_idx1),
+                        indicator_point2=self._make_point(indicator, ind_idx2),
+                        strength=strength,
+                        bars_apart=idx2 - idx1,
+                    )
+                )
 
         return divergences
 
@@ -348,22 +356,26 @@ class PriceDivergenceDetector:
             # Indicator makes higher high
             if indicator.iloc[ind_idx2] > indicator.iloc[ind_idx1]:
                 strength = self._calculate_strength(
-                    price.iloc[idx1], price.iloc[idx2],
-                    indicator.iloc[ind_idx1], indicator.iloc[ind_idx2]
+                    price.iloc[idx1],
+                    price.iloc[idx2],
+                    indicator.iloc[ind_idx1],
+                    indicator.iloc[ind_idx2],
                 )
 
-                divergences.append(Divergence(
-                    type=DivergenceType.HIDDEN_BEARISH,
-                    indicator=indicator_name,
-                    symbol=symbol,
-                    timeframe=timeframe,
-                    price_point1=self._make_point(price, idx1),
-                    price_point2=self._make_point(price, idx2),
-                    indicator_point1=self._make_point(indicator, ind_idx1),
-                    indicator_point2=self._make_point(indicator, ind_idx2),
-                    strength=strength,
-                    bars_apart=idx2 - idx1,
-                ))
+                divergences.append(
+                    Divergence(
+                        type=DivergenceType.HIDDEN_BEARISH,
+                        indicator=indicator_name,
+                        symbol=symbol,
+                        timeframe=timeframe,
+                        price_point1=self._make_point(price, idx1),
+                        price_point2=self._make_point(price, idx2),
+                        indicator_point1=self._make_point(indicator, ind_idx1),
+                        indicator_point2=self._make_point(indicator, ind_idx2),
+                        strength=strength,
+                        bars_apart=idx2 - idx1,
+                    )
+                )
 
         return divergences
 

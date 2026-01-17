@@ -63,7 +63,11 @@ class MACDIndicator(IndicatorBase):
 
         if len(data) == 0:
             return pd.DataFrame(
-                {"macd": pd.Series(dtype=float), "signal": pd.Series(dtype=float), "histogram": pd.Series(dtype=float)},
+                {
+                    "macd": pd.Series(dtype=float),
+                    "signal": pd.Series(dtype=float),
+                    "histogram": pd.Series(dtype=float),
+                },
                 index=data.index,
             )
 

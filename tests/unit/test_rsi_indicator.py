@@ -8,10 +8,11 @@ Tests:
 - Zone classification
 """
 
-import pytest
+from datetime import datetime, timedelta
+
 import numpy as np
 import pandas as pd
-from datetime import datetime, timedelta
+import pytest
 
 from src.domain.signals.indicators.momentum.rsi import RSIIndicator
 from src.domain.signals.models import SignalCategory

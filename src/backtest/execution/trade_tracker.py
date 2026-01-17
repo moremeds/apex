@@ -20,21 +20,22 @@ Usage:
 
 from __future__ import annotations
 
+import logging
+import uuid
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, List, Optional
 from enum import Enum
-import uuid
-import logging
+from typing import Dict, List, Optional
 
+from ...domain.backtest.backtest_result import TradeMetrics, TradeRecord
 from ...domain.events.domain_events import TradeFill
-from ...domain.backtest.backtest_result import TradeRecord, TradeMetrics
 
 logger = logging.getLogger(__name__)
 
 
 class MatchingMethod(Enum):
     """Position matching method for trade attribution."""
+
     FIFO = "fifo"  # First-In-First-Out
     LIFO = "lifo"  # Last-In-First-Out
     AVERAGE = "average"  # Average cost
@@ -43,6 +44,7 @@ class MatchingMethod(Enum):
 @dataclass
 class OpenPosition:
     """Represents an open (partial) position from a fill."""
+
     fill_id: str
     symbol: str
     side: str  # "BUY" or "SELL"
@@ -119,7 +121,7 @@ class TradeTracker:
             self._open_positions[symbol] = []
 
         open_positions = self._open_positions[symbol]
-        multiplier = getattr(fill, 'multiplier', 1) or 1
+        multiplier = getattr(fill, "multiplier", 1) or 1
 
         # Check if this fill opens or closes a position
         is_opening = self._is_opening_fill(fill, open_positions)
@@ -158,8 +160,9 @@ class TradeTracker:
         for pos in open_positions:
             if pos.remaining_quantity > 0:
                 # If existing position is opposite side, this is closing
-                if (pos.side == "BUY" and fill.side == "SELL") or \
-                   (pos.side == "SELL" and fill.side == "BUY"):
+                if (pos.side == "BUY" and fill.side == "SELL") or (
+                    pos.side == "SELL" and fill.side == "BUY"
+                ):
                     return False
 
         # Same side as existing positions = adding to position
@@ -207,7 +210,7 @@ class TradeTracker:
                 pnl = close_qty * (pos.price - fill.price) * multiplier
 
             total_pnl += pnl
-            total_entry_commission += (pos.commission * close_qty / pos.quantity)
+            total_entry_commission += pos.commission * close_qty / pos.quantity
             entry_qty_weighted_price += pos.price * close_qty
             total_entry_qty += close_qty
 
@@ -224,9 +227,7 @@ class TradeTracker:
             )
 
         # Clean up fully closed positions
-        self._open_positions[fill.symbol] = [
-            p for p in open_positions if p.remaining_quantity > 0
-        ]
+        self._open_positions[fill.symbol] = [p for p in open_positions if p.remaining_quantity > 0]
 
         # If we closed any quantity, create a trade record
         if total_entry_qty > 0:
@@ -308,7 +309,7 @@ class TradeTracker:
 
         gross_profit = sum(t.pnl for t in winners)
         gross_loss = abs(sum(t.pnl for t in losers))
-        profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else float('inf')
+        profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else float("inf")
 
         avg_win = (gross_profit / winning_trades) if winning_trades > 0 else 0
         avg_loss = (-gross_loss / losing_trades) if losing_trades > 0 else 0
@@ -329,7 +330,7 @@ class TradeTracker:
             winning_trades=winning_trades,
             losing_trades=losing_trades,
             win_rate=win_rate,
-            profit_factor=profit_factor if profit_factor != float('inf') else 0,
+            profit_factor=profit_factor if profit_factor != float("inf") else 0,
             avg_win=avg_win,
             avg_loss=avg_loss,
             avg_trade=avg_trade,

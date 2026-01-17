@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from config.config_manager import ConfigManager
 from src.utils.logging_setup import setup_logging
-from src.utils.structured_logger import StructuredLogger, LogCategory
+from src.utils.structured_logger import LogCategory, StructuredLogger
 
 
 def main():
@@ -40,7 +40,9 @@ def main():
         print(f"   - Backup count: {app_config.logging.backup_count}")
 
         if app_config.logging.rotation == "size":
-            print(f"   - Max bytes: {app_config.logging.max_bytes:,} bytes ({app_config.logging.max_bytes / 1024 / 1024:.1f} MB)")
+            print(
+                f"   - Max bytes: {app_config.logging.max_bytes:,} bytes ({app_config.logging.max_bytes / 1024 / 1024:.1f} MB)"
+            )
         elif app_config.logging.rotation == "time":
             print(f"   - When: {app_config.logging.when}")
             print(f"   - Interval: {app_config.logging.interval}")
@@ -77,26 +79,24 @@ def main():
         # Test different log levels
         struct_logger.debug(LogCategory.SYSTEM, "Debug message - system check", {"test": True})
         struct_logger.info(LogCategory.SYSTEM, "Application started", {"version": "1.0.0"})
-        struct_logger.info(LogCategory.RISK, "Portfolio snapshot calculated", {
-            "total_pnl": 12345.67,
-            "delta": -1234.56,
-            "positions": 42
-        })
-        struct_logger.warning(LogCategory.RISK, "Soft breach detected", {
-            "limit_type": "delta",
-            "current": 45000,
-            "limit": 50000,
-            "utilization": 0.90
-        })
-        struct_logger.error(LogCategory.DATA, "Market data stale", {
-            "symbol": "AAPL",
-            "age_seconds": 15
-        })
-        struct_logger.critical(LogCategory.ALERT, "Hard limit breach", {
-            "limit_type": "margin_utilization",
-            "current": 0.75,
-            "limit": 0.60
-        })
+        struct_logger.info(
+            LogCategory.RISK,
+            "Portfolio snapshot calculated",
+            {"total_pnl": 12345.67, "delta": -1234.56, "positions": 42},
+        )
+        struct_logger.warning(
+            LogCategory.RISK,
+            "Soft breach detected",
+            {"limit_type": "delta", "current": 45000, "limit": 50000, "utilization": 0.90},
+        )
+        struct_logger.error(
+            LogCategory.DATA, "Market data stale", {"symbol": "AAPL", "age_seconds": 15}
+        )
+        struct_logger.critical(
+            LogCategory.ALERT,
+            "Hard limit breach",
+            {"limit_type": "margin_utilization", "current": 0.75, "limit": 0.60},
+        )
 
         # Test regular logger messages
         logger.info("Regular log message (non-JSON)")
@@ -118,7 +118,7 @@ def main():
             print(f"   - Size: {size} bytes")
 
             # Read and display last few lines
-            with open(log_file, 'r') as f:
+            with open(log_file, "r") as f:
                 lines = f.readlines()
                 print(f"   - Total lines: {len(lines)}")
                 print(f"\n   Last 3 log entries:")
@@ -139,7 +139,9 @@ def main():
     print(f"\nRetention policy:")
     print(f"  - Rotation method: {app_config.logging.rotation}")
     print(f"  - Backup count: {app_config.logging.backup_count}")
-    print(f"  - Old logs will be automatically deleted after {app_config.logging.backup_count} rotations")
+    print(
+        f"  - Old logs will be automatically deleted after {app_config.logging.backup_count} rotations"
+    )
     print()
 
     return 0

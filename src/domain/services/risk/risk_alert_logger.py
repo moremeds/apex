@@ -10,21 +10,21 @@ Logs are written in JSON format for easy analysis and compliance.
 """
 
 from __future__ import annotations
+
 import json
 import logging
 import logging.handlers
-from queue import Queue
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Any, Optional
-from dataclasses import dataclass, field, asdict
+from queue import Queue
+from typing import Any, Dict, List, Optional
 
+from src.models.market_data import MarketData
+from src.models.position_risk import PositionRisk
 from src.models.risk_signal import RiskSignal, SignalLevel, SignalSeverity, SuggestedAction
 from src.models.risk_snapshot import RiskSnapshot
-from src.models.position_risk import PositionRisk
-from src.models.market_data import MarketData
 from src.utils.logging_setup import get_logger
-
 
 logger = get_logger(__name__)
 
@@ -37,6 +37,7 @@ class AlertContext:
     Contains all relevant market data, Greeks, and position info
     for audit and analysis purposes.
     """
+
     # Timestamp
     timestamp: str
 
@@ -184,7 +185,7 @@ class RiskAlertLogger:
             when="midnight",
             interval=1,
             backupCount=self.retention_days,
-            encoding='utf-8'
+            encoding="utf-8",
         )
 
         # Custom namer for rotated files: risk_alerts_dev_2025-11-27.log
@@ -192,7 +193,7 @@ class RiskAlertLogger:
         file_handler.rotator = self._log_rotator
 
         # Simple formatter - we'll write JSON directly
-        file_handler.setFormatter(logging.Formatter('%(message)s'))
+        file_handler.setFormatter(logging.Formatter("%(message)s"))
 
         # Async logging setup: QueueHandler -> queue -> QueueListener -> file_handler
         # This ensures log calls return immediately without blocking on file I/O
@@ -201,9 +202,7 @@ class RiskAlertLogger:
 
         # Start QueueListener in background thread to process queue
         self._queue_listener = logging.handlers.QueueListener(
-            self._log_queue,
-            file_handler,
-            respect_handler_level=True
+            self._log_queue, file_handler, respect_handler_level=True
         )
         self._queue_listener.start()
 
@@ -228,8 +227,9 @@ class RiskAlertLogger:
         To:       risk_alerts_dev_2025-11-27.log
         """
         import re
+
         # Extract date from suffix (e.g., .2025-11-27)
-        match = re.search(r'\.(\d{4}-\d{2}-\d{2})$', default_name)
+        match = re.search(r"\.(\d{4}-\d{2}-\d{2})$", default_name)
         if match:
             date_str = match.group(1)
             # Build new filename with date
@@ -287,7 +287,9 @@ class RiskAlertLogger:
                 if md:
                     price = md.effective_mid() or md.last
                     if price:
-                        self._market_cache[f"{symbol.lower()}_price" if symbol != "VIX" else "vix"] = price
+                        self._market_cache[
+                            f"{symbol.lower()}_price" if symbol != "VIX" else "vix"
+                        ] = price
 
     def log_market_alert(
         self,
@@ -396,7 +398,11 @@ class RiskAlertLogger:
             if position_risk.position.avg_price and position_risk.mark_price:
                 context.avg_price = position_risk.position.avg_price
                 if position_risk.position.avg_price != 0:
-                    pnl_pct = (position_risk.mark_price - position_risk.position.avg_price) / position_risk.position.avg_price * 100
+                    pnl_pct = (
+                        (position_risk.mark_price - position_risk.position.avg_price)
+                        / position_risk.position.avg_price
+                        * 100
+                    )
                     context.pnl_pct = round(pnl_pct, 2)
 
             # Option-specific fields
@@ -561,7 +567,7 @@ class RiskAlertLogger:
 
         for log_file in log_files:
             try:
-                with open(log_file, 'r') as f:
+                with open(log_file, "r") as f:
                     for line in f:
                         try:
                             alert = json.loads(line.strip())

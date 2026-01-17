@@ -10,14 +10,14 @@ This strategy demonstrates:
 - State tracking for first tick
 """
 
-from typing import List, Set
-import uuid
 import logging
+import uuid
+from typing import List, Set
 
-from ..base import Strategy, StrategyContext
-from ..registry import register_strategy
 from ...events.domain_events import QuoteTick
 from ...interfaces.execution_provider import OrderRequest
+from ..base import Strategy, StrategyContext
+from ..registry import register_strategy
 
 logger = logging.getLogger(__name__)
 
@@ -109,9 +109,7 @@ class BuyAndHoldStrategy(Strategy):
             return
 
         # Buy
-        logger.info(
-            f"[{self.strategy_id}] Buying {self.position_size} {symbol} @ {price:.2f}"
-        )
+        logger.info(f"[{self.strategy_id}] Buying {self.position_size} {symbol} @ {price:.2f}")
 
         order = OrderRequest(
             symbol=symbol,

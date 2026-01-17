@@ -113,9 +113,7 @@ class FutuFeeRepository(BaseRepository[FutuRawFee]):
     # Query Methods
     # -------------------------------------------------------------------------
 
-    async def find_by_order_id(
-        self, order_id: str, account_id: str
-    ) -> Optional[FutuRawFee]:
+    async def find_by_order_id(self, order_id: str, account_id: str) -> Optional[FutuRawFee]:
         """
         Find fee record by order_id and account_id.
 
@@ -133,9 +131,7 @@ class FutuFeeRepository(BaseRepository[FutuRawFee]):
         record = await self._db.fetchrow(query, order_id, account_id)
         return self._to_entity(record) if record else None
 
-    async def find_by_account(
-        self, account_id: str, limit: int = 1000
-    ) -> List[FutuRawFee]:
+    async def find_by_account(self, account_id: str, limit: int = 1000) -> List[FutuRawFee]:
         """
         Find fee records by account.
 
@@ -155,9 +151,7 @@ class FutuFeeRepository(BaseRepository[FutuRawFee]):
         records = await self._db.fetch(query, account_id, limit)
         return [self._to_entity(r) for r in records]
 
-    async def find_by_order_ids(
-        self, order_ids: List[str], account_id: str
-    ) -> List[FutuRawFee]:
+    async def find_by_order_ids(self, order_ids: List[str], account_id: str) -> List[FutuRawFee]:
         """
         Find fee records for multiple orders.
 
@@ -350,7 +344,7 @@ class FutuFeeRepository(BaseRepository[FutuRawFee]):
                     try:
                         # Handle N/A and empty values
                         fee_val_str = str(item[1])
-                        if fee_val_str in ('N/A', '', 'None'):
+                        if fee_val_str in ("N/A", "", "None"):
                             fee_value = Decimal(0)
                         else:
                             fee_value = Decimal(fee_val_str)
@@ -388,7 +382,7 @@ class FutuFeeRepository(BaseRepository[FutuRawFee]):
         if "fee_amount" in fee_data and total_fee == Decimal(0):
             try:
                 fee_val_str = str(fee_data["fee_amount"])
-                if fee_val_str not in ('N/A', '', 'None'):
+                if fee_val_str not in ("N/A", "", "None"):
                     total_fee = Decimal(fee_val_str)
             except Exception:
                 pass

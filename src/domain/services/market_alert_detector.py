@@ -9,12 +9,12 @@ This service monitors market-wide conditions and generates alerts for:
 """
 
 from __future__ import annotations
-from typing import List, Dict, Optional, Any
+
 from datetime import datetime
+from typing import Any, Dict, List, Optional
 
-from .risk.threshold import Threshold, ThresholdDirection
 from ...utils.logging_setup import get_logger
-
+from .risk.threshold import Threshold, ThresholdDirection
 
 logger = get_logger(__name__)
 
@@ -110,7 +110,9 @@ class MarketAlertDetector:
         logger.info(f"Market alert detection complete: {len(alerts)} alerts")
         return alerts
 
-    def _check_vix_alerts(self, vix: float, prev_close: Optional[float] = None) -> List[Dict[str, Any]]:
+    def _check_vix_alerts(
+        self, vix: float, prev_close: Optional[float] = None
+    ) -> List[Dict[str, Any]]:
         """Check VIX-related alerts using Threshold helper."""
         alerts = []
 
@@ -119,11 +121,13 @@ class MarketAlertDetector:
         if severity_str:
             alert_type = "VIX_CRITICAL" if severity_str == "CRITICAL" else "VIX_ELEVATED"
             threshold = self.vix_critical if severity_str == "CRITICAL" else self.vix_warning
-            alerts.append({
-                "type": alert_type,
-                "message": f"VIX at {vix:.1f} ({severity_str.lower()} threshold: {threshold})",
-                "severity": severity_str
-            })
+            alerts.append(
+                {
+                    "type": alert_type,
+                    "message": f"VIX at {vix:.1f} ({severity_str.lower()} threshold: {threshold})",
+                    "severity": severity_str,
+                }
+            )
 
         # Check VIX spike (percentage change)
         baseline = self._prev_vix or prev_close
@@ -131,11 +135,13 @@ class MarketAlertDetector:
             vix_change_pct = ((vix - baseline) / baseline) * 100
             if vix_change_pct >= self.vix_spike_pct:
                 severity = "CRITICAL" if severity_str == "CRITICAL" else "WARNING"
-                alerts.append({
-                    "type": "VIX_SPIKE",
-                    "message": f"VIX jumped {vix_change_pct:.1f}% to {vix:.1f}",
-                    "severity": severity
-                })
+                alerts.append(
+                    {
+                        "type": "VIX_SPIKE",
+                        "message": f"VIX jumped {vix_change_pct:.1f}% to {vix:.1f}",
+                        "severity": severity,
+                    }
+                )
 
         # Update previous VIX
         self._prev_vix = vix
@@ -149,11 +155,13 @@ class MarketAlertDetector:
         severity_str = self.drop_threshold.check(change_pct)
         if severity_str:
             msg_suffix = "(critical threshold)" if severity_str == "CRITICAL" else "intraday"
-            alerts.append({
-                "type": "MARKET_DROP",
-                "message": f"{symbol} down {abs(change_pct):.1f}% {msg_suffix}",
-                "severity": severity_str
-            })
+            alerts.append(
+                {
+                    "type": "MARKET_DROP",
+                    "message": f"{symbol} down {abs(change_pct):.1f}% {msg_suffix}",
+                    "severity": severity_str,
+                }
+            )
 
         return alerts
 
@@ -163,17 +171,21 @@ class MarketAlertDetector:
 
         severity_str = self.vol_threshold.check(realized_vol)
         if severity_str == "CRITICAL":
-            alerts.append({
-                "type": "HIGH_VOLATILITY",
-                "message": f"SPY realized vol at {realized_vol:.1f}% (elevated)",
-                "severity": "WARNING"  # Downgrade to WARNING (vol is less urgent)
-            })
+            alerts.append(
+                {
+                    "type": "HIGH_VOLATILITY",
+                    "message": f"SPY realized vol at {realized_vol:.1f}% (elevated)",
+                    "severity": "WARNING",  # Downgrade to WARNING (vol is less urgent)
+                }
+            )
         elif severity_str == "WARNING":
-            alerts.append({
-                "type": "VOLATILITY",
-                "message": f"SPY realized vol at {realized_vol:.1f}% (above average)",
-                "severity": "INFO"
-            })
+            alerts.append(
+                {
+                    "type": "VOLATILITY",
+                    "message": f"SPY realized vol at {realized_vol:.1f}% (above average)",
+                    "severity": "INFO",
+                }
+            )
 
         return alerts
 

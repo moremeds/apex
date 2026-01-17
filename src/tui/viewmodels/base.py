@@ -115,9 +115,7 @@ class BaseViewModel(ABC, Generic[T]):
         self._pending_order = None
         self._pending_data_id = None
 
-    def compute_updates(
-        self, data: T
-    ) -> Tuple[List[RowUpdate], List[CellUpdate], List[str]]:
+    def compute_updates(self, data: T) -> Tuple[List[RowUpdate], List[CellUpdate], List[str]]:
         """
         Compare new data with cached state and return minimal updates.
 
@@ -140,9 +138,7 @@ class BaseViewModel(ABC, Generic[T]):
 
         # Rows to add
         for key in new_keys - old_keys:
-            row_ops.append(
-                RowUpdate(row_key=key, action="add", values=new_display[key])
-            )
+            row_ops.append(RowUpdate(row_key=key, action="add", values=new_display[key]))
 
         # Rows to diff for cell updates
         for key in old_keys & new_keys:

@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from typing import Any, List, Optional
 
-from textual.widgets import DataTable
 from textual.reactive import reactive
+from textual.widgets import DataTable
 
 from ..viewmodels.signal_vm import SignalViewModel
 

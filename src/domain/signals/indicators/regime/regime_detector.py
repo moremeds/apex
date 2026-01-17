@@ -27,9 +27,6 @@ import pandas as pd
 
 from src.utils.logging_setup import get_logger
 
-# Phase 4: Turning point imports (lazy loaded to avoid circular imports)
-# TurningPointModel, TurningPointFeatures, TurningPointOutput are imported in method
-
 from ...models import SignalCategory
 from ..base import IndicatorBase
 from .components import (
@@ -67,6 +64,10 @@ from .rule_trace import (
     create_categorical_rule_trace,
     create_threshold_rule_trace,
 )
+
+# Phase 4: Turning point imports (lazy loaded to avoid circular imports)
+# TurningPointModel, TurningPointFeatures, TurningPointOutput are imported in method
+
 
 logger = get_logger(__name__)
 

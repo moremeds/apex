@@ -49,7 +49,9 @@ class SignalStatus(Enum):
     """Lifecycle status of a trading signal."""
 
     ACTIVE = "active"  # Signal is current and actionable
-    INVALIDATED = "invalidated"  # Superseded by newer signal for same (symbol, indicator, timeframe)
+    INVALIDATED = (
+        "invalidated"  # Superseded by newer signal for same (symbol, indicator, timeframe)
+    )
 
 
 class ConditionType(Enum):
@@ -138,9 +140,7 @@ class TradingSignal:
 
     def __str__(self) -> str:
         """Human-readable string representation."""
-        direction_symbol = {"buy": "▲", "sell": "▼", "alert": "●"}.get(
-            self.direction.value, "?"
-        )
+        direction_symbol = {"buy": "▲", "sell": "▼", "alert": "●"}.get(self.direction.value, "?")
         return (
             f"{direction_symbol} [{self.priority.value.upper()}] "
             f"{self.symbol} {self.indicator} ({self.timeframe}) - {self.message}"
@@ -355,7 +355,9 @@ class IndicatorTrace:
         return cls(
             indicator_name=data.get("indicator_name", ""),
             timeframe=data.get("timeframe", ""),
-            bar_ts=datetime.fromisoformat(data["bar_ts"]) if data.get("bar_ts") else datetime.utcnow(),
+            bar_ts=(
+                datetime.fromisoformat(data["bar_ts"]) if data.get("bar_ts") else datetime.utcnow()
+            ),
             symbol=data.get("symbol", ""),
             raw=data.get("raw", {}),
             state=data.get("state", {}),

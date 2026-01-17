@@ -324,9 +324,7 @@ class ContractQualificationService:
                 self._stats["contracts_qualified"] += len(valid)
 
                 if len(valid) < len(contracts):
-                    logger.warning(
-                        f"Batch qualification: {len(valid)}/{len(contracts)} succeeded"
-                    )
+                    logger.warning(f"Batch qualification: {len(valid)}/{len(contracts)} succeeded")
 
                 return valid
 
@@ -338,9 +336,7 @@ class ContractQualificationService:
                 return await self._qualify_sequential(contracts)
 
             except Exception as e:
-                logger.warning(
-                    f"Batch qualification failed ({e}), falling back to sequential"
-                )
+                logger.warning(f"Batch qualification failed ({e}), falling back to sequential")
                 return await self._qualify_sequential(contracts)
 
     async def _qualify_sequential(self, contracts: List[Any]) -> List[Any]:

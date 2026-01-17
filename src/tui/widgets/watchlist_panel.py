@@ -93,17 +93,13 @@ class WatchlistPanel(Widget):
         Args:
             symbols_by_tf: Mapping from timeframe (e.g., "1h") to symbol list
         """
-        self._symbols_by_timeframe = {
-            tf: sorted(set(syms)) for tf, syms in symbols_by_tf.items()
-        }
+        self._symbols_by_timeframe = {tf: sorted(set(syms)) for tf, syms in symbols_by_tf.items()}
         # If current timeframe has no symbols, switch to first available
         if self.selected_timeframe not in self._symbols_by_timeframe:
             self.selected_timeframe = self._first_available_timeframe()
         else:
             # Trigger symbol list update
-            self.symbols = list(
-                self._symbols_by_timeframe.get(self.selected_timeframe, [])
-            )
+            self.symbols = list(self._symbols_by_timeframe.get(self.selected_timeframe, []))
 
     def set_symbols(self, symbols: List[str]) -> None:
         """
@@ -226,9 +222,7 @@ class WatchlistPanel(Widget):
             # Select first symbol
             table.move_cursor(row=0)
             self.selected_symbol = self._row_keys[0]
-            self.post_message(
-                self.SymbolSelected(self._row_keys[0], self.selected_timeframe)
-            )
+            self.post_message(self.SymbolSelected(self._row_keys[0], self.selected_timeframe))
 
     def _render_timeframe_toggle(self) -> None:
         """Render the timeframe toggle bar with active highlight."""

@@ -10,12 +10,12 @@ Provides a unified StrategyItem interface for the TUI to display and execute.
 
 from __future__ import annotations
 
+import glob
+import logging
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-import logging
-import glob
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +110,9 @@ class StrategySource:
         # Sort by name
         items.sort(key=lambda x: x.name)
 
-        logger.info(f"Discovered {len(items)} strategies ({len(registry_items)} registry, {len(yaml_items)} yaml)")
+        logger.info(
+            f"Discovered {len(items)} strategies ({len(registry_items)} registry, {len(yaml_items)} yaml)"
+        )
         return items
 
     @classmethod
@@ -124,8 +126,8 @@ class StrategySource:
             # Import example strategies to ensure they're registered
             try:
                 from ..strategy.examples import (
-                    MovingAverageCrossStrategy,
                     BuyAndHoldStrategy,
+                    MovingAverageCrossStrategy,
                 )
             except ImportError:
                 pass
@@ -245,9 +247,9 @@ class StrategySource:
         """
         from .backtest_spec import (
             BacktestSpec,
-            StrategySpecConfig,
             DataSpecConfig,
             ExecutionSpecConfig,
+            StrategySpecConfig,
         )
 
         # If item has a source path, load the full spec

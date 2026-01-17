@@ -131,9 +131,7 @@ class ParamProvenance:
         data = {
             "params": dict(sorted(params.items())),
             "symbol": symbol,
-            "trained_data_end": (
-                trained_data_end.isoformat() if trained_data_end else None
-            ),
+            "trained_data_end": (trained_data_end.isoformat() if trained_data_end else None),
         }
         json_str = json.dumps(data, sort_keys=True)
         return hashlib.sha256(json_str.encode()).hexdigest()[:8]

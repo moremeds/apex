@@ -58,9 +58,7 @@ class VolProxyConfig:
                 return 50.0
             return stats.percentileofscore(x.dropna(), x.iloc[-1])
 
-        return rolling_stdev.rolling(self.reference_window).apply(
-            percentile_score, raw=False
-        )
+        return rolling_stdev.rolling(self.reference_window).apply(percentile_score, raw=False)
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize configuration."""
@@ -327,7 +325,9 @@ class ParamRecommender:
                     valid_proxy < vol_threshold + self.BOUNDARY_TOLERANCE
                 )
                 metrics.vol_boundary_density = near_vol_boundary.sum() / len(valid_proxy)
-                metrics.vol_above_threshold_pct = (valid_proxy > vol_threshold).sum() / len(valid_proxy)
+                metrics.vol_above_threshold_pct = (valid_proxy > vol_threshold).sum() / len(
+                    valid_proxy
+                )
                 metrics.vol_proxy_mean = float(valid_proxy.mean())
                 metrics.vol_proxy_current = float(valid_proxy.iloc[-1])
         except Exception as e:
@@ -353,9 +353,7 @@ class ParamRecommender:
         recommendations: List[ParamRecommendation] = []
 
         # Analyze vol_high_short_pct threshold
-        vol_rec = self._analyze_vol_threshold(
-            symbol, ohlcv_window, proxy_vol, current_params
-        )
+        vol_rec = self._analyze_vol_threshold(symbol, ohlcv_window, proxy_vol, current_params)
         if vol_rec:
             recommendations.append(vol_rec)
 
@@ -412,9 +410,7 @@ class ParamRecommender:
             # Calculate ATR for CHOP
             tr = np.maximum(
                 high[1:] - low[1:],
-                np.maximum(
-                    np.abs(high[1:] - close[:-1]), np.abs(low[1:] - close[:-1])
-                ),
+                np.maximum(np.abs(high[1:] - close[:-1]), np.abs(low[1:] - close[:-1])),
             )
             atr14 = pd.Series(tr).rolling(14).mean()
 
@@ -425,9 +421,9 @@ class ParamRecommender:
 
             # Calculate percentile using full data
             chop_pct = chop.rolling(min(252, len(chop))).apply(
-                lambda x: stats.percentileofscore(x.dropna(), x.iloc[-1])
-                if len(x.dropna()) > 1
-                else 50
+                lambda x: (
+                    stats.percentileofscore(x.dropna(), x.iloc[-1]) if len(x.dropna()) > 1 else 50
+                )
             )
 
             # Filter to lookback window for analysis
@@ -493,7 +489,9 @@ class ParamRecommender:
             # Too many above threshold - suggest raising
             suggested = min(threshold + self.MAX_CHANGE_PER_RUN, 95)
             change = suggested - threshold
-            reason = f"High boundary density ({boundary_density:.1%}), {above_ratio:.1%} above threshold"
+            reason = (
+                f"High boundary density ({boundary_density:.1%}), {above_ratio:.1%} above threshold"
+            )
         else:
             # Too few above threshold - suggest lowering
             suggested = max(threshold - self.MAX_CHANGE_PER_RUN, 50)
@@ -553,9 +551,7 @@ class ParamRecommender:
             # Calculate ATR for CHOP
             tr = np.maximum(
                 high[1:] - low[1:],
-                np.maximum(
-                    np.abs(high[1:] - close[:-1]), np.abs(low[1:] - close[:-1])
-                ),
+                np.maximum(np.abs(high[1:] - close[:-1]), np.abs(low[1:] - close[:-1])),
             )
             atr14 = pd.Series(tr).rolling(14).mean()
 
@@ -566,9 +562,9 @@ class ParamRecommender:
 
             # Calculate percentile
             chop_pct = chop.rolling(min(252, len(chop))).apply(
-                lambda x: stats.percentileofscore(x.dropna(), x.iloc[-1])
-                if len(x.dropna()) > 1
-                else 50
+                lambda x: (
+                    stats.percentileofscore(x.dropna(), x.iloc[-1]) if len(x.dropna()) > 1 else 50
+                )
             )
         except Exception as e:
             logger.debug(f"CHOP calculation failed for {symbol}: {e}")
@@ -594,7 +590,9 @@ class ParamRecommender:
         if above_ratio > 0.5:
             suggested = min(threshold + self.MAX_CHANGE_PER_RUN, 85)
             change = suggested - threshold
-            reason = f"High boundary density ({boundary_density:.1%}), {above_ratio:.1%} above threshold"
+            reason = (
+                f"High boundary density ({boundary_density:.1%}), {above_ratio:.1%} above threshold"
+            )
         else:
             suggested = max(threshold - self.MAX_CHANGE_PER_RUN, 40)
             change = suggested - threshold
@@ -745,13 +743,18 @@ class EnhancedParamRecommender:
             training_window = (first_fold.train_start, last_fold.train_end)
             validation_window = (first_fold.test_start, last_fold.test_end)
         else:
-            training_window = (analysis_date - timedelta(days=self.wfo_config.train_days), analysis_date)
-            validation_window = (analysis_date - timedelta(days=self.wfo_config.test_days), analysis_date)
+            training_window = (
+                analysis_date - timedelta(days=self.wfo_config.train_days),
+                analysis_date,
+            )
+            validation_window = (
+                analysis_date - timedelta(days=self.wfo_config.test_days),
+                analysis_date,
+            )
 
         # Extract stability (variance) per parameter
         param_stability = {
-            name: stability.std_change
-            for name, stability in wfo_result.param_stability.items()
+            name: stability.std_change for name, stability in wfo_result.param_stability.items()
         }
 
         # Extract fold agreement per parameter

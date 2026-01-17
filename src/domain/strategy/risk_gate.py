@@ -21,10 +21,10 @@ Usage:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Dict, Any, Optional, List, Protocol
-from enum import Enum
 import logging
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Any, Dict, List, Optional, Protocol
 
 from ..interfaces.execution_provider import OrderRequest
 from .base import StrategyContext
@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 
 class RejectionReason(Enum):
     """Reasons for order rejection."""
+
     NONE = "none"
     MAX_POSITION_SIZE = "max_position_size"
     MAX_ORDER_SIZE = "max_order_size"
@@ -49,6 +50,7 @@ class RejectionReason(Enum):
 @dataclass
 class ValidationResult:
     """Result of order validation."""
+
     approved: bool
     reason: RejectionReason = RejectionReason.NONE
     message: str = ""
@@ -61,12 +63,7 @@ class ValidationResult:
         return cls(approved=True, message=message)
 
     @classmethod
-    def reject(
-        cls,
-        reason: RejectionReason,
-        message: str,
-        **metadata
-    ) -> "ValidationResult":
+    def reject(cls, reason: RejectionReason, message: str, **metadata) -> "ValidationResult":
         """Create a rejection result."""
         return cls(
             approved=False,
@@ -381,9 +378,7 @@ class RiskGate:
 
     def _handle_rejection(self, result: ValidationResult) -> ValidationResult:
         """Handle rejection (count and potentially downgrade to warning)."""
-        self._rejection_counts[result.reason] = (
-            self._rejection_counts.get(result.reason, 0) + 1
-        )
+        self._rejection_counts[result.reason] = self._rejection_counts.get(result.reason, 0) + 1
 
         if self._config.soft_mode:
             logger.warning(f"RiskGate SOFT REJECT: {result.message}")

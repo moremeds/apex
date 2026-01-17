@@ -23,8 +23,8 @@ Usage:
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Type, Any
 import logging
+from typing import Any, Dict, List, Optional, Type
 
 from .base import Strategy
 
@@ -67,9 +67,7 @@ class StrategyRegistry:
             logger.warning(f"Overwriting existing strategy: {name}")
 
         if not issubclass(strategy_class, Strategy):
-            raise ValueError(
-                f"{strategy_class.__name__} must be a subclass of Strategy"
-            )
+            raise ValueError(f"{strategy_class.__name__} must be a subclass of Strategy")
 
         cls._strategies[name] = strategy_class
         cls._metadata[name] = metadata or {}

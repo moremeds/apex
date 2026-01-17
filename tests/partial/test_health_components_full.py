@@ -3,16 +3,16 @@ Test to verify all 4 health components are properly registered and displayed.
 """
 
 import sys
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src.infrastructure.monitoring import HealthMonitor, Watchdog, HealthStatus
 from src.application.simple_event_bus import SimpleEventBus
-from src.tui.dashboard import TerminalDashboard
+from src.infrastructure.monitoring import HealthMonitor, HealthStatus, Watchdog
 from src.models.risk_snapshot import RiskSnapshot
+from src.tui.dashboard import TerminalDashboard
 
 
 def test_all_health_components():
@@ -35,23 +35,17 @@ def test_all_health_components():
         config={
             "snapshot_stale_sec": 10,
             "max_missing_md_ratio": 0.2,
-            "reconnect_backoff_sec": {"initial": 1, "max": 60, "factor": 2}
-        }
+            "reconnect_backoff_sec": {"initial": 1, "max": 60, "factor": 2},
+        },
     )
     print(f"   ✓ Watchdog created")
 
     # Manually register ib_adapter and file_loader (simulating orchestrator)
     print("\n3. Simulating orchestrator connection phase...")
     health_monitor.update_component_health(
-        "ib_adapter",
-        HealthStatus.UNHEALTHY,
-        "Connection failed: ib_async library not installed"
+        "ib_adapter", HealthStatus.UNHEALTHY, "Connection failed: ib_async library not installed"
     )
-    health_monitor.update_component_health(
-        "file_loader",
-        HealthStatus.HEALTHY,
-        "Loaded"
-    )
+    health_monitor.update_component_health("file_loader", HealthStatus.HEALTHY, "Loaded")
     print(f"   ✓ IB adapter and file_loader health registered")
 
     # Update market data coverage with some data
@@ -67,7 +61,15 @@ def test_all_health_components():
     # Display details
     print("\n6. Health component details:")
     for i, h in enumerate(health_list, 1):
-        icon = "✓" if h.status == HealthStatus.HEALTHY else "⚠" if h.status == HealthStatus.DEGRADED else "✗" if h.status == HealthStatus.UNHEALTHY else "○"
+        icon = (
+            "✓"
+            if h.status == HealthStatus.HEALTHY
+            else (
+                "⚠"
+                if h.status == HealthStatus.DEGRADED
+                else "✗" if h.status == HealthStatus.UNHEALTHY else "○"
+            )
+        )
         print(f"   [{i}] {icon} {h.component_name}")
         print(f"       Status: {h.status.value}")
         print(f"       Message: {h.message}")
@@ -80,13 +82,19 @@ def test_all_health_components():
     panel = dashboard._render_health(health_list)
 
     from rich.console import Console
+
     console = Console()
     print("\n8. Health panel as it would appear in dashboard:")
     console.print(panel)
 
     # Verification
     print("\n9. Verification:")
-    expected_components = {"ib_adapter", "file_loader", "market_data_coverage", "snapshot_freshness"}
+    expected_components = {
+        "ib_adapter",
+        "file_loader",
+        "market_data_coverage",
+        "snapshot_freshness",
+    }
     actual_components = {h.component_name for h in health_list}
 
     print(f"   Expected: {sorted(expected_components)}")

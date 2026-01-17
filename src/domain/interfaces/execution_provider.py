@@ -1,9 +1,10 @@
 """Execution provider protocol for order management."""
 
 from __future__ import annotations
-from typing import Protocol, List, Optional, Callable, runtime_checkable
+
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Callable, List, Optional, Protocol, runtime_checkable
 
 from ..events.domain_events import OrderUpdate, TradeFill
 
@@ -15,6 +16,7 @@ class OrderRequest:
 
     Represents the parameters needed to submit an order.
     """
+
     symbol: str
     side: str  # "BUY" or "SELL"
     quantity: float
@@ -51,6 +53,7 @@ class OrderResult:
 
     Returned by submit_order, cancel_order, modify_order.
     """
+
     success: bool
     order_id: Optional[str] = None
     message: str = ""
@@ -244,10 +247,7 @@ class ExecutionProvider(Protocol):
     # Callbacks
     # -------------------------------------------------------------------------
 
-    def set_order_callback(
-        self,
-        callback: Optional[Callable[[OrderUpdate], None]]
-    ) -> None:
+    def set_order_callback(self, callback: Optional[Callable[[OrderUpdate], None]]) -> None:
         """
         Set callback for order status updates.
 
@@ -257,10 +257,7 @@ class ExecutionProvider(Protocol):
         """
         ...
 
-    def set_fill_callback(
-        self,
-        callback: Optional[Callable[[TradeFill], None]]
-    ) -> None:
+    def set_fill_callback(self, callback: Optional[Callable[[TradeFill], None]]) -> None:
         """
         Set callback for trade fills.
 

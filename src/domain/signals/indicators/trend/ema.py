@@ -74,9 +74,7 @@ class EMAIndicator(IndicatorBase):
             ema_fast = self._calculate_ema(close, fast_p)
             ema_slow = self._calculate_ema(close, slow_p)
 
-        return pd.DataFrame(
-            {"ema_fast": ema_fast, "ema_slow": ema_slow}, index=data.index
-        )
+        return pd.DataFrame({"ema_fast": ema_fast, "ema_slow": ema_slow}, index=data.index)
 
     def _calculate_ema(self, data: np.ndarray, period: int) -> np.ndarray:
         """Calculate EMA without TA-Lib."""

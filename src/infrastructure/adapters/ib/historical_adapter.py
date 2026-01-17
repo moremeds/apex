@@ -9,17 +9,16 @@ Uses reserved historical client IDs.
 """
 
 from __future__ import annotations
-import asyncio
-from typing import List, Optional, Callable, Dict
-from datetime import datetime, timedelta, date
 
+import asyncio
+from datetime import date, datetime, timedelta
+from typing import Callable, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
-from ....utils.logging_setup import get_logger
+from ....domain.events.domain_events import BarData
 from ....domain.interfaces.bar_provider import BarProvider
 from ....domain.interfaces.historical_source import HistoricalSourcePort
-from ....domain.events.domain_events import BarData
-
+from ....utils.logging_setup import get_logger
 from .base import IbBaseAdapter
 
 # IB returns timestamps in US Eastern Time (naive), we need to convert to UTC
@@ -68,19 +67,19 @@ TIMEFRAME_TO_DEFAULT_DURATION = {
 # requests complete reliably within ~60 seconds.
 # Reference: https://interactivebrokers.github.io/tws-api/historical_limitations.html
 MAX_HISTORY_DAYS = {
-    "1s": 1,       # ~86,400 bars/day - limit to 1 day
-    "5s": 1,       # ~17,280 bars/day
-    "15s": 1,      # ~5,760 bars/day
-    "30s": 2,      # ~2,880 bars/day
-    "1m": 7,       # ~390 bars/day - 7 days = ~2,730 bars
-    "5m": 30,      # ~78 bars/day - 30 days = ~2,340 bars
-    "15m": 60,     # ~26 bars/day - 60 days = ~1,560 bars
-    "30m": 90,     # ~13 bars/day - 90 days = ~1,170 bars
-    "1h": 180,     # ~7 bars/day - 180 days = ~1,260 bars
-    "4h": 365,     # ~2 bars/day - 365 days = ~730 bars
-    "1d": 3650,    # ~10 years
-    "1w": 3650,    # ~10 years
-    "1M": 3650,    # ~10 years
+    "1s": 1,  # ~86,400 bars/day - limit to 1 day
+    "5s": 1,  # ~17,280 bars/day
+    "15s": 1,  # ~5,760 bars/day
+    "30s": 2,  # ~2,880 bars/day
+    "1m": 7,  # ~390 bars/day - 7 days = ~2,730 bars
+    "5m": 30,  # ~78 bars/day - 30 days = ~2,340 bars
+    "15m": 60,  # ~26 bars/day - 60 days = ~1,560 bars
+    "30m": 90,  # ~13 bars/day - 90 days = ~1,170 bars
+    "1h": 180,  # ~7 bars/day - 180 days = ~1,260 bars
+    "4h": 365,  # ~2 bars/day - 365 days = ~730 bars
+    "1d": 3650,  # ~10 years
+    "1w": 3650,  # ~10 years
+    "1M": 3650,  # ~10 years
 }
 
 
@@ -188,7 +187,7 @@ class IbHistoricalAdapter(IbBaseAdapter, BarProvider):
             result = []
             for bar in bars:
                 # IB returns date for daily bars, datetime for intraday
-                bar_ts = bar.date if hasattr(bar, 'date') else datetime.now()
+                bar_ts = bar.date if hasattr(bar, "date") else datetime.now()
                 # Ensure timestamp is always datetime for consistent comparison
                 if isinstance(bar_ts, date) and not isinstance(bar_ts, datetime):
                     bar_ts = datetime.combine(bar_ts, datetime.min.time())
@@ -215,7 +214,11 @@ class IbHistoricalAdapter(IbBaseAdapter, BarProvider):
             # Filter by start if provided
             if start:
                 # Ensure start is datetime for comparison
-                start_dt = start if isinstance(start, datetime) else datetime.combine(start, datetime.min.time())
+                start_dt = (
+                    start
+                    if isinstance(start, datetime)
+                    else datetime.combine(start, datetime.min.time())
+                )
                 # Normalize timezone: make both naive for comparison
                 if start_dt.tzinfo is not None:
                     start_dt = start_dt.replace(tzinfo=None)
@@ -307,9 +310,7 @@ class IbHistoricalAdapter(IbBaseAdapter, BarProvider):
             batch_num = i // max_concurrent + 1
             total_batches = (total + max_concurrent - 1) // max_concurrent
 
-            logger.debug(
-                f"IB batch {batch_num}/{total_batches}: fetching {len(batch)} symbols"
-            )
+            logger.debug(f"IB batch {batch_num}/{total_batches}: fetching {len(batch)} symbols")
 
             # Run batch concurrently
             tasks = [fetch_single(req) for req in batch]
@@ -340,12 +341,7 @@ class IbHistoricalAdapter(IbBaseAdapter, BarProvider):
     # Helper Methods
     # -------------------------------------------------------------------------
 
-    def _calculate_duration(
-        self,
-        start: datetime,
-        end: datetime,
-        timeframe: str
-    ) -> str:
+    def _calculate_duration(self, start: datetime, end: datetime, timeframe: str) -> str:
         """
         Calculate IB duration string based on date range.
 
@@ -411,11 +407,12 @@ class IbHistoricalAdapter(IbBaseAdapter, BarProvider):
             results = {}
             # Limit to avoid rate limits - get a subset of strikes
             mid_strike_idx = len(strikes) // 2
-            selected_strikes = strikes[max(0, mid_strike_idx - 5):mid_strike_idx + 5]
+            selected_strikes = strikes[max(0, mid_strike_idx - 5) : mid_strike_idx + 5]
 
             for strike in selected_strikes:
                 for right in ["C", "P"]:
                     from ib_async import Option
+
                     option = Option(
                         underlying,
                         expiry,

@@ -1,10 +1,11 @@
 """Position model with source tracking and reconciliation support."""
 
 from __future__ import annotations
+
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import Optional, Literal
 from enum import Enum
+from typing import Literal, Optional
 
 from ..utils.logging_setup import get_logger
 
@@ -13,6 +14,7 @@ logger = get_logger(__name__)
 
 class AssetType(Enum):
     """Asset type enumeration."""
+
     STOCK = "STOCK"
     OPTION = "OPTION"
     FUTURE = "FUTURE"
@@ -21,6 +23,7 @@ class AssetType(Enum):
 
 class PositionSource(Enum):
     """Position data source for reconciliation."""
+
     IB = "IB"  # Interactive Brokers
     FUTU = "FUTU"  # Futu OpenD
     MANUAL = "MANUAL"  # Manual YAML file
@@ -46,7 +49,9 @@ class Position:
 
     # Reconciliation & metadata
     source: PositionSource = PositionSource.IB
-    all_sources: list[PositionSource] = field(default_factory=list)  # All sources this position exists in
+    all_sources: list[PositionSource] = field(
+        default_factory=list
+    )  # All sources this position exists in
     strategy_tag: Optional[str] = None
     last_updated: datetime = field(default_factory=datetime.now)
     account_id: Optional[str] = None

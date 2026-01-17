@@ -25,10 +25,11 @@ See: https://github.com/ib-api-reloaded/ib_async/issues/186
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
+
+from config.models import IbClientIdsConfig
 
 from ....utils.logging_setup import get_logger
-from config.models import IbClientIdsConfig
 
 if TYPE_CHECKING:
     from ib_async import IB
@@ -136,41 +137,35 @@ class IbConnectionPool:
             # Monitoring connection (positions, quotes, orders)
             self._monitoring = IB()
             await self._monitoring.connectAsync(
-                host, port,
+                host,
+                port,
                 clientId=client_ids.monitoring,
                 timeout=timeout,
             )
-            logger.info(
-                f"IB pool: monitoring connected "
-                f"(client_id={client_ids.monitoring})"
-            )
+            logger.info(f"IB pool: monitoring connected " f"(client_id={client_ids.monitoring})")
 
             # Historical connection (bar data, ATR)
             # Use first ID from historical pool
             hist_client_id = client_ids.historical_pool[0] if client_ids.historical_pool else 3
             self._historical = IB()
             await self._historical.connectAsync(
-                host, port,
+                host,
+                port,
                 clientId=hist_client_id,
                 timeout=timeout,
             )
-            logger.info(
-                f"IB pool: historical connected "
-                f"(client_id={hist_client_id})"
-            )
+            logger.info(f"IB pool: historical connected " f"(client_id={hist_client_id})")
 
             # A4: Execution connection (order submission/management)
             # Isolated from data operations to ensure orders are never blocked
             self._execution = IB()
             await self._execution.connectAsync(
-                host, port,
+                host,
+                port,
                 clientId=client_ids.execution,
                 timeout=timeout,
             )
-            logger.info(
-                f"IB pool: execution connected "
-                f"(client_id={client_ids.execution})"
-            )
+            logger.info(f"IB pool: execution connected " f"(client_id={client_ids.execution})")
 
             self._connected = True
             logger.info(f"IB connection pool ready at {host}:{port} (3 connections)")
@@ -192,15 +187,13 @@ class IbConnectionPool:
         try:
             self._monitoring = IB()
             await self._monitoring.connectAsync(
-                host, port,
+                host,
+                port,
                 clientId=client_ids.monitoring,
                 timeout=timeout,
             )
             self._connected = True
-            logger.info(
-                f"IB pool: monitoring connected "
-                f"(client_id={client_ids.monitoring})"
-            )
+            logger.info(f"IB pool: monitoring connected " f"(client_id={client_ids.monitoring})")
         except Exception as e:
             logger.error(f"Failed to connect monitoring: {e}")
             raise ConnectionError(f"IB monitoring connection failed: {e}")
@@ -222,14 +215,12 @@ class IbConnectionPool:
         try:
             self._historical = IB()
             await self._historical.connectAsync(
-                host, port,
+                host,
+                port,
                 clientId=hist_client_id,
                 timeout=timeout,
             )
-            logger.info(
-                f"IB pool: historical connected "
-                f"(client_id={hist_client_id})"
-            )
+            logger.info(f"IB pool: historical connected " f"(client_id={hist_client_id})")
         except Exception as e:
             logger.error(f"Failed to connect historical: {e}")
             raise ConnectionError(f"IB historical connection failed: {e}")
@@ -283,14 +274,12 @@ class IbConnectionPool:
         try:
             self._execution = IB()
             await self._execution.connectAsync(
-                host, port,
+                host,
+                port,
                 clientId=client_ids.execution,
                 timeout=timeout,
             )
-            logger.info(
-                f"IB pool: execution connected "
-                f"(client_id={client_ids.execution})"
-            )
+            logger.info(f"IB pool: execution connected " f"(client_id={client_ids.execution})")
         except Exception as e:
             logger.error(f"Failed to connect execution: {e}")
             raise ConnectionError(f"IB execution connection failed: {e}")

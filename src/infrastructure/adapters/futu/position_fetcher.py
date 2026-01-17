@@ -5,14 +5,15 @@ Extracted from FutuAdapter for single-responsibility.
 """
 
 from __future__ import annotations
-from typing import List, Dict, Optional, TYPE_CHECKING
-from datetime import datetime, timedelta
-import threading
 
-from ....utils.logging_setup import get_logger
+import threading
+from datetime import datetime, timedelta
+from typing import TYPE_CHECKING, Dict, List, Optional
+
 from ....models.position import Position
+from ....utils.logging_setup import get_logger
 from .converters import convert_position
-from .exceptions import classify_futu_exception, FutuConnectionError, FutuRateLimitError
+from .exceptions import FutuConnectionError, FutuRateLimitError, classify_futu_exception
 
 if TYPE_CHECKING:
     from .adapter import FutuAdapter

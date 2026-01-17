@@ -368,7 +368,9 @@ class WalkForwardOptimizer:
                         r0_return = regime_returns.get("R0", regime_returns.get("0", 0))
                         r2_return = regime_returns.get("R2", regime_returns.get("2", 0))
                         if r0_return < r2_return:
-                            changes["vol_high_short_pct"] = changes.get("vol_high_short_pct", 0) - 2.0
+                            changes["vol_high_short_pct"] = (
+                                changes.get("vol_high_short_pct", 0) - 2.0
+                            )
 
         # Clamp changes to max allowed
         for param, change in changes.items():
@@ -556,8 +558,7 @@ class WalkForwardOptimizer:
                 objective_summary[obj.name].append(obj.value)
 
         objective_means = {
-            name: round(float(np.mean(values)), 4)
-            for name, values in objective_summary.items()
+            name: round(float(np.mean(values)), 4) for name, values in objective_summary.items()
         }
 
         # Generate recommendations

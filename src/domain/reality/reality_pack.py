@@ -7,23 +7,20 @@ Provides pre-configured packs for different simulation scenarios.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
-from .fee_model import (
-    FeeModel,
-    ZeroFeeModel,
-    ConstantFeeModel,
-    PerShareFeeModel,
-    IBFeeModel,
-    FutuFeeModel,
+from .admin_fee_model import (
+    AdminFeeModel,
+    ConstantAdminFeeModel,
+    ZeroAdminFeeModel,
 )
-from .slippage_model import (
-    SlippageModel,
-    ZeroSlippageModel,
-    ConstantSlippageModel,
-    SpreadSlippageModel,
-    VolumeSlippageModel,
-    RandomSlippageModel,
+from .fee_model import (
+    ConstantFeeModel,
+    FeeModel,
+    FutuFeeModel,
+    IBFeeModel,
+    PerShareFeeModel,
+    ZeroFeeModel,
 )
 from .fill_model import (
     FillModel,
@@ -32,16 +29,19 @@ from .fill_model import (
     ProbabilisticFillModel,
 )
 from .latency_model import (
-    LatencyModel,
-    ZeroLatencyModel,
     ConstantLatencyModel,
+    LatencyModel,
     RandomLatencyModel,
     VenueLatencyModel,
+    ZeroLatencyModel,
 )
-from .admin_fee_model import (
-    AdminFeeModel,
-    ZeroAdminFeeModel,
-    ConstantAdminFeeModel,
+from .slippage_model import (
+    ConstantSlippageModel,
+    RandomSlippageModel,
+    SlippageModel,
+    SpreadSlippageModel,
+    VolumeSlippageModel,
+    ZeroSlippageModel,
 )
 
 
@@ -86,6 +86,7 @@ class RealityModelPack:
         Returns:
             RealityModelPack instance.
         """
+
         # Helper to get params from config dict (either nested in 'params' or flat)
         def get_params(cfg):
             if not isinstance(cfg, dict):
@@ -101,13 +102,13 @@ class RealityModelPack:
         fee_cfg = config.get("fee_model", {"type": "zero"})
         fee_type = fee_cfg.get("type", "zero").lower()
         fee_params = get_params(fee_cfg)
-        
+
         # Mapping aliases
         if fee_type == "fixed":
             fee_type = "per_share"
         elif fee_type == "none":
             fee_type = "zero"
-            
+
         fee_map = {
             "zero": ZeroFeeModel,
             "constant": ConstantFeeModel,
@@ -115,7 +116,7 @@ class RealityModelPack:
             "ib": IBFeeModel,
             "futu": FutuFeeModel,
         }
-        
+
         # Handle param name differences (commission_per_share -> per_share)
         if "commission_per_share" in fee_params and "per_share" not in fee_params:
             fee_params["per_share"] = fee_params.pop("commission_per_share")
@@ -128,7 +129,7 @@ class RealityModelPack:
         slip_cfg = config.get("slippage_model", {"type": "zero"})
         slip_type = slip_cfg.get("type", "zero").lower()
         slip_params = get_params(slip_cfg)
-        
+
         slip_map = {
             "zero": ZeroSlippageModel,
             "constant": ConstantSlippageModel,
@@ -142,7 +143,7 @@ class RealityModelPack:
         fill_cfg = config.get("fill_model", {"type": "immediate"})
         fill_type = fill_cfg.get("type", "immediate").lower()
         fill_params = get_params(fill_cfg)
-        
+
         fill_map = {
             "immediate": ImmediateFillModel,
             "next_bar": NextBarFillModel,
@@ -154,7 +155,7 @@ class RealityModelPack:
         lat_cfg = config.get("latency_model", {"type": "zero"})
         lat_type = lat_cfg.get("type", "zero").lower()
         lat_params = get_params(lat_cfg)
-        
+
         lat_map = {
             "zero": ZeroLatencyModel,
             "constant": ConstantLatencyModel,

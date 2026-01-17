@@ -1,10 +1,11 @@
 """Event types and priorities for the dual-lane event bus."""
 
 from __future__ import annotations
-from enum import Enum, IntEnum
-from dataclasses import dataclass, field
-from typing import Any, Dict, Type, TYPE_CHECKING
+
 import time
+from dataclasses import dataclass, field
+from enum import Enum, IntEnum
+from typing import TYPE_CHECKING, Any, Dict, Type
 
 if TYPE_CHECKING:
     from .domain_events import DomainEvent
@@ -12,22 +13,24 @@ if TYPE_CHECKING:
 
 class EventPriority(IntEnum):
     """Event priorities (lower number = higher priority)."""
-    CRITICAL = 0     # SHUTDOWN, CONNECTION_LOST
-    RISK = 10        # RISK_SIGNAL, RISK_BREACH
-    TRADING = 20     # ORDER_SUBMITTED, FILL_RECEIVED, TRADING_SIGNAL
-    MARKET_DATA = 30 # MARKET_DATA_TICK, MARKET_DATA_BATCH
+
+    CRITICAL = 0  # SHUTDOWN, CONNECTION_LOST
+    RISK = 10  # RISK_SIGNAL, RISK_BREACH
+    TRADING = 20  # ORDER_SUBMITTED, FILL_RECEIVED, TRADING_SIGNAL
+    MARKET_DATA = 30  # MARKET_DATA_TICK, MARKET_DATA_BATCH
     POSITION_DELTA = 35  # POSITION_DELTA - Fast path for TUI streaming
-    POSITION = 40    # POSITION_UPDATED, POSITIONS_BATCH
-    ACCOUNT = 50     # ACCOUNT_UPDATED
-    CONTROL = 60     # TIMER_TICK, RECONCILIATION_ISSUE, INDICATOR_UPDATE, FULL_RESYNC
-    SIGNAL_DATA = 65 # BAR_CLOSE (fast lane, after control but before snapshot)
-    SNAPSHOT = 70    # SNAPSHOT_READY
+    POSITION = 40  # POSITION_UPDATED, POSITIONS_BATCH
+    ACCOUNT = 50  # ACCOUNT_UPDATED
+    CONTROL = 60  # TIMER_TICK, RECONCILIATION_ISSUE, INDICATOR_UPDATE, FULL_RESYNC
+    SIGNAL_DATA = 65  # BAR_CLOSE (fast lane, after control but before snapshot)
+    SNAPSHOT = 70  # SNAPSHOT_READY
     DIAGNOSTIC = 80  # HEALTH_CHECK, STATS
-    UI = 90          # DASHBOARD_UPDATE
+    UI = 90  # DASHBOARD_UPDATE
 
 
 class EventType(Enum):
     """System event types with priority categorization."""
+
     # Critical (Priority 0)
     SHUTDOWN = "shutdown"
     CONNECTION_LOST = "connection_lost"
@@ -144,7 +147,7 @@ FAST_LANE_THRESHOLD = EventPriority.SNAPSHOT
 # 6. NEVER DROP: RISK_*, TRADING_*, ORDER_*, SYSTEM_*, BROKER_*
 
 DROPPABLE_EVENTS: dict[EventType, int] = {
-    EventType.DASHBOARD_UPDATE: 1,    # First to drop
+    EventType.DASHBOARD_UPDATE: 1,  # First to drop
     EventType.HEALTH_CHECK: 2,
     EventType.SNAPSHOT_READY: 3,
     # Market data coalesced, not dropped outright
@@ -174,6 +177,7 @@ NEVER_DROP: set[EventType] = {
 @dataclass(order=True)
 class PriorityEventEnvelope:
     """Event wrapper with priority ordering for PriorityQueue."""
+
     priority: int
     sequence: int = field(compare=True)  # Tie-breaker for same priority
     event_type: EventType = field(compare=False)
@@ -193,6 +197,7 @@ class PriorityEventEnvelope:
 #
 # Note: Imported lazily to avoid circular imports
 
+
 def get_event_type_mapping() -> Dict[EventType, Type["DomainEvent"]]:
     """
     Get mapping from EventType to expected DomainEvent class.
@@ -201,44 +206,45 @@ def get_event_type_mapping() -> Dict[EventType, Type["DomainEvent"]]:
         Dict mapping EventType to its expected payload class.
     """
     from .domain_events import (
-        QuoteTick, BarData, TradeFill, OrderUpdate,
-        PositionSnapshot, AccountSnapshot, ConnectionEvent, RiskBreachEvent,
-        MarketDataTickEvent, BarCloseEvent, IndicatorUpdateEvent,
-        PositionDeltaEvent, FullResyncEvent,
+        AccountSnapshot,
+        BarCloseEvent,
+        BarData,
+        ConnectionEvent,
+        FullResyncEvent,
+        IndicatorUpdateEvent,
+        MarketDataTickEvent,
+        OrderUpdate,
+        PositionDeltaEvent,
+        PositionSnapshot,
+        QuoteTick,
+        RiskBreachEvent,
+        TradeFill,
     )
 
     return {
         # Market Data Events - C3: Use MarketDataTickEvent (what's actually published)
         EventType.MARKET_DATA_TICK: MarketDataTickEvent,
         EventType.MARKET_DATA_BATCH: BarData,
-
         # Position Delta Events - Fast path for TUI streaming
         EventType.POSITION_DELTA: PositionDeltaEvent,
-
         # Signal Engine Events
         EventType.BAR_CLOSE: BarCloseEvent,
         EventType.INDICATOR_UPDATE: IndicatorUpdateEvent,
-
         # Trading Events
         EventType.ORDER_SUBMITTED: OrderUpdate,
         EventType.ORDER_FILLED: TradeFill,
         EventType.ORDER_CANCELLED: OrderUpdate,
-
         # Position Events
         EventType.POSITION_UPDATED: PositionSnapshot,
-
         # Account Events
         EventType.ACCOUNT_UPDATED: AccountSnapshot,
-
         # Connection Events
         EventType.BROKER_CONNECTED: ConnectionEvent,
         EventType.BROKER_DISCONNECTED: ConnectionEvent,
         EventType.CONNECTION_LOST: ConnectionEvent,
         EventType.CONNECTION_RESTORED: ConnectionEvent,
-
         # Risk Events
         EventType.RISK_BREACH: RiskBreachEvent,
-
         # Control Events
         EventType.FULL_RESYNC: FullResyncEvent,
     }

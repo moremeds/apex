@@ -132,9 +132,7 @@ class IbExecutionRepository(BaseRepository[IbRawExecution]):
     # Query Methods
     # -------------------------------------------------------------------------
 
-    async def find_by_exec_id(
-        self, exec_id: str, account_id: str
-    ) -> Optional[IbRawExecution]:
+    async def find_by_exec_id(self, exec_id: str, account_id: str) -> Optional[IbRawExecution]:
         """
         Find execution by exec_id and account_id.
 
@@ -152,9 +150,7 @@ class IbExecutionRepository(BaseRepository[IbRawExecution]):
         record = await self._db.fetchrow(query, exec_id, account_id)
         return self._to_entity(record) if record else None
 
-    async def find_by_order_id(
-        self, order_id: int, account_id: str
-    ) -> List[IbRawExecution]:
+    async def find_by_order_id(self, order_id: int, account_id: str) -> List[IbRawExecution]:
         """
         Find all executions for a specific order.
 
@@ -173,9 +169,7 @@ class IbExecutionRepository(BaseRepository[IbRawExecution]):
         records = await self._db.fetch(query, order_id, account_id)
         return [self._to_entity(r) for r in records]
 
-    async def find_by_perm_id(
-        self, perm_id: int, account_id: str
-    ) -> List[IbRawExecution]:
+    async def find_by_perm_id(self, perm_id: int, account_id: str) -> List[IbRawExecution]:
         """
         Find all executions for a specific permanent order ID.
 

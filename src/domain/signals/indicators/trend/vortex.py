@@ -65,9 +65,7 @@ class VortexIndicator(IndicatorBase):
         vi_minus = np.full(n, np.nan, dtype=np.float64)
 
         if n < period + 1:
-            return pd.DataFrame(
-                {"vi_plus": vi_plus, "vi_minus": vi_minus}, index=data.index
-            )
+            return pd.DataFrame({"vi_plus": vi_plus, "vi_minus": vi_minus}, index=data.index)
 
         # True Range
         tr = np.zeros(n)
@@ -95,9 +93,7 @@ class VortexIndicator(IndicatorBase):
                 vi_plus[i] = sum_vm_plus / sum_tr
                 vi_minus[i] = sum_vm_minus / sum_tr
 
-        return pd.DataFrame(
-            {"vi_plus": vi_plus, "vi_minus": vi_minus}, index=data.index
-        )
+        return pd.DataFrame({"vi_plus": vi_plus, "vi_minus": vi_minus}, index=data.index)
 
     def _get_state(
         self,

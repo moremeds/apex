@@ -14,16 +14,16 @@ This strategy demonstrates:
 - on_fill callback for trade tracking
 """
 
+import logging
+import uuid
 from collections import deque
 from dataclasses import dataclass
-from typing import Deque, Optional, List
-import uuid
-import logging
+from typing import Deque, List, Optional
 
+from ...events.domain_events import BarData, QuoteTick, TradeFill
+from ...interfaces.execution_provider import OrderRequest
 from ..base import Strategy, StrategyContext
 from ..registry import register_strategy
-from ...events.domain_events import QuoteTick, BarData, TradeFill
-from ...interfaces.execution_provider import OrderRequest
 
 logger = logging.getLogger(__name__)
 
@@ -89,9 +89,7 @@ class MomentumBreakoutStrategy(Strategy):
         self._highs: dict[str, Deque[float]] = {
             symbol: deque(maxlen=lookback) for symbol in symbols
         }
-        self._lows: dict[str, Deque[float]] = {
-            symbol: deque(maxlen=lookback) for symbol in symbols
-        }
+        self._lows: dict[str, Deque[float]] = {symbol: deque(maxlen=lookback) for symbol in symbols}
         self._closes: dict[str, Deque[float]] = {
             symbol: deque(maxlen=atr_period + 1) for symbol in symbols
         }
@@ -209,17 +207,14 @@ class MomentumBreakoutStrategy(Strategy):
             if new_stop > pos.stop_price:
                 pos.stop_price = new_stop
                 logger.debug(
-                    f"[{self.strategy_id}] Trail stop: {symbol} "
-                    f"new_stop={new_stop:.2f}"
+                    f"[{self.strategy_id}] Trail stop: {symbol} " f"new_stop={new_stop:.2f}"
                 )
 
         # Check stop-loss
         if price <= pos.stop_price:
             self._exit_position(symbol, price, pos.quantity, "STOP_LOSS")
 
-    def _exit_position(
-        self, symbol: str, price: float, quantity: float, reason: str
-    ) -> None:
+    def _exit_position(self, symbol: str, price: float, quantity: float, reason: str) -> None:
         """Exit position."""
         order_id = f"{self.strategy_id}-{uuid.uuid4().hex[:8]}"
 
@@ -270,13 +265,15 @@ class MomentumBreakoutStrategy(Strategy):
         return {
             symbol: {
                 "atr": self._atr[symbol],
-                "position": {
-                    "entry": self._positions[symbol].entry_price,
-                    "stop": self._positions[symbol].stop_price,
-                    "highest": self._positions[symbol].highest_price,
-                }
-                if self._positions[symbol]
-                else None,
+                "position": (
+                    {
+                        "entry": self._positions[symbol].entry_price,
+                        "stop": self._positions[symbol].stop_price,
+                        "highest": self._positions[symbol].highest_price,
+                    }
+                    if self._positions[symbol]
+                    else None
+                ),
                 "channel_high": max(self._highs[symbol]) if self._highs[symbol] else None,
             }
             for symbol in self.symbols

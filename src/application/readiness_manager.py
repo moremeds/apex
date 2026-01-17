@@ -1,10 +1,11 @@
 """System readiness state machine and event emitter."""
 
 from __future__ import annotations
+
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Dict, Optional, Protocol, Any
+from typing import Any, Dict, Optional, Protocol
 
 from ..domain.events.event_types import EventType
 from ..utils.logging_setup import get_logger
@@ -14,11 +15,13 @@ logger = get_logger(__name__)
 
 class EventPublisher(Protocol):
     """Protocol for event publishing."""
+
     def publish(self, event_type: EventType, payload: Any) -> None: ...
 
 
 class ReadinessState(Enum):
     """System readiness states."""
+
     STARTING = "starting"
     BROKERS_CONNECTING = "brokers_connecting"
     BROKERS_READY = "brokers_ready"
@@ -32,6 +35,7 @@ class ReadinessState(Enum):
 @dataclass
 class BrokerStatus:
     """Status of a single broker."""
+
     name: str
     connected: bool = False
     positions_loaded: bool = False
@@ -43,6 +47,7 @@ class BrokerStatus:
 @dataclass
 class MarketDataStatus:
     """Status of market data coverage."""
+
     total_symbols: int = 0
     symbols_with_data: int = 0
     coverage_ratio: float = 0.0
@@ -56,12 +61,13 @@ class DataFreshness:
 
     Even if READY, stale data should trigger DEGRADED/monitor-only mode.
     """
+
     last_tick_time: Optional[datetime] = None
     last_position_time: Optional[datetime] = None
     last_exec_heartbeat: Optional[datetime] = None
 
     # Thresholds (configurable)
-    tick_stale_threshold_sec: float = 30.0      # No tick for 30s = stale
+    tick_stale_threshold_sec: float = 30.0  # No tick for 30s = stale
     position_stale_threshold_sec: float = 60.0  # No position update for 60s = stale
     exec_heartbeat_threshold_sec: float = 15.0  # Exec adapter heartbeat timeout
 
@@ -100,6 +106,7 @@ class DataFreshness:
 @dataclass
 class ReadinessSnapshot:
     """Current readiness state snapshot."""
+
     state: ReadinessState
     brokers: Dict[str, BrokerStatus]
     market_data: MarketDataStatus
@@ -176,10 +183,13 @@ class ReadinessManager:
 
         logger.info(f"Broker connected: {broker_name}")
 
-        self._event_bus.publish(EventType.BROKER_CONNECTED, {
-            "broker": broker_name,
-            "timestamp": datetime.now().isoformat(),
-        })
+        self._event_bus.publish(
+            EventType.BROKER_CONNECTED,
+            {
+                "broker": broker_name,
+                "timestamp": datetime.now().isoformat(),
+            },
+        )
 
         self._evaluate_state()
 
@@ -193,11 +203,14 @@ class ReadinessManager:
 
             logger.warning(f"Broker disconnected: {broker_name} ({error})")
 
-            self._event_bus.publish(EventType.BROKER_DISCONNECTED, {
-                "broker": broker_name,
-                "error": error,
-                "timestamp": datetime.now().isoformat(),
-            })
+            self._event_bus.publish(
+                EventType.BROKER_DISCONNECTED,
+                {
+                    "broker": broker_name,
+                    "error": error,
+                    "timestamp": datetime.now().isoformat(),
+                },
+            )
 
             # May transition to DEGRADED
             self._evaluate_state()
@@ -224,10 +237,7 @@ class ReadinessManager:
         if self._positions_ready_emitted:
             return
 
-        connected_brokers = [
-            status for status in self._broker_status.values()
-            if status.connected
-        ]
+        connected_brokers = [status for status in self._broker_status.values() if status.connected]
 
         if not connected_brokers:
             return
@@ -237,16 +247,18 @@ class ReadinessManager:
         if all_loaded:
             total_positions = sum(s.position_count for s in connected_brokers)
 
-            logger.info(f"POSITIONS_READY: {total_positions} positions from {len(connected_brokers)} brokers")
+            logger.info(
+                f"POSITIONS_READY: {total_positions} positions from {len(connected_brokers)} brokers"
+            )
 
-            self._event_bus.publish(EventType.POSITIONS_READY, {
-                "total_positions": total_positions,
-                "brokers": {
-                    status.name: status.position_count
-                    for status in connected_brokers
+            self._event_bus.publish(
+                EventType.POSITIONS_READY,
+                {
+                    "total_positions": total_positions,
+                    "brokers": {status.name: status.position_count for status in connected_brokers},
+                    "timestamp": datetime.now().isoformat(),
                 },
-                "timestamp": datetime.now().isoformat(),
-            })
+            )
 
             self._positions_ready_emitted = True
 
@@ -289,12 +301,15 @@ class ReadinessManager:
                 f"({self._market_data_status.coverage_ratio:.1%})"
             )
 
-            self._event_bus.publish(EventType.MARKET_DATA_READY, {
-                "total_symbols": self._market_data_status.total_symbols,
-                "symbols_with_data": self._market_data_status.symbols_with_data,
-                "coverage_ratio": self._market_data_status.coverage_ratio,
-                "timestamp": datetime.now().isoformat(),
-            })
+            self._event_bus.publish(
+                EventType.MARKET_DATA_READY,
+                {
+                    "total_symbols": self._market_data_status.total_symbols,
+                    "symbols_with_data": self._market_data_status.symbols_with_data,
+                    "coverage_ratio": self._market_data_status.coverage_ratio,
+                    "timestamp": datetime.now().isoformat(),
+                },
+            )
 
             self._market_data_ready_emitted = True
 
@@ -312,7 +327,10 @@ class ReadinessManager:
             # Check for degraded conditions
             connected_brokers = sum(1 for s in self._broker_status.values() if s.connected)
 
-            if connected_brokers == 0 and self._state not in (ReadinessState.STARTING, ReadinessState.SHUTDOWN):
+            if connected_brokers == 0 and self._state not in (
+                ReadinessState.STARTING,
+                ReadinessState.SHUTDOWN,
+            ):
                 self._transition_to(ReadinessState.DEGRADED, "No brokers connected")
                 return
 
@@ -327,7 +345,9 @@ class ReadinessManager:
 
             elif self._state == ReadinessState.BROKERS_READY:
                 # Check if we have any positions to get market data for
-                total_positions = sum(s.position_count for s in self._broker_status.values() if s.connected)
+                total_positions = sum(
+                    s.position_count for s in self._broker_status.values() if s.connected
+                )
 
                 if total_positions > 0:
                     # Need to wait for market data
@@ -348,16 +368,20 @@ class ReadinessManager:
             elif self._state == ReadinessState.SYSTEM_READY:
                 # Check for degradation (coverage dropped significantly)
                 # Only check coverage if we have positions that need market data
-                total_positions = sum(s.position_count for s in self._broker_status.values() if s.connected)
+                total_positions = sum(
+                    s.position_count for s in self._broker_status.values() if s.connected
+                )
                 if total_positions > 0:
                     if self._market_data_status.coverage_ratio < self._coverage_threshold * 0.8:
                         self._transition_to(ReadinessState.DEGRADED, "Market data coverage dropped")
 
             elif self._state == ReadinessState.DEGRADED:
                 # Check for recovery
-                if (connected_brokers > 0 and
-                    self._positions_ready_emitted and
-                    self._market_data_status.coverage_ratio >= self._coverage_threshold):
+                if (
+                    connected_brokers > 0
+                    and self._positions_ready_emitted
+                    and self._market_data_status.coverage_ratio >= self._coverage_threshold
+                ):
                     self._transition_to(ReadinessState.SYSTEM_READY, "Recovered")
 
             # If no transition occurred, we're done
@@ -370,27 +394,36 @@ class ReadinessManager:
         self._state = new_state
         self._state_since = datetime.now()
 
-        logger.info(f"Readiness: {old_state.value} -> {new_state.value}" + (f" ({reason})" if reason else ""))
+        logger.info(
+            f"Readiness: {old_state.value} -> {new_state.value}"
+            + (f" ({reason})" if reason else "")
+        )
 
         if new_state == ReadinessState.SYSTEM_READY and not self._system_ready_emitted:
-            self._event_bus.publish(EventType.SYSTEM_READY, {
-                "state": new_state.value,
-                "brokers": {
-                    name: {"connected": s.connected, "positions": s.position_count}
-                    for name, s in self._broker_status.items()
+            self._event_bus.publish(
+                EventType.SYSTEM_READY,
+                {
+                    "state": new_state.value,
+                    "brokers": {
+                        name: {"connected": s.connected, "positions": s.position_count}
+                        for name, s in self._broker_status.items()
+                    },
+                    "market_data_coverage": self._market_data_status.coverage_ratio,
+                    "timestamp": datetime.now().isoformat(),
                 },
-                "market_data_coverage": self._market_data_status.coverage_ratio,
-                "timestamp": datetime.now().isoformat(),
-            })
+            )
             self._system_ready_emitted = True
 
         elif new_state == ReadinessState.DEGRADED:
             self._system_ready_emitted = False  # Allow re-emit when recovered
-            self._event_bus.publish(EventType.SYSTEM_DEGRADED, {
-                "state": new_state.value,
-                "reason": reason,
-                "timestamp": datetime.now().isoformat(),
-            })
+            self._event_bus.publish(
+                EventType.SYSTEM_DEGRADED,
+                {
+                    "state": new_state.value,
+                    "reason": reason,
+                    "timestamp": datetime.now().isoformat(),
+                },
+            )
 
     # -------------------------------------------------------------------------
     # Query Methods

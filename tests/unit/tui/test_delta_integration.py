@@ -3,14 +3,15 @@
 Tests the streaming delta flow from event bus to position table updates.
 """
 
-import pytest
-from unittest.mock import MagicMock, patch
 from dataclasses import dataclass
+from unittest.mock import MagicMock, patch
 
-from src.tui.event_bus import TUIEventBus, PollResult
-from src.tui.viewmodels.position_vm import PositionViewModel
-from src.tui.viewmodels.base import CellUpdate
+import pytest
+
 from src.domain.events.domain_events import PositionDeltaEvent
+from src.tui.event_bus import PollResult, TUIEventBus
+from src.tui.viewmodels.base import CellUpdate
+from src.tui.viewmodels.position_vm import PositionViewModel
 
 
 # Mock position for testing

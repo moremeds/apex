@@ -31,7 +31,7 @@ async def main_async() -> None:
 
     # List strategies command
     if args.list_strategies:
-        from ...domain.strategy.registry import list_strategies, get_strategy_info
+        from ...domain.strategy.registry import get_strategy_info, list_strategies
 
         print("\nAvailable strategies:")
         for name in sorted(list_strategies()):

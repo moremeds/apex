@@ -131,10 +131,7 @@ class IbHistoryLoader:
             existing_ids_set = set(existing_ids)
 
             # Filter to new executions only
-            new_executions = [
-                e for e in executions
-                if e["exec_id"] not in existing_ids_set
-            ]
+            new_executions = [e for e in executions if e["exec_id"] not in existing_ids_set]
 
             if not new_executions:
                 logger.info("No new executions to load")
@@ -148,9 +145,7 @@ class IbHistoryLoader:
 
             # Convert to entities
             entities = [
-                IbExecutionRepository.from_ib_execution(
-                    e["execution"], e["contract"], account_id
-                )
+                IbExecutionRepository.from_ib_execution(e["execution"], e["contract"], account_id)
                 for e in new_executions
             ]
 
@@ -259,18 +254,18 @@ class IbHistoryLoader:
             # Convert to list of dicts with execution and contract
             results = []
             for fill in fills:
-                results.append({
-                    "exec_id": fill.execution.execId,
-                    "execution": fill.execution,
-                    "contract": fill.contract,
-                    "commission_report": fill.commissionReport,
-                })
+                results.append(
+                    {
+                        "exec_id": fill.execution.execId,
+                        "execution": fill.execution,
+                        "contract": fill.contract,
+                        "commission_report": fill.commissionReport,
+                    }
+                )
 
                 # Also capture commission if available
                 if fill.commissionReport and fill.commissionReport.execId:
-                    await self._save_commission_report(
-                        fill.commissionReport, account_id
-                    )
+                    await self._save_commission_report(fill.commissionReport, account_id)
 
             return results
 
@@ -291,9 +286,7 @@ class IbHistoryLoader:
             return
 
         try:
-            entity = IbCommissionRepository.from_ib_commission_report(
-                commission_report, account_id
-            )
+            entity = IbCommissionRepository.from_ib_commission_report(commission_report, account_id)
             await self._comm_repo.upsert(entity)
         except Exception as e:
             logger.warning(f"Failed to save commission report: {e}")

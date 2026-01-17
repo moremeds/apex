@@ -620,13 +620,21 @@ class ManifestVerifier:
                 is_valid = (
                     regime in valid_regimes_enum
                     or regime in valid_regimes_str
-                    or (hasattr(regime, "value") and regime.value in ["healthy_uptrend", "choppy_extended", "risk_off", "rebound_window"])
+                    or (
+                        hasattr(regime, "value")
+                        and regime.value
+                        in ["healthy_uptrend", "choppy_extended", "risk_off", "rebound_window"]
+                    )
                 )
                 if not is_valid:
                     invalid_rows.append((idx, regime))
 
             if invalid_rows:
-                return False, f"Invalid regimes found: {invalid_rows[:5]}", {"invalid_count": len(invalid_rows)}
+                return (
+                    False,
+                    f"Invalid regimes found: {invalid_rows[:5]}",
+                    {"invalid_count": len(invalid_rows)},
+                )
 
             return True, "All rows have exactly one valid regime", {"rows_checked": len(result)}
 
@@ -642,8 +650,12 @@ class ManifestVerifier:
             indicator = RegimeDetectorIndicator()
 
             # Check for hysteresis constants
-            has_entry_hysteresis = hasattr(indicator, "ENTRY_HYSTERESIS") or "ENTRY_HYSTERESIS" in dir(indicator)
-            has_exit_hysteresis = hasattr(indicator, "EXIT_HYSTERESIS") or "EXIT_HYSTERESIS" in dir(indicator)
+            has_entry_hysteresis = hasattr(
+                indicator, "ENTRY_HYSTERESIS"
+            ) or "ENTRY_HYSTERESIS" in dir(indicator)
+            has_exit_hysteresis = hasattr(indicator, "EXIT_HYSTERESIS") or "EXIT_HYSTERESIS" in dir(
+                indicator
+            )
 
             # Check RegimeState model has pending fields
             from src.domain.signals.indicators.regime.models import RegimeState
@@ -686,12 +698,18 @@ class ManifestVerifier:
             for qqq, spy, expected in test_cases:
                 actual = resolve_market_action(qqq, spy, "short_put")
                 if actual != expected:
-                    failures.append({"qqq": qqq, "spy": spy, "expected": expected.name, "actual": actual.name})
+                    failures.append(
+                        {"qqq": qqq, "spy": spy, "expected": expected.name, "actual": actual.name}
+                    )
 
             if failures:
                 return False, f"Conservative resolution failed: {failures}", {"failures": failures}
 
-            return True, "Market disagreement resolves to most conservative action", {"test_cases": len(test_cases)}
+            return (
+                True,
+                "Market disagreement resolves to most conservative action",
+                {"test_cases": len(test_cases)},
+            )
 
         except Exception as e:
             return False, f"Error checking conservative resolution: {e}", {}
@@ -714,10 +732,14 @@ class ManifestVerifier:
             if missing:
                 return False, f"Missing fallback entries for: {missing}", {"missing": missing}
 
-            return True, "Decision table has fallback for all market regimes", {
-                "total_entries": len(DECISION_TABLE_SHORT_PUT),
-                "required_fallbacks": required_fallbacks,
-            }
+            return (
+                True,
+                "Decision table has fallback for all market regimes",
+                {
+                    "total_entries": len(DECISION_TABLE_SHORT_PUT),
+                    "required_fallbacks": required_fallbacks,
+                },
+            )
 
         except Exception as e:
             return False, f"Error checking decision table: {e}", {}
@@ -732,8 +754,20 @@ class ManifestVerifier:
             # (daily_regime, weekly_trend_state, weekly_vol_state, veto_active, bars_since)
             test_cases = [
                 (MarketRegime.R2_RISK_OFF, "trend_up", "vol_normal", False, 0),  # R2 stays R2
-                (MarketRegime.R1_CHOPPY_EXTENDED, "trend_up", "vol_normal", False, 0),  # R1 stays R1 or tighter
-                (MarketRegime.R0_HEALTHY_UPTREND, "trend_down", "vol_normal", False, 0),  # Weekly down -> tighten to R2
+                (
+                    MarketRegime.R1_CHOPPY_EXTENDED,
+                    "trend_up",
+                    "vol_normal",
+                    False,
+                    0,
+                ),  # R1 stays R1 or tighter
+                (
+                    MarketRegime.R0_HEALTHY_UPTREND,
+                    "trend_down",
+                    "vol_normal",
+                    False,
+                    0,
+                ),  # Weekly down -> tighten to R2
             ]
 
             violations = []
@@ -758,14 +792,20 @@ class ManifestVerifier:
                 result_idx = severity_order.index(result) if result in severity_order else 0
 
                 if result_idx < daily_idx:  # Loosened (bad)
-                    violations.append({
-                        "daily": daily.name,
-                        "result": result.name,
-                        "weekly_trend": weekly_trend,
-                    })
+                    violations.append(
+                        {
+                            "daily": daily.name,
+                            "result": result.name,
+                            "weekly_trend": weekly_trend,
+                        }
+                    )
 
             if violations:
-                return False, f"Weekly veto loosened severity: {violations}", {"violations": violations}
+                return (
+                    False,
+                    f"Weekly veto loosened severity: {violations}",
+                    {"violations": violations},
+                )
 
             return True, "Weekly veto only tightens severity", {"test_cases": len(test_cases)}
 
@@ -776,14 +816,14 @@ class ManifestVerifier:
         """Assert weekly veto has explicit release conditions."""
         try:
             import inspect
+
             from src.domain.services.regime import apply_weekly_veto
 
             source = inspect.getsource(apply_weekly_veto)
 
             # Check for release condition logic
             has_release = any(
-                keyword in source.lower()
-                for keyword in ["release", "veto_active", "bars_since"]
+                keyword in source.lower() for keyword in ["release", "veto_active", "bars_since"]
             )
 
             if has_release:
@@ -822,10 +862,11 @@ class ManifestVerifier:
     def _assert_4h_alerts_use_roc(self) -> Tuple[bool, str, Dict]:
         """Assert 4H alerts use rate-of-change (delta percentile)."""
         try:
-            from src.domain.services.regime import get_4h_alerts
-
             # Check alert conditions include delta/rate-of-change
             import inspect
+
+            from src.domain.services.regime import get_4h_alerts
+
             source = inspect.getsource(get_4h_alerts)
 
             has_delta = any(
@@ -855,7 +896,11 @@ class ManifestVerifier:
             if invalid:
                 return False, f"Invalid params found: {invalid}", {"invalid": invalid}
 
-            return True, f"All {len(REGIME_PARAMS)} param sets are valid", {"symbols": list(REGIME_PARAMS.keys())}
+            return (
+                True,
+                f"All {len(REGIME_PARAMS)} param sets are valid",
+                {"symbols": list(REGIME_PARAMS.keys())},
+            )
 
         except Exception as e:
             return False, f"Error validating params: {e}", {}
@@ -911,8 +956,8 @@ class ManifestVerifier:
         results = []
 
         try:
-            from src.services.historical_data_manager import HistoricalDataManager
             from src.domain.signals.indicators.regime import RegimeDetectorIndicator
+            from src.services.historical_data_manager import HistoricalDataManager
 
             mgr = HistoricalDataManager()
             indicator = RegimeDetectorIndicator()
@@ -923,33 +968,43 @@ class ManifestVerifier:
                 # Get real bars
                 bars = mgr.get_bars(symbol, timeframe)
                 if not bars or len(bars) < 300:
-                    results.append(VerificationResult(
-                        check_id=f"REAL_DATA_{symbol}",
-                        passed=False,
-                        message=f"Insufficient data for {symbol}: {len(bars) if bars else 0} bars",
-                    ))
+                    results.append(
+                        VerificationResult(
+                            check_id=f"REAL_DATA_{symbol}",
+                            passed=False,
+                            message=f"Insufficient data for {symbol}: {len(bars) if bars else 0} bars",
+                        )
+                    )
                     continue
 
                 # Convert to DataFrame
-                df = pd.DataFrame([{
-                    "open": b.open,
-                    "high": b.high,
-                    "low": b.low,
-                    "close": b.close,
-                    "volume": b.volume,
-                } for b in bars], index=[b.timestamp for b in bars])
+                df = pd.DataFrame(
+                    [
+                        {
+                            "open": b.open,
+                            "high": b.high,
+                            "low": b.low,
+                            "close": b.close,
+                            "volume": b.volume,
+                        }
+                        for b in bars
+                    ],
+                    index=[b.timestamp for b in bars],
+                )
 
                 # Calculate regime
                 result = indicator.calculate(df, {"symbol": symbol})
                 duration_ms = (time.perf_counter() - start_time) * 1000
 
                 if result is None or len(result) == 0:
-                    results.append(VerificationResult(
-                        check_id=f"REAL_DATA_{symbol}",
-                        passed=False,
-                        message=f"No regime result for {symbol}",
-                        duration_ms=duration_ms,
-                    ))
+                    results.append(
+                        VerificationResult(
+                            check_id=f"REAL_DATA_{symbol}",
+                            passed=False,
+                            message=f"No regime result for {symbol}",
+                            duration_ms=duration_ms,
+                        )
+                    )
                     continue
 
                 # Check for no NaN after warmup
@@ -966,35 +1021,37 @@ class ManifestVerifier:
                 if hasattr(latest_regime, "value"):
                     latest_regime = latest_regime.value
 
-                results.append(VerificationResult(
-                    check_id=f"REAL_DATA_{symbol}",
-                    passed=nan_count == 0,
-                    message=f"{symbol}: {len(result)} bars, latest regime={latest_regime}, NaN after warmup={nan_count}",
-                    duration_ms=duration_ms,
-                    details={
-                        "bars": len(result),
-                        "latest_regime": str(latest_regime),
-                        "regime_distribution": {str(k): v for k, v in regime_counts.items()},
-                        "nan_after_warmup": int(nan_count),
-                    },
-                ))
+                results.append(
+                    VerificationResult(
+                        check_id=f"REAL_DATA_{symbol}",
+                        passed=nan_count == 0,
+                        message=f"{symbol}: {len(result)} bars, latest regime={latest_regime}, NaN after warmup={nan_count}",
+                        duration_ms=duration_ms,
+                        details={
+                            "bars": len(result),
+                            "latest_regime": str(latest_regime),
+                            "regime_distribution": {str(k): v for k, v in regime_counts.items()},
+                            "nan_after_warmup": int(nan_count),
+                        },
+                    )
+                )
 
         except Exception as e:
             logger.exception("Real data verification failed")
-            results.append(VerificationResult(
-                check_id="REAL_DATA_ERROR",
-                passed=False,
-                message=f"Error: {e}",
-            ))
+            results.append(
+                VerificationResult(
+                    check_id="REAL_DATA_ERROR",
+                    passed=False,
+                    message=f"Error: {e}",
+                )
+            )
 
         return results
 
 
 def main():
     """CLI entry point."""
-    parser = argparse.ArgumentParser(
-        description="APEX RegimeDetector Verification Framework"
-    )
+    parser = argparse.ArgumentParser(description="APEX RegimeDetector Verification Framework")
     parser.add_argument(
         "--phase",
         type=str,
@@ -1018,7 +1075,8 @@ def main():
         help="Path to manifest.yaml",
     )
     parser.add_argument(
-        "-v", "--verbose",
+        "-v",
+        "--verbose",
         action="store_true",
         help="Verbose output",
     )

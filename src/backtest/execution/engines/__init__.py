@@ -28,18 +28,18 @@ Example:
     result = await engine.run()
 """
 
+from .apex_engine import ApexEngine, ApexEngineConfig
+
+# Event-driven engine (bar-by-bar, async) - renamed to avoid Protocol conflict
+from .backtest_engine import BacktestConfig
+from .backtest_engine import BacktestEngine as EventDrivenEngine
 from .interface import (
     BacktestEngine,
     BaseEngine,
     EngineConfig,
     EngineType,
 )
-from .vectorbt_engine import VectorBTEngine, VectorBTConfig
-from .apex_engine import ApexEngine, ApexEngineConfig
-
-# Event-driven engine (bar-by-bar, async) - renamed to avoid Protocol conflict
-from .backtest_engine import BacktestEngine as EventDrivenEngine
-from .backtest_engine import BacktestConfig
+from .vectorbt_engine import VectorBTConfig, VectorBTEngine
 
 __all__ = [
     # Interface (Protocol)

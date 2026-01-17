@@ -1,41 +1,35 @@
 """Domain events module for priority-based event bus."""
 
+from .domain_events import (  # Base; Market Data Events; Trading Events; Position/Account Events; System Events; Registry
+    EVENT_REGISTRY,
+    AccountSnapshot,
+    BarData,
+    ConnectionEvent,
+    DomainEvent,
+    OrderSide,
+    OrderStatus,
+    OrderType,
+    OrderUpdate,
+    PositionSnapshot,
+    QuoteTick,
+    RiskBreachEvent,
+    Timeframe,
+    TradeFill,
+    deserialize_event,
+    deserialize_events,
+)
 from .event_types import (
-    EventType,
-    EventPriority,
+    DROPPABLE_EVENTS,
     EVENT_PRIORITY_MAP,
     FAST_LANE_THRESHOLD,
-    DROPPABLE_EVENTS,
     NEVER_DROP,
+    EventPriority,
+    EventType,
     PriorityEventEnvelope,
     get_event_type_mapping,
     validate_event_payload,
 )
 from .priority_event_bus import PriorityEventBus
-from .domain_events import (
-    # Base
-    DomainEvent,
-    Timeframe,
-    OrderSide,
-    OrderStatus,
-    OrderType,
-    # Market Data Events
-    QuoteTick,
-    BarData,
-    # Trading Events
-    TradeFill,
-    OrderUpdate,
-    # Position/Account Events
-    PositionSnapshot,
-    AccountSnapshot,
-    # System Events
-    ConnectionEvent,
-    RiskBreachEvent,
-    # Registry
-    EVENT_REGISTRY,
-    deserialize_event,
-    deserialize_events,
-)
 
 __all__ = [
     # Event types and priorities

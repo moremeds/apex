@@ -4,9 +4,11 @@ Unit tests for market data polling mechanism.
 Tests the robust data population waiting with timeout and early exit.
 """
 
-import pytest
-from unittest.mock import MagicMock, AsyncMock
 import asyncio
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
 from src.infrastructure.adapters.market_data_fetcher import MarketDataFetcher
 
 
@@ -58,9 +60,9 @@ async def test_wait_for_data_population_timeout():
 
     # Create mock tickers with NO data (NaN values)
     ticker1 = MagicMock()
-    ticker1.bid = float('nan')
-    ticker1.ask = float('nan')
-    ticker1.last = float('nan')
+    ticker1.bid = float("nan")
+    ticker1.ask = float("nan")
+    ticker1.last = float("nan")
 
     ticker2 = MagicMock()
     ticker2.bid = None

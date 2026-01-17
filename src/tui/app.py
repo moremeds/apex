@@ -22,24 +22,24 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.widgets import Footer, TabbedContent, TabPane, Tabs
 from textual.reactive import reactive
+from textual.widgets import Footer, TabbedContent, TabPane, Tabs
 
-from .views.summary import SummaryView
-from .views.signals import SignalsView
-from .views.positions import PositionsView
-from .views.lab import LabView
-from .views.data import DataView, DataRefreshRequested, IndicatorDetailsRequested
-from .views.signal_introspection import SignalIntrospectionView
-from .widgets.header import HeaderWidget
 from .event_bus import TUIEventBus
+from .views.data import DataRefreshRequested, DataView, IndicatorDetailsRequested
+from .views.lab import LabView
+from .views.positions import PositionsView
+from .views.signal_introspection import SignalIntrospectionView
+from .views.signals import SignalsView
+from .views.summary import SummaryView
+from .widgets.header import HeaderWidget
 
 if TYPE_CHECKING:
-    from ..models.risk_snapshot import RiskSnapshot
-    from ..models.risk_signal import RiskSignal
-    from ..infrastructure.monitoring import ComponentHealth
     from ..domain.interfaces.signal_persistence import SignalPersistencePort
+    from ..infrastructure.monitoring import ComponentHealth
     from ..infrastructure.persistence.signal_listener import SignalListener
+    from ..models.risk_signal import RiskSignal
+    from ..models.risk_snapshot import RiskSnapshot
 
 
 class ApexApp(App):
@@ -430,7 +430,7 @@ class ApexApp(App):
         self._pending_universe = list(symbols)
 
         # Try to apply immediately if already mounted
-        if getattr(self, '_is_mounted', False):
+        if getattr(self, "_is_mounted", False):
             self._apply_trading_universe(symbols)
 
     def _apply_trading_universe(self, symbols: List[str]) -> None:
@@ -586,6 +586,7 @@ class ApexApp(App):
 
     def _fetch_indicator_summary(self) -> None:
         """Fetch indicator summary using Textual worker to avoid blocking."""
+
         async def _fetch():
             try:
                 summary = await self._signal_persistence.get_indicator_summary()
@@ -613,6 +614,7 @@ class ApexApp(App):
 
             # Add file sizes from the parquet files
             from pathlib import Path
+
             base_dir = Path("data/historical")
 
             if base_dir.exists():

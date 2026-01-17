@@ -19,8 +19,9 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
-from ..core.run_result import RunMetrics
 from src.utils.logging_setup import get_logger
+
+from ..core.run_result import RunMetrics
 
 logger = get_logger(__name__)
 
@@ -140,9 +141,9 @@ class MetricsCalculator:
         # Annualized return
         n_days = len(returns)
         if n_days > 0:
-            metrics.annualized_return = (
-                (1 + metrics.total_return) ** (TRADING_DAYS_PER_YEAR / n_days) - 1
-            )
+            metrics.annualized_return = (1 + metrics.total_return) ** (
+                TRADING_DAYS_PER_YEAR / n_days
+            ) - 1
 
         # CAGR
         n_years = n_days / TRADING_DAYS_PER_YEAR
@@ -153,25 +154,19 @@ class MetricsCalculator:
     # RISK-ADJUSTED METRICS
     # =========================================================================
 
-    def _compute_risk_adjusted_metrics(
-        self, metrics: RunMetrics, returns: pd.Series
-    ) -> None:
+    def _compute_risk_adjusted_metrics(self, metrics: RunMetrics, returns: pd.Series) -> None:
         """Compute Sharpe, Sortino, Calmar."""
         excess_returns = returns - self._daily_rf
 
         # Sharpe ratio (annualized)
         if returns.std() > 0:
-            metrics.sharpe = (
-                excess_returns.mean() / returns.std() * np.sqrt(TRADING_DAYS_PER_YEAR)
-            )
+            metrics.sharpe = excess_returns.mean() / returns.std() * np.sqrt(TRADING_DAYS_PER_YEAR)
 
         # Sortino ratio (downside deviation)
         downside_returns = returns[returns < 0]
         if len(downside_returns) > 0 and downside_returns.std() > 0:
             downside_std = downside_returns.std()
-            metrics.sortino = (
-                excess_returns.mean() / downside_std * np.sqrt(TRADING_DAYS_PER_YEAR)
-            )
+            metrics.sortino = excess_returns.mean() / downside_std * np.sqrt(TRADING_DAYS_PER_YEAR)
 
         # Calmar ratio (CAGR / max drawdown)
         if metrics.max_drawdown > 0:
@@ -181,9 +176,7 @@ class MetricsCalculator:
     # DRAWDOWN METRICS
     # =========================================================================
 
-    def _compute_drawdown_metrics(
-        self, metrics: RunMetrics, returns: pd.Series
-    ) -> None:
+    def _compute_drawdown_metrics(self, metrics: RunMetrics, returns: pd.Series) -> None:
         """Compute drawdown-related metrics."""
         cumulative = (1 + returns).cumprod()
         running_max = cumulative.cummax()
@@ -199,9 +192,7 @@ class MetricsCalculator:
         is_underwater = drawdown < 0
         if is_underwater.any():
             # Find consecutive underwater periods
-            underwater_groups = (
-                (~is_underwater).cumsum().where(is_underwater)
-            )
+            underwater_groups = (~is_underwater).cumsum().where(is_underwater)
             if underwater_groups.notna().any():
                 durations = underwater_groups.groupby(underwater_groups).count()
                 metrics.max_dd_duration_days = int(durations.max())
@@ -210,9 +201,7 @@ class MetricsCalculator:
     # TAIL RISK METRICS
     # =========================================================================
 
-    def _compute_tail_risk_metrics(
-        self, metrics: RunMetrics, returns: pd.Series
-    ) -> None:
+    def _compute_tail_risk_metrics(self, metrics: RunMetrics, returns: pd.Series) -> None:
         """Compute VaR, CVaR, skewness, kurtosis."""
         # VaR (Value at Risk) - loss at given percentile
         metrics.var_95 = abs(np.percentile(returns, 5))
@@ -243,9 +232,7 @@ class MetricsCalculator:
     # STABILITY METRICS
     # =========================================================================
 
-    def _compute_stability_metrics(
-        self, metrics: RunMetrics, returns: pd.Series
-    ) -> None:
+    def _compute_stability_metrics(self, metrics: RunMetrics, returns: pd.Series) -> None:
         """Compute Ulcer index, pain index, recovery factor."""
         cumulative = (1 + returns).cumprod()
         running_max = cumulative.cummax()
@@ -253,7 +240,7 @@ class MetricsCalculator:
 
         # Ulcer index: sqrt(mean(drawdown^2))
         # Penalizes both depth and duration of drawdowns
-        metrics.ulcer_index = np.sqrt((drawdown ** 2).mean())
+        metrics.ulcer_index = np.sqrt((drawdown**2).mean())
 
         # Pain index: mean(|drawdown|)
         metrics.pain_index = abs(drawdown).mean()
@@ -273,9 +260,7 @@ class MetricsCalculator:
     # STATISTICAL METRICS
     # =========================================================================
 
-    def _compute_statistical_metrics(
-        self, metrics: RunMetrics, returns: pd.Series
-    ) -> None:
+    def _compute_statistical_metrics(self, metrics: RunMetrics, returns: pd.Series) -> None:
         """Compute t-stat, p-value, Jarque-Bera, autocorrelation."""
         # t-test on mean return (H0: mean = 0)
         if len(returns) > 1:
@@ -310,12 +295,10 @@ class MetricsCalculator:
     # TIME-BASED METRICS
     # =========================================================================
 
-    def _compute_time_based_metrics(
-        self, metrics: RunMetrics, returns: pd.Series
-    ) -> None:
+    def _compute_time_based_metrics(self, metrics: RunMetrics, returns: pd.Series) -> None:
         """Compute monthly/yearly aggregates and rolling Sharpe."""
         # Monthly returns
-        if hasattr(returns.index, 'to_period'):
+        if hasattr(returns.index, "to_period"):
             try:
                 monthly = returns.resample("ME").apply(lambda x: (1 + x).prod() - 1)
                 if len(monthly) > 0:
@@ -339,9 +322,7 @@ class MetricsCalculator:
         if len(returns) >= self.rolling_window:
             rolling_mean = returns.rolling(self.rolling_window).mean()
             rolling_std = returns.rolling(self.rolling_window).std()
-            rolling_sharpe = (
-                rolling_mean / rolling_std * np.sqrt(TRADING_DAYS_PER_YEAR)
-            ).dropna()
+            rolling_sharpe = (rolling_mean / rolling_std * np.sqrt(TRADING_DAYS_PER_YEAR)).dropna()
 
             if len(rolling_sharpe) > 0:
                 metrics.rolling_sharpe_min = float(rolling_sharpe.min())
@@ -360,10 +341,12 @@ class MetricsCalculator:
     ) -> None:
         """Compute alpha, beta, information ratio, tracking error."""
         # Align returns
-        aligned = pd.DataFrame({
-            "strategy": returns,
-            "benchmark": benchmark_returns,
-        }).dropna()
+        aligned = pd.DataFrame(
+            {
+                "strategy": returns,
+                "benchmark": benchmark_returns,
+            }
+        ).dropna()
 
         if len(aligned) < 10:
             return
@@ -409,9 +392,7 @@ class MetricsCalculator:
     # TRADE METRICS
     # =========================================================================
 
-    def _compute_trade_metrics(
-        self, metrics: RunMetrics, trades: List[Trade]
-    ) -> None:
+    def _compute_trade_metrics(self, metrics: RunMetrics, trades: List[Trade]) -> None:
         """Compute trade-level metrics."""
         if not trades:
             return

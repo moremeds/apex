@@ -6,14 +6,16 @@ enabling incremental downloads and gap detection.
 """
 
 from __future__ import annotations
-from pathlib import Path
-from datetime import datetime
-from typing import Dict, List, Optional
+
 from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Optional
+
 import duckdb
 
-from ...utils.logging_setup import get_logger
 from ...domain.interfaces.historical_source import DateRange
+from ...utils.logging_setup import get_logger
 
 logger = get_logger(__name__)
 
@@ -66,7 +68,8 @@ class DuckDBCoverageStore:
 
     def _init_schema(self) -> None:
         """Create tables if they don't exist."""
-        self._conn.execute("""
+        self._conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS data_coverage (
                 symbol TEXT NOT NULL,
                 timeframe TEXT NOT NULL,
@@ -78,9 +81,11 @@ class DuckDBCoverageStore:
                 last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (symbol, timeframe, source, start_ts)
             )
-        """)
+        """
+        )
 
-        self._conn.execute("""
+        self._conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS data_gaps (
                 symbol TEXT NOT NULL,
                 timeframe TEXT NOT NULL,
@@ -91,9 +96,11 @@ class DuckDBCoverageStore:
                 status TEXT DEFAULT 'pending',
                 PRIMARY KEY (symbol, timeframe, gap_start, gap_end)
             )
-        """)
+        """
+        )
 
-        self._conn.execute("""
+        self._conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS symbol_metadata (
                 symbol TEXT PRIMARY KEY,
                 yahoo_symbol TEXT,
@@ -102,17 +109,22 @@ class DuckDBCoverageStore:
                 asset_type TEXT DEFAULT 'stock',
                 last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
-        """)
+        """
+        )
 
         # Create indexes for faster queries
-        self._conn.execute("""
+        self._conn.execute(
+            """
             CREATE INDEX IF NOT EXISTS idx_coverage_symbol_tf
             ON data_coverage(symbol, timeframe)
-        """)
-        self._conn.execute("""
+        """
+        )
+        self._conn.execute(
+            """
             CREATE INDEX IF NOT EXISTS idx_gaps_symbol_tf
             ON data_gaps(symbol, timeframe, status)
-        """)
+        """
+        )
 
     def get_coverage(
         self,
@@ -132,17 +144,23 @@ class DuckDBCoverageStore:
             List of DateRange objects, sorted by start time.
         """
         if source:
-            result = self._conn.execute("""
+            result = self._conn.execute(
+                """
                 SELECT start_ts, end_ts FROM data_coverage
                 WHERE symbol = ? AND timeframe = ? AND source = ?
                 ORDER BY start_ts
-            """, [symbol, timeframe, source]).fetchall()
+            """,
+                [symbol, timeframe, source],
+            ).fetchall()
         else:
-            result = self._conn.execute("""
+            result = self._conn.execute(
+                """
                 SELECT start_ts, end_ts FROM data_coverage
                 WHERE symbol = ? AND timeframe = ?
                 ORDER BY start_ts
-            """, [symbol, timeframe]).fetchall()
+            """,
+                [symbol, timeframe],
+            ).fetchall()
 
         return [DateRange(start=row[0], end=row[1]) for row in result]
 
@@ -171,25 +189,31 @@ class DuckDBCoverageStore:
             quality: Data quality ('complete', 'partial', 'gaps').
         """
         # Truncate microseconds for consistent comparison across requests
-        start = start.replace(microsecond=0) if hasattr(start, 'replace') else start
-        end = end.replace(microsecond=0) if hasattr(end, 'replace') else end
+        start = start.replace(microsecond=0) if hasattr(start, "replace") else start
+        end = end.replace(microsecond=0) if hasattr(end, "replace") else end
 
         new_range = DateRange(start=start, end=end)
 
         # Get existing ranges for this symbol/timeframe/source
-        existing = self._conn.execute("""
+        existing = self._conn.execute(
+            """
             SELECT start_ts, end_ts, bar_count FROM data_coverage
             WHERE symbol = ? AND timeframe = ? AND source = ?
             ORDER BY start_ts
-        """, [symbol, timeframe, source]).fetchall()
+        """,
+            [symbol, timeframe, source],
+        ).fetchall()
 
         if not existing:
             # No existing ranges, just insert
-            self._conn.execute("""
+            self._conn.execute(
+                """
                 INSERT INTO data_coverage
                 (symbol, timeframe, source, start_ts, end_ts, bar_count, quality, last_updated)
                 VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            """, [symbol, timeframe, source, start, end, bar_count, quality])
+            """,
+                [symbol, timeframe, source, start, end, bar_count, quality],
+            )
             return
 
         # Find ranges to merge
@@ -214,18 +238,31 @@ class DuckDBCoverageStore:
 
         # Delete old ranges that were merged
         for old_start in ranges_to_delete:
-            self._conn.execute("""
+            self._conn.execute(
+                """
                 DELETE FROM data_coverage
                 WHERE symbol = ? AND timeframe = ? AND source = ? AND start_ts = ?
-            """, [symbol, timeframe, source, old_start])
+            """,
+                [symbol, timeframe, source, old_start],
+            )
 
         # Insert merged range
-        self._conn.execute("""
+        self._conn.execute(
+            """
             INSERT OR REPLACE INTO data_coverage
             (symbol, timeframe, source, start_ts, end_ts, bar_count, quality, last_updated)
             VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-        """, [symbol, timeframe, source, merged_range.start, merged_range.end,
-              merged_bar_count, quality])
+        """,
+            [
+                symbol,
+                timeframe,
+                source,
+                merged_range.start,
+                merged_range.end,
+                merged_bar_count,
+                quality,
+            ],
+        )
 
         logger.debug(
             f"Updated coverage: {symbol}/{timeframe} from {source}: "
@@ -247,8 +284,8 @@ class DuckDBCoverageStore:
 
         # Allow small gaps based on timeframe
         max_gap_map = {
-            "5min": 300,      # 5 minutes
-            "1h": 3600,       # 1 hour
+            "5min": 300,  # 5 minutes
+            "1h": 3600,  # 1 hour
             "1d": 86400 * 3,  # 3 days (weekend gap)
         }
         max_gap = max_gap_map.get(timeframe, 86400)
@@ -326,24 +363,33 @@ class DuckDBCoverageStore:
     ) -> None:
         """Record a known gap for later retry."""
         # Check if gap already exists
-        existing = self._conn.execute("""
+        existing = self._conn.execute(
+            """
             SELECT retry_count FROM data_gaps
             WHERE symbol = ? AND timeframe = ? AND gap_start = ? AND gap_end = ?
-        """, [symbol, timeframe, gap_start, gap_end]).fetchone()
+        """,
+            [symbol, timeframe, gap_start, gap_end],
+        ).fetchone()
 
         if existing:
             # Update retry count
-            self._conn.execute("""
+            self._conn.execute(
+                """
                 UPDATE data_gaps
                 SET retry_count = retry_count + 1, last_retry = CURRENT_TIMESTAMP
                 WHERE symbol = ? AND timeframe = ? AND gap_start = ? AND gap_end = ?
-            """, [symbol, timeframe, gap_start, gap_end])
+            """,
+                [symbol, timeframe, gap_start, gap_end],
+            )
         else:
             # Insert new gap
-            self._conn.execute("""
+            self._conn.execute(
+                """
                 INSERT INTO data_gaps (symbol, timeframe, gap_start, gap_end, status)
                 VALUES (?, ?, ?, ?, 'pending')
-            """, [symbol, timeframe, gap_start, gap_end])
+            """,
+                [symbol, timeframe, gap_start, gap_end],
+            )
 
     def get_pending_gaps(
         self,
@@ -352,7 +398,9 @@ class DuckDBCoverageStore:
         limit: int = 100,
     ) -> List[tuple]:
         """Get gaps that need to be filled."""
-        query = "SELECT symbol, timeframe, gap_start, gap_end FROM data_gaps WHERE status = 'pending'"
+        query = (
+            "SELECT symbol, timeframe, gap_start, gap_end FROM data_gaps WHERE status = 'pending'"
+        )
         params: list = []
 
         if symbol:
@@ -375,22 +423,30 @@ class DuckDBCoverageStore:
         gap_end: datetime,
     ) -> None:
         """Mark a gap as filled."""
-        self._conn.execute("""
+        self._conn.execute(
+            """
             UPDATE data_gaps SET status = 'filled'
             WHERE symbol = ? AND timeframe = ? AND gap_start = ? AND gap_end = ?
-        """, [symbol, timeframe, gap_start, gap_end])
+        """,
+            [symbol, timeframe, gap_start, gap_end],
+        )
 
     def get_all_symbols(self, timeframe: Optional[str] = None) -> List[str]:
         """Get all symbols that have coverage data."""
         if timeframe:
-            result = self._conn.execute("""
+            result = self._conn.execute(
+                """
                 SELECT DISTINCT symbol FROM data_coverage WHERE timeframe = ?
                 ORDER BY symbol
-            """, [timeframe]).fetchall()
+            """,
+                [timeframe],
+            ).fetchall()
         else:
-            result = self._conn.execute("""
+            result = self._conn.execute(
+                """
                 SELECT DISTINCT symbol FROM data_coverage ORDER BY symbol
-            """).fetchall()
+            """
+            ).fetchall()
 
         return [row[0] for row in result]
 
@@ -401,20 +457,26 @@ class DuckDBCoverageStore:
     ) -> List[dict]:
         """Get coverage summary for a symbol."""
         if timeframe:
-            result = self._conn.execute("""
+            result = self._conn.execute(
+                """
                 SELECT timeframe, source, MIN(start_ts), MAX(end_ts), SUM(bar_count)
                 FROM data_coverage
                 WHERE symbol = ? AND timeframe = ?
                 GROUP BY timeframe, source
-            """, [symbol, timeframe]).fetchall()
+            """,
+                [symbol, timeframe],
+            ).fetchall()
         else:
-            result = self._conn.execute("""
+            result = self._conn.execute(
+                """
                 SELECT timeframe, source, MIN(start_ts), MAX(end_ts), SUM(bar_count)
                 FROM data_coverage
                 WHERE symbol = ?
                 GROUP BY timeframe, source
                 ORDER BY timeframe, source
-            """, [symbol]).fetchall()
+            """,
+                [symbol],
+            ).fetchall()
 
         return [
             {
@@ -437,24 +499,28 @@ class DuckDBCoverageStore:
             Each record: {timeframe, earliest, latest, total_bars}
         """
         # Merge all sources per symbol/timeframe
-        result = self._conn.execute("""
+        result = self._conn.execute(
+            """
             SELECT symbol, timeframe, MIN(start_ts), MAX(end_ts), SUM(bar_count)
             FROM data_coverage
             GROUP BY symbol, timeframe
             ORDER BY symbol, timeframe
-        """).fetchall()
+        """
+        ).fetchall()
 
         grouped: Dict[str, List[dict]] = {}
         for row in result:
             symbol = row[0]
             if symbol not in grouped:
                 grouped[symbol] = []
-            grouped[symbol].append({
-                "timeframe": row[1],
-                "earliest": row[2],
-                "latest": row[3],
-                "total_bars": row[4],
-            })
+            grouped[symbol].append(
+                {
+                    "timeframe": row[1],
+                    "earliest": row[2],
+                    "latest": row[3],
+                    "total_bars": row[4],
+                }
+            )
         return grouped
 
     def delete_coverage(

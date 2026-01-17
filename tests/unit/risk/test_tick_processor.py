@@ -1,15 +1,16 @@
 """Unit tests for TickProcessor."""
 
-import pytest
 from datetime import datetime
 
+import pytest
+
+from src.domain.events.domain_events import MarketDataTickEvent
+from src.domain.services.risk.state.position_state import PositionState
 from src.domain.services.risk.streaming.tick_processor import (
     TickProcessor,
     create_initial_state,
 )
-from src.domain.services.risk.state.position_state import PositionState
-from src.domain.events.domain_events import MarketDataTickEvent
-from src.models.position import Position, AssetType
+from src.models.position import AssetType, Position
 
 
 class TestTickProcessor:
@@ -277,9 +278,7 @@ class TestTickProcessor:
         assert delta is not None
         assert delta.new_mark_price == 150.0
 
-    def test_process_tick_no_fallback_available(
-        self, processor: TickProcessor
-    ):
+    def test_process_tick_no_fallback_available(self, processor: TickProcessor):
         """process_tick() should return None when no price available at all."""
         # Position with zero avg_price
         zero_price_position = Position(

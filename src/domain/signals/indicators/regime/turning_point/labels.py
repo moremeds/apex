@@ -150,9 +150,11 @@ class TurningPointLabeler:
                             index=i,
                             price=high[i],
                             turn_type=TurnType.TOP,
-                            atr_magnitude=(high[i] - low[last_pivot_idx]) / atr_vals[i]
-                            if last_pivot_idx > 0
-                            else 0.0,
+                            atr_magnitude=(
+                                (high[i] - low[last_pivot_idx]) / atr_vals[i]
+                                if last_pivot_idx > 0
+                                else 0.0
+                            ),
                             bars_since_last=i - last_pivot_idx,
                         )
                     )
@@ -170,9 +172,11 @@ class TurningPointLabeler:
                             index=i,
                             price=low[i],
                             turn_type=TurnType.BOTTOM,
-                            atr_magnitude=(high[last_pivot_idx] - low[i]) / atr_vals[i]
-                            if last_pivot_idx > 0
-                            else 0.0,
+                            atr_magnitude=(
+                                (high[last_pivot_idx] - low[i]) / atr_vals[i]
+                                if last_pivot_idx > 0
+                                else 0.0
+                            ),
                             bars_since_last=i - last_pivot_idx,
                         )
                     )
@@ -337,7 +341,7 @@ class TurningPointLabeler:
         # Add timestamps if available
         pivot_records = []
         for pivot in recent_pivots:
-            ts = df.index[pivot.index] if hasattr(df.index, '__getitem__') else None
+            ts = df.index[pivot.index] if hasattr(df.index, "__getitem__") else None
             pivot_records.append(
                 TurningPointRecord(
                     timestamp=ts,
@@ -441,20 +445,24 @@ class TurningPointHistory:
         ]
 
         for i, pivot in enumerate(self.pivots):
-            ts_str = pivot.timestamp.strftime("%Y-%m-%d") if pivot.timestamp else f"bar {pivot.index}"
+            ts_str = (
+                pivot.timestamp.strftime("%Y-%m-%d") if pivot.timestamp else f"bar {pivot.index}"
+            )
             lines.append(
                 f"  {i+1}. {pivot.turn_type.value.upper()} @ {ts_str}: "
                 f"${pivot.price:.2f} ({pivot.atr_magnitude:.1f} ATR move)"
             )
 
         if self.current_state:
-            lines.extend([
-                "",
-                "Current State:",
-                f"  Bars since last pivot: {self.current_state.bars_since_last_pivot}",
-                f"  Distance from pivot: {self.current_state.distance_atr_units:.2f} ATR ({self.current_state.move_direction})",
-                f"  Current close: ${self.current_state.current_close:.2f}",
-                f"  Last pivot: ${self.current_state.last_pivot_price:.2f} ({self.current_state.last_pivot_type.value})",
-            ])
+            lines.extend(
+                [
+                    "",
+                    "Current State:",
+                    f"  Bars since last pivot: {self.current_state.bars_since_last_pivot}",
+                    f"  Distance from pivot: {self.current_state.distance_atr_units:.2f} ATR ({self.current_state.move_direction})",
+                    f"  Current close: ${self.current_state.current_close:.2f}",
+                    f"  Last pivot: ${self.current_state.last_pivot_price:.2f} ({self.current_state.last_pivot_type.value})",
+                ]
+            )
 
         return "\n".join(lines)

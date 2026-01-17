@@ -8,14 +8,14 @@ Tests:
 - Category filtering
 """
 
-import pytest
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
+import pytest
 
-from src.domain.signals.models import SignalCategory
 from src.domain.signals.indicators.base import IndicatorBase
 from src.domain.signals.indicators.registry import IndicatorRegistry
+from src.domain.signals.models import SignalCategory
 
 
 class MockIndicator(IndicatorBase):
@@ -213,6 +213,7 @@ class TestIndicatorRegistry:
 
     def test_instantiation_guard_skips_indicators_with_required_args(self) -> None:
         """Test that indicators requiring constructor args are skipped gracefully."""
+
         # Create a mock indicator class that requires constructor arguments
         class IndicatorWithRequiredArgs(IndicatorBase):
             name = "requires_args"
@@ -237,6 +238,7 @@ class TestIndicatorRegistry:
 
         # But trying to instantiate it without args should raise
         import pytest
+
         with pytest.raises(TypeError):
             IndicatorWithRequiredArgs()
 

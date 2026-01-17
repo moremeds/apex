@@ -179,9 +179,7 @@ def compute_calibration_evidence(
         bucket_mean_actual.append(float(mean_actual))
 
     # Calibration error: mean absolute difference per bucket
-    cal_errors = [
-        abs(p - a) for p, a in zip(bucket_mean_predicted, bucket_mean_actual)
-    ]
+    cal_errors = [abs(p - a) for p, a in zip(bucket_mean_predicted, bucket_mean_actual)]
     calibration_error = np.mean(cal_errors) if cal_errors else 1.0
 
     # Expected calibration error: weighted by bucket count

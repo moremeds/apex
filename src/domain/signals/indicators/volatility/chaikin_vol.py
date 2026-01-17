@@ -57,9 +57,7 @@ class ChaikinVolatilityIndicator(IndicatorBase):
         roc_period = params["roc_period"]
 
         if len(data) == 0:
-            return pd.DataFrame(
-                {"chaikin_vol": pd.Series(dtype=float)}, index=data.index
-            )
+            return pd.DataFrame({"chaikin_vol": pd.Series(dtype=float)}, index=data.index)
 
         high = data["high"].values.astype(np.float64)
         low = data["low"].values.astype(np.float64)

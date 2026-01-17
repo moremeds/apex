@@ -10,13 +10,14 @@ Verifies:
 - Metrics tracking
 """
 
-import pytest
 import asyncio
 import time
 from datetime import date
 from unittest.mock import AsyncMock, MagicMock
 
-from src.services.indicator_store import IndicatorStore, CachedIndicator
+import pytest
+
+from src.services.indicator_store import CachedIndicator, IndicatorStore
 
 
 class TestIndicatorStoreBasics:
@@ -95,9 +96,7 @@ class TestIndicatorStoreGetOrCompute:
 
         compute_fn = AsyncMock(return_value=9.9)
 
-        result = await store.get_or_compute(
-            "AAPL", "ATR", {"period": 14}, compute_fn
-        )
+        result = await store.get_or_compute("AAPL", "ATR", {"period": 14}, compute_fn)
 
         assert result == 2.5
         compute_fn.assert_not_called()
@@ -108,9 +107,7 @@ class TestIndicatorStoreGetOrCompute:
         store = IndicatorStore()
         compute_fn = AsyncMock(return_value=2.5)
 
-        result = await store.get_or_compute(
-            "AAPL", "ATR", {"period": 14}, compute_fn
-        )
+        result = await store.get_or_compute("AAPL", "ATR", {"period": 14}, compute_fn)
 
         assert result == 2.5
         compute_fn.assert_called_once()
@@ -126,9 +123,7 @@ class TestIndicatorStoreGetOrCompute:
 
         # Second call should hit cache
         compute_fn.reset_mock()
-        result = await store.get_or_compute(
-            "AAPL", "ATR", {"period": 14}, compute_fn
-        )
+        result = await store.get_or_compute("AAPL", "ATR", {"period": 14}, compute_fn)
 
         assert result == 2.5
         compute_fn.assert_not_called()

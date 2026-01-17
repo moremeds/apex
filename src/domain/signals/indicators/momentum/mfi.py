@@ -72,8 +72,7 @@ class MFIIndicator(IndicatorBase):
         return pd.DataFrame({"mfi": mfi}, index=data.index)
 
     def _calculate_manual(
-        self, high: np.ndarray, low: np.ndarray, close: np.ndarray,
-        volume: np.ndarray, period: int
+        self, high: np.ndarray, low: np.ndarray, close: np.ndarray, volume: np.ndarray, period: int
     ) -> np.ndarray:
         """Calculate MFI without TA-Lib."""
         n = len(close)

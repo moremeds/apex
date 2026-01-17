@@ -599,9 +599,7 @@ class DataQuality:
     warmup_bars_needed: int = 252
     warmup_bars_available: int = 0
 
-    nan_counts: Dict[str, int] = field(
-        default_factory=dict
-    )  # metric_name -> nan count
+    nan_counts: Dict[str, int] = field(default_factory=dict)  # metric_name -> nan count
     missing_columns: List[str] = field(default_factory=list)
 
     fallback_reason: FallbackReason = FallbackReason.NONE
@@ -652,9 +650,7 @@ class RegimeTransitionState:
     def to_dict(self) -> Dict[str, Any]:
         """Serialize to dictionary."""
         return {
-            "pending_regime": (
-                self.pending_regime.value if self.pending_regime else None
-            ),
+            "pending_regime": (self.pending_regime.value if self.pending_regime else None),
             "pending_count": self.pending_count,
             "entry_threshold": self.entry_threshold,
             "exit_threshold": self.exit_threshold,
@@ -698,9 +694,7 @@ class RegimeOutput:
     inputs_used: InputsUsed = field(default_factory=InputsUsed)
     derived_metrics: DerivedMetrics = field(default_factory=DerivedMetrics)
     rules_fired_decision: List["RuleTrace"] = field(default_factory=list)  # Decision tree
-    rules_fired_hysteresis: List["RuleTrace"] = field(
-        default_factory=list
-    )  # Hysteresis
+    rules_fired_hysteresis: List["RuleTrace"] = field(default_factory=list)  # Hysteresis
     quality: DataQuality = field(default_factory=DataQuality)
 
     # === TRANSITION STATE ===
@@ -787,9 +781,7 @@ class RegimeOutput:
             "quality": self.quality.to_dict(),
             "transition": self.transition.to_dict(),
             "regime_changed": self.regime_changed,
-            "previous_regime": (
-                self.previous_regime.value if self.previous_regime else None
-            ),
+            "previous_regime": (self.previous_regime.value if self.previous_regime else None),
             "indicator_traces": [t.to_dict() for t in self.indicator_traces],
             "turning_point": self.turning_point.to_dict() if self.turning_point else None,
         }
@@ -810,9 +802,7 @@ class RegimeOutput:
             "components": self.component_values.to_dict(),
             "transition": {
                 "regime_changed": self.regime_changed,
-                "previous_regime": (
-                    self.previous_regime.value if self.previous_regime else None
-                ),
+                "previous_regime": (self.previous_regime.value if self.previous_regime else None),
                 "bars_in_regime": self.transition.bars_in_current,
             },
             "timestamp": self.asof_ts.isoformat() if self.asof_ts else None,
@@ -965,15 +955,11 @@ class RegimeOutput:
                 priority=rt_data.get("priority", 0),
                 threshold_info=parse_threshold_info(rt_data.get("threshold_info")),
                 failed_conditions=[
-                    parse_threshold_info(fc)
-                    for fc in rt_data.get("failed_conditions", [])
-                    if fc
+                    parse_threshold_info(fc) for fc in rt_data.get("failed_conditions", []) if fc
                 ],
             )
 
-        rules_fired_decision = [
-            parse_rule_trace(rt) for rt in data.get("rules_fired_decision", [])
-        ]
+        rules_fired_decision = [parse_rule_trace(rt) for rt in data.get("rules_fired_decision", [])]
         rules_fired_hysteresis = [
             parse_rule_trace(rt) for rt in data.get("rules_fired_hysteresis", [])
         ]
@@ -1014,9 +1000,7 @@ class RegimeOutput:
         # Parse indicator traces (Phase 3 observability)
         from src.domain.signals.models import IndicatorTrace
 
-        indicator_traces = [
-            IndicatorTrace.from_dict(t) for t in data.get("indicator_traces", [])
-        ]
+        indicator_traces = [IndicatorTrace.from_dict(t) for t in data.get("indicator_traces", [])]
 
         # Parse turning point (Phase 4)
         from src.domain.signals.indicators.regime.turning_point.model import TurningPointOutput

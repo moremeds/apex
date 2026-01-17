@@ -6,18 +6,18 @@ from unittest.mock import MagicMock
 import pandas as pd
 import pytest
 
-from src.backtest.core import RunSpec, TimeWindow, RunResult, RunMetrics, RunStatus
+from src.backtest.core import RunMetrics, RunResult, RunSpec, RunStatus, TimeWindow
+from src.backtest.execution.engines import EngineType
 from src.backtest.execution.parity import (
-    StrategyParityHarness,
+    DriftDetail,
+    DriftType,
     ParityConfig,
     ParityResult,
-    DriftType,
-    DriftDetail,
-    SignalParityResult,
     SignalCapture,
+    SignalParityResult,
+    StrategyParityHarness,
     compare_signal_parity,
 )
-from src.backtest.execution.engines import EngineType
 
 
 @pytest.fixture

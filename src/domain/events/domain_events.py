@@ -18,21 +18,22 @@ Usage:
 """
 
 from __future__ import annotations
-from dataclasses import dataclass, field, asdict
-from datetime import datetime
-from typing import Optional, Literal, Dict, Any, List, Type, TypeVar
-from enum import Enum
+
 import json
+from dataclasses import asdict, dataclass, field
+from datetime import datetime
+from enum import Enum
+from typing import Any, Dict, List, Literal, Optional, Type, TypeVar
 
 from ...utils.timezone import now_utc
 
-
 # Type variable for generic from_dict
-T = TypeVar('T', bound='DomainEvent')
+T = TypeVar("T", bound="DomainEvent")
 
 
 class Timeframe(Enum):
     """Bar timeframe enumeration."""
+
     TICK = "tick"
     S1 = "1s"
     S5 = "5s"
@@ -50,12 +51,14 @@ class Timeframe(Enum):
 
 class OrderSide(Enum):
     """Order side enumeration."""
+
     BUY = "BUY"
     SELL = "SELL"
 
 
 class OrderStatus(Enum):
     """Order status enumeration."""
+
     PENDING = "PENDING"
     SUBMITTED = "SUBMITTED"
     PARTIALLY_FILLED = "PARTIALLY_FILLED"
@@ -67,6 +70,7 @@ class OrderStatus(Enum):
 
 class OrderType(Enum):
     """Order type enumeration."""
+
     MARKET = "MARKET"
     LIMIT = "LIMIT"
     STOP = "STOP"
@@ -77,6 +81,7 @@ class OrderType(Enum):
 # Base Domain Event
 # =============================================================================
 
+
 @dataclass(frozen=True, slots=True)
 class DomainEvent:
     """
@@ -84,6 +89,7 @@ class DomainEvent:
 
     All domain events are immutable (frozen) and use slots for memory efficiency.
     """
+
     timestamp: datetime = field(default_factory=now_utc)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -98,11 +104,11 @@ class DomainEvent:
                 result[key] = value.isoformat()
             elif isinstance(value, Enum):
                 result[key] = value.value
-            elif hasattr(value, 'to_dict'):
+            elif hasattr(value, "to_dict"):
                 result[key] = value.to_dict()
             else:
                 result[key] = value
-        result['_event_type'] = self.__class__.__name__
+        result["_event_type"] = self.__class__.__name__
         return result
 
     @classmethod
@@ -118,11 +124,11 @@ class DomainEvent:
         """
         # Remove metadata
         data = data.copy()
-        data.pop('_event_type', None)
+        data.pop("_event_type", None)
 
         # Convert timestamp back to datetime
-        if 'timestamp' in data and isinstance(data['timestamp'], str):
-            data['timestamp'] = datetime.fromisoformat(data['timestamp'])
+        if "timestamp" in data and isinstance(data["timestamp"], str):
+            data["timestamp"] = datetime.fromisoformat(data["timestamp"])
 
         return cls(**data)
 
@@ -140,6 +146,7 @@ class DomainEvent:
 # Market Data Events
 # =============================================================================
 
+
 @dataclass(frozen=True, slots=True)
 class QuoteTick(DomainEvent):
     """
@@ -148,6 +155,7 @@ class QuoteTick(DomainEvent):
     Represents a point-in-time quote with bid/ask/last prices.
     Published on EventType.MARKET_DATA_TICK.
     """
+
     symbol: str = ""
     bid: Optional[float] = None
     ask: Optional[float] = None
@@ -202,6 +210,7 @@ class BarData(DomainEvent):
     Represents aggregated price data over a time period.
     Published on EventType.MARKET_DATA_BATCH (for bar updates).
     """
+
     symbol: str = ""
     timeframe: str = "1m"  # Timeframe enum value
     open: Optional[float] = None
@@ -223,9 +232,9 @@ class BarData(DomainEvent):
     def from_dict(cls, data: Dict[str, Any]) -> "BarData":
         """Deserialize with datetime handling."""
         data = data.copy()
-        data.pop('_event_type', None)
+        data.pop("_event_type", None)
 
-        for dt_field in ['timestamp', 'bar_start', 'bar_end']:
+        for dt_field in ["timestamp", "bar_start", "bar_end"]:
             if dt_field in data and isinstance(data[dt_field], str):
                 data[dt_field] = datetime.fromisoformat(data[dt_field])
 
@@ -322,6 +331,7 @@ class IndicatorUpdateEvent(DomainEvent):
 # Trading Events
 # =============================================================================
 
+
 @dataclass(frozen=True, slots=True)
 class TradeFill(DomainEvent):
     """
@@ -330,6 +340,7 @@ class TradeFill(DomainEvent):
     Represents a completed trade execution.
     Published on EventType.ORDER_FILLED.
     """
+
     symbol: str = ""
     underlying: str = ""
     side: str = "BUY"  # OrderSide enum value
@@ -380,6 +391,7 @@ class OrderUpdate(DomainEvent):
     Represents a change in order state.
     Published on EventType.ORDER_SUBMITTED, ORDER_CANCELLED, etc.
     """
+
     order_id: str = ""
     symbol: str = ""
     underlying: str = ""
@@ -439,6 +451,7 @@ class OrderUpdate(DomainEvent):
 # Position Events
 # =============================================================================
 
+
 @dataclass(frozen=True, slots=True)
 class PositionSnapshot(DomainEvent):
     """
@@ -447,6 +460,7 @@ class PositionSnapshot(DomainEvent):
     Represents a position at a specific moment.
     Published on EventType.POSITION_UPDATED.
     """
+
     symbol: str = ""
     underlying: str = ""
     asset_type: str = "STOCK"
@@ -502,6 +516,7 @@ class PositionSnapshot(DomainEvent):
 # Account Events
 # =============================================================================
 
+
 @dataclass(frozen=True, slots=True)
 class AccountSnapshot(DomainEvent):
     """
@@ -510,6 +525,7 @@ class AccountSnapshot(DomainEvent):
     Represents account balances and margin at a specific moment.
     Published on EventType.ACCOUNT_UPDATED.
     """
+
     account_id: str = ""
 
     # Balances
@@ -555,6 +571,7 @@ class AccountSnapshot(DomainEvent):
 # System Events
 # =============================================================================
 
+
 @dataclass(frozen=True, slots=True)
 class ConnectionEvent(DomainEvent):
     """
@@ -562,6 +579,7 @@ class ConnectionEvent(DomainEvent):
 
     Published on EventType.BROKER_CONNECTED, BROKER_DISCONNECTED.
     """
+
     adapter_name: str = ""
     adapter_type: str = ""  # "live", "historical", "execution"
     connected: bool = False
@@ -581,6 +599,7 @@ class RiskBreachEvent(DomainEvent):
 
     Published on EventType.RISK_BREACH.
     """
+
     rule_name: str = ""
     breach_level: str = "SOFT"  # "SOFT" or "HARD"
     current_value: float = 0.0
@@ -603,6 +622,7 @@ class SchedulerStatusEvent(DomainEvent):
     Published on EventType.HEALTH_CHECK to provide scheduler health metrics.
     Used for TUI status display and monitoring (OPT-015).
     """
+
     source: str = "historical_scheduler"
     tokens_available: float = 0.0
     tokens_max: float = 0.0
@@ -620,6 +640,7 @@ class SnapshotReadyEvent(DomainEvent):
 
     Published on EventType.SNAPSHOT_READY when a new risk snapshot is available.
     """
+
     snapshot_id: str = ""
     position_count: int = 0
     coverage_pct: float = 0.0
@@ -639,6 +660,7 @@ class MarketDataTickEvent(DomainEvent):
     Published on EventType.MARKET_DATA_TICK for streaming updates.
     Wraps the MarketData model for type-safe event bus transport.
     """
+
     symbol: str = ""
     source: str = ""  # "ib", "futu", etc.
 
@@ -677,6 +699,7 @@ class PositionDeltaEvent(DomainEvent):
     The TUI should maintain local state and apply deltas directly, never waiting
     for full snapshots. This decouples TUI latency from snapshot building latency.
     """
+
     symbol: str = ""
     underlying: str = ""
 
@@ -717,6 +740,7 @@ class FullResyncEvent(DomainEvent):
 
     TUI should clear cached state and wait for fresh position deltas.
     """
+
     reason: str = ""  # "broker_reconnect", "manual_trigger", etc.
     source: str = ""
 
@@ -730,6 +754,7 @@ class MDQCValidationTrigger(DomainEvent):
     quality validation from the fast path. MDQC validation runs in the
     slow lane to avoid blocking tick processing.
     """
+
     symbol_count: int = 0
     source: str = ""  # Where the trigger came from
 
@@ -995,7 +1020,7 @@ def deserialize_event(data: Dict[str, Any]) -> DomainEvent:
     Raises:
         ValueError: If event type is unknown.
     """
-    event_type = data.get('_event_type')
+    event_type = data.get("_event_type")
     if not event_type:
         raise ValueError("Missing _event_type field in event data")
 

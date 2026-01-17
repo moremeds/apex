@@ -9,14 +9,14 @@ Tests:
 - Dynamic add/remove
 """
 
-import pytest
 import tempfile
 from pathlib import Path
 
+import pytest
 import yaml
 
-from src.domain.signals.universe.yaml_provider import YamlUniverseProvider
 from src.domain.signals.universe.base import SymbolConfig
+from src.domain.signals.universe.yaml_provider import YamlUniverseProvider
 
 
 class TestYamlUniverseProvider:

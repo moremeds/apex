@@ -35,14 +35,15 @@ Usage:
 
 from __future__ import annotations
 
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
-from ..calculators.pnl_calculator import calculate_pnl, DataQuality
-from ..calculators.greeks_calculator import calculate_position_greeks
-from ..calculators.notional_calculator import calculate_notional, calculate_delta_dollars
-from ..state.position_state import PositionState, PositionDelta
-from src.utils.timezone import now_utc
 from src.utils.market_hours import MarketHours
+from src.utils.timezone import now_utc
+
+from ..calculators.greeks_calculator import calculate_position_greeks
+from ..calculators.notional_calculator import calculate_delta_dollars, calculate_notional
+from ..calculators.pnl_calculator import DataQuality, calculate_pnl
+from ..state.position_state import PositionDelta, PositionState
 
 if TYPE_CHECKING:
     from src.domain.events.domain_events import MarketDataTickEvent
@@ -155,9 +156,11 @@ class TickProcessor:
 
         # Calculate new delta dollars
         new_delta_dollars, _ = calculate_delta_dollars(
-            delta=new_greeks.delta / (position.quantity * position.multiplier)
-            if position.quantity * position.multiplier != 0
-            else 0.0,  # Per-contract delta
+            delta=(
+                new_greeks.delta / (position.quantity * position.multiplier)
+                if position.quantity * position.multiplier != 0
+                else 0.0
+            ),  # Per-contract delta
             underlying_price=underlying_price,
             quantity=position.quantity,
             multiplier=position.multiplier,
@@ -176,8 +179,14 @@ class TickProcessor:
         # Skip no-op deltas (common with fallback prices during extended hours)
         # This prevents flooding the event bus with empty updates
         if self._is_negligible_delta(
-            pnl_change, daily_pnl_change, delta_change, gamma_change,
-            vega_change, theta_change, notional_change, delta_dollars_change,
+            pnl_change,
+            daily_pnl_change,
+            delta_change,
+            gamma_change,
+            vega_change,
+            theta_change,
+            notional_change,
+            delta_dollars_change,
         ):
             return None
 
@@ -423,9 +432,11 @@ def create_initial_state(
 
     # Calculate initial delta dollars
     delta_dollars, _ = calculate_delta_dollars(
-        delta=greeks.delta / (position.quantity * position.multiplier)
-        if position.quantity * position.multiplier != 0
-        else 0.0,
+        delta=(
+            greeks.delta / (position.quantity * position.multiplier)
+            if position.quantity * position.multiplier != 0
+            else 0.0
+        ),
         underlying_price=underlying_price,
         quantity=position.quantity,
         multiplier=position.multiplier,

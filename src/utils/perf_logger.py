@@ -45,11 +45,16 @@ Guidelines:
 
 from __future__ import annotations
 
-import time
-import logging
 import functools
-from contextlib import contextmanager, asynccontextmanager, _GeneratorContextManager, _AsyncGeneratorContextManager
-from typing import Optional, Callable, Any, Generator, AsyncGenerator
+import logging
+import time
+from contextlib import (
+    _AsyncGeneratorContextManager,
+    _GeneratorContextManager,
+    asynccontextmanager,
+    contextmanager,
+)
+from typing import Any, AsyncGenerator, Callable, Generator, Optional
 
 from .trace_context import get_cycle_id
 
@@ -150,9 +155,13 @@ def log_timing(
 
         # Determine log level based on duration
         if duration_ms >= error_threshold_ms:
-            logger.error(f"[{cycle_id}] SLOW {operation}: {duration_ms:.1f}ms", extra={"data": log_data})
+            logger.error(
+                f"[{cycle_id}] SLOW {operation}: {duration_ms:.1f}ms", extra={"data": log_data}
+            )
         elif duration_ms >= warn_threshold_ms:
-            logger.warning(f"[{cycle_id}] {operation}: {duration_ms:.1f}ms (slow)", extra={"data": log_data})
+            logger.warning(
+                f"[{cycle_id}] {operation}: {duration_ms:.1f}ms (slow)", extra={"data": log_data}
+            )
         else:
             logger.debug(f"[{cycle_id}] {operation}: {duration_ms:.1f}ms", extra={"data": log_data})
 
@@ -205,9 +214,13 @@ async def log_timing_async(
 
         # Determine log level based on duration
         if duration_ms >= error_threshold_ms:
-            logger.error(f"[{cycle_id}] SLOW {operation}: {duration_ms:.1f}ms", extra={"data": log_data})
+            logger.error(
+                f"[{cycle_id}] SLOW {operation}: {duration_ms:.1f}ms", extra={"data": log_data}
+            )
         elif duration_ms >= warn_threshold_ms:
-            logger.warning(f"[{cycle_id}] {operation}: {duration_ms:.1f}ms (slow)", extra={"data": log_data})
+            logger.warning(
+                f"[{cycle_id}] {operation}: {duration_ms:.1f}ms (slow)", extra={"data": log_data}
+            )
         else:
             logger.debug(f"[{cycle_id}] {operation}: {duration_ms:.1f}ms", extra={"data": log_data})
 
@@ -237,6 +250,7 @@ def timed(
         def calculate_greeks(position):
             ...
     """
+
     def decorator(func: Callable) -> Callable:
         op_name = operation or func.__name__
 
@@ -261,6 +275,7 @@ def timed(
 def asyncio_iscoroutinefunction(func: Callable) -> bool:
     """Check if a function is an async coroutine function."""
     import asyncio
+
     return asyncio.iscoroutinefunction(func)
 
 

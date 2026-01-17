@@ -7,15 +7,15 @@ IB returns timezone-aware UTC timestamps.
 """
 
 from __future__ import annotations
-from typing import Optional
+
 from datetime import datetime
 from math import isnan
+from typing import Optional
 
-from ....models.position import Position, AssetType, PositionSource
-from ....models.order import Order, Trade, OrderSource, OrderStatus, OrderSide, OrderType
-from ....utils.timezone import now_utc, parse_ib_timestamp
+from ....models.order import Order, OrderSide, OrderSource, OrderStatus, OrderType, Trade
+from ....models.position import AssetType, Position, PositionSource
 from ....utils.logging_setup import get_logger
-
+from ....utils.timezone import now_utc, parse_ib_timestamp
 
 logger = get_logger(__name__)
 
@@ -43,7 +43,7 @@ def convert_position(ib_pos) -> Position:
         logger.warning(f"Position has no contract: {ib_pos}")
         raise ValueError("Position has no contract")
 
-    sec_type = getattr(contract, 'secType', None)
+    sec_type = getattr(contract, "secType", None)
 
     # Determine asset type with null-safe check
     if sec_type == "STK":
@@ -117,7 +117,7 @@ def convert_order(ib_order_wrapper) -> Optional[Order]:
             logger.warning(f"Order wrapper has no contract: {ib_order_wrapper}")
             return None
 
-        sec_type = getattr(contract, 'secType', None)
+        sec_type = getattr(contract, "secType", None)
 
         # Determine asset type with null-safe check
         if sec_type == "STK":
@@ -177,7 +177,11 @@ def convert_order(ib_order_wrapper) -> Optional[Order]:
             status=status,
             filled_quantity=float(order_status.filled) if order_status.filled else 0.0,
             avg_fill_price=float(order_status.avgFillPrice) if order_status.avgFillPrice else None,
-            commission=float(order_status.commission) if order_status.commission and not isnan(order_status.commission) else 0.0,
+            commission=(
+                float(order_status.commission)
+                if order_status.commission and not isnan(order_status.commission)
+                else 0.0
+            ),
             submitted_time=now_utc(),
             filled_time=now_utc() if status == OrderStatus.FILLED else None,
             updated_time=now_utc(),
@@ -214,7 +218,7 @@ def convert_fill(ib_fill) -> Optional[Trade]:
             logger.warning(f"Fill has no contract: {ib_fill}")
             return None
 
-        sec_type = getattr(contract, 'secType', None)
+        sec_type = getattr(contract, "secType", None)
 
         # Determine asset type with null-safe check
         if sec_type == "STK":
@@ -243,7 +247,11 @@ def convert_fill(ib_fill) -> Optional[Trade]:
 
         # Get commission from report
         commission = 0.0
-        if commission_report and commission_report.commission and not isnan(commission_report.commission):
+        if (
+            commission_report
+            and commission_report.commission
+            and not isnan(commission_report.commission)
+        ):
             commission = float(commission_report.commission)
 
         return Trade(
@@ -263,7 +271,7 @@ def convert_fill(ib_fill) -> Optional[Trade]:
             strike=strike,
             right=right,
             exchange=execution.exchange,
-            liquidity=execution.liquidation if hasattr(execution, 'liquidation') else None,
+            liquidity=execution.liquidation if hasattr(execution, "liquidation") else None,
         )
 
     except Exception as e:

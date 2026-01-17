@@ -8,20 +8,23 @@ Terminology:
 """
 
 from __future__ import annotations
+
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional, Literal
 from enum import Enum
+from typing import Literal, Optional
 
 
 class OrderSource(Enum):
     """Order data source."""
+
     IB = "IB"
     FUTU = "FUTU"
 
 
 class OrderStatus(Enum):
     """Order status."""
+
     PENDING = "PENDING"
     SUBMITTED = "SUBMITTED"
     PARTIALLY_FILLED = "PARTIALLY_FILLED"
@@ -33,12 +36,14 @@ class OrderStatus(Enum):
 
 class OrderSide(Enum):
     """Order side (buy/sell)."""
+
     BUY = "BUY"
     SELL = "SELL"
 
 
 class OrderType(Enum):
     """Order type."""
+
     MARKET = "MARKET"
     LIMIT = "LIMIT"
     STOP = "STOP"

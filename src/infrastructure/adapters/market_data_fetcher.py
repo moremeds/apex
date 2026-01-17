@@ -6,17 +6,18 @@ Supports event-driven streaming updates and fallback to snapshot data.
 """
 
 from __future__ import annotations
-from typing import List, Dict, Optional, Tuple, Callable, TYPE_CHECKING
+
+import asyncio
+import time
 from dataclasses import dataclass
 from math import isnan
 from threading import Lock
-import asyncio
-import time
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple
 
-from ...models.position import Position, AssetType
-from ...models.market_data import MarketData, GreeksSource
-from ...utils.timezone import now_utc
+from ...models.market_data import GreeksSource, MarketData
+from ...models.position import AssetType, Position
 from ...utils.logging_setup import get_logger
+from ...utils.timezone import now_utc
 
 if TYPE_CHECKING:
     from ...infrastructure.stores.market_data_store import MarketDataStore
@@ -28,6 +29,7 @@ logger = get_logger(__name__)
 @dataclass(frozen=True, slots=True)
 class TickerUpdate:
     """Immutable ticker update for queue dispatch."""
+
     symbol: str
     ticker_id: int  # id(ticker) for lookup
     timestamp: float
@@ -68,7 +70,9 @@ class MarketDataFetcher:
         """
         self.ib = ib
         self._active_tickers: Dict[str, object] = {}  # symbol -> ticker
-        self._ticker_to_symbol: Dict[int, str] = {}  # id(ticker) -> symbol for O(1) streaming lookup
+        self._ticker_to_symbol: Dict[int, str] = (
+            {}
+        )  # id(ticker) -> symbol for O(1) streaming lookup
         self._ticker_positions: Dict[str, Position] = {}  # symbol -> Position mapping
         self._ticker_lock = Lock()  # Protects writes to ticker dicts during subscription
         self.data_timeout = data_timeout
@@ -225,10 +229,7 @@ class MarketDataFetcher:
         return len(stale_symbols)
 
     async def fetch_market_data(
-        self,
-        positions: List[Position],
-        qualified_contracts: List,
-        pos_map: Dict[int, Position]
+        self, positions: List[Position], qualified_contracts: List, pos_map: Dict[int, Position]
     ) -> List[MarketData]:
         """
         Fetch market data for positions with fallback logic.
@@ -262,29 +263,30 @@ class MarketDataFetcher:
                 elif pos.asset_type == AssetType.OPTION:
                     option_contracts.append((contract, pos))
 
-        logger.info(f"Fetching market data: {len(stock_contracts)} stocks, {len(option_contracts)} options")
+        logger.info(
+            f"Fetching market data: {len(stock_contracts)} stocks, {len(option_contracts)} options"
+        )
 
         market_data_list = []
 
         # Fetch stock data using snapshot method (faster, no Greeks needed)
         if stock_contracts:
-            stock_md = await self._fetch_stock_snapshot([c for c, _ in stock_contracts], stock_contracts)
+            stock_md = await self._fetch_stock_snapshot(
+                [c for c, _ in stock_contracts], stock_contracts
+            )
             market_data_list.extend(stock_md)
 
         # Fetch option data with streaming (for Greeks) and fallback to snapshot
         if option_contracts:
             option_md = await self._fetch_option_streaming_with_fallback(
-                [c for c, _ in option_contracts],
-                option_contracts
+                [c for c, _ in option_contracts], option_contracts
             )
             market_data_list.extend(option_md)
 
         return market_data_list
 
     async def _fetch_stock_snapshot(
-        self,
-        contracts: List,
-        contract_pos_pairs: List[Tuple]
+        self, contracts: List, contract_pos_pairs: List[Tuple]
     ) -> List[MarketData]:
         """
         Fetch stock market data using batch streaming subscription.
@@ -323,7 +325,7 @@ class MarketDataFetcher:
                             # Already subscribed - no need to wait again
                         else:
                             # Subscribe to streaming data (no special generic ticks for stocks)
-                            ticker = self.ib.reqMktData(contract, '', False, False)
+                            ticker = self.ib.reqMktData(contract, "", False, False)
                             self._active_tickers[pos.symbol] = ticker
                             self._ticker_to_symbol[id(ticker)] = pos.symbol
                             new_tickers.append(ticker)  # Track new subscriptions
@@ -340,12 +342,15 @@ class MarketDataFetcher:
             # Phase 2: Wait ONLY for NEW subscriptions (skip if all cached)
             if new_tickers:
                 populated_count = await self._wait_for_batch_population(
-                    new_tickers,
-                    timeout=self.data_timeout
+                    new_tickers, timeout=self.data_timeout
                 )
-                logger.info(f"New stock subscriptions populated: {populated_count}/{len(new_tickers)}")
+                logger.info(
+                    f"New stock subscriptions populated: {populated_count}/{len(new_tickers)}"
+                )
             elif tickers_with_pos:
-                logger.debug(f"All {len(tickers_with_pos)} stocks using cached subscriptions (no wait)")
+                logger.debug(
+                    f"All {len(tickers_with_pos)} stocks using cached subscriptions (no wait)"
+                )
 
             # Phase 3: Extract data from all tickers (mark missing as data_missing)
             for ticker, pos in tickers_with_pos:
@@ -354,7 +359,7 @@ class MarketDataFetcher:
 
                 # Check if we got valid data
                 if not self._has_valid_price(ticker):
-                    md.quality = md.quality if hasattr(md, 'quality') else None
+                    md.quality = md.quality if hasattr(md, "quality") else None
                     logger.debug(f"Stock {pos.symbol} marked as data_missing (no price data)")
 
                 market_data_list.append(md)
@@ -365,10 +370,7 @@ class MarketDataFetcher:
         return market_data_list
 
     async def _wait_for_batch_population(
-        self,
-        tickers: List,
-        timeout: float = 3.0,
-        target_ratio: float = 0.8
+        self, tickers: List, timeout: float = 3.0, target_ratio: float = 0.8
     ) -> int:
         """
         Wait for batch of tickers to have data populated.
@@ -400,8 +402,7 @@ class MarketDataFetcher:
             await asyncio.sleep(current_interval)
             # m1/m8: Exponential backoff - increase interval up to max
             current_interval = min(
-                current_interval * self._poll_backoff_factor,
-                self._poll_interval_max
+                current_interval * self._poll_backoff_factor, self._poll_interval_max
             )
 
         # Return final count on timeout
@@ -414,7 +415,12 @@ class MarketDataFetcher:
         if ticker.bid and not isnan(ticker.bid) and ticker.bid > 0:
             return True
         # Also accept previous close as valid (important for market closed hours)
-        if hasattr(ticker, 'close') and ticker.close and not isnan(ticker.close) and ticker.close > 0:
+        if (
+            hasattr(ticker, "close")
+            and ticker.close
+            and not isnan(ticker.close)
+            and ticker.close > 0
+        ):
             return True
         return False
 
@@ -440,15 +446,12 @@ class MarketDataFetcher:
             await asyncio.sleep(current_interval)
             # m1/m8: Exponential backoff - increase interval up to max
             current_interval = min(
-                current_interval * self._poll_backoff_factor,
-                self._poll_interval_max
+                current_interval * self._poll_backoff_factor, self._poll_interval_max
             )
         return False
 
     async def _fetch_option_streaming_with_fallback(
-        self,
-        contracts: List,
-        contract_pos_pairs: List[Tuple]
+        self, contracts: List, contract_pos_pairs: List[Tuple]
     ) -> List[MarketData]:
         """
         Fetch option market data with streaming (for Greeks) and fallback to snapshot.
@@ -476,10 +479,12 @@ class MarketDataFetcher:
                 missing_indices.append(i)
 
         if missing_indices:
-            logger.warning(f"{len(missing_indices)} options have no streaming data, falling back to snapshot...")
+            logger.warning(
+                f"{len(missing_indices)} options have no streaming data, falling back to snapshot..."
+            )
             fallback_md = await self._fetch_option_snapshot(
                 [contracts[i] for i in missing_indices],
-                [contract_pos_pairs[i] for i in missing_indices]
+                [contract_pos_pairs[i] for i in missing_indices],
             )
 
             # Replace missing data with fallback
@@ -492,11 +497,7 @@ class MarketDataFetcher:
         # Filter out None values
         return [md for md in market_data_list if md is not None]
 
-    async def _wait_for_data_population(
-        self,
-        tickers: List,
-        timeout: float
-    ) -> int:
+    async def _wait_for_data_population(self, tickers: List, timeout: float) -> int:
         """
         Wait for ticker data to populate using polling with timeout.
 
@@ -535,21 +536,20 @@ class MarketDataFetcher:
             # Check timeout
             elapsed = asyncio.get_running_loop().time() - start_time
             if elapsed >= timeout:
-                logger.warning(f"Data population timeout ({timeout}s): {populated_count}/{len(tickers)} populated")
+                logger.warning(
+                    f"Data population timeout ({timeout}s): {populated_count}/{len(tickers)} populated"
+                )
                 return populated_count
 
             # Wait before next poll with exponential backoff
             await asyncio.sleep(current_interval)
             # m1/m8: Exponential backoff - increase interval up to max
             current_interval = min(
-                current_interval * self._poll_backoff_factor,
-                self._poll_interval_max
+                current_interval * self._poll_backoff_factor, self._poll_interval_max
             )
 
     async def _fetch_option_streaming(
-        self,
-        contracts: List,
-        contract_pos_pairs: List[Tuple]
+        self, contracts: List, contract_pos_pairs: List[Tuple]
     ) -> List[Optional[MarketData]]:
         """
         Fetch option market data using streaming (reqMktData with Greeks).
@@ -584,7 +584,7 @@ class MarketDataFetcher:
                     if existing:
                         tickers.append(existing)
                     else:
-                        ticker = self.ib.reqMktData(contract, '106', False, False)
+                        ticker = self.ib.reqMktData(contract, "106", False, False)
                         tickers.append(ticker)
                         new_tickers.append(ticker)
                         self._active_tickers[pos.symbol] = ticker
@@ -597,11 +597,17 @@ class MarketDataFetcher:
             # Use longer timeout for options since Greeks take time to populate
             populated_count = len(tickers)  # Assume all populated for cached path
             if new_tickers:
-                logger.debug(f"Waiting for {len(new_tickers)} new option subscriptions (timeout={self.option_data_timeout}s)...")
-                populated_count = await self._wait_for_data_population(new_tickers, timeout=self.option_data_timeout)
+                logger.debug(
+                    f"Waiting for {len(new_tickers)} new option subscriptions (timeout={self.option_data_timeout}s)..."
+                )
+                populated_count = await self._wait_for_data_population(
+                    new_tickers, timeout=self.option_data_timeout
+                )
                 # Adjust count to include cached tickers
                 populated_count += len(tickers) - len(new_tickers)
-                logger.info(f"New option subscriptions populated: {populated_count}/{len(new_tickers)}")
+                logger.info(
+                    f"New option subscriptions populated: {populated_count}/{len(new_tickers)}"
+                )
             elif tickers:
                 logger.debug(f"All {len(tickers)} options using cached subscriptions (no wait)")
 
@@ -610,7 +616,9 @@ class MarketDataFetcher:
             if populated_count == len(tickers):
                 logger.debug(f"✓ All {len(tickers)} option tickers populated successfully")
             elif populated_count > 0:
-                logger.warning(f"⚠ Partial data: {populated_count}/{len(tickers)} tickers populated, {empty_count} empty")
+                logger.warning(
+                    f"⚠ Partial data: {populated_count}/{len(tickers)} tickers populated, {empty_count} empty"
+                )
             else:
                 logger.warning(f"✗ No data populated for {len(tickers)} option tickers")
 
@@ -637,9 +645,7 @@ class MarketDataFetcher:
         return market_data_list
 
     async def _fetch_option_snapshot(
-        self,
-        contracts: List,
-        contract_pos_pairs: List[Tuple]
+        self, contracts: List, contract_pos_pairs: List[Tuple]
     ) -> List[MarketData]:
         """
         Fetch option market data using snapshot method (no Greeks).
@@ -664,7 +670,9 @@ class MarketDataFetcher:
                     md = self._extract_market_data(ticker, pos)
 
                     # Note: No Greeks available in snapshot mode
-                    logger.debug(f"✓ Snapshot data for {pos.symbol}: bid={md.bid}, ask={md.ask} (no Greeks)")
+                    logger.debug(
+                        f"✓ Snapshot data for {pos.symbol}: bid={md.bid}, ask={md.ask} (no Greeks)"
+                    )
 
                     market_data_list.append(md)
 
@@ -693,9 +701,17 @@ class MarketDataFetcher:
             last=float(ticker.last) if ticker.last and not isnan(ticker.last) else None,
             bid=float(ticker.bid) if ticker.bid and not isnan(ticker.bid) else None,
             ask=float(ticker.ask) if ticker.ask and not isnan(ticker.ask) else None,
-            mid=float((ticker.bid + ticker.ask) / 2) if ticker.bid and ticker.ask and not isnan(ticker.bid) and not isnan(ticker.ask) else None,
+            mid=(
+                float((ticker.bid + ticker.ask) / 2)
+                if ticker.bid and ticker.ask and not isnan(ticker.bid) and not isnan(ticker.ask)
+                else None
+            ),
             volume=int(ticker.volume) if ticker.volume and not isnan(ticker.volume) else None,
-            yesterday_close=float(ticker.close) if hasattr(ticker, 'close') and ticker.close and not isnan(ticker.close) else None,
+            yesterday_close=(
+                float(ticker.close)
+                if hasattr(ticker, "close") and ticker.close and not isnan(ticker.close)
+                else None
+            ),
             timestamp=now_utc(),
         )
 
@@ -712,22 +728,22 @@ class MarketDataFetcher:
             return
 
         # Extract IV first (available directly on ticker)
-        iv = self._safe_float(getattr(ticker, 'impliedVolatility', None))
+        iv = self._safe_float(getattr(ticker, "impliedVolatility", None))
         if iv is not None:
             md.iv = iv
 
         # Extract Greeks from modelGreeks
-        if hasattr(ticker, 'modelGreeks') and ticker.modelGreeks:
+        if hasattr(ticker, "modelGreeks") and ticker.modelGreeks:
             greeks = ticker.modelGreeks
-            md.delta = self._safe_float(getattr(greeks, 'delta', None))
-            md.gamma = self._safe_float(getattr(greeks, 'gamma', None))
-            md.vega = self._safe_float(getattr(greeks, 'vega', None))
-            md.theta = self._safe_float(getattr(greeks, 'theta', None))
+            md.delta = self._safe_float(getattr(greeks, "delta", None))
+            md.gamma = self._safe_float(getattr(greeks, "gamma", None))
+            md.vega = self._safe_float(getattr(greeks, "vega", None))
+            md.theta = self._safe_float(getattr(greeks, "theta", None))
             if any(value is not None for value in (md.delta, md.gamma, md.vega, md.theta)):
                 md.greeks_source = GreeksSource.IBKR
 
             # Extract underlying price (critical for delta dollars calculation)
-            und_price = self._safe_float(getattr(greeks, 'undPrice', None))
+            und_price = self._safe_float(getattr(greeks, "undPrice", None))
             if und_price is not None:
                 md.underlying_price = und_price
 
@@ -794,9 +810,7 @@ class MarketDataFetcher:
                 try:
                     # Thread-safe queue put from IB callback thread
                     if self._event_loop and self._event_loop.is_running():
-                        self._event_loop.call_soon_threadsafe(
-                            self._ticker_queue.put_nowait, update
-                        )
+                        self._event_loop.call_soon_threadsafe(self._ticker_queue.put_nowait, update)
                     else:
                         # Fallback for sync context (shouldn't happen in normal operation)
                         self._ticker_queue.put_nowait(update)
@@ -807,7 +821,9 @@ class MarketDataFetcher:
                 # CRIT-001: Rate-limited logging for hot path errors
                 self._ticker_error_count += 1
                 if self._ticker_error_count <= 10 or self._ticker_error_count % 100 == 0:
-                    logger.warning("Ticker processing error (total=%d): %s", self._ticker_error_count, e)
+                    logger.warning(
+                        "Ticker processing error (total=%d): %s", self._ticker_error_count, e
+                    )
 
         if dropped > 0:
             logger.warning(f"Ticker queue full, dropped {dropped} updates")

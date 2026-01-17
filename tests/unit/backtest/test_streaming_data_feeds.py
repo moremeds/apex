@@ -9,17 +9,18 @@ Tests verify:
 - Factory function behavior
 """
 
-import pytest
-import tempfile
 import csv
-from datetime import datetime, date
+import tempfile
+from datetime import date, datetime
 from pathlib import Path
 from typing import List
 
+import pytest
+
 from src.backtest.data.feeds import (
+    CsvDataFeed,
     StreamingCsvDataFeed,
     StreamingParquetDataFeed,
-    CsvDataFeed,
     create_data_feed,
 )
 from src.domain.events.domain_events import BarData
@@ -38,14 +39,16 @@ def csv_test_dir():
             )
             writer.writeheader()
             for i in range(1, 11):  # 10 bars: 2024-01-01 to 2024-01-10
-                writer.writerow({
-                    "date": f"2024-01-{i:02d}",
-                    "open": 150.0 + i,
-                    "high": 152.0 + i,
-                    "low": 149.0 + i,
-                    "close": 151.0 + i,
-                    "volume": 1000000 + i * 10000,
-                })
+                writer.writerow(
+                    {
+                        "date": f"2024-01-{i:02d}",
+                        "open": 150.0 + i,
+                        "high": 152.0 + i,
+                        "low": 149.0 + i,
+                        "close": 151.0 + i,
+                        "volume": 1000000 + i * 10000,
+                    }
+                )
 
         # Create MSFT.csv with daily bars
         with open(tmppath / "MSFT.csv", "w", newline="") as f:
@@ -54,14 +57,16 @@ def csv_test_dir():
             )
             writer.writeheader()
             for i in range(1, 11):  # 10 bars: 2024-01-01 to 2024-01-10
-                writer.writerow({
-                    "date": f"2024-01-{i:02d}",
-                    "open": 350.0 + i,
-                    "high": 352.0 + i,
-                    "low": 349.0 + i,
-                    "close": 351.0 + i,
-                    "volume": 2000000 + i * 10000,
-                })
+                writer.writerow(
+                    {
+                        "date": f"2024-01-{i:02d}",
+                        "open": 350.0 + i,
+                        "high": 352.0 + i,
+                        "low": 349.0 + i,
+                        "close": 351.0 + i,
+                        "volume": 2000000 + i * 10000,
+                    }
+                )
 
         yield tmppath
 
@@ -298,14 +303,16 @@ class TestLargeDataset:
                     for day in range(1, 101):
                         month = (day - 1) // 28 + 1
                         day_of_month = (day - 1) % 28 + 1
-                        writer.writerow({
-                            "date": f"2024-{month:02d}-{day_of_month:02d}",
-                            "open": 100.0 + sym_idx,
-                            "high": 102.0 + sym_idx,
-                            "low": 99.0 + sym_idx,
-                            "close": 101.0 + sym_idx,
-                            "volume": 1000000,
-                        })
+                        writer.writerow(
+                            {
+                                "date": f"2024-{month:02d}-{day_of_month:02d}",
+                                "open": 100.0 + sym_idx,
+                                "high": 102.0 + sym_idx,
+                                "low": 99.0 + sym_idx,
+                                "close": 101.0 + sym_idx,
+                                "volume": 1000000,
+                            }
+                        )
 
             symbols = [f"SYM{i:03d}" for i in range(100)]
             feed = StreamingCsvDataFeed(

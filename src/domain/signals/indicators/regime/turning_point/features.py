@@ -63,30 +63,32 @@ class TurningPointFeatures:
 
     def to_array(self) -> np.ndarray:
         """Convert to numpy array for model input."""
-        return np.array([
-            self.price_vs_ma20,
-            self.price_vs_ma50,
-            self.price_vs_ma200,
-            self.ma20_slope,
-            self.ma50_slope,
-            self.ma20_vs_ma50,
-            self.atr_pct_63,
-            self.atr_pct_252,
-            self.atr_expansion_rate,
-            self.vol_regime,
-            self.chop_pct_252,
-            self.adx_value,
-            self.range_position,
-            self.ext_atr_units,
-            self.ext_zscore,
-            self.rsi_14,
-            self.roc_5,
-            self.roc_10,
-            self.roc_20,
-            self.delta_atr_pct,
-            self.delta_chop_pct,
-            self.delta_ext,
-        ])
+        return np.array(
+            [
+                self.price_vs_ma20,
+                self.price_vs_ma50,
+                self.price_vs_ma200,
+                self.ma20_slope,
+                self.ma50_slope,
+                self.ma20_vs_ma50,
+                self.atr_pct_63,
+                self.atr_pct_252,
+                self.atr_expansion_rate,
+                self.vol_regime,
+                self.chop_pct_252,
+                self.adx_value,
+                self.range_position,
+                self.ext_atr_units,
+                self.ext_zscore,
+                self.rsi_14,
+                self.roc_5,
+                self.roc_10,
+                self.roc_20,
+                self.delta_atr_pct,
+                self.delta_chop_pct,
+                self.delta_ext,
+            ]
+        )
 
     def to_dict(self) -> Dict[str, float]:
         """Convert to dictionary."""
@@ -157,6 +159,7 @@ def compute_rsi(close: pd.Series, period: int = 14) -> pd.Series:
 
 def compute_percentile_rank(series: pd.Series, window: int) -> pd.Series:
     """Compute rolling percentile rank of current value."""
+
     def pct_rank(x):
         if len(x) < 2:
             return 50.0
@@ -174,11 +177,14 @@ def compute_choppiness(
 ) -> pd.Series:
     """Compute Choppiness Index."""
     atr = (
-        pd.concat([
-            high - low,
-            abs(high - close.shift(1)),
-            abs(low - close.shift(1)),
-        ], axis=1)
+        pd.concat(
+            [
+                high - low,
+                abs(high - close.shift(1)),
+                abs(low - close.shift(1)),
+            ],
+            axis=1,
+        )
         .max(axis=1)
         .rolling(window=period)
         .mean()
@@ -215,11 +221,14 @@ def extract_features(
     ma200 = close.rolling(window=200).mean()
 
     # ATR
-    tr = pd.concat([
-        high - low,
-        abs(high - close.shift(1)),
-        abs(low - close.shift(1)),
-    ], axis=1).max(axis=1)
+    tr = pd.concat(
+        [
+            high - low,
+            abs(high - close.shift(1)),
+            abs(low - close.shift(1)),
+        ],
+        axis=1,
+    ).max(axis=1)
     atr20 = tr.rolling(window=20).mean()
 
     # Slopes
@@ -275,30 +284,33 @@ def extract_features(
     delta_ext = ext_atr_units.diff()
 
     # Build feature DataFrame
-    features = pd.DataFrame({
-        "price_vs_ma20": price_vs_ma20,
-        "price_vs_ma50": price_vs_ma50,
-        "price_vs_ma200": price_vs_ma200,
-        "ma20_slope": ma20_slope,
-        "ma50_slope": ma50_slope,
-        "ma20_vs_ma50": ma20_vs_ma50,
-        "atr_pct_63": atr_pct_63,
-        "atr_pct_252": atr_pct_252,
-        "atr_expansion_rate": atr_expansion_rate,
-        "vol_regime": vol_regime,
-        "chop_pct_252": chop_pct_252,
-        "adx_value": pd.Series(0.0, index=df.index),  # Placeholder
-        "range_position": range_position,
-        "ext_atr_units": ext_atr_units,
-        "ext_zscore": ext_zscore,
-        "rsi_14": rsi_14,
-        "roc_5": roc_5,
-        "roc_10": roc_10,
-        "roc_20": roc_20,
-        "delta_atr_pct": delta_atr_pct,
-        "delta_chop_pct": delta_chop_pct,
-        "delta_ext": delta_ext,
-    }, index=df.index)
+    features = pd.DataFrame(
+        {
+            "price_vs_ma20": price_vs_ma20,
+            "price_vs_ma50": price_vs_ma50,
+            "price_vs_ma200": price_vs_ma200,
+            "ma20_slope": ma20_slope,
+            "ma50_slope": ma50_slope,
+            "ma20_vs_ma50": ma20_vs_ma50,
+            "atr_pct_63": atr_pct_63,
+            "atr_pct_252": atr_pct_252,
+            "atr_expansion_rate": atr_expansion_rate,
+            "vol_regime": vol_regime,
+            "chop_pct_252": chop_pct_252,
+            "adx_value": pd.Series(0.0, index=df.index),  # Placeholder
+            "range_position": range_position,
+            "ext_atr_units": ext_atr_units,
+            "ext_zscore": ext_zscore,
+            "rsi_14": rsi_14,
+            "roc_5": roc_5,
+            "roc_10": roc_10,
+            "roc_20": roc_20,
+            "delta_atr_pct": delta_atr_pct,
+            "delta_chop_pct": delta_chop_pct,
+            "delta_ext": delta_ext,
+        },
+        index=df.index,
+    )
 
     # Fill NaN with defaults
     features = features.fillna(0.0)

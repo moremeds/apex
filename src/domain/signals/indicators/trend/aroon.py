@@ -73,9 +73,7 @@ class AroonIndicator(IndicatorBase):
         else:
             aroon_up, aroon_down = self._calculate_manual(high, low, period)
 
-        return pd.DataFrame(
-            {"aroon_up": aroon_up, "aroon_down": aroon_down}, index=data.index
-        )
+        return pd.DataFrame({"aroon_up": aroon_up, "aroon_down": aroon_down}, index=data.index)
 
     def _calculate_manual(
         self, high: np.ndarray, low: np.ndarray, period: int

@@ -259,7 +259,9 @@ def verify_run_reproducibility(
     if passed:
         logger.info("Verification PASSED")
     else:
-        logger.error(f"Verification FAILED: {len(checksum_errors)} checksum errors, {len(metric_errors)} metric errors")
+        logger.error(
+            f"Verification FAILED: {len(checksum_errors)} checksum errors, {len(metric_errors)} metric errors"
+        )
 
     return result
 

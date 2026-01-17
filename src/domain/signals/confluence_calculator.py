@@ -13,15 +13,15 @@ This class handles:
 from __future__ import annotations
 
 import time
-from typing import Any, Callable, Dict, Optional, Tuple, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Tuple
 
-from ...utils.logging_setup import get_logger
 from ...domain.events.event_types import EventType
 from ...infrastructure.observability import (
     SignalMetrics,
-    time_confluence_calculation,
     time_alignment_calculation,
+    time_confluence_calculation,
 )
+from ...utils.logging_setup import get_logger
 
 if TYPE_CHECKING:
     from ...domain.interfaces.event_bus import EventBus
@@ -263,16 +263,19 @@ class ConfluenceCalculator:
             # Optional persistence callback
             if self._persistence_callback:
                 import asyncio
-                asyncio.create_task(self._persistence_callback(
-                    symbol=symbol,
-                    timeframe=timeframe,
-                    alignment_score=getattr(score, "alignment_score", 0.0),
-                    bullish_count=getattr(score, "bullish_count", 0),
-                    bearish_count=getattr(score, "bearish_count", 0),
-                    neutral_count=getattr(score, "neutral_count", 0),
-                    total_indicators=getattr(score, "total_indicators", 0),
-                    dominant_direction=getattr(score, "dominant_direction", None),
-                ))
+
+                asyncio.create_task(
+                    self._persistence_callback(
+                        symbol=symbol,
+                        timeframe=timeframe,
+                        alignment_score=getattr(score, "alignment_score", 0.0),
+                        bullish_count=getattr(score, "bullish_count", 0),
+                        bearish_count=getattr(score, "bearish_count", 0),
+                        neutral_count=getattr(score, "neutral_count", 0),
+                        total_indicators=getattr(score, "total_indicators", 0),
+                        dominant_direction=getattr(score, "dominant_direction", None),
+                    )
+                )
 
             # Log results
             duration_ms = (time.perf_counter() - start_time) * 1000

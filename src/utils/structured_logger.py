@@ -9,16 +9,18 @@ Provides structured logging with:
 """
 
 from __future__ import annotations
+
 import json
 import logging
-from typing import Dict, Any
 from enum import Enum
+from typing import Any, Dict
 
 from .logging_setup import get_current_timestamp
 
 
 class LogCategory(Enum):
     """Log entry categories."""
+
     SYSTEM = "SYSTEM"  # System events (startup, shutdown, errors)
     RISK = "RISK"  # Risk calculation and limit breaches
     TRADING = "TRADING"  # Position updates and reconciliation
@@ -84,18 +86,26 @@ class StructuredLogger:
         """Log info message."""
         self.log("INFO", category, message, data)
 
-    def warning(self, category: LogCategory, message: str, data: Dict[str, Any] | None = None) -> None:
+    def warning(
+        self, category: LogCategory, message: str, data: Dict[str, Any] | None = None
+    ) -> None:
         """Log warning message."""
         self.log("WARNING", category, message, data)
 
-    def error(self, category: LogCategory, message: str, data: Dict[str, Any] | None = None) -> None:
+    def error(
+        self, category: LogCategory, message: str, data: Dict[str, Any] | None = None
+    ) -> None:
         """Log error message."""
         self.log("ERROR", category, message, data)
 
-    def critical(self, category: LogCategory, message: str, data: Dict[str, Any] | None = None) -> None:
+    def critical(
+        self, category: LogCategory, message: str, data: Dict[str, Any] | None = None
+    ) -> None:
         """Log critical message."""
         self.log("CRITICAL", category, message, data)
 
-    def debug(self, category: LogCategory, message: str, data: Dict[str, Any] | None = None) -> None:
+    def debug(
+        self, category: LogCategory, message: str, data: Dict[str, Any] | None = None
+    ) -> None:
         """Log debug message."""
         self.log("DEBUG", category, message, data)

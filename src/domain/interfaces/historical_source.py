@@ -1,6 +1,7 @@
 """Historical data source protocol for downloading bar data from external sources."""
 
 from __future__ import annotations
+
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import List, Protocol, runtime_checkable
@@ -29,8 +30,8 @@ class DateRange:
         if start_naive > end_naive:
             raise ValueError(f"start ({self.start}) must be <= end ({self.end})")
         # Store normalized values (workaround for frozen dataclass)
-        object.__setattr__(self, 'start', start_naive)
-        object.__setattr__(self, 'end', end_naive)
+        object.__setattr__(self, "start", start_naive)
+        object.__setattr__(self, "end", end_naive)
 
     def overlaps(self, other: DateRange) -> bool:
         """Check if this range overlaps with another."""
@@ -42,10 +43,7 @@ class DateRange:
 
     def merge(self, other: DateRange) -> DateRange:
         """Merge with an overlapping or adjacent range."""
-        return DateRange(
-            start=min(self.start, other.start),
-            end=max(self.end, other.end)
-        )
+        return DateRange(start=min(self.start, other.start), end=max(self.end, other.end))
 
     def subtract(self, other: DateRange) -> List[DateRange]:
         """

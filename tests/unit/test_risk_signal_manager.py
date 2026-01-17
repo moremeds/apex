@@ -3,6 +3,7 @@ Unit tests for RiskSignalManager.
 """
 
 from datetime import datetime
+
 from src.domain.services.risk.risk_signal_manager import RiskSignalManager
 from src.models.risk_signal import (
     RiskSignal,

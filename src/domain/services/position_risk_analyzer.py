@@ -6,10 +6,11 @@ for individual positions.
 """
 
 from __future__ import annotations
-from datetime import datetime
-from typing import Optional, List, Dict, Any
 
-from ...models.position import Position, AssetType
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+from ...models.position import AssetType, Position
 from ...models.position_risk import PositionRisk
 from ...models.risk_signal import (
     RiskSignal,
@@ -17,9 +18,8 @@ from ...models.risk_signal import (
     SignalSeverity,
     SuggestedAction,
 )
-from .risk.threshold import Threshold, ThresholdDirection
 from ...utils.logging_setup import get_logger
-
+from .risk.threshold import Threshold, ThresholdDirection
 
 logger = get_logger(__name__)
 
@@ -123,10 +123,18 @@ class PositionRiskAnalyzer:
             current_value=pnl_pct * 100,
             threshold=-self.stop_loss_pct * 100,
             breach_pct=breach_pct,
-            suggested_action=SuggestedAction.CLOSE if severity == SignalSeverity.CRITICAL else SuggestedAction.REDUCE,
+            suggested_action=(
+                SuggestedAction.CLOSE
+                if severity == SignalSeverity.CRITICAL
+                else SuggestedAction.REDUCE
+            ),
             action_details=f"Position down {pnl_pct*100:.1f}% (stop: {-self.stop_loss_pct*100:.0f}%). {'Close immediately.' if severity == SignalSeverity.CRITICAL else 'Approaching stop loss.'}",
             layer=2,
-            metadata={"entry_price": position.avg_price, "current_price": current_price, "quantity": position.quantity},
+            metadata={
+                "entry_price": position.avg_price,
+                "current_price": current_price,
+                "quantity": position.quantity,
+            },
         )
 
     def _check_take_profit(
@@ -154,7 +162,11 @@ class PositionRiskAnalyzer:
             suggested_action=SuggestedAction.REDUCE,
             action_details=f"Position up {pnl_pct*100:.1f}% (TP: {self.take_profit_pct*100:.0f}%). Consider reducing 50%.",
             layer=2,
-            metadata={"entry_price": position.avg_price, "current_price": current_price, "quantity": position.quantity},
+            metadata={
+                "entry_price": position.avg_price,
+                "current_price": current_price,
+                "quantity": position.quantity,
+            },
         )
 
     def _check_trailing_stop(
@@ -185,7 +197,11 @@ class PositionRiskAnalyzer:
             suggested_action=SuggestedAction.CLOSE,
             action_details=f"Dropped {drawdown*100:.1f}% from peak {position.max_profit_reached*100:.1f}%. Close to protect gains.",
             layer=2,
-            metadata={"entry_price": position.avg_price, "current_price": current_price, "peak_pnl": position.max_profit_reached * 100},
+            metadata={
+                "entry_price": position.avg_price,
+                "current_price": current_price,
+                "peak_pnl": position.max_profit_reached * 100,
+            },
         )
 
     def _check_dte(self, position: Position) -> Optional[RiskSignal]:

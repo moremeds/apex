@@ -3040,7 +3040,14 @@ def generate_regime_styles() -> str:
     }
     """
 
-    return base_styles + pr1_styles + pr2_styles + pr3_styles + turning_point_styles + get_value_card_styles()
+    return (
+        base_styles
+        + pr1_styles
+        + pr2_styles
+        + pr3_styles
+        + turning_point_styles
+        + get_value_card_styles()
+    )
 
 
 # =============================================================================

@@ -1,15 +1,16 @@
 """Unit tests for ReadinessManager."""
 
-import pytest
 from datetime import datetime, timedelta
 from typing import Any, List, Tuple
 
+import pytest
+
 from src.application.readiness_manager import (
+    BrokerStatus,
+    DataFreshness,
+    MarketDataStatus,
     ReadinessManager,
     ReadinessState,
-    BrokerStatus,
-    MarketDataStatus,
-    DataFreshness,
 )
 from src.domain.events.event_types import EventType
 
@@ -173,11 +174,7 @@ class TestMarketDataReadiness:
     def test_market_data_ready_at_threshold(self):
         """MARKET_DATA_READY emitted at coverage threshold."""
         bus = MockEventBus()
-        manager = ReadinessManager(
-            bus,
-            required_brokers=["ib"],
-            market_data_coverage_threshold=0.9
-        )
+        manager = ReadinessManager(bus, required_brokers=["ib"], market_data_coverage_threshold=0.9)
 
         manager.on_broker_connected("ib")
         manager.on_positions_loaded("ib", 100)
@@ -197,11 +194,7 @@ class TestMarketDataReadiness:
     def test_market_data_ready_only_emitted_once(self):
         """MARKET_DATA_READY event only emitted once."""
         bus = MockEventBus()
-        manager = ReadinessManager(
-            bus,
-            required_brokers=["ib"],
-            market_data_coverage_threshold=0.9
-        )
+        manager = ReadinessManager(bus, required_brokers=["ib"], market_data_coverage_threshold=0.9)
 
         manager.on_broker_connected("ib")
         manager.on_positions_loaded("ib", 100)
@@ -228,11 +221,7 @@ class TestSystemReadiness:
     def test_system_ready_when_both_conditions_met(self):
         """SYSTEM_READY emitted when positions and market data ready."""
         bus = MockEventBus()
-        manager = ReadinessManager(
-            bus,
-            required_brokers=["ib"],
-            market_data_coverage_threshold=0.9
-        )
+        manager = ReadinessManager(bus, required_brokers=["ib"], market_data_coverage_threshold=0.9)
 
         manager.on_broker_connected("ib")
         manager.on_positions_loaded("ib", 50)
@@ -295,11 +284,7 @@ class TestDegradedState:
     def test_system_degraded_when_coverage_drops(self):
         """SYSTEM_DEGRADED emitted when coverage drops below threshold."""
         bus = MockEventBus()
-        manager = ReadinessManager(
-            bus,
-            required_brokers=["ib"],
-            market_data_coverage_threshold=0.9
-        )
+        manager = ReadinessManager(bus, required_brokers=["ib"], market_data_coverage_threshold=0.9)
 
         # Get to SYSTEM_READY at 90%
         manager.on_broker_connected("ib")

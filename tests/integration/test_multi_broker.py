@@ -18,10 +18,10 @@ from pathlib import Path
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src.infrastructure.adapters import IbCompositeAdapter, FutuAdapter, BrokerManager
+from src.domain.services.pos_reconciler import Reconciler
+from src.infrastructure.adapters import BrokerManager, FutuAdapter, IbCompositeAdapter
 from src.infrastructure.adapters.ib import ConnectionPoolConfig
 from src.infrastructure.monitoring import HealthMonitor, HealthStatus
-from src.domain.services.pos_reconciler import Reconciler
 from src.models.position import PositionSource
 
 
@@ -35,7 +35,9 @@ def print_health_status(health_monitor: HealthMonitor):
             HealthStatus.UNHEALTHY: "🔴",
             HealthStatus.UNKNOWN: "⚪",
         }.get(health.status, "⚪")
-        print(f"    {status_icon} {health.component_name}: {health.status.value} - {health.message}")
+        print(
+            f"    {status_icon} {health.component_name}: {health.status.value} - {health.message}"
+        )
         if health.metadata:
             for key, value in health.metadata.items():
                 if value is not None:
@@ -80,7 +82,9 @@ async def test_multi_broker():
         # Check status
         for name, status in broker_manager.get_all_status().items():
             status_icon = "✓" if status.connected else "✗"
-            print(f"  {status_icon} {name}: {'Connected' if status.connected else status.last_error or 'Not connected'}")
+            print(
+                f"  {status_icon} {name}: {'Connected' if status.connected else status.last_error or 'Not connected'}"
+            )
 
         # Show health status after connection
         print_health_status(health_monitor)
@@ -109,11 +113,13 @@ async def test_multi_broker():
         print("-" * 70)
 
         reconciler = Reconciler()
-        merged_positions = reconciler.merge_all_positions({
-            "ib": positions_by_broker.get("ibkr", []),
-            "futu": positions_by_broker.get("futu", []),
-            "manual": [],
-        })
+        merged_positions = reconciler.merge_all_positions(
+            {
+                "ib": positions_by_broker.get("ibkr", []),
+                "futu": positions_by_broker.get("futu", []),
+                "manual": [],
+            }
+        )
 
         print(f"\n  Merged: {len(merged_positions)} unique positions")
 
@@ -128,7 +134,9 @@ async def test_multi_broker():
         # Show merged positions
         print("\n  Merged positions:")
         for pos in merged_positions[:10]:
-            print(f"    {pos.source.value:6} | {pos.asset_type.value:8} | {pos.symbol:20} | Qty: {pos.quantity:>8.0f}")
+            print(
+                f"    {pos.source.value:6} | {pos.asset_type.value:8} | {pos.symbol:20} | Qty: {pos.quantity:>8.0f}"
+            )
         if len(merged_positions) > 10:
             print(f"    ... and {len(merged_positions) - 10} more")
 
@@ -169,7 +177,9 @@ async def test_multi_broker():
 
         # Summary
         summary = health_monitor.summary()
-        print(f"\n  Summary: {summary['healthy']} healthy, {summary['degraded']} degraded, {summary['unhealthy']} unhealthy")
+        print(
+            f"\n  Summary: {summary['healthy']} healthy, {summary['degraded']} degraded, {summary['unhealthy']} unhealthy"
+        )
 
         print("\n" + "=" * 70)
         print("Multi-broker test completed successfully!")
@@ -179,6 +189,7 @@ async def test_multi_broker():
     except Exception as e:
         print(f"\n✗ Error: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 

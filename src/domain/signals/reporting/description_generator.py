@@ -15,7 +15,6 @@ if TYPE_CHECKING:
 
 from ..models import ConditionType
 
-
 # Template descriptions for known indicators
 INDICATOR_TEMPLATES: Dict[str, str] = {
     "rsi": "Relative Strength Index - momentum oscillator (0-100)",

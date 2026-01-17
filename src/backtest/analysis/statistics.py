@@ -6,9 +6,9 @@ References:
 - Bailey & Lopez de Prado, "The Deflated Sharpe Ratio"
 """
 
+import math
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
-import math
 
 import numpy as np
 import pandas as pd
@@ -119,9 +119,8 @@ class DSRCalculator:
         euler = 0.5772156649015329  # Euler-Mascheroni constant
 
         # Expected max of n standard normal variates
-        expected_max = (
-            (1 - euler) * stats.norm.ppf(1 - 1 / n_trials)
-            + euler * stats.norm.ppf(1 - 1 / (n_trials * np.e))
+        expected_max = (1 - euler) * stats.norm.ppf(1 - 1 / n_trials) + euler * stats.norm.ppf(
+            1 - 1 / (n_trials * np.e)
         )
 
         return expected_max * sharpe_std
@@ -151,15 +150,11 @@ class DSRCalculator:
             Variance of the Sharpe ratio estimator
         """
         if n_observations <= 1:
-            return float('inf')
+            return float("inf")
 
         # Correct formula per Bailey & Lopez de Prado
         # Note: (kurtosis - 1)/4 accounts for excess kurtosis adjustment
-        variance = (
-            1
-            - skewness * sharpe
-            + ((kurtosis - 1) / 4) * sharpe**2
-        ) / n_observations
+        variance = (1 - skewness * sharpe + ((kurtosis - 1) / 4) * sharpe**2) / n_observations
 
         return max(variance, 1e-10)  # Ensure positive
 

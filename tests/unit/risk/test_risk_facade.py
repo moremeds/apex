@@ -1,14 +1,15 @@
 """Unit tests for RiskFacade."""
 
-import pytest
 from datetime import datetime
 from unittest.mock import MagicMock
 
+import pytest
+
+from src.domain.events.domain_events import MarketDataTickEvent
 from src.domain.services.risk.risk_facade import RiskFacade
 from src.domain.services.risk.state.portfolio_state import PortfolioState
 from src.domain.services.risk.state.position_state import PositionState
-from src.domain.events.domain_events import MarketDataTickEvent
-from src.models.position import Position, AssetType
+from src.models.position import AssetType, Position
 
 
 class TestRiskFacade:
@@ -61,9 +62,7 @@ class TestRiskFacade:
         # Position count is 0 because no initial tick provided
         assert facade.position_count == 0
 
-    def test_load_positions_with_ticks(
-        self, facade: RiskFacade, stock_position: Position
-    ):
+    def test_load_positions_with_ticks(self, facade: RiskFacade, stock_position: Position):
         """load_positions() with ticks should create initial state."""
         tick = MarketDataTickEvent(
             symbol="AAPL",
@@ -100,9 +99,7 @@ class TestRiskFacade:
         delta = facade.on_tick(tick)
         assert delta is None
 
-    def test_on_tick_without_state(
-        self, facade: RiskFacade, stock_position: Position
-    ):
+    def test_on_tick_without_state(self, facade: RiskFacade, stock_position: Position):
         """on_tick() should return None if position has no state yet."""
         facade.load_positions([stock_position])  # No initial tick
 
@@ -117,9 +114,7 @@ class TestRiskFacade:
         delta = facade.on_tick(tick)
         assert delta is None  # No state to update
 
-    def test_on_tick_produces_delta(
-        self, facade: RiskFacade, stock_position: Position
-    ):
+    def test_on_tick_produces_delta(self, facade: RiskFacade, stock_position: Position):
         """on_tick() should produce delta for valid tick."""
         # Initialize with tick
         initial_tick = MarketDataTickEvent(
@@ -152,9 +147,7 @@ class TestRiskFacade:
         # P&L change: (156 - 155) * 100 = 100
         assert delta.pnl_change == pytest.approx(100.0, rel=0.01)
 
-    def test_on_tick_updates_state(
-        self, facade: RiskFacade, stock_position: Position
-    ):
+    def test_on_tick_updates_state(self, facade: RiskFacade, stock_position: Position):
         """on_tick() should update portfolio state."""
         initial_tick = MarketDataTickEvent(
             symbol="AAPL",
@@ -183,9 +176,7 @@ class TestRiskFacade:
         assert state is not None
         assert state.mark_price == 156.0
 
-    def test_on_tick_filters_bad_quality(
-        self, facade: RiskFacade, stock_position: Position
-    ):
+    def test_on_tick_filters_bad_quality(self, facade: RiskFacade, stock_position: Position):
         """on_tick() should filter bad quality ticks."""
         initial_tick = MarketDataTickEvent(
             symbol="AAPL",

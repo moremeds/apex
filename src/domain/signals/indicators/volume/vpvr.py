@@ -96,9 +96,7 @@ class VPVRIndicator(IndicatorBase):
 
             # Distribute volume across bins (simplified - assign to close price bin)
             for j in range(len(window_close)):
-                bin_idx = int(
-                    (window_close[j] - price_low) / (price_high - price_low) * num_bins
-                )
+                bin_idx = int((window_close[j] - price_low) / (price_high - price_low) * num_bins)
                 bin_idx = min(bin_idx, num_bins - 1)
                 bin_volume[bin_idx] += window_volume[j]
 
@@ -131,9 +129,7 @@ class VPVRIndicator(IndicatorBase):
             val[i] = bin_edges[lower_idx]
             vah[i] = bin_edges[upper_idx + 1]
 
-        return pd.DataFrame(
-            {"vpvr_poc": poc, "vpvr_vah": vah, "vpvr_val": val}, index=data.index
-        )
+        return pd.DataFrame({"vpvr_poc": poc, "vpvr_vah": vah, "vpvr_val": val}, index=data.index)
 
     def _get_state(
         self,

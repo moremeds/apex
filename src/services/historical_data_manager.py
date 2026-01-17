@@ -8,11 +8,12 @@ This service coordinates between:
 """
 
 from __future__ import annotations
+
 import asyncio
-from pathlib import Path
-from datetime import datetime, timedelta
-from typing import List, Optional, Dict, Any
 from dataclasses import dataclass
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
 from ..utils.logging_setup import get_logger
@@ -20,7 +21,7 @@ from ..utils.logging_setup import get_logger
 # US market hours in Eastern Time
 US_EASTERN = ZoneInfo("America/New_York")
 UTC = ZoneInfo("UTC")
-MARKET_OPEN_HOUR = 9   # 9:30 AM ET
+MARKET_OPEN_HOUR = 9  # 9:30 AM ET
 MARKET_CLOSE_HOUR = 16  # 4:00 PM ET
 
 
@@ -37,17 +38,18 @@ def _to_comparable_naive(dt: datetime) -> datetime:
         dt = dt.astimezone(UTC)
     return dt.replace(tzinfo=None, microsecond=0)
 
+
 # Intraday timeframes that only have data during market hours
 INTRADAY_TIMEFRAMES = {"1m", "5m", "15m", "30m", "1h", "4h"}
 
 # Expected bars per regular trading day (9:30-16:00 ET = 6.5 hours)
 EXPECTED_BARS_PER_DAY = {
-    "1m": 390,   # 6.5 hours * 60 minutes
-    "5m": 78,    # 6.5 hours * 12 (5-min bars per hour)
-    "15m": 26,   # 6.5 hours / 0.25 hours
-    "30m": 13,   # 6.5 hours / 0.5 hours
-    "1h": 7,     # 7 bars: 9:30, 10:30, 11:30, 12:30, 13:30, 14:30, 15:30
-    "4h": 2,     # 2 bars: 9:30, 13:30
+    "1m": 390,  # 6.5 hours * 60 minutes
+    "5m": 78,  # 6.5 hours * 12 (5-min bars per hour)
+    "15m": 26,  # 6.5 hours / 0.25 hours
+    "30m": 13,  # 6.5 hours / 0.5 hours
+    "1h": 7,  # 7 bars: 9:30, 10:30, 11:30, 12:30, 13:30, 14:30, 15:30
+    "4h": 2,  # 2 bars: 9:30, 13:30
 }
 
 # Timeframes where Yahoo provides correctly market-aligned bars
@@ -55,10 +57,11 @@ EXPECTED_BARS_PER_DAY = {
 # Yahoo returns market-aligned bars (09:30, 10:30, 11:30...)
 YAHOO_PREFERRED_TIMEFRAMES = {"1m", "5m", "15m", "30m", "1h"}
 from collections import defaultdict
+
 import pandas as pd
 
-from ..domain.interfaces.historical_source import DateRange
 from ..domain.events.domain_events import BarData
+from ..domain.interfaces.historical_source import DateRange
 
 
 def resample_bars_to_4h(bars_1h: List[BarData], symbol: str) -> List[BarData]:
@@ -83,14 +86,16 @@ def resample_bars_to_4h(bars_1h: List[BarData], symbol: str) -> List[BarData]:
     data = []
     for bar in bars_1h:
         if bar.bar_start:
-            data.append({
-                "timestamp": bar.bar_start,
-                "open": bar.open,
-                "high": bar.high,
-                "low": bar.low,
-                "close": bar.close,
-                "volume": bar.volume or 0,
-            })
+            data.append(
+                {
+                    "timestamp": bar.bar_start,
+                    "open": bar.open,
+                    "high": bar.high,
+                    "low": bar.low,
+                    "close": bar.close,
+                    "volume": bar.volume or 0,
+                }
+            )
 
     if not data:
         return []
@@ -119,13 +124,15 @@ def resample_bars_to_4h(bars_1h: List[BarData], symbol: str) -> List[BarData]:
     df["group"] = df.index.map(get_4h_group)
 
     # Aggregate OHLCV
-    resampled = df.groupby("group").agg({
-        "open": "first",
-        "high": "max",
-        "low": "min",
-        "close": "last",
-        "volume": "sum",
-    })
+    resampled = df.groupby("group").agg(
+        {
+            "open": "first",
+            "high": "max",
+            "low": "min",
+            "close": "last",
+            "volume": "sum",
+        }
+    )
 
     # Convert back to BarData
     result = []
@@ -147,16 +154,16 @@ def resample_bars_to_4h(bars_1h: List[BarData], symbol: str) -> List[BarData]:
         result.append(bar)
 
     return sorted(result, key=lambda b: b.bar_start)
+
+
+from ..infrastructure.adapters.yahoo.historical_adapter import YahooHistoricalAdapter
 from ..infrastructure.stores.duckdb_coverage_store import DuckDBCoverageStore
 from ..infrastructure.stores.parquet_historical_store import ParquetHistoricalStore
-from ..infrastructure.adapters.yahoo.historical_adapter import YahooHistoricalAdapter
 
 logger = get_logger(__name__)
 
 
-def validate_intraday_bars(
-    bars: List[BarData], timeframe: str, symbol: str
-) -> List[str]:
+def validate_intraday_bars(bars: List[BarData], timeframe: str, symbol: str) -> List[str]:
     """
     Validate bar counts per trading day. Returns list of warnings.
 
@@ -269,9 +276,7 @@ class HistoricalDataManager:
         self._source_priority = source_priority or ["ib", "yahoo"]
 
         # Initialize stores
-        self._coverage_store = DuckDBCoverageStore(
-            db_path=self._base_dir / "_metadata.duckdb"
-        )
+        self._coverage_store = DuckDBCoverageStore(db_path=self._base_dir / "_metadata.duckdb")
         self._bar_store = ParquetHistoricalStore(base_dir=self._base_dir)
 
         # Initialize sources
@@ -347,8 +352,7 @@ class HistoricalDataManager:
 
         if missing:
             logger.info(
-                f"Found {len(missing)} gaps in {symbol}/{timeframe} coverage, "
-                f"downloading..."
+                f"Found {len(missing)} gaps in {symbol}/{timeframe} coverage, " f"downloading..."
             )
 
             for gap in missing:
@@ -560,9 +564,7 @@ class HistoricalDataManager:
                     bar_count=len(bars_4h),
                 )
 
-            logger.info(
-                f"Resampled {len(bars_1h)} 1h bars to {len(bars_4h)} 4h bars for {symbol}"
-            )
+            logger.info(f"Resampled {len(bars_1h)} 1h bars to {len(bars_4h)} 4h bars for {symbol}")
 
         return bars_4h
 
@@ -616,9 +618,7 @@ class HistoricalDataManager:
         end: datetime,
     ) -> bool:
         """Check if we have complete coverage for a range."""
-        return self._coverage_store.has_complete_coverage(
-            symbol, timeframe, start, end
-        )
+        return self._coverage_store.has_complete_coverage(symbol, timeframe, start, end)
 
     def find_missing_ranges(
         self,
@@ -672,20 +672,20 @@ class HistoricalDataManager:
         for symbol in symbols:
             # When a specific source is requested, only check coverage for that source
             # This allows re-downloading from IB even if Yahoo data exists
-            missing = self._coverage_store.find_gaps(
-                symbol, timeframe, start, end, source=source
-            )
+            missing = self._coverage_store.find_gaps(symbol, timeframe, start, end, source=source)
 
             if not missing:
-                results.append(DownloadResult(
-                    symbol=symbol,
-                    timeframe=timeframe,
-                    source="cached",
-                    bars_downloaded=0,
-                    start=start,
-                    end=end,
-                    success=True,
-                ))
+                results.append(
+                    DownloadResult(
+                        symbol=symbol,
+                        timeframe=timeframe,
+                        source="cached",
+                        bars_downloaded=0,
+                        start=start,
+                        end=end,
+                        success=True,
+                    )
+                )
                 continue
 
             # Download each missing range
@@ -705,15 +705,17 @@ class HistoricalDataManager:
                 success = success and result.success
                 last_source = result.source
 
-            results.append(DownloadResult(
-                symbol=symbol,
-                timeframe=timeframe,
-                source=last_source,
-                bars_downloaded=total_bars,
-                start=start,
-                end=end,
-                success=success,
-            ))
+            results.append(
+                DownloadResult(
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    source=last_source,
+                    bars_downloaded=total_bars,
+                    start=start,
+                    end=end,
+                    success=success,
+                )
+            )
 
         return results
 
@@ -791,9 +793,7 @@ class HistoricalDataManager:
             results.append(result)
 
             if result.success:
-                self._coverage_store.mark_gap_filled(
-                    gap_symbol, gap_timeframe, gap_start, gap_end
-                )
+                self._coverage_store.mark_gap_filled(gap_symbol, gap_timeframe, gap_start, gap_end)
 
         return results
 

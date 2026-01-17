@@ -5,13 +5,14 @@ Extracted from FutuAdapter for single-responsibility.
 """
 
 from __future__ import annotations
-from typing import Optional, TYPE_CHECKING
-from datetime import datetime
 
-from ....utils.logging_setup import get_logger
-from ....models.account import AccountInfo
+from datetime import datetime
+from typing import TYPE_CHECKING, Optional
+
 from ....domain.interfaces.event_bus import EventType
-from .exceptions import classify_futu_exception, FutuConnectionError, FutuRateLimitError
+from ....models.account import AccountInfo
+from ....utils.logging_setup import get_logger
+from .exceptions import FutuConnectionError, FutuRateLimitError, classify_futu_exception
 
 if TYPE_CHECKING:
     from .adapter import FutuAdapter
@@ -73,7 +74,7 @@ class AccountFetcher:
 
         await self._adapter._ensure_connected()
 
-        from futu import RET_OK, TrdEnv, Currency
+        from futu import RET_OK, Currency, TrdEnv
 
         try:
             trd_env_enum = getattr(TrdEnv, self._adapter.trd_env, TrdEnv.REAL)
@@ -158,11 +159,14 @@ class AccountFetcher:
 
             # Publish event if event bus available
             if self._adapter._event_bus:
-                self._adapter._event_bus.publish(EventType.ACCOUNT_UPDATED, {
-                    "account": account_info,
-                    "source": "FUTU",
-                    "timestamp": datetime.now(),
-                })
+                self._adapter._event_bus.publish(
+                    EventType.ACCOUNT_UPDATED,
+                    {
+                        "account": account_info,
+                        "source": "FUTU",
+                        "timestamp": datetime.now(),
+                    },
+                )
 
             return account_info
 

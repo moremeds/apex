@@ -9,10 +9,10 @@ This module provides:
 - Reporting: HTML tearsheets
 """
 
-from .aggregator import Aggregator, AggregationConfig
-from .statistics import PBOCalculator, DSRCalculator, MonteCarloSimulator
-from .validator import ConstraintValidator, Constraint
+from .aggregator import AggregationConfig, Aggregator
 from .metrics_calculator import MetricsCalculator, Trade
+from .statistics import DSRCalculator, MonteCarloSimulator, PBOCalculator
+from .validator import Constraint, ConstraintValidator
 
 __all__ = [
     # Aggregation

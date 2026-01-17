@@ -324,6 +324,7 @@ class TestMarketDataStoreRCU:
     def store(self):
         """Create a test store."""
         from src.infrastructure.stores.market_data_store import MarketDataStore
+
         return MarketDataStore(price_ttl_seconds=5, greeks_ttl_seconds=60)
 
     @pytest.fixture
@@ -442,12 +443,14 @@ class TestPositionStoreRCU:
     def store(self):
         """Create a test store."""
         from src.infrastructure.stores.position_store import PositionStore
+
         return PositionStore()
 
     @pytest.fixture
     def mock_position(self):
         """Create mock position."""
         from src.models.position import Position
+
         return Position(
             symbol="AAPL",
             quantity=100,
@@ -478,9 +481,30 @@ class TestPositionStoreRCU:
         """Test get_by_underlying filters correctly."""
         from src.models.position import Position
 
-        p1 = Position(symbol="AAPL", quantity=100, avg_price=150.0, asset_type="STK", underlying="AAPL", source="test")
-        p2 = Position(symbol="AAPL_OPT", quantity=10, avg_price=5.0, asset_type="OPT", underlying="AAPL", source="test")
-        p3 = Position(symbol="GOOG", quantity=50, avg_price=100.0, asset_type="STK", underlying="GOOG", source="test")
+        p1 = Position(
+            symbol="AAPL",
+            quantity=100,
+            avg_price=150.0,
+            asset_type="STK",
+            underlying="AAPL",
+            source="test",
+        )
+        p2 = Position(
+            symbol="AAPL_OPT",
+            quantity=10,
+            avg_price=5.0,
+            asset_type="OPT",
+            underlying="AAPL",
+            source="test",
+        )
+        p3 = Position(
+            symbol="GOOG",
+            quantity=50,
+            avg_price=100.0,
+            asset_type="STK",
+            underlying="GOOG",
+            source="test",
+        )
 
         store.upsert_positions([p1, p2, p3])
 

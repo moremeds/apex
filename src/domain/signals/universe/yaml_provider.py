@@ -176,11 +176,7 @@ class YamlUniverseProvider(UniverseProviderBase):
         Returns:
             List of symbols in the group
         """
-        return [
-            symbol
-            for symbol, config in self._symbols.items()
-            if config.group == group
-        ]
+        return [symbol for symbol, config in self._symbols.items() if config.group == group]
 
     def add_symbol(
         self,

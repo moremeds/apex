@@ -1,26 +1,27 @@
 """Unit tests for domain events."""
 
-import pytest
-from datetime import datetime
 import json
+from datetime import datetime
+
+import pytest
 
 from src.domain.events.domain_events import (
-    DomainEvent,
-    QuoteTick,
-    BarData,
-    TradeFill,
-    OrderUpdate,
-    PositionSnapshot,
-    AccountSnapshot,
-    ConnectionEvent,
-    RiskBreachEvent,
     EVENT_REGISTRY,
-    deserialize_event,
-    deserialize_events,
-    Timeframe,
+    AccountSnapshot,
+    BarData,
+    ConnectionEvent,
+    DomainEvent,
     OrderSide,
     OrderStatus,
     OrderType,
+    OrderUpdate,
+    PositionSnapshot,
+    QuoteTick,
+    RiskBreachEvent,
+    Timeframe,
+    TradeFill,
+    deserialize_event,
+    deserialize_events,
 )
 from src.domain.events.event_types import (
     EventType,

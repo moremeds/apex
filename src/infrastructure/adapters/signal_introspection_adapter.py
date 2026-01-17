@@ -15,7 +15,7 @@ from __future__ import annotations
 from collections import deque
 from datetime import datetime
 from threading import Lock
-from typing import Any, Deque, Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Deque, Dict, List, Optional, Tuple
 
 from ...domain.interfaces.signal_introspection import SignalIntrospectionPort
 from ...utils.logging_setup import get_logger
@@ -88,6 +88,7 @@ class SignalIntrospectionAdapter(SignalIntrospectionPort):
     def start(self) -> None:
         """Record pipeline start time for uptime tracking."""
         from ...utils.timezone import now_utc
+
         self._start_time = now_utc()
 
     # -------------------------------------------------------------------------
@@ -236,12 +237,16 @@ class SignalIntrospectionAdapter(SignalIntrospectionPort):
 
         return {
             "running": self._signal_coordinator.is_started,
-            "bars_processed": self._indicator_engine.bars_processed if self._indicator_engine else 0,
+            "bars_processed": (
+                self._indicator_engine.bars_processed if self._indicator_engine else 0
+            ),
             "rules_evaluated": self._rule_engine.rules_evaluated if self._rule_engine else 0,
             "signals_emitted": self._rule_engine.signals_emitted if self._rule_engine else 0,
             "uptime_seconds": uptime_seconds,
             "indicator_count": indicator_count,
             "timeframes": self._signal_coordinator.timeframes,
             "recent_signals_count": recent_signals_count,
-            "cooldowns_active": len(self._rule_engine.get_all_cooldowns()) if self._rule_engine else 0,
+            "cooldowns_active": (
+                len(self._rule_engine.get_all_cooldowns()) if self._rule_engine else 0
+            ),
         }

@@ -375,21 +375,25 @@ class HierarchicalRegime:
                 "confidence": self.market_confidence,
                 "symbol": self.market_symbol,
             },
-            "sector": {
-                "regime": self.sector_regime.value if self.sector_regime else None,
-                "regime_name": self.sector_regime.display_name if self.sector_regime else None,
-                "confidence": self.sector_confidence,
-                "symbol": self.sector_symbol,
-            }
-            if self.sector_regime
-            else None,
-            "stock": {
-                "regime": self.stock_regime.value if self.stock_regime else None,
-                "regime_name": self.stock_regime.display_name if self.stock_regime else None,
-                "confidence": self.stock_confidence,
-            }
-            if self.stock_regime
-            else None,
+            "sector": (
+                {
+                    "regime": self.sector_regime.value if self.sector_regime else None,
+                    "regime_name": self.sector_regime.display_name if self.sector_regime else None,
+                    "confidence": self.sector_confidence,
+                    "symbol": self.sector_symbol,
+                }
+                if self.sector_regime
+                else None
+            ),
+            "stock": (
+                {
+                    "regime": self.stock_regime.value if self.stock_regime else None,
+                    "regime_name": self.stock_regime.display_name if self.stock_regime else None,
+                    "confidence": self.stock_confidence,
+                }
+                if self.stock_regime
+                else None
+            ),
             "action": {
                 "action": self.action.display_name,
                 "allows_new_positions": self.action.allows_new_positions,

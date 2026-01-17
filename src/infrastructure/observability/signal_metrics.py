@@ -198,15 +198,11 @@ class SignalMetrics:
     # Histogram Recording Methods
     # -------------------------------------------------------------------------
 
-    def record_bar_aggregation_latency(
-        self, duration_ms: float, timeframe: str
-    ) -> None:
+    def record_bar_aggregation_latency(self, duration_ms: float, timeframe: str) -> None:
         """Record bar aggregation latency."""
         self._bar_aggregation_ms.record(duration_ms, {"timeframe": timeframe})
 
-    def record_indicator_compute_latency(
-        self, duration_ms: float, indicator: str
-    ) -> None:
+    def record_indicator_compute_latency(self, duration_ms: float, indicator: str) -> None:
         """Record indicator computation latency."""
         self._indicator_compute_ms.record(duration_ms, {"indicator": indicator})
 

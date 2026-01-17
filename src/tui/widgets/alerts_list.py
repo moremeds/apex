@@ -13,11 +13,11 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, List
 
-from textual.widget import Widget
-from textual.reactive import reactive
-from textual.widgets import Static
-from textual.containers import Vertical
 from textual.app import ComposeResult
+from textual.containers import Vertical
+from textual.reactive import reactive
+from textual.widget import Widget
+from textual.widgets import Static
 
 from ..viewmodels.alert_vm import AlertViewModel
 
@@ -83,19 +83,23 @@ class AlertsList(Widget):
             age_seconds = (now - alert_info["last_seen"]).total_seconds()
 
             if alert_info["is_active"]:
-                display_alerts.append({
-                    **alert_info["alert_data"],
-                    "first_seen": alert_info["first_seen"],
-                    "last_seen": alert_info["last_seen"],
-                    "is_active": True,
-                })
+                display_alerts.append(
+                    {
+                        **alert_info["alert_data"],
+                        "first_seen": alert_info["first_seen"],
+                        "last_seen": alert_info["last_seen"],
+                        "is_active": True,
+                    }
+                )
             elif age_seconds <= self._alert_retention_seconds:
-                display_alerts.append({
-                    **alert_info["alert_data"],
-                    "first_seen": alert_info["first_seen"],
-                    "last_seen": alert_info["last_seen"],
-                    "is_active": False,
-                })
+                display_alerts.append(
+                    {
+                        **alert_info["alert_data"],
+                        "first_seen": alert_info["first_seen"],
+                        "last_seen": alert_info["last_seen"],
+                        "is_active": False,
+                    }
+                )
             else:
                 expired_keys.append(alert_key)
 
@@ -107,7 +111,7 @@ class AlertsList(Widget):
             # Sort by (is_active, last_seen) - remove oldest inactive first
             sorted_alerts = sorted(
                 self._persistent_alerts.items(),
-                key=lambda x: (x[1]["is_active"], x[1]["last_seen"])
+                key=lambda x: (x[1]["is_active"], x[1]["last_seen"]),
             )
             excess_count = len(self._persistent_alerts) - self._MAX_PERSISTENT_ALERTS
             for key, _ in sorted_alerts[:excess_count]:

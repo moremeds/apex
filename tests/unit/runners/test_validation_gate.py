@@ -5,9 +5,9 @@ from unittest.mock import patch
 import pytest
 
 from src.runners.trading_runner import (
-    TradingRunner,
-    StrategyNotValidatedError,
     ManifestLoadError,
+    StrategyNotValidatedError,
+    TradingRunner,
     load_strategy_manifest,
 )
 
@@ -51,9 +51,7 @@ class TestValidationGateDryRun:
 
     def test_dry_run_skips_manifest_check(self):
         """Dry run should not check manifest."""
-        with patch(
-            "src.runners.trading_runner.load_strategy_manifest"
-        ) as mock_load:
+        with patch("src.runners.trading_runner.load_strategy_manifest") as mock_load:
             runner = TradingRunner(
                 strategy_name="ma_cross",
                 symbols=["AAPL"],
@@ -260,8 +258,7 @@ class TestValidationGateIntegration:
             validated = validation.get("validated_by_apex", False)
             # By default, all should be false (safety check)
             assert validated is False, (
-                f"Strategy {name} has validated_by_apex=true - "
-                "should be false in source control"
+                f"Strategy {name} has validated_by_apex=true - " "should be false in source control"
             )
 
 

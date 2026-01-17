@@ -29,10 +29,10 @@ Usage:
 from __future__ import annotations
 
 import threading
-from typing import TypeVar, Generic, Dict, Optional, List, Callable, Iterator
+from typing import Callable, Dict, Generic, Iterator, List, Optional, TypeVar
 
-K = TypeVar('K')
-V = TypeVar('V')
+K = TypeVar("K")
+V = TypeVar("V")
 
 
 class RCUDict(Generic[K, V]):
@@ -54,7 +54,7 @@ class RCUDict(Generic[K, V]):
         3
     """
 
-    __slots__ = ('_data', '_write_lock', '_version')
+    __slots__ = ("_data", "_write_lock", "_version")
 
     def __init__(self, initial: Optional[Dict[K, V]] = None):
         """
@@ -260,7 +260,7 @@ class RCUList(Generic[V]):
     Similar to RCUDict but for ordered sequences.
     """
 
-    __slots__ = ('_data', '_write_lock', '_version')
+    __slots__ = ("_data", "_write_lock", "_version")
 
     def __init__(self, initial: Optional[List[V]] = None):
         """

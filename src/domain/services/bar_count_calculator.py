@@ -15,6 +15,7 @@ import pandas as pd
 
 try:
     import pandas_market_calendars as mcal
+
     MCAL_AVAILABLE = True
 except ImportError:
     MCAL_AVAILABLE = False
@@ -99,24 +100,24 @@ class BarCountCalculator:
 
     # Bars per regular trading day (6.5 hours)
     BARS_PER_REGULAR_DAY: ClassVar[Dict[str, float]] = {
-        "1m": 390,   # 6.5 * 60
-        "5m": 78,    # 6.5 * 12
-        "15m": 26,   # 6.5 * 4
-        "30m": 13,   # 6.5 * 2
-        "1h": 7,     # ceil(6.5) = 7 hourly bars
-        "4h": 2,     # Only 2 complete 4-hour bars fit in 6.5 hours
+        "1m": 390,  # 6.5 * 60
+        "5m": 78,  # 6.5 * 12
+        "15m": 26,  # 6.5 * 4
+        "30m": 13,  # 6.5 * 2
+        "1h": 7,  # ceil(6.5) = 7 hourly bars
+        "4h": 2,  # Only 2 complete 4-hour bars fit in 6.5 hours
         "1d": 1,
-        "1w": 0.2,   # 1/5 = one bar per week
+        "1w": 0.2,  # 1/5 = one bar per week
     }
 
     # Bars per early close day (3.5 hours)
     BARS_PER_EARLY_DAY: ClassVar[Dict[str, float]] = {
-        "1m": 210,   # 3.5 * 60
-        "5m": 42,    # 3.5 * 12
-        "15m": 14,   # 3.5 * 4
-        "30m": 7,    # 3.5 * 2
-        "1h": 4,     # ceil(3.5) = 4 hourly bars
-        "4h": 1,     # Only 1 complete 4-hour bar
+        "1m": 210,  # 3.5 * 60
+        "5m": 42,  # 3.5 * 12
+        "15m": 14,  # 3.5 * 4
+        "30m": 7,  # 3.5 * 2
+        "1h": 4,  # ceil(3.5) = 4 hourly bars
+        "4h": 1,  # Only 1 complete 4-hour bar
         "1d": 1,
         "1w": 0.2,
     }
@@ -264,12 +265,14 @@ class BarCountCalculator:
             # Early close if less than regular session (6.5 hours)
             is_early_close = session_hours < (REGULAR_SESSION_HOURS - 0.1)  # 0.1 hour tolerance
 
-            sessions.append(TradingSession(
-                date=trading_date,
-                market_open=market_open,
-                market_close=market_close,
-                is_early_close=is_early_close,
-            ))
+            sessions.append(
+                TradingSession(
+                    date=trading_date,
+                    market_open=market_open,
+                    market_close=market_close,
+                    is_early_close=is_early_close,
+                )
+            )
 
         return sessions
 

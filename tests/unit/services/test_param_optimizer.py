@@ -104,9 +104,7 @@ class TestObjectiveFunctions:
     def test_turning_point_quality_no_experiment(self):
         """Test turning point quality without experiment results."""
         obj = TurningPointQualityObjective()
-        result = obj.evaluate(
-            pd.DataFrame(), pd.Series(dtype=object), {"symbol": "NONEXISTENT"}
-        )
+        result = obj.evaluate(pd.DataFrame(), pd.Series(dtype=object), {"symbol": "NONEXISTENT"})
 
         assert result.value == 0.5  # Neutral score
         assert result.details.get("error") == "no_experiment_results"
@@ -204,7 +202,9 @@ class TestWalkForwardOptimizer:
         for train_start, train_end, test_start, test_end in folds:
             # Train end must be at least purge_gap before test start
             gap = (test_start - train_end).days
-            assert gap >= config.purge_gap_days, f"Purge gap violated: {gap} < {config.purge_gap_days}"
+            assert (
+                gap >= config.purge_gap_days
+            ), f"Purge gap violated: {gap} < {config.purge_gap_days}"
 
     def test_embargo_property(self, sample_ohlcv):
         """Test embargo between consecutive folds."""

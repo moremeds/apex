@@ -396,7 +396,9 @@ body {{
             sharpe = sm.get("sharpe", 0)
             ret = sm.get("total_return", 0)
             status = "pass" if sharpe > 0.5 else "warn" if sharpe > 0 else "fail"
-            status_label = "Pass" if status == "pass" else "Marginal" if status == "warn" else "Fail"
+            status_label = (
+                "Pass" if status == "pass" else "Marginal" if status == "warn" else "Fail"
+            )
             symbol_rows += f"""
                 <tr>
                     <td><strong>{sym}</strong></td>
@@ -476,7 +478,9 @@ body {{
         asset_buttons = ""
         for i, sym in enumerate(data.symbols):
             active = " active" if i == 0 else ""
-            asset_buttons += f'<button class="asset-btn{active}" onclick="selectAsset(\'{sym}\')">{sym}</button>'
+            asset_buttons += (
+                f'<button class="asset-btn{active}" onclick="selectAsset(\'{sym}\')">{sym}</button>'
+            )
 
         return f"""
         <div id="per-asset" class="tab-content">
@@ -796,14 +800,17 @@ body {{
     def _get_scripts(self, data: ReportData) -> str:
         """Return JavaScript for interactivity."""
         # Serialize data for JavaScript
-        data_json = json.dumps({
-            "symbols": data.symbols,
-            "per_symbol": data.per_symbol,
-            "equity_curve": data.equity_curve,
-            "trades": data.trades,
-            "per_window": data.per_window,
-            "experiment_id": data.experiment_id,
-        }, default=str)
+        data_json = json.dumps(
+            {
+                "symbols": data.symbols,
+                "per_symbol": data.per_symbol,
+                "equity_curve": data.equity_curve,
+                "trades": data.trades,
+                "per_window": data.per_window,
+                "experiment_id": data.experiment_id,
+            },
+            default=str,
+        )
 
         return f"""
 <script>

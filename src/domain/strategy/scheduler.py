@@ -33,9 +33,13 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
+import heapq
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, time, timedelta
+from enum import Enum
 from typing import (
     TYPE_CHECKING,
     Callable,
@@ -43,10 +47,6 @@ from typing import (
     List,
     Optional,
 )
-from enum import Enum
-import asyncio
-import heapq
-import logging
 
 if TYPE_CHECKING:
     from ..clock import Clock, SimulatedClock
@@ -278,15 +278,11 @@ class LiveScheduler(Scheduler):
         # Calculate delay
         delay = (at_time - self._clock.now()).total_seconds()
         if delay > 0:
-            task = asyncio.create_task(
-                self._run_once_async(action_id, delay, callback)
-            )
+            task = asyncio.create_task(self._run_once_async(action_id, delay, callback))
             self._tasks[action_id] = task
             logger.debug(f"Scheduled once: {action_id} at {at_time}")
 
-    async def _run_once_async(
-        self, action_id: str, delay: float, callback: Callable
-    ) -> None:
+    async def _run_once_async(self, action_id: str, delay: float, callback: Callable) -> None:
         """Run a one-time action after delay."""
         await asyncio.sleep(delay)
         action = self._actions.get(action_id)
@@ -313,15 +309,11 @@ class LiveScheduler(Scheduler):
         )
         self._actions[action_id] = action
 
-        task = asyncio.create_task(
-            self._run_daily_async(action_id, time_of_day, callback)
-        )
+        task = asyncio.create_task(self._run_daily_async(action_id, time_of_day, callback))
         self._tasks[action_id] = task
         logger.debug(f"Scheduled daily: {action_id} at {time_of_day}")
 
-    async def _run_daily_async(
-        self, action_id: str, time_of_day: time, callback: Callable
-    ) -> None:
+    async def _run_daily_async(self, action_id: str, time_of_day: time, callback: Callable) -> None:
         """Run a daily action."""
         while self._running:
             action = self._actions.get(action_id)
@@ -393,10 +385,7 @@ class LiveScheduler(Scheduler):
             # Calculate next trigger time
             now = self._clock.now()
             days_ahead = day_of_week - now.weekday()
-            if days_ahead < 0 or (
-                days_ahead == 0
-                and now.time() >= time_of_day
-            ):
+            if days_ahead < 0 or (days_ahead == 0 and now.time() >= time_of_day):
                 days_ahead += 7
 
             target = now.replace(
@@ -458,13 +447,9 @@ class LiveScheduler(Scheduler):
         )
 
         # Schedule as daily at the trigger time
-        task = asyncio.create_task(
-            self._run_daily_async(action_id, trigger_time, callback)
-        )
+        task = asyncio.create_task(self._run_daily_async(action_id, trigger_time, callback))
         self._tasks[action_id] = task
-        logger.debug(
-            f"Scheduled before_close: {action_id} at {minutes_before}min before close"
-        )
+        logger.debug(f"Scheduled before_close: {action_id} at {minutes_before}min before close")
 
     def cancel(self, action_id: str) -> bool:
         """Cancel a scheduled action."""

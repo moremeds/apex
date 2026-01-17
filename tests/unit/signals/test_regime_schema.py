@@ -5,29 +5,30 @@ Tests the schema version validation, from_dict deserialization,
 and round-trip serialization.
 """
 
-import pytest
 from datetime import datetime
+
+import pytest
 
 from src.domain.signals.indicators.regime.models import (
     SCHEMA_VERSION,
     SCHEMA_VERSION_STR,
-    SchemaVersionError,
-    validate_schema_version,
-    RegimeOutput,
-    MarketRegime,
+    ChopState,
     ComponentStates,
     ComponentValues,
-    TrendState,
-    VolState,
-    ChopState,
-    ExtState,
-    IVState,
-    DataWindow,
     DataQuality,
+    DataWindow,
+    DerivedMetrics,
+    ExtState,
     FallbackReason,
     InputsUsed,
-    DerivedMetrics,
+    IVState,
+    MarketRegime,
+    RegimeOutput,
     RegimeTransitionState,
+    SchemaVersionError,
+    TrendState,
+    VolState,
+    validate_schema_version,
 )
 
 

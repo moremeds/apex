@@ -154,31 +154,24 @@ def parse_expression(expr: str, allowed_fields: Set[str]) -> ast.AST:
         # Check binary operator is allowed
         if isinstance(node, ast.BinOp):
             if type(node.op) not in ALLOWED_BIN_OPS:
-                raise ExpressionError(
-                    f"Disallowed operator: {type(node.op).__name__}"
-                )
+                raise ExpressionError(f"Disallowed operator: {type(node.op).__name__}")
 
         # Check unary operator is allowed
         if isinstance(node, ast.UnaryOp):
             if type(node.op) not in ALLOWED_UNARY_OPS:
-                raise ExpressionError(
-                    f"Disallowed unary operator: {type(node.op).__name__}"
-                )
+                raise ExpressionError(f"Disallowed unary operator: {type(node.op).__name__}")
 
         # Check comparison operator is allowed
         if isinstance(node, ast.Compare):
             for op in node.ops:
                 if type(op) not in ALLOWED_CMP_OPS:
-                    raise ExpressionError(
-                        f"Disallowed comparison operator: {type(op).__name__}"
-                    )
+                    raise ExpressionError(f"Disallowed comparison operator: {type(op).__name__}")
 
         # Check that Name nodes reference allowed fields only
         if isinstance(node, ast.Name):
             if node.id not in allowed_fields:
                 raise ExpressionError(
-                    f"Unknown field: '{node.id}'. "
-                    f"Allowed fields: {sorted(allowed_fields)}"
+                    f"Unknown field: '{node.id}'. " f"Allowed fields: {sorted(allowed_fields)}"
                 )
 
         # Check that constants are numeric
@@ -547,11 +540,7 @@ def check_bounds(value: float, min_val: float, max_val: float) -> bool:
 
 def check_no_nan(values: List[float]) -> bool:
     """Check no NaN/Inf in list."""
-    return all(
-        not (math.isnan(v) or math.isinf(v))
-        for v in values
-        if isinstance(v, (int, float))
-    )
+    return all(not (math.isnan(v) or math.isinf(v)) for v in values if isinstance(v, (int, float)))
 
 
 def check_identity(

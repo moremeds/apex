@@ -7,7 +7,7 @@ Provides:
 - YamlUniverseProvider: YAML file-based universe
 """
 
-from .base import UniverseProvider, SymbolConfig
+from .base import SymbolConfig, UniverseProvider
 from .yaml_provider import YamlUniverseProvider
 
 __all__ = [

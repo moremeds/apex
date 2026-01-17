@@ -13,15 +13,15 @@ This strategy demonstrates:
 - Position sizing based on account
 """
 
-from collections import deque
-from typing import Deque, Optional, List
-import uuid
 import logging
+import uuid
+from collections import deque
+from typing import Deque, List, Optional
 
+from ...events.domain_events import BarData, QuoteTick, TradeFill
+from ...interfaces.execution_provider import OrderRequest
 from ..base import Strategy, StrategyContext
 from ..registry import register_strategy
-from ...events.domain_events import QuoteTick, BarData, TradeFill
-from ...interfaces.execution_provider import OrderRequest
 
 logger = logging.getLogger(__name__)
 
@@ -133,8 +133,8 @@ class RsiMeanReversionStrategy(Strategy):
         losses = [max(0, -c) for c in changes]
 
         # Average gain/loss (simple average for first calculation)
-        avg_gain = sum(gains[-self.rsi_period:]) / self.rsi_period
-        avg_loss = sum(losses[-self.rsi_period:]) / self.rsi_period
+        avg_gain = sum(gains[-self.rsi_period :]) / self.rsi_period
+        avg_loss = sum(losses[-self.rsi_period :]) / self.rsi_period
 
         if avg_loss == 0:
             return 100.0

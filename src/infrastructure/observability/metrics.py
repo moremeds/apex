@@ -18,9 +18,10 @@ from __future__ import annotations
 from typing import Optional
 
 from opentelemetry import metrics
-from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.exporter.prometheus import PrometheusMetricReader
+from opentelemetry.sdk.metrics import MeterProvider
 from prometheus_client import start_http_server
+
 from ...utils.logging_setup import get_logger
 
 logger = get_logger(__name__)

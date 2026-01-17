@@ -9,30 +9,27 @@ Provides 3-level hierarchical regime detection:
 Schema version: regime_output@1.0
 """
 
-from .models import (
+from .models import (  # Enums; Core dataclasses; Explainability dataclasses (PR1)
     ENTRY_HYSTERESIS,
     EXIT_HYSTERESIS,
     MARKET_BENCHMARKS,
-    # Enums
+    BarSnapshot,
     ChopState,
-    ExtState,
-    FallbackReason,
-    IVState,
-    MarketRegime,
-    TrendState,
-    VolState,
-    # Core dataclasses
     ComponentStates,
     ComponentValues,
-    RegimeOutput,
-    RegimeState,
-    # Explainability dataclasses (PR1)
-    BarSnapshot,
     DataQuality,
     DataWindow,
     DerivedMetrics,
+    ExtState,
+    FallbackReason,
     InputsUsed,
+    IVState,
+    MarketRegime,
+    RegimeOutput,
+    RegimeState,
     RegimeTransitionState,
+    TrendState,
+    VolState,
 )
 from .regime_detector import RegimeDetectorIndicator
 from .rule_trace import (

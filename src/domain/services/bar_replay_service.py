@@ -17,7 +17,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
-from ...domain.events.domain_events import BarData, BarCloseEvent
+from ...domain.events.domain_events import BarCloseEvent, BarData
 from ...domain.events.event_types import EventType
 from ...infrastructure.stores.parquet_historical_store import ParquetHistoricalStore
 from ...utils.logging_setup import get_logger
@@ -30,10 +30,10 @@ logger = get_logger(__name__)
 class ReplaySpeed(str, Enum):
     """Replay speed modes."""
 
-    REALTIME = "realtime"    # 1x wall clock (actual bar intervals)
-    FAST_FORWARD = "fast"    # Configurable multiplier (10x-100x)
-    MAX_SPEED = "max"        # No delays (as fast as possible)
-    STEP = "step"            # Manual single-bar advance
+    REALTIME = "realtime"  # 1x wall clock (actual bar intervals)
+    FAST_FORWARD = "fast"  # Configurable multiplier (10x-100x)
+    MAX_SPEED = "max"  # No delays (as fast as possible)
+    STEP = "step"  # Manual single-bar advance
 
 
 @dataclass
@@ -184,9 +184,17 @@ class BarReplayService:
         start_dt = None
         end_dt = None
         if start:
-            start_dt = datetime.combine(start, datetime.min.time()) if isinstance(start, date) and not isinstance(start, datetime) else start
+            start_dt = (
+                datetime.combine(start, datetime.min.time())
+                if isinstance(start, date) and not isinstance(start, datetime)
+                else start
+            )
         if end:
-            end_dt = datetime.combine(end, datetime.max.time()) if isinstance(end, date) and not isinstance(end, datetime) else end
+            end_dt = (
+                datetime.combine(end, datetime.max.time())
+                if isinstance(end, date) and not isinstance(end, datetime)
+                else end
+            )
 
         # Load bars
         bars = self._bar_store.read_bars(symbol, timeframe, start=start_dt, end=end_dt)
@@ -325,9 +333,7 @@ class BarReplayService:
         results = {}
         for symbol in symbols:
             for tf in timeframes:
-                results[(symbol, tf)] = await self.replay(
-                    symbol, tf, start, end, **kwargs
-                )
+                results[(symbol, tf)] = await self.replay(symbol, tf, start, end, **kwargs)
         return results
 
     def pause(self) -> None:

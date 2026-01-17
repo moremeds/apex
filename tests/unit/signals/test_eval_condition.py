@@ -9,17 +9,17 @@ These tests verify the core invariants:
 """
 
 import pytest
-from hypothesis import given, strategies as st, assume, settings
+from hypothesis import assume, given, settings
+from hypothesis import strategies as st
 
 from src.domain.signals.indicators.regime.rule_trace import (
     EvalResult,
+    RuleTrace,
     ThresholdInfo,
     eval_condition,
     generate_counterfactual,
     generate_counterfactual_v2,
-    RuleTrace,
 )
-
 
 # =============================================================================
 # SAFE FLOAT STRATEGY (no NaN, no inf, reasonable range)
@@ -32,6 +32,7 @@ safe_floats = st.floats(min_value=-1e6, max_value=1e6, allow_nan=False, allow_in
 # =============================================================================
 # UNIT TESTS FOR eval_condition()
 # =============================================================================
+
 
 class TestEvalConditionBasic:
     """Basic unit tests for eval_condition()."""
@@ -115,7 +116,9 @@ class TestEvalConditionTestMatrix:
             (70, 70, "<=", True, 0, "decrease"),  # Edge: equal, <= passes
         ],
     )
-    def test_matrix(self, current, threshold, operator, expected_passed, expected_gap, expected_direction):
+    def test_matrix(
+        self, current, threshold, operator, expected_passed, expected_gap, expected_direction
+    ):
         """Test the complete matrix from the plan."""
         result = eval_condition("metric", current, threshold, operator)
         assert result.passed == expected_passed
@@ -150,6 +153,7 @@ class TestEvalConditionTestMatrix:
 # =============================================================================
 # HYPOTHESIS PROPERTY TESTS FOR INVARIANTS
 # =============================================================================
+
 
 class TestInvariantAProperty:
     """
@@ -218,9 +222,13 @@ class TestInvariantBProperty:
         """Invariant B: direction ↔ operator (structural)."""
         result = eval_condition("metric", current, threshold, op)
         if op in (">", ">="):
-            assert result.direction == "increase", f"Expected direction='increase' for operator {op}"
+            assert (
+                result.direction == "increase"
+            ), f"Expected direction='increase' for operator {op}"
         else:
-            assert result.direction == "decrease", f"Expected direction='decrease' for operator {op}"
+            assert (
+                result.direction == "decrease"
+            ), f"Expected direction='decrease' for operator {op}"
 
 
 class TestGapSemantics:
@@ -243,9 +251,9 @@ class TestGapSemantics:
             if op == ">" and current == threshold:
                 expected_gap = 1e-10  # Epsilon to maintain invariant
 
-            assert result.gap == pytest.approx(expected_gap), (
-                f"Expected gap={expected_gap}, got {result.gap} for {op}"
-            )
+            assert result.gap == pytest.approx(
+                expected_gap
+            ), f"Expected gap={expected_gap}, got {result.gap} for {op}"
 
     @given(current=safe_floats, threshold=safe_floats)
     @settings(max_examples=200)
@@ -264,14 +272,15 @@ class TestGapSemantics:
             if op == "<" and current == threshold:
                 expected_gap = 1e-10  # Epsilon to maintain invariant
 
-            assert result.gap == pytest.approx(expected_gap), (
-                f"Expected gap={expected_gap}, got {result.gap} for {op}"
-            )
+            assert result.gap == pytest.approx(
+                expected_gap
+            ), f"Expected gap={expected_gap}, got {result.gap} for {op}"
 
 
 # =============================================================================
 # EVAL RESULT TESTS
 # =============================================================================
+
 
 class TestEvalResultConstruction:
     """Test EvalResult invariant enforcement on construction."""
@@ -395,6 +404,7 @@ class TestEvalResultFormatting:
 # THRESHOLD INFO TESTS
 # =============================================================================
 
+
 class TestThresholdInfoFromEvalResult:
     """Test ThresholdInfo.from_eval_result() conversion."""
 
@@ -416,6 +426,7 @@ class TestThresholdInfoFromEvalResult:
 # =============================================================================
 # COUNTERFACTUAL GENERATION TESTS
 # =============================================================================
+
 
 class TestCounterfactualGeneration:
     """Test counterfactual generation functions."""

@@ -25,10 +25,10 @@ logger = get_logger(__name__)
 class ValidationStatus(str, Enum):
     """Validation status levels."""
 
-    PASS = "PASS"         # >= 98% coverage
-    WARN = "WARN"         # 95-98% coverage
-    CAUTION = "CAUTION"   # 90-95% coverage
-    FAIL = "FAIL"         # < 90% coverage
+    PASS = "PASS"  # >= 98% coverage
+    WARN = "WARN"  # 95-98% coverage
+    CAUTION = "CAUTION"  # 90-95% coverage
+    FAIL = "FAIL"  # < 90% coverage
 
 
 @dataclass
@@ -205,9 +205,17 @@ class DataValidator:
         start_dt = None
         end_dt = None
         if start:
-            start_dt = datetime.combine(start, datetime.min.time()) if isinstance(start, date) and not isinstance(start, datetime) else start
+            start_dt = (
+                datetime.combine(start, datetime.min.time())
+                if isinstance(start, date) and not isinstance(start, datetime)
+                else start
+            )
         if end:
-            end_dt = datetime.combine(end, datetime.max.time()) if isinstance(end, date) and not isinstance(end, datetime) else end
+            end_dt = (
+                datetime.combine(end, datetime.max.time())
+                if isinstance(end, date) and not isinstance(end, datetime)
+                else end
+            )
 
         # Get bars filtered by date range
         bars = self._bar_store.read_bars(symbol, timeframe, start=start_dt, end=end_dt)
@@ -347,12 +355,14 @@ class DataValidator:
                 # Only report non-expected gaps
                 if gap_type == "missing":
                     expected_bars = max(1, int(actual_gap_seconds / expected_interval) - 1)
-                    gaps.append(ValidationGap(
-                        start=current_ts,
-                        end=next_ts,
-                        expected_bars=expected_bars,
-                        gap_type=gap_type,
-                    ))
+                    gaps.append(
+                        ValidationGap(
+                            start=current_ts,
+                            end=next_ts,
+                            expected_bars=expected_bars,
+                            gap_type=gap_type,
+                        )
+                    )
 
         return gaps
 
@@ -391,71 +401,85 @@ class DataValidator:
             if ts:
                 ts_key = ts.isoformat()
                 if ts_key in seen_timestamps:
-                    anomalies.append(ValidationAnomaly(
-                        anomaly_type="duplicate",
-                        timestamp=ts,
-                        details=f"Duplicate timestamp: {ts}",
-                        severity="medium",
-                    ))
+                    anomalies.append(
+                        ValidationAnomaly(
+                            anomaly_type="duplicate",
+                            timestamp=ts,
+                            details=f"Duplicate timestamp: {ts}",
+                            severity="medium",
+                        )
+                    )
                 else:
                     seen_timestamps.add(ts_key)
 
             # Check for out-of-order
             if last_ts and ts and ts < last_ts:
-                anomalies.append(ValidationAnomaly(
-                    anomaly_type="out_of_order",
-                    timestamp=ts,
-                    details=f"Out of order: {ts} < {last_ts}",
-                    severity="high",
-                ))
+                anomalies.append(
+                    ValidationAnomaly(
+                        anomaly_type="out_of_order",
+                        timestamp=ts,
+                        details=f"Out of order: {ts} < {last_ts}",
+                        severity="high",
+                    )
+                )
 
             # Check for price spike
             if last_close and bar.close and last_close > 0:
                 change_pct = abs(bar.close - last_close) / last_close
                 if change_pct > self.PRICE_SPIKE_THRESHOLD:
-                    anomalies.append(ValidationAnomaly(
-                        anomaly_type="price_spike",
-                        timestamp=ts or datetime.now(),
-                        details=f"Price spike: {change_pct*100:.1f}% change ({last_close} -> {bar.close})",
-                        severity="medium" if change_pct < 0.20 else "high",
-                    ))
+                    anomalies.append(
+                        ValidationAnomaly(
+                            anomaly_type="price_spike",
+                            timestamp=ts or datetime.now(),
+                            details=f"Price spike: {change_pct*100:.1f}% change ({last_close} -> {bar.close})",
+                            severity="medium" if change_pct < 0.20 else "high",
+                        )
+                    )
 
             # Check for zero volume (for intraday)
             if bar.volume is not None and bar.volume == 0:
-                anomalies.append(ValidationAnomaly(
-                    anomaly_type="zero_volume",
-                    timestamp=ts or datetime.now(),
-                    details="Zero volume bar",
-                    severity="low",
-                ))
+                anomalies.append(
+                    ValidationAnomaly(
+                        anomaly_type="zero_volume",
+                        timestamp=ts or datetime.now(),
+                        details="Zero volume bar",
+                        severity="low",
+                    )
+                )
 
             # Check OHLC integrity
             if bar.high is not None and bar.low is not None:
                 if bar.high < bar.low:
-                    anomalies.append(ValidationAnomaly(
-                        anomaly_type="ohlc_invalid",
-                        timestamp=ts or datetime.now(),
-                        details=f"High ({bar.high}) < Low ({bar.low})",
-                        severity="high",
-                    ))
+                    anomalies.append(
+                        ValidationAnomaly(
+                            anomaly_type="ohlc_invalid",
+                            timestamp=ts or datetime.now(),
+                            details=f"High ({bar.high}) < Low ({bar.low})",
+                            severity="high",
+                        )
+                    )
 
             if bar.open is not None and bar.high is not None and bar.low is not None:
                 if bar.open > bar.high or bar.open < bar.low:
-                    anomalies.append(ValidationAnomaly(
-                        anomaly_type="ohlc_invalid",
-                        timestamp=ts or datetime.now(),
-                        details=f"Open ({bar.open}) outside H/L range ({bar.low}-{bar.high})",
-                        severity="medium",
-                    ))
+                    anomalies.append(
+                        ValidationAnomaly(
+                            anomaly_type="ohlc_invalid",
+                            timestamp=ts or datetime.now(),
+                            details=f"Open ({bar.open}) outside H/L range ({bar.low}-{bar.high})",
+                            severity="medium",
+                        )
+                    )
 
             if bar.close is not None and bar.high is not None and bar.low is not None:
                 if bar.close > bar.high or bar.close < bar.low:
-                    anomalies.append(ValidationAnomaly(
-                        anomaly_type="ohlc_invalid",
-                        timestamp=ts or datetime.now(),
-                        details=f"Close ({bar.close}) outside H/L range ({bar.low}-{bar.high})",
-                        severity="medium",
-                    ))
+                    anomalies.append(
+                        ValidationAnomaly(
+                            anomaly_type="ohlc_invalid",
+                            timestamp=ts or datetime.now(),
+                            details=f"Close ({bar.close}) outside H/L range ({bar.low}-{bar.high})",
+                            severity="medium",
+                        )
+                    )
 
             last_ts = ts
             last_close = bar.close
@@ -525,16 +549,20 @@ class DataValidator:
         """
         if format == "json":
             import json
-            return json.dumps({
-                f"{sym}/{tf}": {
-                    "status": r.status.value,
-                    "coverage_pct": r.coverage_pct,
-                    "expected_bars": r.expected_bars,
-                    "actual_bars": r.actual_bars,
-                    "gap_count": r.gap_count,
-                }
-                for (sym, tf), r in results.items()
-            }, indent=2)
+
+            return json.dumps(
+                {
+                    f"{sym}/{tf}": {
+                        "status": r.status.value,
+                        "coverage_pct": r.coverage_pct,
+                        "expected_bars": r.expected_bars,
+                        "actual_bars": r.actual_bars,
+                        "gap_count": r.gap_count,
+                    }
+                    for (sym, tf), r in results.items()
+                },
+                indent=2,
+            )
 
         # Text format
         lines = ["=" * 60, "Historical Data Validation Report", "=" * 60, ""]
@@ -544,7 +572,12 @@ class DataValidator:
         for (sym, tf), r in results.items():
             by_status[r.status].append((sym, tf, r))
 
-        for status in [ValidationStatus.FAIL, ValidationStatus.CAUTION, ValidationStatus.WARN, ValidationStatus.PASS]:
+        for status in [
+            ValidationStatus.FAIL,
+            ValidationStatus.CAUTION,
+            ValidationStatus.WARN,
+            ValidationStatus.PASS,
+        ]:
             items = by_status[status]
             if items:
                 lines.append(f"\n{status.value} ({len(items)} items)")
@@ -560,13 +593,17 @@ class DataValidator:
         # Summary
         total = len(results)
         pass_count = len(by_status[ValidationStatus.PASS]) + len(by_status[ValidationStatus.WARN])
-        fail_count = len(by_status[ValidationStatus.FAIL]) + len(by_status[ValidationStatus.CAUTION])
+        fail_count = len(by_status[ValidationStatus.FAIL]) + len(
+            by_status[ValidationStatus.CAUTION]
+        )
 
-        lines.extend([
-            "",
-            "=" * 60,
-            f"Summary: {pass_count}/{total} passed, {fail_count}/{total} need attention",
-            "=" * 60,
-        ])
+        lines.extend(
+            [
+                "",
+                "=" * 60,
+                f"Summary: {pass_count}/{total} passed, {fail_count}/{total} need attention",
+                "=" * 60,
+            ]
+        )
 
         return "\n".join(lines)

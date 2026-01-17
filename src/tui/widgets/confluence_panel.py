@@ -101,9 +101,7 @@ class ConfluencePanel(Widget):
         bullish = getattr(score, "bullish_count", 0)
         bearish = getattr(score, "bearish_count", 0)
         neutral = getattr(score, "neutral_count", 0)
-        diverging_pairs: List[Tuple[str, str, str]] = getattr(
-            score, "diverging_pairs", []
-        )
+        diverging_pairs: List[Tuple[str, str, str]] = getattr(score, "diverging_pairs", [])
         timestamp = getattr(score, "timestamp", None)
 
         # Header
@@ -156,9 +154,7 @@ class ConfluencePanel(Widget):
             "moderate": "[#f6d365]MODERATE[/]",
             "weak": "[#ff6b6b]WEAK[/]",
         }
-        strength_text = strength_styles.get(
-            str(strength).lower(), f"[dim]{strength}[/]"
-        )
+        strength_text = strength_styles.get(str(strength).lower(), f"[dim]{strength}[/]")
 
         lines = [
             f"[bold #5fd7ff]{symbol}[/] MTF Alignment",

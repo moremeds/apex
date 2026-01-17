@@ -167,8 +167,8 @@ class TurningPointQualityObjective(ObjectiveFunction):
         If not available, returns a neutral score.
         """
         # Try to load experiment results for turning point quality
-        from pathlib import Path
         import json
+        from pathlib import Path
 
         symbol = params.get("symbol", "SPY")
         exp_path = Path(f"experiments/turning_point/{symbol.lower()}_latest.json")

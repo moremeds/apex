@@ -10,49 +10,48 @@ This module provides:
 - TradeTracker: Entry/exit matching for completed trades
 """
 
-from .systematic import SystematicRunner, RunnerConfig
-from .parallel import (
-    ParallelRunner,
-    ParallelConfig,
-    ExecutionProgress,
-    ProgressMonitor,
-    is_transient_error,
+from .backtrader_adapter import (
+    BACKTRADER_AVAILABLE,
+    ApexStrategyWrapper,
+    BacktraderScheduler,
+    run_backtest_with_backtrader,
 )
 from .engines import (
+    ApexEngine,
+    ApexEngineConfig,
+    BacktestConfig,
     BacktestEngine,
     BaseEngine,
     EngineConfig,
     EngineType,
-    VectorBTEngine,
-    VectorBTConfig,
-    ApexEngine,
-    ApexEngineConfig,
     EventDrivenEngine,
-    BacktestConfig,
+    VectorBTConfig,
+    VectorBTEngine,
 )
-from .backtrader_adapter import (
-    ApexStrategyWrapper,
-    BacktraderScheduler,
-    run_backtest_with_backtrader,
-    BACKTRADER_AVAILABLE,
+from .ledger import PositionLedger
+from .order_matching import OrderMatcher
+from .parallel import (
+    ExecutionProgress,
+    ParallelConfig,
+    ParallelRunner,
+    ProgressMonitor,
+    is_transient_error,
 )
-from .parity import (
-    StrategyParityHarness,
+from .parity import (  # Signal parity testing
+    DirectionalSignalCapture,
+    DriftDetail,
+    DriftType,
     ParityConfig,
     ParityResult,
-    DriftType,
-    DriftDetail,
-    # Signal parity testing
-    SignalParityResult,
-    compare_signal_parity,
-    compare_directional_signal_parity,
     SignalCapture,
-    DirectionalSignalCapture,
+    SignalParityResult,
+    StrategyParityHarness,
+    compare_directional_signal_parity,
+    compare_signal_parity,
 )
-from .simulated import SimulatedExecution, FillModel, SimulatedOrder, SimulatedPosition
-from .order_matching import OrderMatcher
-from .ledger import PositionLedger
-from .trade_tracker import TradeTracker, MatchingMethod, OpenPosition
+from .simulated import FillModel, SimulatedExecution, SimulatedOrder, SimulatedPosition
+from .systematic import RunnerConfig, SystematicRunner
+from .trade_tracker import MatchingMethod, OpenPosition, TradeTracker
 
 __all__ = [
     # Runner

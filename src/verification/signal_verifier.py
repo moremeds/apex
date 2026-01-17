@@ -78,7 +78,9 @@ class SignalVerifier(BaseVerifier):
         """Load OHLCV and snapshot fixtures."""
         fixtures_config = self.manifest.get("fixtures", {})
         ohlcv_dir = fixtures_config.get("ohlcv_dir", "tests/fixtures/signal_verification/ohlcv")
-        snapshots_dir = fixtures_config.get("snapshots_dir", "tests/fixtures/signal_verification/snapshots")
+        snapshots_dir = fixtures_config.get(
+            "snapshots_dir", "tests/fixtures/signal_verification/snapshots"
+        )
 
         # Load OHLCV CSV files
         ohlcv_path = Path(ohlcv_dir)
@@ -159,7 +161,12 @@ class SignalVerifier(BaseVerifier):
     def _get_sample_service_payload(self) -> Optional[Dict]:
         """Generate sample service payload for schema validation."""
         try:
-            from src.domain.signals.models import TradingSignal, SignalCategory, SignalDirection, SignalPriority
+            from src.domain.signals.models import (
+                SignalCategory,
+                SignalDirection,
+                SignalPriority,
+                TradingSignal,
+            )
 
             signal = TradingSignal(
                 signal_id="momentum:rsi:AAPL:1d",
@@ -189,9 +196,7 @@ class SignalVerifier(BaseVerifier):
     # Assertion Evaluation
     # ═══════════════════════════════════════════════════════════════
 
-    def _evaluate_assertion(
-        self, assert_name: str, check: Dict
-    ) -> Tuple[bool, str, Dict]:
+    def _evaluate_assertion(self, assert_name: str, check: Dict) -> Tuple[bool, str, Dict]:
         """Evaluate a named assertion."""
         assertions = {
             "registry_by_category_min": self._assert_registry_by_category_min,
@@ -261,10 +266,14 @@ class SignalVerifier(BaseVerifier):
             if missing:
                 return False, f"Missing metadata: {missing[:10]}", {"missing": missing}
 
-            return True, f"All {len(registry)} indicators have required metadata", {
-                "count": len(registry),
-                "fields": required_fields,
-            }
+            return (
+                True,
+                f"All {len(registry)} indicators have required metadata",
+                {
+                    "count": len(registry),
+                    "fields": required_fields,
+                },
+            )
 
         except Exception as e:
             return False, f"Metadata check failed: {e}", {}
@@ -314,10 +323,14 @@ class SignalVerifier(BaseVerifier):
             if failures:
                 return False, f"Non-deterministic: {', '.join(failures)}", {"failures": failures}
 
-            return True, f"Engine deterministic across {runs} runs", {
-                "indicators_tested": test_indicators,
-                "runs": runs,
-            }
+            return (
+                True,
+                f"Engine deterministic across {runs} runs",
+                {
+                    "indicators_tested": test_indicators,
+                    "runs": runs,
+                },
+            )
 
         except Exception as e:
             return False, f"Determinism check failed: {e}", {}
@@ -331,7 +344,12 @@ class SignalVerifier(BaseVerifier):
     def _assert_payload_roundtrip_equal(self, check: Dict) -> Tuple[bool, str, Dict]:
         """Assert payload → json → model → json is content-equal."""
         try:
-            from src.domain.signals.models import TradingSignal, SignalCategory, SignalDirection, SignalPriority
+            from src.domain.signals.models import (
+                SignalCategory,
+                SignalDirection,
+                SignalPriority,
+                TradingSignal,
+            )
 
             # Create a signal
             signal = TradingSignal(
@@ -405,9 +423,7 @@ class SignalVerifier(BaseVerifier):
 
         return True, "Unknown invariant type (skipped)"
 
-    def _check_bounds_invariant(
-        self, ref: str, invariant: BoundsInvariant
-    ) -> Tuple[bool, str]:
+    def _check_bounds_invariant(self, ref: str, invariant: BoundsInvariant) -> Tuple[bool, str]:
         """Check bounds invariant on indicator output."""
         try:
             from src.domain.signals.indicators.registry import get_indicator_registry
@@ -464,9 +480,7 @@ class SignalVerifier(BaseVerifier):
         except Exception as e:
             return False, f"Bounds check error: {e}"
 
-    def _check_identity_invariant(
-        self, ref: str, invariant: IdentityInvariant
-    ) -> Tuple[bool, str]:
+    def _check_identity_invariant(self, ref: str, invariant: IdentityInvariant) -> Tuple[bool, str]:
         """Check identity relationship invariant."""
         try:
             from src.domain.signals.indicators.registry import get_indicator_registry
@@ -516,9 +530,7 @@ class SignalVerifier(BaseVerifier):
         except Exception as e:
             return False, f"Identity check error: {e}"
 
-    def _check_no_nan_invariant(
-        self, ref: str, invariant: NoNaNInvariant
-    ) -> Tuple[bool, str]:
+    def _check_no_nan_invariant(self, ref: str, invariant: NoNaNInvariant) -> Tuple[bool, str]:
         """Check no-NaN invariant."""
         try:
             from src.domain.signals.indicators.registry import get_indicator_registry
@@ -636,7 +648,9 @@ class SignalVerifier(BaseVerifier):
                             if not np.array_equal(orig_vals, pert_vals):
                                 failures.append(f"{ind_name}.{col}: past changed")
                         else:
-                            if not np.allclose(orig_vals, pert_vals, atol=invariant.tolerance, equal_nan=True):
+                            if not np.allclose(
+                                orig_vals, pert_vals, atol=invariant.tolerance, equal_nan=True
+                            ):
                                 failures.append(f"{ind_name}.{col}: past changed (tolerance)")
 
             if failures:
@@ -715,7 +729,9 @@ class SignalVerifier(BaseVerifier):
                         failures.append(f"{indicator_name}.{field}: missing")
                         continue
 
-                    if isinstance(expected_value, (int, float)) and isinstance(actual_value, (int, float)):
+                    if isinstance(expected_value, (int, float)) and isinstance(
+                        actual_value, (int, float)
+                    ):
                         diff = abs(actual_value - expected_value)
                         rel_diff = diff / max(abs(expected_value), 1e-10)
 
@@ -784,9 +800,7 @@ class SignalVerifier(BaseVerifier):
 
 def main():
     """CLI entry point."""
-    parser = argparse.ArgumentParser(
-        description="APEX Signal Service Verification Framework"
-    )
+    parser = argparse.ArgumentParser(description="APEX Signal Service Verification Framework")
     parser.add_argument(
         "--phase",
         type=str,
@@ -810,7 +824,8 @@ def main():
         help="Path to manifest.yaml",
     )
     parser.add_argument(
-        "-v", "--verbose",
+        "-v",
+        "--verbose",
         action="store_true",
         help="Verbose output",
     )

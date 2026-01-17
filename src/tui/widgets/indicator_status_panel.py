@@ -22,8 +22,8 @@ from textual.widget import Widget
 from textual.widgets import DataTable
 
 from ..viewmodels.indicator_status_vm import (
-    IndicatorStatusViewModel,
     IndicatorRow,
+    IndicatorStatusViewModel,
     RowType,
 )
 

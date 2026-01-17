@@ -29,11 +29,11 @@ from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
+from ..application.services.ta_signal_service import TASignalService
 from ..domain.events.event_types import EventType
 from ..domain.events.priority_event_bus import PriorityEventBus
-from ..application.services.ta_signal_service import TASignalService
 from ..utils.logging_setup import get_logger
-from ..utils.timezone import now_utc, DisplayTimezone
+from ..utils.timezone import DisplayTimezone, now_utc
 
 logger = get_logger(__name__)
 
@@ -152,6 +152,7 @@ class SignalRunner:
         """Create persistence layer if database is available."""
         try:
             from config.config_manager import ConfigManager
+
             from ..infrastructure.persistence.database import get_database
             from ..infrastructure.persistence.repositories.ta_signal_repository import (
                 TASignalRepository,
@@ -211,8 +212,9 @@ class SignalRunner:
             Exit code (0 for success).
         """
         from pathlib import Path
-        from ..services.historical_data_manager import HistoricalDataManager
+
         from ..application.orchestrator.signal_pipeline import BarPreloader
+        from ..services.historical_data_manager import HistoricalDataManager
 
         print("=" * 60)
         print("SIGNAL PIPELINE (Historical Bars)")
@@ -234,6 +236,7 @@ class SignalRunner:
         # Try to set IB source for better data quality
         try:
             from config.config_manager import ConfigManager
+
             from ..infrastructure.adapters.ib.historical_adapter import IbHistoricalAdapter
 
             config = ConfigManager().load()
@@ -430,6 +433,7 @@ class SignalRunner:
             ValueError: If no historical data is available after attempting download.
         """
         from pathlib import Path
+
         from ..services.historical_data_manager import HistoricalDataManager
 
         end_date = now_utc()
@@ -444,6 +448,7 @@ class SignalRunner:
         # Try to set up IB source for better data quality
         try:
             from config.config_manager import ConfigManager
+
             from ..infrastructure.adapters.ib.historical_adapter import IbHistoricalAdapter
 
             config = ConfigManager().load()
@@ -511,6 +516,7 @@ class SignalRunner:
         """
         from pathlib import Path
         from typing import Tuple
+
         from ..domain.signals.reporting import SignalReportGenerator
         from ..domain.signals.rules import ALL_RULES
 

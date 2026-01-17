@@ -57,8 +57,7 @@ class TurningPointOutput:
             "turn_state": self.turn_state.value,
             "turn_confidence": self.turn_confidence,
             "top_features": [
-                {"name": name, "contribution": contrib}
-                for name, contrib in self.top_features
+                {"name": name, "contribution": contrib} for name, contrib in self.top_features
             ],
             "model_version": self.model_version,
             "inference_time_ms": self.inference_time_ms,
@@ -67,10 +66,7 @@ class TurningPointOutput:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "TurningPointOutput":
         """Deserialize from dictionary."""
-        top_features = [
-            (f["name"], f["contribution"])
-            for f in data.get("top_features", [])
-        ]
+        top_features = [(f["name"], f["contribution"]) for f in data.get("top_features", [])]
         return cls(
             turn_state=TurnState(data.get("turn_state", "none")),
             turn_confidence=data.get("turn_confidence", 0.0),
@@ -182,9 +178,7 @@ class TurningPointModel:
                 # Fall back to logistic if lightgbm not available
                 from sklearn.linear_model import LogisticRegression
 
-                return LogisticRegression(
-                    C=1.0, penalty="l2", solver="lbfgs", max_iter=1000
-                )
+                return LogisticRegression(C=1.0, penalty="l2", solver="lbfgs", max_iter=1000)
         else:
             raise ValueError(f"Unknown model type: {self.model_type}")
 
@@ -371,10 +365,7 @@ class TurningPointModel:
         contributions = coefs * X
         indices = np.argsort(np.abs(contributions))[::-1][:top_k]
 
-        return [
-            (self.feature_names[i], float(contributions[i]))
-            for i in indices
-        ]
+        return [(self.feature_names[i], float(contributions[i])) for i in indices]
 
     def predict_batch(self, X: np.ndarray) -> List[TurningPointOutput]:
         """Predict for multiple samples."""
@@ -418,12 +409,12 @@ class TurningPointModel:
             "bottom_model": self.bottom_model,
             "feature_names": self.feature_names,
             "is_fitted": self.is_fitted,
-            "training_metrics_top": self.training_metrics_top.to_dict()
-            if self.training_metrics_top
-            else None,
-            "training_metrics_bottom": self.training_metrics_bottom.to_dict()
-            if self.training_metrics_bottom
-            else None,
+            "training_metrics_top": (
+                self.training_metrics_top.to_dict() if self.training_metrics_top else None
+            ),
+            "training_metrics_bottom": (
+                self.training_metrics_bottom.to_dict() if self.training_metrics_bottom else None
+            ),
             "model_version": self.MODEL_VERSION,
         }
 

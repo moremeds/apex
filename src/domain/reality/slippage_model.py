@@ -10,15 +10,16 @@ Sources include:
 
 from __future__ import annotations
 
+import random
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Optional
-import random
 
 
 @dataclass
 class SlippageResult:
     """Result of slippage calculation."""
+
     slippage_amount: float  # Absolute slippage in price units
     slippage_bps: float  # Slippage in basis points
     adjusted_price: float  # Price after slippage
@@ -231,7 +232,7 @@ class VolumeSlippageModel(SlippageModel):
             if volume_fraction > self.volume_window:
                 # Square-root impact model
                 excess = volume_fraction - self.volume_window
-                impact = self.impact_factor * (excess ** 0.5)
+                impact = self.impact_factor * (excess**0.5)
                 slippage_pct += impact
 
         slippage_amount = price * slippage_pct

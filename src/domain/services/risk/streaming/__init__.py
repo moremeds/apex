@@ -15,8 +15,8 @@ Design Principles:
 - Bad ticks are filtered before delta emission
 """
 
-from .tick_processor import TickProcessor, create_initial_state
 from .delta_publisher import DeltaPublisher
+from .tick_processor import TickProcessor, create_initial_state
 
 __all__ = [
     "TickProcessor",

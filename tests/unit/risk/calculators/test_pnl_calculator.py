@@ -1,11 +1,12 @@
 """Unit tests for P&L calculator."""
 
 import pytest
+
 from src.domain.services.risk.calculators.pnl_calculator import (
-    calculate_pnl,
-    calculate_pnl_delta,
     DataQuality,
     PnLResult,
+    calculate_pnl,
+    calculate_pnl_delta,
 )
 
 
@@ -88,7 +89,9 @@ class TestCalculatePnl:
 
         assert result.unrealized == 500.0  # (5.50-5.00) * 10 * 100 = 0.50 * 1000
         assert result.daily == 250.0  # (5.50-5.25) * 10 * 100 = 0.25 * 1000
-        assert pytest.approx(result.intraday, rel=0.01) == 400.0  # (5.50-5.10) * 10 * 100 = 0.40 * 1000
+        assert (
+            pytest.approx(result.intraday, rel=0.01) == 400.0
+        )  # (5.50-5.10) * 10 * 100 = 0.40 * 1000
 
     def test_missing_yesterday_close(self):
         """Daily P&L should be zero when yesterday_close is None."""

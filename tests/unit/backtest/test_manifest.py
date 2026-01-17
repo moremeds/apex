@@ -226,9 +226,7 @@ class TestVerification:
             test_file.write_text("test content")
 
             # Create manifest with correct checksum
-            manifest = RunManifest(
-                artifact_checksums={"test.txt": compute_sha256(test_file)}
-            )
+            manifest = RunManifest(artifact_checksums={"test.txt": compute_sha256(test_file)})
 
             passed, errors = verify_checksums(manifest, tmpdir)
 
@@ -245,9 +243,7 @@ class TestVerification:
             test_file.write_text("test content")
 
             # Create manifest with wrong checksum
-            manifest = RunManifest(
-                artifact_checksums={"test.txt": "sha256:wronghash123"}
-            )
+            manifest = RunManifest(artifact_checksums={"test.txt": "sha256:wronghash123"})
 
             passed, errors = verify_checksums(manifest, tmpdir)
 
@@ -258,9 +254,7 @@ class TestVerification:
     def test_verify_checksums_fail_missing(self):
         """Test checksum verification fails when file missing."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            manifest = RunManifest(
-                artifact_checksums={"nonexistent.txt": "sha256:abc123"}
-            )
+            manifest = RunManifest(artifact_checksums={"nonexistent.txt": "sha256:abc123"})
 
             passed, errors = verify_checksums(manifest, Path(tmpdir))
 
@@ -308,9 +302,7 @@ class TestDualToleranceVerification:
         manifest_metrics = {"sharpe": 1.5, "cagr": 0.12}
         computed_metrics = {"sharpe": 1.5, "cagr": 0.12}
 
-        passed, errors = verify_metrics_with_tolerance(
-            manifest_metrics, computed_metrics
-        )
+        passed, errors = verify_metrics_with_tolerance(manifest_metrics, computed_metrics)
 
         assert passed is True
         assert len(errors) == 0
@@ -321,8 +313,7 @@ class TestDualToleranceVerification:
         computed_metrics = {"sharpe": 5e-7}  # Within abs_tol=1e-6
 
         passed, errors = verify_metrics_with_tolerance(
-            manifest_metrics, computed_metrics,
-            abs_tol=1e-6, rel_tol=1e-6
+            manifest_metrics, computed_metrics, abs_tol=1e-6, rel_tol=1e-6
         )
 
         assert passed is True
@@ -334,8 +325,7 @@ class TestDualToleranceVerification:
         computed_metrics = {"cagr": 0.15 + 1e-6}
 
         passed, errors = verify_metrics_with_tolerance(
-            manifest_metrics, computed_metrics,
-            abs_tol=1e-6, rel_tol=1e-6
+            manifest_metrics, computed_metrics, abs_tol=1e-6, rel_tol=1e-6
         )
 
         assert passed is True
@@ -346,8 +336,7 @@ class TestDualToleranceVerification:
         computed_metrics = {"sharpe": 1.6}  # 0.1 diff >> tolerance
 
         passed, errors = verify_metrics_with_tolerance(
-            manifest_metrics, computed_metrics,
-            abs_tol=1e-6, rel_tol=1e-6
+            manifest_metrics, computed_metrics, abs_tol=1e-6, rel_tol=1e-6
         )
 
         assert passed is False
@@ -359,9 +348,7 @@ class TestDualToleranceVerification:
         manifest_metrics = {"sharpe": 1.5, "cagr": 0.12}
         computed_metrics = {"sharpe": 1.5}  # Missing cagr
 
-        passed, errors = verify_metrics_with_tolerance(
-            manifest_metrics, computed_metrics
-        )
+        passed, errors = verify_metrics_with_tolerance(manifest_metrics, computed_metrics)
 
         assert passed is False
         assert "Missing computed metric: cagr" in errors[0]

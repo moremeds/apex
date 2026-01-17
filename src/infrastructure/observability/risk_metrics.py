@@ -12,10 +12,11 @@ Exposes key risk indicators for Prometheus alerting:
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING, Optional
 from contextlib import contextmanager
+from typing import TYPE_CHECKING, Optional
 
 from opentelemetry import metrics
+
 from ...utils.logging_setup import get_logger
 
 if TYPE_CHECKING:

@@ -381,9 +381,7 @@ class TurningPointExperiment:
             bottom_positives=int(y_bottom_test.sum()),
         )
 
-    def _calculate_ece(
-        self, y_true: np.ndarray, y_prob: np.ndarray, n_bins: int = 10
-    ) -> float:
+    def _calculate_ece(self, y_true: np.ndarray, y_prob: np.ndarray, n_bins: int = 10) -> float:
         """Calculate Expected Calibration Error."""
         bin_edges = np.linspace(0, 1, n_bins + 1)
         ece = 0.0

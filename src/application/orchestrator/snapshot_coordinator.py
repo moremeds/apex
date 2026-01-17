@@ -8,27 +8,28 @@ Responsibilities:
 """
 
 from __future__ import annotations
+
 import asyncio
 from datetime import datetime
-from typing import Dict, List, Optional, Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from ...utils.logging_setup import get_logger
-from ...utils.trace_context import new_cycle
-from ...utils.perf_logger import log_timing, log_timing_async
-from ...models.risk_snapshot import RiskSnapshot
-from ...models.risk_signal import RiskSignal
-from ...domain.interfaces.event_bus import EventType
 from ...domain.events.domain_events import SnapshotReadyEvent
+from ...domain.interfaces.event_bus import EventType
+from ...models.risk_signal import RiskSignal
+from ...models.risk_snapshot import RiskSnapshot
+from ...utils.logging_setup import get_logger
+from ...utils.perf_logger import log_timing, log_timing_async
+from ...utils.trace_context import new_cycle
 
 if TYPE_CHECKING:
-    from ...domain.services.risk.risk_facade import RiskFacade
-    from ...domain.services.risk.rule_engine import RuleEngine
-    from ...domain.services.risk.risk_signal_engine import RiskSignalEngine
-    from ...domain.services.risk.risk_alert_logger import RiskAlertLogger
     from ...domain.interfaces.event_bus import EventBus
-    from ...infrastructure.stores import AccountStore
+    from ...domain.services.risk.risk_alert_logger import RiskAlertLogger
+    from ...domain.services.risk.risk_facade import RiskFacade
+    from ...domain.services.risk.risk_signal_engine import RiskSignalEngine
+    from ...domain.services.risk.rule_engine import RuleEngine
     from ...infrastructure.monitoring import HealthMonitor
     from ...infrastructure.observability import RiskMetrics
+    from ...infrastructure.stores import AccountStore
 
 logger = get_logger(__name__)
 
@@ -67,7 +68,9 @@ class SnapshotCoordinator:
         dashboard_cfg = config.get("dashboard", {})
         self._snapshot_interval_sec: float = dashboard_cfg.get("snapshot_min_interval_sec", 1.0)
         self._snapshot_ready_ratio: float = dashboard_cfg.get("snapshot_ready_ratio", 0.9)
-        self._snapshot_ready_timeout_sec: float = dashboard_cfg.get("snapshot_ready_timeout_sec", 30.0)
+        self._snapshot_ready_timeout_sec: float = dashboard_cfg.get(
+            "snapshot_ready_timeout_sec", 30.0
+        )
 
         # State
         self._latest_snapshot: Optional[RiskSnapshot] = None
@@ -169,9 +172,9 @@ class SnapshotCoordinator:
 
         # Publish snapshot ready event (typed event instead of dict payload)
         event = SnapshotReadyEvent(
-            snapshot_id=snapshot.snapshot_id if hasattr(snapshot, 'snapshot_id') else "",
+            snapshot_id=snapshot.snapshot_id if hasattr(snapshot, "snapshot_id") else "",
             position_count=snapshot.total_positions,
-            coverage_pct=getattr(snapshot, 'market_data_coverage', 0.0),
+            coverage_pct=getattr(snapshot, "market_data_coverage", 0.0),
             portfolio_delta=snapshot.portfolio_delta,
             unrealized_pnl=snapshot.total_unrealized_pnl,
             daily_pnl=snapshot.total_daily_pnl,
@@ -204,10 +207,7 @@ class SnapshotCoordinator:
         if total_positions == 0:
             return
 
-        positions_with_md = sum(
-            1 for pr in snapshot.position_risks
-            if pr.has_market_data
-        )
+        positions_with_md = sum(1 for pr in snapshot.position_risks if pr.has_market_data)
         coverage = positions_with_md / total_positions
 
         # Check timeout

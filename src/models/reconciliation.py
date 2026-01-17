@@ -1,15 +1,18 @@
 """Reconciliation issue model for position discrepancies."""
 
 from __future__ import annotations
+
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from typing import Optional
+
 from .position import Position
 
 
 class IssueType(Enum):
     """Type of reconciliation issue."""
+
     MISSING = "MISSING"  # Position in one source but not another
     DRIFT = "DRIFT"  # Quantity mismatch between sources
     STALE = "STALE"  # Position not updated for threshold period
