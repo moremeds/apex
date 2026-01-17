@@ -75,6 +75,97 @@ ACTION_COLORS = {
 # =============================================================================
 
 
+def generate_report_header_html(
+    regime_output: RegimeOutput,
+    provenance_set: Optional[ParamProvenanceSet] = None,
+    recommendations_result: Optional[RecommenderResult] = None,
+    theme: str = "dark",
+) -> str:
+    """
+    Generate the Report Header / Change Log section.
+
+    Shows key metadata:
+    - Schema version
+    - Param set ID and source
+    - Last training/verification dates
+    - Recommendations status
+    """
+    symbol = regime_output.symbol
+    asof_ts = regime_output.asof_ts
+    asof_str = asof_ts.strftime("%Y-%m-%d %H:%M") if asof_ts else "N/A"
+    schema_version = regime_output.schema_version
+
+    # Provenance info
+    param_set_id = "N/A"
+    params_source = "default"
+    last_training = "N/A"
+    if provenance_set:
+        param_set_id = provenance_set.provenance.param_set_id or "N/A"
+        params_source = provenance_set.provenance.source
+        if provenance_set.provenance.trained_data_end:
+            last_training = provenance_set.provenance.trained_data_end.isoformat()
+
+    # Recommendations status
+    rec_status = "Not analyzed"
+    rec_date = "N/A"
+    if recommendations_result:
+        rec_date = recommendations_result.analysis_date.isoformat()
+        if recommendations_result.has_recommendations:
+            rec_count = len(recommendations_result.recommendations)
+            param_names = ", ".join(r.param_name for r in recommendations_result.recommendations)
+            rec_status = f"{rec_count} pending ({param_names})"
+        else:
+            rec_status = "No changes suggested"
+
+    # Regime color
+    regime_code = regime_output.final_regime.value
+    regime_color = REGIME_COLORS.get(regime_code, REGIME_COLORS["R1"])
+
+    body = f"""
+    <div class="report-header-content">
+        <div class="header-title-row">
+            <div class="header-symbol">{escape_html(symbol)}</div>
+            <div class="header-regime" style="background: {regime_color['bg']}; color: {regime_color['text']};">
+                {regime_code}: {regime_output.final_regime.display_name}
+            </div>
+            <div class="header-timestamp">{asof_str}</div>
+        </div>
+        <div class="header-details">
+            <div class="header-row">
+                <span class="header-label">Schema Version</span>
+                <span class="header-value"><code>{escape_html(schema_version)}</code></span>
+            </div>
+            <div class="header-row">
+                <span class="header-label">Param Set ID</span>
+                <span class="header-value"><code>{escape_html(param_set_id)}</code></span>
+            </div>
+            <div class="header-row">
+                <span class="header-label">Params Source</span>
+                <span class="header-value">{escape_html(params_source)}</span>
+            </div>
+            <div class="header-row">
+                <span class="header-label">Last Training</span>
+                <span class="header-value">{escape_html(last_training)}</span>
+            </div>
+            <div class="header-row">
+                <span class="header-label">Last Recommender Run</span>
+                <span class="header-value">{escape_html(rec_date)}</span>
+            </div>
+            <div class="header-row">
+                <span class="header-label">Recommendations</span>
+                <span class="header-value">{escape_html(rec_status)}</span>
+            </div>
+        </div>
+    </div>
+    """
+
+    return f"""
+    <div class="report-header-section">
+        {body}
+    </div>
+    """
+
+
 def generate_regime_one_liner_html(regime_output: RegimeOutput) -> str:
     """
     Generate the UX one-liner showing decision vs final regime.
@@ -1275,6 +1366,78 @@ def generate_alerts_html(
 def generate_regime_styles() -> str:
     """Generate CSS styles for regime report sections."""
     base_styles = """
+    /* Report Header Section (PR4) */
+    .report-header-section {
+        margin-bottom: 20px;
+        padding: 16px;
+        background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(139, 92, 246, 0.1) 100%);
+        border: 1px solid rgba(59, 130, 246, 0.3);
+        border-radius: 12px;
+    }
+
+    .report-header-content {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+    }
+
+    .header-title-row {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        flex-wrap: wrap;
+    }
+
+    .header-symbol {
+        font-size: 24px;
+        font-weight: 700;
+        color: var(--text);
+    }
+
+    .header-regime {
+        padding: 6px 14px;
+        border-radius: 6px;
+        font-size: 13px;
+        font-weight: 600;
+    }
+
+    .header-timestamp {
+        margin-left: auto;
+        font-size: 13px;
+        color: var(--text-muted);
+    }
+
+    .header-details {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 8px 24px;
+        padding: 12px;
+        background: rgba(255, 255, 255, 0.03);
+        border-radius: 8px;
+    }
+
+    .header-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 12px;
+    }
+
+    .header-label {
+        color: var(--text-muted);
+    }
+
+    .header-value {
+        font-weight: 500;
+    }
+
+    .header-value code {
+        background: rgba(59, 130, 246, 0.1);
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-size: 11px;
+    }
+
     .regime-dashboard {
         margin-bottom: 24px;
     }

@@ -36,6 +36,7 @@ from .regime_report import (
     generate_recommendations_html,
     generate_regime_one_liner_html,
     generate_regime_styles,
+    generate_report_header_html,
 )
 
 if TYPE_CHECKING:
@@ -1538,11 +1539,19 @@ body {{
                 theme=self.theme,
             )
 
+            # PR4: Generate report header with metadata
+            report_header = generate_report_header_html(
+                regime_output=output,
+                provenance_set=provenance_set,
+                recommendations_result=recommendations_result,
+                theme=self.theme,
+            )
+
             # Add data-symbol attribute for JavaScript filtering
             sections_html.append(
                 f"""
             <div class="regime-symbol-section" id="regime-{symbol}" data-symbol="{symbol}" style="display: none;">
-                <h3 class="regime-symbol-header">{symbol}</h3>
+                {report_header}
                 {one_liner}
                 {decision_tree}
                 {components}

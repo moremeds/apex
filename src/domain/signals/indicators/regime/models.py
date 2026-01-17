@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, cast
 
 if TYPE_CHECKING:
     from .rule_trace import RuleTrace
@@ -644,7 +644,7 @@ class RegimeOutput:
             ),
         }
 
-        return round_floats(result, precision)
+        return cast(Dict[str, Any], round_floats(result, precision))
 
     def to_legacy_dict(self) -> Dict[str, Any]:
         """
