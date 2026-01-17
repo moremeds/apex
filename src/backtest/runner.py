@@ -839,9 +839,10 @@ def create_vectorbt_backtest_fn(
     _init_vectorbt_worker(cached_data, config_dict, secondary_data)
 
     # Attach multiprocessing metadata for ParallelRunner to use
-    _run_vectorbt_backtest._mp_initializer = _init_vectorbt_worker  # type: ignore
-    _run_vectorbt_backtest._mp_initargs = (cached_data, config_dict, secondary_data)  # type: ignore
-    _run_vectorbt_backtest._mp_context = "spawn"  # type: ignore - safest for cross-platform
+    # These attributes are dynamically added for the parallel runner
+    _run_vectorbt_backtest._mp_initializer = _init_vectorbt_worker  # type: ignore[attr-defined]
+    _run_vectorbt_backtest._mp_initargs = (cached_data, config_dict, secondary_data)  # type: ignore[attr-defined]
+    _run_vectorbt_backtest._mp_context = "spawn"  # type: ignore[attr-defined]
 
     return _run_vectorbt_backtest
 
