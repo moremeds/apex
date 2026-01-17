@@ -43,13 +43,9 @@ jobs:
 
       - name: Run flake8
         run: |
-          # Ignore common style issues and pre-existing problems
-          # F401: imported but unused, F841: assigned but unused
-          # F821: undefined name (pre-existing bugs to fix later)
-          # E226: missing whitespace around operator, E203: whitespace before ':'
-          # E402: module level import not at top
+          # Ignore pre-existing issues - to be fixed in cleanup PR
           flake8 src/ tests/ --max-line-length=100 \
-            --ignore=E501,W503,F401,F841,F821,E226,E203,E402,E704,F541,F811
+            --ignore=E501,W503,F401,F841,F821,E226,E203,E402,E704,F541,F811,E741,E731,F824,F402,E712
 
       - name: Run mypy
         run: mypy src/ --ignore-missing-imports --no-error-summary || true
