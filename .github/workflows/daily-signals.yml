@@ -1,4 +1,4 @@
-name: Daily Full Signal Reports
+name: Daily Full Trend Signal Reports
 
 # ═══════════════════════════════════════════════════════════════════════════
 # This workflow generates daily signal reports and handles model retraining.
