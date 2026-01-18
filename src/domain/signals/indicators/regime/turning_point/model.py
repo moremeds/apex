@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
 import numpy as np
+from sklearn.preprocessing import StandardScaler
 
 from .calibration import CalibrationEvidence, compute_calibration_evidence, compute_roc_and_pr_auc
 from .cv import PurgedTimeSeriesSplit
@@ -146,6 +147,7 @@ class TurningPointModel:
 
         self.top_model: Any = None  # For TOP_RISK
         self.bottom_model: Any = None  # For BOTTOM_RISK
+        self.scaler: StandardScaler = StandardScaler()  # Feature scaling for convergence
         self.feature_names: List[str] = TurningPointFeatures.feature_names()
         self.is_fitted = False
         self.training_metrics_top: Optional[TrainingMetrics] = None
@@ -158,9 +160,8 @@ class TurningPointModel:
 
             return LogisticRegression(
                 C=1.0,
-                penalty="l2",
                 solver="lbfgs",
-                max_iter=1000,
+                max_iter=2000,
                 class_weight="balanced",
             )
         elif self.model_type == "lightgbm":
@@ -178,7 +179,7 @@ class TurningPointModel:
                 # Fall back to logistic if lightgbm not available
                 from sklearn.linear_model import LogisticRegression
 
-                return LogisticRegression(C=1.0, penalty="l2", solver="lbfgs", max_iter=1000)
+                return LogisticRegression(C=1.0, solver="lbfgs", max_iter=2000)
         else:
             raise ValueError(f"Unknown model type: {self.model_type}")
 
@@ -214,16 +215,19 @@ class TurningPointModel:
             embargo=embargo,
         )
 
+        # Fit scaler on all data and transform
+        X_scaled = self.scaler.fit_transform(X)
+
         # Train TOP_RISK model
         self.top_model = self._create_model()
         self.training_metrics_top = self._train_single_model(
-            self.top_model, X, y_top, cv, "top_risk"
+            self.top_model, X_scaled, y_top, cv, "top_risk"
         )
 
         # Train BOTTOM_RISK model
         self.bottom_model = self._create_model()
         self.training_metrics_bottom = self._train_single_model(
-            self.bottom_model, X, y_bottom, cv, "bottom_risk"
+            self.bottom_model, X_scaled, y_bottom, cv, "bottom_risk"
         )
 
         self.is_fitted = True
@@ -312,10 +316,11 @@ class TurningPointModel:
             )
 
         X = features.to_array().reshape(1, -1)
+        X_scaled = self.scaler.transform(X)
 
         # Predict probabilities
-        top_prob = self.top_model.predict_proba(X)[0, 1]
-        bottom_prob = self.bottom_model.predict_proba(X)[0, 1]
+        top_prob = self.top_model.predict_proba(X_scaled)[0, 1]
+        bottom_prob = self.bottom_model.predict_proba(X_scaled)[0, 1]
 
         # Determine state
         if top_prob >= self.confidence_threshold and top_prob > bottom_prob:
@@ -371,9 +376,10 @@ class TurningPointModel:
         if not self.is_fitted:
             return [TurningPointOutput() for _ in range(len(X))]
 
+        X_scaled = self.scaler.transform(X)
         outputs = []
-        top_probs = self.top_model.predict_proba(X)[:, 1]
-        bottom_probs = self.bottom_model.predict_proba(X)[:, 1]
+        top_probs = self.top_model.predict_proba(X_scaled)[:, 1]
+        bottom_probs = self.bottom_model.predict_proba(X_scaled)[:, 1]
 
         for i in range(len(X)):
             if top_probs[i] >= self.confidence_threshold and top_probs[i] > bottom_probs[i]:
@@ -406,6 +412,7 @@ class TurningPointModel:
             "confidence_threshold": self.confidence_threshold,
             "top_model": self.top_model,
             "bottom_model": self.bottom_model,
+            "scaler": self.scaler,
             "feature_names": self.feature_names,
             "is_fitted": self.is_fitted,
             "training_metrics_top": (
@@ -432,6 +439,7 @@ class TurningPointModel:
         )
         model.top_model = data["top_model"]
         model.bottom_model = data["bottom_model"]
+        model.scaler = data.get("scaler", StandardScaler())  # Backward compat
         model.feature_names = data["feature_names"]
         model.is_fitted = data["is_fitted"]
 
