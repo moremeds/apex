@@ -15,19 +15,19 @@ jobs:
     name: Full Signal Verification
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Python 3.13
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.13"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@v7
 
       - name: Cache TA-Lib
         id: cache-talib
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: /usr/lib/libta_lib*
           key: talib-0.4.0-ubuntu-latest
@@ -57,7 +57,7 @@ jobs:
 
       - name: Upload signal verification results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: signal-verification-nightly
           path: |
@@ -73,19 +73,19 @@ jobs:
     name: Full Regime Verification
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Python 3.13
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.13"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@v7
 
       - name: Cache TA-Lib
         id: cache-talib
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: /usr/lib/libta_lib*
           key: talib-0.4.0-ubuntu-latest
@@ -110,7 +110,7 @@ jobs:
 
       - name: Upload regime verification results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: regime-verification-nightly
           path: regime_verification.json
@@ -125,19 +125,19 @@ jobs:
     runs-on: ubuntu-latest
     needs: [signal-verification, regime-verification]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Python 3.13
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.13"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@v7
 
       - name: Cache TA-Lib
         id: cache-talib
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: /usr/lib/libta_lib*
           key: talib-0.4.0-ubuntu-latest
@@ -166,7 +166,7 @@ jobs:
 
       - name: Upload coverage report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: coverage-nightly
           path: |
