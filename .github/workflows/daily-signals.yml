@@ -155,22 +155,33 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v4
 
-      - name: Cache TA-Lib
+      - name: Cache TA-Lib build
         id: cache-talib
         uses: actions/cache@v4
         with:
-          path: /usr/lib/libta_lib*
-          key: talib-0.4.0-ubuntu-latest
+          path: ~/ta-lib-install
+          key: talib-0.6.0-${{ runner.os }}-${{ runner.arch }}
 
       - name: Install TA-Lib C library
-        if: steps.cache-talib.outputs.cache-hit != 'true'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y wget build-essential
-          wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz
-          tar -xzf ta-lib-0.4.0-src.tar.gz
-          cd ta-lib && ./configure --prefix=/usr && make && sudo make install
-          sudo ldconfig
+          if [ -d "$HOME/ta-lib-install/lib" ]; then
+            echo "Restoring TA-Lib from cache..."
+            sudo cp -r $HOME/ta-lib-install/lib/* /usr/lib/
+            sudo cp -r $HOME/ta-lib-install/include/* /usr/include/
+            sudo ldconfig
+          else
+            echo "Building TA-Lib from source..."
+            sudo apt-get update
+            sudo apt-get install -y wget build-essential
+            wget https://github.com/ta-lib/ta-lib/releases/download/v0.6.0/ta-lib-0.6.0-src.tar.gz
+            tar -xzf ta-lib-0.6.0-src.tar.gz
+            cd ta-lib-0.6.0 && ./configure --prefix=/usr && make -j$(nproc) && sudo make install
+            sudo ldconfig
+            # Save to cache directory
+            mkdir -p $HOME/ta-lib-install/lib $HOME/ta-lib-install/include
+            cp -r /usr/lib/libta_lib* $HOME/ta-lib-install/lib/
+            cp -r /usr/include/ta-lib $HOME/ta-lib-install/include/ 2>/dev/null || cp -r /usr/include/ta_* $HOME/ta-lib-install/include/
+          fi
 
       - name: Install dependencies
         run: uv pip install --system -e ".[observability]"
@@ -276,22 +287,33 @@ jobs:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('pyproject.toml') }}
 
-      - name: Cache TA-Lib
+      - name: Cache TA-Lib build
         id: cache-talib
         uses: actions/cache@v4
         with:
-          path: /usr/lib/libta_lib*
-          key: talib-0.4.0-ubuntu-latest
+          path: ~/ta-lib-install
+          key: talib-0.6.0-${{ runner.os }}-${{ runner.arch }}
 
       - name: Install TA-Lib C library
-        if: steps.cache-talib.outputs.cache-hit != 'true'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y wget build-essential
-          wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz
-          tar -xzf ta-lib-0.4.0-src.tar.gz
-          cd ta-lib && ./configure --prefix=/usr && make && sudo make install
-          sudo ldconfig
+          if [ -d "$HOME/ta-lib-install/lib" ]; then
+            echo "Restoring TA-Lib from cache..."
+            sudo cp -r $HOME/ta-lib-install/lib/* /usr/lib/
+            sudo cp -r $HOME/ta-lib-install/include/* /usr/include/
+            sudo ldconfig
+          else
+            echo "Building TA-Lib from source..."
+            sudo apt-get update
+            sudo apt-get install -y wget build-essential
+            wget https://github.com/ta-lib/ta-lib/releases/download/v0.6.0/ta-lib-0.6.0-src.tar.gz
+            tar -xzf ta-lib-0.6.0-src.tar.gz
+            cd ta-lib-0.6.0 && ./configure --prefix=/usr && make -j$(nproc) && sudo make install
+            sudo ldconfig
+            # Save to cache directory
+            mkdir -p $HOME/ta-lib-install/lib $HOME/ta-lib-install/include
+            cp -r /usr/lib/libta_lib* $HOME/ta-lib-install/lib/
+            cp -r /usr/include/ta-lib $HOME/ta-lib-install/include/ 2>/dev/null || cp -r /usr/include/ta_* $HOME/ta-lib-install/include/
+          fi
 
       - name: Install dependencies
         run: uv pip install --system -e ".[observability]"
