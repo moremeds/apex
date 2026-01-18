@@ -116,7 +116,7 @@ class "IbBaseAdapter" as apex.src.infrastructure.adapters.ib.base.IbBaseAdapter 
   ADAPTER_TYPE : str
   client_id : int
   host : str
-  ib : IB, NoneType
+  ib : NoneType
   port : int
   reconnect_backoff_factor : float
   reconnect_backoff_initial : int
@@ -170,7 +170,7 @@ class "IbConnectionPool" as apex.src.infrastructure.adapters.ib.connection_pool.
 }
 class "IbExecutionAdapter" as apex.src.infrastructure.adapters.ib.execution_adapter.IbExecutionAdapter {
   ADAPTER_TYPE : str
-  ib : IB, NoneType
+  ib : NoneType
   cancel_all_orders(symbol: Optional[str]) -> List[OrderResult]
   cancel_order(order_id: str) -> OrderResult
   disable_trading(reason: str) -> None
@@ -190,7 +190,7 @@ class "IbExecutionAdapter" as apex.src.infrastructure.adapters.ib.execution_adap
 }
 class "IbHistoricalAdapter" as apex.src.infrastructure.adapters.ib.historical_adapter.IbHistoricalAdapter {
   ADAPTER_TYPE : str
-  ib : IB, NoneType
+  ib : NoneType
   source_name : str
   fetch_bars(symbol: str, timeframe: str, start: Optional[datetime], end: Optional[datetime], limit: Optional[int]) -> List[BarData]
   fetch_bars_batch(requests: List[dict], max_concurrent: int, delay_between_batches: float) -> dict
@@ -205,7 +205,7 @@ class "IbHistoricalAdapter" as apex.src.infrastructure.adapters.ib.historical_ad
 }
 class "IbLiveAdapter" as apex.src.infrastructure.adapters.ib.live_adapter.IbLiveAdapter {
   ADAPTER_TYPE : str
-  ib : IB, NoneType
+  ib : NoneType
   disable_streaming() -> None
   enable_streaming() -> None
   fetch_account() -> AccountSnapshot

@@ -281,11 +281,11 @@ class "EvalResult" as apex.src.domain.signals.indicators.regime.rule_trace.EvalR
   format_counterfactual() -> str
   to_dict() -> Dict[str, Any]
 }
-class "EventBusProtocol" as apex.src.domain.signals.indicator_engine.EventBusProtocol {
+class "EventBusProtocol" as apex.src.domain.signals.rule_engine.EventBusProtocol {
   publish(event_type: EventType, payload: Any) -> None
   subscribe(event_type: EventType, callback: Callable[[Any], None]) -> None
 }
-class "EventBusProtocol" as apex.src.domain.signals.rule_engine.EventBusProtocol {
+class "EventBusProtocol" as apex.src.domain.signals.indicator_engine.EventBusProtocol {
   publish(event_type: EventType, payload: Any) -> None
   subscribe(event_type: EventType, callback: Callable[[Any], None]) -> None
 }
@@ -871,13 +871,13 @@ class "TurningPointLabeler" as apex.src.domain.signals.indicators.regime.turning
 }
 class "TurningPointModel" as apex.src.domain.signals.indicators.regime.turning_point.model.TurningPointModel {
   MODEL_VERSION : str
-  bottom_model : LogisticRegression, Optional[Any]
+  bottom_model : Optional[Any]
   confidence_threshold : float
   feature_names : List[str]
   is_fitted : bool
   model_type : Literal['logistic', 'lightgbm']
-  scaler : StandardScaler
-  top_model : LogisticRegression, Optional[Any]
+  scaler
+  top_model : Optional[Any]
   training_metrics_bottom : Optional[TrainingMetrics]
   training_metrics_top : Optional[TrainingMetrics]
   load(path: Path) -> 'TurningPointModel'

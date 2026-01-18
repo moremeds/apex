@@ -173,7 +173,7 @@ class "HierarchicalRegime" as apex.src.domain.services.regime.models.Hierarchica
   action_context
   alerts : List[str]
   market_confidence : int
-  market_regime : MarketRegime
+  market_regime
   market_symbol : str
   sector_confidence : Optional[int]
   sector_regime : Optional[MarketRegime]
