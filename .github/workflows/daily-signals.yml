@@ -177,10 +177,13 @@ jobs:
             tar -xzf ta-lib-0.6.4-src.tar.gz
             cd ta-lib-0.6.4 && ./configure --prefix=/usr && make -j$(nproc) && sudo make install
             sudo ldconfig
-            # Save to cache directory
+            # Save to cache directory (TA-Lib 0.6+ uses libta.so naming)
             mkdir -p $HOME/ta-lib-install/lib $HOME/ta-lib-install/include
-            cp -r /usr/lib/libta_lib* $HOME/ta-lib-install/lib/
-            cp -r /usr/include/ta-lib $HOME/ta-lib-install/include/ 2>/dev/null || cp -r /usr/include/ta_* $HOME/ta-lib-install/include/
+            cp -r /usr/lib/libta* $HOME/ta-lib-install/lib/ 2>/dev/null || true
+            cp -r /usr/lib/pkgconfig/ta-lib.pc $HOME/ta-lib-install/lib/ 2>/dev/null || true
+            cp -r /usr/include/ta-lib $HOME/ta-lib-install/include/ 2>/dev/null || cp -r /usr/include/ta_* $HOME/ta-lib-install/include/ 2>/dev/null || true
+            echo "Cached files:"
+            ls -la $HOME/ta-lib-install/lib/ $HOME/ta-lib-install/include/
           fi
 
       - name: Install dependencies
@@ -309,10 +312,13 @@ jobs:
             tar -xzf ta-lib-0.6.4-src.tar.gz
             cd ta-lib-0.6.4 && ./configure --prefix=/usr && make -j$(nproc) && sudo make install
             sudo ldconfig
-            # Save to cache directory
+            # Save to cache directory (TA-Lib 0.6+ uses libta.so naming)
             mkdir -p $HOME/ta-lib-install/lib $HOME/ta-lib-install/include
-            cp -r /usr/lib/libta_lib* $HOME/ta-lib-install/lib/
-            cp -r /usr/include/ta-lib $HOME/ta-lib-install/include/ 2>/dev/null || cp -r /usr/include/ta_* $HOME/ta-lib-install/include/
+            cp -r /usr/lib/libta* $HOME/ta-lib-install/lib/ 2>/dev/null || true
+            cp -r /usr/lib/pkgconfig/ta-lib.pc $HOME/ta-lib-install/lib/ 2>/dev/null || true
+            cp -r /usr/include/ta-lib $HOME/ta-lib-install/include/ 2>/dev/null || cp -r /usr/include/ta_* $HOME/ta-lib-install/include/ 2>/dev/null || true
+            echo "Cached files:"
+            ls -la $HOME/ta-lib-install/lib/ $HOME/ta-lib-install/include/
           fi
 
       - name: Install dependencies
