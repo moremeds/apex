@@ -160,7 +160,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/ta-lib-install
-          key: talib-0.6.0-${{ runner.os }}-${{ runner.arch }}
+          key: talib-0.4.0-${{ runner.os }}-${{ runner.arch }}
 
       - name: Install TA-Lib C library
         run: |
@@ -173,9 +173,9 @@ jobs:
             echo "Building TA-Lib from source..."
             sudo apt-get update
             sudo apt-get install -y wget build-essential
-            wget https://github.com/ta-lib/ta-lib/releases/download/v0.6.0/ta-lib-0.6.0-src.tar.gz
-            tar -xzf ta-lib-0.6.0-src.tar.gz
-            cd ta-lib-0.6.0 && ./configure --prefix=/usr && make -j$(nproc) && sudo make install
+            wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz
+            tar -xzf ta-lib-0.4.0-src.tar.gz
+            cd ta-lib && ./configure --prefix=/usr && make -j$(nproc) && sudo make install
             sudo ldconfig
             # Save to cache directory
             mkdir -p $HOME/ta-lib-install/lib $HOME/ta-lib-install/include
@@ -292,7 +292,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/ta-lib-install
-          key: talib-0.6.0-${{ runner.os }}-${{ runner.arch }}
+          key: talib-0.4.0-${{ runner.os }}-${{ runner.arch }}
 
       - name: Install TA-Lib C library
         run: |
@@ -305,9 +305,9 @@ jobs:
             echo "Building TA-Lib from source..."
             sudo apt-get update
             sudo apt-get install -y wget build-essential
-            wget https://github.com/ta-lib/ta-lib/releases/download/v0.6.0/ta-lib-0.6.0-src.tar.gz
-            tar -xzf ta-lib-0.6.0-src.tar.gz
-            cd ta-lib-0.6.0 && ./configure --prefix=/usr && make -j$(nproc) && sudo make install
+            wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz
+            tar -xzf ta-lib-0.4.0-src.tar.gz
+            cd ta-lib && ./configure --prefix=/usr && make -j$(nproc) && sudo make install
             sudo ldconfig
             # Save to cache directory
             mkdir -p $HOME/ta-lib-install/lib $HOME/ta-lib-install/include
