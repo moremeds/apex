@@ -96,8 +96,7 @@ class TestDerivedMappings:
         for sector in universe.sectors.values():
             for stock in sector.stocks:
                 assert stock in universe.stock_to_sector, (
-                    f"Stock {stock} from sector {sector.name} "
-                    f"not in stock_to_sector mapping"
+                    f"Stock {stock} from sector {sector.name} " f"not in stock_to_sector mapping"
                 )
                 # Verify it maps to the sector ETF (skip overlap stocks)
                 if stock not in known_overlaps:
@@ -166,9 +165,9 @@ class TestDuplicateDetection:
 
         for sector in universe.sectors.values():
             unique_stocks = set(sector.stocks)
-            assert len(unique_stocks) == len(sector.stocks), (
-                f"Sector {sector.name} has duplicate stocks"
-            )
+            assert len(unique_stocks) == len(
+                sector.stocks
+            ), f"Sector {sector.name} has duplicate stocks"
 
     def test_etf_symbols_unique(self):
         """Each sector has a unique ETF symbol."""
@@ -198,12 +197,14 @@ class TestSchemaValidation:
     def test_sector_missing_etf_raises_error(self, tmp_path):
         """Sector without 'etf' key raises UniverseLoadError."""
         invalid_yaml = tmp_path / "invalid.yaml"
-        invalid_yaml.write_text("""
+        invalid_yaml.write_text(
+            """
 sectors:
   tech:
     stocks:
       - AAPL
-""")
+"""
+        )
 
         with pytest.raises(UniverseLoadError, match="missing 'etf' key"):
             load_universe(invalid_yaml)
@@ -211,11 +212,13 @@ sectors:
     def test_sector_missing_stocks_raises_error(self, tmp_path):
         """Sector without 'stocks' key raises UniverseLoadError."""
         invalid_yaml = tmp_path / "invalid.yaml"
-        invalid_yaml.write_text("""
+        invalid_yaml.write_text(
+            """
 sectors:
   tech:
     etf: XLK
-""")
+"""
+        )
 
         with pytest.raises(UniverseLoadError, match="missing 'stocks' key"):
             load_universe(invalid_yaml)

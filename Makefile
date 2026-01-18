@@ -3,6 +3,11 @@
 
 .PHONY: install lint format type-check test test-all coverage clean dead-code complexity quality verify help
 
+# Virtual environment - use .venv/bin executables directly
+VENV := .venv/bin
+PYTHON := $(VENV)/python
+PIP := $(VENV)/pip
+
 # Colors for terminal output
 BOLD := $(shell tput bold)
 RESET := $(shell tput sgr0)
@@ -50,33 +55,33 @@ install:
 
 lint:
 	@echo "$(BOLD)Checking code formatting...$(RESET)"
-	black --check src/ tests/
-	isort --check src/ tests/
-	flake8 src/ tests/
+	$(VENV)/black --check src/ tests/
+	$(VENV)/isort --check src/ tests/
+	$(VENV)/flake8 src/ tests/
 
 format:
 	@echo "$(BOLD)Auto-formatting code...$(RESET)"
-	black src/ tests/
-	isort src/ tests/
+	$(VENV)/black src/ tests/
+	$(VENV)/isort src/ tests/
 	@echo "$(GREEN)✓ Formatting complete$(RESET)"
 
 type-check:
 	@echo "$(BOLD)Running mypy type checker...$(RESET)"
-	mypy src/
+	$(VENV)/mypy src/
 
 dead-code:
 	@echo "$(BOLD)Checking for dead code with vulture...$(RESET)"
-	@vulture src/ .vulture_whitelist.py --min-confidence 80 --exclude "src/legacy/,src/verification/" --sort-by-size || true
+	@$(VENV)/vulture src/ .vulture_whitelist.py --min-confidence 80 --exclude "src/legacy/,src/verification/" --sort-by-size || true
 	@echo "$(YELLOW)Note: Review above for potential dead code to remove$(RESET)"
 
 complexity:
 	@echo "$(BOLD)Measuring code complexity...$(RESET)"
 	@echo ""
 	@echo "$(YELLOW)Cyclomatic Complexity (A=simple, F=very complex):$(RESET)"
-	radon cc src/ -a -nc --total-average
+	$(VENV)/radon cc src/ -a -nc --total-average
 	@echo ""
 	@echo "$(YELLOW)Maintainability Index (A=best, C=worst):$(RESET)"
-	radon mi src/ -s
+	$(VENV)/radon mi src/ -s
 
 quality: lint type-check dead-code complexity
 	@echo "$(GREEN)✓ All quality checks complete$(RESET)"
@@ -87,15 +92,15 @@ quality: lint type-check dead-code complexity
 
 test:
 	@echo "$(BOLD)Running unit tests...$(RESET)"
-	pytest tests/unit/ -v
+	$(VENV)/pytest tests/unit/ -v
 
 test-all:
 	@echo "$(BOLD)Running all tests...$(RESET)"
-	pytest
+	$(VENV)/pytest
 
 coverage:
 	@echo "$(BOLD)Running tests with coverage...$(RESET)"
-	pytest --cov=src --cov-report=html --cov-report=term-missing
+	$(VENV)/pytest --cov=src --cov-report=html --cov-report=term-missing
 	@echo "$(GREEN)✓ Coverage report generated in htmlcov/$(RESET)"
 
 # ═══════════════════════════════════════════════════════════════
@@ -104,10 +109,10 @@ coverage:
 
 verify:
 	@echo "$(BOLD)Running signal verification...$(RESET)"
-	python -m src.verification.signal_verifier --all --profile signal_dev
+	$(PYTHON) -m src.verification.signal_verifier --all --profile signal_dev
 	@echo ""
 	@echo "$(BOLD)Running regime verification...$(RESET)"
-	python -m src.verification.regime_verifier --all --profile dev
+	$(PYTHON) -m src.verification.regime_verifier --all --profile dev
 
 # ═══════════════════════════════════════════════════════════════
 # Cleanup
