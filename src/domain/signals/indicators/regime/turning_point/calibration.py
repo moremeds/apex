@@ -12,7 +12,7 @@ Solution: Two-part calibration evidence with full bucket transparency.
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 import numpy as np
 

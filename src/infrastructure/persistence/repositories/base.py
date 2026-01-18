@@ -10,9 +10,8 @@ from __future__ import annotations
 import json
 import logging
 from abc import ABC, abstractmethod
-from datetime import datetime
 from decimal import Decimal
-from typing import Any, Dict, Generic, List, Optional, Tuple, Type, TypeVar
+from typing import Any, Dict, Generic, List, Optional, Tuple, TypeVar
 
 from asyncpg import Record
 
@@ -52,7 +51,6 @@ class BaseRepository(ABC, Generic[T]):
     @abstractmethod
     def table_name(self) -> str:
         """The database table name for this repository."""
-        pass
 
     @property
     def primary_key_columns(self) -> List[str]:
@@ -84,7 +82,6 @@ class BaseRepository(ABC, Generic[T]):
         Returns:
             Entity object.
         """
-        pass
 
     @abstractmethod
     def _to_row(self, entity: T) -> Dict[str, Any]:
@@ -97,7 +94,6 @@ class BaseRepository(ABC, Generic[T]):
         Returns:
             Dictionary with column names as keys.
         """
-        pass
 
     # -------------------------------------------------------------------------
     # Common Query Methods
@@ -141,7 +137,8 @@ class BaseRepository(ABC, Generic[T]):
             Total record count.
         """
         query = f"SELECT COUNT(*) FROM {self.table_name}"
-        return await self._db.fetchval(query)
+        result = await self._db.fetchval(query)
+        return int(result) if result is not None else 0
 
     async def exists(self, **conditions: Any) -> bool:
         """
@@ -155,7 +152,8 @@ class BaseRepository(ABC, Generic[T]):
         """
         where_clause, params = self._build_where_clause(conditions)
         query = f"SELECT EXISTS(SELECT 1 FROM {self.table_name} WHERE {where_clause})"
-        return await self._db.fetchval(query, *params)
+        result = await self._db.fetchval(query, *params)
+        return bool(result)
 
     async def find_where(
         self,
@@ -402,4 +400,4 @@ class BaseRepository(ABC, Generic[T]):
             return None
         if isinstance(value, Decimal):
             return float(value)
-        return value
+        return float(value) if value is not None else None

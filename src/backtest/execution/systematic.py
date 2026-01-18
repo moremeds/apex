@@ -4,18 +4,15 @@ Systematic runner - main experiment orchestrator.
 Executes backtests across parameter space, symbols, and time windows.
 """
 
-import asyncio
 import logging
 import multiprocessing as mp
 import time
-from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterator, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union
 
 from ..analysis import (
-    AggregationConfig,
     Aggregator,
     Constraint,
     ConstraintValidator,
@@ -43,7 +40,7 @@ from ..data import (
     WalkForwardSplitter,
 )
 from ..optimization import BayesianOptimizer, GridOptimizer
-from .parallel import ExecutionProgress, ParallelConfig, ParallelRunner
+from .parallel import ParallelConfig, ParallelRunner
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +90,7 @@ class SystematicRunner:
     _db: Optional[DatabaseManager] = field(default=None, repr=False)
     _aggregator: Aggregator = field(default_factory=Aggregator)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         self._db = DatabaseManager(self.config.db_path)
         self._db.initialize_schema()
         self._exp_repo = ExperimentRepository(self._db)
@@ -131,7 +128,7 @@ class SystematicRunner:
         max_retries = 3
 
         for attempt in range(max_retries):
-            run_version = get_next_version(self._db, base_experiment_id)
+            run_version = get_next_version(self._db, base_experiment_id or "")
             versioned_experiment_id = f"{base_experiment_id}_v{run_version}"
             try:
                 # Create experiment record with version tracking
@@ -191,6 +188,7 @@ class SystematicRunner:
             )
             method = "grid"
 
+        optimizer: Union[BayesianOptimizer, GridOptimizer]
         if method == "bayesian":
             seed = spec.reproducibility.random_seed if spec.reproducibility else 42
             optimizer = BayesianOptimizer(spec, n_trials=n_trials, seed=seed)
@@ -271,10 +269,11 @@ class SystematicRunner:
             parallel_runner.start(backtest_fn)  # Create executor once
 
         # Get parameter iterator (generator for Bayesian, list for Grid)
+        param_iterator: Any
         if use_bayesian:
-            param_iterator = optimizer.generate_params()
+            param_iterator = optimizer.generate_params()  # type: ignore[union-attr]
         else:
-            param_iterator = optimizer.generate_params_list()
+            param_iterator = grid_optimizer.generate_params_list()
 
         for params in param_iterator:
             trial_start_time = time.time()
@@ -287,13 +286,13 @@ class SystematicRunner:
 
             # Create trial stub first (for FK constraint)
             self._trial_repo.create_stub(
-                trial_spec.trial_id,
+                trial_spec.trial_id or "",
                 versioned_experiment_id,
                 params,
                 trial_count,
             )
 
-            if use_parallel and parallel_runner:
+            if use_parallel and parallel_runner and backtest_fn is not None:
                 trial_result = self._run_trial_parallel(
                     spec=spec,
                     trial_spec=trial_spec,
@@ -318,7 +317,7 @@ class SystematicRunner:
                 trial_result.constraint_violations = violations
 
             # Report result to Bayesian optimizer for learning
-            if use_bayesian:
+            if use_bayesian and isinstance(optimizer, BayesianOptimizer):
                 score = trial_result.trial_score or 0.0
                 optimizer.report_result(params, score)
 
@@ -406,7 +405,7 @@ class SystematicRunner:
                 # This enables proper overfitting detection via IS/OOS comparison
                 for window, is_train in [(train_window, True), (test_window, False)]:
                     run_spec = RunSpec(
-                        trial_id=trial_spec.trial_id,
+                        trial_id=trial_spec.trial_id or "",
                         symbol=symbol,
                         window=window,
                         profile_version=profile_version,
@@ -419,7 +418,7 @@ class SystematicRunner:
                     )
 
                     # Check if run already exists
-                    if self.config.skip_existing and self._run_repo.exists(run_spec.run_id):
+                    if self.config.skip_existing and self._run_repo.exists(run_spec.run_id or ""):
                         logger.debug(f"Skipping existing run: {run_spec.run_id}")
                         continue
 
@@ -433,9 +432,9 @@ class SystematicRunner:
                         except Exception as e:
                             logger.error(f"Run {run_spec.run_id} failed: {e}")
                             result = RunResult(
-                                run_id=run_spec.run_id,
-                                trial_id=trial_spec.trial_id,
-                                experiment_id=trial_spec.experiment_id,
+                                run_id=run_spec.run_id or "",
+                                trial_id=trial_spec.trial_id or "",
+                                experiment_id=trial_spec.experiment_id or "",
                                 symbol=symbol,
                                 window_id=window.window_id,
                                 profile_version=profile_version,
@@ -469,8 +468,8 @@ class SystematicRunner:
 
         # Aggregate trial
         trial_result = self._aggregator.aggregate_trial(
-            trial_id=trial_spec.trial_id,
-            experiment_id=trial_spec.experiment_id,  # Use versioned ID
+            trial_id=trial_spec.trial_id or "",
+            experiment_id=trial_spec.experiment_id or "",
             params=trial_spec.params,
             runs=runs,
         )
@@ -525,7 +524,7 @@ class SystematicRunner:
                 # Execute BOTH train (IS) and test (OOS) windows
                 for window, is_train in [(train_window, True), (test_window, False)]:
                     run_spec = RunSpec(
-                        trial_id=trial_spec.trial_id,
+                        trial_id=trial_spec.trial_id or "",
                         symbol=symbol,
                         window=window,
                         profile_version=profile_version,
@@ -538,12 +537,13 @@ class SystematicRunner:
                     )
 
                     # Check if run already exists
-                    if self.config.skip_existing and self._run_repo.exists(run_spec.run_id):
+                    if self.config.skip_existing and self._run_repo.exists(run_spec.run_id or ""):
                         logger.debug(f"Skipping existing run: {run_spec.run_id}")
                         continue
 
                     run_specs.append(run_spec)
-                    run_is_train[run_spec.run_id] = is_train
+                    if run_spec.run_id is not None:
+                        run_is_train[run_spec.run_id] = is_train
                     run_index += 1
 
         # Execute in parallel using shared runner
@@ -569,8 +569,8 @@ class SystematicRunner:
 
         # Aggregate trial
         trial_result = self._aggregator.aggregate_trial(
-            trial_id=trial_spec.trial_id,
-            experiment_id=trial_spec.experiment_id,  # Use versioned ID
+            trial_id=trial_spec.trial_id or "",
+            experiment_id=trial_spec.experiment_id or "",
             params=trial_spec.params,
             runs=runs,
         )
@@ -594,9 +594,9 @@ class SystematicRunner:
         total_return = sharpe * 0.1 + random.gauss(0, 0.05)
 
         return RunResult(
-            run_id=run_spec.run_id,
+            run_id=run_spec.run_id or "",
             trial_id=run_spec.trial_id,
-            experiment_id=run_spec.experiment_id,
+            experiment_id=run_spec.experiment_id or "",
             symbol=run_spec.symbol,
             window_id=window.window_id,
             profile_version=run_spec.profile_version,
@@ -622,7 +622,7 @@ class SystematicRunner:
         order_by: str = "trial_score DESC",
     ) -> List[Dict[str, Any]]:
         """Get top performing trials for an experiment."""
-        return self._trial_repo.get_top_trials(experiment_id, limit, order_by)
+        return list(self._trial_repo.get_top_trials(experiment_id, limit, order_by))
 
     def get_experiment_result(self, experiment_id: str) -> ExperimentResult:
         """Get complete experiment result with summary statistics."""
@@ -658,21 +658,22 @@ class SystematicRunner:
         best = top_trials_data[0] if top_trials_data else None
 
         # Query trial and run counts
+        assert self._db is not None
         trial_counts = self._db.fetchone(
             "SELECT COUNT(*), SUM(CASE WHEN trial_score IS NOT NULL THEN 1 ELSE 0 END) "
             "FROM trials WHERE experiment_id = ?",
             (experiment_id,),
         )
-        total_trials = trial_counts[0] if trial_counts else 0
-        successful_trials = trial_counts[1] if trial_counts and trial_counts[1] else 0
+        total_trials = int(trial_counts[0]) if trial_counts else 0
+        successful_trials = int(trial_counts[1]) if trial_counts and trial_counts[1] else 0
 
         run_counts = self._db.fetchone(
             "SELECT COUNT(*), SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) "
             "FROM runs WHERE experiment_id = ?",
             (experiment_id,),
         )
-        total_runs = run_counts[0] if run_counts else 0
-        successful_runs = run_counts[1] if run_counts and run_counts[1] else 0
+        total_runs = int(run_counts[0]) if run_counts else 0
+        successful_runs = int(run_counts[1]) if run_counts and run_counts[1] else 0
 
         # Extract configuration from stored experiment data
         universe_data = exp_data.get("universe", {})

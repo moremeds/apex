@@ -31,7 +31,6 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set
 
 from ..domain.events.domain_events import TradingSignalEvent

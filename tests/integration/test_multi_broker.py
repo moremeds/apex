@@ -22,7 +22,6 @@ from src.domain.services.pos_reconciler import Reconciler
 from src.infrastructure.adapters import BrokerManager, FutuAdapter, IbCompositeAdapter
 from src.infrastructure.adapters.ib import ConnectionPoolConfig
 from src.infrastructure.monitoring import HealthMonitor, HealthStatus
-from src.models.position import PositionSource
 
 
 def print_health_status(health_monitor: HealthMonitor):

@@ -24,10 +24,6 @@ import jsonschema
 import yaml
 
 from .invariants import (
-    BoundsInvariant,
-    CausalityInvariant,
-    IdentityInvariant,
-    NoNaNInvariant,
     create_invariant,
 )
 
@@ -392,7 +388,7 @@ class BaseVerifier(ABC):
         metric = check["metric"]
         op = check["op"]
         value = check["value"]
-        description = check.get("description", "")
+        check.get("description", "")
 
         actual_value = self._get_metric_value(metric)
         if actual_value is None:

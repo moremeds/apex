@@ -10,8 +10,6 @@ Implements a hierarchy distinguishing between recoverable runtime errors
 class ApexError(Exception):
     """Base class for all Apex domain exceptions."""
 
-    pass
-
 
 class RecoverableError(ApexError):
     """
@@ -23,8 +21,6 @@ class RecoverableError(ApexError):
     - Broker API temporary unavailability
     - Recoverable state inconsistencies
     """
-
-    pass
 
 
 class FatalError(ApexError):
@@ -38,13 +34,9 @@ class FatalError(ApexError):
     - Broker authentication failure (wrong credentials)
     """
 
-    pass
-
 
 class MarketDataError(RecoverableError):
     """Issues fetching or processing market data."""
-
-    pass
 
 
 class SourceUnavailableError(MarketDataError):
@@ -55,28 +47,18 @@ class SourceUnavailableError(MarketDataError):
     temporarily unavailable and should NOT be cached as valid data.
     """
 
-    pass
-
 
 class ExecutionError(RecoverableError):
     """Order submission or management failures."""
-
-    pass
 
 
 class RiskCheckError(RecoverableError):
     """Risk validation failures (logic valid, but trade rejected)."""
 
-    pass
-
 
 class ConfigurationError(FatalError):
     """Invalid system configuration."""
 
-    pass
-
 
 class InitializationError(FatalError):
     """Component failed to initialize correctly."""
-
-    pass

@@ -6,8 +6,7 @@ References:
 - Bailey & Lopez de Prado, "The Deflated Sharpe Ratio"
 """
 
-import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
 import numpy as np
@@ -55,10 +54,10 @@ class PBOCalculator:
 
         # Find best IS performer
         best_is_idx = np.argmax(is_sharpes)
-        best_is_oos = oos_sharpes[best_is_idx]
+        oos_sharpes[best_is_idx]
 
         # Compare to OOS median
-        oos_median = np.median(oos_sharpes)
+        np.median(oos_sharpes)
 
         # Simple PBO: probability best IS underperforms OOS median
         # Using simulation for robustness
@@ -123,7 +122,7 @@ class DSRCalculator:
             1 - 1 / (n_trials * np.e)
         )
 
-        return expected_max * sharpe_std
+        return float(expected_max * sharpe_std)
 
     def sharpe_variance(
         self,
@@ -308,15 +307,15 @@ class MonteCarloSimulator:
             curve = initial_equity + np.cumsum(shuffled)
             all_curves.append(curve)
 
-        all_curves = np.array(all_curves)
+        all_curves_arr = np.array(all_curves)
 
         # Calculate percentiles at each point
-        equity_p5 = np.percentile(all_curves, 5, axis=0)
-        equity_p50 = np.percentile(all_curves, 50, axis=0)
-        equity_p95 = np.percentile(all_curves, 95, axis=0)
+        equity_p5 = np.percentile(all_curves_arr, 5, axis=0)
+        equity_p50 = np.percentile(all_curves_arr, 50, axis=0)
+        equity_p95 = np.percentile(all_curves_arr, 95, axis=0)
 
         # P-value: fraction of simulations with better return
-        final_returns = (all_curves[:, -1] - initial_equity) / initial_equity
+        final_returns = (all_curves_arr[:, -1] - initial_equity) / initial_equity
         p_value = np.mean(final_returns >= original_return)
 
         return MonteCarloResult(

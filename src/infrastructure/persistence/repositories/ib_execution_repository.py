@@ -339,7 +339,14 @@ class IbExecutionRepository(BaseRepository[IbRawExecution]):
             SELECT MAX(exec_time) FROM ib_raw_executions
             WHERE account_id = $1
         """
-        return await self._db.fetchval(query, account_id)
+        result = await self._db.fetchval(query, account_id)
+        if result is None:
+            return None
+        from datetime import datetime as dt
+
+        if isinstance(result, dt):
+            return result
+        return None
 
     async def get_total_volume_by_symbol(
         self,
@@ -361,7 +368,7 @@ class IbExecutionRepository(BaseRepository[IbRawExecution]):
             Dictionary with 'buy_qty', 'sell_qty', 'net_qty'.
         """
         conditions = ["account_id = $1", "symbol = $2"]
-        params = [account_id, symbol]
+        params: List[Any] = [account_id, symbol]
         param_idx = 3
 
         if sec_type:
@@ -381,6 +388,9 @@ class IbExecutionRepository(BaseRepository[IbRawExecution]):
             WHERE {' AND '.join(conditions)}
         """
         record = await self._db.fetchrow(query, *params)
+
+        if record is None:
+            return {"buy_qty": Decimal(0), "sell_qty": Decimal(0), "net_qty": Decimal(0)}
 
         buy_qty = record["buy_qty"] or Decimal(0)
         sell_qty = record["sell_qty"] or Decimal(0)

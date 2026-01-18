@@ -12,7 +12,7 @@ from __future__ import annotations
 import importlib
 import pkgutil
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Type
+from typing import Dict, List, Optional, Set
 
 from src.utils.logging_setup import get_logger
 
@@ -84,6 +84,9 @@ class IndicatorRegistry:
             return 0
 
         discovered = 0
+        if package.__file__ is None:
+            logger.warning(f"Package {package_name} has no __file__ attribute")
+            return 0
         package_path = Path(package.__file__).parent
 
         for module_info in pkgutil.iter_modules([str(package_path)]):

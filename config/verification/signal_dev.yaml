@@ -1,7 +1,7 @@
 # Signal Service Development Profile
 #
 # Fast CI - contract + invariants + causality (no TA-Lib dependency)
-# Runs on Python 3.14
+# Runs on Python 3.13+
 #
 # Usage:
 #   python -m src.verification.signal_verifier --all --profile signal_dev
@@ -36,8 +36,8 @@ checks:
 # Skip in dev (need TA-Lib or are slow)
 skip:
   - S2_PARALLEL_SAFE      # Slow
-  - S4_MOMENTUM_SNAP      # Needs TA-Lib (Py3.13)
-  - S4_TREND_SNAP         # Needs TA-Lib (Py3.13)
+  - S4_MOMENTUM_SNAP      # Needs TA-Lib
+  - S4_TREND_SNAP         # Needs TA-Lib
   - S6_PERF               # Run in nightly
 
 # Fail behavior

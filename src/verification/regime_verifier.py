@@ -333,7 +333,7 @@ class ManifestVerifier:
         metric = check["metric"]
         op = check["op"]
         value = check["value"]
-        description = check.get("description", "")
+        check.get("description", "")
 
         # Get metric value (would be from actual backtest results)
         actual_value = self._get_metric_value(metric)
@@ -462,7 +462,7 @@ class ManifestVerifier:
     def _get_sample_hierarchical_regime(self) -> Optional[Dict]:
         """Generate a sample hierarchical regime state for schema validation."""
         try:
-            from src.domain.services.regime.models import TradingAction
+            pass
 
             # Create a sample hierarchical regime that matches the schema
             return {
@@ -493,7 +493,6 @@ class ManifestVerifier:
 
     def _convert_regime_output_to_dict(self, state: pd.Series, symbol: str) -> Dict:
         """Convert RegimeOutput series to dict for schema validation."""
-        from src.domain.signals.indicators.regime.models import MarketRegime
 
         regime_val = state.get("regime")
         if hasattr(regime_val, "value"):
@@ -576,11 +575,11 @@ class ManifestVerifier:
             fields = ["ma20", "ma50", "ma200", "atr20", "chop", "ext"]
             nan_counts = {}
 
-            for field in fields:
-                if field in after_warmup.columns:
-                    nan_count = after_warmup[field].isna().sum()
+            for field_name in fields:
+                if field_name in after_warmup.columns:
+                    nan_count = after_warmup[field_name].isna().sum()
                     if nan_count > 0:
-                        nan_counts[field] = int(nan_count)
+                        nan_counts[field_name] = int(nan_count)
 
             if nan_counts:
                 return False, f"NaN values found after warmup: {nan_counts}", nan_counts

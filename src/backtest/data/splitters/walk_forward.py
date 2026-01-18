@@ -13,8 +13,8 @@ Key features:
 """
 
 from dataclasses import dataclass, field
-from datetime import date, timedelta
-from typing import Iterator, List, Optional, Tuple
+from datetime import date
+from typing import Iterator, Optional, Tuple
 
 import pandas as pd
 from pydantic import BaseModel, Field
@@ -89,7 +89,7 @@ class WalkForwardSplitter:
     config: SplitConfig
     _trading_calendar: Optional[pd.DatetimeIndex] = field(default=None, repr=False)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Initialize trading calendar."""
         if self._trading_calendar is None:
             # Generate a default trading calendar (weekdays only)
@@ -118,27 +118,47 @@ class WalkForwardSplitter:
         # Find position in calendar
         from_ts = pd.Timestamp(from_date)
 
+        # Calendar is always initialized in __post_init__
+        calendar = self._trading_calendar
+        assert calendar is not None
+
         if trading_days >= 0:
             # Find trading days after from_date
-            mask = self._trading_calendar >= from_ts
-            future_days = self._trading_calendar[mask]
+            mask = calendar >= from_ts
+            future_days = calendar[mask]
             if len(future_days) > trading_days:
-                return future_days[trading_days].date()
-            return future_days[-1].date() if len(future_days) > 0 else from_date
+                return date(
+                    future_days[trading_days].year,
+                    future_days[trading_days].month,
+                    future_days[trading_days].day,
+                )
+            return (
+                date(future_days[-1].year, future_days[-1].month, future_days[-1].day)
+                if len(future_days) > 0
+                else from_date
+            )
         else:
             # Find trading days before from_date
-            mask = self._trading_calendar <= from_ts
-            past_days = self._trading_calendar[mask]
+            mask = calendar <= from_ts
+            past_days = calendar[mask]
             if len(past_days) > abs(trading_days):
-                return past_days[trading_days].date()  # negative index
-            return past_days[0].date() if len(past_days) > 0 else from_date
+                return date(
+                    past_days[trading_days].year,
+                    past_days[trading_days].month,
+                    past_days[trading_days].day,
+                )  # negative index
+            return (
+                date(past_days[0].year, past_days[0].month, past_days[0].day)
+                if len(past_days) > 0
+                else from_date
+            )
 
     def _count_trading_days(self, start: date, end: date) -> int:
         """Count trading days between two dates (inclusive)."""
-        mask = (self._trading_calendar >= pd.Timestamp(start)) & (
-            self._trading_calendar <= pd.Timestamp(end)
-        )
-        return mask.sum()
+        calendar = self._trading_calendar
+        assert calendar is not None
+        mask = (calendar >= pd.Timestamp(start)) & (calendar <= pd.Timestamp(end))
+        return int(mask.sum())
 
     def split(
         self, start_date: str | date, end_date: str | date
@@ -182,15 +202,11 @@ class WalkForwardSplitter:
             else:
                 train_start = current_train_start
 
-            train_end = self._trading_date_offset(
-                train_start, self.config.train_days - 1
-            )
+            train_end = self._trading_date_offset(train_start, self.config.train_days - 1)
 
             # Calculate test start (after purge gap, accounting for label horizon)
             effective_purge = self.config.effective_purge_days
-            test_start = self._trading_date_offset(
-                train_end, effective_purge + 1
-            )
+            test_start = self._trading_date_offset(train_end, effective_purge + 1)
 
             # Calculate test end
             test_end = self._trading_date_offset(test_start, self.config.test_days - 1)
@@ -207,26 +223,28 @@ class WalkForwardSplitter:
             if test_start > end_date:
                 break
 
-            # Common window parameters
-            window_params = {
-                "window_id": f"fold_{fold}",
-                "fold_index": fold,
-                "train_start": train_start,
-                "train_end": train_end,
-                "test_start": test_start,
-                "test_end": test_end,
-                "purge_days": effective_purge,  # Effective purge (includes label horizon)
-                "embargo_days": self.config.embargo_days,
-            }
-
             # Yield both train and test windows
             train_window = TimeWindow(
-                **window_params,
+                window_id=f"fold_{fold}",
+                fold_index=fold,
+                train_start=train_start,
+                train_end=train_end,
+                test_start=test_start,
+                test_end=test_end,
+                purge_days=effective_purge,
+                embargo_days=self.config.embargo_days,
                 is_train=True,
                 is_oos=False,
             )
             test_window = TimeWindow(
-                **window_params,
+                window_id=f"fold_{fold}",
+                fold_index=fold,
+                train_start=train_start,
+                train_end=train_end,
+                test_start=test_start,
+                test_end=test_end,
+                purge_days=effective_purge,
+                embargo_days=self.config.embargo_days,
                 is_train=False,
                 is_oos=True,
             )
@@ -235,9 +253,7 @@ class WalkForwardSplitter:
 
             # Move to next fold
             fold += 1
-            current_train_start = self._trading_date_offset(
-                current_train_start, step_days
-            )
+            current_train_start = self._trading_date_offset(current_train_start, step_days)
 
     def split_dataframe(
         self, df: pd.DataFrame, date_column: str = "date"
@@ -284,7 +300,7 @@ class WalkForwardSplitter:
         test_min = test_df[date_column].min()
 
         gap_days = (test_min - train_max).days
-        return gap_days >= self.config.effective_purge_days
+        return bool(gap_days >= self.config.effective_purge_days)
 
     def get_minimum_data_days(self) -> int:
         """Get minimum trading days needed for one complete fold."""

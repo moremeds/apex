@@ -11,9 +11,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
-from datetime import datetime
+from typing import TYPE_CHECKING, Union
 
 from .parser import create_parser
+
+if TYPE_CHECKING:
+    from ..runner import BacktraderRunner as _BacktraderRunner
+    from ..runner import SingleBacktestRunner as _SingleBacktestRunner
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +70,7 @@ async def main_async() -> None:
 
     try:
         engine_type = args.engine or "apex"
+        runner: Union[_BacktraderRunner, _SingleBacktestRunner]
 
         if engine_type == "backtrader":
             from ..runner import BacktraderRunner
@@ -81,25 +86,37 @@ async def main_async() -> None:
                 bar_size=args.bar_size,
                 commission=args.commission,
             )
-            result = await runner.run()
+            backtest_result = await runner.run()
 
         elif engine_type == "vectorbt":
-            from ..core import RunSpec
+            from ..core import RunSpec, TimeWindow
             from ..execution.engines import VectorBTConfig, VectorBTEngine
 
             config = VectorBTConfig(data_source="ib", ib_port=4001)
             engine = VectorBTEngine(config)
 
             for symbol in symbols:
+                window = TimeWindow(
+                    window_id="single_run",
+                    fold_index=0,
+                    train_start=args.start,
+                    train_end=args.end,
+                    test_start=args.start,
+                    test_end=args.end,
+                )
                 spec = RunSpec(
-                    strategy=args.strategy,
+                    trial_id="cli_trial",
                     symbol=symbol,
-                    start=datetime.combine(args.start, datetime.min.time()),
-                    end=datetime.combine(args.end, datetime.max.time()),
-                    params={},
+                    window=window,
+                    profile_version="1.0",
+                    data_version="1.0",
+                    params={"strategy_type": args.strategy},
                 )
                 result = engine.run(spec)
-                print(f"\n{symbol}: Return={result.total_return:.2%}, Sharpe={result.sharpe:.2f}")
+                print(
+                    f"\n{symbol}: Return={result.metrics.total_return:.2%}, "
+                    f"Sharpe={result.metrics.sharpe:.2f}"
+                )
             return
 
         else:
@@ -107,9 +124,9 @@ async def main_async() -> None:
             from ..runner import SingleBacktestRunner
 
             runner = SingleBacktestRunner.from_args(args)
-            result = await runner.run()
+            backtest_result = await runner.run()
 
-        sys.exit(0 if result.is_profitable else 1)
+        sys.exit(0 if backtest_result.is_profitable else 1)
 
     except Exception as e:
         logger.error(f"Backtest failed: {e}")

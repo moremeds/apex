@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Callable, Dict, List, Optional, Protocol, runtime_checkable
+from typing import Callable, List, Optional, Protocol, runtime_checkable
 
 from ..events.domain_events import PositionSnapshot
 

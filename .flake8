@@ -1,0 +1,13 @@
+[flake8]
+max-line-length = 100
+# E203: whitespace before ':' (conflicts with black)
+# E402: module level import not at top (often intentional for conditional imports)
+# E501: line too long (handled by black)
+# E712: comparison to True (often intentional in pandas)
+# E731: do not assign lambda (sometimes cleaner)
+# W503: line break before binary operator (conflicts with black)
+# E741: ambiguous variable name (l, O, I)
+# F541: f-string without placeholders (used in logging patterns)
+extend-ignore = E203, E303, E402, E501, E712, E731, W391, W503, E741, F541
+exclude = .git, __pycache__, .venv, build, dist, legacy, .eggs, tests/partial
+per-file-ignores = __init__.py: F401

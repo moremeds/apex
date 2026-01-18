@@ -185,12 +185,13 @@ class TradeTracker:
         trade_side = "LONG" if fill.side == "SELL" else "SHORT"
 
         # Get positions to match based on method
+        positions_to_check: list[OpenPosition]
         if self._method == MatchingMethod.LIFO:
-            positions_to_check = reversed(open_positions)
+            positions_to_check = list(reversed(open_positions))
         else:
             positions_to_check = open_positions
 
-        for pos in list(positions_to_check):
+        for pos in positions_to_check:
             if remaining_to_close <= 0:
                 break
 

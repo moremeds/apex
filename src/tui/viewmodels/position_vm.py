@@ -99,7 +99,7 @@ class PositionViewModel(BaseViewModel[List[Any]]):
         """Group positions by underlying symbol."""
         result: Dict[str, List[Any]] = {}
         for pos in positions:
-            underlying = getattr(pos, "underlying", None) or getattr(pos, "symbol", "?")
+            underlying: str = str(getattr(pos, "underlying", None) or getattr(pos, "symbol", "?"))
             if underlying not in result:
                 result[underlying] = []
             result[underlying].append(pos)
@@ -330,9 +330,10 @@ class PositionViewModel(BaseViewModel[List[Any]]):
     def _get_display_name(self, pos: Any) -> str:
         """Get display name for a position."""
         if hasattr(pos, "get_display_name"):
-            return pos.get_display_name()
+            result = pos.get_display_name()
+            return str(result) if result is not None else "?"
 
-        symbol = getattr(pos, "symbol", "?")
+        symbol: str = getattr(pos, "symbol", "?")
         expiry = getattr(pos, "expiry", None)
 
         if not expiry:

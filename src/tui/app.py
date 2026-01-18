@@ -73,7 +73,7 @@ class ApexApp(App):
     health: reactive[List[Any]] = reactive(list)
     market_alerts: reactive[List[Dict[str, Any]]] = reactive(list)
 
-    def __init__(self, env: str = "dev", display_tz: str = "Asia/Hong_Kong", **kwargs):
+    def __init__(self, env: str = "dev", display_tz: str = "Asia/Hong_Kong", **kwargs: Any) -> None:
         """
         Initialize the Apex Dashboard.
 
@@ -92,7 +92,7 @@ class ApexApp(App):
         # Consolidated event bus for all TUI updates (replaces 4 separate queues)
         self._tui_events = TUIEventBus()
 
-        self._poll_timer = None
+        self._poll_timer: Any = None  # Textual Timer
         # Pending universe to apply after mount (query_one fails before compose)
         self._pending_universe: List[str] = []
         # Track mount state for deferred universe application
@@ -104,8 +104,8 @@ class ApexApp(App):
         self._history_loaded = False
 
         # Tab 7 (Data) services
-        self._coverage_store = None  # DuckDBCoverageStore
-        self._data_poll_timer = None  # Slower polling for Tab 7
+        self._coverage_store: Any = None  # DuckDBCoverageStore
+        self._data_poll_timer: Any = None  # Slower polling for Tab 7 (Textual Timer)
 
     def on_mount(self) -> None:
         """Set up update polling when app is mounted."""
@@ -166,14 +166,16 @@ class ApexApp(App):
 
         # Dispatch snapshot (conflated to latest)
         if result.snapshot is not None:
-            self.update_data(
-                result.snapshot.snapshot,
-                result.snapshot.signals,
-                result.snapshot.health,
-                result.snapshot.alerts,
-            )
+            snapshot_data = result.snapshot
+            if snapshot_data.snapshot is not None:
+                self.update_data(
+                    snapshot_data.snapshot,
+                    snapshot_data.signals or [],
+                    snapshot_data.health or [],
+                    snapshot_data.alerts or [],
+                )
 
-    def queue_update(self, snapshot, signals, health, alerts) -> None:
+    def queue_update(self, snapshot: Any, signals: Any, health: Any, alerts: Any) -> None:
         """Queue a data update (thread-safe)."""
         self._tui_events.push_snapshot(
             snapshot=snapshot,
@@ -233,13 +235,13 @@ class ApexApp(App):
 
     def inject_services(
         self,
-        ta_service,
-        event_loop,
-        historical_service=None,
-        event_bus=None,
+        ta_service: Any,
+        event_loop: Any,
+        historical_service: Any = None,
+        event_bus: Any = None,
         signal_persistence: Optional["SignalPersistencePort"] = None,
         signal_listener: Optional["SignalListener"] = None,
-        coverage_store=None,
+        coverage_store: Any = None,
     ) -> None:
         """
         Inject services for ATR calculation, backtesting, and signal events.
@@ -267,7 +269,7 @@ class ApexApp(App):
         else:
             self.log.warning("No event_bus provided - trading signals will not stream in real-time")
 
-    def set_signal_introspection(self, introspection) -> None:
+    def set_signal_introspection(self, introspection: Any) -> None:
         """
         Set the signal introspection adapter for Tab 7 Intro view.
 
@@ -281,7 +283,7 @@ class ApexApp(App):
         except Exception as e:
             self.log.error(f"Failed to wire signal introspection: {e}")
 
-    def _subscribe_trading_signals(self, event_bus) -> None:
+    def _subscribe_trading_signals(self, event_bus: Any) -> None:
         """Subscribe to trading signals and position delta events."""
         from ..domain.events.event_types import EventType
 
@@ -293,7 +295,7 @@ class ApexApp(App):
             "Subscribed to TRADING_SIGNAL, CONFLUENCE_UPDATE, ALIGNMENT_UPDATE, POSITION_DELTA events"
         )
 
-    def _on_trading_signal(self, payload) -> None:
+    def _on_trading_signal(self, payload: Any) -> None:
         """
         Event bus callback for trading signals (called from event bus thread).
 
@@ -301,7 +303,7 @@ class ApexApp(App):
         """
         self._tui_events.push_signal(payload)
 
-    def _dispatch_trading_signal(self, signal) -> None:
+    def _dispatch_trading_signal(self, signal: Any) -> None:
         """Dispatch a trading signal to the unified Signals view (runs in TUI thread)."""
         try:
             signals_view = self.query_one("#signals-view", SignalsView)
@@ -309,7 +311,7 @@ class ApexApp(App):
         except Exception as e:
             self.log.error(f"Failed to dispatch trading signal: {e}")
 
-    def _on_confluence_update(self, score) -> None:
+    def _on_confluence_update(self, score: Any) -> None:
         """
         Callback for confluence score updates (called from event bus).
 
@@ -320,7 +322,7 @@ class ApexApp(App):
         """
         self._tui_events.push_confluence(score)
 
-    def _on_alignment_update(self, alignment) -> None:
+    def _on_alignment_update(self, alignment: Any) -> None:
         """
         Callback for MTF alignment updates (called from coordinator thread).
 
@@ -331,7 +333,7 @@ class ApexApp(App):
         """
         self._tui_events.push_alignment(alignment)
 
-    def _on_position_delta(self, delta) -> None:
+    def _on_position_delta(self, delta: Any) -> None:
         """
         Event bus callback for position deltas (called from DeltaPublisher thread).
 
@@ -349,7 +351,7 @@ class ApexApp(App):
             self._delta_flush_pending = True
             self.call_from_thread(self._flush_deltas)
 
-    def _dispatch_confluence(self, score) -> None:
+    def _dispatch_confluence(self, score: Any) -> None:
         """Dispatch confluence score to unified Signals view (runs in TUI thread)."""
         try:
             signals_view = self.query_one("#signals-view", SignalsView)
@@ -357,7 +359,7 @@ class ApexApp(App):
         except Exception as e:
             self.log.error(f"Failed to dispatch confluence score: {e}")
 
-    def _dispatch_alignment(self, alignment) -> None:
+    def _dispatch_alignment(self, alignment: Any) -> None:
         """Dispatch MTF alignment to unified Signals view (runs in TUI thread)."""
         try:
             signals_view = self.query_one("#signals-view", SignalsView)
@@ -587,13 +589,14 @@ class ApexApp(App):
     def _fetch_indicator_summary(self) -> None:
         """Fetch indicator summary using Textual worker to avoid blocking."""
 
-        async def _fetch():
+        async def _fetch() -> None:
             try:
-                summary = await self._signal_persistence.get_indicator_summary()
-                self.log.info(f"Indicator summary fetched: {len(summary)} indicators")
-                # Workers run in same event loop when thread=False
-                data_view = self.query_one("#data-view", DataView)
-                data_view.update_indicator_summary(summary)
+                if self._signal_persistence is not None:
+                    summary = await self._signal_persistence.get_indicator_summary()
+                    self.log.info(f"Indicator summary fetched: {len(summary)} indicators")
+                    # Workers run in same event loop when thread=False
+                    data_view = self.query_one("#data-view", DataView)
+                    data_view.update_indicator_summary(summary)
             except Exception as e:
                 self.log.error(f"Failed to fetch indicator summary: {e}")
 
@@ -601,9 +604,9 @@ class ApexApp(App):
         # asyncpg connections are NOT thread-safe and are tied to the event loop
         # they were created in. Using thread=True would create a new event loop
         # where the database connection wouldn't work.
-        self.run_worker(_fetch, exclusive=False, name="indicator_summary", thread=False)
+        self.run_worker(_fetch, exclusive=False, name="indicator_summary", thread=False)  # type: ignore[arg-type]
 
-    def _get_coverage_data(self) -> Dict[str, List[Dict]]:
+    def _get_coverage_data(self) -> Dict[str, List[Dict[str, Any]]]:
         """Get coverage data from DuckDB grouped by symbol, including file sizes."""
         if not self._coverage_store:
             return {}
@@ -632,7 +635,7 @@ class ApexApp(App):
                             else:
                                 record["file_size"] = None
 
-            return coverage
+            return dict(coverage)  # Explicit dict() to satisfy type checker
         except Exception as e:
             self.log.error(f"Failed to get coverage data: {e}")
             return {}
@@ -648,17 +651,18 @@ class ApexApp(App):
 
         indicator = event.indicator
 
-        async def fetch_details():
+        async def fetch_details() -> None:
             try:
-                details = await self._signal_persistence.get_indicator_details(indicator)
-                # Apply directly - we're in the same event loop with thread=False
-                data_view = self.query_one("#data-view", DataView)
-                data_view.update_indicator_details(indicator, details)
+                if self._signal_persistence is not None:
+                    details = await self._signal_persistence.get_indicator_details(indicator)
+                    # Apply directly - we're in the same event loop with thread=False
+                    data_view = self.query_one("#data-view", DataView)
+                    data_view.update_indicator_details(indicator, details)
             except Exception as e:
                 self.log.error(f"Failed to fetch indicator details: {e}")
 
         # thread=False for asyncpg compatibility (see _fetch_indicator_summary)
-        self.run_worker(fetch_details, exclusive=True, thread=False)
+        self.run_worker(fetch_details, exclusive=True, thread=False)  # type: ignore[arg-type]
 
     # NOTE: watch_snapshot removed to fix double rendering bug.
     # The update_data() method calls _update_views() directly, so having
@@ -681,24 +685,25 @@ class ApexApp(App):
         if not self._signal_persistence:
             return
 
-        async def _fetch_signals():
+        async def _fetch_signals() -> None:
             """Async worker to fetch signals from database."""
             try:
-                signals = await self._signal_persistence.get_recent_signals(limit=100)
-                if signals:
-                    # Apply directly - we're in the same event loop with thread=False
-                    signals_view = self.query_one("#signals-view", SignalsView)
-                    for signal in reversed(signals):
-                        signals_view.add_signal(signal)
-                    self.log.info(f"Loaded {len(signals)} historical signals from database")
-                else:
-                    self.log.info("No historical signals found in database")
+                if self._signal_persistence is not None:
+                    signals = await self._signal_persistence.get_recent_signals(limit=100)
+                    if signals:
+                        # Apply directly - we're in the same event loop with thread=False
+                        signals_view = self.query_one("#signals-view", SignalsView)
+                        for signal in reversed(signals):
+                            signals_view.add_signal(signal)
+                        self.log.info(f"Loaded {len(signals)} historical signals from database")
+                    else:
+                        self.log.info("No historical signals found in database")
                 self._history_loaded = True
             except Exception as e:
                 self.log.error(f"Failed to load signal history: {e}")
 
         # thread=False for asyncpg compatibility (connections are event-loop bound)
-        self.run_worker(_fetch_signals, exclusive=True, thread=False)
+        self.run_worker(_fetch_signals, exclusive=True, thread=False)  # type: ignore[arg-type]
 
     # -------------------------------------------------------------------------
     # SignalListener Integration (PostgreSQL NOTIFY)

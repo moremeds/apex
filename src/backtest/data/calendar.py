@@ -22,7 +22,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from datetime import date, timedelta
 from functools import lru_cache
-from typing import List, Optional, Sequence, Union
+from typing import List, Union
 
 import pandas as pd
 
@@ -55,15 +55,11 @@ class TradingCalendar(ABC):
         ...
 
     @abstractmethod
-    def get_trading_days(
-        self, start: Union[date, str], end: Union[date, str]
-    ) -> List[date]:
+    def get_trading_days(self, start: Union[date, str], end: Union[date, str]) -> List[date]:
         """Get list of trading days in date range (inclusive)."""
         ...
 
-    def count_trading_days(
-        self, start: Union[date, str], end: Union[date, str]
-    ) -> int:
+    def count_trading_days(self, start: Union[date, str], end: Union[date, str]) -> int:
         """Count trading days in date range (inclusive)."""
         return len(self.get_trading_days(start, end))
 
@@ -135,9 +131,7 @@ class WeekdayCalendar(TradingCalendar):
         dt = self._to_date(dt)
         return dt.weekday() < 5  # Mon=0, Fri=4
 
-    def get_trading_days(
-        self, start: Union[date, str], end: Union[date, str]
-    ) -> List[date]:
+    def get_trading_days(self, start: Union[date, str], end: Union[date, str]) -> List[date]:
         start = self._to_date(start)
         end = self._to_date(end)
 
@@ -183,8 +177,7 @@ class ExchangeCalendar(TradingCalendar):
             self._calendar = mcal.get_calendar(self._exchange)
         except Exception as e:
             raise ValueError(
-                f"Unsupported exchange: {exchange}. "
-                f"Available: {mcal.get_calendar_names()}"
+                f"Unsupported exchange: {exchange}. " f"Available: {mcal.get_calendar_names()}"
             ) from e
 
         # Cache for trading days (date range -> set of dates)
@@ -201,9 +194,7 @@ class ExchangeCalendar(TradingCalendar):
         schedule = self._calendar.schedule(start_date=ts, end_date=ts)
         return len(schedule) > 0
 
-    def get_trading_days(
-        self, start: Union[date, str], end: Union[date, str]
-    ) -> List[date]:
+    def get_trading_days(self, start: Union[date, str], end: Union[date, str]) -> List[date]:
         start = self._to_date(start)
         end = self._to_date(end)
 
@@ -221,9 +212,7 @@ class ExchangeCalendar(TradingCalendar):
             trading_dates = set(schedule.index.date)
             self._cache[cache_key] = trading_dates
 
-        return sorted(
-            d for d in self._cache[cache_key] if start <= d <= end
-        )
+        return sorted(d for d in self._cache[cache_key] if start <= d <= end)
 
 
 @lru_cache(maxsize=16)

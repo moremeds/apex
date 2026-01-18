@@ -5,7 +5,7 @@ Tests the multi-timeframe RSI calculation and signal generation.
 """
 
 from collections import deque
-from datetime import datetime, timedelta
+from datetime import datetime
 from unittest.mock import MagicMock
 
 import pytest

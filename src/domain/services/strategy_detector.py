@@ -62,9 +62,9 @@ class StrategyDetector:
     - Covered calls/puts (stock + option)
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize strategy detector."""
-        self._detection_stats = {
+        self._detection_stats: Dict[str, int] = {
             "total_positions": 0,
             "strategies_detected": 0,
             "vertical_spreads": 0,
@@ -197,7 +197,7 @@ class StrategyDetector:
         """
         Detect option-only strategies (spreads, condors, etc.).
         """
-        strategies = []
+        strategies: List[DetectedStrategy] = []
 
         # Need at least 2 legs for a spread
         if len(option_positions) < 2:
@@ -255,8 +255,11 @@ class StrategyDetector:
                     short_leg = pos2 if pos1.quantity > 0 else pos1
 
                     # Credit spread: short leg closer to ATM (higher strike for calls, lower for puts)
-                    is_credit = (pos1.right == "C" and short_leg.strike < long_leg.strike) or (
-                        pos1.right == "P" and short_leg.strike > long_leg.strike
+                    # Strike is guaranteed non-None for options, but need to guard for type checker
+                    short_strike = short_leg.strike or 0.0
+                    long_strike = long_leg.strike or 0.0
+                    is_credit = (pos1.right == "C" and short_strike < long_strike) or (
+                        pos1.right == "P" and short_strike > long_strike
                     )
 
                     strategy_type = (
@@ -274,7 +277,7 @@ class StrategyDetector:
                                 "expiry": pos1.expiry,
                                 "long_strike": long_leg.strike,
                                 "short_strike": short_leg.strike,
-                                "width": abs(pos1.strike - pos2.strike),
+                                "width": abs((pos1.strike or 0.0) - (pos2.strike or 0.0)),
                             },
                         )
                     )
@@ -362,7 +365,7 @@ class StrategyDetector:
         - Short call spread + Short put spread
         - Example: Sell 100C, Buy 105C, Sell 95P, Buy 90P
         """
-        strategies = []
+        strategies: List[DetectedStrategy] = []
 
         # Need exactly 4 legs
         if len(option_positions) != 4:

@@ -129,7 +129,9 @@ class AccountStore:
                 account_id="empty",
             )
 
-        # Aggregate from both sources
+        # Aggregate from both sources (both are guaranteed non-None at this point)
+        assert self._ib_account is not None
+        assert self._futu_account is not None
         ib = self._ib_account
         futu = self._futu_account
 

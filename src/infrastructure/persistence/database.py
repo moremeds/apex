@@ -10,10 +10,9 @@ Provides async connection pooling using asyncpg with:
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator, Dict, List, Optional, Tuple, Type, TypeVar
+from typing import Any, AsyncIterator, Dict, List, Optional, Tuple, TypeVar
 
 import asyncpg
 from asyncpg import Connection, Pool, Record
@@ -28,19 +27,13 @@ T = TypeVar("T")
 class DatabaseError(Exception):
     """Base exception for database operations."""
 
-    pass
-
 
 class ConnectionError(DatabaseError):
     """Failed to establish database connection."""
 
-    pass
-
 
 class QueryError(DatabaseError):
     """Query execution failed."""
-
-    pass
 
 
 class Database:
@@ -174,7 +167,8 @@ class Database:
         """
         try:
             async with self.pool.acquire() as conn:
-                return await conn.execute(query, *args, timeout=timeout)
+                result: str = await conn.execute(query, *args, timeout=timeout)
+                return result
         except Exception as e:
             logger.error(f"Query execution failed: {e}", extra={"query": query[:200]})
             raise QueryError(f"Query execution failed: {e}") from e
@@ -217,7 +211,8 @@ class Database:
         """
         try:
             async with self.pool.acquire() as conn:
-                return await conn.fetch(query, *args, timeout=timeout)
+                result: List[Record] = await conn.fetch(query, *args, timeout=timeout)
+                return result
         except Exception as e:
             logger.error(f"Fetch failed: {e}", extra={"query": query[:200]})
             raise QueryError(f"Fetch failed: {e}") from e
@@ -329,7 +324,8 @@ class Database:
                 AND table_name = $1
             )
         """
-        return await self.fetchval(query, table_name)
+        result = await self.fetchval(query, table_name)
+        return bool(result)
 
     async def get_table_row_count(self, table_name: str) -> int:
         """

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import time
 from contextlib import contextmanager
-from typing import Any, Dict, Optional
+from typing import Any, Generator, Optional
 
 from opentelemetry import metrics
 
@@ -389,7 +389,7 @@ class AdapterMetricsContext:
         self._start = time.perf_counter()
         return self
 
-    def __exit__(self, *args) -> None:
+    def __exit__(self, *args: Any) -> None:
         """Stop timing and record duration."""
         if self._metrics:
             latency_ms = (time.perf_counter() - self._start) * 1000
@@ -407,7 +407,7 @@ def time_adapter_operation(
     adapter_name: str,
     broker: str,
     operation: str,
-):
+) -> Generator[None, None, None]:
     """
     Context manager for timing adapter operations.
 

@@ -31,9 +31,9 @@ class AlertsList(Widget):
     # Reactive state
     alerts: reactive[List[Dict[str, Any]]] = reactive(list, init=False)
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self._persistent_alerts: Dict[str, Dict] = {}
+        self._persistent_alerts: Dict[str, Dict[str, Any]] = {}
         self._alert_retention_seconds = 300
         # OPT-011: ViewModel for incremental updates
         self._vm = AlertViewModel()

@@ -21,7 +21,6 @@ import json
 import logging
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
-from decimal import Decimal
 from typing import Any, Dict, List, Optional
 from uuid import UUID, uuid4
 

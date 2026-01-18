@@ -29,7 +29,7 @@ Usage:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Generic, Optional, TypeVar, Union
+from typing import Callable, Generic, TypeVar, Union
 
 T = TypeVar("T")  # Success type
 E = TypeVar("E")  # Error type

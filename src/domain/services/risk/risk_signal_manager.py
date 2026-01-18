@@ -136,7 +136,7 @@ class RiskSignalManager:
                 )
                 return []
 
-    def clear_signal(self, signal_id: str):
+    def clear_signal(self, signal_id: str) -> None:
         """
         Clear signal when condition resolves.
 
@@ -158,7 +158,7 @@ class RiskSignalManager:
         if cleared:
             logger.info(f"Signal {signal_id} cleared (condition resolved)")
 
-    def clear_all_for_symbol(self, symbol: str):
+    def clear_all_for_symbol(self, symbol: str) -> None:
         """
         Clear all signals for a specific symbol (e.g., position closed).
 
@@ -183,7 +183,7 @@ class RiskSignalManager:
         if to_clear:
             logger.info(f"Cleared {len(set(to_clear))} signals for symbol {symbol}")
 
-    def cleanup_expired(self):
+    def cleanup_expired(self) -> None:
         """
         Clean up expired cooldowns (housekeeping).
 
@@ -215,7 +215,7 @@ class RiskSignalManager:
             "active_cooldowns": len(self._cooldowns),
         }
 
-    def reset_stats(self):
+    def reset_stats(self) -> None:
         """Reset statistics counters."""
         self._stats = {
             "total_processed": 0,

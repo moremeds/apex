@@ -10,7 +10,6 @@ Provides a unified StrategyItem interface for the TUI to display and execute.
 
 from __future__ import annotations
 
-import glob
 import logging
 from dataclasses import dataclass, field
 from datetime import date
@@ -125,10 +124,7 @@ class StrategySource:
 
             # Import example strategies to ensure they're registered
             try:
-                from ..strategy.examples import (
-                    BuyAndHoldStrategy,
-                    MovingAverageCrossStrategy,
-                )
+                pass
             except ImportError:
                 pass
 

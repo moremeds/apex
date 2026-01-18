@@ -7,20 +7,15 @@ Historical data requires IB FLEX reports (deferred to v1.2).
 
 from __future__ import annotations
 
-import asyncio
 import logging
-from datetime import date, datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from config.models import IbConfig
 from src.infrastructure.persistence.repositories import (
     IbCommissionRepository,
     IbExecutionRepository,
-    IbRawCommission,
-    IbRawExecution,
     SyncStateRepository,
 )
-from src.utils.timezone import now_utc
 
 logger = logging.getLogger(__name__)
 

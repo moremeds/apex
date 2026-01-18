@@ -23,9 +23,9 @@ import json
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Literal, Optional, Type, TypeVar
+from typing import Any, Dict, List, Optional, Type, TypeVar
 
-from ...utils.timezone import now_utc
+from ...utils.timezone import now_local, now_utc
 
 # Type variable for generic from_dict
 T = TypeVar("T", bound="DomainEvent")

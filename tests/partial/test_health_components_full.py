@@ -3,7 +3,6 @@ Test to verify all 4 health components are properly registered and displayed.
 """
 
 import sys
-from datetime import datetime
 from pathlib import Path
 
 # Add project root to path
@@ -11,7 +10,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from src.application.simple_event_bus import SimpleEventBus
 from src.infrastructure.monitoring import HealthMonitor, HealthStatus, Watchdog
-from src.models.risk_snapshot import RiskSnapshot
 from src.tui.dashboard import TerminalDashboard
 
 

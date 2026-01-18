@@ -21,7 +21,6 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical
-from textual.widgets import Static
 
 from ..widgets.atr_panel import ATRPanel
 from ..widgets.orders_panel import OrdersPanel
@@ -53,7 +52,7 @@ class PositionsView(Container, can_focus=True):
         Binding("r", "reset_atr", "Reset ATR", show=True),
     ]
 
-    def __init__(self, broker: str = "ib", **kwargs) -> None:
+    def __init__(self, broker: str = "ib", **kwargs: Any) -> None:
         """
         Initialize positions view.
 
@@ -92,7 +91,7 @@ class PositionsView(Container, can_focus=True):
             atr_panel.position = event.position
             atr_panel.selected_symbol = event.underlying
         except Exception:
-            self.log.exception("Failed to update ATR panel on selection")
+            self.log.error("Failed to update ATR panel on selection")
 
     def update_data(self, snapshot: Optional["RiskSnapshot"]) -> None:
         """
@@ -106,7 +105,7 @@ class PositionsView(Container, can_focus=True):
             positions_table = self.query_one(f"#{self.broker}-positions", PositionsTable)
             positions_table.positions = position_risks
         except Exception:
-            self.log.exception("Failed to update positions table")
+            self.log.error("Failed to update positions table")
 
     def apply_deltas(self, deltas: Dict[str, "PositionDeltaEvent"]) -> None:
         """
@@ -121,7 +120,7 @@ class PositionsView(Container, can_focus=True):
             positions_table = self.query_one(f"#{self.broker}-positions", PositionsTable)
             positions_table.apply_deltas(deltas)
         except Exception:
-            self.log.exception("Failed to apply position deltas")
+            self.log.error("Failed to apply position deltas")
 
     def action_move_up(self) -> None:
         """Move selection up in the positions table."""
@@ -131,7 +130,7 @@ class PositionsView(Container, can_focus=True):
                 table.move_cursor(row=table.cursor_row - 1)
                 self._on_selection_change()
         except Exception:
-            self.log.exception("Failed to move up")
+            self.log.error("Failed to move up")
 
     def action_move_down(self) -> None:
         """Move selection down in the positions table."""
@@ -141,7 +140,7 @@ class PositionsView(Container, can_focus=True):
                 table.move_cursor(row=table.cursor_row + 1)
                 self._on_selection_change()
         except Exception:
-            self.log.exception("Failed to move down")
+            self.log.error("Failed to move down")
 
     def action_increase_atr_period(self) -> None:
         """Increase ATR period."""
@@ -149,7 +148,7 @@ class PositionsView(Container, can_focus=True):
             atr_panel = self.query_one(f"#{self.broker}-atr", ATRPanel)
             atr_panel.adjust_period(1)
         except Exception:
-            self.log.exception("Failed to increase ATR period")
+            self.log.error("Failed to increase ATR period")
 
     def action_decrease_atr_period(self) -> None:
         """Decrease ATR period."""
@@ -157,7 +156,7 @@ class PositionsView(Container, can_focus=True):
             atr_panel = self.query_one(f"#{self.broker}-atr", ATRPanel)
             atr_panel.adjust_period(-1)
         except Exception:
-            self.log.exception("Failed to decrease ATR period")
+            self.log.error("Failed to decrease ATR period")
 
     def action_cycle_timeframe(self) -> None:
         """Cycle ATR timeframe."""
@@ -165,7 +164,7 @@ class PositionsView(Container, can_focus=True):
             atr_panel = self.query_one(f"#{self.broker}-atr", ATRPanel)
             atr_panel.cycle_timeframe()
         except Exception:
-            self.log.exception("Failed to cycle timeframe")
+            self.log.error("Failed to cycle timeframe")
 
     def action_toggle_help(self) -> None:
         """Toggle ATR help mode."""
@@ -173,7 +172,7 @@ class PositionsView(Container, can_focus=True):
             atr_panel = self.query_one(f"#{self.broker}-atr", ATRPanel)
             atr_panel.toggle_help()
         except Exception:
-            self.log.exception("Failed to toggle help")
+            self.log.error("Failed to toggle help")
 
     def action_reset_atr(self) -> None:
         """Reset ATR period and timeframe to defaults."""
@@ -181,7 +180,7 @@ class PositionsView(Container, can_focus=True):
             atr_panel = self.query_one(f"#{self.broker}-atr", ATRPanel)
             atr_panel.reset()
         except Exception:
-            self.log.exception("Failed to reset ATR")
+            self.log.error("Failed to reset ATR")
 
     def _on_selection_change(self) -> None:
         """Handle selection change in the table."""
@@ -194,4 +193,4 @@ class PositionsView(Container, can_focus=True):
                 atr_panel.position = pos
                 atr_panel.selected_symbol = symbol
         except Exception:
-            self.log.exception("Failed to update selection")
+            self.log.error("Failed to update selection")

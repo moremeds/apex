@@ -38,7 +38,7 @@ class SignalsTable(DataTable):
     signals: reactive[List[Any]] = reactive(list, init=False)
     snapshot: reactive[Optional[Any]] = reactive(lambda: None, init=False)
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: Any) -> None:
         super().__init__(cursor_type="row", **kwargs)
 
         # ViewModel for persistence tracking and diff computation

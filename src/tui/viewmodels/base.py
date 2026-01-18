@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Dict, Generic, List, Optional, Tuple, TypeVar
+from typing import Dict, Generic, List, Optional, Tuple, TypeVar
 
 T = TypeVar("T")
 
@@ -67,7 +67,6 @@ class BaseViewModel(ABC, Generic[T]):
         Returns:
             Dict mapping row_key -> list of formatted cell values
         """
-        pass
 
     @abstractmethod
     def get_row_order(self, data: T) -> List[str]:
@@ -80,7 +79,6 @@ class BaseViewModel(ABC, Generic[T]):
         Returns:
             Ordered list of row keys
         """
-        pass
 
     def _get_or_compute(self, data: T) -> Tuple[Dict[str, List[str]], List[str]]:
         """

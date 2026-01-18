@@ -10,7 +10,6 @@ This service monitors market-wide conditions and generates alerts for:
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from ...utils.logging_setup import get_logger
@@ -189,7 +188,7 @@ class MarketAlertDetector:
 
         return alerts
 
-    def reset_state(self):
+    def reset_state(self) -> None:
         """Reset internal state (useful for testing or daily resets)."""
         self._prev_vix = None
         logger.info("Market alert detector state reset")

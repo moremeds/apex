@@ -27,16 +27,18 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
-import sys
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
+import pandas as pd
+import pyarrow as pa
 import yaml
 
 from ..domain.backtest.backtest_result import BacktestResult
 from ..domain.backtest.backtest_spec import BacktestSpec
-from ..domain.strategy.registry import get_strategy_class, get_strategy_info, list_strategies
+from ..domain.strategy.registry import get_strategy_class, list_strategies
+from .core import RunResult, RunSpec
 from .data.feeds import (
     CachedBarDataFeed,
     CsvDataFeed,
@@ -152,7 +154,7 @@ def _read_parquet_cached_data(
     return table.to_pandas()
 
 
-def load_ib_config(config_path: Optional[Path] = None):
+def load_ib_config(config_path: Optional[Path] = None) -> Any:
     """Load IB config from base.yaml."""
     from config.models import IbClientIdsConfig, IbConfig
 
@@ -391,7 +393,7 @@ class SingleBacktestRunner:
 
         return result
 
-    def _create_data_feed(self):
+    def _create_data_feed(self) -> Any:
         """Create appropriate data feed based on data_source."""
         if self.data_source == "cached":
             if not self.cached_bars:
@@ -590,8 +592,8 @@ class SingleBacktestRunner:
 
 async def prefetch_data(
     symbols: List[str],
-    start_date,
-    end_date,
+    start_date: Any,
+    end_date: Any,
     max_retries: int = 3,
     timeframe: str = "1d",
     historical_dir: Optional[str] = None,
@@ -805,13 +807,16 @@ def _run_vectorbt_backtest(spec: "RunSpec") -> "RunResult":
     if _vectorbt_secondary_data and spec.symbol in _vectorbt_secondary_data:
         symbol_secondary = _vectorbt_secondary_data[spec.symbol]
 
-    return _vectorbt_engine.run(spec, data=symbol_data, secondary_data=symbol_secondary)
+    result: RunResult = _vectorbt_engine.run(
+        spec, data=symbol_data, secondary_data=symbol_secondary
+    )
+    return result
 
 
 def create_vectorbt_backtest_fn(
     cached_data: Optional[Dict[str, Any]] = None,
     secondary_data: Optional[Dict[str, Dict[str, Any]]] = None,
-):
+) -> Callable[[RunSpec], RunResult]:
     """
     Create a backtest function using VectorBT engine.
 
@@ -837,9 +842,10 @@ def create_vectorbt_backtest_fn(
     _init_vectorbt_worker(cached_data, config_dict, secondary_data)
 
     # Attach multiprocessing metadata for ParallelRunner to use
-    _run_vectorbt_backtest._mp_initializer = _init_vectorbt_worker  # type: ignore
-    _run_vectorbt_backtest._mp_initargs = (cached_data, config_dict, secondary_data)  # type: ignore
-    _run_vectorbt_backtest._mp_context = "spawn"  # type: ignore - safest for cross-platform
+    # These attributes are dynamically added for the parallel runner
+    _run_vectorbt_backtest._mp_initializer = _init_vectorbt_worker  # type: ignore[attr-defined]
+    _run_vectorbt_backtest._mp_initargs = (cached_data, config_dict, secondary_data)  # type: ignore[attr-defined]
+    _run_vectorbt_backtest._mp_context = "spawn"  # type: ignore[attr-defined]
 
     return _run_vectorbt_backtest
 
@@ -912,13 +918,14 @@ def _run_apex_backtest(spec: "RunSpec") -> "RunResult":
 
     # ApexEngine uses HistoricalStoreDataFeed internally, not cached data
     # The cached_data is kept for potential future use (pre-loaded DataFrames)
-    return _apex_engine.run(spec, data=None)
+    result: RunResult = _apex_engine.run(spec, data=None)
+    return result
 
 
 def create_apex_backtest_fn(
     cached_data: Optional[Dict[str, Dict[str, Any]]] = None,
     data_source: str = "historical",
-):
+) -> Callable[[RunSpec], RunResult]:
     """
     Create a backtest function using ApexEngine.
 
@@ -959,7 +966,7 @@ async def run_systematic_experiment(
     parallel: int = 0,  # 0 = auto-scale based on workload
     dry_run: bool = False,
     generate_report: bool = True,  # Default ON
-):
+) -> Any:
     """Run a systematic backtest experiment."""
     from . import ExperimentSpec, RunnerConfig, SystematicRunner
 
@@ -1069,7 +1076,7 @@ async def run_systematic_experiment(
 
         if generate_report:
             try:
-                from .analysis.reporting import HTMLReportGenerator, ReportConfig, ReportData
+                pass
 
                 report_path = _generate_experiment_report(runner, experiment_id, spec, output_path)
                 print(f"\nHTML Report: {report_path}")
@@ -1081,7 +1088,7 @@ async def run_systematic_experiment(
 
 
 def _query_per_symbol_metrics(
-    runner, experiment_id: str, best_trial_id: str
+    runner: Any, experiment_id: str, best_trial_id: str
 ) -> Dict[str, Dict[str, Any]]:
     """Query per-symbol aggregated metrics from the runs table for the best trial."""
     rows = runner._db.fetchall(
@@ -1137,7 +1144,7 @@ def _query_per_symbol_metrics(
 
 
 def _query_per_window_metrics(
-    runner, experiment_id: str, best_trial_id: str
+    runner: Any, experiment_id: str, best_trial_id: str
 ) -> List[Dict[str, Any]]:
     """Query per-window (fold) metrics from the runs table for the best trial."""
     rows = runner._db.fetchall(
@@ -1187,7 +1194,7 @@ def _query_per_window_metrics(
 
 
 def _build_equity_curve(
-    runner, experiment_id: str, best_trial_id: str, initial_capital: float = 100000.0
+    runner: Any, experiment_id: str, best_trial_id: str, initial_capital: float = 100000.0
 ) -> List[Dict[str, Any]]:
     """Build a simulated equity curve from OOS returns per window."""
     rows = runner._db.fetchall(
@@ -1222,7 +1229,9 @@ def _build_equity_curve(
     return equity_curve
 
 
-def _query_trade_summary(runner, experiment_id: str, best_trial_id: str) -> List[Dict[str, Any]]:
+def _query_trade_summary(
+    runner: Any, experiment_id: str, best_trial_id: str
+) -> List[Dict[str, Any]]:
     """Query trade summary per run (individual trades not stored, return run-level summaries)."""
     rows = runner._db.fetchall(
         """
@@ -1271,7 +1280,9 @@ def _query_trade_summary(runner, experiment_id: str, best_trial_id: str) -> List
     return trades
 
 
-def _generate_experiment_report(runner, experiment_id: str, spec, output_dir: Path) -> Path:
+def _generate_experiment_report(
+    runner: Any, experiment_id: str, spec: Any, output_dir: Path
+) -> Path:
     """Generate HTML report for completed experiment."""
     import numpy as np
 
@@ -1557,7 +1568,7 @@ class BacktraderRunner:
         years = days / 252
         if years <= 0:
             return 0.0
-        return ((final / initial) ** (1 / years) - 1) * 100
+        return float(((final / initial) ** (1 / years) - 1) * 100)
 
     def _print_config(self) -> None:
         """Log backtest configuration using structured logging."""
@@ -1588,7 +1599,7 @@ class BacktraderRunner:
 # =============================================================================
 
 # Re-export CLI functions for backward compatibility
-from .cli import create_parser, main, main_async
+from .cli import main
 
 if __name__ == "__main__":
     main()

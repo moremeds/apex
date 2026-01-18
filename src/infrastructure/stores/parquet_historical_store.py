@@ -476,7 +476,6 @@ def pd_isna(value: object) -> bool:
         return True
     try:
         import numpy as np
-        import pandas as pd
 
         if isinstance(value, (float, np.floating)) and np.isnan(value):  # type: ignore[arg-type]
             return True

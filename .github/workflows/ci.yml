@@ -11,9 +11,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
+  # ═══════════════════════════════════════════════════════════════
+  # Phase 1: Parallel Quality Gates (no dependencies between them)
+  # ═══════════════════════════════════════════════════════════════
 
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -21,9 +25,130 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-          cache: "pip"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install linting tools
+        run: uv pip install --system black isort flake8
+
+      - name: Check formatting with black
+        run: black --check src/ tests/
+
+      - name: Check import sorting with isort
+        run: isort --check-only src/ tests/
+
+      - name: Run flake8
+        run: flake8 src/ tests/
+
+  type-check:
+    name: Type Check
+    runs-on: ubuntu-latest
+    continue-on-error: true  # Enable strict enforcement once type errors are fixed
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install type checking dependencies
+        run: uv pip install --system mypy types-PyYAML types-pytz
+
+      - name: Run mypy
+        run: mypy src/ --ignore-missing-imports
+
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install security tools
+        run: uv pip install --system bandit safety
+
+      - name: Run bandit security linter
+        run: bandit -r src/ -ll -ii --exit-zero
+
+      - name: Check dependencies for vulnerabilities
+        continue-on-error: true  # Best-effort until safety is properly configured
+        run: safety check --full-report || true
+
+  verify:
+    name: Signal & Regime Verification
+    runs-on: ubuntu-latest
+    # HARD GATE - verification failures block PR merge
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install project with observability deps
+        run: uv pip install --system -e ".[observability]"
+
+      - name: Run signal verification (4-layer contract checks)
+        run: python -m src.verification.signal_verifier --all --profile signal_dev
+
+      - name: Run regime verification
+        run: python -m src.verification.regime_verifier --all --profile dev
+
+      - name: Upload verification report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verification-report
+          path: |
+            verification_*.json
+            verification_*.html
+          if-no-files-found: ignore
+
+  # ═══════════════════════════════════════════════════════════════
+  # Phase 2: Unit Tests (after quality gates pass)
+  # ═══════════════════════════════════════════════════════════════
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: [lint, verify]  # type-check and security are best-effort
+    continue-on-error: true  # Pre-existing test failures - fix incrementally
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Cache TA-Lib
+        id: cache-talib
+        uses: actions/cache@v4
+        with:
+          path: /usr/lib/libta_lib*
+          key: talib-0.4.0-ubuntu-latest
 
       - name: Install TA-Lib C library
+        if: steps.cache-talib.outputs.cache-hit != 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y wget build-essential
@@ -33,11 +158,96 @@ jobs:
           sudo ldconfig
 
       - name: Install dependencies
-        run: |
-          pip install --upgrade pip
-          pip install -e ".[dev,observability]"
+        run: uv pip install --system -e ".[dev,observability]"
 
-      - name: Run unit tests
-        continue-on-error: true  # Pre-existing test failures - fix incrementally
+      - name: Run unit tests with coverage
         run: |
-          pytest tests/unit/ -v --tb=short --no-cov
+          pytest tests/unit/ -v --tb=short \
+            --cov=src \
+            --cov-report=xml \
+            --cov-report=term-missing \
+            --cov-fail-under=85
+
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml
+          if-no-files-found: ignore
+
+  # ═══════════════════════════════════════════════════════════════
+  # Phase 3: Integration Tests (after unit tests)
+  # ═══════════════════════════════════════════════════════════════
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: [unit-tests]
+    if: success() || failure()  # Run even if unit-tests has continue-on-error failures
+    continue-on-error: true
+    timeout-minutes: 10  # Prevent runaway tests from blocking CI for hours
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Cache TA-Lib
+        id: cache-talib
+        uses: actions/cache@v4
+        with:
+          path: /usr/lib/libta_lib*
+          key: talib-0.4.0-ubuntu-latest
+
+      - name: Install TA-Lib C library
+        if: steps.cache-talib.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget build-essential
+          wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz
+          tar -xzf ta-lib-0.4.0-src.tar.gz
+          cd ta-lib && ./configure --prefix=/usr && make && sudo make install
+          sudo ldconfig
+
+      - name: Install dependencies
+        run: uv pip install --system -e ".[dev,observability]"
+
+      - name: Run integration tests
+        run: |
+          pytest tests/integration/ -v --tb=short --no-cov \
+            --ignore=tests/partial/ \
+            --ignore=tests/integration/test_futu_adapter.py \
+            --ignore=tests/integration/test_multi_broker.py
+
+  # ═══════════════════════════════════════════════════════════════
+  # Coverage Upload (PRs only, best-effort)
+  # ═══════════════════════════════════════════════════════════════
+
+  coverage-upload:
+    name: Upload Coverage
+    runs-on: ubuntu-latest
+    needs: [unit-tests]
+    if: github.event_name == 'pull_request'
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download coverage artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-report
+        continue-on-error: true
+
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.xml
+          fail_ci_if_error: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}

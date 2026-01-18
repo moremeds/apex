@@ -22,12 +22,8 @@ from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 
 from src.domain.services.regime import (
-    MARKET_BENCHMARKS,
-    SECTOR_ETFS,
     AccountType,
-    ActionContext,
     HierarchicalRegime,
-    TradingAction,
     apply_weekly_veto,
     get_4h_alerts,
     get_hierarchy_level,
@@ -107,10 +103,9 @@ class RegimeService:
             )
             return RegimeOutput(
                 symbol=symbol,
-                regime=MarketRegime.R1_CHOPPY_EXTENDED,
+                final_regime=MarketRegime.R1_CHOPPY_EXTENDED,
                 regime_name="Choppy/Extended",
                 confidence=0,
-                is_market_level=is_market_level,
             )
 
         # Calculate regime with error handling
@@ -121,10 +116,9 @@ class RegimeService:
             logger.error(f"Regime calculation failed for {symbol}: {e}", exc_info=True)
             return RegimeOutput(
                 symbol=symbol,
-                regime=MarketRegime.R1_CHOPPY_EXTENDED,
+                final_regime=MarketRegime.R1_CHOPPY_EXTENDED,
                 regime_name="Choppy/Extended",
                 confidence=0,
-                is_market_level=is_market_level,
             )
 
         # Get state for last bar
@@ -137,10 +131,9 @@ class RegimeService:
             logger.error(f"Get state failed for {symbol}: {e}", exc_info=True)
             return RegimeOutput(
                 symbol=symbol,
-                regime=MarketRegime.R1_CHOPPY_EXTENDED,
+                final_regime=MarketRegime.R1_CHOPPY_EXTENDED,
                 regime_name="Choppy/Extended",
                 confidence=0,
-                is_market_level=is_market_level,
             )
 
         # Handle IV state for market level
@@ -154,7 +147,6 @@ class RegimeService:
             state=state,
             timestamp=data.index[-1] if hasattr(data.index[-1], "isoformat") else datetime.now(),
         )
-        output.is_market_level = is_market_level
 
         # Cache the result (thread-safe)
         with self._cache_lock:

@@ -332,7 +332,6 @@ class Strategy(ABC):
                     time_of_day=time(15, 55),
                 )
         """
-        pass
 
     def on_stop(self) -> None:
         """
@@ -343,7 +342,6 @@ class Strategy(ABC):
         - Log final state
         - Cancel pending orders (if needed)
         """
-        pass
 
     @abstractmethod
     def on_tick(self, tick: QuoteTick) -> None:
@@ -366,7 +364,6 @@ class Strategy(ABC):
                         order_type="MARKET",
                     ))
         """
-        pass
 
     def on_bar(self, bar: BarData) -> None:
         """
@@ -441,7 +438,6 @@ class Strategy(ABC):
             symbol: Symbol the Greeks are for.
             greeks: Dictionary with delta, gamma, vega, theta, iv.
         """
-        pass
 
     def on_position(self, position: PositionSnapshot) -> None:
         """

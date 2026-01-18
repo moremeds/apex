@@ -24,7 +24,10 @@ import logging
 import time
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple
+
+if TYPE_CHECKING:
+    import backtrader as bt
 
 logger = logging.getLogger(__name__)
 

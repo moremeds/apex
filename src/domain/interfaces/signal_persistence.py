@@ -58,7 +58,6 @@ class SignalPersistencePort(ABC):
         Args:
             signal: TradingSignal domain object to persist.
         """
-        pass
 
     @abstractmethod
     async def get_recent_signals(
@@ -83,7 +82,6 @@ class SignalPersistencePort(ABC):
         Returns:
             List of TradingSignal objects, ordered by time DESC.
         """
-        pass
 
     @abstractmethod
     async def get_signals_since(
@@ -107,7 +105,6 @@ class SignalPersistencePort(ABC):
         Returns:
             List of TradingSignal objects, ordered by time ASC.
         """
-        pass
 
     # -------------------------------------------------------------------------
     # Indicator Operations
@@ -139,7 +136,6 @@ class SignalPersistencePort(ABC):
             previous_state: Previous indicator state for transition detection.
             bar_close: Reference bar close price.
         """
-        pass
 
     @abstractmethod
     async def get_indicator_history(
@@ -168,7 +164,6 @@ class SignalPersistencePort(ABC):
             List of dicts with keys: time, state, previous_state, bar_close.
             Ordered by time ASC for charting.
         """
-        pass
 
     @abstractmethod
     async def get_latest_indicator(
@@ -190,7 +185,6 @@ class SignalPersistencePort(ABC):
         Returns:
             Dict with time, state, previous_state, bar_close or None if not found.
         """
-        pass
 
     # -------------------------------------------------------------------------
     # Confluence Operations
@@ -225,7 +219,6 @@ class SignalPersistencePort(ABC):
             total_indicators: Total indicators evaluated.
             dominant_direction: "bullish", "bearish", or "neutral".
         """
-        pass
 
     @abstractmethod
     async def get_confluence_history(
@@ -249,7 +242,6 @@ class SignalPersistencePort(ABC):
         Returns:
             List of confluence score dicts, ordered by time DESC.
         """
-        pass
 
     # -------------------------------------------------------------------------
     # TUI Tab 7 Support Operations
@@ -265,7 +257,6 @@ class SignalPersistencePort(ABC):
         Returns:
             List of dicts with indicator, symbol_count, last_update, oldest_update.
         """
-        pass
 
     @abstractmethod
     async def get_indicator_details(self, indicator: str) -> List[Dict[str, Any]]:
@@ -280,4 +271,3 @@ class SignalPersistencePort(ABC):
         Returns:
             List of dicts with symbol, timeframe, last_update, state.
         """
-        pass

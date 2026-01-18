@@ -109,7 +109,7 @@ def get_dynamic_sector(
     if not correlations:
         return get_sector_for_symbol(symbol)
 
-    return max(correlations, key=correlations.get)
+    return max(correlations, key=lambda k: correlations[k])
 
 
 def synthesize_regimes(
@@ -258,7 +258,7 @@ def get_4h_alerts(
     Returns:
         List of alert messages
     """
-    alerts = []
+    alerts: List[str] = []
 
     if previous_state is None:
         return alerts

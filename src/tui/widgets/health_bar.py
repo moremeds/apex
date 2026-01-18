@@ -67,7 +67,12 @@ class HealthBar(Widget):
         metadata = getattr(h, "metadata", {})
 
         # Determine status styling
-        status_val = status.value if hasattr(status, "value") else str(status)
+        if status is not None and hasattr(status, "value"):
+            status_val = status.value
+        elif status is not None:
+            status_val = str(status)
+        else:
+            status_val = "UNKNOWN"
 
         if status_val == "HEALTHY":
             icon = "[green][OK][/]"

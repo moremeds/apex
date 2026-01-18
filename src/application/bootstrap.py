@@ -16,7 +16,6 @@ Usage:
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
@@ -46,7 +45,7 @@ from .orchestrator import Orchestrator
 from .readiness_manager import ReadinessManager
 
 if TYPE_CHECKING:
-    from config.config_manager import Config
+    pass
 
 # Observability imports (optional)
 try:
@@ -253,6 +252,10 @@ class AppContainer:
 
     async def _register_adapters(self) -> None:
         """Phase 2c: Register broker and market data adapters."""
+        assert self.broker_manager is not None, "broker_manager not initialized"
+        assert self.market_data_manager is not None, "market_data_manager not initialized"
+        assert self.event_bus is not None, "event_bus not initialized"
+
         # IB Adapter
         if self.config.ibkr.enabled:
             pool_config = ConnectionPoolConfig(
@@ -315,6 +318,9 @@ class AppContainer:
 
     def _create_domain_services(self) -> None:
         """Phase 3a: Create domain services."""
+        assert self.health_monitor is not None, "health_monitor not initialized"
+        assert self.event_bus is not None, "event_bus not initialized"
+
         self.reconciler = Reconciler(stale_threshold_seconds=300)
 
         self.mdqc = MDQC(
@@ -340,6 +346,8 @@ class AppContainer:
 
     def _create_risk_services(self) -> None:
         """Phase 3b: Create risk signal engine and alert logger."""
+        assert self.rule_engine is not None, "rule_engine not initialized"
+
         signal_manager = RiskSignalManager(
             debounce_seconds=self.config.raw.get("risk_signals", {}).get("debounce_seconds", 15),
             cooldown_minutes=self.config.raw.get("risk_signals", {}).get("cooldown_minutes", 5),
@@ -365,6 +373,10 @@ class AppContainer:
 
         Creates RiskFacade and DeltaPublisher for the streaming hot path.
         """
+        assert self.event_bus is not None, "event_bus not initialized"
+        assert self.position_store is not None, "position_store not initialized"
+        assert self.market_data_store is not None, "market_data_store not initialized"
+
         # Create RiskFacade (manages PortfolioState and TickProcessor internally)
         self.risk_facade = RiskFacade()
 
@@ -381,6 +393,8 @@ class AppContainer:
 
     def _create_readiness_manager(self) -> None:
         """Phase 3c: Create readiness manager."""
+        assert self.event_bus is not None, "event_bus not initialized"
+
         required_brokers = []
         if self.config.ibkr.enabled:
             required_brokers.append("ib")
@@ -419,6 +433,8 @@ class AppContainer:
 
     def _create_bar_persistence_service(self) -> None:
         """Phase 4b: Create bar persistence service."""
+        assert self.event_bus is not None, "event_bus not initialized"
+
         if self.historical_data_manager and self.historical_data_manager._bar_store:
             self.bar_persistence_service = BarPersistenceService(
                 event_bus=self.event_bus,
@@ -451,6 +467,19 @@ class AppContainer:
 
     def _create_orchestrator(self) -> None:
         """Phase 6: Create orchestrator (depends on all above)."""
+        assert self.broker_manager is not None, "broker_manager not initialized"
+        assert self.market_data_manager is not None, "market_data_manager not initialized"
+        assert self.position_store is not None, "position_store not initialized"
+        assert self.market_data_store is not None, "market_data_store not initialized"
+        assert self.account_store is not None, "account_store not initialized"
+        assert self.risk_facade is not None, "risk_facade not initialized"
+        assert self.reconciler is not None, "reconciler not initialized"
+        assert self.mdqc is not None, "mdqc not initialized"
+        assert self.rule_engine is not None, "rule_engine not initialized"
+        assert self.health_monitor is not None, "health_monitor not initialized"
+        assert self.watchdog is not None, "watchdog not initialized"
+        assert self.event_bus is not None, "event_bus not initialized"
+
         self.orchestrator = Orchestrator(
             broker_manager=self.broker_manager,
             market_data_manager=self.market_data_manager,
@@ -488,6 +517,10 @@ class AppContainer:
         """Start all services that need explicit startup."""
         if not self._initialized:
             raise RuntimeError("AppContainer not initialized")
+
+        assert self.orchestrator is not None, "orchestrator not initialized"
+        assert self.broker_manager is not None, "broker_manager not initialized"
+        assert self.historical_data_manager is not None, "historical_data_manager not initialized"
 
         # Start bar persistence first (to capture all BAR_CLOSE events)
         if self.bar_persistence_service:

@@ -71,7 +71,7 @@ class StrategyRiskAnalyzer:
         Returns:
             List of risk signals
         """
-        signals = []
+        signals: List[RiskSignal] = []
 
         # Route to specific strategy checker
         if strategy.strategy_type == "DIAGONAL_SPREAD":
@@ -99,7 +99,7 @@ class StrategyRiskAnalyzer:
         Critical risk: Short leg delta > long leg delta
         This indicates the short leg is now ITM and exposed to assignment risk.
         """
-        signals = []
+        signals: List[RiskSignal] = []
 
         if not self.diagonal_delta_flip_warning:
             return signals
@@ -178,7 +178,7 @@ class StrategyRiskAnalyzer:
         Alert if loss > R-multiple × premium collected.
         Example: Collected $100 premium, stop at -$150 loss (1.5x R-multiple).
         """
-        signals = []
+        signals: List[RiskSignal] = []
 
         # Calculate total PnL using pre-calculated values from RiskEngine
         total_pnl = 0.0
@@ -241,7 +241,7 @@ class StrategyRiskAnalyzer:
         Calendar spreads profit from vega - if IV drops significantly on
         the long leg, the strategy may no longer be profitable.
         """
-        signals = []
+        signals: List[RiskSignal] = []
 
         # Get long leg (typically longer expiry)
         long_leg = next((p for p in strategy.positions if p.quantity > 0), None)
@@ -295,7 +295,7 @@ class StrategyRiskAnalyzer:
         Iron condors are credit spreads - check if we should close early
         to lock in profits (e.g., at 50% max profit).
         """
-        signals = []
+        signals: List[RiskSignal] = []
 
         # Calculate total PnL using pre-calculated values from RiskEngine
         total_pnl = 0.0

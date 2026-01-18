@@ -7,7 +7,7 @@ Supports constraints on aggregated metrics with operators:
 """
 
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Literal, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from pydantic import BaseModel, Field
 
@@ -44,7 +44,11 @@ class Constraint(BaseModel):
         }
 
         if self.operator == "between":
-            passed = self.value <= actual_value <= self.value_max
+            passed = (
+                self.value
+                <= actual_value
+                <= (self.value_max if self.value_max is not None else float("inf"))
+            )
             if not passed:
                 return False, f"{name}: {actual_value:.4f} not in [{self.value}, {self.value_max}]"
             return True, ""

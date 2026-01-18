@@ -87,9 +87,9 @@ class KDJIndicator(IndicatorBase):
                 close,
                 fastk_period=fastk,
                 slowk_period=slowk,
-                slowk_matype=0,  # SMA
+                slowk_matype=talib.MA_Type.SMA,
                 slowd_period=slowd,
-                slowd_matype=0,  # SMA
+                slowd_matype=talib.MA_Type.SMA,
             )
         else:
             k, d = self._calculate_manual(high, low, close, fastk, slowk, slowd)

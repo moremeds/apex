@@ -10,7 +10,7 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Dict, List
+from typing import Any, Dict, List, Optional
 
 from ...utils.logging_setup import get_logger
 from ...utils.timezone import now_utc
@@ -35,10 +35,10 @@ class ComponentHealth:
     component_name: str
     status: HealthStatus
     message: str = ""
-    last_check: datetime = None
-    metadata: Dict = None
+    last_check: Optional[datetime] = None
+    metadata: Optional[Dict[str, Any]] = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.last_check is None:
             self.last_check = now_utc()
         if self.metadata is None:
@@ -57,7 +57,7 @@ class HealthMonitor:
     - Snapshot staleness
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize health monitor."""
         self._component_health: Dict[str, ComponentHealth] = {}
 
@@ -66,7 +66,7 @@ class HealthMonitor:
         component_name: str,
         status: HealthStatus,
         message: str = "",
-        metadata: Dict = None,
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
         """
         Update health status for a component.

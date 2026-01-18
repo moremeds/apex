@@ -78,7 +78,7 @@ def generate_indicator_description(indicator: "Indicator") -> str:
         Params: period=14, overbought=70, oversold=30
     """
     name = indicator.name.lower()
-    category = indicator.category.value
+    indicator.category.value
 
     # Get base description
     base = INDICATOR_TEMPLATES.get(name, f"{indicator.name.upper()} indicator")
@@ -159,6 +159,6 @@ def _format_condition(condition_type: ConditionType, config: Dict[str, Any]) -> 
         return f"exits range [{low}, {high}]"
 
     elif condition_type == ConditionType.CUSTOM:
-        return config.get("description", "custom condition")
+        return str(config.get("description", "custom condition"))
 
     return str(config)

@@ -12,7 +12,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from threading import Lock
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional
 
 from ...domain.interfaces.market_data_provider import MarketDataProvider
 from ...models.market_data import MarketData
@@ -22,7 +22,7 @@ from ...utils.timezone import age_seconds
 
 if TYPE_CHECKING:
     from ...application.event_bus import EventBusProtocol
-    from ...infrastructure.monitoring import HealthMonitor, HealthStatus
+    from ...infrastructure.monitoring import HealthMonitor
 
 
 logger = get_logger(__name__)
@@ -180,9 +180,7 @@ class MarketDataManager(MarketDataProvider):
                 # Always wire provider streaming → MarketDataManager._on_provider_data.
                 # _on_provider_data publishes to EventBus (and optionally forwards to _streaming_callback).
                 if provider.supports_streaming():
-                    provider.set_streaming_callback(
-                        lambda sym, md, n=name: self._on_provider_data(n, sym, md)
-                    )
+                    provider.set_streaming_callback(self._create_provider_callback(name))
                 return
 
             # Not connected yet, try to connect
@@ -198,9 +196,7 @@ class MarketDataManager(MarketDataProvider):
                 # Always wire provider streaming → MarketDataManager._on_provider_data.
                 # _on_provider_data publishes to EventBus (and optionally forwards to _streaming_callback).
                 if provider.supports_streaming():
-                    provider.set_streaming_callback(
-                        lambda sym, md, n=name: self._on_provider_data(n, sym, md)
-                    )
+                    provider.set_streaming_callback(self._create_provider_callback(name))
             else:
                 logger.warning(f"⚠ Provider {name} connected but reports not connected")
                 self._update_health(name, "DEGRADED", "Connection state mismatch")
@@ -408,6 +404,25 @@ class MarketDataManager(MarketDataProvider):
 
         return None
 
+    def _create_provider_callback(self, provider_name: str) -> Callable[[str, MarketData], None]:
+        """
+        Create a typed callback function for a specific provider.
+
+        This avoids lambda type inference issues while properly capturing
+        the provider name for the callback.
+
+        Args:
+            provider_name: Name of the provider.
+
+        Returns:
+            Callback function that routes to _on_provider_data.
+        """
+
+        def callback(sym: str, md: MarketData) -> None:
+            self._on_provider_data(provider_name, sym, md)
+
+        return callback
+
     def set_streaming_callback(self, callback: Optional[Callable[[str, MarketData], None]]) -> None:
         """
         Set callback for streaming market data updates.
@@ -421,9 +436,7 @@ class MarketDataManager(MarketDataProvider):
         # keeps working even when the optional external callback is unset.
         for name, provider in self._providers.items():
             if provider.supports_streaming() and self._status[name].connected:
-                provider.set_streaming_callback(
-                    lambda sym, md, n=name: self._on_provider_data(n, sym, md)
-                )
+                provider.set_streaming_callback(self._create_provider_callback(name))
 
     def enable_streaming(self) -> None:
         """Enable streaming mode on all providers that support it."""

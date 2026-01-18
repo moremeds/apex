@@ -7,7 +7,7 @@ Uses decision tables per account type.
 
 from __future__ import annotations
 
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, cast
 
 from src.domain.signals.indicators.regime import MarketRegime
 
@@ -105,7 +105,7 @@ def _lookup_decision_table(
 
     for key in keys_to_try:
         if key in table:
-            return table[key]
+            return cast(ActionContext, table[key])
 
     return None
 

@@ -15,7 +15,7 @@ Keyboard shortcuts:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -49,7 +49,7 @@ class SignalIntrospectionView(Container, can_focus=True):
         Binding("m", "toggle_trace", "Trace", show=True),
     ]
 
-    def __init__(self, **kwargs) -> None:
+    def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._introspection: Optional["SignalIntrospectionPort"] = None
         self._selected_symbol: Optional[str] = None
@@ -261,7 +261,7 @@ class SignalIntrospectionView(Container, can_focus=True):
         stats_widget.update(stats_text)
 
     @staticmethod
-    def _format_indicator_state(state: Dict[str, Any]) -> str:
+    def _format_indicator_state(state: dict[str, Any]) -> str:
         """Format indicator state for display."""
         # Extract common state fields
         zone = state.get("zone", "")

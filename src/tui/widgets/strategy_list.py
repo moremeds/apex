@@ -57,7 +57,7 @@ class StrategyList(DataTable):
     # Single combined state reactive - avoids triple rebuild on related changes
     state: reactive[StrategyDisplayState] = reactive(StrategyDisplayState, init=False)
 
-    def __init__(self, **kwargs) -> None:
+    def __init__(self, **kwargs: Any) -> None:
         super().__init__(cursor_type="row", zebra_stripes=False, **kwargs)
         self._view_model = StrategyViewModel()
         self._strategy_map: Dict[str, dict] = {}

@@ -41,7 +41,7 @@ class PositionLedger:
     - Position valuation with latest prices
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize empty ledger."""
         self._positions: Dict[str, SimulatedPosition] = {}
         self._latest_prices: Dict[str, QuoteTick] = {}

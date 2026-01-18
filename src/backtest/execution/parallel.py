@@ -132,7 +132,7 @@ class ParallelConfig:
         jitter_range = delay * self.retry_jitter
         delay += random.uniform(-jitter_range, jitter_range)
 
-        return max(0, delay)
+        return float(max(0, delay))
 
 
 @dataclass
@@ -393,9 +393,9 @@ class ParallelRunner:
 
                         # Create failure result
                         result = RunResult(
-                            run_id=spec.run_id,
+                            run_id=spec.run_id or "",
                             trial_id=spec.trial_id,
-                            experiment_id=spec.experiment_id,
+                            experiment_id=spec.experiment_id or "",
                             symbol=spec.symbol,
                             window_id=spec.window.window_id,
                             profile_version=spec.profile_version,
@@ -512,5 +512,5 @@ class ProgressMonitor:
         self.start()
         return self
 
-    def __exit__(self, *args) -> None:
+    def __exit__(self, *args: object) -> None:
         self.stop()

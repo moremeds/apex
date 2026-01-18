@@ -226,7 +226,7 @@ class SignalRule:
                     f"CUSTOM condition type requires a callable in condition_config['handler']. "
                     f"Rule '{self.name}' is missing the handler."
                 )
-            return handler(self.condition_config, prev_state, curr_state)
+            return bool(handler(self.condition_config, prev_state, curr_state))
 
         # Use pluggable evaluator
         from .conditions import EVALUATORS

@@ -13,11 +13,11 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import date
 from enum import Enum
-from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
+from typing import Dict, List, Optional, Protocol, runtime_checkable
 
 import pandas as pd
 
-from ...core import RunMetrics, RunResult, RunSpec, RunStatus
+from ...core import RunResult, RunSpec
 
 
 class EngineType(str, Enum):
@@ -136,7 +136,6 @@ class BaseEngine(ABC):
         secondary_data: Optional[Dict[str, pd.DataFrame]] = None,
     ) -> RunResult:
         """Execute a single backtest run with optional MTF data."""
-        pass
 
     def run_batch(
         self,
@@ -156,7 +155,6 @@ class BaseEngine(ABC):
     @abstractmethod
     def engine_type(self) -> EngineType:
         """Return the engine type identifier."""
-        pass
 
     @property
     def supports_vectorization(self) -> bool:

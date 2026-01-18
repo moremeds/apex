@@ -12,7 +12,6 @@ Pipeline: TICK → BAR → INDICATOR → RULE → SIGNAL → PERSISTENCE → NOT
 from __future__ import annotations
 
 import asyncio
-import logging
 import time
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
@@ -26,7 +25,6 @@ if TYPE_CHECKING:
     from ...domain.interfaces.event_bus import EventBus
     from ...domain.interfaces.signal_persistence import SignalPersistencePort
     from ...domain.signals import BarAggregator, IndicatorEngine, RuleEngine
-    from ...domain.signals.models import TradingSignal
     from ...infrastructure.observability import SignalMetrics
 
 logger = get_logger(__name__)

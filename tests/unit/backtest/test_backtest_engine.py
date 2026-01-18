@@ -3,19 +3,17 @@ Unit tests for the backtest engine.
 """
 
 from datetime import date, datetime, timedelta
-from pathlib import Path
 
 import pytest
 
-from src.backtest.data.feeds import CsvDataFeed, InMemoryDataFeed
+from src.backtest.data.feeds import InMemoryDataFeed
 from src.backtest.execution.engines.backtest_engine import BacktestConfig, BacktestEngine
 from src.backtest.execution.simulated import FillModel, SimulatedExecution
-from src.domain.clock import SimulatedClock, SystemClock
-from src.domain.events.domain_events import BarData, QuoteTick
+from src.domain.clock import SimulatedClock
+from src.domain.events.domain_events import QuoteTick
 from src.domain.interfaces.execution_provider import OrderRequest
-from src.domain.strategy.base import Strategy, StrategyContext, TradingSignal
+from src.domain.strategy.base import Strategy, StrategyContext
 from src.domain.strategy.registry import StrategyRegistry, register_strategy
-from src.domain.strategy.scheduler import LiveScheduler, SimulatedScheduler
 
 
 class TestSimulatedClock:
@@ -262,7 +260,6 @@ class TestBacktestEngine:
     async def test_engine_runs_with_in_memory_feed(self, config):
         """Test engine runs successfully with in-memory data."""
         # Import to register strategies
-        from src.domain.strategy.examples import BuyAndHoldStrategy
 
         engine = BacktestEngine(config)
         engine.set_strategy(strategy_name="buy_and_hold")

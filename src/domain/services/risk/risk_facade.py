@@ -38,6 +38,7 @@ if TYPE_CHECKING:
     from src.domain.events.domain_events import MarketDataTickEvent
     from src.models.account import AccountInfo
     from src.models.position import Position
+    from src.models.position_risk import PositionRisk
     from src.models.risk_snapshot import RiskSnapshot
 
 

@@ -9,14 +9,12 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, List
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from src.infrastructure.adapters.ib.contract_qualification_service import (
     ContractQualificationService,
-    QualificationRequest,
     QualifiedContract,
 )
 

@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Type
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Type
 
 # Check if backtrader is available
 try:
@@ -44,7 +44,7 @@ except ImportError:
     bt = None
 
 from ...domain.clock import BacktraderClock
-from ...domain.events.domain_events import BarData, PositionSnapshot, QuoteTick
+from ...domain.events.domain_events import BarData, PositionSnapshot
 from ...domain.interfaces.execution_provider import OrderRequest
 from ...domain.reality import RealityModelPack
 from ...domain.strategy.base import Strategy, StrategyContext
@@ -79,7 +79,7 @@ class BacktraderScheduler(Scheduler):
     def schedule_once(
         self,
         action_id: str,
-        callback: callable,
+        callback: Callable[[], None],
         at_time: datetime,
     ) -> None:
         """Schedule a one-time action at a specific datetime."""
@@ -96,7 +96,7 @@ class BacktraderScheduler(Scheduler):
     def schedule_daily(
         self,
         action_id: str,
-        callback: callable,
+        callback: Callable[[], None],
         time_of_day: "time_type",
     ) -> None:
         """Schedule daily action."""
@@ -112,7 +112,7 @@ class BacktraderScheduler(Scheduler):
     def schedule_weekly(
         self,
         action_id: str,
-        callback: callable,
+        callback: Callable[[], None],
         day_of_week: int,
         time_of_day: "time_type",
     ) -> None:
@@ -130,7 +130,7 @@ class BacktraderScheduler(Scheduler):
     def schedule_on_bar_close(
         self,
         action_id: str,
-        callback: callable,
+        callback: Callable[[], None],
     ) -> None:
         """Schedule action for bar close."""
         action = ScheduledAction(
@@ -144,7 +144,7 @@ class BacktraderScheduler(Scheduler):
     def schedule_before_close(
         self,
         action_id: str,
-        callback: callable,
+        callback: Callable[[], None],
         minutes_before: int = 5,
     ) -> None:
         """Schedule action before market close."""
@@ -263,13 +263,13 @@ if BACKTRADER_AVAILABLE:
             )
         """
 
-        params = (
+        params: Tuple[Tuple[str, Any], ...] = (
             ("apex_strategy_class", None),  # Required: Apex Strategy class
             ("apex_params", {}),  # Optional: Strategy parameters
             ("apex_strategy_id", "bt-apex"),  # Optional: Strategy ID
         )
 
-        def __init__(self):
+        def __init__(self) -> None:
             """Initialize wrapper and create Apex strategy."""
             if self.p.apex_strategy_class is None:
                 raise ValueError("apex_strategy_class parameter is required")
@@ -306,15 +306,15 @@ if BACKTRADER_AVAILABLE:
 
             logger.info(f"ApexStrategyWrapper initialized: {self._apex.__class__.__name__}")
 
-        def start(self):
+        def start(self) -> None:
             """Called when strategy starts."""
             self._apex.start()
 
-        def stop(self):
+        def stop(self) -> None:
             """Called when strategy stops."""
             self._apex.stop()
 
-        def next(self):
+        def next(self) -> None:
             """Called on each bar."""
             # Update positions in context
             self._update_positions()
@@ -348,7 +348,7 @@ if BACKTRADER_AVAILABLE:
             # Trigger bar close actions
             self._scheduler.trigger_bar_close_actions()
 
-        def notify_order(self, order):
+        def notify_order(self, order: Any) -> None:
             """Called when order status changes."""
             if order.status == order.Completed:
                 # Create fill event
@@ -428,7 +428,7 @@ if BACKTRADER_AVAILABLE:
                 elif symbol in self._context.positions:
                     del self._context.positions[symbol]
 
-        def _get_timeframe(self, data) -> str:
+        def _get_timeframe(self, data: Any) -> str:
             """Get timeframe string from Backtrader data."""
             # Map Backtrader timeframe to string
             tf_map = {
@@ -532,12 +532,14 @@ if BACKTRADER_AVAILABLE:
 
 else:
     # Stub classes when backtrader not available
-    class ApexStrategyWrapper:
+    class ApexStrategyWrapper:  # type: ignore[no-redef]
         """Stub when backtrader not installed."""
 
-        def __init__(self, *args, **kwargs):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
             raise ImportError("backtrader not installed. Run: pip install backtrader")
 
-    def run_backtest_with_backtrader(*args, **kwargs):
+    def run_backtest_with_backtrader(  # type: ignore[misc]
+        *args: Any, **kwargs: Any
+    ) -> Dict[str, Any]:
         """Stub when backtrader not installed."""
         raise ImportError("backtrader not installed. Run: pip install backtrader")

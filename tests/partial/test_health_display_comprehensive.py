@@ -58,7 +58,7 @@ def test_all_scenarios():
         ),
     ]
 
-    panel = dashboard._render_health(health)
+    dashboard._render_health(health)
     print("   ✓ Health panel rendered")
     print("   - Status: ✓ HEALTHY (green)")
     print("   - Display: 'All 15 OK'")
@@ -82,7 +82,7 @@ def test_all_scenarios():
         ),
     ]
 
-    panel = dashboard._render_health(health)
+    dashboard._render_health(health)
     print("   ✓ Health panel rendered")
     print("   - Status: ⚠ DEGRADED (yellow)")
     print("   - Display: '3/20 missing MD'")
@@ -106,7 +106,7 @@ def test_all_scenarios():
         ),
     ]
 
-    panel = dashboard._render_health(health)
+    dashboard._render_health(health)
     print("   ✓ Health panel rendered")
     print("   - Status: ⚠ DEGRADED (yellow, but border red due to unhealthy IB)")
     print("   - Display: '10/10 missing MD'")
@@ -130,7 +130,7 @@ def test_all_scenarios():
         ),
     ]
 
-    panel = dashboard._render_health(health)
+    dashboard._render_health(health)
     print("   ✓ Health panel rendered")
     print("   - Status: ✓ HEALTHY (green)")
     print("   - Display: 'No positions'")
@@ -160,7 +160,7 @@ def test_all_scenarios():
         ),
     ]
 
-    panel = dashboard._render_health(health)
+    dashboard._render_health(health)
     print("   ✓ Health panel rendered")
     print("   - ib_adapter: ✓ Connected")
     print("   - market_data_coverage: ✓ All 10 OK")

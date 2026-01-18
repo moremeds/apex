@@ -11,7 +11,7 @@ Tests verify:
 
 import csv
 import tempfile
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 from typing import List
 
@@ -20,7 +20,6 @@ import pytest
 from src.backtest.data.feeds import (
     CsvDataFeed,
     StreamingCsvDataFeed,
-    StreamingParquetDataFeed,
     create_data_feed,
 )
 from src.domain.events.domain_events import BarData

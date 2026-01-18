@@ -12,7 +12,7 @@ Tracks operational health of the Apex system:
 from __future__ import annotations
 
 import time
-from typing import Dict, Optional, Set
+from typing import Dict, Set
 
 from opentelemetry import metrics
 

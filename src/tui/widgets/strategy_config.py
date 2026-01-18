@@ -29,7 +29,7 @@ class StrategyConfigPanel(Widget):
     strategy_name: reactive[Optional[str]] = reactive(None, init=False)
     strategy_info: reactive[Dict[str, Any]] = reactive(dict, init=False)
 
-    def __init__(self, **kwargs) -> None:
+    def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._view_model = StrategyConfigViewModel()
 

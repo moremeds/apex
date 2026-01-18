@@ -29,14 +29,12 @@ import logging
 import signal
 import sys
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Type
+from typing import Any, Dict, List, Optional
 
 import yaml
 
 from ..domain.clock import SystemClock
-from ..domain.events.domain_events import QuoteTick, TradeFill
 from ..domain.interfaces.execution_provider import OrderRequest
 from ..domain.strategy.base import Strategy, StrategyContext
 from ..domain.strategy.cost_estimator import (
@@ -45,7 +43,7 @@ from ..domain.strategy.cost_estimator import (
     create_zero_cost_estimator,
 )
 from ..domain.strategy.registry import get_strategy_class, list_strategies
-from ..domain.strategy.risk_gate import RiskGate, ValidationResult
+from ..domain.strategy.risk_gate import RiskGate
 from ..domain.strategy.scheduler import LiveScheduler
 
 logger = logging.getLogger(__name__)
@@ -59,13 +57,9 @@ class StrategyNotValidatedError(Exception):
     This prevents running untested strategies with real money.
     """
 
-    pass
-
 
 class ManifestLoadError(Exception):
     """Raised when manifest.yaml cannot be loaded or is malformed."""
-
-    pass
 
 
 def load_strategy_manifest() -> Dict[str, Any]:

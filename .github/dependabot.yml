@@ -1,0 +1,70 @@
+# Dependabot configuration for APEX
+# https://docs.github.com/en/code-security/dependabot/dependabot-version-updates
+
+version: 2
+updates:
+  # Python dependencies (pip)
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    groups:
+      # Group development dependencies together
+      dev-dependencies:
+        patterns:
+          - "pytest*"
+          - "mypy*"
+          - "black"
+          - "isort"
+          - "flake8*"
+          - "bandit"
+          - "safety"
+          - "pre-commit"
+          - "hypothesis"
+        update-types:
+          - "minor"
+          - "patch"
+      # Group security-related dependencies
+      security:
+        patterns:
+          - "bandit"
+          - "safety"
+        update-types:
+          - "minor"
+          - "patch"
+      # Group data science dependencies
+      data-science:
+        patterns:
+          - "numpy"
+          - "pandas"
+          - "scipy"
+          - "scikit-learn"
+        update-types:
+          - "patch"
+      # Group trading/backtesting dependencies
+      trading:
+        patterns:
+          - "vectorbt"
+          - "backtrader"
+          - "TA-Lib"
+          - "optuna"
+        update-types:
+          - "patch"
+    ignore:
+      # numpy 2.x compatibility issues with numba/vectorbt
+      - dependency-name: "numpy"
+        update-types: ["version-update:semver-major"]
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    groups:
+      actions:
+        patterns:
+          - "*"

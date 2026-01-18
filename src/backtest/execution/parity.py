@@ -42,7 +42,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
-from ..core import RunMetrics, RunResult, RunSpec, RunStatus
+from ..core import RunResult, RunSpec
 from .engines import BacktestEngine, EngineType
 
 

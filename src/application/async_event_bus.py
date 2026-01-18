@@ -7,7 +7,7 @@ import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 from threading import Lock
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional
 
 from ..domain.events.domain_events import DomainEvent
 from ..domain.interfaces.event_bus import EventBus, EventType
@@ -87,7 +87,9 @@ class AsyncEventBus(EventBus):
         self._heavy_semaphore = asyncio.Semaphore(4)  # Limit concurrent heavy callbacks
         self._heavy_tasks: set[asyncio.Task] = set()  # Track tasks for cleanup on shutdown
 
-    def publish(self, event_type: EventType, payload: DomainEvent) -> None:
+    def publish(
+        self, event_type: EventType, payload: DomainEvent, priority: Optional[int] = None
+    ) -> None:
         """
         Publish an event (non-blocking, thread-safe).
 

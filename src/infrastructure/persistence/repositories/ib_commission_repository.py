@@ -180,6 +180,12 @@ class IbCommissionRepository(BaseRepository[IbRawCommission]):
             """
             record = await self._db.fetchrow(query, account_id)
 
+        if record is None:
+            return {
+                "total_commission": Decimal(0),
+                "total_realized_pnl": Decimal(0),
+            }
+
         return {
             "total_commission": record["total_commission"] or Decimal(0),
             "total_realized_pnl": record["total_realized_pnl"] or Decimal(0),

@@ -6,7 +6,6 @@ when IB is not connected.
 """
 
 import sys
-from datetime import date
 from pathlib import Path
 
 # Add project root to path

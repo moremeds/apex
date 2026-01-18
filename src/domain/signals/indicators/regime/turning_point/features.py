@@ -10,8 +10,8 @@ Features are extracted from regime components:
 All features use PAST data only to avoid leakage with forward-looking labels.
 """
 
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass
+from typing import Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -160,11 +160,11 @@ def compute_rsi(close: pd.Series, period: int = 14) -> pd.Series:
 def compute_percentile_rank(series: pd.Series, window: int) -> pd.Series:
     """Compute rolling percentile rank of current value."""
 
-    def pct_rank(x):
+    def pct_rank(x: pd.Series) -> float:
         if len(x) < 2:
             return 50.0
-        rank = (x.iloc[-1] > x.iloc[:-1]).sum()
-        return 100.0 * rank / (len(x) - 1)
+        rank = int((x.iloc[-1] > x.iloc[:-1]).sum())
+        return float(100.0 * rank / (len(x) - 1))
 
     return series.rolling(window=window).apply(pct_rank, raw=False).fillna(50.0)
 

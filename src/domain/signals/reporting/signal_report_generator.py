@@ -18,7 +18,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
-import numpy as np
 import pandas as pd
 
 from src.utils.logging_setup import get_logger
@@ -686,7 +685,7 @@ class SignalReportGenerator:
         self,
         data: Dict[Tuple[str, str], pd.DataFrame],
         indicators: List["Indicator"],
-    ) -> Tuple[Dict[str, "ParamProvenance"], Dict[str, "RecommenderResult"]]:
+    ) -> Tuple[Dict[str, "ParamProvenanceSet"], Dict[str, "RecommenderResult"]]:
         """
         Compute parameter provenance and recommendations for each symbol.
 
@@ -877,7 +876,7 @@ class SignalReportGenerator:
         rules: List["SignalRule"],
     ) -> List[Dict[str, Any]]:
         """Build indicator information with descriptions and linked rules."""
-        rules_by_indicator: Dict[str, List[Dict[str, str]]] = {}
+        rules_by_indicator: Dict[str, List[Dict[str, Any]]] = {}
         for rule in rules:
             rules_by_indicator.setdefault(rule.indicator, []).append(
                 {
@@ -913,7 +912,7 @@ class SignalReportGenerator:
         provenance_dict: Optional[Dict[str, "ParamProvenanceSet"]] = None,
         recommendations_dict: Optional[Dict[str, "RecommenderResult"]] = None,
     ) -> str:
-        c = self._colors
+        self._colors
         generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
         regime_outputs = regime_outputs or {}
         provenance_dict = provenance_dict or {}

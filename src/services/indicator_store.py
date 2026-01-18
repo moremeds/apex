@@ -28,10 +28,10 @@ from __future__ import annotations
 
 import hashlib
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date
 from threading import RLock
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, Optional
 
 from ..utils.logging_setup import get_logger
 from ..utils.timezone import now_utc

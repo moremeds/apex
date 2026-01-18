@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import threading
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING, List, Optional
 
 from ....models.position import Position
 from ....utils.logging_setup import get_logger
@@ -102,6 +102,9 @@ class PositionFetcher:
         await self._adapter._ensure_connected()
 
         from futu import RET_OK, TrdEnv
+
+        if self._adapter._trd_ctx is None:
+            raise Exception("Trading context not initialized")
 
         positions = []
         try:

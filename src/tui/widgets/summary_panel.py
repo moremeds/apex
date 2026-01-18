@@ -30,7 +30,7 @@ class SummaryPanel(Widget):
     # Reactive state
     snapshot: reactive[Optional[Any]] = reactive(None, init=False)
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._view_model = SummaryViewModel()
 

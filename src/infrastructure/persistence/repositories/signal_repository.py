@@ -180,7 +180,7 @@ class RiskSignalRepository(BaseRepository[RiskSignal]):
     ) -> List[RiskSignal]:
         """Find breach signals."""
         conditions = ["signal_type = 'BREACH'"]
-        params = []
+        params: List[Any] = []
         param_idx = 1
 
         if severity:
@@ -376,8 +376,8 @@ class TradeSignalRepository(BaseRepository[TradeSignal]):
         since: Optional[datetime] = None,
     ) -> Dict[str, Any]:
         """Get execution statistics for signals."""
-        conditions = []
-        params = []
+        conditions: List[str] = []
+        params: List[Any] = []
         param_idx = 1
 
         if signal_source:
@@ -401,6 +401,15 @@ class TradeSignalRepository(BaseRepository[TradeSignal]):
             {where_clause}
         """
         record = await self._db.fetchrow(query, *params)
+
+        if record is None:
+            return {
+                "total_signals": 0,
+                "executed_count": 0,
+                "source_count": 0,
+                "symbol_count": 0,
+                "execution_rate": 0.0,
+            }
 
         return {
             "total_signals": record["total_signals"] or 0,

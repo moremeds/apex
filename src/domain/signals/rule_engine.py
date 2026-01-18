@@ -553,7 +553,7 @@ class RuleEngine:
                     "rule": signal.trigger_rule,
                     "value": signal.current_value,
                     "threshold": signal.threshold,
-                    "strength": signal.strength.value,
+                    "strength": signal.strength,
                     "priority": signal.priority,
                 },
             )

@@ -83,7 +83,7 @@ class PositionsTable(DataTable):
         broker_filter: Optional[str] = None,
         show_portfolio_row: bool = True,
         consolidated: bool = True,
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
         """
         Initialize positions table.
@@ -232,7 +232,7 @@ class PositionsTable(DataTable):
         if event.row_key is not None:
             self._emit_position_selected(event.row_key)
 
-    def _emit_position_selected(self, row_key) -> None:
+    def _emit_position_selected(self, row_key: Any) -> None:
         """Post selection message for a row key."""
         key = str(row_key.value)
         if key in ("__portfolio__", "__total__"):
@@ -240,8 +240,8 @@ class PositionsTable(DataTable):
 
         pos = self._view_model.get_position_for_key(key)
         if pos:
-            underlying = getattr(pos, "underlying", None) or getattr(pos, "symbol", "?")
-            symbol = getattr(pos, "symbol", underlying)
+            underlying: str = str(getattr(pos, "underlying", None) or getattr(pos, "symbol", "?"))
+            symbol: str = str(getattr(pos, "symbol", underlying) or underlying)
             self._selected_row_key = key
             self._selected_role = self._row_role_from_key(key)
             self._selected_display_name = self._position_display_name(pos)
@@ -322,8 +322,9 @@ class PositionsTable(DataTable):
     def _position_display_name(self, pos: Any) -> str:
         """Return a stable display name for a position."""
         if hasattr(pos, "get_display_name"):
-            return pos.get_display_name()
-        return getattr(pos, "symbol", "?")
+            result = pos.get_display_name()
+            return str(result) if result is not None else "?"
+        return str(getattr(pos, "symbol", "?"))
 
     def _row_role_from_key(self, row_key: str) -> Optional[str]:
         """Classify row key for selection restore."""

@@ -124,7 +124,6 @@ class UniverseProviderBase:
 
     async def refresh(self) -> None:
         """Refresh the universe - default is no-op."""
-        pass
 
     def _rebuild_timeframe_index(self) -> None:
         """Rebuild the timeframe -> symbols index."""

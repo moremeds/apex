@@ -14,12 +14,12 @@ Keyboard shortcuts:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List
 
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical
-from textual.widgets import Static
+from textual.widgets import DataTable, Static
 
 from ..widgets.historical_coverage_panel import HistoricalCoveragePanel
 from ..widgets.indicator_status_panel import IndicatorStatusPanel
@@ -48,7 +48,7 @@ class DataView(Container, can_focus=True):
         Binding("tab", "switch_panel", "Switch Panel", show=True),
     ]
 
-    def __init__(self, **kwargs) -> None:
+    def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._active_panel: str = "coverage"  # "coverage" or "indicators"
         self._stats_text: str = "Loading..."
@@ -57,7 +57,7 @@ class DataView(Container, can_focus=True):
         """Focus this view when it becomes visible."""
         self.focus()
 
-    def on_data_table_row_selected(self, event) -> None:
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         """Handle row selection in either DataTable - auto-switch active panel."""
         table_id = event.data_table.id if event.data_table else ""
         if table_id == "coverage-table":
@@ -194,11 +194,11 @@ class DataView(Container, can_focus=True):
         """Toggle expand/collapse on selected item."""
         try:
             if self._active_panel == "coverage":
-                panel = self.query_one("#data-coverage", HistoricalCoveragePanel)
-                panel.toggle_selected()
+                coverage_panel = self.query_one("#data-coverage", HistoricalCoveragePanel)
+                coverage_panel.toggle_selected()
             else:
-                panel = self.query_one("#data-indicators", IndicatorStatusPanel)
-                indicator = panel.toggle_selected()
+                indicator_panel = self.query_one("#data-indicators", IndicatorStatusPanel)
+                indicator = indicator_panel.toggle_selected()
                 if indicator:
                     # Request details from parent app
                     self.post_message(IndicatorDetailsRequested(indicator))
@@ -214,10 +214,11 @@ class DataView(Container, can_focus=True):
         """Move cursor in active panel."""
         try:
             if self._active_panel == "coverage":
-                panel = self.query_one("#data-coverage", HistoricalCoveragePanel)
+                coverage_panel = self.query_one("#data-coverage", HistoricalCoveragePanel)
+                coverage_panel.move_cursor(delta)
             else:
-                panel = self.query_one("#data-indicators", IndicatorStatusPanel)
-            panel.move_cursor(delta)
+                indicator_panel = self.query_one("#data-indicators", IndicatorStatusPanel)
+                indicator_panel.move_cursor(delta)
         except Exception:
             pass
 
@@ -232,8 +233,6 @@ from textual.message import Message
 
 class DataRefreshRequested(Message):
     """Request manual data refresh."""
-
-    pass
 
 
 class IndicatorDetailsRequested(Message):

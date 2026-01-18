@@ -10,16 +10,16 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional
 
 from ...domain.interfaces.broker_adapter import BrokerAdapter
 from ...models.account import AccountInfo
 from ...models.order import Order, Trade
-from ...models.position import Position, PositionSource
+from ...models.position import Position
 from ...utils.logging_setup import get_logger
 
 if TYPE_CHECKING:
-    from ...infrastructure.monitoring import HealthMonitor, HealthStatus
+    from ...infrastructure.monitoring import HealthMonitor
 
 
 logger = get_logger(__name__)
@@ -163,8 +163,9 @@ class BrokerManager(BrokerAdapter):
         results = await asyncio.gather(*fetch_tasks, return_exceptions=True)
 
         for result in results:
-            if isinstance(result, Exception):
+            if isinstance(result, BaseException):
                 continue  # Already logged in _fetch_positions_from_adapter
+            # result is List[Position] at this point
             all_positions.extend(result)
 
         logger.info(f"Fetched {len(all_positions)} total positions from all brokers")

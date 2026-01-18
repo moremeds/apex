@@ -8,10 +8,8 @@ Tests:
 - Edge cases and invalid values
 """
 
-import tempfile
 from pathlib import Path
 
-import pytest
 import yaml
 
 from src.domain.signals.config.schema import (

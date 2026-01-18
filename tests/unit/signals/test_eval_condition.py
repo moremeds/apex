@@ -9,7 +9,7 @@ These tests verify the core invariants:
 """
 
 import pytest
-from hypothesis import assume, given, settings
+from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from src.domain.signals.indicators.regime.rule_trace import (

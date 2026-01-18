@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-from typing import List
-
 import pytest
 
-from src.backtest import AggregationConfig, Aggregator, RunMetrics, RunResult, RunStatus
+from src.backtest import Aggregator, RunMetrics, RunResult, RunStatus
 
 
 class TestAggregatorStatistics:

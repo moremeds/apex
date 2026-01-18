@@ -3,7 +3,6 @@
 import pytest
 
 from src.domain.services.risk.calculators.greeks_calculator import (
-    GreeksResult,
     calculate_near_term_greeks,
     calculate_position_greeks,
 )

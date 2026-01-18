@@ -23,7 +23,7 @@ from typing import Any, Callable, List, Optional
 
 from ....domain.events import PriorityEventBus
 from ....domain.interfaces.broker_adapter import BrokerAdapter
-from ....domain.interfaces.event_bus import EventBus, EventType
+from ....domain.interfaces.event_bus import EventType
 from ....models.account import AccountInfo
 from ....models.order import Order, Trade
 from ....models.position import Position
@@ -112,7 +112,7 @@ class FutuAdapter(BrokerAdapter):
     # Async Wrapper for Blocking Calls
     # -------------------------------------------------------------------------
 
-    async def _run_blocking(self, func: Callable, *args, **kwargs) -> Any:
+    async def _run_blocking(self, func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         """
         Run a blocking Futu SDK call in a thread pool executor.
 
@@ -157,6 +157,8 @@ class FutuAdapter(BrokerAdapter):
                 security_firm=sec_firm,
             )
 
+            if self._trd_ctx is None:
+                raise ConnectionError("Failed to create trading context")
             ret, data = await self._run_blocking(self._trd_ctx.get_acc_list)
             if ret != RET_OK:
                 raise ConnectionError(f"Failed to get account list: {data}")

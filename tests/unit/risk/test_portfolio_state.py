@@ -7,7 +7,6 @@ from datetime import datetime
 import pytest
 
 from src.domain.services.risk.state.portfolio_state import (
-    PortfolioAggregates,
     PortfolioState,
 )
 from src.domain.services.risk.state.position_state import (

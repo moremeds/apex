@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import OrderedDict
-from datetime import datetime, timedelta
+from datetime import datetime
 from math import isnan
 from threading import Lock
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -49,7 +49,7 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
 
     ADAPTER_TYPE = "live"
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         """Initialize live adapter."""
         super().__init__(*args, **kwargs)
 
@@ -77,7 +77,7 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
         # Legacy cache for qualified contracts - kept for backward compatibility
         # but _qual_service is preferred
         self._qualified_contract_cache: Dict[str, object] = {}
-        self._contract_cache_lock = Lock()  # Protects cache from concurrent access
+        self._contract_cache_lock: Lock = Lock()  # Protects cache from concurrent access
 
         # Account cache
         self._account_cache: Optional[AccountInfo] = None
@@ -166,6 +166,9 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
             cached_price, cached_time = self._previous_close_cache[symbol]
             if (datetime.now() - cached_time).total_seconds() < self._previous_close_cache_ttl_sec:
                 return cached_price
+
+        if self.ib is None:
+            return None
 
         try:
             # Fetch 2 days of daily bars to ensure we get the last trading day
@@ -315,7 +318,7 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
 
     async def fetch_positions(self) -> List[PositionSnapshot]:
         """Fetch positions from IB."""
-        if not self.is_connected():
+        if not self.is_connected() or self.ib is None:
             raise ConnectionError("Not connected to IB")
 
         now = datetime.now()
@@ -327,7 +330,7 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
             logger.debug("Using cached IB positions")
             return [self._position_to_snapshot(p) for p in self._position_cache]
 
-        positions = []
+        positions: List[Position] = []
         try:
             ib_positions = await self.ib.reqPositionsAsync()
             for ib_pos in ib_positions:
@@ -408,7 +411,7 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
             if p.asset_type.value == asset_type
         ]
 
-    def _on_ib_position_event(self, position) -> None:
+    def _on_ib_position_event(self, position: Any) -> None:
         """Handle IB position event."""
         if not self._position_callback:
             return
@@ -447,7 +450,7 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
 
     async def fetch_account(self) -> AccountSnapshot:
         """Fetch account info from IB."""
-        if not self.is_connected():
+        if not self.is_connected() or self.ib is None:
             raise ConnectionError("Not connected to IB")
 
         now = datetime.now()
@@ -514,7 +517,6 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
 
     def unsubscribe_account(self) -> None:
         """Unsubscribe from account updates."""
-        pass
 
     def set_account_callback(self, callback: Optional[Callable[[AccountSnapshot], None]]) -> None:
         """Set account update callback."""
@@ -555,7 +557,7 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
             realized_pnl=acc.realized_pnl,
             unrealized_pnl=acc.unrealized_pnl,
             source="IB",
-            timestamp=acc.timestamp,
+            timestamp=acc.timestamp or datetime.now(),
         )
 
     # -------------------------------------------------------------------------
@@ -580,14 +582,17 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
             from ib_async import Option, Stock
 
             # OPT-012: Build contracts for all positions
-            contracts = []
-            contract_to_position = {}
+            contracts: List[Any] = []
+            contract_to_position: Dict[int, Position] = {}
 
             for pos in positions:
                 try:
+                    contract: Any
                     if pos.asset_type == AssetType.OPTION:
                         expiry_str = self.format_expiry_for_ib(pos.expiry)
                         if not expiry_str:
+                            continue
+                        if pos.strike is None:
                             continue
                         contract = Option(
                             symbol=pos.underlying,
@@ -616,10 +621,12 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
             else:
                 # Fallback to direct qualification if service not available
                 logger.warning("Qualification service not available, using direct qualification")
-                qualified = await asyncio.wait_for(
+                if self.ib is None:
+                    return []
+                qualified_raw = await asyncio.wait_for(
                     self.ib.qualifyContractsAsync(*contracts), timeout=30.0
                 )
-                qualified = [c for c in qualified if c is not None and c.conId]
+                qualified = [c for c in qualified_raw if c is not None and c.conId]
 
             if not qualified:
                 return []
@@ -655,7 +662,7 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
 
     async def fetch_market_indicators(self, symbols: List[str]) -> Dict[str, MarketData]:
         """Fetch market indicators."""
-        if not self.is_connected():
+        if not self.is_connected() or self.ib is None:
             raise ConnectionError("Not connected to IB")
 
         if not symbols:
@@ -665,7 +672,7 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
 
         INDEX_SYMBOLS = {"VIX", "SPX", "NDX", "DJI", "RUT"}
 
-        contracts = []
+        contracts: List[Any] = []
         for sym in symbols:
             try:
                 if sym in INDEX_SYMBOLS:
@@ -698,7 +705,7 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
             orig_key_to_sym = {
                 self._make_contract_key(c): sym for sym, c in zip(symbols, contracts)
             }
-            qualified_with_syms = []
+            qualified_with_syms: List[Tuple[str, Any]] = []
             for qc in qualified:
                 key = self._make_contract_key(qc)
                 if key in orig_key_to_sym:

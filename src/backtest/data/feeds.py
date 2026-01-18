@@ -35,7 +35,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any, AsyncIterator, Dict, Generator, List, Optional, Tuple
+from types import ModuleType
+from typing import Any, AsyncIterator, Dict, Generator, List, Optional, Sequence, Tuple
 
 from ...domain.events.domain_events import BarData, QuoteTick
 
@@ -93,7 +94,7 @@ class DataFeed(ABC):
         ...
 
     @abstractmethod
-    async def stream_bars(self) -> AsyncIterator[BarData]:
+    def stream_bars(self) -> AsyncIterator[BarData]:
         """Stream bars in chronological order."""
         ...
 
@@ -157,17 +158,25 @@ class AlignedBarBuffer:
     def timeframe_order(timeframe: str) -> int:
         """Get sort order for timeframe (smaller timeframes first)."""
         order = {
-            "1s": 0, "5s": 1, "15s": 2, "30s": 3,
-            "1m": 4, "5m": 5, "15m": 6, "30m": 7,
-            "1h": 8, "2h": 9, "4h": 10,
-            "1d": 11, "1w": 12, "1M": 13,
+            "1s": 0,
+            "5s": 1,
+            "15s": 2,
+            "30s": 3,
+            "1m": 4,
+            "5m": 5,
+            "15m": 6,
+            "30m": 7,
+            "1h": 8,
+            "2h": 9,
+            "4h": 10,
+            "1d": 11,
+            "1w": 12,
+            "1M": 13,
         }
         return order.get(timeframe, 99)
 
     @classmethod
-    def sort_key(
-        cls, bar: "BarData", primary_timeframe: str
-    ) -> Tuple[datetime, int, int, str]:
+    def sort_key(cls, bar: "BarData", primary_timeframe: str) -> Tuple[datetime, int, int, str]:
         """
         Sort bars so secondary timeframes at same timestamp precede primary.
 
@@ -251,8 +260,7 @@ class CsvDataFeed(DataFeed):
         self._loaded = True
 
         logger.info(
-            f"CsvDataFeed loaded {len(self._bars)} bars "
-            f"for {len(self._symbols)} symbols"
+            f"CsvDataFeed loaded {len(self._bars)} bars " f"for {len(self._symbols)} symbols"
         )
 
     def _load_csv_file(self, path: Path, symbol: str) -> None:
@@ -564,11 +572,10 @@ class ParquetDataFeed(DataFeed):
         self._loaded = True
 
         logger.info(
-            f"ParquetDataFeed loaded {len(self._bars)} bars "
-            f"for {len(self._symbols)} symbols"
+            f"ParquetDataFeed loaded {len(self._bars)} bars " f"for {len(self._symbols)} symbols"
         )
 
-    def _load_parquet_file(self, path: Path, symbol: str, pd) -> None:
+    def _load_parquet_file(self, path: Path, symbol: str, pd: ModuleType) -> None:
         """Load a single Parquet file."""
         df = pd.read_parquet(path)
 
@@ -689,9 +696,9 @@ class HistoricalStoreDataFeed(DataFeed):
 
         self._bars: List[BarData] = []
         self._loaded = False
-        self._store = None
+        self._store: Optional[Any] = None
 
-    def _get_store(self):
+    def _get_store(self) -> Any:
         """Lazy initialization of ParquetHistoricalStore."""
         if self._store is None:
             from ...infrastructure.stores.parquet_historical_store import ParquetHistoricalStore
@@ -704,15 +711,9 @@ class HistoricalStoreDataFeed(DataFeed):
         self._bars.clear()
 
         start_dt = (
-            datetime.combine(self._start_date, datetime.min.time())
-            if self._start_date
-            else None
+            datetime.combine(self._start_date, datetime.min.time()) if self._start_date else None
         )
-        end_dt = (
-            datetime.combine(self._end_date, datetime.max.time())
-            if self._end_date
-            else None
-        )
+        end_dt = datetime.combine(self._end_date, datetime.max.time()) if self._end_date else None
 
         store = self._get_store()
         timeframes = [self._bar_size] + self._secondary_timeframes
@@ -725,7 +726,7 @@ class HistoricalStoreDataFeed(DataFeed):
                     logger.log(
                         level,
                         f"Historical store file not found: {file_path}. "
-                        f"Run with --coverage-mode download to fetch missing data."
+                        f"Run with --coverage-mode download to fetch missing data.",
                     )
                     continue
 
@@ -746,7 +747,9 @@ class HistoricalStoreDataFeed(DataFeed):
 
         self._loaded = True
 
-        timeframe_str = f"[{', '.join(timeframes)}]" if self._secondary_timeframes else self._bar_size
+        timeframe_str = (
+            f"[{', '.join(timeframes)}]" if self._secondary_timeframes else self._bar_size
+        )
         logger.info(
             f"HistoricalStoreDataFeed loaded {len(self._bars)} bars "
             f"for {len(self._symbols)} symbols ({timeframe_str}) from {self._base_dir}"
@@ -836,9 +839,7 @@ class StreamingParquetDataFeed(DataFeed):
         try:
             import pyarrow.parquet  # noqa: F401
         except ImportError:
-            raise ImportError(
-                "pyarrow required for Parquet streaming: pip install pyarrow"
-            )
+            raise ImportError("pyarrow required for Parquet streaming: pip install pyarrow")
 
         # Verify files exist
         missing = []
@@ -1031,8 +1032,7 @@ class FixtureDataFeed(DataFeed):
         self._loaded = True
 
         logger.info(
-            f"FixtureDataFeed loaded {len(self._bars)} bars "
-            f"for {len(self._symbols)} symbols"
+            f"FixtureDataFeed loaded {len(self._bars)} bars " f"for {len(self._symbols)} symbols"
         )
 
     async def stream_bars(self) -> AsyncIterator[BarData]:
@@ -1068,7 +1068,7 @@ class InMemoryDataFeed(DataFeed):
     Allows adding bars directly without file I/O.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize in-memory data feed."""
         self._bars: List[HistoricalBar] = []
         self._symbols: List[str] = []
@@ -1162,14 +1162,14 @@ class MultiTimeframeDataFeed(DataFeed):
                 # Minute bar logic
     """
 
-    def __init__(self, feeds: List[DataFeed]):
+    def __init__(self, feeds: Sequence[DataFeed]) -> None:
         """
         Initialize multi-timeframe data feed.
 
         Args:
             feeds: List of DataFeed instances, each with a different timeframe.
         """
-        self._feeds = feeds
+        self._feeds = list(feeds)
         self._bars: List[BarData] = []
         self._symbols: List[str] = []
         self._loaded = False
@@ -1204,9 +1204,16 @@ class MultiTimeframeDataFeed(DataFeed):
     def _timeframe_order(timeframe: str) -> int:
         """Get sort order for timeframe (smaller timeframes first)."""
         order = {
-            "1m": 1, "5m": 2, "15m": 3, "30m": 4,
-            "1h": 5, "2h": 6, "4h": 7,
-            "1d": 8, "1w": 9, "1M": 10,
+            "1m": 1,
+            "5m": 2,
+            "15m": 3,
+            "30m": 4,
+            "1h": 5,
+            "2h": 6,
+            "4h": 7,
+            "1d": 8,
+            "1w": 9,
+            "1M": 10,
         }
         return order.get(timeframe, 99)
 
@@ -1293,8 +1300,7 @@ class CachedBarDataFeed(DataFeed):
         self._loaded = True
 
         logger.info(
-            f"CachedBarDataFeed loaded {len(self._bars)} bars "
-            f"for {len(self._symbols)} symbols"
+            f"CachedBarDataFeed loaded {len(self._bars)} bars " f"for {len(self._symbols)} symbols"
         )
 
     async def stream_bars(self) -> AsyncIterator[BarData]:
@@ -1437,7 +1443,7 @@ class IbHistoricalDataFeed(DataFeed):
 
         self._bars: List[HistoricalBar] = []
         self._loaded = False
-        self._adapter = None
+        self._adapter: Optional[Any] = None
 
     async def load(self) -> None:
         """
@@ -1450,14 +1456,15 @@ class IbHistoricalDataFeed(DataFeed):
         self._bars.clear()
 
         # Create and connect adapter
-        self._adapter = IbHistoricalAdapter(
+        adapter = IbHistoricalAdapter(
             host=self._host,
             port=self._port,
             client_id=self._client_id,
         )
+        self._adapter = adapter
 
         try:
-            await self._adapter.connect()
+            await adapter.connect()
             logger.info(f"Connected to IB at {self._host}:{self._port}")
 
             # Convert dates to datetime
@@ -1469,7 +1476,7 @@ class IbHistoricalDataFeed(DataFeed):
                 logger.info(f"Fetching {self._bar_size} bars for {symbol}...")
 
                 try:
-                    bars = await self._adapter.fetch_bars(
+                    bars = await adapter.fetch_bars(
                         symbol=symbol,
                         timeframe=self._bar_size,
                         start=start_dt,
@@ -1480,10 +1487,10 @@ class IbHistoricalDataFeed(DataFeed):
                         hist_bar = HistoricalBar(
                             symbol=symbol,
                             timestamp=bar.timestamp,
-                            open=bar.open,
-                            high=bar.high,
-                            low=bar.low,
-                            close=bar.close,
+                            open=bar.open or 0.0,
+                            high=bar.high or 0.0,
+                            low=bar.low or 0.0,
+                            close=bar.close or 0.0,
                             volume=bar.volume or 0,
                             bar_size=self._bar_size,
                         )
@@ -1505,9 +1512,8 @@ class IbHistoricalDataFeed(DataFeed):
 
         finally:
             # Always disconnect
-            if self._adapter:
-                await self._adapter.disconnect()
-                logger.info("Disconnected from IB")
+            await adapter.disconnect()
+            logger.info("Disconnected from IB")
 
     async def stream_bars(self) -> AsyncIterator[BarData]:
         """Stream bars in chronological order."""
@@ -1632,7 +1638,7 @@ def create_data_feed(
     end_date: Optional[date] = None,
     streaming: bool = True,
     bar_size: str = "1d",
-    **kwargs,
+    **kwargs: Any,
 ) -> DataFeed:
     """
     OPT-009: Factory for creating data feeds with streaming support.

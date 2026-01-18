@@ -36,9 +36,9 @@ class Aggregator:
     - Percentiles for risk-adjusted constraint checking
     """
 
-    config: AggregationConfig = None
+    config: Optional[AggregationConfig] = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.config is None:
             self.config = AggregationConfig()
 
@@ -224,7 +224,7 @@ class Aggregator:
             + weights["drawdown_protection"] * dd_score
         )
 
-        return score
+        return float(score)
 
     def aggregate_trial(
         self,

@@ -322,7 +322,7 @@ class FutuOrderRepository(BaseRepository[FutuRawOrder]):
             List of filled orders.
         """
         conditions = ["account_id = $1", "order_status = 'FILLED_ALL'"]
-        params = [account_id]
+        params: List[Any] = [account_id]
         param_idx = 2
 
         if start_date:
@@ -364,13 +364,19 @@ class FutuOrderRepository(BaseRepository[FutuRawOrder]):
                 SELECT MAX(updated_time) FROM futu_raw_orders
                 WHERE account_id = $1 AND market = $2
             """
-            return await self._db.fetchval(query, account_id, market)
+            result = await self._db.fetchval(query, account_id, market)
         else:
             query = """
                 SELECT MAX(updated_time) FROM futu_raw_orders
                 WHERE account_id = $1
             """
-            return await self._db.fetchval(query, account_id)
+            result = await self._db.fetchval(query, account_id)
+
+        if result is None:
+            return None
+        if isinstance(result, datetime):
+            return result
+        return None
 
     # -------------------------------------------------------------------------
     # Conversion from Futu API

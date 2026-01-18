@@ -13,10 +13,10 @@ Future: API integration with Earnings Whispers / Yahoo Finance
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 
-from ...models.position import AssetType
+from ...models.position_risk import PositionRisk
 from ...models.risk_signal import (
     RiskSignal,
     SignalLevel,
@@ -111,7 +111,7 @@ class EventRiskDetector:
         if not self.enabled:
             return []
 
-        signals = []
+        signals: List[RiskSignal] = []
         today = date.today()
 
         # Check each position for earnings risk
@@ -138,7 +138,7 @@ class EventRiskDetector:
 
     def _create_earnings_signal(
         self,
-        pos_risk,
+        pos_risk: PositionRisk,
         symbol: str,
         earnings_date: date,
         days_to_earnings: int,
@@ -213,7 +213,7 @@ class EventRiskDetector:
             },
         )
 
-    def update_earnings_date(self, symbol: str, earnings_date: date):
+    def update_earnings_date(self, symbol: str, earnings_date: date) -> None:
         """
         Update earnings date for a symbol.
 
@@ -224,7 +224,7 @@ class EventRiskDetector:
         self.earnings_calendar[symbol] = earnings_date
         logger.info(f"Updated earnings date for {symbol}: {earnings_date}")
 
-    def remove_earnings_date(self, symbol: str):
+    def remove_earnings_date(self, symbol: str) -> None:
         """
         Remove earnings date (e.g., after earnings passed).
 
@@ -255,7 +255,7 @@ class EventRiskDetector:
 
         return upcoming
 
-    def cleanup_past_earnings(self):
+    def cleanup_past_earnings(self) -> None:
         """
         Remove past earnings dates (housekeeping).
 

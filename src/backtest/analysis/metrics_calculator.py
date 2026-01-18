@@ -13,7 +13,7 @@ Computes all extended metrics from returns and trade data:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
 import numpy as np
 import pandas as pd
@@ -417,13 +417,13 @@ class MetricsCalculator:
             metrics.profit_factor = gross_profit / gross_loss
 
         # Expectancy
-        metrics.expectancy = np.mean(returns)
+        metrics.expectancy = float(np.mean(returns))
 
         # SQN (System Quality Number)
         if len(returns) > 1:
-            std_returns = np.std(returns)
+            std_returns = float(np.std(returns))
             if std_returns > 0:
-                metrics.sqn = (np.mean(returns) / std_returns) * np.sqrt(len(returns))
+                metrics.sqn = float((np.mean(returns) / std_returns) * np.sqrt(len(returns)))
 
         # Best/worst trades
         metrics.best_trade_pct = max(returns)
@@ -431,22 +431,22 @@ class MetricsCalculator:
 
         # Average win/loss
         if winners:
-            metrics.avg_win_pct = np.mean(winners)
+            metrics.avg_win_pct = float(np.mean(winners))
         if losers:
-            metrics.avg_loss_pct = np.mean(losers)
+            metrics.avg_loss_pct = float(np.mean(losers))
 
         # Trade duration
         if bars:
-            metrics.avg_bars_in_trade = np.mean(bars)
+            metrics.avg_bars_in_trade = float(np.mean(bars))
             metrics.max_bars_in_trade = max(bars)
             metrics.min_bars_in_trade = min(bars)
             metrics.avg_trade_duration_days = metrics.avg_bars_in_trade  # Assuming daily bars
 
         # MAE/MFE
         if any(m != 0 for m in maes):
-            metrics.avg_mae_pct = np.mean(maes)
+            metrics.avg_mae_pct = float(np.mean(maes))
         if any(m != 0 for m in mfes):
-            metrics.avg_mfe_pct = np.mean(mfes)
+            metrics.avg_mfe_pct = float(np.mean(mfes))
 
         # Edge ratio (MFE / MAE)
         if metrics.avg_mae_pct > 0:

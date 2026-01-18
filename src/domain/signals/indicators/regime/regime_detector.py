@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import threading
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -32,7 +32,6 @@ from ..base import IndicatorBase
 from .components import (
     calculate_chop_state,
     calculate_ext_state,
-    calculate_iv_state,
     calculate_trend_state,
     calculate_vol_state,
 )
@@ -40,7 +39,6 @@ from .models import (
     ENTRY_HYSTERESIS,
     EXIT_HYSTERESIS,
     MARKET_BENCHMARKS,
-    BarSnapshot,
     ChopState,
     ComponentStates,
     ComponentValues,
@@ -48,7 +46,6 @@ from .models import (
     DataWindow,
     DerivedMetrics,
     ExtState,
-    FallbackReason,
     InputsUsed,
     IVState,
     MarketRegime,
@@ -911,7 +908,7 @@ class RegimeDetectorIndicator(IndicatorBase):
     _VALID_IV_STATES = {e.value for e in IVState}
 
     @staticmethod
-    def _parse_enum_value(value, enum_class, valid_set, default):
+    def _parse_enum_value(value: Any, enum_class: Any, valid_set: set, default: Any) -> Any:
         """
         Parse a value into an enum, handling both string and enum inputs.
 
@@ -1070,15 +1067,18 @@ class RegimeDetectorIndicator(IndicatorBase):
         # Phase 4: Get turning point prediction
         turning_point_output = self._get_turning_point_prediction(symbol, flat_state)
 
+        # Use timestamp or current time for output
+        effective_ts = timestamp or datetime.now(timezone.utc)
+
         return RegimeOutput(
             # Schema & Identity
             schema_version="regime_output@1.0",
             symbol=symbol,
-            asof_ts=timestamp,
+            asof_ts=effective_ts,
             bar_interval="1d",
             data_window=DataWindow(
-                start_ts=timestamp,
-                end_ts=timestamp,
+                start_ts=effective_ts,
+                end_ts=effective_ts,
                 bars=1,
             ),
             # Regime Classification (Separated)
@@ -1425,7 +1425,7 @@ class RegimeDetectorIndicator(IndicatorBase):
         """
         # Lazy import to avoid circular dependency
         from .turning_point.features import TurningPointFeatures
-        from .turning_point.model import TurningPointModel, TurningPointOutput
+        from .turning_point.model import TurningPointModel
 
         # Try to load model if not attempted yet
         symbol_key = symbol.upper()

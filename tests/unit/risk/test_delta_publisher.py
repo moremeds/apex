@@ -1,14 +1,12 @@
 """Unit tests for DeltaPublisher."""
 
-from datetime import datetime
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
 from src.domain.events.domain_events import MarketDataTickEvent
 from src.domain.events.event_types import EventType
 from src.domain.services.risk.risk_facade import RiskFacade
-from src.domain.services.risk.state.position_state import PositionDelta
 from src.domain.services.risk.streaming.delta_publisher import DeltaPublisher
 from src.models.position import AssetType, Position
 
@@ -62,30 +60,31 @@ class TestDeltaPublisher:
         """start() should subscribe to tick and position events."""
         publisher.start()
 
-        # Should subscribe to three event types
-        assert mock_event_bus.subscribe.call_count == 3
+        # Should subscribe to four event types (added MARKET_DATA_READY)
+        assert mock_event_bus.subscribe.call_count == 4
 
         # Check subscription event types
         call_args = [call[0][0] for call in mock_event_bus.subscribe.call_args_list]
         assert EventType.MARKET_DATA_TICK in call_args
         assert EventType.POSITIONS_READY in call_args
         assert EventType.POSITION_UPDATED in call_args
+        assert EventType.MARKET_DATA_READY in call_args
 
     def test_start_twice_warns(self, publisher, mock_event_bus):
         """start() should warn if called twice."""
         publisher.start()
         publisher.start()  # Second call
 
-        # Should only subscribe once (3 event types)
-        assert mock_event_bus.subscribe.call_count == 3
+        # Should only subscribe once (4 event types)
+        assert mock_event_bus.subscribe.call_count == 4
 
     def test_stop_unsubscribes(self, publisher, mock_event_bus):
         """stop() should unsubscribe from events."""
         publisher.start()
         publisher.stop()
 
-        # Should unsubscribe from all three subscriptions
-        assert mock_event_bus.unsubscribe.call_count == 3
+        # Should unsubscribe from all four subscriptions
+        assert mock_event_bus.unsubscribe.call_count == 4
 
     def test_stop_without_start(self, publisher, mock_event_bus):
         """stop() should be safe to call without start."""

@@ -438,8 +438,6 @@ def setup_category_logging(
     Returns:
         Dict mapping category name to logger.
     """
-    global _category_loggers, _queue_listeners
-
     # Clean up existing handlers and listeners before reconfiguration
     # to avoid file handle leaks (HYG-006)
     for listener in _queue_listeners:
@@ -535,7 +533,6 @@ def flush_all_loggers() -> None:
 
 def shutdown_logging() -> None:
     """Shutdown all queue listeners (call during application shutdown)."""
-    global _queue_listeners
     for listener in _queue_listeners:
         listener.stop()
     _queue_listeners.clear()

@@ -13,7 +13,7 @@ Key features:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -22,7 +22,7 @@ import pandas as pd
 
 from src.utils.logging_setup import get_logger
 
-from .objectives import CombinedObjectiveResult, ObjectiveEvaluator, ObjectiveResult
+from .objectives import CombinedObjectiveResult, ObjectiveEvaluator
 
 logger = get_logger(__name__)
 
@@ -234,9 +234,9 @@ class WalkForwardOptimizer:
 
         Returns Series of regime labels indexed by date.
         """
-        from src.domain.signals.indicators.regime.regime_detector import RegimeDetector
+        from src.domain.signals.indicators.regime.regime_detector import RegimeDetectorIndicator
 
-        detector = RegimeDetector()
+        detector = RegimeDetectorIndicator()
 
         # Override default params
         for key, value in params.items():
@@ -252,9 +252,10 @@ class WalkForwardOptimizer:
                 continue
 
             try:
-                result = detector.detect(row)
-                if result:
-                    regimes.append(result.regime.value)
+                result = detector.calculate(row, params)
+                if not result.empty and "regime" in result.columns:
+                    regime_val = result["regime"].iloc[-1]
+                    regimes.append(regime_val)
                     dates.append(ohlcv.index[idx])
             except Exception:
                 continue
@@ -343,7 +344,7 @@ class WalkForwardOptimizer:
 
         Uses heuristics to map objective performance to parameter adjustments.
         """
-        changes = {}
+        changes: Dict[str, float] = {}
 
         for obj_result in objective_result.objective_results:
             if obj_result.name == "regime_stability":
@@ -373,7 +374,7 @@ class WalkForwardOptimizer:
                             )
 
         # Clamp changes to max allowed
-        for param, change in changes.items():
+        for param, change in list(changes.items()):
             max_change = self.MAX_CHANGE.get(param, 5.0)
             changes[param] = max(-max_change, min(max_change, change))
 
@@ -409,7 +410,7 @@ class WalkForwardOptimizer:
             # Calculate agreement ratio
             positive_count = sum(1 for c in changes if c > 0)
             negative_count = sum(1 for c in changes if c < 0)
-            zero_count = sum(1 for c in changes if c == 0)
+            _zero_count = sum(1 for c in changes if c == 0)  # noqa: F841
 
             total_non_zero = positive_count + negative_count
             if total_non_zero == 0:

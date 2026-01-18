@@ -45,6 +45,15 @@ class ArchitectureMetrics:
         self._meter = meter
         self._initialized = False
 
+        # Counter state for incremental metrics
+        self._last_scheduler_total: int = 0
+        self._last_scheduler_dedup: int = 0
+        self._last_router_total: int = 0
+        self._last_router_rejections: int = 0
+        self._last_indicator_hits: int = 0
+        self._last_indicator_misses: int = 0
+        self._last_indicator_computations: int = 0
+
         if meter:
             self._init_metrics()
 
@@ -185,17 +194,15 @@ class ArchitectureMetrics:
         if self._initialized and self._meter:
             # Record counters (incremental)
             total = stats.get("requests_total", 0)
-            if hasattr(self, "_last_scheduler_total"):
-                delta = total - self._last_scheduler_total
-                if delta > 0:
-                    self._scheduler_requests.add(delta)
+            delta = total - self._last_scheduler_total
+            if delta > 0:
+                self._scheduler_requests.add(delta)
             self._last_scheduler_total = total
 
             dedup = stats.get("dedup_hits", 0)
-            if hasattr(self, "_last_scheduler_dedup"):
-                delta = dedup - self._last_scheduler_dedup
-                if delta > 0:
-                    self._scheduler_dedup.add(delta)
+            delta = dedup - self._last_scheduler_dedup
+            if delta > 0:
+                self._scheduler_dedup.add(delta)
             self._last_scheduler_dedup = dedup
 
     def record_router_stats(self, stats: Dict[str, Any]) -> None:
@@ -204,17 +211,15 @@ class ArchitectureMetrics:
 
         if self._initialized and self._meter:
             total = stats.get("subscriptions_total", 0)
-            if hasattr(self, "_last_router_total"):
-                delta = total - self._last_router_total
-                if delta > 0:
-                    self._router_subscriptions.add(delta)
+            delta = total - self._last_router_total
+            if delta > 0:
+                self._router_subscriptions.add(delta)
             self._last_router_total = total
 
             rejections = stats.get("line_limit_rejections", 0)
-            if hasattr(self, "_last_router_rejections"):
-                delta = rejections - self._last_router_rejections
-                if delta > 0:
-                    self._router_rejections.add(delta)
+            delta = rejections - self._last_router_rejections
+            if delta > 0:
+                self._router_rejections.add(delta)
             self._last_router_rejections = rejections
 
     def record_indicator_stats(self, stats: Dict[str, Any]) -> None:
@@ -223,24 +228,21 @@ class ArchitectureMetrics:
 
         if self._initialized and self._meter:
             hits = stats.get("hits", 0)
-            if hasattr(self, "_last_indicator_hits"):
-                delta = hits - self._last_indicator_hits
-                if delta > 0:
-                    self._indicator_hits.add(delta)
+            delta = hits - self._last_indicator_hits
+            if delta > 0:
+                self._indicator_hits.add(delta)
             self._last_indicator_hits = hits
 
             misses = stats.get("misses", 0)
-            if hasattr(self, "_last_indicator_misses"):
-                delta = misses - self._last_indicator_misses
-                if delta > 0:
-                    self._indicator_misses.add(delta)
+            delta = misses - self._last_indicator_misses
+            if delta > 0:
+                self._indicator_misses.add(delta)
             self._last_indicator_misses = misses
 
             computations = stats.get("computations", 0)
-            if hasattr(self, "_last_indicator_computations"):
-                delta = computations - self._last_indicator_computations
-                if delta > 0:
-                    self._indicator_computations.add(delta)
+            delta = computations - self._last_indicator_computations
+            if delta > 0:
+                self._indicator_computations.add(delta)
             self._last_indicator_computations = computations
 
     def record_pool_stats(self, stats: Dict[str, Any]) -> None:
@@ -248,42 +250,42 @@ class ArchitectureMetrics:
         ArchitectureMetrics._pool_stats = stats
 
     # Observable gauge callbacks
-    def _get_scheduler_pending(self, options):
+    def _get_scheduler_pending(self, options: Any) -> Any:
         yield ArchitectureMetrics._scheduler_stats.get("pending_requests", 0)
 
-    def _get_scheduler_concurrent(self, options):
+    def _get_scheduler_concurrent(self, options: Any) -> Any:
         yield ArchitectureMetrics._scheduler_stats.get("concurrent_active", 0)
 
-    def _get_scheduler_tokens(self, options):
+    def _get_scheduler_tokens(self, options: Any) -> Any:
         yield ArchitectureMetrics._scheduler_stats.get("available_tokens", 0)
 
-    def _get_router_lines(self, options):
+    def _get_router_lines(self, options: Any) -> Any:
         yield ArchitectureMetrics._router_stats.get("active_lines", 0)
 
-    def _get_router_available(self, options):
+    def _get_router_available(self, options: Any) -> Any:
         yield ArchitectureMetrics._router_stats.get("available_lines", 0)
 
-    def _get_indicator_entries(self, options):
+    def _get_indicator_entries(self, options: Any) -> Any:
         yield ArchitectureMetrics._indicator_stats.get("entries", 0)
 
-    def _get_indicator_hit_rate(self, options):
+    def _get_indicator_hit_rate(self, options: Any) -> Any:
         rate_str = ArchitectureMetrics._indicator_stats.get("hit_rate", "0.0%")
         try:
             yield float(rate_str.replace("%", ""))
         except ValueError:
             yield 0.0
 
-    def _get_pool_connected(self, options):
+    def _get_pool_connected(self, options: Any) -> Any:
         yield 1 if ArchitectureMetrics._pool_stats.get("connected", False) else 0
 
-    def _get_pool_monitoring(self, options):
+    def _get_pool_monitoring(self, options: Any) -> Any:
         mon = ArchitectureMetrics._pool_stats.get("monitoring", {})
         yield 1 if mon.get("connected", False) else 0
 
-    def _get_pool_historical(self, options):
+    def _get_pool_historical(self, options: Any) -> Any:
         hist = ArchitectureMetrics._pool_stats.get("historical", {})
         yield 1 if hist.get("connected", False) else 0
 
-    def _get_pool_execution(self, options):
+    def _get_pool_execution(self, options: Any) -> Any:
         exec_ = ArchitectureMetrics._pool_stats.get("execution", {})
         yield 1 if exec_.get("connected", False) else 0

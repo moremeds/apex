@@ -250,9 +250,9 @@ class PairsTradingStrategy(Strategy):
         if pos is None:
             return
 
-        # Get current prices for each leg
-        long_price = price_a if pos.long_symbol == self.symbol_a else price_b
-        short_price = price_b if pos.short_symbol == self.symbol_b else price_a
+        # Get current prices for each leg (kept for debugging/extension)
+        _long_price = price_a if pos.long_symbol == self.symbol_a else price_b  # noqa: F841
+        _short_price = price_b if pos.short_symbol == self.symbol_b else price_a  # noqa: F841
 
         # Calculate P&L
         spread_pnl = spread - pos.entry_spread
@@ -296,7 +296,6 @@ class PairsTradingStrategy(Strategy):
 
     def on_tick(self, tick: QuoteTick) -> None:
         """Not used - pairs trading typically uses bar data."""
-        pass
 
     def get_state(self) -> dict:
         """Get current strategy state for monitoring."""

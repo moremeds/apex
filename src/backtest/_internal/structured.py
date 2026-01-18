@@ -14,7 +14,7 @@ import traceback
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, MutableMapping, Optional, Tuple
 
 
 @dataclass
@@ -128,7 +128,9 @@ class ContextLogger(logging.LoggerAdapter):
         super().__init__(logger, {})
         self.context = context
 
-    def process(self, msg: str, kwargs: Dict[str, Any]) -> tuple:
+    def process(
+        self, msg: str, kwargs: MutableMapping[str, Any]
+    ) -> Tuple[str, MutableMapping[str, Any]]:
         # Merge context
         extra = kwargs.get("extra", {})
         extra["context"] = self.context

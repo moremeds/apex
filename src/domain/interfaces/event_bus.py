@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Callable, Generic, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Optional, TypeVar
 
 # Re-export EventType from the enhanced event_types module
 # This provides backward compatibility for existing imports
-from ..events.event_types import EventPriority, EventType
+from ..events.event_types import EventType
 
 if TYPE_CHECKING:
     from ..events.domain_events import DomainEvent
@@ -37,7 +37,7 @@ class EventBus(ABC):
     """
 
     @abstractmethod
-    def publish(self, event_type: EventType, payload: Any) -> None:
+    def publish(self, event_type: EventType, payload: Any, priority: Optional[int] = None) -> None:
         """
         Publish an event to all subscribers.
 
@@ -45,8 +45,8 @@ class EventBus(ABC):
             event_type: Type of event being published.
             payload: Event data - preferably a DomainEvent subclass,
                     but dict is still supported for backward compatibility.
+            priority: Optional priority for event processing (used by PriorityEventBus).
         """
-        pass
 
     @abstractmethod
     def subscribe(self, event_type: EventType, callback: Callable[[Any], None]) -> None:
@@ -65,9 +65,7 @@ class EventBus(ABC):
 
             event_bus.subscribe(EventType.MARKET_DATA_TICK, on_tick)
         """
-        pass
 
     @abstractmethod
     def unsubscribe(self, event_type: EventType, callback: Callable[[Any], None]) -> None:
         """Unsubscribe a callback from an event type."""
-        pass

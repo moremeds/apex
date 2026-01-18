@@ -25,8 +25,7 @@ from __future__ import annotations
 
 import threading
 from collections import defaultdict
-from dataclasses import dataclass, field
-from datetime import datetime
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Dict, List, Optional
 
 from src.models.risk_snapshot import RiskSnapshot
@@ -35,8 +34,7 @@ from src.utils.timezone import now_utc
 from .position_state import PositionDelta, PositionState
 
 if TYPE_CHECKING:
-    from src.models.position import Position
-    from src.models.position_risk import PositionRisk
+    pass
 
 
 @dataclass

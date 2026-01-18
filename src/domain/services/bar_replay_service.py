@@ -11,11 +11,11 @@ from __future__ import annotations
 
 import asyncio
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from enum import Enum
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from ...domain.events.domain_events import BarCloseEvent, BarData
 from ...domain.events.event_types import EventType
@@ -122,7 +122,7 @@ class BarReplayService:
 
     def __init__(
         self,
-        event_bus: Optional[object] = None,
+        event_bus: Optional[Any] = None,
         bar_store: Optional[ParquetHistoricalStore] = None,
         bar_calculator: Optional[BarCountCalculator] = None,
         base_dir: Optional[Path] = None,
@@ -136,7 +136,7 @@ class BarReplayService:
             bar_calculator: For gap detection.
             base_dir: Base directory for bar store.
         """
-        self._event_bus = event_bus
+        self._event_bus: Optional[Any] = event_bus
         self._bar_store = bar_store or ParquetHistoricalStore(
             base_dir=base_dir or Path("data/historical")
         )
@@ -315,7 +315,11 @@ class BarReplayService:
         timeframes: List[str],
         start: Optional[date | datetime] = None,
         end: Optional[date | datetime] = None,
-        **kwargs,
+        speed: ReplaySpeed = ReplaySpeed.MAX_SPEED,
+        speed_multiplier: float = 10.0,
+        on_progress: Optional[Callable[[ReplayProgress], None]] = None,
+        on_gap: Optional[Callable[[ReplayGapEvent], None]] = None,
+        progress_interval: int = 100,
     ) -> Dict[Tuple[str, str], ReplayProgress]:
         """
         Replay multiple symbol/timeframe combinations.
@@ -325,15 +329,29 @@ class BarReplayService:
             timeframes: List of timeframes.
             start: Start date.
             end: End date.
-            **kwargs: Additional arguments for replay().
+            speed: Replay speed mode.
+            speed_multiplier: Speed factor for FAST_FORWARD mode.
+            on_progress: Progress callback.
+            on_gap: Gap detection callback.
+            progress_interval: Bars between progress callbacks.
 
         Returns:
             Dict mapping (symbol, timeframe) to ReplayProgress.
         """
-        results = {}
+        results: Dict[Tuple[str, str], ReplayProgress] = {}
         for symbol in symbols:
             for tf in timeframes:
-                results[(symbol, tf)] = await self.replay(symbol, tf, start, end, **kwargs)
+                results[(symbol, tf)] = await self.replay(
+                    symbol,
+                    tf,
+                    start,
+                    end,
+                    speed=speed,
+                    speed_multiplier=speed_multiplier,
+                    on_progress=on_progress,
+                    on_gap=on_gap,
+                    progress_interval=progress_interval,
+                )
         return results
 
     def pause(self) -> None:

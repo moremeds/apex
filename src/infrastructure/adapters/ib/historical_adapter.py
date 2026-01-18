@@ -17,7 +17,6 @@ from zoneinfo import ZoneInfo
 
 from ....domain.events.domain_events import BarData
 from ....domain.interfaces.bar_provider import BarProvider
-from ....domain.interfaces.historical_source import HistoricalSourcePort
 from ....utils.logging_setup import get_logger
 from .base import IbBaseAdapter
 
@@ -155,7 +154,6 @@ class IbHistoricalAdapter(IbBaseAdapter, BarProvider):
         if start:
             requested_days = (end_dt - start).days
             if requested_days > max_days:
-                original_start = start
                 start = end_dt - timedelta(days=max_days)
                 logger.warning(
                     f"Truncating {symbol}/{timeframe} request from {requested_days} "

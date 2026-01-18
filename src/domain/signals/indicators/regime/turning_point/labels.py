@@ -113,7 +113,7 @@ class TurningPointLabeler:
         if atr is None:
             atr = self.compute_atr(df)
 
-        pivots = []
+        pivots: List[ZigZagPivot] = []
         n = len(df)
 
         if n < self.atr_period + 1:

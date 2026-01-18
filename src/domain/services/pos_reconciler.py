@@ -9,9 +9,9 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import datetime
-from typing import Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 
-from ...models.position import AssetType, Position, PositionSource
+from ...models.position import AssetType, Position
 from ...models.reconciliation import IssueType, ReconciliationIssue
 from ...utils.logging_setup import get_logger
 from ...utils.timezone import age_seconds
@@ -112,7 +112,7 @@ class Reconciler:
                         ib_position=ib_pos,
                         manual_position=manual_pos,
                         cached_position=cached_pos,
-                        quantity_delta=ib_pos.quantity - manual_pos.quantity,
+                        quantity_delta=int(ib_pos.quantity - manual_pos.quantity),
                         severity="CRITICAL",
                     )
                     issues.append(issue)
@@ -127,7 +127,7 @@ class Reconciler:
                         ib_position=futu_pos,  # Reuse ib_position field for Futu
                         manual_position=manual_pos,
                         cached_position=cached_pos,
-                        quantity_delta=futu_pos.quantity - manual_pos.quantity,
+                        quantity_delta=int(futu_pos.quantity - manual_pos.quantity),
                         severity="CRITICAL",
                     )
                     issues.append(issue)
@@ -152,7 +152,7 @@ class Reconciler:
     def remove_expired_options(
         self,
         positions: List[Position],
-        ref_date=None,
+        ref_date: Optional[datetime] = None,
     ) -> List[Position]:
         """
         Drop expired option positions so they do not linger in downstream views.
@@ -227,10 +227,10 @@ class Reconciler:
                 manual_pos = manual_map.get(key)
                 if manual_pos is not None:
                     # Clone position with manual overrides (avoid mutating original)
-                    overrides = {"avg_price": manual_pos.avg_price}
+                    overrides: Dict[str, Any] = {"avg_price": manual_pos.avg_price}
                     if manual_pos.strategy_tag:
                         overrides["strategy_tag"] = manual_pos.strategy_tag
-                    merged[key] = replace(position, **overrides)
+                    merged[key] = replace(position, **overrides)  # type: ignore[misc]
                 else:
                     # Clone to avoid side effects on original position
                     merged[key] = replace(position)
@@ -258,7 +258,7 @@ class Reconciler:
                 merged[key] = replace(pos, all_sources=[pos.source])
 
         # Log merged position sources for debugging
-        source_counts = {}
+        source_counts: Dict[str, int] = {}
         multi_source_count = 0
         for pos in merged.values():
             src = pos.source.value if pos.source else "None"

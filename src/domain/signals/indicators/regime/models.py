@@ -12,13 +12,15 @@ Schema Version: regime_output@1.1
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, cast
 
 if TYPE_CHECKING:
+    from ...models import IndicatorTrace
     from .rule_trace import RuleTrace
+    from .turning_point.model import TurningPointOutput
 
 
 # =============================================================================
@@ -262,7 +264,6 @@ class ThresholdPair:
         # For "high" states (entry > exit is typical)
         # For "low" states (entry < exit is typical)
         # We don't enforce ordering here since both directions are valid
-        pass
 
     def should_enter(self, current_value: float, operator: str = ">=") -> bool:
         """Check if value crosses entry threshold."""
@@ -955,7 +956,9 @@ class RegimeOutput:
                 priority=rt_data.get("priority", 0),
                 threshold_info=parse_threshold_info(rt_data.get("threshold_info")),
                 failed_conditions=[
-                    parse_threshold_info(fc) for fc in rt_data.get("failed_conditions", []) if fc
+                    ti
+                    for fc in rt_data.get("failed_conditions", [])
+                    if fc and (ti := parse_threshold_info(fc)) is not None
                 ],
             )
 

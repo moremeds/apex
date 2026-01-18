@@ -24,10 +24,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from src.models.position import Position
 from src.utils.timezone import now_utc
+
+if TYPE_CHECKING:
+    from src.domain.events.domain_events import PositionDeltaEvent
 
 
 @dataclass(frozen=True, slots=True)
