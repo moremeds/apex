@@ -16,10 +16,8 @@ from typing import TYPE_CHECKING, Union
 from .parser import create_parser
 
 if TYPE_CHECKING:
-    from ..runner import (
-        BacktraderRunner as _BacktraderRunner,
-        SingleBacktestRunner as _SingleBacktestRunner,
-    )
+    from ..runner import BacktraderRunner as _BacktraderRunner
+    from ..runner import SingleBacktestRunner as _SingleBacktestRunner
 
 logger = logging.getLogger(__name__)
 

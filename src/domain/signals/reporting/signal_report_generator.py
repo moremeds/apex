@@ -41,6 +41,7 @@ from .regime_report import (
 
 if TYPE_CHECKING:
     from src.domain.services.regime import ParamProvenanceSet, RecommenderResult
+
     from ..indicators.base import Indicator
     from ..indicators.regime import RegimeOutput
     from ..models import SignalRule
