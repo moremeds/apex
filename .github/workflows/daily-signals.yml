@@ -270,6 +270,7 @@ jobs:
       (needs.preflight.outputs.is_sunday != 'true' || github.event_name == 'workflow_dispatch')
     outputs:
       report_path: ${{ steps.generate.outputs.report_path }}
+      date: ${{ steps.date.outputs.date }}
     steps:
       - uses: actions/checkout@v4
         with:
