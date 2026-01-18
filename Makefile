@@ -1,7 +1,7 @@
 # APEX Development Makefile
 # Quick commands for common development tasks
 
-.PHONY: install lint format type-check test test-all coverage clean dead-code complexity quality verify help
+.PHONY: install lint format type-check test test-all coverage clean dead-code complexity quality verify help diagrams diagrams-classes diagrams-deps
 
 # Virtual environment - use .venv/bin executables directly
 VENV := .venv/bin
@@ -35,6 +35,11 @@ help:
 	@echo ""
 	@echo "$(GREEN)Verification:$(RESET)"
 	@echo "  make verify        Run signal and regime verification"
+	@echo ""
+	@echo "$(GREEN)Documentation:$(RESET)"
+	@echo "  make diagrams      Generate all architecture diagrams"
+	@echo "  make diagrams-classes  Generate class diagrams (PlantUML)"
+	@echo "  make diagrams-deps     Generate dependency graphs (SVG)"
 	@echo ""
 	@echo "$(GREEN)Cleanup:$(RESET)"
 	@echo "  make clean         Remove build artifacts and caches"
@@ -113,6 +118,31 @@ verify:
 	@echo ""
 	@echo "$(BOLD)Running regime verification...$(RESET)"
 	$(PYTHON) -m src.verification.regime_verifier --all --profile dev
+
+# ═══════════════════════════════════════════════════════════════
+# Diagrams
+# ═══════════════════════════════════════════════════════════════
+
+diagrams: diagrams-classes diagrams-deps
+	@echo "$(GREEN)✓ All diagrams generated in docs/diagrams/$(RESET)"
+
+diagrams-classes:
+	@echo "$(BOLD)Generating class diagrams (PlantUML via pyreverse)...$(RESET)"
+	@mkdir -p docs/diagrams/classes
+	$(VENV)/pyreverse -o puml -d docs/diagrams/classes -p domain_services src/domain/services
+	$(VENV)/pyreverse -o puml -d docs/diagrams/classes -p domain_signals src/domain/signals
+	$(VENV)/pyreverse -o puml -d docs/diagrams/classes -p domain_events src/domain/events
+	$(VENV)/pyreverse -o puml -d docs/diagrams/classes -p infrastructure_adapters src/infrastructure/adapters
+	$(VENV)/pyreverse -o puml -d docs/diagrams/classes -p application_orchestrator src/application/orchestrator
+	@echo "$(GREEN)✓ Class diagrams generated$(RESET)"
+
+diagrams-deps:
+	@echo "$(BOLD)Generating dependency graphs (SVG)...$(RESET)"
+	@mkdir -p docs/diagrams/dependencies
+	$(VENV)/pydeps src/domain -o docs/diagrams/dependencies/domain_deps.svg --max-module-depth=2 --cluster --noshow
+	$(VENV)/pydeps src/infrastructure -o docs/diagrams/dependencies/infrastructure_deps.svg --max-module-depth=2 --cluster --noshow
+	$(VENV)/pydeps src -o docs/diagrams/dependencies/full_project_deps.svg --max-module-depth=1 --cluster --noshow
+	@echo "$(GREEN)✓ Dependency graphs generated$(RESET)"
 
 # ═══════════════════════════════════════════════════════════════
 # Cleanup

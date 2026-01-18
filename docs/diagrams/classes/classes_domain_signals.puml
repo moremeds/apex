@@ -1,0 +1,1119 @@
+@startuml classes_domain_signals
+set namespaceSeparator none
+class "ADIndicator" as apex.src.domain.signals.indicators.volume.ad.ADIndicator {
+  category : VOLUME
+  name : str
+  required_fields : list
+  warmup_periods : int
+}
+class "ADXIndicator" as apex.src.domain.signals.indicators.trend.adx.ADXIndicator {
+  category : TREND
+  name : str
+  required_fields : list
+  warmup_periods : int
+}
+class "ATRIndicator" as apex.src.domain.signals.indicators.volatility.atr.ATRIndicator {
+  category : VOLATILITY
+  name : str
+  required_fields : list
+  warmup_periods : int
+}
+class "AroonIndicator" as apex.src.domain.signals.indicators.trend.aroon.AroonIndicator {
+  category : TREND
+  name : str
+  required_fields : list
+  warmup_periods : int
+}
+class "AwesomeOscillatorIndicator" as apex.src.domain.signals.indicators.momentum.awesome.AwesomeOscillatorIndicator {
+  category : MOMENTUM
+  name : str
+  required_fields : list
+  warmup_periods : int
+}
+class "BarAggregator" as apex.src.domain.signals.data.bar_aggregator.BarAggregator {
+  bars_emitted : int
+  timeframe : str
+  flush(symbol: Optional[str]) -> list[BarCloseEvent]
+  on_tick(tick: Any) -> Optional[BarCloseEvent]
+}
+class "BarBuilder" as apex.src.domain.signals.data.bar_builder.BarBuilder {
+  bar_end : datetime
+  bar_start : datetime
+  close : Optional[float]
+  high : Optional[float]
+  is_empty : bool
+  low : Optional[float]
+  open : Optional[float]
+  symbol : str
+  timeframe : str
+  trade_count : int
+  volume : float
+  compute_bounds(timeframe: str, timestamp: datetime) -> tuple[datetime, datetime]
+  create_for_timestamp(symbol: str, timeframe: str, timestamp: datetime) -> 'BarBuilder'
+  to_close_event() -> BarCloseEvent
+  update(price: float, volume: Optional[float], timestamp: datetime) -> None
+}
+class "BarSnapshot" as apex.src.domain.signals.indicators.regime.models.BarSnapshot {
+  close : float
+  component_states : Dict[str, str]
+  key_metrics : Dict[str, float]
+  ts : datetime
+  to_dict() -> Dict[str, Any]
+}
+class "BollingerBandsIndicator" as apex.src.domain.signals.indicators.volatility.bollinger.BollingerBandsIndicator {
+  category : VOLATILITY
+  name : str
+  required_fields : list
+  warmup_periods : int
+}
+class "CCIIndicator" as apex.src.domain.signals.indicators.momentum.cci.CCIIndicator {
+  category : MOMENTUM
+  name : str
+  required_fields : list
+  warmup_periods : int
+}
+class "CMFIndicator" as apex.src.domain.signals.indicators.volume.cmf.CMFIndicator {
+  category : VOLUME
+  name : str
+  required_fields : list
+  warmup_periods : int
+}
+class "CVDIndicator" as apex.src.domain.signals.indicators.volume.cvd.CVDIndicator {
+  category : VOLUME
+  name : str
+  required_fields : list
+  warmup_periods : int
+}
+class "CalibrationEvidence" as apex.src.domain.signals.indicators.regime.turning_point.calibration.CalibrationEvidence {
+  brier_score : float
+  bucket_counts : List[int]
+  bucket_edges : List[float]
+  bucket_mean_actual : List[float]
+  bucket_mean_predicted : List[float]
+  calibration_error : float
+  event_rate : float
+  expected_calibration_error : float
+  n_samples : int
+  from_dict(data: Dict[str, Any]) -> 'CalibrationEvidence'
+  is_well_calibrated(threshold: float) -> bool
+  to_dict() -> Dict[str, Any]
+  to_reliability_diagram_data() -> Dict[str, Any]
+}
+class "CandlestickPatternsIndicator" as apex.src.domain.signals.indicators.pattern.candlestick.CandlestickPatternsIndicator {
+  category : PATTERN
+  name : str
+  required_fields : list
+  warmup_periods : int
+}
+class "ChaikinVolatilityIndicator" as apex.src.domain.signals.indicators.volatility.chaikin_vol.ChaikinVolatilityIndicator {
+  category : VOLATILITY
+  name : str
+  required_fields : list
+  warmup_periods : int
+}
+class "ChartPatternsIndicator" as apex.src.domain.signals.indicators.pattern.chart_patterns.ChartPatternsIndicator {
+  category : PATTERN
+  name : str
+  required_fields : list
+  warmup_periods : int
+}
+class "ChopState" as apex.src.domain.signals.indicators.regime.models.ChopState {
+  name
+}
+class "ComponentStates" as apex.src.domain.signals.indicators.regime.models.ComponentStates {
+  chop_state
+  ext_state
+  iv_state
+  trend_state
+  vol_state
+  to_dict() -> Dict[str, str]
+}
+class "ComponentValues" as apex.src.domain.signals.indicators.regime.models.ComponentValues {
+  atr20 : float
+  atr_pct : float
+  atr_pct_252 : float
+  atr_pct_63 : float
+  chop : float
+  chop_pct_252 : float
+  close : float
+  ext : float
+  iv_pct_63 : Optional[float]
+  iv_value : Optional[float]
+  last_5_bar_high : float
+  ma20 : float
+  ma200 : float
+  ma20_crosses : int
+  ma50 : float
+  ma50_slope : float
+  to_dict() -> Dict[str, Any]
+}
+class "ConditionEvaluator" as apex.src.domain.signals.conditions.evaluators.ConditionEvaluator {
+  evaluate(config: Dict[str, Any], prev_state: Optional[Dict[str, Any]], curr_state: Dict[str, Any]) -> bool
+}
+class "ConditionType" as apex.src.domain.signals.models.ConditionType {
+  name
+}
+class "<color:red>ConfigError</color>" as apex.src.domain.signals.config.schema.ConfigError {
+  message : str
+  path : str
+  value : Optional[Any]
+}
+class "ConfluenceCalculator" as apex.src.domain.signals.confluence_calculator.ConfluenceCalculator {
+  indicator_state_count : int
+  clear_cache(symbol: Optional[str]) -> int
+  get_cached_states(symbol: str, timeframe: Optional[str]) -> Dict[str, Dict[str, Any]]
+  on_indicator_update(symbol: str, timeframe: str, indicator: str, state: Dict[str, Any]) -> None
+  set_persistence_callback(callback: Callable) -> None
+  start() -> None
+  stop() -> None
+}
+class "ConfluenceScore" as apex.src.domain.signals.models.ConfluenceScore {
+  alignment_score : int
+  bearish_count : int
+  bullish_count : int
+  diverging_pairs : List[Tuple[str, str, str]]
+  neutral_count : int
+  strongest_signal : Optional[str]
+  symbol : str
+  timeframe : str
+  timestamp : datetime
+  to_dict() -> Dict[str, Any]
+}
+class "CrossDownEvaluator" as apex.src.domain.signals.conditions.evaluators.CrossDownEvaluator {
+  evaluate(config: Dict[str, Any], prev_state: Optional[Dict[str, Any]], curr_state: Dict[str, Any]) -> bool
+}
+class "CrossIndicatorAnalyzer" as apex.src.domain.signals.divergence.cross_divergence.CrossIndicatorAnalyzer {
+  analyze(symbol: str, timeframe: str, indicator_states: Dict[str, Dict[str, Any]]) -> ConfluenceScore
+  get_registered_indicators() -> List[str]
+  register_indicator(indicator_name: str, bullish_check: DirectionChecker, bearish_check: DirectionChecker) -> None
+}
+class "CrossUpEvaluator" as apex.src.domain.signals.conditions.evaluators.CrossUpEvaluator {
+  evaluate(config: Dict[str, Any], prev_state: Optional[Dict[str, Any]], curr_state: Dict[str, Any]) -> bool
+}
+class "CurrentTurningPointState" as apex.src.domain.signals.indicators.regime.turning_point.labels.CurrentTurningPointState {
+  atr : float
+  bars_since_last_pivot : int
+  current_close : float
+  distance_atr_units : float
+  last_pivot_price : float
+  last_pivot_type
+  move_direction : str
+  to_dict() -> dict
+}
+class "DataQuality" as apex.src.domain.signals.indicators.regime.models.DataQuality {
+  component_issues : Dict[str, str]
+  component_validity : Dict[str, bool]
+  exception_msg : Optional[str]
+  fallback_active : bool
+  fallback_reason
+  missing_columns : List[str]
+  nan_counts : Dict[str, int]
+  warmup_bars_available : int
+  warmup_bars_needed : int
+  warmup_ok : bool
+  to_dict() -> Dict[str, Any]
+}
+class "DataWindow" as apex.src.domain.signals.indicators.regime.models.DataWindow {
+  bars : int
+  end_ts : datetime
+  start_ts : datetime
+  to_dict() -> Dict[str, Any]
+}
+class "DerivedMetrics" as apex.src.domain.signals.indicators.regime.models.DerivedMetrics {
+  atr_pctile_long_window : float
+  atr_pctile_short_window : float
+  atr_reference_windows : Tuple[int, int]
+  atr_value : float
+  chop_pctile : float
+  chop_reference_window : int
+  chop_value : float
+  ext_atr_units : float
+  iv_pctile : Optional[float]
+  iv_reference_window : int
+  iv_value : Optional[float]
+  ma20 : float
+  ma200 : float
+  ma20_crosses : int
+  ma50 : float
+  ma50_slope : float
+  from_component_values(cv: ComponentValues) -> 'DerivedMetrics'
+  to_dict() -> Dict[str, Any]
+}
+class "Divergence" as apex.src.domain.signals.models.Divergence {
+  bars_apart : int
+  indicator : str
+  indicator_point1 : Tuple[datetime, float]
+  indicator_point2 : Tuple[datetime, float]
+  price_point1 : Tuple[datetime, float]
+  price_point2 : Tuple[datetime, float]
+  strength : int
+  symbol : str
+  timeframe : str
+  timestamp : datetime
+  type
+  to_dict() -> Dict[str, Any]
+}
+class "DivergenceType" as apex.src.domain.signals.models.DivergenceType {
+  name
+}
+class "DonchianChannelsIndicator" as apex.src.domain.signals.indicators.volatility.donchian.DonchianChannelsIndicator {
+  category : VOLATILITY
+  name : str
+  required_fields : list
+  warmup_periods : int
+}
+class "EMAIndicator" as apex.src.domain.signals.indicators.trend.ema.EMAIndicator {
+  category : TREND
+  name : str
+  required_fields : list
+  warmup_periods : int
+}
+class "EvalResult" as apex.src.domain.signals.indicators.regime.rule_trace.EvalResult {
+  current_value : float
+  direction : Literal['increase', 'decrease']
+  gap : float
+  metric_name : str
+  passed : bool
+  rendered_op : str
+  threshold : float
+  unit : str
+  format_comparison() -> str
+  format_counterfactual() -> str
+  to_dict() -> Dict[str, Any]
+}
+class "EventBusProtocol" as apex.src.domain.signals.indicator_engine.EventBusProtocol {
+  publish(event_type: EventType, payload: Any) -> None
+  subscribe(event_type: EventType, callback: Callable[[Any], None]) -> None
+}
+class "EventBusProtocol" as apex.src.domain.signals.rule_engine.EventBusProtocol {
+  publish(event_type: EventType, payload: Any) -> None
+  subscribe(event_type: EventType, callback: Callable[[Any], None]) -> None
+}
+class "EventBusProtocol" as apex.src.domain.signals.data.bar_aggregator.EventBusProtocol {
+  publish(event_type: EventType, payload: Any, priority: Optional[int]) -> None
+}
+class "ExperimentResult" as apex.src.domain.signals.indicators.regime.turning_point.experiment.ExperimentResult {
+  baseline_comparison : Optional[Dict[str, Any]]
+  created_at : str
+  experiment_id : str
+  median_bottom_pr_auc : float
+  median_bottom_roc_auc : float
+  median_top_pr_auc : float
+  median_top_roc_auc : float
+  model_path : Optional[str]
+  model_type : str
+  std_bottom_roc_auc : float
+  std_top_roc_auc : float
+  symbol : str
+  window_metrics : List[ModelMetrics]
+  load(path: Path) -> 'ExperimentResult'
+  print_summary() -> None
+  save(path: Path) -> None
+  to_dict() -> Dict[str, Any]
+}
+class "ExtState" as apex.src.domain.signals.indicators.regime.models.ExtState {
+  name
+}
+class "FallbackReason" as apex.src.domain.signals.indicators.regime.models.FallbackReason {
+  name
+}
+class "FibonacciIndicator" as apex.src.domain.signals.indicators.pattern.fibonacci.FibonacciIndicator {
+  category : PATTERN
+  name : str
+  required_fields : list
+  warmup_periods : int
+}
+class "ForceIndexIndicator" as apex.src.domain.signals.indicators.volume.force.ForceIndexIndicator {
+  category : VOLUME
+  name : str
+  required_fields : list
+  warmup_periods : int
+}
+class "HistoricalVolatilityIndicator" as apex.src.domain.signals.indicators.volatility.hvol.HistoricalVolatilityIndicator {
+  category : VOLATILITY
+  name : str
+  required_fields : list
+  warmup_periods : int
+}
+class "IVState" as apex.src.domain.signals.indicators.regime.models.IVState {
+  name
+}
+class "IchimokuIndicator" as apex.src.domain.signals.indicators.trend.ichimoku.IchimokuIndicator {
+  category : TREND
+  name : str
+  required_fields : list
+  warmup_periods : int
+}
+class "Indicator" as apex.src.domain.signals.indicators.base.Indicator {
+  category
+  default_params : Dict[str, Any]
+  name : str
+  required_fields : List[str]
+  warmup_periods : int
+  calculate(data: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame
+  get_state(current: pd.Series, previous: Optional[pd.Series], params: Optional[Dict[str, Any]]) -> Dict[str, Any]
+}
+class "IndicatorBase" as apex.src.domain.signals.indicators.base.IndicatorBase {
+  category
+  default_params : Dict[str, Any]
+  name : str
+  required_fields : List[str]
+  warmup_periods : int
+  calculate(data: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame
+  get_state(current: pd.Series, previous: Optional[pd.Series], params: Optional[Dict[str, Any]]) -> Dict[str, Any]
+}
+class "IndicatorEngine" as apex.src.domain.signals.indicator_engine.IndicatorEngine {
+  bars_processed : int
+  indicator_count : int
+  compute_on_history(symbol: str, timeframe: str) -> int
+  get_all_indicator_states(symbol: Optional[str], timeframe: Optional[str]) -> Dict[StateKey, Dict[str, Any]]
+  get_all_warmup_status() -> List[Dict[str, Any]]
+  get_indicator_state(symbol: str, timeframe: str, indicator: str) -> Optional[Dict[str, Any]]
+  get_warmup_status(symbol: str, timeframe: str) -> Dict[str, Any]
+  inject_historical_bars(symbol: str, timeframe: str, bar_dicts: List[Dict[str, Any]]) -> int
+  start() -> None
+  stop() -> None
+}
+class "IndicatorRegistry" as apex.src.domain.signals.indicators.registry.IndicatorRegistry {
+  clear() -> None
+  discover() -> int
+  get(name: str) -> Optional[Indicator]
+  get_all() -> List[Indicator]
+  get_by_category(category: SignalCategory) -> List[Indicator]
+  get_names() -> List[str]
+  register(indicator: Indicator) -> None
+}
+class "IndicatorTrace" as apex.src.domain.signals.models.IndicatorTrace {
+  bar_ts : datetime
+  indicator_name : str
+  lookback : int
+  prev_raw : Optional[Dict[str, float]]
+  raw : Dict[str, float]
+  rules_triggered_now : List[str]
+  state : Dict[str, Any]
+  symbol : str
+  timeframe : str
+  from_dict(data: Dict[str, Any]) -> 'IndicatorTrace'
+  get_delta(key: str) -> Optional[float]
+  to_dict() -> Dict[str, Any]
+}
+class "InputsUsed" as apex.src.domain.signals.indicators.regime.models.InputsUsed {
+  close : float
+  high : float
+  history : List[BarSnapshot]
+  low : float
+  volume : float
+  to_dict() -> Dict[str, Any]
+}
+class "KDJIndicator" as apex.src.domain.signals.indicators.momentum.kdj.KDJIndicator {
+  category : MOMENTUM
+  name : str
+  required_fields : list
+  warmup_periods : int
+}
+class "KeltnerChannelsIndicator" as apex.src.domain.signals.indicators.volatility.keltner.KeltnerChannelsIndicator {
+  category : VOLATILITY
+  name : str
+  required_fields : list
+  warmup_periods : int
+}
+class "MACDIndicator" as apex.src.domain.signals.indicators.momentum.macd.MACDIndicator {
+  category : MOMENTUM
+  name : str
+  required_fields : list
+  warmup_periods : int
+}
+class "MFIIndicator" as apex.src.domain.signals.indicators.momentum.mfi.MFIIndicator {
+  category : MOMENTUM
+  name : str
+  required_fields : list
+  warmup_periods : int
+}
+class "MTFAlignment" as apex.src.domain.signals.divergence.confluence.MTFAlignment {
+  alignment_strength : str
+  dominant_direction : Optional[str]
+  symbol : str
+  tf_scores : Dict[str, ConfluenceScore]
+  timeframes : List[str]
+  timestamp : datetime
+  to_dict() -> Dict[str, Any]
+}
+class "MTFDivergenceAnalyzer" as apex.src.domain.signals.divergence.confluence.MTFDivergenceAnalyzer {
+  TIMEFRAME_ORDER : list
+  analyze(symbol: str, timeframes: List[str], states_by_tf: Dict[str, Dict[str, Dict[str, Any]]]) -> MTFAlignment
+  get_higher_tf_confirmation(symbol: str, current_tf: str, direction: str, states_by_tf: Dict[str, Dict[str, Dict[str, Any]]]) -> bool
+}
+class "MarketRegime" as apex.src.domain.signals.indicators.regime.models.MarketRegime {
+  display_name : str
+  name
+  severity : int
+}
+class "ModelMetrics" as apex.src.domain.signals.indicators.regime.turning_point.experiment.ModelMetrics {
+  bottom_brier : float
+  bottom_ece : float
+  bottom_positives : int
+  bottom_pr_auc : float
+  bottom_roc_auc : float
+  combined_pr_auc : float
+  combined_roc_auc : float
+  test_end : str
+  test_samples : int
+  test_start : str
+  top_brier : float
+  top_ece : float
+  top_positives : int
+  top_pr_auc : float
+  top_roc_auc : float
+  train_end : str
+  train_samples : int
+  train_start : str
+  window_id : int
+  to_dict() -> Dict[str, Any]
+}
+class "MomentumIndicator" as apex.src.domain.signals.indicators.momentum.momentum.MomentumIndicator {
+  category : MOMENTUM
+  name : str
+  required_fields : list
+  warmup_periods : int
+}
+class "OBVIndicator" as apex.src.domain.signals.indicators.volume.obv.OBVIndicator {
+  category : VOLUME
+  name : str
+  required_fields : list
+  warmup_periods : int
+}
+class "PSARIndicator" as apex.src.domain.signals.indicators.trend.psar.PSARIndicator {
+  category : TREND
+  name : str
+  required_fields : list
+  warmup_periods : int
+}
+class "PivotPointsIndicator" as apex.src.domain.signals.indicators.pattern.pivot.PivotPointsIndicator {
+  category : PATTERN
+  name : str
+  required_fields : list
+  warmup_periods : int
+}
+class "PriceDivergenceDetector" as apex.src.domain.signals.divergence.price_divergence.PriceDivergenceDetector {
+  detect(price: pd.Series, indicator: pd.Series, indicator_name: str, symbol: str, timeframe: str) -> List[Divergence]
+}
+class "PurgedFold" as apex.src.domain.signals.indicators.regime.turning_point.cv.PurgedFold {
+  embargo_end : int
+  fold_index : int
+  purge_end : int
+  purge_start : int
+  test_indices : ndarray
+  train_indices : ndarray
+}
+class "PurgedTimeSeriesSplit" as apex.src.domain.signals.indicators.regime.turning_point.cv.PurgedTimeSeriesSplit {
+  embargo : int
+  gap : int
+  label_horizon : int
+  n_splits : int
+  test_size : Optional[int]
+  get_folds(X: np.ndarray, y: Optional[np.ndarray]) -> List[PurgedFold]
+  get_n_splits(X: Optional[np.ndarray], y: Optional[np.ndarray], groups: Optional[np.ndarray]) -> int
+  split(X: np.ndarray, y: Optional[np.ndarray], groups: Optional[np.ndarray]) -> Iterator[Tuple[np.ndarray, np.ndarray]]
+  verify_embargo(X: np.ndarray, y: Optional[np.ndarray]) -> Tuple[bool, List[str]]
+  verify_no_overlap(X: np.ndarray, y: Optional[np.ndarray]) -> Tuple[bool, List[str]]
+}
+class "ROCIndicator" as apex.src.domain.signals.indicators.momentum.roc.ROCIndicator {
+  category : MOMENTUM
+  name : str
+  required_fields : list
+  warmup_periods : int
+}
+class "RSIHarmonicsIndicator" as apex.src.domain.signals.indicators.momentum.rsi_harmonics.RSIHarmonicsIndicator {
+  category : MOMENTUM
+  name : str
+  required_fields : list
+  warmup_periods : int
+}
+class "RSIIndicator" as apex.src.domain.signals.indicators.momentum.rsi.RSIIndicator {
+  category : MOMENTUM
+  name : str
+  required_fields : list
+  warmup_periods : int
+}
+class "RangeEntryEvaluator" as apex.src.domain.signals.conditions.evaluators.RangeEntryEvaluator {
+  evaluate(config: Dict[str, Any], prev_state: Optional[Dict[str, Any]], curr_state: Dict[str, Any]) -> bool
+}
+class "RangeExitEvaluator" as apex.src.domain.signals.conditions.evaluators.RangeExitEvaluator {
+  evaluate(config: Dict[str, Any], prev_state: Optional[Dict[str, Any]], curr_state: Dict[str, Any]) -> bool
+}
+class "RegimeDetectorIndicator" as apex.src.domain.signals.indicators.regime.regime_detector.RegimeDetectorIndicator {
+  category : REGIME
+  name : str
+  required_fields : list
+  warmup_periods : int
+  reset_state(symbol: Optional[str]) -> None
+  update_with_hysteresis(symbol: str, state: Dict[str, Any], timestamp: Optional[datetime]) -> RegimeOutput
+}
+class "RegimeOutput" as apex.src.domain.signals.indicators.regime.models.RegimeOutput {
+  asof_ts : Optional[datetime]
+  bar_interval : str
+  bars_in_regime : int
+  component_states
+  component_values
+  confidence : int
+  data_window
+  decision_regime
+  derived_metrics
+  final_regime
+  indicator_traces : List['IndicatorTrace']
+  inputs_used
+  is_market_level : bool
+  previous_regime : Optional[MarketRegime]
+  quality
+  regime : MarketRegime
+  regime_changed : bool
+  regime_name : str
+  rules_fired_decision : List['RuleTrace']
+  rules_fired_hysteresis : List['RuleTrace']
+  schema_version : str
+  symbol : str
+  timestamp : Optional[datetime]
+  transition
+  turning_point : Optional['TurningPointOutput']
+  from_dict(data: Dict[str, Any]) -> 'RegimeOutput'
+  to_dict(precision: int) -> Dict[str, Any]
+  to_legacy_dict() -> Dict[str, Any]
+}
+class "RegimeState" as apex.src.domain.signals.indicators.regime.models.RegimeState {
+  bars_in_current : int
+  current_regime
+  last_regime_change : Optional[datetime]
+  pending_count : int
+  pending_regime : Optional[MarketRegime]
+  to_dict() -> Dict[str, Any]
+}
+class "RegimeTransitionState" as apex.src.domain.signals.indicators.regime.models.RegimeTransitionState {
+  bars_in_current : int
+  entry_threshold : int
+  exit_threshold : int
+  last_transition_ts : Optional[datetime]
+  pending_count : int
+  pending_regime : Optional[MarketRegime]
+  transition_reason : Optional[str]
+  to_dict() -> Dict[str, Any]
+}
+class "RuleEngine" as apex.src.domain.signals.rule_engine.RuleEngine {
+  registry : RuleRegistry
+  rules_evaluated : int
+  signals_emitted : int
+  trace_mode : bool
+  clear_cooldowns() -> int
+  get_all_cooldowns() -> List[Dict[str, Any]]
+  get_cooldown_status(category: str, indicator: str, symbol: str, timeframe: str) -> Optional[Dict[str, Any]]
+  get_evaluation_history(limit: int, triggered_only: bool) -> List[Dict[str, Any]]
+  start() -> None
+  stop() -> None
+}
+class "RuleRegistry" as apex.src.domain.signals.rule_engine.RuleRegistry {
+  add_rule(rule: SignalRule) -> None
+  add_rules(rules: List[SignalRule]) -> None
+  clear() -> None
+  from_config(config: Dict[str, Any]) -> 'RuleRegistry'
+  get_all_rules() -> List[SignalRule]
+  get_rule_by_name(rule_name: str) -> Optional[SignalRule]
+  get_rules_for_indicator(indicator_name: str) -> List[SignalRule]
+}
+class "RuleTrace" as apex.src.domain.signals.indicators.regime.rule_trace.RuleTrace {
+  category : str
+  description : str
+  eval_result : Optional[EvalResult]
+  evidence : Dict[str, Any]
+  failed_conditions : List[ThresholdInfo]
+  passed : bool
+  priority : int
+  regime_target : str
+  rule_id : str
+  threshold_info : Optional[ThresholdInfo]
+  to_dict() -> Dict[str, Any]
+}
+class "SMAIndicator" as apex.src.domain.signals.indicators.trend.sma.SMAIndicator {
+  category : TREND
+  name : str
+  required_fields : list
+  warmup_periods : int
+}
+class "<color:red>SchemaVersionError</color>" as apex.src.domain.signals.indicators.regime.models.SchemaVersionError {
+  actual : str
+  expected : str
+}
+class "SignalCategory" as apex.src.domain.signals.models.SignalCategory {
+  name
+}
+class "SignalDirection" as apex.src.domain.signals.models.SignalDirection {
+  name
+}
+class "SignalLogger" as apex.src.domain.signals.signal_logger.SignalLogger {
+  env : str
+  log_dir : Path
+  retention_days : int
+  attach(event_bus: Any) -> None
+  detach() -> None
+  log_signal(signal: Any) -> None
+  stop() -> None
+}
+class "SignalPriority" as apex.src.domain.signals.models.SignalPriority {
+  name
+}
+class "SignalReportGenerator" as apex.src.domain.signals.reporting.signal_report_generator.SignalReportGenerator {
+  theme : str
+  generate(data: Dict[Tuple[str, str], pd.DataFrame], indicators: List['Indicator'], rules: List['SignalRule'], output_path: Path, regime_outputs: Optional[Dict[str, 'RegimeOutput']]) -> Path
+}
+class "SignalRule" as apex.src.domain.signals.models.SignalRule {
+  category
+  condition_config : Dict[str, Any]
+  condition_type
+  cooldown_seconds : int
+  direction
+  enabled : bool
+  indicator : str
+  message_template : str
+  min_volume : Optional[float]
+  name : str
+  priority
+  strength : int
+  timeframes : Tuple[str, ...]
+  check_condition(prev_state: Optional[Dict[str, Any]], curr_state: Dict[str, Any]) -> bool
+  format_message(symbol: str, value: Optional[float], threshold: Optional[float]) -> str
+}
+class "SignalStateTracker" as apex.src.domain.signals.signal_state_tracker.SignalStateTracker {
+  clear() -> None
+  get_active_signals() -> Dict[Tuple[str, str, str], TradingSignal]
+  get_signal_status(signal_id: str) -> Optional[SignalStatus]
+  process_signal(signal: TradingSignal) -> Optional[TradingSignal]
+}
+class "SignalStatus" as apex.src.domain.signals.models.SignalStatus {
+  name
+}
+class "SqueezeIndicator" as apex.src.domain.signals.indicators.volatility.squeeze.SqueezeIndicator {
+  category : VOLATILITY
+  name : str
+  required_fields : list
+  warmup_periods : int
+}
+class "StateChangeEvaluator" as apex.src.domain.signals.conditions.evaluators.StateChangeEvaluator {
+  evaluate(config: Dict[str, Any], prev_state: Optional[Dict[str, Any]], curr_state: Dict[str, Any]) -> bool
+}
+class "StdDevIndicator" as apex.src.domain.signals.indicators.volatility.stddev.StdDevIndicator {
+  category : VOLATILITY
+  name : str
+  required_fields : list
+  warmup_periods : int
+}
+class "SuperTrendIndicator" as apex.src.domain.signals.indicators.trend.supertrend.SuperTrendIndicator {
+  category : TREND
+  name : str
+  required_fields : list
+  warmup_periods : int
+}
+class "SupportResistanceIndicator" as apex.src.domain.signals.indicators.pattern.support_resistance.SupportResistanceIndicator {
+  category : PATTERN
+  name : str
+  required_fields : list
+  warmup_periods : int
+}
+class "SymbolConfig" as apex.src.domain.signals.universe.base.SymbolConfig {
+  custom_rules : List[str]
+  enabled : bool
+  group : Optional[str]
+  metadata : Dict[str, Any]
+  min_volume_usd : Optional[float]
+  symbol : str
+  timeframes : List[str]
+  has_timeframe(timeframe: str) -> bool
+}
+class "TRIXIndicator" as apex.src.domain.signals.indicators.trend.trix.TRIXIndicator {
+  category : TREND
+  name : str
+  required_fields : list
+  warmup_periods : int
+}
+class "TSIIndicator" as apex.src.domain.signals.indicators.momentum.tsi.TSIIndicator {
+  category : MOMENTUM
+  name : str
+  required_fields : list
+  warmup_periods : int
+}
+class "ThresholdCrossDownEvaluator" as apex.src.domain.signals.conditions.evaluators.ThresholdCrossDownEvaluator {
+  evaluate(config: Dict[str, Any], prev_state: Optional[Dict[str, Any]], curr_state: Dict[str, Any]) -> bool
+}
+class "ThresholdCrossUpEvaluator" as apex.src.domain.signals.conditions.evaluators.ThresholdCrossUpEvaluator {
+  evaluate(config: Dict[str, Any], prev_state: Optional[Dict[str, Any]], curr_state: Dict[str, Any]) -> bool
+}
+class "ThresholdInfo" as apex.src.domain.signals.indicators.regime.rule_trace.ThresholdInfo {
+  current_value : float
+  direction : Optional[str]
+  gap : float
+  metric_name : str
+  operator : str
+  passed : Optional[bool]
+  threshold : float
+  unit : str
+  format_comparison() -> str
+  format_gap() -> str
+  from_eval_result(result: EvalResult) -> 'ThresholdInfo'
+  to_dict() -> Dict[str, Any]
+}
+class "ThresholdPair" as apex.src.domain.signals.indicators.regime.models.ThresholdPair {
+  entry : float
+  exit : float
+  metric_name : str
+  evaluate_with_hysteresis(current_value: float, currently_in_state: bool, operator: str) -> bool
+  should_enter(current_value: float, operator: str) -> bool
+  should_exit(current_value: float, operator: str) -> bool
+}
+class "TradingSignal" as apex.src.domain.signals.models.TradingSignal {
+  category
+  cooldown_until : Optional[datetime]
+  current_value : float
+  direction
+  indicator : str
+  invalidated_at : Optional[datetime]
+  invalidated_by : Optional[str]
+  message : str
+  metadata : Dict[str, Any]
+  previous_value : Optional[float]
+  priority
+  signal_id : str
+  status
+  strength : int
+  symbol : str
+  threshold : Optional[float]
+  timeframe : str
+  timestamp : datetime
+  trigger_rule : str
+  to_dict() -> Dict[str, Any]
+}
+class "TrainingMetrics" as apex.src.domain.signals.indicators.regime.turning_point.model.TrainingMetrics {
+  calibration : Optional[CalibrationEvidence]
+  cv_pr_auc_mean : float
+  cv_pr_auc_std : float
+  cv_roc_auc_mean : float
+  cv_roc_auc_std : float
+  feature_importance : Dict[str, float]
+  n_negative : int
+  n_positive : int
+  n_samples : int
+  to_dict() -> Dict[str, Any]
+}
+class "TrendState" as apex.src.domain.signals.indicators.regime.models.TrendState {
+  name
+}
+class "TrendlineIndicator" as apex.src.domain.signals.indicators.pattern.trendline.TrendlineIndicator {
+  category : PATTERN
+  name : str
+  required_fields : list
+  warmup_periods : int
+}
+class "TurnState" as apex.src.domain.signals.indicators.regime.turning_point.model.TurnState {
+  name
+}
+class "TurnType" as apex.src.domain.signals.indicators.regime.turning_point.labels.TurnType {
+  name
+}
+class "TurningPointExperiment" as apex.src.domain.signals.indicators.regime.turning_point.experiment.TurningPointExperiment {
+  config
+  labeler
+  compare_models(current_result: ExperimentResult, baseline_path: Optional[Path]) -> Dict[str, Any]
+  run(symbol: str, data: Optional[pd.DataFrame], days: int) -> ExperimentResult
+}
+class "TurningPointFeatures" as apex.src.domain.signals.indicators.regime.turning_point.features.TurningPointFeatures {
+  adx_value : float
+  atr_expansion_rate : float
+  atr_pct_252 : float
+  atr_pct_63 : float
+  chop_pct_252 : float
+  delta_atr_pct : float
+  delta_chop_pct : float
+  delta_ext : float
+  ext_atr_units : float
+  ext_zscore : float
+  ma20_slope : float
+  ma20_vs_ma50 : float
+  ma50_slope : float
+  price_vs_ma20 : float
+  price_vs_ma200 : float
+  price_vs_ma50 : float
+  range_position : float
+  roc_10 : float
+  roc_20 : float
+  roc_5 : float
+  rsi_14 : float
+  vol_regime : int
+  feature_names() -> List[str]
+  to_array() -> np.ndarray
+  to_dict() -> Dict[str, float]
+}
+class "TurningPointHistory" as apex.src.domain.signals.indicators.regime.turning_point.labels.TurningPointHistory {
+  current_state : Optional[CurrentTurningPointState]
+  data_end : Optional[pd.Timestamp]
+  data_start : Optional[pd.Timestamp]
+  pivots : List[TurningPointRecord]
+  total_pivots_detected : int
+  summary() -> str
+  to_dict() -> dict
+}
+class "TurningPointLabeler" as apex.src.domain.signals.indicators.regime.turning_point.labels.TurningPointLabeler {
+  atr_period : int
+  risk_horizon : int
+  risk_threshold : float
+  zigzag_threshold : float
+  compute_atr(df: pd.DataFrame) -> pd.Series
+  detect_zigzag_pivots(df: pd.DataFrame, atr: Optional[pd.Series]) -> List[ZigZagPivot]
+  generate_combined_labels(df: pd.DataFrame) -> Tuple[pd.Series, pd.Series, List[ZigZagPivot]]
+  generate_reversal_risk_labels(df: pd.DataFrame, label_type: str, atr: Optional[pd.Series]) -> pd.Series
+  get_label_horizon() -> int
+  get_recent_turning_points(df: pd.DataFrame, n_recent: int, include_current_state: bool) -> 'TurningPointHistory'
+}
+class "TurningPointModel" as apex.src.domain.signals.indicators.regime.turning_point.model.TurningPointModel {
+  MODEL_VERSION : str
+  bottom_model : LogisticRegression, Optional[Any]
+  confidence_threshold : float
+  feature_names : List[str]
+  is_fitted : bool
+  model_type : Literal['logistic', 'lightgbm']
+  scaler : StandardScaler
+  top_model : LogisticRegression, Optional[Any]
+  training_metrics_bottom : Optional[TrainingMetrics]
+  training_metrics_top : Optional[TrainingMetrics]
+  load(path: Path) -> 'TurningPointModel'
+  predict(features: TurningPointFeatures) -> TurningPointOutput
+  predict_batch(X: np.ndarray) -> List[TurningPointOutput]
+  save(path: Path) -> None
+  train(X: np.ndarray, y_top: np.ndarray, y_bottom: np.ndarray, cv_splits: int, label_horizon: int, embargo: int) -> Tuple[TrainingMetrics, TrainingMetrics]
+}
+class "TurningPointOutput" as apex.src.domain.signals.indicators.regime.turning_point.model.TurningPointOutput {
+  inference_time_ms : float
+  model_version : str
+  top_features : List[Tuple[str, float]]
+  turn_confidence : float
+  turn_state
+  from_dict(data: Dict[str, Any]) -> 'TurningPointOutput'
+  should_accelerate_r3(threshold: float) -> bool
+  should_block_r0(threshold: float) -> bool
+  to_dict() -> Dict[str, Any]
+}
+class "TurningPointRecord" as apex.src.domain.signals.indicators.regime.turning_point.labels.TurningPointRecord {
+  atr_magnitude : float
+  bars_since_last : int
+  index : int
+  price : float
+  timestamp : Optional[pd.Timestamp]
+  turn_type
+  to_dict() -> dict
+}
+class "UltimateOscillatorIndicator" as apex.src.domain.signals.indicators.momentum.ultimate.UltimateOscillatorIndicator {
+  category : MOMENTUM
+  name : str
+  required_fields : list
+  warmup_periods : int
+}
+class "UniverseConfig" as apex.src.domain.signals.config.schema.UniverseConfig {
+  defaults
+  groups : Dict[str, UniverseGroup]
+  overrides : Dict[str, UniverseOverride]
+  provider : Dict[str, Any]
+  version : int
+}
+class "UniverseDefaults" as apex.src.domain.signals.config.schema.UniverseDefaults {
+  min_volume_usd : float
+  timeframes : List[str]
+}
+class "UniverseGroup" as apex.src.domain.signals.config.schema.UniverseGroup {
+  enabled : bool
+  symbols : List[str]
+  timeframes : List[str]
+}
+class "UniverseOverride" as apex.src.domain.signals.config.schema.UniverseOverride {
+  custom_rules : Optional[List[str]]
+  enabled : bool
+  timeframes : Optional[List[str]]
+}
+class "UniverseProvider" as apex.src.domain.signals.universe.base.UniverseProvider {
+  get_all_timeframes() -> List[str]
+  get_symbol_config(symbol: str) -> Optional[SymbolConfig]
+  get_symbols() -> List[str]
+  get_symbols_for_timeframe(timeframe: str) -> List[str]
+  refresh() -> None
+}
+class "UniverseProviderBase" as apex.src.domain.signals.universe.base.UniverseProviderBase {
+  get_all_timeframes() -> List[str]
+  get_symbol_config(symbol: str) -> Optional[SymbolConfig]
+  get_symbols() -> List[str]
+  get_symbols_for_timeframe(timeframe: str) -> List[str]
+  {abstract}refresh() -> None
+}
+class "VPVRIndicator" as apex.src.domain.signals.indicators.volume.vpvr.VPVRIndicator {
+  category : VOLUME
+  name : str
+  required_fields : list
+  warmup_periods : int
+}
+class "VWAPIndicator" as apex.src.domain.signals.indicators.volume.vwap.VWAPIndicator {
+  category : VOLUME
+  name : str
+  required_fields : list
+  warmup_periods : int
+}
+class "ValidationResult" as apex.src.domain.signals.config.schema.ValidationResult {
+  errors : List[ConfigError]
+  valid : bool
+  warnings : List[str]
+  add_error(message: str, path: str, value: Any) -> None
+  add_warning(message: str) -> None
+  merge(other: 'ValidationResult') -> None
+}
+class "ValueCard" as apex.src.domain.signals.reporting.value_card.ValueCard {
+  name : str
+  passed : Optional[bool]
+  precision : int
+  sparkline_data : Optional[List[float]]
+  threshold : Optional[float]
+  unit : str
+  value : float
+  format_threshold_str() -> str
+  format_value_str() -> str
+}
+class "VolState" as apex.src.domain.signals.indicators.regime.models.VolState {
+  name
+}
+class "VolumeRatioIndicator" as apex.src.domain.signals.indicators.volume.volume_ratio.VolumeRatioIndicator {
+  category : VOLUME
+  name : str
+  required_fields : list
+  warmup_periods : int
+}
+class "VortexIndicator" as apex.src.domain.signals.indicators.trend.vortex.VortexIndicator {
+  category : TREND
+  name : str
+  required_fields : list
+  warmup_periods : int
+}
+class "WalkForwardConfig" as apex.src.domain.signals.indicators.regime.turning_point.experiment.WalkForwardConfig {
+  confidence_threshold : float
+  cv_splits : int
+  embargo_days : int
+  min_train_samples : int
+  model_type : str
+  n_windows : int
+  purge_days : int
+  test_days : int
+  train_days : int
+}
+class "WilliamsRIndicator" as apex.src.domain.signals.indicators.momentum.williams_r.WilliamsRIndicator {
+  category : MOMENTUM
+  name : str
+  required_fields : list
+  warmup_periods : int
+}
+class "YamlUniverseProvider" as apex.src.domain.signals.universe.yaml_provider.YamlUniverseProvider {
+  add_symbol(symbol: str, timeframes: Optional[List[str]], group: Optional[str]) -> None
+  get_groups() -> List[str]
+  get_symbols_in_group(group: str) -> List[str]
+  refresh() -> None
+  remove_symbol(symbol: str) -> bool
+  to_dict() -> Dict[str, Any]
+}
+class "ZeroLagIndicator" as apex.src.domain.signals.indicators.trend.zerolag.ZeroLagIndicator {
+  category : TREND
+  name : str
+  required_fields : list
+  warmup_periods : int
+}
+class "ZigZagPivot" as apex.src.domain.signals.indicators.regime.turning_point.labels.ZigZagPivot {
+  atr_magnitude : float
+  bars_since_last : int
+  index : int
+  price : float
+  turn_type
+}
+class "_EvaluatorsProxy" as apex.src.domain.signals.conditions.evaluators._EvaluatorsProxy {
+  get(key: 'ConditionType', default: Optional[ConditionEvaluator]) -> Optional[ConditionEvaluator]
+}
+apex.src.domain.signals.indicators.momentum.awesome.AwesomeOscillatorIndicator --|> apex.src.domain.signals.indicators.base.IndicatorBase
+apex.src.domain.signals.indicators.momentum.cci.CCIIndicator --|> apex.src.domain.signals.indicators.base.IndicatorBase
+apex.src.domain.signals.indicators.momentum.kdj.KDJIndicator --|> apex.src.domain.signals.indicators.base.IndicatorBase
+apex.src.domain.signals.indicators.momentum.macd.MACDIndicator --|> apex.src.domain.signals.indicators.base.IndicatorBase
+apex.src.domain.signals.indicators.momentum.mfi.MFIIndicator --|> apex.src.domain.signals.indicators.base.IndicatorBase
+apex.src.domain.signals.indicators.momentum.momentum.MomentumIndicator --|> apex.src.domain.signals.indicators.base.IndicatorBase
+apex.src.domain.signals.indicators.momentum.roc.ROCIndicator --|> apex.src.domain.signals.indicators.base.IndicatorBase
+apex.src.domain.signals.indicators.momentum.rsi.RSIIndicator --|> apex.src.domain.signals.indicators.base.IndicatorBase
+apex.src.domain.signals.indicators.momentum.rsi_harmonics.RSIHarmonicsIndicator --|> apex.src.domain.signals.indicators.base.IndicatorBase
+apex.src.domain.signals.indicators.momentum.tsi.TSIIndicator --|> apex.src.domain.signals.indicators.base.IndicatorBase
+apex.src.domain.signals.indicators.momentum.ultimate.UltimateOscillatorIndicator --|> apex.src.domain.signals.indicators.base.IndicatorBase
+apex.src.domain.signals.indicators.momentum.williams_r.WilliamsRIndicator --|> apex.src.domain.signals.indicators.base.IndicatorBase
+apex.src.domain.signals.indicators.pattern.candlestick.CandlestickPatternsIndicator --|> apex.src.domain.signals.indicators.base.IndicatorBase
+apex.src.domain.signals.indicators.pattern.chart_patterns.ChartPatternsIndicator --|> apex.src.domain.signals.indicators.base.IndicatorBase
+apex.src.domain.signals.indicators.pattern.fibonacci.FibonacciIndicator --|> apex.src.domain.signals.indicators.base.IndicatorBase
+apex.src.domain.signals.indicators.pattern.pivot.PivotPointsIndicator --|> apex.src.domain.signals.indicators.base.IndicatorBase
+apex.src.domain.signals.indicators.pattern.support_resistance.SupportResistanceIndicator --|> apex.src.domain.signals.indicators.base.IndicatorBase
+apex.src.domain.signals.indicators.pattern.trendline.TrendlineIndicator --|> apex.src.domain.signals.indicators.base.IndicatorBase
+apex.src.domain.signals.indicators.regime.regime_detector.RegimeDetectorIndicator --|> apex.src.domain.signals.indicators.base.IndicatorBase
+apex.src.domain.signals.indicators.trend.adx.ADXIndicator --|> apex.src.domain.signals.indicators.base.IndicatorBase
+apex.src.domain.signals.indicators.trend.aroon.AroonIndicator --|> apex.src.domain.signals.indicators.base.IndicatorBase
+apex.src.domain.signals.indicators.trend.ema.EMAIndicator --|> apex.src.domain.signals.indicators.base.IndicatorBase
+apex.src.domain.signals.indicators.trend.ichimoku.IchimokuIndicator --|> apex.src.domain.signals.indicators.base.IndicatorBase
+apex.src.domain.signals.indicators.trend.psar.PSARIndicator --|> apex.src.domain.signals.indicators.base.IndicatorBase
+apex.src.domain.signals.indicators.trend.sma.SMAIndicator --|> apex.src.domain.signals.indicators.base.IndicatorBase
+apex.src.domain.signals.indicators.trend.supertrend.SuperTrendIndicator --|> apex.src.domain.signals.indicators.base.IndicatorBase
+apex.src.domain.signals.indicators.trend.trix.TRIXIndicator --|> apex.src.domain.signals.indicators.base.IndicatorBase
+apex.src.domain.signals.indicators.trend.vortex.VortexIndicator --|> apex.src.domain.signals.indicators.base.IndicatorBase
+apex.src.domain.signals.indicators.trend.zerolag.ZeroLagIndicator --|> apex.src.domain.signals.indicators.base.IndicatorBase
+apex.src.domain.signals.indicators.volatility.atr.ATRIndicator --|> apex.src.domain.signals.indicators.base.IndicatorBase
+apex.src.domain.signals.indicators.volatility.bollinger.BollingerBandsIndicator --|> apex.src.domain.signals.indicators.base.IndicatorBase
+apex.src.domain.signals.indicators.volatility.chaikin_vol.ChaikinVolatilityIndicator --|> apex.src.domain.signals.indicators.base.IndicatorBase
+apex.src.domain.signals.indicators.volatility.donchian.DonchianChannelsIndicator --|> apex.src.domain.signals.indicators.base.IndicatorBase
+apex.src.domain.signals.indicators.volatility.hvol.HistoricalVolatilityIndicator --|> apex.src.domain.signals.indicators.base.IndicatorBase
+apex.src.domain.signals.indicators.volatility.keltner.KeltnerChannelsIndicator --|> apex.src.domain.signals.indicators.base.IndicatorBase
+apex.src.domain.signals.indicators.volatility.squeeze.SqueezeIndicator --|> apex.src.domain.signals.indicators.base.IndicatorBase
+apex.src.domain.signals.indicators.volatility.stddev.StdDevIndicator --|> apex.src.domain.signals.indicators.base.IndicatorBase
+apex.src.domain.signals.indicators.volume.ad.ADIndicator --|> apex.src.domain.signals.indicators.base.IndicatorBase
+apex.src.domain.signals.indicators.volume.cmf.CMFIndicator --|> apex.src.domain.signals.indicators.base.IndicatorBase
+apex.src.domain.signals.indicators.volume.cvd.CVDIndicator --|> apex.src.domain.signals.indicators.base.IndicatorBase
+apex.src.domain.signals.indicators.volume.force.ForceIndexIndicator --|> apex.src.domain.signals.indicators.base.IndicatorBase
+apex.src.domain.signals.indicators.volume.obv.OBVIndicator --|> apex.src.domain.signals.indicators.base.IndicatorBase
+apex.src.domain.signals.indicators.volume.volume_ratio.VolumeRatioIndicator --|> apex.src.domain.signals.indicators.base.IndicatorBase
+apex.src.domain.signals.indicators.volume.vpvr.VPVRIndicator --|> apex.src.domain.signals.indicators.base.IndicatorBase
+apex.src.domain.signals.indicators.volume.vwap.VWAPIndicator --|> apex.src.domain.signals.indicators.base.IndicatorBase
+apex.src.domain.signals.universe.yaml_provider.YamlUniverseProvider --|> apex.src.domain.signals.universe.base.UniverseProviderBase
+apex.src.domain.signals.config.schema.UniverseConfig --> apex.src.domain.signals.config.schema.UniverseDefaults : defaults
+apex.src.domain.signals.indicators.regime.models.ComponentStates --> apex.src.domain.signals.indicators.regime.models.ChopState : chop_state
+apex.src.domain.signals.indicators.regime.models.RegimeOutput --> apex.src.domain.signals.indicators.regime.models.ComponentStates : component_states
+apex.src.domain.signals.indicators.regime.models.RegimeOutput --> apex.src.domain.signals.indicators.regime.models.ComponentValues : component_values
+apex.src.domain.signals.indicators.regime.models.RegimeOutput --> apex.src.domain.signals.indicators.regime.models.DataQuality : quality
+apex.src.domain.signals.indicators.regime.models.RegimeOutput --> apex.src.domain.signals.indicators.regime.models.DataWindow : data_window
+apex.src.domain.signals.indicators.regime.models.RegimeOutput --> apex.src.domain.signals.indicators.regime.models.DerivedMetrics : derived_metrics
+apex.src.domain.signals.indicators.regime.models.ComponentStates --> apex.src.domain.signals.indicators.regime.models.ExtState : ext_state
+apex.src.domain.signals.indicators.regime.models.DataQuality --> apex.src.domain.signals.indicators.regime.models.FallbackReason : fallback_reason
+apex.src.domain.signals.indicators.regime.models.ComponentStates --> apex.src.domain.signals.indicators.regime.models.IVState : iv_state
+apex.src.domain.signals.indicators.regime.models.RegimeOutput --> apex.src.domain.signals.indicators.regime.models.InputsUsed : inputs_used
+apex.src.domain.signals.indicators.regime.models.RegimeOutput --> apex.src.domain.signals.indicators.regime.models.MarketRegime : decision_regime
+apex.src.domain.signals.indicators.regime.models.RegimeOutput --> apex.src.domain.signals.indicators.regime.models.MarketRegime : final_regime
+apex.src.domain.signals.indicators.regime.models.RegimeState --> apex.src.domain.signals.indicators.regime.models.MarketRegime : current_regime
+apex.src.domain.signals.indicators.regime.models.RegimeOutput --> apex.src.domain.signals.indicators.regime.models.RegimeTransitionState : transition
+apex.src.domain.signals.indicators.regime.models.ComponentStates --> apex.src.domain.signals.indicators.regime.models.TrendState : trend_state
+apex.src.domain.signals.indicators.regime.models.ComponentStates --> apex.src.domain.signals.indicators.regime.models.VolState : vol_state
+apex.src.domain.signals.indicators.regime.turning_point.experiment.TurningPointExperiment --> apex.src.domain.signals.indicators.regime.turning_point.experiment.WalkForwardConfig : config
+apex.src.domain.signals.indicators.regime.turning_point.labels.CurrentTurningPointState --> apex.src.domain.signals.indicators.regime.turning_point.labels.TurnType : last_pivot_type
+apex.src.domain.signals.indicators.regime.turning_point.labels.TurningPointRecord --> apex.src.domain.signals.indicators.regime.turning_point.labels.TurnType : turn_type
+apex.src.domain.signals.indicators.regime.turning_point.labels.ZigZagPivot --> apex.src.domain.signals.indicators.regime.turning_point.labels.TurnType : turn_type
+apex.src.domain.signals.indicators.regime.turning_point.model.TurningPointOutput --> apex.src.domain.signals.indicators.regime.turning_point.model.TurnState : turn_state
+apex.src.domain.signals.models.SignalRule --> apex.src.domain.signals.models.ConditionType : condition_type
+apex.src.domain.signals.models.Divergence --> apex.src.domain.signals.models.DivergenceType : type
+apex.src.domain.signals.indicators.base.Indicator --> apex.src.domain.signals.models.SignalCategory : category
+apex.src.domain.signals.indicators.base.IndicatorBase --> apex.src.domain.signals.models.SignalCategory : category
+apex.src.domain.signals.models.SignalRule --> apex.src.domain.signals.models.SignalCategory : category
+apex.src.domain.signals.models.TradingSignal --> apex.src.domain.signals.models.SignalCategory : category
+apex.src.domain.signals.models.SignalRule --> apex.src.domain.signals.models.SignalDirection : direction
+apex.src.domain.signals.models.TradingSignal --> apex.src.domain.signals.models.SignalDirection : direction
+apex.src.domain.signals.models.SignalRule --> apex.src.domain.signals.models.SignalPriority : priority
+apex.src.domain.signals.models.TradingSignal --> apex.src.domain.signals.models.SignalPriority : priority
+apex.src.domain.signals.models.TradingSignal --> apex.src.domain.signals.models.SignalStatus : status
+apex.src.domain.signals.indicators.regime.turning_point.labels.TurningPointLabeler --* apex.src.domain.signals.indicators.regime.turning_point.experiment.TurningPointExperiment : labeler
+apex.src.domain.signals.indicators.regime.turning_point.model.TrainingMetrics --* apex.src.domain.signals.indicators.regime.turning_point.model.TurningPointModel : training_metrics_top
+apex.src.domain.signals.indicators.regime.turning_point.model.TrainingMetrics --* apex.src.domain.signals.indicators.regime.turning_point.model.TurningPointModel : training_metrics_bottom
+@enduml

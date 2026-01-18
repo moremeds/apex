@@ -1,0 +1,277 @@
+@startuml packages_domain_signals
+set namespaceSeparator none
+package "apex.src.domain.signals" as apex.src.domain.signals {
+}
+package "apex.src.domain.signals.conditions" as apex.src.domain.signals.conditions {
+}
+package "apex.src.domain.signals.conditions.evaluators" as apex.src.domain.signals.conditions.evaluators {
+}
+package "apex.src.domain.signals.config" as apex.src.domain.signals.config {
+}
+package "apex.src.domain.signals.config.schema" as apex.src.domain.signals.config.schema {
+}
+package "apex.src.domain.signals.confluence_calculator" as apex.src.domain.signals.confluence_calculator {
+}
+package "apex.src.domain.signals.data" as apex.src.domain.signals.data {
+}
+package "apex.src.domain.signals.data.bar_aggregator" as apex.src.domain.signals.data.bar_aggregator {
+}
+package "apex.src.domain.signals.data.bar_builder" as apex.src.domain.signals.data.bar_builder {
+}
+package "apex.src.domain.signals.divergence" as apex.src.domain.signals.divergence {
+}
+package "apex.src.domain.signals.divergence.confluence" as apex.src.domain.signals.divergence.confluence {
+}
+package "apex.src.domain.signals.divergence.cross_divergence" as apex.src.domain.signals.divergence.cross_divergence {
+}
+package "apex.src.domain.signals.divergence.price_divergence" as apex.src.domain.signals.divergence.price_divergence {
+}
+package "apex.src.domain.signals.indicator_engine" as apex.src.domain.signals.indicator_engine {
+}
+package "apex.src.domain.signals.indicators" as apex.src.domain.signals.indicators {
+}
+package "apex.src.domain.signals.indicators.base" as apex.src.domain.signals.indicators.base {
+}
+package "apex.src.domain.signals.indicators.momentum" as apex.src.domain.signals.indicators.momentum {
+}
+package "apex.src.domain.signals.indicators.momentum.awesome" as apex.src.domain.signals.indicators.momentum.awesome {
+}
+package "apex.src.domain.signals.indicators.momentum.cci" as apex.src.domain.signals.indicators.momentum.cci {
+}
+package "apex.src.domain.signals.indicators.momentum.kdj" as apex.src.domain.signals.indicators.momentum.kdj {
+}
+package "apex.src.domain.signals.indicators.momentum.macd" as apex.src.domain.signals.indicators.momentum.macd {
+}
+package "apex.src.domain.signals.indicators.momentum.mfi" as apex.src.domain.signals.indicators.momentum.mfi {
+}
+package "apex.src.domain.signals.indicators.momentum.momentum" as apex.src.domain.signals.indicators.momentum.momentum {
+}
+package "apex.src.domain.signals.indicators.momentum.roc" as apex.src.domain.signals.indicators.momentum.roc {
+}
+package "apex.src.domain.signals.indicators.momentum.rsi" as apex.src.domain.signals.indicators.momentum.rsi {
+}
+package "apex.src.domain.signals.indicators.momentum.rsi_harmonics" as apex.src.domain.signals.indicators.momentum.rsi_harmonics {
+}
+package "apex.src.domain.signals.indicators.momentum.tsi" as apex.src.domain.signals.indicators.momentum.tsi {
+}
+package "apex.src.domain.signals.indicators.momentum.ultimate" as apex.src.domain.signals.indicators.momentum.ultimate {
+}
+package "apex.src.domain.signals.indicators.momentum.williams_r" as apex.src.domain.signals.indicators.momentum.williams_r {
+}
+package "apex.src.domain.signals.indicators.pattern" as apex.src.domain.signals.indicators.pattern {
+}
+package "apex.src.domain.signals.indicators.pattern.candlestick" as apex.src.domain.signals.indicators.pattern.candlestick {
+}
+package "apex.src.domain.signals.indicators.pattern.chart_patterns" as apex.src.domain.signals.indicators.pattern.chart_patterns {
+}
+package "apex.src.domain.signals.indicators.pattern.fibonacci" as apex.src.domain.signals.indicators.pattern.fibonacci {
+}
+package "apex.src.domain.signals.indicators.pattern.pivot" as apex.src.domain.signals.indicators.pattern.pivot {
+}
+package "apex.src.domain.signals.indicators.pattern.support_resistance" as apex.src.domain.signals.indicators.pattern.support_resistance {
+}
+package "apex.src.domain.signals.indicators.pattern.trendline" as apex.src.domain.signals.indicators.pattern.trendline {
+}
+package "apex.src.domain.signals.indicators.regime" as apex.src.domain.signals.indicators.regime {
+}
+package "apex.src.domain.signals.indicators.regime.components" as apex.src.domain.signals.indicators.regime.components {
+}
+package "apex.src.domain.signals.indicators.regime.components.chop_state" as apex.src.domain.signals.indicators.regime.components.chop_state {
+}
+package "apex.src.domain.signals.indicators.regime.components.ext_state" as apex.src.domain.signals.indicators.regime.components.ext_state {
+}
+package "apex.src.domain.signals.indicators.regime.components.helpers" as apex.src.domain.signals.indicators.regime.components.helpers {
+}
+package "apex.src.domain.signals.indicators.regime.components.iv_state" as apex.src.domain.signals.indicators.regime.components.iv_state {
+}
+package "apex.src.domain.signals.indicators.regime.components.trend_state" as apex.src.domain.signals.indicators.regime.components.trend_state {
+}
+package "apex.src.domain.signals.indicators.regime.components.vol_state" as apex.src.domain.signals.indicators.regime.components.vol_state {
+}
+package "apex.src.domain.signals.indicators.regime.models" as apex.src.domain.signals.indicators.regime.models {
+}
+package "apex.src.domain.signals.indicators.regime.regime_detector" as apex.src.domain.signals.indicators.regime.regime_detector {
+}
+package "apex.src.domain.signals.indicators.regime.rule_trace" as apex.src.domain.signals.indicators.regime.rule_trace {
+}
+package "apex.src.domain.signals.indicators.regime.turning_point" as apex.src.domain.signals.indicators.regime.turning_point {
+}
+package "apex.src.domain.signals.indicators.regime.turning_point.calibration" as apex.src.domain.signals.indicators.regime.turning_point.calibration {
+}
+package "apex.src.domain.signals.indicators.regime.turning_point.cv" as apex.src.domain.signals.indicators.regime.turning_point.cv {
+}
+package "apex.src.domain.signals.indicators.regime.turning_point.experiment" as apex.src.domain.signals.indicators.regime.turning_point.experiment {
+}
+package "apex.src.domain.signals.indicators.regime.turning_point.features" as apex.src.domain.signals.indicators.regime.turning_point.features {
+}
+package "apex.src.domain.signals.indicators.regime.turning_point.labels" as apex.src.domain.signals.indicators.regime.turning_point.labels {
+}
+package "apex.src.domain.signals.indicators.regime.turning_point.model" as apex.src.domain.signals.indicators.regime.turning_point.model {
+}
+package "apex.src.domain.signals.indicators.registry" as apex.src.domain.signals.indicators.registry {
+}
+package "apex.src.domain.signals.indicators.trend" as apex.src.domain.signals.indicators.trend {
+}
+package "apex.src.domain.signals.indicators.trend.adx" as apex.src.domain.signals.indicators.trend.adx {
+}
+package "apex.src.domain.signals.indicators.trend.aroon" as apex.src.domain.signals.indicators.trend.aroon {
+}
+package "apex.src.domain.signals.indicators.trend.ema" as apex.src.domain.signals.indicators.trend.ema {
+}
+package "apex.src.domain.signals.indicators.trend.ichimoku" as apex.src.domain.signals.indicators.trend.ichimoku {
+}
+package "apex.src.domain.signals.indicators.trend.psar" as apex.src.domain.signals.indicators.trend.psar {
+}
+package "apex.src.domain.signals.indicators.trend.sma" as apex.src.domain.signals.indicators.trend.sma {
+}
+package "apex.src.domain.signals.indicators.trend.supertrend" as apex.src.domain.signals.indicators.trend.supertrend {
+}
+package "apex.src.domain.signals.indicators.trend.trix" as apex.src.domain.signals.indicators.trend.trix {
+}
+package "apex.src.domain.signals.indicators.trend.vortex" as apex.src.domain.signals.indicators.trend.vortex {
+}
+package "apex.src.domain.signals.indicators.trend.zerolag" as apex.src.domain.signals.indicators.trend.zerolag {
+}
+package "apex.src.domain.signals.indicators.volatility" as apex.src.domain.signals.indicators.volatility {
+}
+package "apex.src.domain.signals.indicators.volatility.atr" as apex.src.domain.signals.indicators.volatility.atr {
+}
+package "apex.src.domain.signals.indicators.volatility.bollinger" as apex.src.domain.signals.indicators.volatility.bollinger {
+}
+package "apex.src.domain.signals.indicators.volatility.chaikin_vol" as apex.src.domain.signals.indicators.volatility.chaikin_vol {
+}
+package "apex.src.domain.signals.indicators.volatility.donchian" as apex.src.domain.signals.indicators.volatility.donchian {
+}
+package "apex.src.domain.signals.indicators.volatility.hvol" as apex.src.domain.signals.indicators.volatility.hvol {
+}
+package "apex.src.domain.signals.indicators.volatility.keltner" as apex.src.domain.signals.indicators.volatility.keltner {
+}
+package "apex.src.domain.signals.indicators.volatility.squeeze" as apex.src.domain.signals.indicators.volatility.squeeze {
+}
+package "apex.src.domain.signals.indicators.volatility.stddev" as apex.src.domain.signals.indicators.volatility.stddev {
+}
+package "apex.src.domain.signals.indicators.volume" as apex.src.domain.signals.indicators.volume {
+}
+package "apex.src.domain.signals.indicators.volume.ad" as apex.src.domain.signals.indicators.volume.ad {
+}
+package "apex.src.domain.signals.indicators.volume.cmf" as apex.src.domain.signals.indicators.volume.cmf {
+}
+package "apex.src.domain.signals.indicators.volume.cvd" as apex.src.domain.signals.indicators.volume.cvd {
+}
+package "apex.src.domain.signals.indicators.volume.force" as apex.src.domain.signals.indicators.volume.force {
+}
+package "apex.src.domain.signals.indicators.volume.obv" as apex.src.domain.signals.indicators.volume.obv {
+}
+package "apex.src.domain.signals.indicators.volume.volume_ratio" as apex.src.domain.signals.indicators.volume.volume_ratio {
+}
+package "apex.src.domain.signals.indicators.volume.vpvr" as apex.src.domain.signals.indicators.volume.vpvr {
+}
+package "apex.src.domain.signals.indicators.volume.vwap" as apex.src.domain.signals.indicators.volume.vwap {
+}
+package "apex.src.domain.signals.models" as apex.src.domain.signals.models {
+}
+package "apex.src.domain.signals.reporting" as apex.src.domain.signals.reporting {
+}
+package "apex.src.domain.signals.reporting.description_generator" as apex.src.domain.signals.reporting.description_generator {
+}
+package "apex.src.domain.signals.reporting.regime_report" as apex.src.domain.signals.reporting.regime_report {
+}
+package "apex.src.domain.signals.reporting.signal_report_generator" as apex.src.domain.signals.reporting.signal_report_generator {
+}
+package "apex.src.domain.signals.reporting.value_card" as apex.src.domain.signals.reporting.value_card {
+}
+package "apex.src.domain.signals.rule_engine" as apex.src.domain.signals.rule_engine {
+}
+package "apex.src.domain.signals.rules" as apex.src.domain.signals.rules {
+}
+package "apex.src.domain.signals.rules.momentum_rules" as apex.src.domain.signals.rules.momentum_rules {
+}
+package "apex.src.domain.signals.rules.short_timeframe_rules" as apex.src.domain.signals.rules.short_timeframe_rules {
+}
+package "apex.src.domain.signals.rules.trend_rules" as apex.src.domain.signals.rules.trend_rules {
+}
+package "apex.src.domain.signals.rules.volatility_rules" as apex.src.domain.signals.rules.volatility_rules {
+}
+package "apex.src.domain.signals.rules.volume_rules" as apex.src.domain.signals.rules.volume_rules {
+}
+package "apex.src.domain.signals.signal_logger" as apex.src.domain.signals.signal_logger {
+}
+package "apex.src.domain.signals.signal_state_tracker" as apex.src.domain.signals.signal_state_tracker {
+}
+package "apex.src.domain.signals.universe" as apex.src.domain.signals.universe {
+}
+package "apex.src.domain.signals.universe.base" as apex.src.domain.signals.universe.base {
+}
+package "apex.src.domain.signals.universe.yaml_provider" as apex.src.domain.signals.universe.yaml_provider {
+}
+apex.src.domain.signals --> apex.src.domain.signals.confluence_calculator
+apex.src.domain.signals --> apex.src.domain.signals.data
+apex.src.domain.signals --> apex.src.domain.signals.indicator_engine
+apex.src.domain.signals --> apex.src.domain.signals.models
+apex.src.domain.signals --> apex.src.domain.signals.rule_engine
+apex.src.domain.signals.conditions --> apex.src.domain.signals.conditions.evaluators
+apex.src.domain.signals.config --> apex.src.domain.signals.config.schema
+apex.src.domain.signals.data --> apex.src.domain.signals.data.bar_aggregator
+apex.src.domain.signals.data --> apex.src.domain.signals.data.bar_builder
+apex.src.domain.signals.data.bar_aggregator --> apex.src.domain.signals.data.bar_builder
+apex.src.domain.signals.divergence --> apex.src.domain.signals.divergence.confluence
+apex.src.domain.signals.divergence --> apex.src.domain.signals.divergence.cross_divergence
+apex.src.domain.signals.divergence --> apex.src.domain.signals.divergence.price_divergence
+apex.src.domain.signals.divergence.confluence --> apex.src.domain.signals.divergence.cross_divergence
+apex.src.domain.signals.indicator_engine --> apex.src.domain.signals.indicators.base
+apex.src.domain.signals.indicator_engine --> apex.src.domain.signals.indicators.registry
+apex.src.domain.signals.indicators --> apex.src.domain.signals.indicators.base
+apex.src.domain.signals.indicators --> apex.src.domain.signals.indicators.registry
+apex.src.domain.signals.indicators.regime --> apex.src.domain.signals.indicators.regime.models
+apex.src.domain.signals.indicators.regime --> apex.src.domain.signals.indicators.regime.regime_detector
+apex.src.domain.signals.indicators.regime --> apex.src.domain.signals.indicators.regime.rule_trace
+apex.src.domain.signals.indicators.regime.components --> apex.src.domain.signals.indicators.regime.components.chop_state
+apex.src.domain.signals.indicators.regime.components --> apex.src.domain.signals.indicators.regime.components.ext_state
+apex.src.domain.signals.indicators.regime.components --> apex.src.domain.signals.indicators.regime.components.helpers
+apex.src.domain.signals.indicators.regime.components --> apex.src.domain.signals.indicators.regime.components.iv_state
+apex.src.domain.signals.indicators.regime.components --> apex.src.domain.signals.indicators.regime.components.trend_state
+apex.src.domain.signals.indicators.regime.components --> apex.src.domain.signals.indicators.regime.components.vol_state
+apex.src.domain.signals.indicators.regime.components.chop_state --> apex.src.domain.signals.indicators.regime.components.helpers
+apex.src.domain.signals.indicators.regime.components.ext_state --> apex.src.domain.signals.indicators.regime.components.helpers
+apex.src.domain.signals.indicators.regime.components.iv_state --> apex.src.domain.signals.indicators.regime.components.helpers
+apex.src.domain.signals.indicators.regime.components.trend_state --> apex.src.domain.signals.indicators.regime.components.helpers
+apex.src.domain.signals.indicators.regime.components.vol_state --> apex.src.domain.signals.indicators.regime.components.helpers
+apex.src.domain.signals.indicators.regime.models --> apex.src.domain.signals.indicators.regime.rule_trace
+apex.src.domain.signals.indicators.regime.regime_detector --> apex.src.domain.signals.indicators.regime.components
+apex.src.domain.signals.indicators.regime.regime_detector --> apex.src.domain.signals.indicators.regime.models
+apex.src.domain.signals.indicators.regime.regime_detector --> apex.src.domain.signals.indicators.regime.rule_trace
+apex.src.domain.signals.indicators.regime.regime_detector --> apex.src.domain.signals.indicators.regime.turning_point
+apex.src.domain.signals.indicators.regime.regime_detector --> apex.src.domain.signals.indicators.regime.turning_point.features
+apex.src.domain.signals.indicators.regime.regime_detector --> apex.src.domain.signals.indicators.regime.turning_point.model
+apex.src.domain.signals.indicators.regime.turning_point --> apex.src.domain.signals.indicators.regime.turning_point.calibration
+apex.src.domain.signals.indicators.regime.turning_point --> apex.src.domain.signals.indicators.regime.turning_point.cv
+apex.src.domain.signals.indicators.regime.turning_point --> apex.src.domain.signals.indicators.regime.turning_point.features
+apex.src.domain.signals.indicators.regime.turning_point --> apex.src.domain.signals.indicators.regime.turning_point.labels
+apex.src.domain.signals.indicators.regime.turning_point --> apex.src.domain.signals.indicators.regime.turning_point.model
+apex.src.domain.signals.indicators.regime.turning_point.experiment --> apex.src.domain.signals.indicators.regime.turning_point.features
+apex.src.domain.signals.indicators.regime.turning_point.experiment --> apex.src.domain.signals.indicators.regime.turning_point.labels
+apex.src.domain.signals.indicators.regime.turning_point.experiment --> apex.src.domain.signals.indicators.regime.turning_point.model
+apex.src.domain.signals.indicators.regime.turning_point.model --> apex.src.domain.signals.indicators.regime.turning_point.calibration
+apex.src.domain.signals.indicators.regime.turning_point.model --> apex.src.domain.signals.indicators.regime.turning_point.cv
+apex.src.domain.signals.indicators.regime.turning_point.model --> apex.src.domain.signals.indicators.regime.turning_point.features
+apex.src.domain.signals.indicators.registry --> apex.src.domain.signals.indicators.base
+apex.src.domain.signals.models --> apex.src.domain.signals.conditions
+apex.src.domain.signals.reporting --> apex.src.domain.signals.reporting.description_generator
+apex.src.domain.signals.reporting --> apex.src.domain.signals.reporting.regime_report
+apex.src.domain.signals.reporting --> apex.src.domain.signals.reporting.signal_report_generator
+apex.src.domain.signals.reporting.regime_report --> apex.src.domain.signals.reporting.value_card
+apex.src.domain.signals.reporting.signal_report_generator --> apex.src.domain.signals.reporting.description_generator
+apex.src.domain.signals.reporting.signal_report_generator --> apex.src.domain.signals.reporting.regime_report
+apex.src.domain.signals.rule_engine --> apex.src.domain.signals.models
+apex.src.domain.signals.rules --> apex.src.domain.signals.rules.momentum_rules
+apex.src.domain.signals.rules --> apex.src.domain.signals.rules.short_timeframe_rules
+apex.src.domain.signals.rules --> apex.src.domain.signals.rules.trend_rules
+apex.src.domain.signals.rules --> apex.src.domain.signals.rules.volatility_rules
+apex.src.domain.signals.rules --> apex.src.domain.signals.rules.volume_rules
+apex.src.domain.signals.signal_state_tracker --> apex.src.domain.signals.models
+apex.src.domain.signals.universe --> apex.src.domain.signals.universe.base
+apex.src.domain.signals.universe --> apex.src.domain.signals.universe.yaml_provider
+apex.src.domain.signals.universe.yaml_provider --> apex.src.domain.signals.universe.base
+apex.src.domain.signals.indicators.regime.models ..> apex.src.domain.signals.indicators.regime.models
+apex.src.domain.signals.indicators.regime.models ..> apex.src.domain.signals.indicators.regime.turning_point.model
+@enduml

@@ -1,0 +1,76 @@
+@startuml classes_application_orchestrator
+set namespaceSeparator none
+class "BarPreloader" as apex.src.application.orchestrator.signal_pipeline.bar_preloader.BarPreloader {
+  last_cache_refresh : Optional[datetime]
+  preload_startup(symbols: List[str]) -> Dict[str, int]
+  refresh_disk_cache(symbols: List[str]) -> bool
+}
+class "DataCoordinator" as apex.src.application.orchestrator.data_coordinator.DataCoordinator {
+  account_store : AccountStore
+  broker_manager : BrokerManager
+  health_monitor : HealthMonitor
+  market_data_manager : MarketDataManager
+  market_data_store : MarketDataStore
+  mdqc : MDQC
+  position_store : PositionStore
+  reconciler : Reconciler
+  cleanup() -> None
+  fetch_account_info_cached() -> AccountInfo
+  fetch_and_reconcile(on_dirty_callback: Optional[callable]) -> tuple[List[Position], AccountInfo]
+}
+class "Orchestrator" as apex.src.application.orchestrator.orchestrator.Orchestrator {
+  account_store : str
+  broker_manager : str
+  config : Dict[str, Any]
+  event_bus : Union[EventBus, PriorityEventBus]
+  health_monitor : str
+  market_alert_detector : Optional['MarketAlertDetector']
+  market_data_manager : str
+  market_data_store : str
+  position_store : str
+  rule_engine : str
+  signal_coordinator : SignalCoordinator
+  watchdog : str
+  get_event_bus_stats() -> Dict[str, Any]
+  get_latest_market_alerts() -> List[Dict[str, Any]]
+  get_latest_risk_signals() -> List[RiskSignal]
+  get_latest_snapshot() -> Optional[RiskSnapshot]
+  get_positions_preview() -> Optional[RiskSnapshot]
+  get_readiness_snapshot() -> Optional[Any]
+  start() -> None
+  stop() -> None
+  wait_for_snapshot(timeout: float) -> Optional[RiskSnapshot]
+}
+class "ShutdownCoordinator" as apex.src.application.orchestrator.shutdown.ShutdownCoordinator {
+  shutdown_complete : bool
+  shutdown_requested : bool
+  register_cleanup(handler: Callable[[], Coroutine]) -> None
+  register_connection_closer(closer: Callable[[], Coroutine]) -> None
+  register_task(task: asyncio.Task) -> None
+  shutdown(timeout: float) -> Dict[str, Any]
+}
+class "SignalCoordinator" as apex.src.application.orchestrator.signal_coordinator.SignalCoordinator {
+  is_started : bool
+  timeframes : List[str]
+  clear_cooldowns() -> int
+  get_stats() -> Dict[str, Any]
+  preload_bar_history(symbols: List[str]) -> Dict[str, int]
+  refresh_disk_cache(symbols: List[str]) -> bool
+  start() -> None
+  stop() -> None
+}
+class "SnapshotCoordinator" as apex.src.application.orchestrator.snapshot_coordinator.SnapshotCoordinator {
+  account_store : str
+  event_bus : str
+  health_monitor : str
+  risk_alert_logger : Optional['RiskAlertLogger']
+  risk_signal_engine : Optional['RiskSignalEngine']
+  rule_engine : str
+  get_latest_risk_signals() -> List[RiskSignal]
+  get_latest_snapshot() -> Optional[RiskSnapshot]
+  is_ready() -> bool
+  start() -> None
+  stop() -> None
+  wait_for_snapshot(timeout: float) -> Optional[RiskSnapshot]
+}
+@enduml

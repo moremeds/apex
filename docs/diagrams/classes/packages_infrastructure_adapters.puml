@@ -1,0 +1,103 @@
+@startuml packages_infrastructure_adapters
+set namespaceSeparator none
+package "apex.src.infrastructure.adapters" as apex.src.infrastructure.adapters {
+}
+package "apex.src.infrastructure.adapters.broker_manager" as apex.src.infrastructure.adapters.broker_manager {
+}
+package "apex.src.infrastructure.adapters.file_experiment_tracker" as apex.src.infrastructure.adapters.file_experiment_tracker {
+}
+package "apex.src.infrastructure.adapters.file_loader" as apex.src.infrastructure.adapters.file_loader {
+}
+package "apex.src.infrastructure.adapters.file_model_registry" as apex.src.infrastructure.adapters.file_model_registry {
+}
+package "apex.src.infrastructure.adapters.futu" as apex.src.infrastructure.adapters.futu {
+}
+package "apex.src.infrastructure.adapters.futu.account_fetcher" as apex.src.infrastructure.adapters.futu.account_fetcher {
+}
+package "apex.src.infrastructure.adapters.futu.adapter" as apex.src.infrastructure.adapters.futu.adapter {
+}
+package "apex.src.infrastructure.adapters.futu.code_parser" as apex.src.infrastructure.adapters.futu.code_parser {
+}
+package "apex.src.infrastructure.adapters.futu.converters" as apex.src.infrastructure.adapters.futu.converters {
+}
+package "apex.src.infrastructure.adapters.futu.exceptions" as apex.src.infrastructure.adapters.futu.exceptions {
+}
+package "apex.src.infrastructure.adapters.futu.order_fetcher" as apex.src.infrastructure.adapters.futu.order_fetcher {
+}
+package "apex.src.infrastructure.adapters.futu.position_fetcher" as apex.src.infrastructure.adapters.futu.position_fetcher {
+}
+package "apex.src.infrastructure.adapters.futu.trade_handler" as apex.src.infrastructure.adapters.futu.trade_handler {
+}
+package "apex.src.infrastructure.adapters.ib" as apex.src.infrastructure.adapters.ib {
+}
+package "apex.src.infrastructure.adapters.ib.base" as apex.src.infrastructure.adapters.ib.base {
+}
+package "apex.src.infrastructure.adapters.ib.composite_adapter" as apex.src.infrastructure.adapters.ib.composite_adapter {
+}
+package "apex.src.infrastructure.adapters.ib.connection_pool" as apex.src.infrastructure.adapters.ib.connection_pool {
+}
+package "apex.src.infrastructure.adapters.ib.contract_qualification_service" as apex.src.infrastructure.adapters.ib.contract_qualification_service {
+}
+package "apex.src.infrastructure.adapters.ib.converters" as apex.src.infrastructure.adapters.ib.converters {
+}
+package "apex.src.infrastructure.adapters.ib.execution_adapter" as apex.src.infrastructure.adapters.ib.execution_adapter {
+}
+package "apex.src.infrastructure.adapters.ib.historical_adapter" as apex.src.infrastructure.adapters.ib.historical_adapter {
+}
+package "apex.src.infrastructure.adapters.ib.live_adapter" as apex.src.infrastructure.adapters.ib.live_adapter {
+}
+package "apex.src.infrastructure.adapters.ib.market_data" as apex.src.infrastructure.adapters.ib.market_data {
+}
+package "apex.src.infrastructure.adapters.ib.market_data.greeks_extractor" as apex.src.infrastructure.adapters.ib.market_data.greeks_extractor {
+}
+package "apex.src.infrastructure.adapters.market_data_fetcher" as apex.src.infrastructure.adapters.market_data_fetcher {
+}
+package "apex.src.infrastructure.adapters.market_data_manager" as apex.src.infrastructure.adapters.market_data_manager {
+}
+package "apex.src.infrastructure.adapters.signal_introspection_adapter" as apex.src.infrastructure.adapters.signal_introspection_adapter {
+}
+package "apex.src.infrastructure.adapters.yahoo" as apex.src.infrastructure.adapters.yahoo {
+}
+package "apex.src.infrastructure.adapters.yahoo.adapter" as apex.src.infrastructure.adapters.yahoo.adapter {
+}
+package "apex.src.infrastructure.adapters.yahoo.historical_adapter" as apex.src.infrastructure.adapters.yahoo.historical_adapter {
+}
+apex.src.infrastructure.adapters --> apex.src.infrastructure.adapters.broker_manager
+apex.src.infrastructure.adapters --> apex.src.infrastructure.adapters.file_loader
+apex.src.infrastructure.adapters --> apex.src.infrastructure.adapters.futu
+apex.src.infrastructure.adapters --> apex.src.infrastructure.adapters.ib
+apex.src.infrastructure.adapters --> apex.src.infrastructure.adapters.market_data_manager
+apex.src.infrastructure.adapters --> apex.src.infrastructure.adapters.signal_introspection_adapter
+apex.src.infrastructure.adapters --> apex.src.infrastructure.adapters.yahoo
+apex.src.infrastructure.adapters.futu --> apex.src.infrastructure.adapters.futu.adapter
+apex.src.infrastructure.adapters.futu --> apex.src.infrastructure.adapters.futu.trade_handler
+apex.src.infrastructure.adapters.futu.account_fetcher --> apex.src.infrastructure.adapters.futu.exceptions
+apex.src.infrastructure.adapters.futu.adapter --> apex.src.infrastructure.adapters.futu.account_fetcher
+apex.src.infrastructure.adapters.futu.adapter --> apex.src.infrastructure.adapters.futu.order_fetcher
+apex.src.infrastructure.adapters.futu.adapter --> apex.src.infrastructure.adapters.futu.position_fetcher
+apex.src.infrastructure.adapters.futu.adapter --> apex.src.infrastructure.adapters.futu.trade_handler
+apex.src.infrastructure.adapters.futu.converters --> apex.src.infrastructure.adapters.futu.code_parser
+apex.src.infrastructure.adapters.futu.order_fetcher --> apex.src.infrastructure.adapters.futu.converters
+apex.src.infrastructure.adapters.futu.position_fetcher --> apex.src.infrastructure.adapters.futu.converters
+apex.src.infrastructure.adapters.futu.position_fetcher --> apex.src.infrastructure.adapters.futu.exceptions
+apex.src.infrastructure.adapters.ib --> apex.src.infrastructure.adapters.ib.base
+apex.src.infrastructure.adapters.ib --> apex.src.infrastructure.adapters.ib.composite_adapter
+apex.src.infrastructure.adapters.ib --> apex.src.infrastructure.adapters.ib.connection_pool
+apex.src.infrastructure.adapters.ib --> apex.src.infrastructure.adapters.ib.execution_adapter
+apex.src.infrastructure.adapters.ib --> apex.src.infrastructure.adapters.ib.historical_adapter
+apex.src.infrastructure.adapters.ib --> apex.src.infrastructure.adapters.ib.live_adapter
+apex.src.infrastructure.adapters.ib.composite_adapter --> apex.src.infrastructure.adapters.ib.connection_pool
+apex.src.infrastructure.adapters.ib.composite_adapter --> apex.src.infrastructure.adapters.ib.execution_adapter
+apex.src.infrastructure.adapters.ib.composite_adapter --> apex.src.infrastructure.adapters.ib.historical_adapter
+apex.src.infrastructure.adapters.ib.composite_adapter --> apex.src.infrastructure.adapters.ib.live_adapter
+apex.src.infrastructure.adapters.ib.execution_adapter --> apex.src.infrastructure.adapters.ib.base
+apex.src.infrastructure.adapters.ib.historical_adapter --> apex.src.infrastructure.adapters.ib.base
+apex.src.infrastructure.adapters.ib.live_adapter --> apex.src.infrastructure.adapters.ib.base
+apex.src.infrastructure.adapters.ib.live_adapter --> apex.src.infrastructure.adapters.ib.contract_qualification_service
+apex.src.infrastructure.adapters.ib.live_adapter --> apex.src.infrastructure.adapters.ib.converters
+apex.src.infrastructure.adapters.ib.market_data --> apex.src.infrastructure.adapters.ib.market_data.greeks_extractor
+apex.src.infrastructure.adapters.yahoo --> apex.src.infrastructure.adapters.yahoo.adapter
+apex.src.infrastructure.adapters.futu.account_fetcher ..> apex.src.infrastructure.adapters.futu.adapter
+apex.src.infrastructure.adapters.futu.order_fetcher ..> apex.src.infrastructure.adapters.futu.adapter
+apex.src.infrastructure.adapters.futu.position_fetcher ..> apex.src.infrastructure.adapters.futu.adapter
+@enduml
