@@ -78,6 +78,42 @@ sectors:
       - UPS    # Logistics
       - HON    # Diversified
 
+  consumer_staples:
+    etf: XLP
+    stocks:
+      - WMT    # Retail
+      - PG     # Consumer products
+      - KO     # Beverages
+      - COST   # Warehouse retail
+      - MO     # Tobacco
+
+  utilities:
+    etf: XLU
+    stocks:
+      - NEE    # Electric utility
+      - DUK    # Electric utility
+      - SO     # Electric utility
+      - EXC    # Electric utility
+      - PEG    # Electric/gas utility
+
+  materials:
+    etf: XLB
+    stocks:
+      - NEM    # Gold mining
+      - FCX    # Copper mining
+      - DOW    # Chemicals
+      - LIN    # Industrial gases
+      - APD    # Industrial gases
+
+  real_estate:
+    etf: XLRE
+    stocks:
+      - PLD    # Industrial REIT
+      - DLR    # Data center REIT
+      - EQR    # Residential REIT
+      - WELL   # Healthcare REIT
+      - AVB    # Residential REIT
+
 # Quick test subset (for rapid iteration)
 quick_test:
   - QQQ
@@ -88,47 +124,4 @@ quick_test:
   - XLF
   - JPM
 
-# Full test (all unique symbols)
-full_test:
-  - QQQ
-  - SPY
-  - XLK
-  - SMH
-  - XLF
-  - XLV
-  - XLE
-  - XLY
-  - XLI
-  - AAPL
-  - MSFT
-  - NVDA
-  - AMD
-  - CRM
-  - AVGO
-  - QCOM
-  - MU
-  - JPM
-  - GS
-  - V
-  - MA
-  - BRK-B
-  - UNH
-  - JNJ
-  - LLY
-  - PFE
-  - ABBV
-  - XOM
-  - CVX
-  - COP
-  - SLB
-  - OXY
-  - AMZN
-  - TSLA
-  - HD
-  - NKE
-  - SBUX
-  - CAT
-  - DE
-  - BA
-  - UPS
-  - HON
+# NOTE: full_test is deprecated - use universe_loader.py to derive all_symbols from sectors

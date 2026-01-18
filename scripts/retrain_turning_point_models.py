@@ -1,30 +1,47 @@
 #!/usr/bin/env python3
 """
-Retrain Turning Point Models with Walk-Forward Backtesting.
+DEPRECATED: Use signal_runner with --retrain-models instead.
 
-This script evaluates existing models against walk-forward backtesting
-and updates them only if the new model performs better.
+This script is deprecated and will be removed in a future release.
+Please migrate to the new unified CLI:
 
-Usage:
     # Retrain single symbol
-    python scripts/retrain_turning_point_models.py --symbol SPY
+    python -m src.runners.signal_runner --retrain-models --model-symbols SPY
 
     # Retrain multiple symbols
-    python scripts/retrain_turning_point_models.py --symbols SPY QQQ AAPL
+    python -m src.runners.signal_runner --retrain-models --model-symbols SPY QQQ AAPL
 
     # Force retrain (update even if not better)
+    python -m src.runners.signal_runner --retrain-models \\
+        --model-symbols SPY --force-retrain
+
+    # Evaluation only (no model update)
+    python -m src.runners.signal_runner --retrain-models \\
+        --model-symbols SPY --eval-only
+
+This script remains for backward compatibility but delegates to the new
+TurningPointTrainingService with hexagonal architecture.
+
+Original usage (still works):
+    python scripts/retrain_turning_point_models.py --symbol SPY
+    python scripts/retrain_turning_point_models.py --symbols SPY QQQ AAPL
     python scripts/retrain_turning_point_models.py --symbol SPY --force
-
-    # Retrain all existing models
     python scripts/retrain_turning_point_models.py --all
-
-    # Run experiment only (no model update)
     python scripts/retrain_turning_point_models.py --symbol SPY --eval-only
 """
 
 import argparse
 import sys
+import warnings
 from pathlib import Path
+
+# Emit deprecation warning
+warnings.warn(
+    "This script is deprecated. Use: "
+    "python -m src.runners.signal_runner --retrain-models --model-symbols SYMBOL",
+    DeprecationWarning,
+    stacklevel=1,
+)
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -39,7 +56,11 @@ from src.domain.signals.indicators.regime.turning_point.experiment import (
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Retrain Turning Point Models with Backtesting Validation"
+        description="Retrain Turning Point Models (DEPRECATED - use signal_runner instead)",
+        epilog="""
+DEPRECATED: This script is deprecated. Please use:
+    python -m src.runners.signal_runner --retrain-models --model-symbols SYMBOL
+        """,
     )
     parser.add_argument("--symbol", type=str, help="Single symbol to retrain")
     parser.add_argument(
@@ -75,6 +96,24 @@ def main():
         help="Number of walk-forward windows (default: 4)",
     )
     args = parser.parse_args()
+
+    # Print deprecation notice prominently
+    print("\n" + "!" * 60)
+    print("! DEPRECATION WARNING")
+    print("!" * 60)
+    print("! This script is deprecated. Please use:")
+    print("!   python -m src.runners.signal_runner --retrain-models \\")
+    if args.symbol:
+        print(f"!       --model-symbols {args.symbol}")
+    elif args.symbols:
+        print(f"!       --model-symbols {' '.join(args.symbols)}")
+    else:
+        print("!       --model-symbols SPY QQQ AAPL NVDA TSLA")
+    if args.force:
+        print("!       --force-retrain")
+    if args.eval_only:
+        print("!       --eval-only")
+    print("!" * 60 + "\n")
 
     # Determine symbols to process
     if args.all:

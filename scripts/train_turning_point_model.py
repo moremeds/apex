@@ -1,19 +1,41 @@
 #!/usr/bin/env python3
 """
-Train Turning Point Model (Phase 4).
+DEPRECATED: Use signal_runner with --train-models instead.
 
-Trains a model to predict TOP_RISK and BOTTOM_RISK turning points
-using real market data with Purged + Embargo Cross-Validation.
+This script is deprecated and will be removed in a future release.
+Please migrate to the new unified CLI:
 
-Usage:
+    # Train single symbol
+    python -m src.runners.signal_runner --train-models --model-symbols SPY
+
+    # Train multiple symbols
+    python -m src.runners.signal_runner --train-models --model-symbols SPY QQQ AAPL
+
+    # Train with custom parameters
+    python -m src.runners.signal_runner --train-models \\
+        --model-symbols SPY --model-days 750
+
+This script remains for backward compatibility but delegates to the new
+TurningPointTrainingService with hexagonal architecture.
+
+Original usage (still works):
     python scripts/train_turning_point_model.py --symbol SPY --days 750
     python scripts/train_turning_point_model.py --symbol QQQ --model-type lightgbm
 """
 
 import argparse
 import sys
+import warnings
 from datetime import datetime
 from pathlib import Path
+
+# Emit deprecation warning
+warnings.warn(
+    "This script is deprecated. Use: "
+    "python -m src.runners.signal_runner --train-models --model-symbols SYMBOL",
+    DeprecationWarning,
+    stacklevel=1,
+)
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -41,7 +63,13 @@ def fetch_historical_data(symbol: str, days: int) -> pd.DataFrame:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Train Turning Point Model")
+    parser = argparse.ArgumentParser(
+        description="Train Turning Point Model (DEPRECATED - use signal_runner instead)",
+        epilog="""
+DEPRECATED: This script is deprecated. Please use:
+    python -m src.runners.signal_runner --train-models --model-symbols SYMBOL
+        """,
+    )
     parser.add_argument("--symbol", default="SPY", help="Symbol to train on (default: SPY)")
     parser.add_argument("--days", type=int, default=750, help="Days of history (default: 750)")
     parser.add_argument("--model-type", choices=["logistic", "lightgbm"], default="logistic",
@@ -53,6 +81,15 @@ def main():
     parser.add_argument("--risk-horizon", type=int, default=10, help="Risk label horizon in bars")
     parser.add_argument("--risk-threshold", type=float, default=1.5, help="Risk ATR threshold")
     args = parser.parse_args()
+
+    # Print deprecation notice prominently
+    print("\n" + "!" * 60)
+    print("! DEPRECATION WARNING")
+    print("!" * 60)
+    print("! This script is deprecated. Please use:")
+    print("!   python -m src.runners.signal_runner --train-models \\")
+    print(f"!       --model-symbols {args.symbol} --model-days {args.days}")
+    print("!" * 60 + "\n")
 
     print("\n" + "=" * 60)
     print("TURNING POINT MODEL TRAINING")

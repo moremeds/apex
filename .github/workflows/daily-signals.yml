@@ -1,0 +1,453 @@
+name: Daily Signal Reports
+
+# ═══════════════════════════════════════════════════════════════════════════
+# This workflow generates daily signal reports and handles model retraining.
+#
+# Schedule:
+# - Weekly (Sunday 06:00 UTC): Model retraining with walk-forward validation
+# - Daily (Mon-Fri 08:00 UTC): Signal report generation (4am ET pre-market)
+#
+# Jobs:
+# - retrain-models: Walk-forward retrain (weekly only)
+# - generate-report: Signal generation + HTML report
+# - send-email: Email report to recipients (if configured)
+# - notify-failure: Alert on pipeline failure
+# ═══════════════════════════════════════════════════════════════════════════
+
+on:
+  # Weekly model retraining (Sunday 06:00 UTC = 1am ET)
+  schedule:
+    - cron: '0 6 * * 0'  # Sunday 06:00 UTC - retraining
+    - cron: '0 8 * * 1-5'  # Mon-Fri 08:00 UTC - daily reports
+
+  # Manual trigger with options
+  workflow_dispatch:
+    inputs:
+      symbols:
+        description: 'Symbols for signals (space-separated, empty = full universe ~66 symbols)'
+        required: false
+        type: string
+        default: ''
+      model_symbols:
+        description: 'Symbols for model training (space-separated)'
+        required: false
+        type: string
+        default: 'SPY QQQ AAPL NVDA TSLA'
+      timeframes:
+        description: 'Timeframes (space-separated)'
+        required: false
+        type: string
+        default: '1d'
+      run_training:
+        description: 'Run model training'
+        type: boolean
+        default: false
+      eval_only:
+        description: 'Evaluation only (no model promotion)'
+        type: boolean
+        default: false
+      dry_run:
+        description: 'Dry run (no email, no model promotion)'
+        type: boolean
+        default: false
+      skip_holiday_check:
+        description: 'Skip market holiday check'
+        type: boolean
+        default: false
+
+concurrency:
+  group: daily-signals
+  cancel-in-progress: false  # Don't cancel running jobs
+
+env:
+  PYTHON_VERSION: '3.13'
+  # Model training uses core liquid symbols
+  DEFAULT_MODEL_SYMBOLS: 'SPY QQQ AAPL NVDA TSLA'
+  # Signal reports use full universe (derived from YAML at runtime)
+
+jobs:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Pre-flight: Check market holiday
+  # ═══════════════════════════════════════════════════════════════════════
+  preflight:
+    name: Pre-flight Checks
+    runs-on: ubuntu-latest
+    outputs:
+      is_holiday: ${{ steps.market-check.outputs.is_holiday }}
+      is_sunday: ${{ steps.day-check.outputs.is_sunday }}
+      should_run_training: ${{ steps.training-check.outputs.should_train }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install market calendar
+        run: pip install pandas-market-calendars pandas
+
+      - name: Check day of week
+        id: day-check
+        run: |
+          DAY=$(date -u +%u)
+          if [ "$DAY" = "7" ]; then
+            echo "is_sunday=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_sunday=false" >> $GITHUB_OUTPUT
+          fi
+          echo "Day of week (1=Mon, 7=Sun): $DAY"
+
+      - name: Check for market holiday
+        id: market-check
+        if: ${{ !inputs.skip_holiday_check }}
+        run: |
+          python << 'EOF'
+          import pandas_market_calendars as mcal
+          from datetime import date
+          import os
+
+          nyse = mcal.get_calendar('NYSE')
+          today = date.today()
+          schedule = nyse.schedule(start_date=today, end_date=today)
+
+          if schedule.empty:
+              print(f"Market is CLOSED on {today}")
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                  f.write('is_holiday=true\n')
+          else:
+              print(f"Market is OPEN on {today}")
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                  f.write('is_holiday=false\n')
+          EOF
+
+      - name: Determine if training should run
+        id: training-check
+        run: |
+          # Training runs on Sunday (scheduled) or if manually requested
+          if [ "${{ steps.day-check.outputs.is_sunday }}" = "true" ] || [ "${{ inputs.run_training }}" = "true" ]; then
+            echo "should_train=true" >> $GITHUB_OUTPUT
+            echo "Training will run"
+          else
+            echo "should_train=false" >> $GITHUB_OUTPUT
+            echo "Training will NOT run (not Sunday and not manually requested)"
+          fi
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Model Retraining (Weekly on Sunday or manual trigger)
+  # ═══════════════════════════════════════════════════════════════════════
+  retrain-models:
+    name: Retrain Models
+    runs-on: ubuntu-latest
+    needs: [preflight]
+    if: needs.preflight.outputs.should_run_training == 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Need to push model updates
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Cache TA-Lib
+        id: cache-talib
+        uses: actions/cache@v4
+        with:
+          path: /usr/lib/libta_lib*
+          key: talib-0.4.0-ubuntu-latest
+
+      - name: Install TA-Lib C library
+        if: steps.cache-talib.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget build-essential
+          wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz
+          tar -xzf ta-lib-0.4.0-src.tar.gz
+          cd ta-lib && ./configure --prefix=/usr && make && sudo make install
+          sudo ldconfig
+
+      - name: Install dependencies
+        run: uv pip install --system -e ".[observability]"
+
+      - name: Determine training flags
+        id: flags
+        run: |
+          EVAL_ONLY=""
+          if [ "${{ inputs.eval_only }}" = "true" ] || [ "${{ inputs.dry_run }}" = "true" ]; then
+            EVAL_ONLY="--eval-only"
+          fi
+
+          DRY_RUN=""
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            DRY_RUN="--dry-run"
+          fi
+
+          MODEL_SYMBOLS="${{ inputs.model_symbols }}"
+          if [ -z "$MODEL_SYMBOLS" ]; then
+            MODEL_SYMBOLS="${{ env.DEFAULT_MODEL_SYMBOLS }}"
+          fi
+
+          echo "eval_only=$EVAL_ONLY" >> $GITHUB_OUTPUT
+          echo "dry_run=$DRY_RUN" >> $GITHUB_OUTPUT
+          echo "model_symbols=$MODEL_SYMBOLS" >> $GITHUB_OUTPUT
+
+      - name: Run model retraining
+        run: |
+          python -m src.runners.signal_runner \
+            --retrain-models \
+            --model-symbols ${{ steps.flags.outputs.model_symbols }} \
+            --model-days 750 \
+            ${{ steps.flags.outputs.eval_only }} \
+            ${{ steps.flags.outputs.dry_run }} \
+            --train-concurrency 2
+
+      - name: Commit updated models
+        if: ${{ !inputs.dry_run && !inputs.eval_only }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Stage model files (if any changed)
+          git add models/turning_point/*.pkl models/turning_point/*.json 2>/dev/null || true
+
+          # Only commit if there are changes
+          if git diff --staged --quiet; then
+            echo "No model changes to commit"
+          else
+            git commit -m "chore: update turning point models [skip ci]
+
+            Automated model update from weekly retraining job.
+            Run ID: ${{ github.run_id }}"
+            git push
+            echo "Models committed and pushed"
+          fi
+
+      - name: Upload training logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: training-logs-${{ github.run_id }}
+          path: |
+            experiments/turning_point/
+            models/turning_point/*.json
+          if-no-files-found: ignore
+          retention-days: 30
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Generate Signal Report (Daily or manual)
+  # ═══════════════════════════════════════════════════════════════════════
+  generate-report:
+    name: Generate Signal Report
+    runs-on: ubuntu-latest
+    needs: [preflight, retrain-models]
+    # Run if:
+    # - Not a holiday (or holiday check skipped)
+    # - Not Sunday (Sunday is training-only)
+    # - OR manual trigger
+    if: |
+      always() &&
+      (needs.preflight.outputs.is_holiday != 'true' || inputs.skip_holiday_check) &&
+      (needs.preflight.outputs.is_sunday != 'true' || github.event_name == 'workflow_dispatch')
+    outputs:
+      report_path: ${{ steps.generate.outputs.report_path }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Pull latest (in case retrain-models pushed changes)
+          ref: ${{ github.ref }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('pyproject.toml') }}
+
+      - name: Cache TA-Lib
+        id: cache-talib
+        uses: actions/cache@v4
+        with:
+          path: /usr/lib/libta_lib*
+          key: talib-0.4.0-ubuntu-latest
+
+      - name: Install TA-Lib C library
+        if: steps.cache-talib.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget build-essential
+          wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz
+          tar -xzf ta-lib-0.4.0-src.tar.gz
+          cd ta-lib && ./configure --prefix=/usr && make && sudo make install
+          sudo ldconfig
+
+      - name: Install dependencies
+        run: uv pip install --system -e ".[observability]"
+
+      - name: Get current date
+        id: date
+        run: echo "date=$(date -u +'%Y-%m-%d')" >> $GITHUB_OUTPUT
+
+      - name: Determine symbols from universe
+        id: symbols
+        run: |
+          # Check if symbols provided via workflow_dispatch
+          SYMBOLS="${{ inputs.symbols }}"
+
+          if [ -z "$SYMBOLS" ]; then
+            # Load full universe from YAML (single source of truth)
+            SYMBOLS=$(python << 'EOF'
+          from src.domain.services.regime.universe_loader import load_universe
+          universe = load_universe()
+          # Get all symbols: market ETFs + sector ETFs + stocks
+          print(' '.join(universe.all_symbols))
+          EOF
+          )
+            echo "Using full universe: $(echo $SYMBOLS | wc -w) symbols"
+          else
+            echo "Using provided symbols: $SYMBOLS"
+          fi
+
+          echo "symbols=$SYMBOLS" >> $GITHUB_OUTPUT
+
+      - name: Generate signal report
+        id: generate
+        run: |
+          REPORT_PATH="results/signals/signal_report_${{ steps.date.outputs.date }}.html"
+
+          python -m src.runners.signal_runner \
+            --live \
+            --symbols ${{ steps.symbols.outputs.symbols }} \
+            --timeframes ${{ inputs.timeframes || '1d' }} \
+            --html-output "$REPORT_PATH"
+
+          echo "report_path=$REPORT_PATH" >> $GITHUB_OUTPUT
+
+      - name: Upload report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-signal-report-${{ steps.date.outputs.date }}
+          path: |
+            results/signals/
+          if-no-files-found: warn
+          retention-days: 90
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Send Email Report (if configured)
+  # ═══════════════════════════════════════════════════════════════════════
+  send-email:
+    name: Send Email Report
+    runs-on: ubuntu-latest
+    needs: [generate-report]
+    if: |
+      success() &&
+      !inputs.dry_run &&
+      needs.generate-report.outputs.report_path != ''
+    steps:
+      - name: Download report artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: daily-signal-report-${{ needs.generate-report.outputs.date || github.run_id }}
+          path: ./report
+
+      - name: Send email
+        if: ${{ secrets.SMTP_SERVER != '' }}
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.SMTP_SERVER }}
+          server_port: ${{ secrets.SMTP_PORT || 587 }}
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          subject: "Daily Signal Report - ${{ needs.generate-report.outputs.date || github.run_id }}"
+          to: ${{ secrets.SIGNAL_REPORT_RECIPIENTS }}
+          from: "APEX Signal Bot <${{ secrets.SMTP_USERNAME }}>"
+          body: |
+            Daily signal report is attached.
+
+            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            Generated by APEX Signal Pipeline
+          attachments: ./report/*.html
+          priority: normal
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Holiday Skip Notice
+  # ═══════════════════════════════════════════════════════════════════════
+  holiday-skip:
+    name: Holiday Skip Notice
+    runs-on: ubuntu-latest
+    needs: [preflight]
+    if: needs.preflight.outputs.is_holiday == 'true' && !inputs.skip_holiday_check
+    steps:
+      - name: Log holiday skip
+        run: |
+          echo "::notice::Market is closed today (holiday). Skipping signal generation."
+          echo "To override, trigger workflow manually with 'skip_holiday_check' enabled."
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Failure Notification
+  # ═══════════════════════════════════════════════════════════════════════
+  notify-failure:
+    name: Notify on Failure
+    runs-on: ubuntu-latest
+    needs: [preflight, retrain-models, generate-report]
+    if: failure()
+    steps:
+      - name: Send failure notification
+        if: ${{ secrets.SMTP_SERVER != '' }}
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.SMTP_SERVER }}
+          server_port: ${{ secrets.SMTP_PORT || 587 }}
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          subject: "[ALERT] Daily Signal Pipeline Failed"
+          to: ${{ secrets.SIGNAL_REPORT_RECIPIENTS }}
+          from: "APEX Signal Bot <${{ secrets.SMTP_USERNAME }}>"
+          body: |
+            The daily signal pipeline has failed.
+
+            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            Please investigate.
+          priority: high
+
+      - name: Create issue for failure
+        if: ${{ secrets.SMTP_SERVER == '' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = `Daily Signal Pipeline Failed - ${new Date().toISOString().split('T')[0]}`;
+            const body = `The daily signal pipeline failed.\n\nRun: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+
+            // Check if issue already exists
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'ci-failure'
+            });
+
+            const existingIssue = issues.data.find(i => i.title.startsWith('Daily Signal Pipeline Failed'));
+            if (!existingIssue) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: title,
+                body: body,
+                labels: ['ci-failure', 'automated']
+              });
+            }
