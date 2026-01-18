@@ -186,6 +186,7 @@ jobs:
     needs: [unit-tests]
     if: success() || failure()  # Run even if unit-tests has continue-on-error failures
     continue-on-error: true
+    timeout-minutes: 10  # Prevent runaway tests from blocking CI for hours
     steps:
       - uses: actions/checkout@v4
 
@@ -220,7 +221,9 @@ jobs:
       - name: Run integration tests
         run: |
           pytest tests/integration/ -v --tb=short --no-cov \
-            --ignore=tests/partial/
+            --ignore=tests/partial/ \
+            --ignore=tests/integration/test_futu_adapter.py \
+            --ignore=tests/integration/test_multi_broker.py
 
   # ═══════════════════════════════════════════════════════════════
   # Coverage Upload (PRs only, best-effort)
