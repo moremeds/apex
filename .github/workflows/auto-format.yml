@@ -1,0 +1,92 @@
+# Auto-Format Bot
+# Automatically runs black + isort on push to master/main and creates a PR if changes are needed
+# The PR branch will be automatically deleted after merge (delete-branch: true)
+
+name: Auto Format
+
+on:
+  push:
+    branches: [master, main]
+    paths:
+      - '**.py'
+  workflow_dispatch:
+
+# Prevent multiple runs on the same branch
+concurrency:
+  group: auto-format-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  format:
+    name: Auto Format Python
+    runs-on: ubuntu-latest
+
+    # Don't run on commits from this workflow (prevents infinite loop)
+    if: "!contains(github.event.head_commit.message, 'style: auto-format')"
+
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Use a PAT to allow the PR to trigger other workflows
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install formatters
+        run: uv pip install --system black isort
+
+      - name: Run black
+        run: black src/ tests/ --line-length 100
+
+      - name: Run isort
+        run: isort src/ tests/ --profile black --line-length 100
+
+      - name: Check for changes
+        id: changes
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Pull Request
+        if: steps.changes.outputs.has_changes == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "style: auto-format with black and isort"
+          title: "🎨 Auto-format: black + isort"
+          body: |
+            ## Automated Formatting Changes
+
+            This PR contains automatic formatting fixes applied by the auto-format workflow.
+
+            **Tools applied:**
+            - `black` (line-length=100)
+            - `isort` (black profile, line-length=100)
+
+            **Review notes:**
+            - These are purely cosmetic changes
+            - No functional code changes
+            - Safe to merge after CI passes
+
+            ---
+            🤖 *This PR was automatically created by the auto-format workflow*
+          branch: auto-format/patch
+          delete-branch: true
+          labels: |
+            automated
+            formatting
+            safe-to-merge
