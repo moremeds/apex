@@ -64,6 +64,17 @@ class SignalRunnerConfig:
     stats_interval: int = 10
     html_output: Optional[str] = None  # Path for HTML report generation
 
+    # Model training options
+    train_models: bool = False  # Train models before signal generation
+    retrain_models: bool = False  # Walk-forward retrain (mutually exclusive with train_models)
+    model_symbols: Optional[List[str]] = None  # Symbols for training (default: main symbols)
+    model_days: int = 750  # Days of history for training
+    force_retrain: bool = False  # Force update even if not better
+    eval_only: bool = False  # Evaluation only, no promotion
+    model_output_dir: Optional[str] = None  # Override model output directory
+    dry_run: bool = False  # No email, no model promotion
+    train_concurrency: int = 2  # Parallel training workers
+
 
 class SignalRunner:
     """
@@ -99,11 +110,32 @@ class SignalRunner:
         try:
             await self._initialize()
 
+            # Run training phase if requested
+            if self.config.train_models or self.config.retrain_models:
+                print("\n" + "=" * 60)
+                print("=== TRAINING PHASE ===")
+                print("=" * 60)
+
+                training_result = await self._run_training()
+                if training_result != 0:
+                    logger.warning("Training phase completed with issues")
+                    # Continue to signal phase even if training had issues
+
+            # Run signal phase
             if self.config.backfill:
+                print("\n" + "=" * 60)
+                print("=== SIGNAL PHASE (Backfill) ===")
+                print("=" * 60)
                 return await self._run_backfill()
             elif self.config.live:
+                print("\n" + "=" * 60)
+                print("=== SIGNAL PHASE (Live) ===")
+                print("=" * 60)
                 return await self._run_live()
             else:
+                # Training-only mode is valid
+                if self.config.train_models or self.config.retrain_models:
+                    return 0
                 print("No mode specified. Use --live or --backfill")
                 return 1
 
@@ -200,6 +232,111 @@ class SignalRunner:
             print(
                 f"  SIGNAL [{ts_str}]: {signal_type.upper()} {symbol} [{indicator}] strength={strength}"
             )
+
+    # -------------------------------------------------------------------------
+    # Training Phase
+    # -------------------------------------------------------------------------
+
+    async def _run_training(self) -> int:
+        """
+        Run model training phase.
+
+        Uses TurningPointTrainingService with hexagonal architecture:
+        - FileModelRegistry for model storage
+        - FileExperimentTracker for experiment recording
+
+        Returns:
+            Exit code (0 for success, non-zero for errors).
+        """
+        from pathlib import Path
+
+        from src.application.services.turning_point.models import TrainingConfig
+        from src.application.services.turning_point_training_service import (
+            TurningPointTrainingService,
+        )
+        from src.infrastructure.adapters.file_experiment_tracker import (
+            FileExperimentTracker,
+        )
+        from src.infrastructure.adapters.file_model_registry import FileModelRegistry
+
+        # Determine model output directory
+        model_dir = Path(self.config.model_output_dir or "models/turning_point")
+        experiment_dir = Path("experiments/turning_point")
+
+        # Create registry and tracker
+        registry = FileModelRegistry(model_dir)
+        tracker = FileExperimentTracker(experiment_dir)
+
+        # Create training service
+        service = TurningPointTrainingService(
+            model_registry=registry,
+            experiment_tracker=tracker,
+        )
+
+        # Determine symbols for training
+        model_symbols = self.config.model_symbols or self.config.symbols
+        if not model_symbols:
+            model_symbols = ["SPY", "QQQ", "AAPL", "NVDA", "TSLA"]
+            print(f"No model symbols specified, using defaults: {', '.join(model_symbols)}")
+
+        # Determine effective eval_only (dry_run implies eval_only)
+        effective_eval_only = self.config.eval_only or self.config.dry_run
+
+        # Create training config
+        training_config = TrainingConfig(
+            symbols=model_symbols,
+            days=self.config.model_days,
+            model_type="logistic",
+            cv_splits=5,
+            force_update=self.config.force_retrain and not self.config.dry_run,
+            eval_only=effective_eval_only,
+            max_workers=self.config.train_concurrency,
+        )
+
+        print(f"Training Configuration:")
+        print(f"  Symbols:         {', '.join(model_symbols)}")
+        print(f"  Days of history: {self.config.model_days}")
+        print(f"  Model type:      logistic")
+        print(f"  Force update:    {self.config.force_retrain and not self.config.dry_run}")
+        print(f"  Eval only:       {effective_eval_only}")
+        print(f"  Dry run:         {self.config.dry_run}")
+        print(f"  Output dir:      {model_dir}")
+        print()
+
+        try:
+            result = await service.train(training_config)
+
+            # Print summary
+            print("\n" + "-" * 60)
+            print("TRAINING RESULTS")
+            print("-" * 60)
+            print(result.summary())
+
+            # Detailed per-symbol results
+            if self.config.verbose:
+                print("\nPer-symbol details:")
+                for symbol, sym_result in result.results.items():
+                    comparison = result.comparisons.get(symbol)
+                    print(f"\n  {symbol}:")
+                    print(f"    ROC-AUC (top):    {sym_result.roc_auc_top:.4f} +/- {sym_result.roc_auc_top_std:.4f}")
+                    print(f"    ROC-AUC (bottom): {sym_result.roc_auc_bottom:.4f} +/- {sym_result.roc_auc_bottom_std:.4f}")
+                    print(f"    PR-AUC (combined): {sym_result.pr_auc_combined:.4f}")
+                    if comparison:
+                        print(f"    Decision: {comparison.decision} - {comparison.reason}")
+
+            # Check for failures
+            if result.failed:
+                print(f"\nWarning: {len(result.failed)} symbols failed to train")
+                for symbol, error in result.errors.items():
+                    print(f"  {symbol}: {error}")
+                return 1
+
+            return 0
+
+        except Exception as e:
+            logger.error(f"Training failed: {e}", exc_info=True)
+            print(f"\nError: Training failed - {e}")
+            return 1
 
     # -------------------------------------------------------------------------
     # Live Mode
@@ -622,7 +759,7 @@ class SignalRunner:
 def create_parser() -> argparse.ArgumentParser:
     """Create argument parser for signal runner."""
     parser = argparse.ArgumentParser(
-        description="Standalone TA signal pipeline runner",
+        description="Standalone TA signal pipeline runner with model training support",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -632,16 +769,24 @@ Examples:
   # Custom HTML output path
   python -m src.runners.signal_runner --live --symbols AAPL --html-output my_report.html
 
-  # Skip HTML report
-  python -m src.runners.signal_runner --live --symbols AAPL --no-html
+  # Train models before generating signals
+  python -m src.runners.signal_runner --live --symbols AAPL --train-models \\
+      --model-symbols SPY QQQ AAPL
+
+  # Retrain models with walk-forward validation (CI use case)
+  python -m src.runners.signal_runner --live --symbols SPY --retrain-models \\
+      --model-symbols SPY QQQ --dry-run
+
+  # Training only (no signal generation)
+  python -m src.runners.signal_runner --train-models --model-symbols SPY QQQ
 
   # Backfill historical signals
   python -m src.runners.signal_runner --backfill --symbols AAPL --days 365
         """,
     )
 
-    # Mode selection (mutually exclusive)
-    mode_group = parser.add_mutually_exclusive_group(required=True)
+    # Mode selection (at least one required, but can combine training with live/backfill)
+    mode_group = parser.add_mutually_exclusive_group(required=False)
     mode_group.add_argument(
         "--live",
         action="store_true",
@@ -716,6 +861,72 @@ Examples:
         help="Verbose output (show individual signals)",
     )
 
+    # =========================================================================
+    # Model Training Options
+    # =========================================================================
+    training_group = parser.add_argument_group("Model Training Options")
+
+    # Mutually exclusive: --train-models vs --retrain-models
+    train_mode = training_group.add_mutually_exclusive_group()
+    train_mode.add_argument(
+        "--train-models",
+        action="store_true",
+        help="Train models before signal generation",
+    )
+    train_mode.add_argument(
+        "--retrain-models",
+        action="store_true",
+        help="Retrain models with walk-forward validation (mutually exclusive with --train-models)",
+    )
+
+    training_group.add_argument(
+        "--model-symbols",
+        nargs="+",
+        metavar="SYMBOL",
+        help="Symbols for model training (default: uses --symbols or SPY QQQ AAPL NVDA TSLA)",
+    )
+
+    training_group.add_argument(
+        "--model-days",
+        type=int,
+        default=750,
+        metavar="DAYS",
+        help="Days of history for training (default: 750)",
+    )
+
+    training_group.add_argument(
+        "--force-retrain",
+        action="store_true",
+        help="Force model update even if not better than baseline",
+    )
+
+    training_group.add_argument(
+        "--eval-only",
+        action="store_true",
+        help="Evaluation only - do not promote models (safe for testing)",
+    )
+
+    training_group.add_argument(
+        "--model-output-dir",
+        type=str,
+        metavar="DIR",
+        help="Override model output directory (default: models/turning_point)",
+    )
+
+    training_group.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Dry run - no email, no model promotion (for debugging)",
+    )
+
+    training_group.add_argument(
+        "--train-concurrency",
+        type=int,
+        default=2,
+        metavar="N",
+        help="Parallel training workers (default: 2)",
+    )
+
     return parser
 
 
@@ -723,6 +934,10 @@ async def main() -> None:
     """Main entry point."""
     parser = create_parser()
     args = parser.parse_args()
+
+    # Validate: at least one mode must be specified
+    if not args.live and not args.backfill and not args.train_models and not args.retrain_models:
+        parser.error("At least one mode required: --live, --backfill, --train-models, or --retrain-models")
 
     # Set up logging
     level = logging.DEBUG if args.verbose else logging.INFO
@@ -743,6 +958,16 @@ async def main() -> None:
         verbose=args.verbose,
         stats_interval=args.stats_interval,
         html_output=None if args.no_html else args.html_output,
+        # Training options
+        train_models=args.train_models,
+        retrain_models=args.retrain_models,
+        model_symbols=args.model_symbols,
+        model_days=args.model_days,
+        force_retrain=args.force_retrain,
+        eval_only=args.eval_only,
+        model_output_dir=args.model_output_dir,
+        dry_run=args.dry_run,
+        train_concurrency=args.train_concurrency,
     )
 
     runner = SignalRunner(config)

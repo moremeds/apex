@@ -406,75 +406,31 @@ class HierarchicalRegime:
         }
 
 
-# Symbol to sector mapping
-STOCK_TO_SECTOR = {
-    # Technology / Semiconductors
-    "NVDA": "SMH",
-    "AMD": "SMH",
-    "TSM": "SMH",
-    "AVGO": "SMH",
-    "QCOM": "SMH",
-    "INTC": "SMH",
-    "MU": "SMH",
-    "AMAT": "SMH",
-    "LRCX": "SMH",
-    "KLAC": "SMH",
-    # Tech (broader)
-    "AAPL": "XLK",
-    "MSFT": "XLK",
-    "GOOGL": "XLK",
-    "GOOG": "XLK",
-    "META": "XLK",
-    "CRM": "XLK",
-    "ADBE": "XLK",
-    "ORCL": "XLK",
-    # Consumer Discretionary (TSLA trades like tech but is consumer)
-    "TSLA": "SMH",  # Trades more like tech
-    "AMZN": "XLY",
-    "HD": "XLY",
-    "MCD": "XLY",
-    "NKE": "XLY",
-    "SBUX": "XLY",
-    # Healthcare
-    "JNJ": "XLV",
-    "UNH": "XLV",
-    "PFE": "XLV",
-    "MRK": "XLV",
-    "ABBV": "XLV",
-    "LLY": "XLV",
-    # Financials
-    "JPM": "XLF",
-    "BAC": "XLF",
-    "WFC": "XLF",
-    "GS": "XLF",
-    "MS": "XLF",
-    "C": "XLF",
-    "AXP": "XLF",
-    # Energy
-    "XOM": "XLE",
-    "CVX": "XLE",
-    "COP": "XLE",
-    "SLB": "XLE",
-    "EOG": "XLE",
-}
+# =============================================================================
+# Derived Mappings from Universe YAML (Single Source of Truth)
+# =============================================================================
+#
+# These mappings are derived from config/signals/regime_verification_universe.yaml
+# via the universe_loader module. This eliminates manual synchronization.
+#
+# To add a new stock or sector:
+# 1. Edit config/signals/regime_verification_universe.yaml
+# 2. Run tests to verify consistency: pytest tests/unit/test_universe_consistency.py
+#
+# The loader handles:
+# - STOCK_TO_SECTOR: Maps stock symbol -> sector ETF
+# - SECTOR_NAMES: Maps sector ETF -> human-readable name
+# - MARKET_BENCHMARKS: Market-level ETFs
+# - SECTOR_ETFS: All sector ETF symbols
+# =============================================================================
 
-# Sector ETF to sector name
-SECTOR_NAMES = {
-    "SMH": "Semiconductors",
-    "XLK": "Technology",
-    "XLV": "Healthcare",
-    "XLF": "Financials",
-    "XLE": "Energy",
-    "XLY": "Consumer Discretionary",
-    "XLP": "Consumer Staples",
-    "XLI": "Industrials",
-    "XLU": "Utilities",
-    "XLB": "Materials",
-    "XLRE": "Real Estate",
-}
+from .universe_loader import get_universe
 
-# Market benchmarks
-MARKET_BENCHMARKS = {"QQQ", "SPY", "IWM", "DIA"}
+# Lazy-load universe to avoid circular imports and allow testing
+_universe = get_universe()
 
-# Sector ETFs
-SECTOR_ETFS = set(SECTOR_NAMES.keys())
+# Derived mappings (single source of truth from YAML)
+STOCK_TO_SECTOR = _universe.stock_to_sector
+SECTOR_NAMES = _universe.sector_names
+MARKET_BENCHMARKS = _universe.market_benchmarks
+SECTOR_ETFS = set(_universe.sector_etfs)
