@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from ...domain.events.domain_events import BarCloseEvent, BarData
 from ...domain.events.event_types import EventType

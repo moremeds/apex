@@ -36,7 +36,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 from types import ModuleType
-from typing import Any, AsyncIterator, Dict, Generator, List, Optional, Sequence, Tuple, Union
+from typing import Any, AsyncIterator, Dict, Generator, List, Optional, Sequence, Tuple
 
 from ...domain.events.domain_events import BarData, QuoteTick
 

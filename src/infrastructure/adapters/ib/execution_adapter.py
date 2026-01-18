@@ -12,7 +12,7 @@ Uses reserved execution client ID.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union
 
 from ....domain.events.domain_events import OrderUpdate, TradeFill
 from ....domain.interfaces.event_bus import EventType
@@ -23,9 +23,6 @@ from ....domain.interfaces.execution_provider import (
 )
 from ....utils.logging_setup import get_logger
 from .base import IbBaseAdapter
-
-if TYPE_CHECKING:
-    from ib_async import LimitOrder, MarketOrder, Option, Stock, StopLimitOrder, StopOrder, Trade
 
 logger = get_logger(__name__)
 
@@ -118,7 +115,7 @@ class IbExecutionAdapter(IbBaseAdapter, ExecutionProvider):
             from ib_async import LimitOrder, MarketOrder, Option, Stock, StopLimitOrder, StopOrder
 
             # Create contract
-            contract: Union[Option, Stock]
+            contract: "Union[Option, Stock]"
             if request.asset_type == "OPTION":
                 expiry = self.format_expiry_for_ib(request.expiry)
                 if not expiry:
@@ -158,7 +155,7 @@ class IbExecutionAdapter(IbBaseAdapter, ExecutionProvider):
             action = "BUY" if request.side == "BUY" else "SELL"
             quantity = abs(request.quantity)
 
-            ib_order: Union[MarketOrder, LimitOrder, StopOrder, StopLimitOrder]
+            ib_order: "Union[MarketOrder, LimitOrder, StopOrder, StopLimitOrder]"
             if request.order_type == "MARKET":
                 ib_order = MarketOrder(action, quantity)
             elif request.order_type == "LIMIT":

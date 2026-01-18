@@ -7,7 +7,7 @@ Uses decision tables per account type.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Tuple, cast
+from typing import Dict, Optional, Tuple, cast
 
 from src.domain.signals.indicators.regime import MarketRegime
 

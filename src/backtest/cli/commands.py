@@ -16,7 +16,10 @@ from typing import TYPE_CHECKING, Union
 from .parser import create_parser
 
 if TYPE_CHECKING:
-    from ..runner import BacktraderRunner, SingleBacktestRunner
+    from ..runner import (
+        BacktraderRunner as _BacktraderRunner,
+        SingleBacktestRunner as _SingleBacktestRunner,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +72,7 @@ async def main_async() -> None:
 
     try:
         engine_type = args.engine or "apex"
-        runner: Union[BacktraderRunner, SingleBacktestRunner]
+        runner: Union[_BacktraderRunner, _SingleBacktestRunner]
 
         if engine_type == "backtrader":
             from ..runner import BacktraderRunner

@@ -16,7 +16,7 @@ from collections import OrderedDict
 from datetime import datetime
 from math import isnan
 from threading import Lock
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from ....domain.events.domain_events import AccountSnapshot, PositionSnapshot, QuoteTick
 from ....domain.interfaces.account_provider import AccountProvider
@@ -31,9 +31,6 @@ from ..market_data_fetcher import MarketDataFetcher
 from .base import IbBaseAdapter
 from .contract_qualification_service import ContractQualificationService
 from .converters import convert_position
-
-if TYPE_CHECKING:
-    from ib_async import Index, Option, Stock
 
 logger = get_logger(__name__)
 

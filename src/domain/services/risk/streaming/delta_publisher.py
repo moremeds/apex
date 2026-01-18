@@ -24,7 +24,7 @@ Usage:
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, cast
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from src.domain.events.domain_events import MarketDataTickEvent
 from src.domain.events.event_types import EventType
