@@ -318,8 +318,12 @@ class SignalRunner:
                 for symbol, sym_result in result.results.items():
                     comparison = result.comparisons.get(symbol)
                     print(f"\n  {symbol}:")
-                    print(f"    ROC-AUC (top):    {sym_result.roc_auc_top:.4f} +/- {sym_result.roc_auc_top_std:.4f}")
-                    print(f"    ROC-AUC (bottom): {sym_result.roc_auc_bottom:.4f} +/- {sym_result.roc_auc_bottom_std:.4f}")
+                    print(
+                        f"    ROC-AUC (top):    {sym_result.roc_auc_top:.4f} +/- {sym_result.roc_auc_top_std:.4f}"
+                    )
+                    print(
+                        f"    ROC-AUC (bottom): {sym_result.roc_auc_bottom:.4f} +/- {sym_result.roc_auc_bottom_std:.4f}"
+                    )
                     print(f"    PR-AUC (combined): {sym_result.pr_auc_combined:.4f}")
                     if comparison:
                         print(f"    Decision: {comparison.decision} - {comparison.reason}")
@@ -937,7 +941,9 @@ async def main() -> None:
 
     # Validate: at least one mode must be specified
     if not args.live and not args.backfill and not args.train_models and not args.retrain_models:
-        parser.error("At least one mode required: --live, --backfill, --train-models, or --retrain-models")
+        parser.error(
+            "At least one mode required: --live, --backfill, --train-models, or --retrain-models"
+        )
 
     # Set up logging
     level = logging.DEBUG if args.verbose else logging.INFO

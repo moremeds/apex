@@ -59,6 +59,12 @@ dev = [
     "bandit>=1.7.0",           # Security linting
     "safety>=2.3.0",           # Dependency vulnerability checking
     "pre-commit>=3.6.0",       # Git pre-commit hooks
+    # Code quality analysis
+    "vulture>=2.11",           # Dead code detection
+    "radon>=6.0.1",            # Complexity metrics (cyclomatic, maintainability)
+    # Documentation and diagrams
+    "pylint>=3.0.0",           # Class diagram generation via pyreverse (PlantUML)
+    "pydeps>=3.0.0",           # Dependency graph generation (SVG)
 ]
 
 observability = [

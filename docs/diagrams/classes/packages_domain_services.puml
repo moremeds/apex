@@ -1,0 +1,71 @@
+@startuml packages_domain_services
+set namespaceSeparator none
+package "apex.src.domain.services" as apex.src.domain.services {
+}
+package "apex.src.domain.services.bar_count_calculator" as apex.src.domain.services.bar_count_calculator {
+}
+package "apex.src.domain.services.bar_replay_service" as apex.src.domain.services.bar_replay_service {
+}
+package "apex.src.domain.services.correlation_analyzer" as apex.src.domain.services.correlation_analyzer {
+}
+package "apex.src.domain.services.data_validator" as apex.src.domain.services.data_validator {
+}
+package "apex.src.domain.services.event_risk_detector" as apex.src.domain.services.event_risk_detector {
+}
+package "apex.src.domain.services.market_alert_detector" as apex.src.domain.services.market_alert_detector {
+}
+package "apex.src.domain.services.mdqc" as apex.src.domain.services.mdqc {
+}
+package "apex.src.domain.services.pos_reconciler" as apex.src.domain.services.pos_reconciler {
+}
+package "apex.src.domain.services.position_risk_analyzer" as apex.src.domain.services.position_risk_analyzer {
+}
+package "apex.src.domain.services.regime" as apex.src.domain.services.regime {
+}
+package "apex.src.domain.services.regime.action_resolver" as apex.src.domain.services.regime.action_resolver {
+}
+package "apex.src.domain.services.regime.models" as apex.src.domain.services.regime.models {
+}
+package "apex.src.domain.services.regime.objectives" as apex.src.domain.services.regime.objectives {
+}
+package "apex.src.domain.services.regime.param_optimizer" as apex.src.domain.services.regime.param_optimizer {
+}
+package "apex.src.domain.services.regime.param_provenance" as apex.src.domain.services.regime.param_provenance {
+}
+package "apex.src.domain.services.regime.param_recommender" as apex.src.domain.services.regime.param_recommender {
+}
+package "apex.src.domain.services.regime.params_store" as apex.src.domain.services.regime.params_store {
+}
+package "apex.src.domain.services.regime.regime_hierarchy" as apex.src.domain.services.regime.regime_hierarchy {
+}
+package "apex.src.domain.services.regime.universe_loader" as apex.src.domain.services.regime.universe_loader {
+}
+package "apex.src.domain.services.strategy_detector" as apex.src.domain.services.strategy_detector {
+}
+package "apex.src.domain.services.strategy_risk_analyzer" as apex.src.domain.services.strategy_risk_analyzer {
+}
+package "apex.src.domain.services.suggester" as apex.src.domain.services.suggester {
+}
+apex.src.domain.services --> apex.src.domain.services.market_alert_detector
+apex.src.domain.services --> apex.src.domain.services.mdqc
+apex.src.domain.services --> apex.src.domain.services.pos_reconciler
+apex.src.domain.services --> apex.src.domain.services.suggester
+apex.src.domain.services.bar_replay_service --> apex.src.domain.services.bar_count_calculator
+apex.src.domain.services.bar_replay_service --> apex.src.domain.services.data_validator
+apex.src.domain.services.data_validator --> apex.src.domain.services.bar_count_calculator
+apex.src.domain.services.regime --> apex.src.domain.services.regime.action_resolver
+apex.src.domain.services.regime --> apex.src.domain.services.regime.models
+apex.src.domain.services.regime --> apex.src.domain.services.regime.objectives
+apex.src.domain.services.regime --> apex.src.domain.services.regime.param_optimizer
+apex.src.domain.services.regime --> apex.src.domain.services.regime.param_provenance
+apex.src.domain.services.regime --> apex.src.domain.services.regime.param_recommender
+apex.src.domain.services.regime --> apex.src.domain.services.regime.params_store
+apex.src.domain.services.regime --> apex.src.domain.services.regime.regime_hierarchy
+apex.src.domain.services.regime.action_resolver --> apex.src.domain.services.regime.models
+apex.src.domain.services.regime.action_resolver --> apex.src.domain.services.regime.regime_hierarchy
+apex.src.domain.services.regime.models --> apex.src.domain.services.regime.universe_loader
+apex.src.domain.services.regime.param_optimizer --> apex.src.domain.services.regime.objectives
+apex.src.domain.services.regime.param_recommender --> apex.src.domain.services.regime.param_optimizer
+apex.src.domain.services.regime.regime_hierarchy --> apex.src.domain.services.regime.models
+apex.src.domain.services.strategy_risk_analyzer --> apex.src.domain.services.strategy_detector
+@enduml

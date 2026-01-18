@@ -1,0 +1,81 @@
+name: Diagrams
+
+on:
+  push:
+    branches: [master, main]
+    paths:
+      - 'src/**/*.py'  # Only run when Python source changes
+      - '.github/workflows/diagrams.yml'
+  workflow_dispatch:  # Allow manual triggering
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write  # Required to commit updated diagrams
+
+jobs:
+  generate-diagrams:
+    name: Generate Architecture Diagrams
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install Graphviz
+        run: sudo apt-get update && sudo apt-get install -y graphviz
+
+      - name: Install diagram generation tools
+        run: uv pip install --system pylint pydeps
+
+      - name: Generate class diagrams
+        run: |
+          mkdir -p docs/diagrams/classes
+          pyreverse -o puml -d docs/diagrams/classes -p domain_services src/domain/services
+          pyreverse -o puml -d docs/diagrams/classes -p domain_signals src/domain/signals
+          pyreverse -o puml -d docs/diagrams/classes -p domain_events src/domain/events
+          pyreverse -o puml -d docs/diagrams/classes -p infrastructure_adapters src/infrastructure/adapters
+          pyreverse -o puml -d docs/diagrams/classes -p application_orchestrator src/application/orchestrator
+
+      - name: Generate dependency graphs
+        run: |
+          mkdir -p docs/diagrams/dependencies
+          pydeps src/domain -o docs/diagrams/dependencies/domain_deps.svg --max-module-depth=2 --cluster --noshow
+          pydeps src/infrastructure -o docs/diagrams/dependencies/infrastructure_deps.svg --max-module-depth=2 --cluster --noshow
+          pydeps src -o docs/diagrams/dependencies/full_project_deps.svg --max-module-depth=1 --cluster --noshow
+
+      - name: Check for changes
+        id: changes
+        run: |
+          git add docs/diagrams/
+          if git diff --cached --quiet; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Commit and push diagrams
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -m "docs: auto-update architecture diagrams [skip ci]"
+          git push
+
+      - name: Upload diagrams as artifact
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: architecture-diagrams
+          path: docs/diagrams/
+          if-no-files-found: ignore

@@ -1,0 +1,349 @@
+@startuml classes_domain_events
+set namespaceSeparator none
+class "AccountSnapshot" as apex.src.domain.events.domain_events.AccountSnapshot {
+  account_id : str
+  available_pct : float
+  buying_power : float
+  daily_pnl : float
+  excess_liquidity : float
+  init_margin_req : float
+  maintenance_margin : float
+  margin_available : float
+  margin_used : float
+  margin_utilization : float
+  net_liquidation : float
+  open_order_count : int
+  position_count : int
+  realized_pnl : float
+  source : str
+  total_cash : float
+  unrealized_pnl : float
+}
+class "AlignmentUpdateEvent" as apex.src.domain.events.domain_events.AlignmentUpdateEvent {
+  aligned_count : int
+  direction : str
+  divergence_detected : bool
+  strength : str
+  symbol : str
+  timeframes : List[str]
+  total_timeframes : int
+  from_alignment(alignment: Any) -> 'AlignmentUpdateEvent'
+}
+class "AtomicCounter" as apex.src.domain.events.priority_event_bus.AtomicCounter {
+  value : int
+  increment(amount: int) -> int
+  max_update(value: int) -> None
+}
+class "BarCloseEvent" as apex.src.domain.events.domain_events.BarCloseEvent {
+  bar_end : Optional[datetime]
+  close : float
+  high : float
+  low : float
+  open : float
+  symbol : str
+  timeframe : str
+  volume : float
+  from_dict(data: Dict[str, Any]) -> 'BarCloseEvent'
+}
+class "BarData" as apex.src.domain.events.domain_events.BarData {
+  bar_end : Optional[datetime]
+  bar_start : Optional[datetime]
+  body : Optional[float]
+  close : Optional[float]
+  high : Optional[float]
+  is_bullish : Optional[bool]
+  low : Optional[float]
+  open : Optional[float]
+  range : Optional[float]
+  source : str
+  symbol : str
+  timeframe : str
+  trade_count : Optional[int]
+  volume : Optional[int]
+  vwap : Optional[float]
+  from_dict(data: Dict[str, Any]) -> 'BarData'
+}
+class "ConfluenceUpdateEvent" as apex.src.domain.events.domain_events.ConfluenceUpdateEvent {
+  alignment_score : float
+  bearish_count : int
+  bullish_count : int
+  confidence : float
+  dominant_direction : str
+  neutral_count : int
+  symbol : str
+  timeframe : str
+  total_indicators : int
+  from_score(score: Any) -> 'ConfluenceUpdateEvent'
+}
+class "ConnectionEvent" as apex.src.domain.events.domain_events.ConnectionEvent {
+  adapter_name : str
+  adapter_type : str
+  client_id : Optional[int]
+  connected : bool
+  error_message : Optional[str]
+  host : str
+  port : int
+  reconnect_attempt : int
+}
+class "DomainEvent" as apex.src.domain.events.domain_events.DomainEvent {
+  timestamp : datetime
+  from_dict(data: Dict[str, Any]) -> T
+  from_json(json_str: str) -> T
+  to_dict() -> Dict[str, Any]
+  to_json() -> str
+}
+class "EventPriority" as apex.src.domain.events.event_types.EventPriority {
+  name
+}
+class "EventType" as apex.src.domain.events.event_types.EventType {
+  name
+}
+class "FullResyncEvent" as apex.src.domain.events.domain_events.FullResyncEvent {
+  reason : str
+  source : str
+}
+class "IndicatorUpdateEvent" as apex.src.domain.events.domain_events.IndicatorUpdateEvent {
+  indicator : str
+  previous_state : Optional[Dict[str, Any]]
+  previous_value : Optional[float]
+  state : Dict[str, Any]
+  symbol : str
+  timeframe : str
+  value : Optional[float]
+  from_dict(data: Dict[str, Any]) -> 'IndicatorUpdateEvent'
+}
+class "MDQCValidationTrigger" as apex.src.domain.events.domain_events.MDQCValidationTrigger {
+  source : str
+  symbol_count : int
+}
+class "MarketDataTickEvent" as apex.src.domain.events.domain_events.MarketDataTickEvent {
+  ask : Optional[float]
+  bid : Optional[float]
+  delta : Optional[float]
+  gamma : Optional[float]
+  iv : Optional[float]
+  last : Optional[float]
+  mid : Optional[float]
+  quality : str
+  session_open : Optional[float]
+  source : str
+  symbol : str
+  theta : Optional[float]
+  underlying_price : Optional[float]
+  vega : Optional[float]
+  yesterday_close : Optional[float]
+}
+class "OrderSide" as apex.src.domain.events.domain_events.OrderSide {
+  name
+}
+class "OrderStatus" as apex.src.domain.events.domain_events.OrderStatus {
+  name
+}
+class "OrderType" as apex.src.domain.events.domain_events.OrderType {
+  name
+}
+class "OrderUpdate" as apex.src.domain.events.domain_events.OrderUpdate {
+  account_id : str
+  asset_type : str
+  avg_fill_price : Optional[float]
+  client_order_id : str
+  expiry : Optional[str]
+  fill_pct : float
+  filled_quantity : float
+  is_active : bool
+  is_terminal : bool
+  limit_price : Optional[float]
+  multiplier : int
+  order_id : str
+  order_type : str
+  parent_order_id : Optional[str]
+  quantity : float
+  reject_reason : Optional[str]
+  remaining_quantity : float
+  right : Optional[str]
+  side : str
+  source : str
+  status : str
+  stop_price : Optional[float]
+  strike : Optional[float]
+  symbol : str
+  underlying : str
+}
+class "PositionDeltaEvent" as apex.src.domain.events.domain_events.PositionDeltaEvent {
+  daily_pnl_change : float
+  delta_change : float
+  delta_dollars_change : float
+  gamma_change : float
+  has_greeks : bool
+  is_reliable : bool
+  new_mark_price : float
+  notional_change : float
+  pnl_change : float
+  symbol : str
+  theta_change : float
+  underlying : str
+  underlying_price : float
+  vega_change : float
+}
+class "PositionSnapshot" as apex.src.domain.events.domain_events.PositionSnapshot {
+  account_id : str
+  asset_type : str
+  avg_price : float
+  cost_basis : float
+  daily_pnl : Optional[float]
+  days_to_expiry : Optional[int]
+  delta : Optional[float]
+  expiry : Optional[str]
+  gamma : Optional[float]
+  is_long : bool
+  is_short : bool
+  mark_price : Optional[float]
+  market_value : Optional[float]
+  multiplier : int
+  notional : Optional[float]
+  quantity : float
+  realized_pnl : Optional[float]
+  right : Optional[str]
+  source : str
+  strike : Optional[float]
+  symbol : str
+  theta : Optional[float]
+  underlying : str
+  unrealized_pnl : Optional[float]
+  vega : Optional[float]
+}
+class "PriorityEventBus" as apex.src.domain.events.priority_event_bus.PriorityEventBus {
+  is_running : bool
+  get_queue_health() -> Dict[str, Any]
+  get_stats() -> Dict[str, Any]
+  publish(event_type: EventType, payload: Any, source: str) -> None
+  register_heavy_callback(callback: Callable) -> None
+  start() -> None
+  stop() -> None
+  subscribe(event_type: EventType, callback: Callable) -> None
+  subscribe_async(event_type: EventType, callback: Callable) -> None
+  unregister_heavy_callback(callback: Callable) -> None
+  unsubscribe(event_type: EventType, callback: Callable) -> None
+}
+class "PriorityEventEnvelope" as apex.src.domain.events.event_types.PriorityEventEnvelope {
+  event_type
+  payload : Any
+  priority : int
+  sequence : int
+  source : str
+  timestamp : float
+}
+class "QuoteTick" as apex.src.domain.events.domain_events.QuoteTick {
+  ask : Optional[float]
+  ask_size : Optional[int]
+  bid : Optional[float]
+  bid_size : Optional[int]
+  delta : Optional[float]
+  gamma : Optional[float]
+  iv : Optional[float]
+  last : Optional[float]
+  last_size : Optional[int]
+  mid : Optional[float]
+  source : str
+  spread : Optional[float]
+  spread_pct : Optional[float]
+  symbol : str
+  theta : Optional[float]
+  underlying_price : Optional[float]
+  vega : Optional[float]
+  volume : Optional[int]
+}
+class "RiskBreachEvent" as apex.src.domain.events.domain_events.RiskBreachEvent {
+  breach_level : str
+  breach_pct : float
+  current_value : float
+  limit_value : float
+  message : str
+  metric : str
+  rule_name : str
+  symbol : Optional[str]
+  underlying : Optional[str]
+}
+class "SchedulerStatusEvent" as apex.src.domain.events.domain_events.SchedulerStatusEvent {
+  in_flight : int
+  queue_depth : int
+  rate_limit_wait_sec : Optional[float]
+  rate_limited : bool
+  source : str
+  tokens_available : float
+  tokens_max : float
+  total_queued : int
+}
+class "SnapshotReadyEvent" as apex.src.domain.events.domain_events.SnapshotReadyEvent {
+  coverage_pct : float
+  daily_pnl : float
+  portfolio_delta : float
+  position_count : int
+  snapshot_id : str
+  unrealized_pnl : float
+}
+class "Timeframe" as apex.src.domain.events.domain_events.Timeframe {
+  name
+}
+class "TradeFill" as apex.src.domain.events.domain_events.TradeFill {
+  account_id : str
+  asset_type : str
+  commission : float
+  exec_id : str
+  expiry : Optional[str]
+  is_opening : bool
+  multiplier : int
+  net_amount : float
+  notional : float
+  order_id : str
+  price : float
+  quantity : float
+  right : Optional[str]
+  side : str
+  source : str
+  strike : Optional[float]
+  symbol : str
+  underlying : str
+}
+class "TradingSignalEvent" as apex.src.domain.events.domain_events.TradingSignalEvent {
+  category : str
+  current_value : Optional[float]
+  direction : str
+  indicator : str
+  message : str
+  previous_value : Optional[float]
+  priority : str
+  reason : str
+  signal_id : str
+  source : str
+  strategy_id : str
+  strength : float
+  symbol : str
+  target_price : Optional[float]
+  target_quantity : Optional[float]
+  threshold : Optional[float]
+  timeframe : str
+  trigger_rule : str
+  from_signal(signal: Any, source: str) -> 'TradingSignalEvent'
+}
+apex.src.domain.events.domain_events.AccountSnapshot --|> apex.src.domain.events.domain_events.DomainEvent
+apex.src.domain.events.domain_events.AlignmentUpdateEvent --|> apex.src.domain.events.domain_events.DomainEvent
+apex.src.domain.events.domain_events.BarCloseEvent --|> apex.src.domain.events.domain_events.DomainEvent
+apex.src.domain.events.domain_events.BarData --|> apex.src.domain.events.domain_events.DomainEvent
+apex.src.domain.events.domain_events.ConfluenceUpdateEvent --|> apex.src.domain.events.domain_events.DomainEvent
+apex.src.domain.events.domain_events.ConnectionEvent --|> apex.src.domain.events.domain_events.DomainEvent
+apex.src.domain.events.domain_events.FullResyncEvent --|> apex.src.domain.events.domain_events.DomainEvent
+apex.src.domain.events.domain_events.IndicatorUpdateEvent --|> apex.src.domain.events.domain_events.DomainEvent
+apex.src.domain.events.domain_events.MDQCValidationTrigger --|> apex.src.domain.events.domain_events.DomainEvent
+apex.src.domain.events.domain_events.MarketDataTickEvent --|> apex.src.domain.events.domain_events.DomainEvent
+apex.src.domain.events.domain_events.OrderUpdate --|> apex.src.domain.events.domain_events.DomainEvent
+apex.src.domain.events.domain_events.PositionDeltaEvent --|> apex.src.domain.events.domain_events.DomainEvent
+apex.src.domain.events.domain_events.PositionSnapshot --|> apex.src.domain.events.domain_events.DomainEvent
+apex.src.domain.events.domain_events.QuoteTick --|> apex.src.domain.events.domain_events.DomainEvent
+apex.src.domain.events.domain_events.RiskBreachEvent --|> apex.src.domain.events.domain_events.DomainEvent
+apex.src.domain.events.domain_events.SchedulerStatusEvent --|> apex.src.domain.events.domain_events.DomainEvent
+apex.src.domain.events.domain_events.SnapshotReadyEvent --|> apex.src.domain.events.domain_events.DomainEvent
+apex.src.domain.events.domain_events.TradeFill --|> apex.src.domain.events.domain_events.DomainEvent
+apex.src.domain.events.domain_events.TradingSignalEvent --|> apex.src.domain.events.domain_events.DomainEvent
+apex.src.domain.events.event_types.PriorityEventEnvelope --> apex.src.domain.events.event_types.EventType : event_type
+@enduml

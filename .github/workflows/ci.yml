@@ -41,6 +41,73 @@ jobs:
       - name: Run flake8
         run: flake8 src/ tests/
 
+  dead-code:
+    name: Dead Code Check
+    runs-on: ubuntu-latest
+    continue-on-error: true  # Informational - doesn't block CI
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install vulture
+        run: uv pip install --system vulture
+
+      - name: Check for dead code
+        run: |
+          echo "🔍 Checking for potentially unused code..."
+          vulture src/ .vulture_whitelist.py \
+            --min-confidence 80 \
+            --exclude "src/legacy/,src/verification/" \
+            --sort-by-size
+
+  complexity:
+    name: Complexity Check
+    runs-on: ubuntu-latest
+    continue-on-error: true  # Informational - doesn't block CI
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install radon
+        run: uv pip install --system radon
+
+      - name: Cyclomatic Complexity Report
+        run: |
+          echo "📊 Cyclomatic Complexity Summary:"
+          radon cc src/ -a -nc --total-average
+
+      - name: Check for very complex functions (F grade)
+        run: |
+          echo "🚨 Checking for F-grade (very complex) functions..."
+          # Fail if any function has F grade (cyclomatic complexity > 40)
+          F_GRADE=$(radon cc src/ --min F -s 2>/dev/null || true)
+          if [ -n "$F_GRADE" ]; then
+            echo "⚠️ Found F-grade functions that should be refactored:"
+            echo "$F_GRADE"
+            exit 1
+          else
+            echo "✅ No F-grade functions found"
+          fi
+
+      - name: Maintainability Index Report
+        run: |
+          echo "🔧 Maintainability Index (lowest-ranked files):"
+          radon mi src/ -s | grep -E "^src.*[BC]$" | sort -t'-' -k2 | head -10 || echo "✅ All files have good maintainability"
+
   type-check:
     name: Type Check
     runs-on: ubuntu-latest
