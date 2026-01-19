@@ -35,6 +35,9 @@ sectors:
       - NVDA   # High vol, momentum
       - AMD    # Semiconductor, cyclical
       - CRM    # SaaS, growth
+      - META
+      - GOOG
+      - ORCL
 
   semiconductors:
     etf: SMH
@@ -46,6 +49,8 @@ sectors:
       - MU     # Memory, cyclical
       - INTC   # CPU
       - SNDK   # Memory
+      - TSM
+      - ASML
 
   financials:
     etf: XLF

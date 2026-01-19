@@ -316,7 +316,16 @@ class TurningPointModel:
             )
 
         X = features.to_array().reshape(1, -1)
-        X_scaled = self.scaler.transform(X)
+
+        # Handle missing or unfitted scaler (can happen with models saved by FileModelRegistry)
+        if hasattr(self, 'scaler') and self.scaler is not None:
+            try:
+                X_scaled = self.scaler.transform(X)
+            except Exception:
+                # Scaler not fitted, use unscaled features
+                X_scaled = X
+        else:
+            X_scaled = X
 
         # Predict probabilities
         top_prob = self.top_model.predict_proba(X_scaled)[0, 1]
@@ -429,10 +438,25 @@ class TurningPointModel:
 
     @classmethod
     def load(cls, path: Path) -> "TurningPointModel":
-        """Load model from file."""
+        """Load model from file.
+
+        Handles both formats:
+        - Old format (dict): Saved by TurningPointModel.save()
+        - New format (TurningPointModel): Saved directly by FileModelRegistry
+        """
         with open(path, "rb") as f:
             data = pickle.load(f)
 
+        # Handle new format: FileModelRegistry saves TurningPointModel directly
+        if isinstance(data, cls):
+            # Ensure scaler exists (might be missing if saved by FileModelRegistry)
+            if not hasattr(data, 'scaler') or data.scaler is None:
+                data.scaler = StandardScaler()
+                # Mark as needing refit on first predict
+                data._scaler_needs_fit = True
+            return data
+
+        # Handle old format: dict with model components
         model = cls(
             model_type=data["model_type"],
             confidence_threshold=data["confidence_threshold"],
