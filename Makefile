@@ -1,7 +1,7 @@
 # APEX Development Makefile
 # Quick commands for common development tasks
 
-.PHONY: install lint format type-check test test-all coverage clean dead-code complexity quality verify help diagrams diagrams-classes diagrams-deps
+.PHONY: install lint format type-check test test-all coverage clean dead-code complexity quality verify help diagrams diagrams-classes diagrams-deps diagrams-flows
 
 # Virtual environment - use .venv/bin executables directly
 VENV := .venv/bin
@@ -40,6 +40,7 @@ help:
 	@echo "  make diagrams      Generate all architecture diagrams"
 	@echo "  make diagrams-classes  Generate class diagrams (PlantUML)"
 	@echo "  make diagrams-deps     Generate dependency graphs (SVG)"
+	@echo "  make diagrams-flows    Generate call flow diagrams (SVG)"
 	@echo ""
 	@echo "$(GREEN)Cleanup:$(RESET)"
 	@echo "  make clean         Remove build artifacts and caches"
@@ -123,7 +124,7 @@ verify:
 # Diagrams
 # ═══════════════════════════════════════════════════════════════
 
-diagrams: diagrams-classes diagrams-deps
+diagrams: diagrams-classes diagrams-deps diagrams-flows
 	@echo "$(GREEN)✓ All diagrams generated in docs/diagrams/$(RESET)"
 
 diagrams-classes:
@@ -143,6 +144,14 @@ diagrams-deps:
 	$(VENV)/pydeps src/infrastructure -o docs/diagrams/dependencies/infrastructure_deps.svg --max-module-depth=2 --cluster --noshow
 	$(VENV)/pydeps src -o docs/diagrams/dependencies/full_project_deps.svg --max-module-depth=1 --cluster --noshow
 	@echo "$(GREEN)✓ Dependency graphs generated$(RESET)"
+
+diagrams-flows:
+	@echo "$(BOLD)Generating call flow diagrams (SVG via code2flow)...$(RESET)"
+	@mkdir -p docs/diagrams/flows
+	$(VENV)/code2flow src/application/orchestrator -o docs/diagrams/flows/orchestrator_flow.svg --language py --no-trimming --quiet
+	$(VENV)/code2flow src/domain/services/risk -o docs/diagrams/flows/risk_services_flow.svg --language py --no-trimming --quiet
+	$(VENV)/code2flow src/domain/signals -o docs/diagrams/flows/signal_pipeline_flow.svg --language py --no-trimming --quiet
+	@echo "$(GREEN)✓ Call flow diagrams generated$(RESET)"
 
 # ═══════════════════════════════════════════════════════════════
 # Cleanup

@@ -27,10 +27,12 @@ from ....models.account import AccountInfo
 from ....models.market_data import MarketData
 from ....models.position import AssetType, Position
 from ....utils.logging_setup import get_logger
+from ....utils.market_hours import MarketHours
 from ..market_data_fetcher import MarketDataFetcher
 from .base import IbBaseAdapter
 from .contract_qualification_service import ContractQualificationService
 from .converters import convert_position
+from src.backtest.data.calendar import get_calendar
 
 logger = get_logger(__name__)
 
@@ -154,6 +156,9 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
         instead of Friday's). This method fetches the actual last daily bar
         to get the accurate previous close.
 
+        Uses explicit endDateTime based on trading calendar to avoid IB's
+        inconsistent behavior with endDateTime="" during market closed hours.
+
         Args:
             symbol: The symbol to fetch previous close for.
             contract: The qualified IB contract.
@@ -171,10 +176,34 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
             return None
 
         try:
-            # Fetch 2 days of daily bars to ensure we get the last trading day
+            # Calculate the last trading day using NYSE calendar
+            # This is more reliable than endDateTime="" which can behave
+            # inconsistently during weekends/holidays
+            calendar = get_calendar("NYSE")
+            today = datetime.now().date()
+
+            # If today is a trading day and market is open, we want yesterday's close
+            # If market is closed (weekend/holiday), we want the most recent trading day
+            market_status = MarketHours.get_market_status()
+            if market_status == "OPEN" and calendar.is_trading_day(today):
+                # Market is open today - get yesterday's trading day close
+                last_trading_day = calendar.add_trading_days(today, -1)
+            else:
+                # Market is closed - find the most recent trading day
+                # If today is a trading day but closed, use today
+                # Otherwise, find the previous trading day
+                if calendar.is_trading_day(today):
+                    last_trading_day = today
+                else:
+                    last_trading_day = calendar.add_trading_days(today, -1)
+
+            # Format endDateTime for IB: "YYYYMMDD HH:mm:ss" in local time
+            # Use end of day to ensure we get the full day's bar
+            end_datetime = f"{last_trading_day.strftime('%Y%m%d')} 23:59:59"
+
             bars = await self.ib.reqHistoricalDataAsync(
                 contract,
-                endDateTime="",  # Now
+                endDateTime=end_datetime,
                 durationStr="2 D",
                 barSizeSetting="1 day",
                 whatToShow="TRADES",
@@ -183,14 +212,21 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
             )
 
             if bars:
-                # Last bar is the most recent trading day's close
+                # Last bar should be the target trading day
                 last_bar = bars[-1]
-                prev_close = float(last_bar.close)
-                self._previous_close_cache[symbol] = (prev_close, datetime.now())
-                logger.debug(
-                    f"Fetched previous close for {symbol}: {prev_close} from {last_bar.date}"
-                )
-                return prev_close
+                if last_bar.close and float(last_bar.close) > 0:
+                    prev_close = float(last_bar.close)
+                    self._previous_close_cache[symbol] = (prev_close, datetime.now())
+                    logger.debug(
+                        f"Fetched previous close for {symbol}: {prev_close} "
+                        f"from {last_bar.date} (expected: {last_trading_day})"
+                    )
+                    return prev_close
+                else:
+                    logger.warning(
+                        f"No valid close price in bars for {symbol}. "
+                        f"Expected date: {last_trading_day}, got bars: {[b.date for b in bars]}"
+                    )
 
         except Exception as e:
             logger.warning(f"Failed to fetch historical previous close for {symbol}: {e}")

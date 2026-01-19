@@ -36,7 +36,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y graphviz
 
       - name: Install diagram generation tools
-        run: uv pip install --system pylint pydeps
+        run: uv pip install --system pylint pydeps code2flow
 
       - name: Generate class diagrams
         run: |
@@ -53,6 +53,13 @@ jobs:
           pydeps src/domain -o docs/diagrams/dependencies/domain_deps.svg --max-module-depth=2 --cluster --noshow
           pydeps src/infrastructure -o docs/diagrams/dependencies/infrastructure_deps.svg --max-module-depth=2 --cluster --noshow
           pydeps src -o docs/diagrams/dependencies/full_project_deps.svg --max-module-depth=1 --cluster --noshow
+
+      - name: Generate call flow diagrams
+        run: |
+          mkdir -p docs/diagrams/flows
+          code2flow src/application/orchestrator -o docs/diagrams/flows/orchestrator_flow.svg --language py --no-trimming --quiet
+          code2flow src/domain/services/risk -o docs/diagrams/flows/risk_services_flow.svg --language py --no-trimming --quiet
+          code2flow src/domain/signals -o docs/diagrams/flows/signal_pipeline_flow.svg --language py --no-trimming --quiet
 
       - name: Check for changes
         id: changes

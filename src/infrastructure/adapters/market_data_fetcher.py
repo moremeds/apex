@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from datetime import datetime
 from dataclasses import dataclass
 from math import isnan
 from threading import Lock
@@ -17,7 +18,9 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
 from ...models.market_data import GreeksSource, MarketData
 from ...models.position import AssetType, Position
 from ...utils.logging_setup import get_logger
+from ...utils.market_hours import MarketHours
 from ...utils.timezone import now_utc
+from src.backtest.data.calendar import get_calendar
 
 if TYPE_CHECKING:
     pass
@@ -94,6 +97,10 @@ class MarketDataFetcher:
         self._ticker_positions_snapshot: Dict[str, Position] = {}
         # CRIT-001: Error counter for rate-limited logging
         self._ticker_error_count: int = 0
+        # Previous close cache for closed hours (IB ticker.close can be stale)
+        self._previous_close_cache: Dict[str, Tuple[float, datetime]] = {}
+        self._previous_close_cache_ttl_sec: int = 3600
+        self._previous_close_semaphore: asyncio.Semaphore = asyncio.Semaphore(5)
 
     def set_event_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         """Set event loop for non-blocking callback dispatch (M4 fix)."""
@@ -165,6 +172,7 @@ class MarketDataFetcher:
             return
 
         errors: list = []
+        market_status = MarketHours.get_market_status()
 
         for update in updates:
             try:
@@ -189,6 +197,24 @@ class MarketDataFetcher:
                     self._extract_greeks(ticker, md, pos)
                 else:
                     md.delta = 1.0  # Stocks have delta of 1
+
+                # Apply cached prev_close when market is not OPEN
+                # This prevents stale ticker.close from being used
+                if market_status != "OPEN":
+                    prev_close = self._get_cached_previous_close(symbol)
+                    if prev_close is not None:
+                        md.yesterday_close = prev_close
+
+                        if pos.asset_type == AssetType.OPTION:
+                            # Options don't trade outside regular hours
+                            md.mid = prev_close
+                            md.last = prev_close
+                        elif market_status == "CLOSED":
+                            # Stocks: only use prev_close if no valid live price
+                            if not md.mid or md.mid <= 0:
+                                md.mid = prev_close
+                            if not md.last or md.last <= 0:
+                                md.last = prev_close
 
                 # Fire callback
                 self._on_price_update(symbol, md)
@@ -311,6 +337,20 @@ class MarketDataFetcher:
         tickers_with_pos = []
 
         try:
+            market_status = MarketHours.get_market_status()
+            prev_close_map: Dict[str, float] = {}
+            prev_close_tasks: Dict[str, asyncio.Task[Optional[float]]] = {}
+
+            # Start fetching prev_close for all positions (runs in parallel with subscriptions)
+            for contract, pos in contract_pos_pairs:
+                cached = self._get_cached_previous_close(pos.symbol)
+                if cached is not None:
+                    prev_close_map[pos.symbol] = cached
+                    continue
+                prev_close_tasks[pos.symbol] = asyncio.create_task(
+                    self._get_previous_close(pos.symbol, contract)
+                )
+
             # Phase 1: Subscribe ALL stocks immediately (non-blocking)
             new_tickers = []  # Only new subscriptions need waiting
             for contract, pos in contract_pos_pairs:
@@ -339,11 +379,27 @@ class MarketDataFetcher:
             # OPT-010: Publish snapshot after all subscriptions are set up
             self._publish_snapshot()
 
-            # Phase 2: Wait ONLY for NEW subscriptions (skip if all cached)
+            # Phase 2: Wait for BOTH ticker data AND prev_close historical data
+            # This ensures we have correct prev_close BEFORE extracting market data
+            ticker_wait_task = None
             if new_tickers:
-                populated_count = await self._wait_for_batch_population(
-                    new_tickers, timeout=self.data_timeout
+                ticker_wait_task = asyncio.create_task(
+                    self._wait_for_batch_population(new_tickers, timeout=self.data_timeout)
                 )
+
+            # Wait for prev_close tasks to complete first (critical for correct initial display)
+            if prev_close_tasks:
+                results = await asyncio.gather(*prev_close_tasks.values(), return_exceptions=True)
+                for symbol, result in zip(prev_close_tasks.keys(), results):
+                    if isinstance(result, Exception):
+                        logger.warning(f"Failed to fetch prev_close for {symbol}: {result}")
+                        continue
+                    if result is not None:
+                        prev_close_map[symbol] = result
+
+            # Now wait for ticker data if needed
+            if ticker_wait_task:
+                populated_count = await ticker_wait_task
                 logger.info(
                     f"New stock subscriptions populated: {populated_count}/{len(new_tickers)}"
                 )
@@ -352,14 +408,26 @@ class MarketDataFetcher:
                     f"All {len(tickers_with_pos)} stocks using cached subscriptions (no wait)"
                 )
 
-            # Phase 3: Extract data from all tickers (mark missing as data_missing)
+            # Phase 3: Extract data from all tickers WITH correct prev_close already available
             for ticker, pos in tickers_with_pos:
                 md = self._extract_market_data(ticker, pos)
                 md.delta = 1.0  # Stocks have delta of 1
 
+                # Apply prev_close from historical data (not stale ticker.close)
+                prev_close = prev_close_map.get(pos.symbol)
+                if prev_close is not None:
+                    md.yesterday_close = prev_close
+
+                    if market_status == "CLOSED":
+                        # For stocks: only fall back to prev_close if no valid live price
+                        # (stocks can have extended hours / overnight prices)
+                        if not md.mid or md.mid <= 0:
+                            md.mid = prev_close
+                        if not md.last or md.last <= 0:
+                            md.last = prev_close
+
                 # Check if we got valid data
                 if not self._has_valid_price(ticker):
-                    # Mark as data_missing by logging; quality is already on the md object
                     logger.debug(f"Stock {pos.symbol} marked as data_missing (no price data)")
 
                 market_data_list.append(md)
@@ -469,6 +537,33 @@ class MarketDataFetcher:
         """
         logger.debug(f"Fetching streaming data with Greeks for {len(contracts)} options...")
 
+        # For options: fetch previous close when market is not OPEN
+        # Options don't trade in extended hours, so we always use prev close when closed
+        market_status = MarketHours.get_market_status()
+        prev_close_map: Dict[str, float] = {}
+
+        if market_status != "OPEN":
+            # Fetch previous close for all options in parallel
+            prev_close_tasks: Dict[str, asyncio.Task[Optional[float]]] = {}
+            for contract, pos in contract_pos_pairs:
+                cached = self._get_cached_previous_close(pos.symbol)
+                if cached is not None:
+                    prev_close_map[pos.symbol] = cached
+                else:
+                    prev_close_tasks[pos.symbol] = asyncio.create_task(
+                        self._get_previous_close(pos.symbol, contract)
+                    )
+
+            if prev_close_tasks:
+                results = await asyncio.gather(
+                    *prev_close_tasks.values(), return_exceptions=True
+                )
+                for symbol, result in zip(prev_close_tasks.keys(), results):
+                    if isinstance(result, Exception):
+                        continue
+                    if result is not None:
+                        prev_close_map[symbol] = result
+
         # Try streaming first
         market_data_list = await self._fetch_option_streaming(contracts, contract_pos_pairs)
 
@@ -495,7 +590,20 @@ class MarketDataFetcher:
                     fallback_idx += 1
 
         # Filter out None values
-        return [md for md in market_data_list if md is not None]
+        final_list = [md for md in market_data_list if md is not None]
+
+        # Apply previous close for options when market is not OPEN
+        # Options don't trade in extended hours, so always use prev_close as price
+        if market_status != "OPEN" and prev_close_map:
+            for md in final_list:
+                prev_close = prev_close_map.get(md.symbol)
+                if prev_close is not None:
+                    md.yesterday_close = prev_close
+                    # Options don't trade in extended/closed hours - use prev close
+                    md.mid = prev_close
+                    md.last = prev_close
+
+        return final_list
 
     async def _wait_for_data_population(self, tickers: List, timeout: float) -> int:
         """
@@ -714,6 +822,122 @@ class MarketDataFetcher:
             ),
             timestamp=now_utc(),
         )
+
+    def _get_cached_previous_close(self, symbol: str) -> Optional[float]:
+        """Return cached previous close if fresh."""
+        cached = self._previous_close_cache.get(symbol)
+        if not cached:
+            return None
+        price, cached_time = cached
+        if (datetime.now() - cached_time).total_seconds() < self._previous_close_cache_ttl_sec:
+            return price
+        return None
+
+    async def _get_previous_close(self, symbol: str, contract: Any) -> Optional[float]:
+        """
+        Get previous trading day's close using historical data.
+
+        IB ticker.close can be stale; this fetches the last daily bar close.
+        Uses explicit endDateTime based on trading calendar to avoid IB's
+        inconsistent behavior with endDateTime="" during market closed hours.
+        """
+        cached = self._get_cached_previous_close(symbol)
+        if cached is not None:
+            return cached
+
+        if self.ib is None:
+            return None
+
+        try:
+            # Calculate the last trading day using NYSE calendar
+            # This is more reliable than endDateTime="" which can behave
+            # inconsistently during weekends/holidays
+            calendar = get_calendar("NYSE")
+            today = datetime.now().date()
+
+            # If today is a trading day and market is open, we want yesterday's close
+            # If market is closed (weekend/holiday), we want the most recent trading day
+            market_status = MarketHours.get_market_status()
+            if market_status == "OPEN" and calendar.is_trading_day(today):
+                # Market is open today - get yesterday's trading day close
+                last_trading_day = calendar.add_trading_days(today, -1)
+            else:
+                # Market is closed - find the most recent trading day
+                # If today is a trading day but closed, use today
+                # Otherwise, find the previous trading day
+                if calendar.is_trading_day(today):
+                    last_trading_day = today
+                else:
+                    last_trading_day = calendar.add_trading_days(today, -1)
+
+            # Format endDateTime for IB: "YYYYMMDD HH:mm:ss" in local time
+            # Use end of day to ensure we get the full day's bar
+            end_datetime = f"{last_trading_day.strftime('%Y%m%d')} 23:59:59"
+
+            logger.info(
+                f"Requesting historical data for {symbol}: "
+                f"today={today}, market_status={market_status}, "
+                f"expected_last_trading_day={last_trading_day}"
+            )
+
+            async with self._previous_close_semaphore:
+                bars = await self.ib.reqHistoricalDataAsync(
+                    contract,
+                    endDateTime=end_datetime,
+                    durationStr="2 D",
+                    barSizeSetting="1 day",
+                    whatToShow="TRADES",
+                    useRTH=True,
+                    formatDate=1,
+                )
+
+            if bars:
+                # Log all returned bars for debugging
+                bar_info = [(str(b.date), float(b.close)) for b in bars]
+                logger.info(f"Historical bars for {symbol}: {bar_info}")
+
+                # Find the bar matching the expected last trading day
+                target_bar = None
+                for bar in reversed(bars):
+                    bar_date_str = str(bar.date)
+                    # Handle both date formats: "YYYY-MM-DD" and "YYYYMMDD"
+                    expected_str = last_trading_day.strftime('%Y-%m-%d')
+                    expected_str_alt = last_trading_day.strftime('%Y%m%d')
+
+                    if bar_date_str == expected_str or bar_date_str == expected_str_alt:
+                        target_bar = bar
+                        break
+
+                # If exact match not found, use the most recent bar with valid close
+                if target_bar is None:
+                    for bar in reversed(bars):
+                        if bar.close and float(bar.close) > 0:
+                            target_bar = bar
+                            logger.warning(
+                                f"Exact date match not found for {symbol}. "
+                                f"Expected: {last_trading_day}, using: {bar.date}"
+                            )
+                            break
+
+                if target_bar and target_bar.close and float(target_bar.close) > 0:
+                    prev_close = float(target_bar.close)
+                    self._previous_close_cache[symbol] = (prev_close, datetime.now())
+                    logger.info(
+                        f"Previous close for {symbol}: {prev_close} "
+                        f"from {target_bar.date} (expected: {last_trading_day})"
+                    )
+                    return prev_close
+                else:
+                    logger.warning(
+                        f"No valid close price in bars for {symbol}. "
+                        f"Expected date: {last_trading_day}, got bars: {bar_info}"
+                    )
+            else:
+                logger.warning(f"No historical bars returned for {symbol}")
+        except Exception as e:
+            logger.warning(f"Failed to fetch historical previous close for {symbol}: {e}")
+
+        return None
 
     def _extract_greeks(self, ticker: Any, md: MarketData, pos: Position) -> None:
         """

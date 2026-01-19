@@ -16,9 +16,10 @@ make diagrams
 # Or generate specific types
 make diagrams-classes  # PlantUML class diagrams
 make diagrams-deps     # SVG dependency graphs
+make diagrams-flows    # Call flow diagrams (SVG)
 ```
 
-**Note:** `pydeps` requires Graphviz. Install with:
+**Note:** `pydeps` and `code2flow` require Graphviz. Install with:
 - macOS: `brew install graphviz`
 - Ubuntu: `sudo apt-get install graphviz`
 
@@ -62,6 +63,21 @@ These diagrams show module import relationships and package structure.
 
 ---
 
+## Call Flow Diagrams (SVG)
+
+Generated using `code2flow`. These show function call relationships and execution flow within modules.
+
+### Orchestrator Flow
+![Orchestrator Flow](flows/orchestrator_flow.svg)
+
+### Risk Services Flow
+![Risk Services Flow](flows/risk_services_flow.svg)
+
+### Signal Pipeline Flow
+![Signal Pipeline Flow](flows/signal_pipeline_flow.svg)
+
+---
+
 ## Directory Structure
 
 ```
@@ -78,10 +94,14 @@ docs/diagrams/
 │   ├── packages_infrastructure_adapters.puml
 │   ├── classes_application_orchestrator.puml
 │   └── packages_application_orchestrator.puml
-└── dependencies/                          # SVG dependency graphs
-    ├── domain_deps.svg
-    ├── infrastructure_deps.svg
-    └── full_project_deps.svg
+├── dependencies/                          # SVG dependency graphs
+│   ├── domain_deps.svg
+│   ├── infrastructure_deps.svg
+│   └── full_project_deps.svg
+└── flows/                                 # SVG call flow diagrams
+    ├── orchestrator_flow.svg
+    ├── risk_services_flow.svg
+    └── signal_pipeline_flow.svg
 ```
 
 ---
@@ -92,6 +112,7 @@ docs/diagrams/
 |------|---------|--------|
 | [pyreverse](https://pylint.readthedocs.io/en/latest/pyreverse.html) (pylint) | Class diagrams | PlantUML (.puml) |
 | [pydeps](https://github.com/thebjorn/pydeps) | Module dependency graphs | SVG |
+| [code2flow](https://github.com/scottrogowski/code2flow) | Call flow diagrams | SVG |
 
 ## Rendering
 

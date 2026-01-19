@@ -59,6 +59,23 @@ APEX is a comprehensive risk management and backtesting platform designed for ac
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+### Architecture Diagrams
+
+Auto-generated diagrams are available in [`docs/diagrams/`](docs/diagrams/README.md):
+
+| Type | Tool | Description |
+|------|------|-------------|
+| **Class Diagrams** | pyreverse | UML-style class relationships and inheritance |
+| **Dependency Graphs** | pydeps | Module import relationships |
+| **Call Flow Diagrams** | code2flow | Function call graphs and execution flow |
+
+Generate locally with `make diagrams` (requires Graphviz).
+
+**Quick Links:**
+- [Domain Services Classes](https://www.plantuml.com/plantuml/proxy?cache=no&src=https://raw.githubusercontent.com/moremeds/apex/master/docs/diagrams/classes/classes_domain_services.puml)
+- [Full Project Dependencies](docs/diagrams/dependencies/full_project_deps.svg)
+- [Orchestrator Flow](docs/diagrams/flows/orchestrator_flow.svg)
+
 ### Directory Structure
 
 ```
@@ -517,6 +534,7 @@ flake8 src/ tests/     # Linting
 | Document | Description |
 |----------|-------------|
 | [CLAUDE.md](CLAUDE.md) | Development guidelines for AI assistants |
+| [docs/diagrams/](docs/diagrams/README.md) | Auto-generated architecture diagrams |
 | [docs/PERSISTENCE_LAYER.md](docs/PERSISTENCE_LAYER.md) | Database setup and API reference |
 | [docs/indicators/](docs/indicators/) | Indicator documentation by category |
 | [docs/rules/](docs/rules/) | Signal rule documentation |
