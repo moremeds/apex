@@ -65,6 +65,7 @@ dev = [
     # Documentation and diagrams
     "pylint>=3.0.0",           # Class diagram generation via pyreverse (PlantUML)
     "pydeps>=3.0.0",           # Dependency graph generation (SVG)
+    "code2flow>=2.5.0",        # Call graph / process flow generation (SVG)
 ]
 
 observability = [
