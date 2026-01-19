@@ -53,12 +53,69 @@ class "BarBuilder" as apex.src.domain.signals.data.bar_builder.BarBuilder {
   to_close_event() -> BarCloseEvent
   update(price: float, volume: Optional[float], timestamp: datetime) -> None
 }
+class "BarReduction" as apex.src.domain.signals.schemas.BarReduction {
+  bars_removed : int
+  description : str
+  reason
+  from_dict(data: Dict[str, Any]) -> 'BarReduction'
+  to_dict() -> Dict[str, Any]
+}
+class "BarReductionReason" as apex.src.domain.signals.schemas.BarReductionReason {
+  name
+}
 class "BarSnapshot" as apex.src.domain.signals.indicators.regime.models.BarSnapshot {
   close : float
   component_states : Dict[str, str]
   key_metrics : Dict[str, float]
   ts : datetime
   to_dict() -> Dict[str, Any]
+}
+class "BarValidationBuilder" as apex.src.domain.signals.schemas.BarValidationBuilder {
+  data_source : str
+  end_date : Optional[datetime]
+  loaded_bars : int
+  reductions : List[BarReduction]
+  requested_bars : int
+  start_date : Optional[datetime]
+  symbol : str
+  timeframe : str
+  usable_bars : int
+  validated_bars : int
+  warmup_indicator : str
+  warmup_required : int
+  add_reduction(reason: BarReductionReason, bars_removed: int, description: str) -> 'BarValidationBuilder'
+  build() -> BarValidationReport
+  set_loaded_bars(count: int, source: str, start: Optional[datetime], end: Optional[datetime]) -> 'BarValidationBuilder'
+  set_requested_bars(count: int) -> 'BarValidationBuilder'
+  set_usable_bars(count: int) -> 'BarValidationBuilder'
+  set_validated_bars(count: int, warmup_required: int, warmup_indicator: str) -> 'BarValidationBuilder'
+}
+class "BarValidationReport" as apex.src.domain.signals.schemas.BarValidationReport {
+  coverage_pct : float
+  data_source : str
+  end_date : Optional[datetime]
+  is_valid : bool
+  loaded_bars : int
+  reasons : List[str]
+  reductions : Tuple[BarReduction, ...]
+  requested_bars : int
+  schema_version : str
+  start_date : Optional[datetime]
+  symbol : str
+  timeframe : str
+  usable_bars : int
+  validated_at : Optional[datetime]
+  validated_bars : int
+  warmup_indicator : str
+  warmup_required : int
+  warmup_satisfied : bool
+  format_report() -> str
+  from_dict(data: Dict[str, Any]) -> 'BarValidationReport'
+  to_dict() -> Dict[str, Any]
+}
+class "BarValidator" as apex.src.domain.signals.pipeline.validator.BarValidator {
+  config
+  validate() -> int
 }
 class "BollingerBandsIndicator" as apex.src.domain.signals.indicators.volatility.bollinger.BollingerBandsIndicator {
   category : VOLATILITY
@@ -488,6 +545,21 @@ class "PSARIndicator" as apex.src.domain.signals.indicators.trend.psar.PSARIndic
   required_fields : list
   warmup_periods : int
 }
+class "PackageBuilder" as apex.src.domain.signals.reporting.package_builder.PackageBuilder {
+  THEMES : dict
+  theme : str
+  build(data: Dict[Tuple[str, str], pd.DataFrame], indicators: List['Indicator'], rules: List['SignalRule'], output_dir: Path, regime_outputs: Optional[Dict[str, 'RegimeOutput']]) -> Path
+}
+class "PackageManifest" as apex.src.domain.signals.reporting.package_builder.PackageManifest {
+  created_at : str
+  summary_size_kb : float
+  symbols : Tuple[str, ...]
+  theme : str
+  timeframes : Tuple[str, ...]
+  total_data_files : int
+  version : str
+  to_dict() -> Dict[str, Any]
+}
 class "PivotPointsIndicator" as apex.src.domain.signals.indicators.pattern.pivot.PivotPointsIndicator {
   category : PATTERN
   name : str
@@ -637,6 +709,10 @@ class "SMAIndicator" as apex.src.domain.signals.indicators.trend.sma.SMAIndicato
   required_fields : list
   warmup_periods : int
 }
+class "<color:red>SchemaVersionError</color>" as apex.src.domain.signals.schemas.SchemaVersionError {
+  actual : str
+  expected : str
+}
 class "<color:red>SchemaVersionError</color>" as apex.src.domain.signals.indicators.regime.models.SchemaVersionError {
   actual : str
   expected : str
@@ -655,6 +731,42 @@ class "SignalLogger" as apex.src.domain.signals.signal_logger.SignalLogger {
   detach() -> None
   log_signal(signal: Any) -> None
   stop() -> None
+}
+class "SignalPipelineConfig" as apex.src.domain.signals.pipeline.config.SignalPipelineConfig {
+  backfill : bool
+  backfill_days : int
+  deploy_github : bool
+  dry_run : bool
+  eval_only : bool
+  force_retrain : bool
+  github_repo : Optional[str]
+  html_output : Optional[str]
+  json_output : bool
+  live : bool
+  max_workers : int
+  model_days : int
+  model_output_dir : Optional[str]
+  model_symbols : Optional[List[str]]
+  output_format : str
+  retrain_models : bool
+  stats_interval : int
+  symbols : List[str]
+  timeframes : List[str]
+  train_concurrency : int
+  train_models : bool
+  validate_bars : bool
+  verbose : bool
+  with_persistence : bool
+}
+class "SignalPipelineProcessor" as apex.src.domain.signals.pipeline.processor.SignalPipelineProcessor {
+  config
+  event_bus : Optional[PriorityEventBus]
+  service : Optional[TASignalService]
+  signal_count : int
+  initialize() -> None
+  run_backfill() -> int
+  run_live() -> int
+  shutdown() -> None
 }
 class "SignalPriority" as apex.src.domain.signals.models.SignalPriority {
   name
@@ -688,6 +800,30 @@ class "SignalStateTracker" as apex.src.domain.signals.signal_state_tracker.Signa
 }
 class "SignalStatus" as apex.src.domain.signals.models.SignalStatus {
   name
+}
+class "SizeBudget" as apex.src.domain.signals.schemas.SizeBudget {
+  HIGHLIGHTS_BUDGET_KB : int
+  MARKET_BUDGET_KB : int
+  MAX_TOTAL_KB : int
+  METADATA_BUDGET_KB : int
+  SECTORS_BUDGET_KB : int
+  TICKERS_BUDGET_KB : int
+  validate(section: str, size_bytes: int) -> bool
+}
+class "SnapshotBuilder" as apex.src.domain.signals.reporting.snapshot_builder.SnapshotBuilder {
+  build(data: Dict[Tuple[str, str], pd.DataFrame], regime_outputs: Dict[str, 'RegimeOutput'], symbols: List[str], timeframes: List[str]) -> Dict[str, Any]
+  diff(old_snapshot: Dict[str, Any], new_snapshot: Dict[str, Any]) -> SnapshotDiff
+  quick_compare(old_snapshot: Dict[str, Any], new_snapshot: Dict[str, Any]) -> bool
+}
+class "SnapshotDiff" as apex.src.domain.signals.reporting.snapshot_builder.SnapshotDiff {
+  bar_count_changes : Dict[str, Dict[str, int]]
+  has_changes : bool
+  metric_changes : Dict[str, Dict[str, Any]]
+  regime_changes : Dict[str, Dict[str, Any]]
+  symbols_added : Tuple[str, ...]
+  symbols_removed : Tuple[str, ...]
+  summary() -> str
+  to_dict() -> Dict[str, Any]
 }
 class "SqueezeIndicator" as apex.src.domain.signals.indicators.volatility.squeeze.SqueezeIndicator {
   category : VOLATILITY
@@ -725,6 +861,27 @@ class "SymbolConfig" as apex.src.domain.signals.universe.base.SymbolConfig {
   symbol : str
   timeframes : List[str]
   has_timeframe(timeframe: str) -> bool
+}
+class "SymbolSummary" as apex.src.domain.signals.schemas.SymbolSummary {
+  atr_pct_63 : float
+  bottom_prob : Optional[float]
+  chop_pct : float
+  chop_state : str
+  close : float
+  confidence : int
+  ext_state : str
+  prev_regime : Optional[str]
+  regime : str
+  regime_changed : bool
+  regime_name : str
+  symbol : str
+  top_prob : Optional[float]
+  top_signal_direction : Optional[str]
+  top_signal_rule : Optional[str]
+  top_signal_strength : Optional[int]
+  trend_state : str
+  vol_state : str
+  to_dict() -> Dict[str, Any]
 }
 class "TRIXIndicator" as apex.src.domain.signals.indicators.trend.trix.TRIXIndicator {
   category : TREND
@@ -905,6 +1062,10 @@ class "TurningPointRecord" as apex.src.domain.signals.indicators.regime.turning_
   timestamp : Optional[pd.Timestamp]
   turn_type
   to_dict() -> dict
+}
+class "TurningPointTrainer" as apex.src.domain.signals.pipeline.trainer.TurningPointTrainer {
+  config
+  train() -> int
 }
 class "UltimateOscillatorIndicator" as apex.src.domain.signals.indicators.momentum.ultimate.UltimateOscillatorIndicator {
   category : MOMENTUM
@@ -1113,7 +1274,12 @@ apex.src.domain.signals.models.TradingSignal --> apex.src.domain.signals.models.
 apex.src.domain.signals.models.SignalRule --> apex.src.domain.signals.models.SignalPriority : priority
 apex.src.domain.signals.models.TradingSignal --> apex.src.domain.signals.models.SignalPriority : priority
 apex.src.domain.signals.models.TradingSignal --> apex.src.domain.signals.models.SignalStatus : status
+apex.src.domain.signals.schemas.BarValidationBuilder --> apex.src.domain.signals.schemas.BarReduction : reductions
+apex.src.domain.signals.schemas.BarReduction --> apex.src.domain.signals.schemas.BarReductionReason : reason
 apex.src.domain.signals.indicators.regime.turning_point.labels.TurningPointLabeler --* apex.src.domain.signals.indicators.regime.turning_point.experiment.TurningPointExperiment : labeler
 apex.src.domain.signals.indicators.regime.turning_point.model.TrainingMetrics --* apex.src.domain.signals.indicators.regime.turning_point.model.TurningPointModel : training_metrics_top
 apex.src.domain.signals.indicators.regime.turning_point.model.TrainingMetrics --* apex.src.domain.signals.indicators.regime.turning_point.model.TurningPointModel : training_metrics_bottom
+apex.src.domain.signals.pipeline.config.SignalPipelineConfig --o apex.src.domain.signals.pipeline.processor.SignalPipelineProcessor : config
+apex.src.domain.signals.pipeline.config.SignalPipelineConfig --o apex.src.domain.signals.pipeline.trainer.TurningPointTrainer : config
+apex.src.domain.signals.pipeline.config.SignalPipelineConfig --o apex.src.domain.signals.pipeline.validator.BarValidator : config
 @enduml
