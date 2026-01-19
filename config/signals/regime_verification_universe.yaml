@@ -12,6 +12,18 @@ market:
   - symbol: SPY
     name: "SPDR S&P 500 ETF"
     role: "Broad market benchmark"
+  - symbol: IWM
+    name: "Russell 2000 ETF"
+    role: "Small Cap benchmark"
+  - symbol: DIA
+    name: "Dow Jones Index ETF"
+    role: "Traditional Sector"
+  - symbol: GLD
+    name: "Gold ETF"
+    role: "Precious Metal"
+  - symbol: SLV
+    name: "Silver ETF"
+    role: "Precious Metal"
 
 # Sector ETFs
 sectors:
@@ -32,6 +44,8 @@ sectors:
       - AVGO   # Diversified semi
       - QCOM   # Mobile/wireless
       - MU     # Memory, cyclical
+      - INTC   # CPU
+      - SNDK   # Memory
 
   financials:
     etf: XLF
@@ -50,6 +64,7 @@ sectors:
       - LLY    # Pharma, high growth
       - PFE    # Large pharma
       - ABBV   # Biotech
+      - NOV
 
   energy:
     etf: XLE
@@ -123,5 +138,9 @@ quick_test:
   - TSLA
   - XLF
   - JPM
+  - GLD
+  - SLV
+  - IWM
+  - DIA
 
 # NOTE: full_test is deprecated - use universe_loader.py to derive all_symbols from sectors
