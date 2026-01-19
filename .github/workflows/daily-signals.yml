@@ -61,8 +61,7 @@ concurrency:
 
 env:
   PYTHON_VERSION: '3.13'
-  # Model training uses core liquid symbols
-  DEFAULT_MODEL_SYMBOLS: 'SPY QQQ AAPL NVDA TSLA'
+  # Model training uses quick_test subset from universe config (~11 symbols)
   # Signal reports use full universe (derived from YAML at runtime)
 
 jobs:
@@ -204,7 +203,13 @@ jobs:
 
           MODEL_SYMBOLS="${{ inputs.model_symbols }}"
           if [ -z "$MODEL_SYMBOLS" ]; then
-            MODEL_SYMBOLS="${{ env.DEFAULT_MODEL_SYMBOLS }}"
+            # Load quick_test symbols from universe config (single source of truth)
+            MODEL_SYMBOLS=$(python << 'EOF'
+          from src.domain.signals.pipeline.trainer import load_training_universe
+          print(' '.join(load_training_universe("quick_test")))
+          EOF
+          )
+            echo "Using quick_test universe: $MODEL_SYMBOLS"
           fi
 
           echo "eval_only=$EVAL_ONLY" >> $GITHUB_OUTPUT
@@ -354,15 +359,25 @@ jobs:
       - name: Generate signal report
         id: generate
         run: |
-          REPORT_PATH="results/signals/signal_report_${{ steps.date.outputs.date }}.html"
+          REPORT_DIR="results/signals/signal_report"
+
+          # Build command with optional deploy flag
+          DEPLOY_FLAG=""
+          if [ "${{ inputs.dry_run }}" != "true" ] && [ "${{ github.ref }}" = "refs/heads/master" ]; then
+            DEPLOY_FLAG="--deploy github"
+          fi
 
           python -m src.runners.signal_runner \
             --live \
             --symbols ${{ steps.symbols.outputs.symbols }} \
             --timeframes ${{ inputs.timeframes || '1d' }} \
-            --html-output "$REPORT_PATH"
+            --format package \
+            --html-output "$REPORT_DIR" \
+            $DEPLOY_FLAG
 
-          echo "report_path=$REPORT_PATH" >> $GITHUB_OUTPUT
+          echo "report_path=$REPORT_DIR" >> $GITHUB_OUTPUT
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload report artifact
         if: always()
