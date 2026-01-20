@@ -1,0 +1,41 @@
+# FROZEN LABELER THRESHOLDS v1.0
+# WARNING: DO NOT MODIFY without version bump
+# These define ground truth and are NOT tuning targets
+# Changing them invalidates all previous validation results
+
+version: "v1.0"
+frozen_date: "2026-01-20"
+
+# Forward-looking horizon in calendar days
+# Converted to bars based on timeframe
+label_horizon_days: 20
+
+# Per-timeframe thresholds
+# Scaled to account for shorter observation windows in faster timeframes
+thresholds_by_tf:
+  1d:
+    # Trending: strong upward move with good risk-adjusted return
+    trending_forward_return_min: 0.10  # 10% forward return
+    trending_sharpe_min: 1.0           # Sharpe > 1.0
+
+    # Choppy: high volatility or significant drawdown
+    choppy_volatility_min: 0.25        # 25% annualized vol
+    choppy_drawdown_max: -0.10         # 10% max drawdown
+
+  4h:
+    trending_forward_return_min: 0.06  # 6% forward return
+    trending_sharpe_min: 0.8           # Sharpe > 0.8
+    choppy_volatility_min: 0.30        # 30% annualized vol
+    choppy_drawdown_max: -0.08         # 8% max drawdown
+
+  2h:
+    trending_forward_return_min: 0.04  # 4% forward return
+    trending_sharpe_min: 0.6           # Sharpe > 0.6
+    choppy_volatility_min: 0.35        # 35% annualized vol
+    choppy_drawdown_max: -0.06         # 6% max drawdown
+
+  1h:
+    trending_forward_return_min: 0.03  # 3% forward return
+    trending_sharpe_min: 0.5           # Sharpe > 0.5
+    choppy_volatility_min: 0.40        # 40% annualized vol
+    choppy_drawdown_max: -0.05         # 5% max drawdown

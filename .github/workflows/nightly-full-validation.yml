@@ -1,0 +1,133 @@
+name: M2 Full Validation (Nightly)
+
+on:
+  schedule:
+    - cron: '0 2 * * *'  # 2 AM UTC daily
+  workflow_dispatch:  # Manual trigger
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false  # Don't cancel nightly runs
+
+jobs:
+  full-validation:
+    name: Full Nested CV Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install dependencies
+        run: |
+          uv venv
+          source .venv/bin/activate
+          uv pip install -e ".[dev]"
+
+      - name: Generate Universe (if not exists)
+        run: |
+          source .venv/bin/activate
+          if [ ! -f config/validation/regime_universe.yaml ]; then
+            python scripts/generate_validation_universe.py \
+              --seed 42 \
+              --output config/validation/
+          fi
+
+      - name: Run Full Validation
+        run: |
+          source .venv/bin/activate
+          python -m src.runners.validation_runner full \
+            --universe config/validation/regime_universe.yaml \
+            --timeframes 1d 4h 2h \
+            --outer-folds 5 \
+            --inner-folds 3 \
+            --inner-trials 20 \
+            --horizon-days 20 \
+            --confirm-rule "1d&4h" \
+            --output reports/nightly_validation.json
+
+      - name: Validate Statistical Gates
+        run: |
+          source .venv/bin/activate
+          python -c "
+          import json
+          import sys
+
+          with open('reports/nightly_validation.json') as f:
+              data = json.load(f)
+
+          print('=' * 60)
+          print('M2 NIGHTLY VALIDATION RESULTS')
+          print('=' * 60)
+          print()
+
+          # Print statistical summary
+          if 'statistical_result' in data:
+              stats = data['statistical_result']
+              print('Statistical Summary:')
+              print(f\"  Trending symbols: {stats.get('n_trending_symbols', 'N/A')}\")
+              print(f\"  Choppy symbols: {stats.get('n_choppy_symbols', 'N/A')}\")
+              print(f\"  Cohen's d: {stats.get('effect_size_cohens_d', 'N/A'):.3f}\")
+              print(f\"  p-value: {stats.get('p_value', 'N/A'):.4f}\")
+              print(f\"  Trending CI: [{stats.get('trending_ci_lower', 'N/A'):.3f}, {stats.get('trending_ci_upper', 'N/A'):.3f}]\")
+              print(f\"  Choppy CI: [{stats.get('choppy_ci_lower', 'N/A'):.3f}, {stats.get('choppy_ci_upper', 'N/A'):.3f}]\")
+              print()
+
+          # Print earliness results
+          if 'earliness_stats_by_tf_pair' in data:
+              print('Earliness Results:')
+              for tf_pair, earl in data['earliness_stats_by_tf_pair'].items():
+                  print(f\"  {tf_pair}:\")
+                  print(f\"    Median earliness: {earl['median_earliness_days']:.2f} days\")
+                  print(f\"    Pct earlier: {earl['pct_earlier_than_baseline']:.1%}\")
+              print()
+
+          # Print confirmation results
+          if 'confirmation_result' in data and data['confirmation_result']:
+              conf = data['confirmation_result']
+              if 'strategy_comparison' in conf:
+                  comp = conf['strategy_comparison']
+                  print('Confirmation Results:')
+                  print(f\"  Delta FP rate: {comp.get('delta_fp_rate', 'N/A'):.1%}\")
+                  print(f\"  Delta precision: {comp.get('delta_precision', 'N/A'):.1%}\")
+                  print(f\"  Confirmation value: {comp.get('confirmation_value', 'N/A')}\")
+              print()
+
+          # Print gate results
+          print('Gate Results:')
+          print('-' * 40)
+          failed_gates = []
+          for gate in data['gate_results']:
+              status = '✓ PASS' if gate['passed'] else '✗ FAIL'
+              print(f\"  {gate['gate_name']}: {status} ({gate['message']})\")
+              if not gate['passed']:
+                  failed_gates.append(gate['gate_name'])
+
+          print()
+          if not data['all_gates_passed']:
+              print(f'ERROR: {len(failed_gates)} gate(s) failed: {failed_gates}')
+              sys.exit(1)
+
+          print('All gates PASSED')
+          "
+
+      - name: Upload Full Validation Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nightly-validation-report
+          path: reports/
+          retention-days: 30
+
+      - name: Notify on Failure
+        if: failure()
+        run: |
+          echo "::warning::M2 Nightly Validation failed! Check the report for details."

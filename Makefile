@@ -36,11 +36,13 @@ help:
 	@echo "$(GREEN)Verification:$(RESET)"
 	@echo "  make verify        Run signal and regime verification"
 	@echo ""
+	@echo "$(GREEN)M2 Validation (see make/validation.mk):$(RESET)"
+	@echo "  make validate-test          Quick test (~5 min)"
+	@echo "  make validate-full-publish  Full workflow + publish (~30-60 min)"
+	@echo "  make validate-smart         Smart workflow (update if gates pass)"
+	@echo ""
 	@echo "$(GREEN)Documentation:$(RESET)"
 	@echo "  make diagrams      Generate all architecture diagrams"
-	@echo "  make diagrams-classes  Generate class diagrams (PlantUML)"
-	@echo "  make diagrams-deps     Generate dependency graphs (SVG)"
-	@echo "  make diagrams-flows    Generate call flow diagrams (SVG)"
 	@echo ""
 	@echo "$(GREEN)Cleanup:$(RESET)"
 	@echo "  make clean         Remove build artifacts and caches"
@@ -119,6 +121,12 @@ verify:
 	@echo ""
 	@echo "$(BOLD)Running regime verification...$(RESET)"
 	$(PYTHON) -m src.verification.regime_verifier --all --profile dev
+
+# ═══════════════════════════════════════════════════════════════
+# M2 Validation (Regime Detector) - see make/validation.mk
+# ═══════════════════════════════════════════════════════════════
+
+include make/validation.mk
 
 # ═══════════════════════════════════════════════════════════════
 # Diagrams

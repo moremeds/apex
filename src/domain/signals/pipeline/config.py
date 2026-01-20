@@ -124,6 +124,12 @@ Examples:
         help="Space-separated symbols (default: AAPL)",
     )
     parser.add_argument(
+        "--universe",
+        type=str,
+        metavar="PATH",
+        help="Load symbols from universe YAML file (overrides --symbols)",
+    )
+    parser.add_argument(
         "--timeframes",
         nargs="+",
         default=["1d"],
@@ -286,8 +292,24 @@ def parse_config(args: argparse.Namespace) -> SignalPipelineConfig:
     Returns:
         SignalPipelineConfig instance
     """
+    # Load symbols from universe file if provided
+    symbols = args.symbols
+    if args.universe:
+        import yaml
+        from pathlib import Path
+        universe_path = Path(args.universe)
+        if universe_path.exists():
+            with open(universe_path) as f:
+                universe = yaml.safe_load(f)
+            # Combine training and holdout universes for signal report
+            symbols = universe.get("training_universe", []) + universe.get("holdout_universe", [])
+            if not symbols:
+                # Fallback: try flat list
+                symbols = universe.get("symbols", args.symbols)
+            print(f"Loaded {len(symbols)} symbols from {args.universe}")
+
     return SignalPipelineConfig(
-        symbols=args.symbols,
+        symbols=symbols,
         timeframes=args.timeframes,
         max_workers=args.max_workers,
         live=args.live,
