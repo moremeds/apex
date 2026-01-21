@@ -10,17 +10,16 @@ This eliminates day/bar unit confusion in multi-timeframe validation.
 from dataclasses import dataclass
 from typing import Dict
 
-
 # Standard bars per trading day for each timeframe
 # Based on ~6.5 trading hours per day for US markets
 BARS_PER_DAY: Dict[str, float] = {
     "1d": 1.0,
     "4h": 1.625,  # ~6.5 hours / 4
-    "2h": 3.25,   # ~6.5 hours / 2
-    "1h": 6.5,    # ~6.5 trading hours
+    "2h": 3.25,  # ~6.5 hours / 2
+    "1h": 6.5,  # ~6.5 trading hours
     "30m": 13.0,  # ~6.5 * 2
     "15m": 26.0,  # ~6.5 * 4
-    "5m": 78.0,   # ~6.5 * 12
+    "5m": 78.0,  # ~6.5 * 12
     "1m": 390.0,  # ~6.5 * 60
 }
 
@@ -82,8 +81,7 @@ class ValidationTimeConfig:
         """
         if timeframe not in BARS_PER_DAY:
             raise ValueError(
-                f"Unknown timeframe '{timeframe}'. "
-                f"Valid options: {list(BARS_PER_DAY.keys())}"
+                f"Unknown timeframe '{timeframe}'. " f"Valid options: {list(BARS_PER_DAY.keys())}"
             )
 
         multiplier = BARS_PER_DAY[timeframe]
@@ -174,7 +172,6 @@ def get_bars_per_day(timeframe: str) -> float:
     """
     if timeframe not in BARS_PER_DAY:
         raise ValueError(
-            f"Unknown timeframe '{timeframe}'. "
-            f"Valid options: {list(BARS_PER_DAY.keys())}"
+            f"Unknown timeframe '{timeframe}'. " f"Valid options: {list(BARS_PER_DAY.keys())}"
         )
     return BARS_PER_DAY[timeframe]

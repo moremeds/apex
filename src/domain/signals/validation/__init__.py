@@ -9,6 +9,23 @@ Implements nested walk-forward cross-validation with anti-overfitting measures:
 - Unified bar units: No day/bar confusion for multi-timeframe
 """
 
+from .confirmation import (
+    ConfirmationResult,
+    StrategyMetrics,
+    apply_and_rule,
+    apply_majority_vote,
+    compare_strategies,
+    compute_strategy_metrics,
+)
+from .earliness import (
+    EarlinessResult,
+    SignalEvent,
+    TrendEpisode,
+    compute_earliness,
+    compute_multi_tf_earliness,
+    detect_trend_episodes,
+    find_first_signal_date,
+)
 from .labeler_contract import (
     RegimeLabel,
     RegimeLabeler,
@@ -22,31 +39,6 @@ from .nested_cv import (
     OuterFoldResult,
     TimeWindow,
 )
-from .statistics import (
-    StatisticalResult,
-    SymbolMetrics,
-    block_bootstrap_ci,
-    compute_cohens_d,
-    compute_symbol_level_stats,
-)
-from .time_units import ValidationTimeConfig, validate_time_config
-from .earliness import (
-    EarlinessResult,
-    SignalEvent,
-    TrendEpisode,
-    compute_earliness,
-    compute_multi_tf_earliness,
-    detect_trend_episodes,
-    find_first_signal_date,
-)
-from .confirmation import (
-    ConfirmationResult,
-    StrategyMetrics,
-    apply_and_rule,
-    apply_majority_vote,
-    compare_strategies,
-    compute_strategy_metrics,
-)
 from .schemas import (
     BarValidation,
     GateResult,
@@ -57,10 +49,18 @@ from .schemas import (
     create_fast_validation_output,
     create_full_validation_output,
 )
+from .statistics import (
+    StatisticalResult,
+    SymbolMetrics,
+    block_bootstrap_ci,
+    compute_cohens_d,
+    compute_symbol_level_stats,
+)
+from .time_units import ValidationTimeConfig, validate_time_config
 from .validation_service import (
+    SymbolValidationResult,
     ValidationService,
     ValidationServiceConfig,
-    SymbolValidationResult,
 )
 
 __all__ = [

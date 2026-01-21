@@ -19,15 +19,15 @@ import pandas as pd
 
 from ..indicators.regime.models import MarketRegime
 from ..indicators.regime.regime_detector import RegimeDetectorIndicator
-from .labeler_contract import RegimeLabel, RegimeLabeler, RegimeLabelerConfig
-from .statistics import StatisticalResult, SymbolMetrics, compute_symbol_level_stats
-from .earliness import EarlinessResult, compute_earliness
 from .confirmation import (
     ConfirmationResult,
     apply_and_rule,
     compare_strategies,
     compute_strategy_metrics,
 )
+from .earliness import EarlinessResult, compute_earliness
+from .labeler_contract import RegimeLabel, RegimeLabeler, RegimeLabelerConfig
+from .statistics import StatisticalResult, SymbolMetrics, compute_symbol_level_stats
 
 logger = logging.getLogger(__name__)
 
@@ -115,7 +115,7 @@ class ValidationService:
 
         # Get ground truth labels
         if end_date is None:
-            end_date = df.index[-1].date() if hasattr(df.index[-1], 'date') else date.today()
+            end_date = df.index[-1].date() if hasattr(df.index[-1], "date") else date.today()
 
         labeler = self._labelers.get(timeframe)
         if labeler is None:
@@ -134,9 +134,11 @@ class ValidationService:
             # Prediction: R0 = healthy uptrend
             # Note: Detector returns string 'R0', 'R1', etc. or enum MarketRegime
             regime = result_df.iloc[i].get("regime", "R1")
-            is_r0 = (regime == MarketRegime.R0_HEALTHY_UPTREND or
-                     regime == "R0" or
-                     (hasattr(regime, 'name') and regime.name == "R0_HEALTHY_UPTREND"))
+            is_r0 = (
+                regime == MarketRegime.R0_HEALTHY_UPTREND
+                or regime == "R0"
+                or (hasattr(regime, "name") and regime.name == "R0_HEALTHY_UPTREND")
+            )
 
             predictions.append(is_r0)
             labels.append(lp.label)
@@ -210,23 +212,27 @@ class ValidationService:
         for r in results:
             if r.n_trending_bars > 0:
                 r0_bars_trending = int(r.r0_rate_trending * r.n_trending_bars)
-                metrics.append(SymbolMetrics(
-                    symbol=r.symbol,
-                    label_type="TRENDING",
-                    r0_rate=r.r0_rate_trending,
-                    total_bars=r.n_trending_bars,
-                    r0_bars=r0_bars_trending,
-                ))
+                metrics.append(
+                    SymbolMetrics(
+                        symbol=r.symbol,
+                        label_type="TRENDING",
+                        r0_rate=r.r0_rate_trending,
+                        total_bars=r.n_trending_bars,
+                        r0_bars=r0_bars_trending,
+                    )
+                )
 
             if r.n_choppy_bars > 0:
                 r0_bars_choppy = int(r.r0_rate_choppy * r.n_choppy_bars)
-                metrics.append(SymbolMetrics(
-                    symbol=r.symbol,
-                    label_type="CHOPPY",
-                    r0_rate=r.r0_rate_choppy,
-                    total_bars=r.n_choppy_bars,
-                    r0_bars=r0_bars_choppy,
-                ))
+                metrics.append(
+                    SymbolMetrics(
+                        symbol=r.symbol,
+                        label_type="CHOPPY",
+                        r0_rate=r.r0_rate_choppy,
+                        total_bars=r.n_choppy_bars,
+                        r0_bars=r0_bars_choppy,
+                    )
+                )
 
         return metrics
 
@@ -294,7 +300,7 @@ class ValidationService:
             for i, is_r0 in enumerate(result_1d.predictions):
                 if i < len(df_1d):
                     dt = df_1d.index[i]
-                    d = dt.date() if hasattr(dt, 'date') else dt
+                    d = dt.date() if hasattr(dt, "date") else dt
                     signals_1d[d] = is_r0
 
             # Get 4h signals (aggregate to daily)
@@ -302,7 +308,7 @@ class ValidationService:
             for i, is_r0 in enumerate(result_4h.predictions):
                 if i < len(df_4h):
                     dt = df_4h.index[i]
-                    d = dt.date() if hasattr(dt, 'date') else dt
+                    d = dt.date() if hasattr(dt, "date") else dt
                     if d not in signals_4h or is_r0:
                         signals_4h[d] = is_r0
 
@@ -345,7 +351,7 @@ class ValidationService:
                 for i, is_r0 in enumerate(result_4h.predictions):
                     if i < len(df_4h):
                         dt = df_4h.index[i]
-                        d = dt.date() if hasattr(dt, 'date') else dt
+                        d = dt.date() if hasattr(dt, "date") else dt
                         if d not in preds_4h_by_date or is_r0:
                             preds_4h_by_date[d] = is_r0
 
@@ -355,7 +361,7 @@ class ValidationService:
                     break
 
                 dt = df_1d.index[i]
-                d = dt.date() if hasattr(dt, 'date') else dt
+                d = dt.date() if hasattr(dt, "date") else dt
 
                 s1_predictions.append(pred_1d)
 
@@ -437,10 +443,16 @@ def load_bars_from_yahoo(
 
 def _aggregate_to_4h(df: pd.DataFrame) -> pd.DataFrame:
     """Aggregate 1h bars to 4h."""
-    return df.resample("4h").agg({
-        "open": "first",
-        "high": "max",
-        "low": "min",
-        "close": "last",
-        "volume": "sum",
-    }).dropna()
+    return (
+        df.resample("4h")
+        .agg(
+            {
+                "open": "first",
+                "high": "max",
+                "low": "min",
+                "close": "last",
+                "volume": "sum",
+            }
+        )
+        .dropna()
+    )
