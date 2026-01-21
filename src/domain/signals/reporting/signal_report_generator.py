@@ -81,6 +81,145 @@ UNBOUNDED_OSCILLATORS = {"macd", "momentum", "roc", "cmf", "pvo", "force_index"}
 VOLUME_INDICATORS = {"obv", "volume_profile", "vwma", "ease_of_movement", "chaikin_volatility"}
 
 
+# =============================================================================
+# Helper functions for derive_indicator_states (extracted for lower complexity)
+# =============================================================================
+
+
+def _derive_rsi_state(df: pd.DataFrame, last_row: pd.Series) -> Optional[Dict[str, Any]]:
+    """Derive RSI indicator state."""
+    rsi_col = next((c for c in df.columns if c.lower().startswith("rsi_rsi")), None)
+    if rsi_col and pd.notna(last_row[rsi_col]):
+        rsi_val = float(last_row[rsi_col])
+        zone = "oversold" if rsi_val < 30 else "overbought" if rsi_val > 70 else "neutral"
+        return {"value": rsi_val, "zone": zone}
+    return None
+
+
+def _derive_macd_state(df: pd.DataFrame, last_row: pd.Series) -> Optional[Dict[str, Any]]:
+    """Derive MACD indicator state."""
+    macd_col = next((c for c in df.columns if "macd_macd" in c.lower()), None)
+    signal_col = next((c for c in df.columns if "macd_signal" in c.lower()), None)
+    hist_col = next((c for c in df.columns if "macd_histogram" in c.lower()), None)
+
+    if not hist_col or not pd.notna(last_row[hist_col]):
+        return None
+
+    hist_val = float(last_row[hist_col])
+    macd_val = float(last_row[macd_col]) if macd_col and pd.notna(last_row[macd_col]) else 0
+    signal_val = float(last_row[signal_col]) if signal_col and pd.notna(last_row[signal_col]) else 0
+
+    cross = _detect_line_cross(df, macd_col, signal_col, macd_val, signal_val)
+    return {"histogram": hist_val, "macd": macd_val, "signal": signal_val, "cross": cross}
+
+
+def _detect_line_cross(
+    df: pd.DataFrame,
+    col_a: Optional[str],
+    col_b: Optional[str],
+    val_a: float,
+    val_b: float,
+) -> str:
+    """Detect bullish/bearish cross from last two rows."""
+    if len(df) < 2 or not col_a or not col_b:
+        return "neutral"
+
+    prev_a = df[col_a].iloc[-2] if pd.notna(df[col_a].iloc[-2]) else None
+    prev_b = df[col_b].iloc[-2] if pd.notna(df[col_b].iloc[-2]) else None
+
+    if prev_a is None or prev_b is None:
+        return "neutral"
+
+    if prev_a <= prev_b and val_a > val_b:
+        return "bullish"
+    elif prev_a >= prev_b and val_a < val_b:
+        return "bearish"
+    return "neutral"
+
+
+def _derive_supertrend_state(df: pd.DataFrame, last_row: pd.Series) -> Optional[Dict[str, Any]]:
+    """Derive SuperTrend indicator state."""
+    st_col = next((c for c in df.columns if "supertrend_direction" in c.lower()), None)
+    if st_col and pd.notna(last_row[st_col]):
+        return {"direction": str(last_row[st_col]).lower()}
+
+    # Infer from SuperTrend vs price
+    st_val_col = next((c for c in df.columns if "supertrend_supertrend" in c.lower()), None)
+    close_col = "close" if "close" in df.columns else None
+
+    if not st_val_col or not close_col:
+        return None
+    if not pd.notna(last_row[st_val_col]) or not pd.notna(last_row[close_col]):
+        return None
+
+    st_val = float(last_row[st_val_col])
+    close_val = float(last_row[close_col])
+    direction = "bullish" if close_val > st_val else "bearish"
+    return {"direction": direction, "value": st_val}
+
+
+def _derive_bollinger_state(df: pd.DataFrame, last_row: pd.Series) -> Optional[Dict[str, Any]]:
+    """Derive Bollinger Bands indicator state."""
+    bb_upper = next((c for c in df.columns if "bollinger_bb_upper" in c.lower()), None)
+    bb_lower = next((c for c in df.columns if "bollinger_bb_lower" in c.lower()), None)
+    close_col = "close" if "close" in df.columns else None
+
+    if not bb_upper or not bb_lower or not close_col:
+        return None
+    if not all(pd.notna(last_row[c]) for c in [bb_upper, bb_lower, close_col]):
+        return None
+
+    upper = float(last_row[bb_upper])
+    lower = float(last_row[bb_lower])
+    close = float(last_row[close_col])
+
+    if close <= lower:
+        zone = "below_lower"
+    elif close >= upper:
+        zone = "above_upper"
+    else:
+        zone = "middle"
+    return {"zone": zone, "upper": upper, "lower": lower}
+
+
+def _derive_kdj_state(df: pd.DataFrame, last_row: pd.Series) -> Optional[Dict[str, Any]]:
+    """Derive KDJ indicator state."""
+    k_col = next((c for c in df.columns if c.lower().startswith("kdj_k")), None)
+    d_col = next((c for c in df.columns if c.lower().startswith("kdj_d")), None)
+
+    if not k_col or not d_col:
+        return None
+    if not pd.notna(last_row[k_col]) or not pd.notna(last_row[d_col]):
+        return None
+
+    k_val = float(last_row[k_col])
+    d_val = float(last_row[d_col])
+    zone = "oversold" if k_val < 20 else "overbought" if k_val > 80 else "neutral"
+    cross = _detect_line_cross(df, k_col, d_col, k_val, d_val)
+    return {"k": k_val, "d": d_val, "zone": zone, "cross": cross}
+
+
+def _derive_adx_state(df: pd.DataFrame, last_row: pd.Series) -> Optional[Dict[str, Any]]:
+    """Derive ADX indicator state."""
+    adx_col = next((c for c in df.columns if c.lower().startswith("adx_adx")), None)
+    di_plus_col = next(
+        (c for c in df.columns if "di_plus" in c.lower() or "di_p" in c.lower()), None
+    )
+    di_minus_col = next(
+        (c for c in df.columns if "di_minus" in c.lower() or "di_m" in c.lower()), None
+    )
+
+    if not di_plus_col or not di_minus_col:
+        return None
+    if not pd.notna(last_row[di_plus_col]) or not pd.notna(last_row[di_minus_col]):
+        return None
+
+    di_plus = float(last_row[di_plus_col])
+    di_minus = float(last_row[di_minus_col])
+    adx_val = float(last_row[adx_col]) if adx_col and pd.notna(last_row[adx_col]) else 0
+    return {"adx": adx_val, "di_plus": di_plus, "di_minus": di_minus}
+
+
 def derive_indicator_states(df: pd.DataFrame) -> Dict[str, Dict[str, Any]]:
     """
     Derive semantic indicator states from DataFrame's last row values.
@@ -100,120 +239,20 @@ def derive_indicator_states(df: pd.DataFrame) -> Dict[str, Dict[str, Any]]:
     last_row = df.iloc[-1]
     states: Dict[str, Dict[str, Any]] = {}
 
-    # RSI state derivation
-    rsi_col = next((c for c in df.columns if c.lower().startswith("rsi_rsi")), None)
-    if rsi_col and pd.notna(last_row[rsi_col]):
-        rsi_val = float(last_row[rsi_col])
-        zone = "oversold" if rsi_val < 30 else "overbought" if rsi_val > 70 else "neutral"
-        states["rsi"] = {"value": rsi_val, "zone": zone}
+    # Derive each indicator state using helper functions
+    derivers = [
+        ("rsi", _derive_rsi_state),
+        ("macd", _derive_macd_state),
+        ("supertrend", _derive_supertrend_state),
+        ("bollinger", _derive_bollinger_state),
+        ("kdj", _derive_kdj_state),
+        ("adx", _derive_adx_state),
+    ]
 
-    # MACD state derivation
-    macd_col = next((c for c in df.columns if "macd_macd" in c.lower()), None)
-    signal_col = next((c for c in df.columns if "macd_signal" in c.lower()), None)
-    hist_col = next((c for c in df.columns if "macd_histogram" in c.lower()), None)
-    if hist_col and pd.notna(last_row[hist_col]):
-        hist_val = float(last_row[hist_col])
-        macd_val = float(last_row[macd_col]) if macd_col and pd.notna(last_row[macd_col]) else 0
-        signal_val = (
-            float(last_row[signal_col]) if signal_col and pd.notna(last_row[signal_col]) else 0
-        )
-        # Detect cross from last two rows
-        cross = "neutral"
-        if len(df) >= 2:
-            prev_macd = (
-                df[macd_col].iloc[-2] if macd_col and pd.notna(df[macd_col].iloc[-2]) else None
-            )
-            prev_signal = (
-                df[signal_col].iloc[-2]
-                if signal_col and pd.notna(df[signal_col].iloc[-2])
-                else None
-            )
-            if prev_macd is not None and prev_signal is not None:
-                if prev_macd <= prev_signal and macd_val > signal_val:
-                    cross = "bullish"
-                elif prev_macd >= prev_signal and macd_val < signal_val:
-                    cross = "bearish"
-        states["macd"] = {
-            "histogram": hist_val,
-            "macd": macd_val,
-            "signal": signal_val,
-            "cross": cross,
-        }
-
-    # SuperTrend state derivation
-    st_col = next((c for c in df.columns if "supertrend_direction" in c.lower()), None)
-    if st_col and pd.notna(last_row[st_col]):
-        direction = str(last_row[st_col]).lower()
-        states["supertrend"] = {"direction": direction}
-    else:
-        # Infer from SuperTrend vs price
-        st_val_col = next((c for c in df.columns if "supertrend_supertrend" in c.lower()), None)
-        close_col = "close" if "close" in df.columns else None
-        if (
-            st_val_col
-            and close_col
-            and pd.notna(last_row[st_val_col])
-            and pd.notna(last_row[close_col])
-        ):
-            st_val = float(last_row[st_val_col])
-            close_val = float(last_row[close_col])
-            direction = "bullish" if close_val > st_val else "bearish"
-            states["supertrend"] = {"direction": direction, "value": st_val}
-
-    # Bollinger Bands state derivation
-    bb_upper = next((c for c in df.columns if "bollinger_bb_upper" in c.lower()), None)
-    bb_lower = next((c for c in df.columns if "bollinger_bb_lower" in c.lower()), None)
-    close_col = "close" if "close" in df.columns else None
-    if bb_upper and bb_lower and close_col:
-        if (
-            pd.notna(last_row[bb_upper])
-            and pd.notna(last_row[bb_lower])
-            and pd.notna(last_row[close_col])
-        ):
-            upper = float(last_row[bb_upper])
-            lower = float(last_row[bb_lower])
-            close = float(last_row[close_col])
-            if close <= lower:
-                zone = "below_lower"
-            elif close >= upper:
-                zone = "above_upper"
-            else:
-                zone = "middle"
-            states["bollinger"] = {"zone": zone, "upper": upper, "lower": lower}
-
-    # KDJ state derivation
-    k_col = next((c for c in df.columns if c.lower().startswith("kdj_k")), None)
-    d_col = next((c for c in df.columns if c.lower().startswith("kdj_d")), None)
-    if k_col and d_col and pd.notna(last_row[k_col]) and pd.notna(last_row[d_col]):
-        k_val = float(last_row[k_col])
-        d_val = float(last_row[d_col])
-        zone = "oversold" if k_val < 20 else "overbought" if k_val > 80 else "neutral"
-        # Detect cross
-        cross = "neutral"
-        if len(df) >= 2:
-            prev_k = df[k_col].iloc[-2] if pd.notna(df[k_col].iloc[-2]) else None
-            prev_d = df[d_col].iloc[-2] if pd.notna(df[d_col].iloc[-2]) else None
-            if prev_k is not None and prev_d is not None:
-                if prev_k <= prev_d and k_val > d_val:
-                    cross = "bullish"
-                elif prev_k >= prev_d and k_val < d_val:
-                    cross = "bearish"
-        states["kdj"] = {"k": k_val, "d": d_val, "zone": zone, "cross": cross}
-
-    # ADX state derivation
-    adx_col = next((c for c in df.columns if c.lower().startswith("adx_adx")), None)
-    di_plus_col = next(
-        (c for c in df.columns if "di_plus" in c.lower() or "di_p" in c.lower()), None
-    )
-    di_minus_col = next(
-        (c for c in df.columns if "di_minus" in c.lower() or "di_m" in c.lower()), None
-    )
-    if di_plus_col and di_minus_col:
-        if pd.notna(last_row[di_plus_col]) and pd.notna(last_row[di_minus_col]):
-            di_plus = float(last_row[di_plus_col])
-            di_minus = float(last_row[di_minus_col])
-            adx_val = float(last_row[adx_col]) if adx_col and pd.notna(last_row[adx_col]) else 0
-            states["adx"] = {"adx": adx_val, "di_plus": di_plus, "di_minus": di_minus}
+    for name, deriver in derivers:
+        state = deriver(df, last_row)
+        if state:
+            states[name] = state
 
     return states
 
@@ -251,6 +290,194 @@ def calculate_confluence(data: Dict[Tuple[str, str], pd.DataFrame]) -> Dict[str,
     return confluence_scores
 
 
+def _detect_cross_up_signals(
+    df: pd.DataFrame,
+    rule: "SignalRule",
+    ind_cols: List[str],
+    timestamps: List,
+    symbol: str,
+) -> List[Dict[str, Any]]:
+    """Detect CROSS_UP signals where line_a crosses above line_b."""
+    signals: List[Dict[str, Any]] = []
+    cond = rule.condition_config
+    line_a = cond.get("line_a", "")
+    line_b = cond.get("line_b", "")
+    col_a = next((c for c in ind_cols if line_a in c.lower()), None)
+    col_b = next((c for c in ind_cols if line_b in c.lower()), None)
+
+    if not (col_a and col_b):
+        return signals
+
+    a_vals = df[col_a].values
+    b_vals = df[col_b].values
+    for i in range(1, len(df)):
+        if not all(pd.notna(v) for v in [a_vals[i], b_vals[i], a_vals[i - 1], b_vals[i - 1]]):
+            continue
+        if a_vals[i - 1] <= b_vals[i - 1] and a_vals[i] > b_vals[i]:
+            signals.append({
+                "timestamp": timestamps[i],
+                "rule": rule.name,
+                "direction": rule.direction.value,
+                "indicator": rule.indicator,
+                "message": rule.message_template.format(symbol=symbol),
+                "value": float(a_vals[i]),
+            })
+    return signals
+
+
+def _detect_cross_down_signals(
+    df: pd.DataFrame,
+    rule: "SignalRule",
+    ind_cols: List[str],
+    timestamps: List,
+    symbol: str,
+) -> List[Dict[str, Any]]:
+    """Detect CROSS_DOWN signals where line_a crosses below line_b."""
+    signals: List[Dict[str, Any]] = []
+    cond = rule.condition_config
+    line_a = cond.get("line_a", "")
+    line_b = cond.get("line_b", "")
+    col_a = next((c for c in ind_cols if line_a in c.lower()), None)
+    col_b = next((c for c in ind_cols if line_b in c.lower()), None)
+
+    if not (col_a and col_b):
+        return signals
+
+    a_vals = df[col_a].values
+    b_vals = df[col_b].values
+    for i in range(1, len(df)):
+        if not all(pd.notna(v) for v in [a_vals[i], b_vals[i], a_vals[i - 1], b_vals[i - 1]]):
+            continue
+        if a_vals[i - 1] >= b_vals[i - 1] and a_vals[i] < b_vals[i]:
+            signals.append({
+                "timestamp": timestamps[i],
+                "rule": rule.name,
+                "direction": rule.direction.value,
+                "indicator": rule.indicator,
+                "message": rule.message_template.format(symbol=symbol),
+                "value": float(a_vals[i]),
+            })
+    return signals
+
+
+def _detect_threshold_cross_up_signals(
+    df: pd.DataFrame,
+    rule: "SignalRule",
+    ind_cols: List[str],
+    timestamps: List,
+    symbol: str,
+) -> List[Dict[str, Any]]:
+    """Detect THRESHOLD_CROSS_UP signals where value crosses above threshold."""
+    signals: List[Dict[str, Any]] = []
+    cond = rule.condition_config
+    field = cond.get("field", "value")
+    threshold = cond.get("threshold")
+    col = next((c for c in ind_cols if field in c.lower()), None)
+
+    if not (col and threshold is not None):
+        return signals
+
+    vals = df[col].values
+    for i in range(1, len(df)):
+        if pd.notna(vals[i]) and pd.notna(vals[i - 1]) and vals[i - 1] <= threshold < vals[i]:
+            signals.append({
+                "timestamp": timestamps[i],
+                "rule": rule.name,
+                "direction": rule.direction.value,
+                "indicator": rule.indicator,
+                "message": rule.message_template.format(symbol=symbol, value=vals[i], threshold=threshold),
+                "value": float(vals[i]),
+                "threshold": threshold,
+            })
+    return signals
+
+
+def _detect_threshold_cross_down_signals(
+    df: pd.DataFrame,
+    rule: "SignalRule",
+    ind_cols: List[str],
+    timestamps: List,
+    symbol: str,
+) -> List[Dict[str, Any]]:
+    """Detect THRESHOLD_CROSS_DOWN signals where value crosses below threshold."""
+    signals: List[Dict[str, Any]] = []
+    cond = rule.condition_config
+    field = cond.get("field", "value")
+    threshold = cond.get("threshold")
+    col = next((c for c in ind_cols if field in c.lower()), None)
+
+    if not (col and threshold is not None):
+        return signals
+
+    vals = df[col].values
+    for i in range(1, len(df)):
+        if pd.notna(vals[i]) and pd.notna(vals[i - 1]) and vals[i - 1] >= threshold > vals[i]:
+            signals.append({
+                "timestamp": timestamps[i],
+                "rule": rule.name,
+                "direction": rule.direction.value,
+                "indicator": rule.indicator,
+                "message": rule.message_template.format(symbol=symbol, value=vals[i], threshold=threshold),
+                "value": float(vals[i]),
+                "threshold": threshold,
+            })
+    return signals
+
+
+def _detect_macd_crosses(
+    df: pd.DataFrame,
+    rule: "SignalRule",
+    timestamps: List,
+    symbol: str,
+    existing_signals: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Detect MACD signal/zero line crosses."""
+    signals: List[Dict[str, Any]] = []
+    macd_col = next((c for c in df.columns if "macd_macd" in c.lower()), None)
+    signal_col = next((c for c in df.columns if "macd_signal" in c.lower()), None)
+
+    if not (macd_col and signal_col) or "cross" in rule.name.lower():
+        return signals
+
+    macd_vals = df[macd_col].values
+    signal_vals = df[signal_col].values
+
+    for i in range(1, len(df)):
+        vals_to_check = [macd_vals[i], macd_vals[i - 1], signal_vals[i], signal_vals[i - 1]]
+        if not all(pd.notna(v) for v in vals_to_check):
+            continue
+
+        # Check for duplicate at this timestamp
+        has_macd_signal = any(
+            s["timestamp"] == timestamps[i] and "macd" in s["rule"].lower()
+            for s in existing_signals + signals
+        )
+        if has_macd_signal:
+            continue
+
+        # Bullish cross
+        if macd_vals[i - 1] <= signal_vals[i - 1] and macd_vals[i] > signal_vals[i]:
+            signals.append({
+                "timestamp": timestamps[i],
+                "rule": "macd_bullish_cross",
+                "direction": "buy",
+                "indicator": "macd",
+                "message": f"{symbol} MACD crossed above signal line",
+                "value": float(macd_vals[i]),
+            })
+        # Bearish cross
+        elif macd_vals[i - 1] >= signal_vals[i - 1] and macd_vals[i] < signal_vals[i]:
+            signals.append({
+                "timestamp": timestamps[i],
+                "rule": "macd_bearish_cross",
+                "direction": "sell",
+                "indicator": "macd",
+                "message": f"{symbol} MACD crossed below signal line",
+                "value": float(macd_vals[i]),
+            })
+    return signals
+
+
 def detect_historical_signals(
     df: pd.DataFrame,
     rules: List["SignalRule"],
@@ -274,7 +501,7 @@ def detect_historical_signals(
     """
     from ..models import ConditionType
 
-    signals = []
+    signals: List[Dict[str, Any]] = []
     timestamps = df.index.tolist()
 
     for rule in rules:
@@ -282,170 +509,23 @@ def detect_historical_signals(
             continue
 
         indicator = rule.indicator.lower()
-        cond = rule.condition_config
-
-        # Match columns by indicator prefix
         prefix = f"{indicator}_"
         ind_cols = [c for c in df.columns if c.lower().startswith(prefix)]
 
+        # Dispatch to appropriate handler based on condition type
         if rule.condition_type == ConditionType.CROSS_UP:
-            line_a = cond.get("line_a", "")
-            line_b = cond.get("line_b", "")
-            col_a = next((c for c in ind_cols if line_a in c.lower()), None)
-            col_b = next((c for c in ind_cols if line_b in c.lower()), None)
-
-            if col_a and col_b:
-                a_vals = df[col_a].values
-                b_vals = df[col_b].values
-                for i in range(1, len(df)):
-                    if (
-                        pd.notna(a_vals[i])
-                        and pd.notna(b_vals[i])
-                        and pd.notna(a_vals[i - 1])
-                        and pd.notna(b_vals[i - 1])
-                    ):
-                        if a_vals[i - 1] <= b_vals[i - 1] and a_vals[i] > b_vals[i]:
-                            signals.append(
-                                {
-                                    "timestamp": timestamps[i],
-                                    "rule": rule.name,
-                                    "direction": rule.direction.value,
-                                    "indicator": rule.indicator,
-                                    "message": rule.message_template.format(symbol=symbol),
-                                    "value": float(a_vals[i]),
-                                }
-                            )
-
+            signals.extend(_detect_cross_up_signals(df, rule, ind_cols, timestamps, symbol))
         elif rule.condition_type == ConditionType.CROSS_DOWN:
-            line_a = cond.get("line_a", "")
-            line_b = cond.get("line_b", "")
-            col_a = next((c for c in ind_cols if line_a in c.lower()), None)
-            col_b = next((c for c in ind_cols if line_b in c.lower()), None)
-
-            if col_a and col_b:
-                a_vals = df[col_a].values
-                b_vals = df[col_b].values
-                for i in range(1, len(df)):
-                    if (
-                        pd.notna(a_vals[i])
-                        and pd.notna(b_vals[i])
-                        and pd.notna(a_vals[i - 1])
-                        and pd.notna(b_vals[i - 1])
-                    ):
-                        if a_vals[i - 1] >= b_vals[i - 1] and a_vals[i] < b_vals[i]:
-                            signals.append(
-                                {
-                                    "timestamp": timestamps[i],
-                                    "rule": rule.name,
-                                    "direction": rule.direction.value,
-                                    "indicator": rule.indicator,
-                                    "message": rule.message_template.format(symbol=symbol),
-                                    "value": float(a_vals[i]),
-                                }
-                            )
-
+            signals.extend(_detect_cross_down_signals(df, rule, ind_cols, timestamps, symbol))
         elif rule.condition_type == ConditionType.THRESHOLD_CROSS_UP:
-            field = cond.get("field", "value")
-            threshold = cond.get("threshold")
-            col = next((c for c in ind_cols if field in c.lower()), None)
-
-            if col and threshold is not None:
-                vals = df[col].values
-                for i in range(1, len(df)):
-                    if pd.notna(vals[i]) and pd.notna(vals[i - 1]):
-                        if vals[i - 1] <= threshold < vals[i]:
-                            signals.append(
-                                {
-                                    "timestamp": timestamps[i],
-                                    "rule": rule.name,
-                                    "direction": rule.direction.value,
-                                    "indicator": rule.indicator,
-                                    "message": rule.message_template.format(
-                                        symbol=symbol, value=vals[i], threshold=threshold
-                                    ),
-                                    "value": float(vals[i]),
-                                    "threshold": threshold,
-                                }
-                            )
-
+            signals.extend(_detect_threshold_cross_up_signals(df, rule, ind_cols, timestamps, symbol))
         elif rule.condition_type == ConditionType.THRESHOLD_CROSS_DOWN:
-            field = cond.get("field", "value")
-            threshold = cond.get("threshold")
-            col = next((c for c in ind_cols if field in c.lower()), None)
+            signals.extend(_detect_threshold_cross_down_signals(df, rule, ind_cols, timestamps, symbol))
 
-            if col and threshold is not None:
-                vals = df[col].values
-                for i in range(1, len(df)):
-                    if pd.notna(vals[i]) and pd.notna(vals[i - 1]):
-                        if vals[i - 1] >= threshold > vals[i]:
-                            signals.append(
-                                {
-                                    "timestamp": timestamps[i],
-                                    "rule": rule.name,
-                                    "direction": rule.direction.value,
-                                    "indicator": rule.indicator,
-                                    "message": rule.message_template.format(
-                                        symbol=symbol, value=vals[i], threshold=threshold
-                                    ),
-                                    "value": float(vals[i]),
-                                    "threshold": threshold,
-                                }
-                            )
-
-        # MACD signal/zero line cross detection
+        # MACD special handling
         if indicator == "macd":
-            macd_col = next((c for c in df.columns if "macd_macd" in c.lower()), None)
-            signal_col = next((c for c in df.columns if "macd_signal" in c.lower()), None)
+            signals.extend(_detect_macd_crosses(df, rule, timestamps, symbol, signals))
 
-            if macd_col and signal_col and "cross" not in rule.name.lower():
-                macd_vals = df[macd_col].values
-                signal_vals = df[signal_col].values
-                for i in range(1, len(df)):
-                    if all(
-                        pd.notna(v)
-                        for v in [
-                            macd_vals[i],
-                            macd_vals[i - 1],
-                            signal_vals[i],
-                            signal_vals[i - 1],
-                        ]
-                    ):
-                        # Bullish cross
-                        if macd_vals[i - 1] <= signal_vals[i - 1] and macd_vals[i] > signal_vals[i]:
-                            if not any(
-                                s["timestamp"] == timestamps[i] and "macd" in s["rule"].lower()
-                                for s in signals
-                            ):
-                                signals.append(
-                                    {
-                                        "timestamp": timestamps[i],
-                                        "rule": "macd_bullish_cross",
-                                        "direction": "buy",
-                                        "indicator": "macd",
-                                        "message": f"{symbol} MACD crossed above signal line",
-                                        "value": float(macd_vals[i]),
-                                    }
-                                )
-                        # Bearish cross
-                        elif (
-                            macd_vals[i - 1] >= signal_vals[i - 1] and macd_vals[i] < signal_vals[i]
-                        ):
-                            if not any(
-                                s["timestamp"] == timestamps[i] and "macd" in s["rule"].lower()
-                                for s in signals
-                            ):
-                                signals.append(
-                                    {
-                                        "timestamp": timestamps[i],
-                                        "rule": "macd_bearish_cross",
-                                        "direction": "sell",
-                                        "indicator": "macd",
-                                        "message": f"{symbol} MACD crossed below signal line",
-                                        "value": float(macd_vals[i]),
-                                    }
-                                )
-
-    # Sort by timestamp
     signals.sort(key=lambda x: x["timestamp"])
     return signals
 

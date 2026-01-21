@@ -453,7 +453,7 @@ class ATRCache:
     re-fetching data.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._cache: Dict[str, ATRCacheEntry] = {}
 
     def get(self, symbol: str) -> Optional[ATRData]:

@@ -14,7 +14,6 @@ from src.domain.signals.validation.nested_cv import (
     create_default_param_space,
 )
 from src.domain.signals.validation.statistics import SymbolMetrics
-from src.domain.signals.validation.time_units import ValidationTimeConfig
 
 
 class TestTimeWindow:

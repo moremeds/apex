@@ -36,7 +36,6 @@ from .validation_helpers import (
     _default_labeler_thresholds,
     get_bars_per_day,
     load_bars_yahoo,
-    load_labeler_thresholds_from_yaml,
     load_universe_from_yaml,
 )
 

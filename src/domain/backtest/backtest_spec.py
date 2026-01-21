@@ -47,7 +47,7 @@ class StrategySpecConfig:
     id: str = ""  # Unique ID for this run
     params: Dict[str, Any] = field(default_factory=dict)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if not self.id:
             self.id = self.name
 

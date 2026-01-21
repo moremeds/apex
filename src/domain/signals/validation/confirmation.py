@@ -15,7 +15,6 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 
-from .statistics import block_bootstrap_ci
 
 
 @dataclass

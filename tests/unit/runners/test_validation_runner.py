@@ -4,8 +4,6 @@ import json
 import tempfile
 from pathlib import Path
 
-import pytest
-
 from src.runners.validation_runner import (
     ValidationRunner,
     create_argument_parser,

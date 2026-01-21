@@ -4,7 +4,7 @@ Unit tests for BarValidationReport schema (PR-01).
 Tests the bar validation logic that solves the "350 vs 252" mystery.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import pytest
 

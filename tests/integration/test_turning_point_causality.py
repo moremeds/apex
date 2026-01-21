@@ -16,14 +16,18 @@ This test:
 
 from __future__ import annotations
 
-from dataclasses import fields
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, List
 
 import numpy as np
 import pandas as pd
 import pytest
+
+if TYPE_CHECKING:
+    from src.domain.signals.indicators.regime.turning_point.features import (
+        TurningPointFeatures,
+    )
 
 # Mark entire module as integration tests
 pytestmark = pytest.mark.integration

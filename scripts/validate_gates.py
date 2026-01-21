@@ -347,6 +347,7 @@ def check_g7_causality_test() -> GateResult:
                 "-v",
                 "--tb=no",
                 "-q",
+                "--no-cov",  # Disable coverage check for gate validation
             ],
             capture_output=True,
             text=True,

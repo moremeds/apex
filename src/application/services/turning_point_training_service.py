@@ -33,9 +33,8 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional
 from uuid import uuid4
 
 if TYPE_CHECKING:
@@ -512,7 +511,7 @@ class TurningPointTrainingService:
         from src.domain.interfaces.experiment_tracker import TrainingRunRecord
 
         for symbol, sym_result in result.results.items():
-            comparison = result.comparisons.get(symbol)
+            _comparison = result.comparisons.get(symbol)  # noqa: F841 - kept for future use
 
             record = TrainingRunRecord(
                 run_id=result.run_id,

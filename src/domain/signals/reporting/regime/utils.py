@@ -7,7 +7,7 @@ Shared constants, colors, and utility functions for regime report generation.
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any, Dict, List
+from typing import TYPE_CHECKING, Dict, List
 
 from ..value_card import escape_html
 

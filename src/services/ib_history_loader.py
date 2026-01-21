@@ -8,7 +8,10 @@ Historical data requires IB FLEX reports (deferred to v1.2).
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List
+from typing import TYPE_CHECKING, Any, Dict, List
+
+if TYPE_CHECKING:
+    from ib_async import IB
 
 from config.models import IbConfig
 from src.infrastructure.persistence.repositories import (
@@ -63,7 +66,7 @@ class IbHistoryLoader:
 
         self._ib_client = None  # Lazy initialization
 
-    async def _get_ib_client(self):
+    async def _get_ib_client(self) -> "IB":
         """Get or create IB client connection."""
         if self._ib_client is None:
             try:

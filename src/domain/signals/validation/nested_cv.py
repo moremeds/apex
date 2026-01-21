@@ -11,7 +11,7 @@ Key invariant: Optuna ONLY sees inner CV results. Outer test is evaluation-only.
 import logging
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Any, Callable, Dict, Iterator, List, Optional, Protocol, Tuple
+from typing import Any, Callable, Dict, Iterator, List, Protocol, Tuple
 
 import numpy as np
 

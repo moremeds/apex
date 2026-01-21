@@ -128,7 +128,7 @@ class SystemClock(Clock):
     Uses actual system time and asyncio for scheduling.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._timers: Dict[str, asyncio.TimerHandle] = {}
         self._next_timer_id = 0
         self._loop: Optional[asyncio.AbstractEventLoop] = None

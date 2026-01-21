@@ -183,7 +183,7 @@ class PackageBuilder:
         Raises:
             SizeBudgetExceeded: If enforce_budget is True and budget exceeded
         """
-        from .exceptions import BudgetContributor, SizeBudgetExceeded
+        from .exceptions import SizeBudgetExceeded
 
         size_bytes = len(json.dumps(data, default=str))
         size_kb = size_bytes / 1024

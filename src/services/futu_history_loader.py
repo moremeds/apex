@@ -139,7 +139,7 @@ class FutuHistoryLoader:
 
         return chunks
 
-    async def _get_futu_client(self):
+    async def _get_futu_client(self) -> Any:
         """Get or create Futu client connection."""
         if self._futu_client is None:
             # Import here to avoid circular imports
@@ -553,7 +553,7 @@ class FutuHistoryLoader:
             logger.warning(f"Error fetching fees: {e}")
             return []
 
-    def close(self):
+    def close(self) -> None:
         """Close Futu client connection."""
         if self._futu_client:
             self._futu_client.close()

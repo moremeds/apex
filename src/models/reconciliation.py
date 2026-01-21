@@ -36,10 +36,10 @@ class ReconciliationIssue:
     staleness_seconds: Optional[float] = None
 
     # Metadata
-    detected_at: datetime = None
+    detected_at: Optional[datetime] = None
     severity: str = "WARNING"  # WARNING, CRITICAL
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.detected_at is None:
             self.detected_at = datetime.now()
 

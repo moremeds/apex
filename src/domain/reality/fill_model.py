@@ -211,7 +211,7 @@ class NextBarFillModel(FillModel):
     More realistic for daily backtests.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._pending_orders: List[dict] = []
         self._next_bar_open: Optional[float] = None
 

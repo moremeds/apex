@@ -44,10 +44,10 @@ class ConnectionPoolConfig:
 
     host: str = "127.0.0.1"
     port: int = 7497
-    client_ids: IbClientIdsConfig = None
+    client_ids: Optional[IbClientIdsConfig] = None
     connect_timeout: int = 10
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.client_ids is None:
             self.client_ids = IbClientIdsConfig()
 

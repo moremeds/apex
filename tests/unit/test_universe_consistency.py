@@ -16,13 +16,9 @@ Usage:
     pytest tests/unit/test_universe_consistency.py -v
 """
 
-from pathlib import Path
-
 import pytest
-import yaml
 
 from src.domain.services.regime.universe_loader import (
-    DEFAULT_UNIVERSE_PATH,
     SectorConfig,
     UniverseConfig,
     UniverseLoadError,

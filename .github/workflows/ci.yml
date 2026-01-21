@@ -111,7 +111,7 @@ jobs:
   type-check:
     name: Type Check
     runs-on: ubuntu-latest
-    continue-on-error: true  # Enable strict enforcement once type errors are fixed
+    continue-on-error: false  # Enable strict enforcement once type errors are fixed
     steps:
       - uses: actions/checkout@v6
 
@@ -150,7 +150,7 @@ jobs:
         run: bandit -r src/ -ll -ii --exit-zero
 
       - name: Check dependencies for vulnerabilities
-        continue-on-error: true  # Best-effort until safety is properly configured
+        continue-on-error: false  # Best-effort until safety is properly configured
         run: safety check --full-report || true
 
   verify:
@@ -195,7 +195,7 @@ jobs:
     name: Unit Tests
     runs-on: ubuntu-latest
     needs: [lint, verify]  # type-check and security are best-effort
-    continue-on-error: true  # Pre-existing test failures - fix incrementally
+    continue-on-error: false  # Pre-existing test failures - fix incrementally
     steps:
       - uses: actions/checkout@v6
 
@@ -252,7 +252,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [unit-tests]
     if: success() || failure()  # Run even if unit-tests has continue-on-error failures
-    continue-on-error: true
+    continue-on-error: false
     timeout-minutes: 10  # Prevent runaway tests from blocking CI for hours
     steps:
       - uses: actions/checkout@v6
@@ -309,7 +309,7 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           name: coverage-report
-        continue-on-error: true
+        continue-on-error: false
 
       - name: Upload to Codecov
         uses: codecov/codecov-action@v5

@@ -21,6 +21,42 @@ from src.utils.logging_setup import get_logger
 logger = get_logger(__name__)
 
 
+def _render_validation_section(
+    optimization_result: Optional[Dict[str, Any]] = None,
+    full_validation_result: Optional[Dict[str, Any]] = None,
+    holdout_result: Optional[Dict[str, Any]] = None,
+) -> str:
+    """Render validation section HTML (for embedding in other reports)."""
+    stats = full_validation_result.get("statistical_result", {}) if full_validation_result else {}
+
+    trending_mean = stats.get("trending_mean", 0) * 100
+    choppy_mean = stats.get("choppy_mean", 0) * 100
+    cohens_d = stats.get("effect_size_cohens_d", 0)
+    p_value = stats.get("p_value", 1)
+
+    holdout_trending = holdout_result.get("trending_r0_rate", 0) * 100 if holdout_result else 0
+    holdout_choppy = holdout_result.get("choppy_r0_rate", 0) * 100 if holdout_result else 0
+    holdout_causality = holdout_result.get("causality_passed", False) if holdout_result else False
+
+    def gate_icon(passed: bool) -> str:
+        return "✓" if passed else "✗"
+
+    return f"""
+    <div class="validation-section">
+        <h3>Validation Summary</h3>
+        <div class="validation-metrics">
+            <div>Trending R0: {trending_mean:.1f}%</div>
+            <div>Choppy R0: {choppy_mean:.1f}%</div>
+            <div>Cohen's d: {cohens_d:.3f}</div>
+            <div>p-value: {p_value:.4f}</div>
+        </div>
+        <h3>Holdout Results</h3>
+        <div>Trending: {holdout_trending:.1f}%, Choppy: {holdout_choppy:.1f}%</div>
+        <div>Causality: {gate_icon(holdout_causality)} {'PASS' if holdout_causality else 'FAIL'}</div>
+    </div>
+    """
+
+
 def generate_validation_section_html(
     optimization_result: Optional[Dict[str, Any]] = None,
     full_validation_result: Optional[Dict[str, Any]] = None,
@@ -512,7 +548,7 @@ def load_validation_results(reports_dir: Path) -> Dict[str, Any]:
     return results
 
 
-def main():
+def main() -> int:
     """CLI entry point for generating validation report."""
     import argparse
 

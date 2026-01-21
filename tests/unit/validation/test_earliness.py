@@ -1,6 +1,6 @@
 """Tests for Earliness Metrics."""
 
-from datetime import date, timedelta
+from datetime import date
 
 import pytest
 

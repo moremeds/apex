@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from datetime import date
 from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
@@ -21,9 +21,7 @@ from ..indicators.regime.models import MarketRegime
 from ..indicators.regime.regime_detector import RegimeDetectorIndicator
 from .confirmation import (
     ConfirmationResult,
-    apply_and_rule,
     compare_strategies,
-    compute_strategy_metrics,
 )
 from .earliness import EarlinessResult, compute_earliness
 from .labeler_contract import RegimeLabel, RegimeLabeler, RegimeLabelerConfig
