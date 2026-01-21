@@ -411,8 +411,7 @@ class CoverageVisualizer:
                     """
                     charts_html.append(chart_html)
                 else:
-                    charts_html.append(
-                        f"""
+                    charts_html.append(f"""
                     <div class="chart-container no-data">
                         <div class="chart-header">
                             <span class="chart-title">{tf}</span>
@@ -420,8 +419,7 @@ class CoverageVisualizer:
                             <span class="chart-info">No data</span>
                         </div>
                     </div>
-                    """
-                    )
+                    """)
 
             section = f"""
             <div class="symbol-section">

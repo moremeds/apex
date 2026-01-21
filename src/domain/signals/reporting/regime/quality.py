@@ -35,15 +35,13 @@ def generate_quality_html(regime_output: RegimeOutput, theme: str = "dark") -> s
         status = "Valid" if valid else "N/A"
         issue = quality.component_issues.get(component, "")
 
-        validity_rows.append(
-            f"""
+        validity_rows.append(f"""
         <tr>
             <td>{escape_html(component.title())}</td>
             <td class="{'ok' if valid else 'na'}">{icon} {status}</td>
             <td class="issue">{escape_html(issue)}</td>
         </tr>
-        """
-        )
+        """)
 
     # Fallback info
     fallback_section = ""

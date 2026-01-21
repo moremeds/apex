@@ -112,16 +112,14 @@ def generate_optimization_html(
         for name, ps in provenance_set.param_sources.items():
             source_badge_class = ps.source.replace("-", "_").replace(" ", "_")
             trained_on = ps.trained_on.isoformat() if ps.trained_on else "N/A"
-            param_rows.append(
-                f"""
+            param_rows.append(f"""
             <tr>
                 <td><code>{escape_html(name)}</code></td>
                 <td>{ps.value}</td>
                 <td><span class="param-source provenance-source {source_badge_class}">{escape_html(ps.source)}</span></td>
                 <td>{trained_on}</td>
             </tr>
-            """
-            )
+            """)
 
         param_table_html = f"""
         <table class="param-table">

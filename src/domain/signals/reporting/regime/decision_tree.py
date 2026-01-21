@@ -201,14 +201,12 @@ def _render_counterfactual_section(rules: List[RuleTrace], current_regime: str) 
     for target in other_regimes:
         counterfactuals = generate_counterfactual(rules, target)
         if not counterfactuals:
-            sections.append(
-                f"""
+            sections.append(f"""
             <div class="counterfactual-item">
                 <div class="cf-header">TO BECOME {escape_html(target)}:</div>
                 <div class="cf-body">No simple path - multiple conditions needed</div>
             </div>
-            """
-            )
+            """)
             continue
 
         conditions_html = ""
@@ -228,14 +226,12 @@ def _render_counterfactual_section(rules: List[RuleTrace], current_regime: str) 
                 </div>
                 """
 
-        sections.append(
-            f"""
+        sections.append(f"""
         <div class="counterfactual-item">
             <div class="cf-header">TO BECOME {escape_html(target)}:</div>
             <div class="cf-body">{conditions_html}</div>
         </div>
-        """
-        )
+        """)
 
     return f"""
     <div class="counterfactual-section">

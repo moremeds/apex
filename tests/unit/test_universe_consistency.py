@@ -197,14 +197,12 @@ class TestSchemaValidation:
     def test_sector_missing_etf_raises_error(self, tmp_path):
         """Sector without 'etf' key raises UniverseLoadError."""
         invalid_yaml = tmp_path / "invalid.yaml"
-        invalid_yaml.write_text(
-            """
+        invalid_yaml.write_text("""
 sectors:
   tech:
     stocks:
       - AAPL
-"""
-        )
+""")
 
         with pytest.raises(UniverseLoadError, match="missing 'etf' key"):
             load_universe(invalid_yaml)
@@ -212,13 +210,11 @@ sectors:
     def test_sector_missing_stocks_raises_error(self, tmp_path):
         """Sector without 'stocks' key raises UniverseLoadError."""
         invalid_yaml = tmp_path / "invalid.yaml"
-        invalid_yaml.write_text(
-            """
+        invalid_yaml.write_text("""
 sectors:
   tech:
     etf: XLK
-"""
-        )
+""")
 
         with pytest.raises(UniverseLoadError, match="missing 'stocks' key"):
             load_universe(invalid_yaml)

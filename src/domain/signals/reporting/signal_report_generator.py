@@ -997,8 +997,7 @@ class SignalReportGenerator:
 
     def _get_styles(self) -> str:
         c = self._colors
-        return (
-            f"""
+        return f"""
 * {{ margin: 0; padding: 0; box-sizing: border-box; }}
 
 body {{
@@ -1461,9 +1460,7 @@ body {{
     --highlight-bg: {c['bg']};
     --code-bg: {c['bg']};
 }}
-"""
-            + generate_regime_styles()
-        )
+""" + generate_regime_styles()
 
     def _render_symbol_options(self, symbols: List[str]) -> str:
         return "\n".join(f'<option value="{s}">{s}</option>' for s in symbols)
@@ -1479,13 +1476,10 @@ body {{
         """Render rules section for an indicator card."""
         if not rules:
             return ""
-        rule_items = "\n".join(
-            f"""<div class="rule-item">
+        rule_items = "\n".join(f"""<div class="rule-item">
                 <span class="rule-name direction-{rule['direction']}">{rule['name']}</span>
                 <div class="rule-desc">{rule['description']}</div>
-            </div>"""
-            for rule in rules
-        )
+            </div>""" for rule in rules)
         return f"""<div class="rules"><h4>Rules</h4>{rule_items}</div>"""
 
     def _render_regime_sections(
@@ -1552,8 +1546,7 @@ body {{
             )
 
             # Add data-symbol attribute for JavaScript filtering
-            sections_html.append(
-                f"""
+            sections_html.append(f"""
             <div class="regime-symbol-section" id="regime-{symbol}" data-symbol="{symbol}" style="display: none;">
                 {report_header}
                 {one_liner}
@@ -1565,8 +1558,7 @@ body {{
                 {optimization}
                 {recommendations}
             </div>
-            """
-            )
+            """)
 
         # Wrap with methodology at the top
         methodology = generate_methodology_html(self.theme)
@@ -1607,26 +1599,22 @@ body {{
             cards_html = []
             for ind in categories[cat]:
                 rules_html = self._render_rules(ind["rules"])
-                cards_html.append(
-                    f"""
+                cards_html.append(f"""
                     <div class="indicator-card">
                         <h3>{ind['name'].upper()}</h3>
                         <div class="description">{ind['description']}</div>
                         {rules_html}
                     </div>
-                """
-                )
+                """)
 
-            html_parts.append(
-                f"""
+            html_parts.append(f"""
                 <div class="category-group">
                     <div class="category-title">{category_labels.get(cat, cat.title())}</div>
                     <div class="indicator-cards">
                         {''.join(cards_html)}
                     </div>
                 </div>
-            """
-            )
+            """)
 
         return "\n".join(html_parts)
 
