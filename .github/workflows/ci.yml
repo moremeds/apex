@@ -123,11 +123,16 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v7
 
-      - name: Install type checking dependencies
-        run: uv pip install --system mypy types-PyYAML types-pytz
+      - name: Install dependencies
+        run: |
+          uv venv
+          source .venv/bin/activate
+          uv pip install -e ".[dev]"
 
       - name: Run mypy
-        run: mypy src/ --ignore-missing-imports
+        run: |
+          source .venv/bin/activate
+          mypy src/ --ignore-missing-imports
 
   security:
     name: Security Scan

@@ -7,7 +7,7 @@ Provides pre-configured packs for different simulation scenarios.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Union
+from typing import Any, Callable, Dict
 
 from .admin_fee_model import (
     AdminFeeModel,
