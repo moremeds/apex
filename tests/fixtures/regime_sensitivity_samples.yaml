@@ -1,0 +1,198 @@
+# Regime Sensitivity Validation Samples
+# Ground-truth data for validating regime detector sensitivity
+#
+# Schema Version: regime_samples_v1
+# Updated: 2026-01-21
+#
+# Purpose:
+#   Validates that regime detector correctly classifies known market conditions:
+#   - Trending stocks get R0 (Healthy Uptrend) most of the time
+#   - Choppy stocks rarely get R0
+#
+# Usage:
+#   pytest tests/unit/signals/test_regime_sensitivity.py -v
+#   python scripts/validate_gates.py --gate G10 --package <path>
+
+schema_version: regime_samples_v1
+
+# G10 Gate: Regime rate thresholds
+thresholds:
+  trending_r0_min: 0.85  # Trending stocks should be R0 >= 85%
+  choppy_r0_max: 0.15    # Choppy stocks should be R0 <= 15%
+  vix_r0_max: 0.05       # VIX should almost never be R0 (<= 5%)
+
+# Trending samples: Stocks in clear uptrends during specified periods
+# Expected: R0 (Healthy Uptrend) >= 85% of trading days
+trending_samples:
+  - symbol: MU
+    period:
+      start: "2025-09-01"
+      end: "2025-11-01"
+    expected_regime: R0
+    min_r0_rate: 0.85
+    notes: "Strong semiconductor uptrend, AI memory demand"
+
+  - symbol: NVDA
+    period:
+      start: "2025-06-01"
+      end: "2025-08-01"
+    expected_regime: R0
+    min_r0_rate: 0.80
+    notes: "AI momentum rally, consistent higher highs"
+
+  - symbol: AVGO
+    period:
+      start: "2025-04-01"
+      end: "2025-06-01"
+    expected_regime: R0
+    min_r0_rate: 0.80
+    notes: "Semiconductor rally, VMware integration boost"
+
+  - symbol: MSFT
+    period:
+      start: "2025-01-15"
+      end: "2025-03-15"
+    expected_regime: R0
+    min_r0_rate: 0.75
+    notes: "Copilot revenue growth rally"
+
+  - symbol: AAPL
+    period:
+      start: "2025-09-01"
+      end: "2025-10-15"
+    expected_regime: R0
+    min_r0_rate: 0.75
+    notes: "iPhone 17 launch momentum"
+
+  - symbol: SPY
+    period:
+      start: "2025-11-15"
+      end: "2025-12-31"
+    expected_regime: R0
+    min_r0_rate: 0.70
+    notes: "Santa Claus rally, year-end momentum"
+
+  - symbol: QQQ
+    period:
+      start: "2025-11-15"
+      end: "2025-12-31"
+    expected_regime: R0
+    min_r0_rate: 0.70
+    notes: "Tech-led year-end rally"
+
+# Choppy samples: Stocks with high volatility and no clear trend
+# Expected: R0 (Healthy Uptrend) <= 15% of trading days
+choppy_samples:
+  - symbol: GME
+    period:
+      start: "2025-01-01"
+      end: "2025-03-01"
+    expected_regime: R1_or_R2
+    max_r0_rate: 0.15
+    notes: "Meme stock volatility, no clear trend"
+
+  - symbol: AMC
+    period:
+      start: "2025-02-01"
+      end: "2025-04-01"
+    expected_regime: R1_or_R2
+    max_r0_rate: 0.15
+    notes: "High volatility, sideways movement"
+
+  - symbol: BBBY
+    period:
+      start: "2025-01-01"
+      end: "2025-02-28"
+    expected_regime: R1_or_R2
+    max_r0_rate: 0.15
+    notes: "Bankruptcy volatility, extreme chop"
+
+  - symbol: RIVN
+    period:
+      start: "2025-03-01"
+      end: "2025-05-01"
+    expected_regime: R1_or_R2
+    max_r0_rate: 0.20
+    notes: "EV sector uncertainty, choppy range"
+
+  - symbol: PLTR
+    period:
+      start: "2025-05-01"
+      end: "2025-06-30"
+    expected_regime: R1_or_R2
+    max_r0_rate: 0.20
+    notes: "Post-rally consolidation, wide range"
+
+# VIX samples: Volatility index - should never be classified as trending
+# Expected: R0 <= 5% (almost never)
+vix_samples:
+  - symbol: VIX
+    period:
+      start: "2025-01-01"
+      end: "2025-03-31"
+    expected_regime: R2
+    max_r0_rate: 0.05
+    notes: "Q1 - Volatility index fundamentally cannot trend"
+
+  - symbol: VIX
+    period:
+      start: "2025-04-01"
+      end: "2025-06-30"
+    expected_regime: R2
+    max_r0_rate: 0.05
+    notes: "Q2 - Mean-reverting by nature"
+
+  - symbol: VIX
+    period:
+      start: "2025-07-01"
+      end: "2025-09-30"
+    expected_regime: R2
+    max_r0_rate: 0.05
+    notes: "Q3 - Should never show sustained uptrend"
+
+  - symbol: UVXY
+    period:
+      start: "2025-01-01"
+      end: "2025-06-30"
+    expected_regime: R2
+    max_r0_rate: 0.10
+    notes: "Leveraged VIX ETF, decays over time"
+
+# Downtrend samples: Stocks in clear downtrends
+# Expected: R2 (Risk-Off) >= 70% of trading days
+downtrend_samples:
+  - symbol: INTC
+    period:
+      start: "2025-07-01"
+      end: "2025-09-01"
+    expected_regime: R2
+    min_r2_rate: 0.70
+    notes: "Post-earnings collapse, foundry struggles"
+
+  - symbol: NKE
+    period:
+      start: "2025-06-01"
+      end: "2025-08-01"
+    expected_regime: R2
+    min_r2_rate: 0.65
+    notes: "Consumer weakness, China exposure"
+
+# Validation configuration
+validation:
+  # Minimum trading days required for valid sample
+  min_days: 20
+
+  # Bar count for regime calculation (typically daily)
+  timeframe: "1d"
+
+  # How to handle weekends/holidays
+  calendar: "NYSE"
+
+  # Metrics to compute
+  metrics:
+    - r0_rate         # % of days classified as R0
+    - r1_rate         # % of days classified as R1
+    - r2_rate         # % of days classified as R2
+    - r3_rate         # % of days classified as R3
+    - regime_stability  # % of days regime unchanged from previous
+    - avg_regime_duration  # Average bars per regime
