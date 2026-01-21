@@ -115,18 +115,26 @@ class MomentumBreakoutStrategy(Strategy):
         """Process each bar - main strategy logic."""
         symbol = bar.symbol
 
+        # Validate bar data - skip if OHLC values are missing
+        if bar.high is None or bar.low is None or bar.close is None:
+            return
+
+        high = bar.high
+        low = bar.low
+        close = bar.close
+
         # Update price history
-        self._highs[symbol].append(bar.high)
-        self._lows[symbol].append(bar.low)
-        self._closes[symbol].append(bar.close)
+        self._highs[symbol].append(high)
+        self._lows[symbol].append(low)
+        self._closes[symbol].append(close)
 
         # Calculate True Range
         if len(self._closes[symbol]) >= 2:
             prev_close = list(self._closes[symbol])[-2]
             true_range = max(
-                bar.high - bar.low,
-                abs(bar.high - prev_close),
-                abs(bar.low - prev_close),
+                high - low,
+                abs(high - prev_close),
+                abs(low - prev_close),
             )
             self._true_ranges[symbol].append(true_range)
 
@@ -146,12 +154,12 @@ class MomentumBreakoutStrategy(Strategy):
         highest_high = max(list(self._highs[symbol])[:-1])  # Exclude current bar
 
         # Check for breakout entry
-        if current_position <= 0 and bar.close > highest_high:
-            self._enter_breakout(symbol, bar.close, atr)
+        if current_position <= 0 and close > highest_high:
+            self._enter_breakout(symbol, close, atr)
 
         # Manage existing position
         elif current_position > 0 and self._positions[symbol]:
-            self._manage_position(symbol, bar.close, atr)
+            self._manage_position(symbol, close, atr)
 
     def _enter_breakout(self, symbol: str, price: float, atr: float) -> None:
         """Enter on breakout with ATR-based position sizing."""
@@ -250,11 +258,11 @@ class MomentumBreakoutStrategy(Strategy):
         symbol = tick.symbol
         price = tick.last or tick.mid
 
-        if price is None or self._positions[symbol] is None:
+        pos = self._positions[symbol]
+        if price is None or pos is None:
             return
 
         # Real-time stop check
-        pos = self._positions[symbol]
         if price <= pos.stop_price:
             current_qty = self.context.get_position_quantity(symbol)
             if current_qty > 0:
@@ -262,19 +270,20 @@ class MomentumBreakoutStrategy(Strategy):
 
     def get_state(self) -> dict:
         """Get current strategy state for monitoring."""
-        return {
-            symbol: {
+        result: dict = {}
+        for symbol in self.symbols:
+            pos = self._positions[symbol]
+            result[symbol] = {
                 "atr": self._atr[symbol],
                 "position": (
                     {
-                        "entry": self._positions[symbol].entry_price,
-                        "stop": self._positions[symbol].stop_price,
-                        "highest": self._positions[symbol].highest_price,
+                        "entry": pos.entry_price,
+                        "stop": pos.stop_price,
+                        "highest": pos.highest_price,
                     }
-                    if self._positions[symbol]
+                    if pos is not None
                     else None
                 ),
                 "channel_high": max(self._highs[symbol]) if self._highs[symbol] else None,
             }
-            for symbol in self.symbols
-        }
+        return result

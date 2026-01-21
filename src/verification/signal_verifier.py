@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
-import pandas as pd
+import pandas as pd  # type: ignore[import-untyped]
 
 from .base_verifier import BaseVerifier, VerificationResult
 from .invariants import (
@@ -689,9 +689,9 @@ class SignalVerifier(BaseVerifier):
             passed = 0
 
             for record in fixture_records:
-                indicator_name = record.get("indicator")
-                scenario = record.get("scenario")
-                bar_index = record.get("bar_index")
+                indicator_name: str = record.get("indicator", "")
+                scenario: str = record.get("scenario", "")
+                bar_index: int = record.get("bar_index", 0)
                 expected_outputs = record.get("outputs", {})
 
                 indicator = registry.get(indicator_name)
@@ -794,7 +794,7 @@ class SignalVerifier(BaseVerifier):
         )
 
 
-def main():
+def main() -> int:
     """CLI entry point."""
     parser = argparse.ArgumentParser(description="APEX Signal Service Verification Framework")
     parser.add_argument(

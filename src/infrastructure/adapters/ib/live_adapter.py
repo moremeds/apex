@@ -663,7 +663,11 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
                 qualified_raw = await asyncio.wait_for(
                     self.ib.qualifyContractsAsync(*contracts), timeout=30.0
                 )
-                qualified = [c for c in qualified_raw if c is not None and c.conId]
+                qualified = [
+                    c
+                    for c in qualified_raw
+                    if c is not None and not isinstance(c, list) and c.conId
+                ]
 
             if not qualified:
                 return []
@@ -731,7 +735,11 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
             else:
                 # Fallback to direct qualification if service not available
                 qualified_raw = await self.ib.qualifyContractsAsync(*contracts)
-                qualified = [c for c in qualified_raw if c is not None and c.conId]
+                qualified = [
+                    c
+                    for c in qualified_raw
+                    if c is not None and not isinstance(c, list) and c.conId
+                ]
 
             if not qualified:
                 logger.warning("No contracts qualified for market indicators")

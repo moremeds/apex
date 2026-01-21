@@ -9,7 +9,7 @@ IB returns timezone-aware UTC timestamps.
 from __future__ import annotations
 
 from math import isnan
-from typing import Optional
+from typing import Any, Optional
 
 from ....models.order import Order, OrderSide, OrderSource, OrderStatus, OrderType, Trade
 from ....models.position import AssetType, Position, PositionSource
@@ -19,7 +19,7 @@ from ....utils.timezone import now_utc, parse_ib_timestamp
 logger = get_logger(__name__)
 
 
-def convert_position(ib_pos) -> Position:
+def convert_position(ib_pos: Any) -> Position:
     """
     Convert ib_async Position to internal Position model.
 
@@ -90,7 +90,7 @@ def convert_position(ib_pos) -> Position:
     )
 
 
-def convert_order(ib_order_wrapper) -> Optional[Order]:
+def convert_order(ib_order_wrapper: Any) -> Optional[Order]:
     """
     Convert ib_async Trade wrapper to internal Order model.
 
@@ -197,7 +197,7 @@ def convert_order(ib_order_wrapper) -> Optional[Order]:
         return None
 
 
-def convert_fill(ib_fill) -> Optional[Trade]:
+def convert_fill(ib_fill: Any) -> Optional[Trade]:
     """
     Convert ib_async Fill to internal Trade model.
 

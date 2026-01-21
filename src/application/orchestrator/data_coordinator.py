@@ -12,10 +12,11 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
 
 from ...domain.events.domain_events import MDQCValidationTrigger
-from ...domain.interfaces.event_bus import EventType
+from ...domain.events.priority_event_bus import PriorityEventBus
+from ...domain.interfaces.event_bus import EventBus, EventType
 from ...infrastructure.monitoring import HealthStatus
 from ...models.account import AccountInfo
 from ...models.position import Position
@@ -23,7 +24,6 @@ from ...utils.logging_setup import get_logger
 from ...utils.perf_logger import log_timing_async
 
 if TYPE_CHECKING:
-    from ...domain.interfaces.event_bus import EventBus
     from ...domain.services.mdqc import MDQC
     from ...domain.services.pos_reconciler import Reconciler
     from ...infrastructure.adapters.broker_manager import BrokerManager
@@ -57,7 +57,7 @@ class DataCoordinator:
         mdqc: MDQC,
         health_monitor: HealthMonitor,
         config: Dict[str, Any],
-        event_bus: Optional[EventBus] = None,
+        event_bus: Optional[Union[EventBus, PriorityEventBus]] = None,
         readiness_manager: Optional["ReadinessManager"] = None,
     ):
         self.broker_manager = broker_manager
@@ -88,7 +88,7 @@ class DataCoordinator:
     @log_timing_async("fetch_and_reconcile", warn_threshold_ms=500)
     async def fetch_and_reconcile(
         self,
-        on_dirty_callback: Optional[callable] = None,
+        on_dirty_callback: Optional[Callable[[], None]] = None,
     ) -> tuple[List[Position], AccountInfo]:
         """
         Fetch positions and accounts from all sources and reconcile.
@@ -267,8 +267,8 @@ class DataCoordinator:
                             "symbols_with_data": len(market_data_list),
                             "primed": True,
                             "timestamp": datetime.now().isoformat(),
+                            "source": "market_data_prime",
                         },
-                        source="market_data_prime",
                     )
 
                 # Notify ReadinessManager of market data coverage (triggers MARKET_DATA_READY)

@@ -314,14 +314,16 @@ def _detect_cross_up_signals(
         if not all(pd.notna(v) for v in [a_vals[i], b_vals[i], a_vals[i - 1], b_vals[i - 1]]):
             continue
         if a_vals[i - 1] <= b_vals[i - 1] and a_vals[i] > b_vals[i]:
-            signals.append({
-                "timestamp": timestamps[i],
-                "rule": rule.name,
-                "direction": rule.direction.value,
-                "indicator": rule.indicator,
-                "message": rule.message_template.format(symbol=symbol),
-                "value": float(a_vals[i]),
-            })
+            signals.append(
+                {
+                    "timestamp": timestamps[i],
+                    "rule": rule.name,
+                    "direction": rule.direction.value,
+                    "indicator": rule.indicator,
+                    "message": rule.message_template.format(symbol=symbol),
+                    "value": float(a_vals[i]),
+                }
+            )
     return signals
 
 
@@ -349,14 +351,16 @@ def _detect_cross_down_signals(
         if not all(pd.notna(v) for v in [a_vals[i], b_vals[i], a_vals[i - 1], b_vals[i - 1]]):
             continue
         if a_vals[i - 1] >= b_vals[i - 1] and a_vals[i] < b_vals[i]:
-            signals.append({
-                "timestamp": timestamps[i],
-                "rule": rule.name,
-                "direction": rule.direction.value,
-                "indicator": rule.indicator,
-                "message": rule.message_template.format(symbol=symbol),
-                "value": float(a_vals[i]),
-            })
+            signals.append(
+                {
+                    "timestamp": timestamps[i],
+                    "rule": rule.name,
+                    "direction": rule.direction.value,
+                    "indicator": rule.indicator,
+                    "message": rule.message_template.format(symbol=symbol),
+                    "value": float(a_vals[i]),
+                }
+            )
     return signals
 
 
@@ -380,15 +384,19 @@ def _detect_threshold_cross_up_signals(
     vals = df[col].values
     for i in range(1, len(df)):
         if pd.notna(vals[i]) and pd.notna(vals[i - 1]) and vals[i - 1] <= threshold < vals[i]:
-            signals.append({
-                "timestamp": timestamps[i],
-                "rule": rule.name,
-                "direction": rule.direction.value,
-                "indicator": rule.indicator,
-                "message": rule.message_template.format(symbol=symbol, value=vals[i], threshold=threshold),
-                "value": float(vals[i]),
-                "threshold": threshold,
-            })
+            signals.append(
+                {
+                    "timestamp": timestamps[i],
+                    "rule": rule.name,
+                    "direction": rule.direction.value,
+                    "indicator": rule.indicator,
+                    "message": rule.message_template.format(
+                        symbol=symbol, value=vals[i], threshold=threshold
+                    ),
+                    "value": float(vals[i]),
+                    "threshold": threshold,
+                }
+            )
     return signals
 
 
@@ -412,15 +420,19 @@ def _detect_threshold_cross_down_signals(
     vals = df[col].values
     for i in range(1, len(df)):
         if pd.notna(vals[i]) and pd.notna(vals[i - 1]) and vals[i - 1] >= threshold > vals[i]:
-            signals.append({
-                "timestamp": timestamps[i],
-                "rule": rule.name,
-                "direction": rule.direction.value,
-                "indicator": rule.indicator,
-                "message": rule.message_template.format(symbol=symbol, value=vals[i], threshold=threshold),
-                "value": float(vals[i]),
-                "threshold": threshold,
-            })
+            signals.append(
+                {
+                    "timestamp": timestamps[i],
+                    "rule": rule.name,
+                    "direction": rule.direction.value,
+                    "indicator": rule.indicator,
+                    "message": rule.message_template.format(
+                        symbol=symbol, value=vals[i], threshold=threshold
+                    ),
+                    "value": float(vals[i]),
+                    "threshold": threshold,
+                }
+            )
     return signals
 
 
@@ -457,24 +469,28 @@ def _detect_macd_crosses(
 
         # Bullish cross
         if macd_vals[i - 1] <= signal_vals[i - 1] and macd_vals[i] > signal_vals[i]:
-            signals.append({
-                "timestamp": timestamps[i],
-                "rule": "macd_bullish_cross",
-                "direction": "buy",
-                "indicator": "macd",
-                "message": f"{symbol} MACD crossed above signal line",
-                "value": float(macd_vals[i]),
-            })
+            signals.append(
+                {
+                    "timestamp": timestamps[i],
+                    "rule": "macd_bullish_cross",
+                    "direction": "buy",
+                    "indicator": "macd",
+                    "message": f"{symbol} MACD crossed above signal line",
+                    "value": float(macd_vals[i]),
+                }
+            )
         # Bearish cross
         elif macd_vals[i - 1] >= signal_vals[i - 1] and macd_vals[i] < signal_vals[i]:
-            signals.append({
-                "timestamp": timestamps[i],
-                "rule": "macd_bearish_cross",
-                "direction": "sell",
-                "indicator": "macd",
-                "message": f"{symbol} MACD crossed below signal line",
-                "value": float(macd_vals[i]),
-            })
+            signals.append(
+                {
+                    "timestamp": timestamps[i],
+                    "rule": "macd_bearish_cross",
+                    "direction": "sell",
+                    "indicator": "macd",
+                    "message": f"{symbol} MACD crossed below signal line",
+                    "value": float(macd_vals[i]),
+                }
+            )
     return signals
 
 
@@ -518,9 +534,13 @@ def detect_historical_signals(
         elif rule.condition_type == ConditionType.CROSS_DOWN:
             signals.extend(_detect_cross_down_signals(df, rule, ind_cols, timestamps, symbol))
         elif rule.condition_type == ConditionType.THRESHOLD_CROSS_UP:
-            signals.extend(_detect_threshold_cross_up_signals(df, rule, ind_cols, timestamps, symbol))
+            signals.extend(
+                _detect_threshold_cross_up_signals(df, rule, ind_cols, timestamps, symbol)
+            )
         elif rule.condition_type == ConditionType.THRESHOLD_CROSS_DOWN:
-            signals.extend(_detect_threshold_cross_down_signals(df, rule, ind_cols, timestamps, symbol))
+            signals.extend(
+                _detect_threshold_cross_down_signals(df, rule, ind_cols, timestamps, symbol)
+            )
 
         # MACD special handling
         if indicator == "macd":

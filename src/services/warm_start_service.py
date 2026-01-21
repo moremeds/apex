@@ -227,11 +227,9 @@ class WarmStartService:
             Dictionary with snapshot availability info.
         """
         now = now_utc()
-        status = {
-            "position_snapshots": [],
-            "account_snapshots": [],
-            "risk_snapshot": None,
-        }
+        position_snapshots: List[Dict[str, Any]] = []
+        account_snapshots: List[Dict[str, Any]] = []
+        risk_snapshot_data: Optional[Dict[str, Any]] = None
 
         for broker_config in brokers:
             broker_name = broker_config.get("name", "UNKNOWN")
@@ -246,7 +244,7 @@ class WarmStartService:
             )
             if position_snapshot:
                 age = (now - position_snapshot.snapshot_time).total_seconds()
-                status["position_snapshots"].append(
+                position_snapshots.append(
                     {
                         "broker": broker_name,
                         "account_id": account_id,
@@ -263,7 +261,7 @@ class WarmStartService:
             )
             if account_snapshot:
                 age = (now - account_snapshot.snapshot_time).total_seconds()
-                status["account_snapshots"].append(
+                account_snapshots.append(
                     {
                         "broker": broker_name,
                         "account_id": account_id,
@@ -277,7 +275,7 @@ class WarmStartService:
         risk_snapshot = await self._risk_repo.get_latest()
         if risk_snapshot:
             age = (now - risk_snapshot.snapshot_time).total_seconds()
-            status["risk_snapshot"] = {
+            risk_snapshot_data = {
                 "snapshot_time": str(risk_snapshot.snapshot_time),
                 "age_seconds": age,
                 "portfolio_value": (
@@ -287,7 +285,11 @@ class WarmStartService:
                 "is_valid": age <= self._max_age_seconds,
             }
 
-        return status
+        return {
+            "position_snapshots": position_snapshots,
+            "account_snapshots": account_snapshots,
+            "risk_snapshot": risk_snapshot_data,
+        }
 
     async def clear_all_snapshots(self) -> Dict[str, int]:
         """

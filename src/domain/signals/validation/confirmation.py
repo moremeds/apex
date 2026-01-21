@@ -16,7 +16,6 @@ from typing import List, Optional, Tuple
 import numpy as np
 
 
-
 @dataclass
 class StrategyMetrics:
     """Metrics for a single strategy."""

@@ -87,7 +87,7 @@ class HistoricalDataService:
         self._default_daily_lookback = default_daily_lookback
 
         # Track pending fetches to avoid duplicate in-flight requests
-        self._pending_fetches: Dict[str, asyncio.Future] = {}
+        self._pending_fetches: Dict[str, asyncio.Future[List[BarData]]] = {}
 
     @property
     def cache(self) -> BarCacheStore:
@@ -128,13 +128,14 @@ class HistoricalDataService:
         cache_key = f"{symbol}:{timeframe}:{period.mode}:{period.count or period.start}"
         if cache_key in self._pending_fetches:
             logger.debug(f"Waiting for pending fetch: {cache_key}")
-            return await self._pending_fetches[cache_key]
+            result: List[BarData] = await self._pending_fetches[cache_key]
+            return result
 
         # C4: Use get_running_loop() instead of deprecated get_event_loop()
         # This prevents "Future attached to a different loop" errors
         # when called from TUI/backtest contexts
         loop = asyncio.get_running_loop()
-        future = loop.create_future()
+        future: asyncio.Future[List[BarData]] = loop.create_future()
         self._pending_fetches[cache_key] = future
 
         try:
@@ -151,7 +152,7 @@ class HistoricalDataService:
             future.set_exception(e)
             raise
         finally:
-            await self._pending_fetches.pop(cache_key, None)
+            self._pending_fetches.pop(cache_key, None)
 
     async def fetch_bars_batch(
         self,
@@ -213,12 +214,13 @@ class HistoricalDataService:
 
         fetched = await asyncio.gather(*tasks, return_exceptions=True)
 
-        for req, bars in zip(to_fetch, fetched):
+        for req, fetch_result in zip(to_fetch, fetched):
             symbol = req["symbol"]
-            if isinstance(bars, Exception):
-                logger.warning(f"Failed to fetch {symbol}: {bars}")
+            if isinstance(fetch_result, BaseException):
+                logger.warning(f"Failed to fetch {symbol}: {fetch_result}")
                 results[symbol] = []
             else:
+                bars: List[BarData] = fetch_result
                 results[symbol] = bars
                 if use_cache and bars:
                     self._cache.put(symbol, req["timeframe"], bars)

@@ -201,7 +201,7 @@ class BacktestSpec:
         )
 
     @staticmethod
-    def _parse_date(val) -> Optional[date]:
+    def _parse_date(val: Any) -> Optional[date]:
         """Parse date from various formats."""
         if val is None:
             return None
@@ -259,7 +259,8 @@ class BacktestSpec:
 
     def get_symbols(self) -> List[str]:
         """Get list of symbols from universe config."""
-        return self.universe.get("symbols", [])
+        symbols: List[str] = self.universe.get("symbols", [])
+        return symbols
 
     def get_hash(self) -> str:
         """

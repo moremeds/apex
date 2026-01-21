@@ -636,8 +636,9 @@ class SimulatedScheduler(Scheduler):
         # Process one-time events
         while self._pending and self._pending[0][0] <= target_time:
             trigger_time, action_id = heapq.heappop(self._pending)
-            action = self._actions.get(action_id)
-            if action and action.enabled:
+            maybe_action = self._actions.get(action_id)
+            if maybe_action is not None and maybe_action.enabled:
+                action = maybe_action
                 try:
                     action.callback()
                     action.last_triggered = trigger_time

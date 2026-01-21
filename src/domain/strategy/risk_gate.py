@@ -63,7 +63,7 @@ class ValidationResult:
         return cls(approved=True, message=message)
 
     @classmethod
-    def reject(cls, reason: RejectionReason, message: str, **metadata) -> "ValidationResult":
+    def reject(cls, reason: RejectionReason, message: str, **metadata: Any) -> "ValidationResult":
         """Create a rejection result."""
         return cls(
             approved=False,

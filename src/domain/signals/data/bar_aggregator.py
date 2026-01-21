@@ -8,7 +8,7 @@ Supports multiple timeframes via separate aggregator instances.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Dict, Optional, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Dict, Optional, Protocol, Union, runtime_checkable
 
 from src.domain.events.domain_events import BarCloseEvent, MarketDataTickEvent
 from src.domain.events.event_types import EventType
@@ -18,6 +18,8 @@ from src.utils.timezone import now_utc
 from .bar_builder import TIMEFRAME_SECONDS, BarBuilder
 
 if TYPE_CHECKING:
+    from src.domain.events.priority_event_bus import PriorityEventBus
+    from src.domain.interfaces.event_bus import EventBus
     from src.infrastructure.observability import SignalMetrics
 
 logger = get_logger(__name__)
@@ -52,7 +54,7 @@ class BarAggregator:
     def __init__(
         self,
         timeframe: str,
-        event_bus: EventBusProtocol,
+        event_bus: "Union[EventBus, PriorityEventBus, EventBusProtocol]",
         signal_metrics: Optional["SignalMetrics"] = None,
     ) -> None:
         """

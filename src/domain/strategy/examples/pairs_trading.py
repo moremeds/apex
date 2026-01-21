@@ -129,15 +129,24 @@ class PairsTradingStrategy(Strategy):
         bar_a = self._current_bar[self.symbol_a]
         bar_b = self._current_bar[self.symbol_b]
 
+        # Safety check - both bars must exist with valid close prices
+        if bar_a is None or bar_b is None:
+            return
+        if bar_a.close is None or bar_b.close is None:
+            return
+
+        close_a = bar_a.close
+        close_b = bar_b.close
+
         # Check timestamps match (same bar period)
         # In backtest, bars come in order so we process when both are ready
 
         # Update price history
-        self._prices_a.append(bar_a.close)
-        self._prices_b.append(bar_b.close)
+        self._prices_a.append(close_a)
+        self._prices_b.append(close_b)
 
         # Calculate spread (price ratio or difference)
-        spread = bar_a.close / bar_b.close  # Using ratio
+        spread = close_a / close_b  # Using ratio
         self._spreads.append(spread)
 
         # Clear current bar for next period
@@ -157,7 +166,7 @@ class PairsTradingStrategy(Strategy):
         self._current_zscore = (spread - spread_mean) / spread_std
 
         # Trading logic
-        self._check_signals(bar_a.close, bar_b.close, spread)
+        self._check_signals(close_a, close_b, spread)
 
     def _check_signals(self, price_a: float, price_b: float, spread: float) -> None:
         """Check for entry/exit signals based on z-score."""
@@ -235,13 +244,14 @@ class PairsTradingStrategy(Strategy):
         )
         self.request_order(short_order)
 
-        # Track position
+        # Track position (zscore is guaranteed not None since we get here from _check_signals)
+        entry_zscore = self._current_zscore if self._current_zscore is not None else 0.0
         self._position = SpreadPosition(
             long_symbol=long_symbol,
             short_symbol=short_symbol,
             quantity=long_qty,  # Simplified - assumes equal qty
             entry_spread=spread,
-            entry_zscore=self._current_zscore,
+            entry_zscore=entry_zscore,
         )
 
     def _close_position(self, price_a: float, price_b: float, spread: float, reason: str) -> None:

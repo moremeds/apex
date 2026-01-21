@@ -24,7 +24,7 @@ Usage:
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Type
+from typing import Any, Callable, Dict, List, Optional, Type
 
 from .base import Strategy
 
@@ -151,8 +151,8 @@ def register_strategy(
     description: str = "",
     author: str = "",
     version: str = "1.0",
-    **kwargs,
-):
+    **kwargs: Any,
+) -> Callable[[Type[Strategy]], Type[Strategy]]:
     """
     Decorator to register a strategy class.
 

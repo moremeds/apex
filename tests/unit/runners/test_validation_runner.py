@@ -1,13 +1,22 @@
 """Tests for M2 Validation Runner."""
 
 import json
+import os
 import tempfile
 from pathlib import Path
+
+import pytest
 
 from src.runners.validation_runner import (
     ValidationRunner,
     create_argument_parser,
     main,
+)
+
+# Skip network-dependent tests in CI or when SKIP_NETWORK_TESTS=1
+skip_network = pytest.mark.skipif(
+    os.environ.get("CI") == "true" or os.environ.get("SKIP_NETWORK_TESTS") == "1",
+    reason="Skipping network-dependent test (CI or SKIP_NETWORK_TESTS=1)",
 )
 
 
@@ -114,8 +123,9 @@ class TestArgumentParser:
         assert args.timeframes == ["1d", "4h", "2h", "1h"]
 
 
+@skip_network
 class TestValidationRunnerFast:
-    """Tests for fast validation mode."""
+    """Tests for fast validation mode (requires Yahoo Finance API)."""
 
     def test_fast_mode_runs(self):
         """Test fast mode executes without error."""
@@ -195,8 +205,9 @@ class TestValidationRunnerFast:
             assert "causality_g7" in gate_names
 
 
+@skip_network
 class TestValidationRunnerFull:
-    """Tests for full validation mode."""
+    """Tests for full validation mode (requires Yahoo Finance API)."""
 
     def test_full_mode_runs(self):
         """Test full mode executes without error."""
@@ -273,8 +284,9 @@ class TestValidationRunnerFull:
             assert "choppy_ci_upper" in gate_names
 
 
+@skip_network
 class TestValidationRunnerHoldout:
-    """Tests for holdout validation mode."""
+    """Tests for holdout validation mode (requires Yahoo Finance API)."""
 
     def test_holdout_mode_runs(self):
         """Test holdout mode executes without error."""
@@ -305,8 +317,9 @@ class TestMain:
         exit_code = main([])
         assert exit_code == 1
 
+    @skip_network
     def test_fast_mode_via_main(self):
-        """Test fast mode via main function."""
+        """Test fast mode via main function (requires Yahoo Finance API)."""
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "main_result.json"
 

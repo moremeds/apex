@@ -112,7 +112,7 @@ def resample_bars_to_4h(bars_1h: List[BarData], symbol: str) -> List[BarData]:
     # Create 4h groups based on market hours
     # Group 1: 09:30-13:30 (hours 9, 10, 11, 12)
     # Group 2: 13:30-16:00 (hours 13, 14, 15)
-    def get_4h_group(ts):
+    def get_4h_group(ts: pd.Timestamp) -> pd.Timestamp:
         hour = ts.hour
         minute = ts.minute
         date = ts.date()
@@ -153,7 +153,7 @@ def resample_bars_to_4h(bars_1h: List[BarData], symbol: str) -> List[BarData]:
         )
         result.append(bar)
 
-    return sorted(result, key=lambda b: b.bar_start)
+    return sorted(result, key=lambda b: b.bar_start or datetime.min)
 
 
 from ..infrastructure.adapters.yahoo.historical_adapter import YahooHistoricalAdapter
@@ -192,9 +192,13 @@ def validate_intraday_bars(bars: List[BarData], timeframe: str, symbol: str) -> 
         actual = len(day_bars)
 
         # Sort bars by time to get first/last
-        sorted_bars = sorted(day_bars, key=lambda b: b.bar_start)
+        sorted_bars = sorted(day_bars, key=lambda b: b.bar_start or datetime.min)
         first_bar = sorted_bars[0].bar_start
         last_bar = sorted_bars[-1].bar_start
+
+        # Skip if bar_start is None
+        if first_bar is None or last_bar is None:
+            continue
 
         # Convert to ET for display
         if first_bar.tzinfo:
@@ -641,9 +645,10 @@ class HistoricalDataManager:
             source = self._sources.get(source_name)
             if source and source.supports_timeframe(timeframe):
                 if hasattr(source, "get_max_history_days"):
-                    return source.get_max_history_days(timeframe)
+                    return int(source.get_max_history_days(timeframe))
         # Fallback defaults if no source has the method
-        return {"1m": 7, "5m": 60, "15m": 60, "1h": 730, "1d": 3650}.get(timeframe, 365)
+        defaults: Dict[str, int] = {"1m": 7, "5m": 60, "15m": 60, "1h": 730, "1d": 3650}
+        return defaults.get(timeframe, 365)
 
     async def download_symbols(
         self,
@@ -804,5 +809,5 @@ class HistoricalDataManager:
     def __enter__(self) -> HistoricalDataManager:
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         self.close()

@@ -211,7 +211,7 @@ class AppConfig:
     history_loader: Optional[HistoryLoaderConfig] = None
     historical_data: Optional[HistoricalDataConfig] = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Initialize optional configs with defaults if not provided."""
         if self.database is None:
             self.database = DatabaseConfig()

@@ -34,6 +34,7 @@ from ..domain.signals.validation.validation_service import (
 from ..utils.logging_setup import get_logger
 from .validation_helpers import (
     _default_labeler_thresholds,
+    generate_synthetic_bars,
     get_bars_per_day,
     load_bars_yahoo,
     load_universe_from_yaml,
@@ -61,6 +62,11 @@ def create_argument_parser() -> argparse.ArgumentParser:
     fast.add_argument("--folds", type=int, default=2)
     fast.add_argument("--no-optuna", action="store_true")
     fast.add_argument("--days", type=int, default=500, help="Days of history to load")
+    fast.add_argument(
+        "--synthetic",
+        action="store_true",
+        help="Use synthetic data for CI testing (no external API calls)",
+    )
 
     # Full mode (nightly)
     full = subparsers.add_parser("full", help="Full nightly validation")
@@ -137,21 +143,31 @@ class ValidationRunner:
 
     def _run_fast(self) -> int:
         """Run fast PR validation gate with real data."""
+        use_synthetic = getattr(self.args, "synthetic", False)
+        data_source = "SYNTHETIC DATA (CI)" if use_synthetic else "REAL DATA"
+
         print("=" * 60)
-        print("M2 FAST VALIDATION (PR Gate) - REAL DATA")
+        print(f"M2 FAST VALIDATION (PR Gate) - {data_source}")
         print("=" * 60)
         print(f"Symbols: {self.args.symbols}")
         print(f"Timeframes: {self.args.timeframes}")
         print(f"Horizon: {self.args.horizon_days} days")
         print(f"History: {self.args.days} days\n")
 
-        # Load real market data
-        print("Loading market data from Yahoo Finance...")
-        bars_by_symbol = load_bars_yahoo(
-            symbols=self.args.symbols,
-            timeframe=self.args.timeframes[0],
-            days=self.args.days,
-        )
+        # Load market data (synthetic for CI, real for manual runs)
+        if use_synthetic:
+            print("Generating synthetic market data...")
+            bars_by_symbol = generate_synthetic_bars(
+                symbols=self.args.symbols,
+                days=self.args.days,
+            )
+        else:
+            print("Loading market data from Yahoo Finance...")
+            bars_by_symbol = load_bars_yahoo(
+                symbols=self.args.symbols,
+                timeframe=self.args.timeframes[0],
+                days=self.args.days,
+            )
 
         if not bars_by_symbol:
             print("ERROR: No data loaded. Check symbols and network connection.")

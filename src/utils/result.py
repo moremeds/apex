@@ -124,7 +124,7 @@ class Err(Generic[E]):
 Result = Union[Ok[T], Err[E]]
 
 
-def try_result(f: Callable[[], T], error_type: type = Exception) -> Result[T, str]:
+def try_result(f: Callable[[], T], error_type: type[BaseException] = Exception) -> Result[T, str]:
     """
     Execute a function and capture exceptions as Err.
 
@@ -157,9 +157,9 @@ def collect_results(results: list[Result[T, E]]) -> Result[list[T], E]:
     Returns:
         Ok with list of values or first Err encountered.
     """
-    values = []
+    values: list[T] = []
     for result in results:
         if result.is_err():
             return result  # type: ignore
-        values.append(result.unwrap())
+        values.append(result.unwrap())  # type: ignore[arg-type]
     return Ok(values)

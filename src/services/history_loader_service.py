@@ -108,6 +108,8 @@ class HistoryLoaderService:
 
         try:
             # Get rate limit config
+            if self._config.history_loader is None:
+                raise ValueError("history_loader config is not set")
             rate_limit = self._config.history_loader.futu_rate_limit
 
             # Create Futu loader

@@ -8,7 +8,7 @@ Historical data requires IB FLEX reports (deferred to v1.2).
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Dict, List
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 if TYPE_CHECKING:
     from ib_async import IB
@@ -64,7 +64,7 @@ class IbHistoryLoader:
         self._batch_size = batch_size
         self._dry_run = dry_run
 
-        self._ib_client = None  # Lazy initialization
+        self._ib_client: Optional["IB"] = None  # Lazy initialization
 
     async def _get_ib_client(self) -> "IB":
         """Get or create IB client connection."""
@@ -72,12 +72,13 @@ class IbHistoryLoader:
             try:
                 from ib_async import IB
 
-                self._ib_client = IB()
-                await self._ib_client.connectAsync(
+                client = IB()
+                await client.connectAsync(
                     host=self._ib_config.host,
                     port=self._ib_config.port,
                     clientId=self._ib_config.client_ids.historical_pool[0],
                 )
+                self._ib_client = client
             except ImportError:
                 logger.error("ib_async package not installed")
                 raise RuntimeError("ib_async package required for IB history loading")
@@ -289,7 +290,7 @@ class IbHistoryLoader:
         except Exception as e:
             logger.warning(f"Failed to save commission report: {e}")
 
-    async def disconnect(self):
+    async def disconnect(self) -> None:
         """Disconnect from IB."""
         if self._ib_client:
             self._ib_client.disconnect()

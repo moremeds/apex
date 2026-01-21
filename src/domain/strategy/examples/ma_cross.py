@@ -17,7 +17,7 @@ import uuid
 from collections import deque
 from typing import Deque, List, Optional
 
-from ...events.domain_events import QuoteTick
+from ...events.domain_events import QuoteTick, TradeFill
 from ...interfaces.execution_provider import OrderRequest
 from ..base import Strategy, StrategyContext, TradingSignal
 from ..registry import register_strategy
@@ -137,13 +137,18 @@ class MovingAverageCrossStrategy(Strategy):
         # Check for crossover signals
         current_position = self.context.get_position_quantity(symbol)
 
-        if self._short_ma[symbol] > self._long_ma[symbol]:
+        short_ma = self._short_ma[symbol]
+        long_ma = self._long_ma[symbol]
+        if short_ma is None or long_ma is None:
+            return
+
+        if short_ma > long_ma:
             # Bullish: short MA above long MA
             if current_position <= 0 and self._last_signal[symbol] != "LONG":
                 self._go_long(symbol, tick)
                 self._last_signal[symbol] = "LONG"
 
-        elif self._short_ma[symbol] < self._long_ma[symbol]:
+        elif short_ma < long_ma:
             # Bearish: short MA below long MA
             if current_position > 0 and self._last_signal[symbol] != "FLAT":
                 self._go_flat(symbol, tick, current_position)
@@ -216,7 +221,7 @@ class MovingAverageCrossStrategy(Strategy):
             )
             self.request_order(order)
 
-    def on_fill(self, fill) -> None:
+    def on_fill(self, fill: TradeFill) -> None:
         """Log fills."""
         logger.info(
             f"[{self.strategy_id}] FILL: "

@@ -363,15 +363,15 @@ class PackageBuilder:
             if ind_name not in rule_lookup:
                 rule_lookup[ind_name] = []
             # Extract direction value from enum if needed
-            direction = rule.direction
-            if hasattr(direction, "value"):
-                direction = direction.value
+            direction_str: str = (
+                rule.direction.value if hasattr(rule.direction, "value") else str(rule.direction)
+            )
             rule_lookup[ind_name].append(
                 {
                     "id": rule.name,  # SignalRule uses 'name' not 'id'
-                    "direction": direction,
+                    "direction": direction_str,
                     "description": getattr(rule, "message_template", None)
-                    or f"{direction.upper()} when {rule.indicator} {rule.condition_type.value}",
+                    or f"{direction_str.upper()} when {rule.indicator} {rule.condition_type.value}",
                 }
             )
 

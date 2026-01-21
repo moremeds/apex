@@ -392,7 +392,7 @@ class MarketDataFetcher:
             if prev_close_tasks:
                 results = await asyncio.gather(*prev_close_tasks.values(), return_exceptions=True)
                 for symbol, result in zip(prev_close_tasks.keys(), results):
-                    if isinstance(result, Exception):
+                    if isinstance(result, BaseException):
                         logger.warning(f"Failed to fetch prev_close for {symbol}: {result}")
                         continue
                     if result is not None:
@@ -558,7 +558,8 @@ class MarketDataFetcher:
             if prev_close_tasks:
                 results = await asyncio.gather(*prev_close_tasks.values(), return_exceptions=True)
                 for symbol, result in zip(prev_close_tasks.keys(), results):
-                    if isinstance(result, Exception):
+                    if isinstance(result, BaseException):
+                        logger.warning(f"Failed to fetch prev_close for {symbol}: {result}")
                         continue
                     if result is not None:
                         prev_close_map[symbol] = result

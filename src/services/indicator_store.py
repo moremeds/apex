@@ -107,9 +107,9 @@ class IndicatorStore:
         """Subscribe to bar arrival events for cache invalidation."""
         from ..domain.interfaces.event_bus import EventType
 
-        # Invalidate cache when new bars arrive
-        event_bus.subscribe(EventType.HISTORICAL_DATA_READY, self._on_new_bars)
-        logger.debug("IndicatorStore subscribed to HISTORICAL_DATA_READY events")
+        # Invalidate cache when new bars arrive (using BAR_CLOSE as the signal for new data)
+        event_bus.subscribe(EventType.BAR_CLOSE, self._on_new_bars)
+        logger.debug("IndicatorStore subscribed to BAR_CLOSE events for cache invalidation")
 
     def _on_new_bars(self, payload: dict) -> None:
         """

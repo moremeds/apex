@@ -394,7 +394,9 @@ class Orchestrator:
             return
 
         try:
-            await self._warm_start_service.restore()
+            # Extract broker configs from main config for warm start
+            brokers = self.config.get("brokers", [])
+            await self._warm_start_service.warm_start(brokers=brokers)
         except Exception as e:
             logger.warning(f"Warm start failed: {e}")
 

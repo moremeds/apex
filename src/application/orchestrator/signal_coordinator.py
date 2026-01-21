@@ -19,9 +19,11 @@ from __future__ import annotations
 import asyncio
 import re
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 from ...domain.events.event_types import EventType
+from ...domain.events.priority_event_bus import PriorityEventBus
+from ...domain.interfaces.event_bus import EventBus
 from ...domain.signals.confluence_calculator import ConfluenceCalculator
 from ...infrastructure.observability import SignalMetrics
 from ...utils.logging_setup import get_logger
@@ -29,7 +31,6 @@ from ...utils.timezone import now_utc
 from .signal_pipeline import BarPreloader
 
 if TYPE_CHECKING:
-    from ...domain.interfaces.event_bus import EventBus
     from ...domain.interfaces.signal_persistence import SignalPersistencePort
     from ...domain.signals import BarAggregator, IndicatorEngine, RuleEngine
 
@@ -56,7 +57,7 @@ class SignalCoordinator:
 
     def __init__(
         self,
-        event_bus: "EventBus",
+        event_bus: Union[EventBus, PriorityEventBus],
         timeframes: Optional[List[str]] = None,
         max_workers: int = 4,
         enabled: bool = True,
@@ -495,6 +496,8 @@ class SignalCoordinator:
 
     async def _persist_signal(self, signal: Any) -> None:
         """Persist trading signal to database."""
+        if not self._persistence:
+            return
         try:
             # Handle both TradingSignalEvent wrapper and TradingSignal directly
             if hasattr(signal, "signal"):
@@ -514,6 +517,8 @@ class SignalCoordinator:
         previous_state: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Persist indicator value to database."""
+        if not self._persistence:
+            return
         try:
             await self._persistence.save_indicator(
                 symbol=symbol,
@@ -539,6 +544,8 @@ class SignalCoordinator:
         dominant_direction: Optional[str] = None,
     ) -> None:
         """Persist confluence score to database."""
+        if not self._persistence:
+            return
         try:
             await self._persistence.save_confluence(
                 symbol=symbol,

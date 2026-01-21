@@ -16,11 +16,11 @@ import logging
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, cast
 
-import jsonschema
+import jsonschema  # type: ignore[import-untyped]
 import numpy as np
-import pandas as pd
+import pandas as pd  # type: ignore[import-untyped]
 import yaml
 
 logger = logging.getLogger(__name__)
@@ -113,10 +113,10 @@ class ManifestVerifier:
         self._cached_regime_data: Optional[Dict[str, pd.DataFrame]] = None
         self._cached_regime_states: Optional[Dict[str, List[Dict]]] = None
 
-    def _load_yaml(self, path: Path) -> Dict:
+    def _load_yaml(self, path: Path) -> Dict[str, Any]:
         """Load YAML file."""
         with open(path, "r") as f:
-            return yaml.safe_load(f)
+            return cast(Dict[str, Any], yaml.safe_load(f))
 
     def _load_schemas(self) -> None:
         """Load all JSON schemas from manifest."""
@@ -130,9 +130,9 @@ class ManifestVerifier:
             else:
                 logger.warning(f"Schema not found: {full_path}")
 
-    def get_phases(self) -> List[Dict]:
+    def get_phases(self) -> List[Dict[str, Any]]:
         """Get all phases from manifest."""
-        return self.manifest.get("phases", [])
+        return cast(List[Dict[str, Any]], self.manifest.get("phases", []))
 
     def get_phase(self, phase_id: str) -> Optional[Dict]:
         """Get a specific phase by ID."""
@@ -227,7 +227,7 @@ class ManifestVerifier:
             )
 
         try:
-            result = handler(check)
+            result: VerificationResult = handler(check)
             result.duration_ms = (time.perf_counter() - start_time) * 1000
             return result
         except Exception as e:
@@ -515,7 +515,7 @@ class ManifestVerifier:
         def get_state_value(key: str, default: str) -> str:
             val = state.get(key)
             if hasattr(val, "value"):
-                return val.value
+                return str(val.value)
             return str(val) if val is not None else default
 
         return {
@@ -679,26 +679,48 @@ class ManifestVerifier:
         except Exception as e:
             return False, f"Error checking hysteresis: {e}", {}
 
-    def _assert_conservative_resolution(self) -> Tuple[bool, str, Dict]:
+    def _assert_conservative_resolution(self) -> Tuple[bool, str, Dict[str, Any]]:
         """Assert QQQ/SPY disagreement resolves to most conservative action."""
         try:
             from src.domain.services.regime import resolve_market_action
-            from src.domain.services.regime.models import TradingAction
+            from src.domain.services.regime.models import AccountType, TradingAction
+            from src.domain.signals.indicators.regime.models import MarketRegime
 
             # Test cases: (qqq_regime, spy_regime) -> expected most conservative
             test_cases = [
-                ("R0", "R1", TradingAction.NO_GO),  # R1 is more conservative
-                ("R0", "R2", TradingAction.HARD_NO),  # R2 is most conservative
-                ("R1", "R3", TradingAction.NO_GO),  # R1 is more conservative for short put
-                ("R0", "R0", TradingAction.GO),  # Both agree
+                (
+                    MarketRegime.R0_HEALTHY_UPTREND,
+                    MarketRegime.R1_CHOPPY_EXTENDED,
+                    TradingAction.NO_GO,
+                ),  # R1 is more conservative
+                (
+                    MarketRegime.R0_HEALTHY_UPTREND,
+                    MarketRegime.R2_RISK_OFF,
+                    TradingAction.HARD_NO,
+                ),  # R2 is most conservative
+                (
+                    MarketRegime.R1_CHOPPY_EXTENDED,
+                    MarketRegime.R3_REBOUND_WINDOW,
+                    TradingAction.NO_GO,
+                ),  # R1 is more conservative for short put
+                (
+                    MarketRegime.R0_HEALTHY_UPTREND,
+                    MarketRegime.R0_HEALTHY_UPTREND,
+                    TradingAction.GO,
+                ),  # Both agree
             ]
 
             failures = []
             for qqq, spy, expected in test_cases:
-                actual = resolve_market_action(qqq, spy, "short_put")
-                if actual != expected:
+                action, _ = resolve_market_action(qqq, spy, AccountType.SHORT_PUT)
+                if action != expected:
                     failures.append(
-                        {"qqq": qqq, "spy": spy, "expected": expected.name, "actual": actual.name}
+                        {
+                            "qqq": qqq.value,
+                            "spy": spy.value,
+                            "expected": expected.name,
+                            "actual": action.name,
+                        }
                     )
 
             if failures:
@@ -1048,7 +1070,7 @@ class ManifestVerifier:
         return results
 
 
-def main():
+def main() -> int:
     """CLI entry point."""
     parser = argparse.ArgumentParser(description="APEX RegimeDetector Verification Framework")
     parser.add_argument(

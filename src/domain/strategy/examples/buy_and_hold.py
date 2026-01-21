@@ -14,7 +14,7 @@ import logging
 import uuid
 from typing import List, Set
 
-from ...events.domain_events import QuoteTick
+from ...events.domain_events import QuoteTick, TradeFill
 from ...interfaces.execution_provider import OrderRequest
 from ..base import Strategy, StrategyContext
 from ..registry import register_strategy
@@ -122,7 +122,7 @@ class BuyAndHoldStrategy(Strategy):
 
         self._bought.add(symbol)
 
-    def on_fill(self, fill) -> None:
+    def on_fill(self, fill: TradeFill) -> None:
         """Log fills."""
         logger.info(
             f"[{self.strategy_id}] FILL: "

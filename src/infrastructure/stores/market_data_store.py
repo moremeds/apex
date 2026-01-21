@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import time
 from threading import RLock
-from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Union
 
 from ...models.market_data import MarketData
 from ...utils.logging_setup import get_logger
@@ -16,6 +16,7 @@ from ...utils.timezone import age_seconds, now_utc
 from .rcu_store import RCUDict
 
 if TYPE_CHECKING:
+    from ...domain.events.priority_event_bus import PriorityEventBus
     from ...domain.interfaces.event_bus import EventBus
 
 logger = get_logger(__name__)
@@ -342,7 +343,7 @@ class MarketDataStore:
         """
         return len(self._market_data)
 
-    def subscribe_to_events(self, event_bus: "EventBus") -> None:
+    def subscribe_to_events(self, event_bus: "Union[EventBus, PriorityEventBus]") -> None:
         """
         Subscribe to market data-related events.
 

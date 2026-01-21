@@ -544,7 +544,8 @@ class FutuHistoryLoader:
                 return []
 
             if data is not None and not data.empty:
-                return data.to_dict("records")
+                records: List[Dict[str, Any]] = data.to_dict("records")
+                return records
             return []
 
         except ImportError:

@@ -11,10 +11,11 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 from ...domain.events.domain_events import SnapshotReadyEvent
-from ...domain.interfaces.event_bus import EventType
+from ...domain.events.priority_event_bus import PriorityEventBus
+from ...domain.interfaces.event_bus import EventBus, EventType
 from ...models.risk_signal import RiskSignal
 from ...models.risk_snapshot import RiskSnapshot
 from ...utils.logging_setup import get_logger
@@ -22,7 +23,6 @@ from ...utils.perf_logger import log_timing, log_timing_async
 from ...utils.trace_context import new_cycle
 
 if TYPE_CHECKING:
-    from ...domain.interfaces.event_bus import EventBus
     from ...domain.services.risk.risk_alert_logger import RiskAlertLogger
     from ...domain.services.risk.risk_facade import RiskFacade
     from ...domain.services.risk.risk_signal_engine import RiskSignalEngine
@@ -48,7 +48,7 @@ class SnapshotCoordinator:
         risk_facade: "RiskFacade",
         rule_engine: "RuleEngine",
         account_store: "AccountStore",
-        event_bus: "EventBus",
+        event_bus: Union[EventBus, PriorityEventBus],
         health_monitor: "HealthMonitor",
         config: Dict[str, Any],
         risk_signal_engine: Optional["RiskSignalEngine"] = None,
@@ -159,7 +159,6 @@ class SnapshotCoordinator:
         if self.risk_signal_engine:
             try:
                 self._latest_risk_signals = self.risk_signal_engine.evaluate(snapshot)
-                snapshot.risk_signals = self._latest_risk_signals
             except Exception as e:
                 logger.error(f"Risk signal evaluation error: {e}")
 

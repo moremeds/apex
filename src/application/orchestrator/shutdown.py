@@ -15,6 +15,7 @@ Provides unified shutdown with:
 from __future__ import annotations
 
 import asyncio
+from types import FrameType
 from typing import TYPE_CHECKING, Any, Callable, Coroutine, Dict, List, Optional
 
 from ...utils.logging_setup import get_logger
@@ -233,7 +234,7 @@ def create_shutdown_handler(
         signal.signal(signal.SIGTERM, handler)
     """
 
-    def handler(signum, frame):
+    def handler(signum: int, frame: Optional[FrameType]) -> None:
         logger.info(f"Received signal {signum}, initiating shutdown")
         if coordinator.shutdown_requested:
             return
@@ -243,7 +244,7 @@ def create_shutdown_handler(
             logger.warning("Event loop closed, cannot schedule shutdown")
             return
 
-        def schedule_shutdown():
+        def schedule_shutdown() -> None:
             if not coordinator.shutdown_requested:
                 loop.create_task(coordinator.shutdown())
 

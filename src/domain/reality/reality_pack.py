@@ -7,7 +7,7 @@ Provides pre-configured packs for different simulation scenarios.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict
+from typing import Any, Callable, Dict, Union
 
 from .admin_fee_model import (
     AdminFeeModel,
@@ -88,7 +88,7 @@ class RealityModelPack:
         """
 
         # Helper to get params from config dict (either nested in 'params' or flat)
-        def get_params(cfg):
+        def get_params(cfg: Any) -> Dict[str, Any]:
             if not isinstance(cfg, dict):
                 return {}
             params = dict(cfg.get("params", {}))
@@ -260,18 +260,21 @@ def create_ib_pack(
         use_venue_latency: Use venue-based latency model.
     """
     # Slippage model
+    slippage: SlippageModel
     if use_spread_slippage:
         slippage = SpreadSlippageModel(additional_bps=2.0)
     else:
         slippage = ConstantSlippageModel(slippage_bps=5.0)
 
     # Fill model
+    fill: FillModel
     if use_probabilistic_fills:
         fill = ProbabilisticFillModel()
     else:
         fill = ImmediateFillModel()
 
     # Latency model
+    latency: LatencyModel
     if use_venue_latency:
         latency = VenueLatencyModel()
     else:
@@ -305,6 +308,7 @@ def create_futu_pack(
         market: "US" or "HK".
         use_spread_slippage: Use spread-based slippage.
     """
+    slippage: SlippageModel
     if use_spread_slippage:
         slippage = SpreadSlippageModel(additional_bps=3.0)
     else:
@@ -340,7 +344,7 @@ def create_conservative_pack() -> RealityModelPack:
     return RealityModelPack(
         fee_model=IBFeeModel(
             stock_per_share=0.01,
-            option_per_contract=1.00,
+            option_rate_high=1.00,
         ),
         slippage_model=VolumeSlippageModel(
             base_bps=10.0,
@@ -362,7 +366,7 @@ def create_conservative_pack() -> RealityModelPack:
 
 
 # Registry of preset packs
-PRESET_PACKS = {
+PRESET_PACKS: Dict[str, Callable[..., RealityModelPack]] = {
     "zero_cost": create_zero_cost_pack,
     "simple": create_simple_pack,
     "interactive_brokers": create_ib_pack,
@@ -373,7 +377,7 @@ PRESET_PACKS = {
 }
 
 
-def get_preset_pack(name: str, **kwargs) -> RealityModelPack:
+def get_preset_pack(name: str, **kwargs: Any) -> RealityModelPack:
     """
     Get a preset reality pack by name.
 

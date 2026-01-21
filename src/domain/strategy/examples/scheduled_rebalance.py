@@ -99,6 +99,10 @@ class ScheduledRebalanceStrategy(Strategy):
         )
         logger.info(f"Target weights: {self.target_weights}")
 
+        if self.context.scheduler is None:
+            logger.warning("No scheduler available - scheduled rebalancing disabled")
+            return
+
         # Schedule daily rebalance check
         self.context.scheduler.schedule_daily(
             action_id=f"{self.strategy_id}-daily-rebalance",

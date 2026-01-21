@@ -353,7 +353,8 @@ class BacktraderClock(Clock):
     def now(self) -> datetime:
         """Get current time from Backtrader data."""
         try:
-            return self._bt_strategy.data.datetime.datetime(0)
+            result: datetime = self._bt_strategy.data.datetime.datetime(0)
+            return result
         except (IndexError, AttributeError):
             # No data yet - return epoch
             return datetime(1970, 1, 1)

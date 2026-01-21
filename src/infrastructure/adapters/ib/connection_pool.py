@@ -132,6 +132,7 @@ class IbConnectionPool:
         port = self._config.port
         timeout = self._config.connect_timeout
         client_ids = self._config.client_ids
+        assert client_ids is not None  # Guaranteed by __post_init__
 
         try:
             # Monitoring connection (positions, quotes, orders)
@@ -183,6 +184,7 @@ class IbConnectionPool:
         port = self._config.port
         timeout = self._config.connect_timeout
         client_ids = self._config.client_ids
+        assert client_ids is not None  # Guaranteed by __post_init__
 
         try:
             self._monitoring = IB()
@@ -209,6 +211,7 @@ class IbConnectionPool:
         port = self._config.port
         timeout = self._config.connect_timeout
         client_ids = self._config.client_ids
+        assert client_ids is not None  # Guaranteed by __post_init__
 
         hist_client_id = client_ids.historical_pool[0] if client_ids.historical_pool else 3
 
@@ -270,6 +273,7 @@ class IbConnectionPool:
         port = self._config.port
         timeout = self._config.connect_timeout
         client_ids = self._config.client_ids
+        assert client_ids is not None  # Guaranteed by __post_init__
 
         try:
             self._execution = IB()
@@ -300,25 +304,25 @@ class IbConnectionPool:
         if not self.is_execution_connected():
             await self.connect_execution()
 
-    def get_status(self) -> dict:
+    def get_status(self) -> dict[str, object]:
         """Get pool connection status."""
+        client_ids = self._config.client_ids
+        assert client_ids is not None  # Guaranteed by __post_init__
         return {
             "connected": self._connected,
             "monitoring": {
                 "connected": self.is_monitoring_connected(),
-                "client_id": self._config.client_ids.monitoring,
+                "client_id": client_ids.monitoring,
             },
             "historical": {
                 "connected": self.is_historical_connected(),
                 "client_id": (
-                    self._config.client_ids.historical_pool[0]
-                    if self._config.client_ids.historical_pool
-                    else None
+                    client_ids.historical_pool[0] if client_ids.historical_pool else None
                 ),
             },
             "execution": {  # A4: Execution connection status
                 "connected": self.is_execution_connected(),
-                "client_id": self._config.client_ids.execution,
+                "client_id": client_ids.execution,
             },
             "host": self._config.host,
             "port": self._config.port,

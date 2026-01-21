@@ -67,7 +67,7 @@ class StructuredLogger:
             message: Log message.
             data: Optional additional data dict.
         """
-        log_entry = {
+        log_entry: Dict[str, Any] = {
             "timestamp": get_current_timestamp(),
             "level": level.upper(),
             "category": category.value,

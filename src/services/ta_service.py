@@ -104,7 +104,7 @@ class TAService:
     async def get_atr(
         self,
         symbol: str,
-        period: int = None,
+        period: Optional[int] = None,
         timeframe: str = "1d",
     ) -> Optional[float]:
         """
@@ -165,7 +165,7 @@ class TAService:
     async def get_atr_batch(
         self,
         symbols: List[str],
-        period: int = None,
+        period: Optional[int] = None,
         timeframe: str = "1d",
     ) -> Dict[str, Optional[float]]:
         """
@@ -237,7 +237,7 @@ class TAService:
         self,
         symbol: str,
         spot_price: float,
-        period: int = None,
+        period: Optional[int] = None,
         timeframe: str = "1d",
     ) -> Optional[ATRLevels]:
         """
@@ -341,7 +341,7 @@ class TAService:
     async def get_atr_levels_batch(
         self,
         symbols_with_spots: Dict[str, float],
-        period: int = None,
+        period: Optional[int] = None,
         timeframe: str = "1d",
     ) -> Dict[str, Optional[ATRLevels]]:
         """

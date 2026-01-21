@@ -13,7 +13,7 @@ This class handles:
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Tuple, Union
 
 from ...domain.events.event_types import EventType
 from ...infrastructure.observability import (
@@ -24,6 +24,7 @@ from ...infrastructure.observability import (
 from ...utils.logging_setup import get_logger
 
 if TYPE_CHECKING:
+    from ...domain.events.priority_event_bus import PriorityEventBus
     from ...domain.interfaces.event_bus import EventBus
     from ...domain.signals.divergence import CrossIndicatorAnalyzer, MTFDivergenceAnalyzer
 
@@ -54,7 +55,7 @@ class ConfluenceCalculator:
 
     def __init__(
         self,
-        event_bus: "EventBus",
+        event_bus: "Union[EventBus, PriorityEventBus]",
         metrics: Optional[SignalMetrics] = None,
         debounce_ms: float = 500.0,
         min_indicators: int = 2,
