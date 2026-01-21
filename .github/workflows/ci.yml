@@ -194,7 +194,7 @@ jobs:
   unit-tests:
     name: Unit Tests
     runs-on: ubuntu-latest
-    needs: [lint, verify]  # type-check and security are best-effort
+    needs: [verify]  # type-check and security are best-effort
     continue-on-error: false  # Pre-existing test failures - fix incrementally
     steps:
       - uses: actions/checkout@v6
