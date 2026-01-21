@@ -116,7 +116,7 @@ class "IbBaseAdapter" as apex.src.infrastructure.adapters.ib.base.IbBaseAdapter 
   ADAPTER_TYPE : str
   client_id : int
   host : str
-  ib : NoneType
+  ib : Optional[IB]
   port : int
   reconnect_backoff_factor : float
   reconnect_backoff_initial : int
@@ -124,7 +124,7 @@ class "IbBaseAdapter" as apex.src.infrastructure.adapters.ib.base.IbBaseAdapter 
   connect() -> None
   disconnect() -> None
   ensure_connected() -> None
-  format_expiry_for_ib(expiry) -> Optional[str]
+  format_expiry_for_ib(expiry: Union[date, str, None]) -> Optional[str]
   get_connection_info() -> dict
   is_connected() -> bool
   publish_event(event_type: Any, payload: dict) -> None
@@ -135,7 +135,7 @@ class "IbCompositeAdapter" as apex.src.infrastructure.adapters.ib.composite_adap
   disconnect() -> None
   enable_streaming() -> None
   fetch_account_info() -> AccountInfo
-  fetch_historical_bars(symbol: str, timeframe: str, start, end, limit: Optional[int])
+  fetch_historical_bars(symbol: str, timeframe: str, start: Optional[datetime], end: Optional[datetime], limit: Optional[int]) -> List['BarData']
   fetch_market_data(positions: List[Position]) -> List[MarketData]
   fetch_orders(include_open: bool, include_completed: bool, days_back: int) -> List[Order]
   fetch_positions() -> List[Position]
@@ -162,7 +162,7 @@ class "IbConnectionPool" as apex.src.infrastructure.adapters.ib.connection_pool.
   ensure_connected() -> None
   ensure_execution_connected() -> None
   ensure_historical_connected() -> None
-  get_status() -> dict
+  get_status() -> dict[str, object]
   is_connected() -> bool
   is_execution_connected() -> bool
   is_historical_connected() -> bool
