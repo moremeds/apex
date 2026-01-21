@@ -184,6 +184,10 @@ package "apex.src.domain.signals.reporting" as apex.src.domain.signals.reporting
 }
 package "apex.src.domain.signals.reporting.description_generator" as apex.src.domain.signals.reporting.description_generator {
 }
+package "apex.src.domain.signals.reporting.exceptions" as apex.src.domain.signals.reporting.exceptions {
+}
+package "apex.src.domain.signals.reporting.highlight_detector" as apex.src.domain.signals.reporting.highlight_detector {
+}
 package "apex.src.domain.signals.reporting.package_builder" as apex.src.domain.signals.reporting.package_builder {
 }
 package "apex.src.domain.signals.reporting.regime" as apex.src.domain.signals.reporting.regime {
@@ -213,6 +217,8 @@ package "apex.src.domain.signals.reporting.regime_report" as apex.src.domain.sig
 package "apex.src.domain.signals.reporting.signal_report_generator" as apex.src.domain.signals.reporting.signal_report_generator {
 }
 package "apex.src.domain.signals.reporting.snapshot_builder" as apex.src.domain.signals.reporting.snapshot_builder {
+}
+package "apex.src.domain.signals.reporting.validation_report" as apex.src.domain.signals.reporting.validation_report {
 }
 package "apex.src.domain.signals.reporting.value_card" as apex.src.domain.signals.reporting.value_card {
 }
@@ -324,6 +330,7 @@ apex.src.domain.signals.reporting --> apex.src.domain.signals.reporting.package_
 apex.src.domain.signals.reporting --> apex.src.domain.signals.reporting.regime_report
 apex.src.domain.signals.reporting --> apex.src.domain.signals.reporting.signal_report_generator
 apex.src.domain.signals.reporting --> apex.src.domain.signals.reporting.snapshot_builder
+apex.src.domain.signals.reporting.package_builder --> apex.src.domain.signals.reporting.exceptions
 apex.src.domain.signals.reporting.package_builder --> apex.src.domain.signals.reporting.regime
 apex.src.domain.signals.reporting.package_builder --> apex.src.domain.signals.reporting.signal_report_generator
 apex.src.domain.signals.reporting.package_builder --> apex.src.domain.signals.reporting.snapshot_builder

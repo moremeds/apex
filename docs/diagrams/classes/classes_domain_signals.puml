@@ -132,6 +132,11 @@ class "BollingerBandsIndicator" as apex.src.domain.signals.indicators.volatility
   required_fields : list
   warmup_periods : int
 }
+class "BudgetContributor" as apex.src.domain.signals.reporting.exceptions.BudgetContributor {
+  key : str
+  pct_of_section : float
+  size_bytes : int
+}
 class "CCIIndicator" as apex.src.domain.signals.indicators.momentum.cci.CCIIndicator {
   category : MOMENTUM
   name : str
@@ -427,6 +432,30 @@ class "GateResult" as apex.src.domain.signals.validation.schemas.GateResult {
   value : float
   to_dict() -> dict
 }
+class "Highlight" as apex.src.domain.signals.reporting.highlight_detector.Highlight {
+  description : str
+  evidence : Dict[str, Any]
+  priority
+  symbol : str
+  timeframe : str
+  timestamp : datetime
+  title : str
+  type
+  to_dict(include_evidence: bool) -> Dict[str, Any]
+}
+class "HighlightDetector" as apex.src.domain.signals.reporting.highlight_detector.HighlightDetector {
+  MAX_HIGHLIGHTS : int
+  divergence_lookback : int
+  volatility_percentile_threshold : float
+  detect(data: Dict[Tuple[str, str], pd.DataFrame], regime_outputs: Optional[Dict[str, 'RegimeOutput']], previous_regimes: Optional[Dict[str, str]]) -> List[Highlight]
+  prune_evidence(highlights: List[Highlight], max_evidence_keys: int) -> List[Highlight]
+}
+class "HighlightPriority" as apex.src.domain.signals.reporting.highlight_detector.HighlightPriority {
+  name
+}
+class "HighlightType" as apex.src.domain.signals.reporting.highlight_detector.HighlightType {
+  name
+}
 class "HistoricalVolatilityIndicator" as apex.src.domain.signals.indicators.volatility.hvol.HistoricalVolatilityIndicator {
   category : VOLATILITY
   name : str
@@ -643,9 +672,14 @@ class "PSARIndicator" as apex.src.domain.signals.indicators.trend.psar.PSARIndic
   warmup_periods : int
 }
 class "PackageBuilder" as apex.src.domain.signals.reporting.package_builder.PackageBuilder {
+  CONFLUENCE_BUDGET_KB : int
+  MARKET_BUDGET_KB : int
+  MAX_SUMMARY_KB : int
   THEMES : dict
+  TICKERS_BUDGET_KB : int
+  enforce_budget : bool
   theme : str
-  build(data: Dict[Tuple[str, str], pd.DataFrame], indicators: List['Indicator'], rules: List['SignalRule'], output_dir: Path, regime_outputs: Optional[Dict[str, 'RegimeOutput']]) -> Path
+  build(data: Dict[Tuple[str, str], pd.DataFrame], indicators: List['Indicator'], rules: List['SignalRule'], output_dir: Path, regime_outputs: Optional[Dict[str, 'RegimeOutput']], validation_url: Optional[str]) -> Path
 }
 class "PackageManifest" as apex.src.domain.signals.reporting.package_builder.PackageManifest {
   created_at : str
@@ -709,6 +743,8 @@ class "RangeEntryEvaluator" as apex.src.domain.signals.conditions.evaluators.Ran
 }
 class "RangeExitEvaluator" as apex.src.domain.signals.conditions.evaluators.RangeExitEvaluator {
   evaluate(config: Dict[str, Any], prev_state: Optional[Dict[str, Any]], curr_state: Dict[str, Any]) -> bool
+}
+class "<color:red>RegimeDataMissing</color>" as apex.src.domain.signals.reporting.exceptions.RegimeDataMissing {
 }
 class "RegimeDetectorIndicator" as apex.src.domain.signals.indicators.regime.regime_detector.RegimeDetectorIndicator {
   category : REGIME
@@ -786,6 +822,8 @@ class "RegimeTransitionState" as apex.src.domain.signals.indicators.regime.model
   pending_regime : Optional[MarketRegime]
   transition_reason : Optional[str]
   to_dict() -> Dict[str, Any]
+}
+class "<color:red>ReportGenerationError</color>" as apex.src.domain.signals.reporting.exceptions.ReportGenerationError {
 }
 class "RuleEngine" as apex.src.domain.signals.rule_engine.RuleEngine {
   registry : RuleRegistry
@@ -932,6 +970,13 @@ class "SizeBudget" as apex.src.domain.signals.schemas.SizeBudget {
   SECTORS_BUDGET_KB : int
   TICKERS_BUDGET_KB : int
   validate(section: str, size_bytes: int) -> bool
+}
+class "<color:red>SizeBudgetExceeded</color>" as apex.src.domain.signals.reporting.exceptions.SizeBudgetExceeded {
+  actual_kb : float
+  budget_kb : float
+  section : str
+  top_contributors : list
+  to_dict() -> Dict[str, Any]
 }
 class "SnapshotBuilder" as apex.src.domain.signals.reporting.snapshot_builder.SnapshotBuilder {
   build(data: Dict[Tuple[str, str], pd.DataFrame], regime_outputs: Dict[str, 'RegimeOutput'], symbols: List[str], timeframes: List[str]) -> Dict[str, Any]
@@ -1512,6 +1557,8 @@ apex.src.domain.signals.models.TradingSignal --> apex.src.domain.signals.models.
 apex.src.domain.signals.models.SignalRule --> apex.src.domain.signals.models.SignalPriority : priority
 apex.src.domain.signals.models.TradingSignal --> apex.src.domain.signals.models.SignalPriority : priority
 apex.src.domain.signals.models.TradingSignal --> apex.src.domain.signals.models.SignalStatus : status
+apex.src.domain.signals.reporting.highlight_detector.Highlight --> apex.src.domain.signals.reporting.highlight_detector.HighlightPriority : priority
+apex.src.domain.signals.reporting.highlight_detector.Highlight --> apex.src.domain.signals.reporting.highlight_detector.HighlightType : type
 apex.src.domain.signals.schemas.BarValidationBuilder --> apex.src.domain.signals.schemas.BarReduction : reductions
 apex.src.domain.signals.schemas.BarReduction --> apex.src.domain.signals.schemas.BarReductionReason : reason
 apex.src.domain.signals.validation.confirmation.ConfirmationResult --> apex.src.domain.signals.validation.confirmation.StrategyMetrics : s1
