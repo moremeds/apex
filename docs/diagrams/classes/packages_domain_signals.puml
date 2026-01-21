@@ -370,7 +370,6 @@ apex.src.domain.signals.validation --> apex.src.domain.signals.validation.nested
 apex.src.domain.signals.validation --> apex.src.domain.signals.validation.statistics
 apex.src.domain.signals.validation --> apex.src.domain.signals.validation.time_units
 apex.src.domain.signals.validation --> apex.src.domain.signals.validation.validation_service
-apex.src.domain.signals.validation.confirmation --> apex.src.domain.signals.validation.statistics
 apex.src.domain.signals.validation.earliness --> apex.src.domain.signals.validation.statistics
 apex.src.domain.signals.validation.labeler_contract --> apex.src.domain.signals.validation.time_units
 apex.src.domain.signals.validation.nested_cv --> apex.src.domain.signals.validation.statistics

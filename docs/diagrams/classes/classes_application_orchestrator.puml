@@ -16,7 +16,7 @@ class "DataCoordinator" as apex.src.application.orchestrator.data_coordinator.Da
   reconciler : Reconciler
   cleanup() -> None
   fetch_account_info_cached() -> AccountInfo
-  fetch_and_reconcile(on_dirty_callback: Optional[callable]) -> tuple[List[Position], AccountInfo]
+  fetch_and_reconcile(on_dirty_callback: Optional[Callable[[], None]]) -> tuple[List[Position], AccountInfo]
 }
 class "Orchestrator" as apex.src.application.orchestrator.orchestrator.Orchestrator {
   account_store : str
@@ -61,7 +61,7 @@ class "SignalCoordinator" as apex.src.application.orchestrator.signal_coordinato
 }
 class "SnapshotCoordinator" as apex.src.application.orchestrator.snapshot_coordinator.SnapshotCoordinator {
   account_store : str
-  event_bus : str
+  event_bus : Union[EventBus, PriorityEventBus]
   health_monitor : str
   risk_alert_logger : Optional['RiskAlertLogger']
   risk_signal_engine : Optional['RiskSignalEngine']
