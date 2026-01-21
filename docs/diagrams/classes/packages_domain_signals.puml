@@ -242,6 +242,24 @@ package "apex.src.domain.signals.universe.base" as apex.src.domain.signals.unive
 }
 package "apex.src.domain.signals.universe.yaml_provider" as apex.src.domain.signals.universe.yaml_provider {
 }
+package "apex.src.domain.signals.validation" as apex.src.domain.signals.validation {
+}
+package "apex.src.domain.signals.validation.confirmation" as apex.src.domain.signals.validation.confirmation {
+}
+package "apex.src.domain.signals.validation.earliness" as apex.src.domain.signals.validation.earliness {
+}
+package "apex.src.domain.signals.validation.labeler_contract" as apex.src.domain.signals.validation.labeler_contract {
+}
+package "apex.src.domain.signals.validation.nested_cv" as apex.src.domain.signals.validation.nested_cv {
+}
+package "apex.src.domain.signals.validation.schemas" as apex.src.domain.signals.validation.schemas {
+}
+package "apex.src.domain.signals.validation.statistics" as apex.src.domain.signals.validation.statistics {
+}
+package "apex.src.domain.signals.validation.time_units" as apex.src.domain.signals.validation.time_units {
+}
+package "apex.src.domain.signals.validation.validation_service" as apex.src.domain.signals.validation.validation_service {
+}
 apex.src.domain.signals --> apex.src.domain.signals.confluence_calculator
 apex.src.domain.signals --> apex.src.domain.signals.data
 apex.src.domain.signals --> apex.src.domain.signals.indicator_engine
@@ -337,6 +355,26 @@ apex.src.domain.signals.signal_state_tracker --> apex.src.domain.signals.models
 apex.src.domain.signals.universe --> apex.src.domain.signals.universe.base
 apex.src.domain.signals.universe --> apex.src.domain.signals.universe.yaml_provider
 apex.src.domain.signals.universe.yaml_provider --> apex.src.domain.signals.universe.base
+apex.src.domain.signals.validation --> apex.src.domain.signals.schemas
+apex.src.domain.signals.validation --> apex.src.domain.signals.validation.confirmation
+apex.src.domain.signals.validation --> apex.src.domain.signals.validation.earliness
+apex.src.domain.signals.validation --> apex.src.domain.signals.validation.labeler_contract
+apex.src.domain.signals.validation --> apex.src.domain.signals.validation.nested_cv
+apex.src.domain.signals.validation --> apex.src.domain.signals.validation.statistics
+apex.src.domain.signals.validation --> apex.src.domain.signals.validation.time_units
+apex.src.domain.signals.validation --> apex.src.domain.signals.validation.validation_service
+apex.src.domain.signals.validation.confirmation --> apex.src.domain.signals.validation.statistics
+apex.src.domain.signals.validation.earliness --> apex.src.domain.signals.validation.statistics
+apex.src.domain.signals.validation.labeler_contract --> apex.src.domain.signals.validation.time_units
+apex.src.domain.signals.validation.nested_cv --> apex.src.domain.signals.validation.statistics
+apex.src.domain.signals.validation.nested_cv --> apex.src.domain.signals.validation.time_units
+apex.src.domain.signals.validation.schemas --> apex.src.domain.signals.validation.confirmation
+apex.src.domain.signals.validation.schemas --> apex.src.domain.signals.validation.earliness
+apex.src.domain.signals.validation.schemas --> apex.src.domain.signals.validation.statistics
+apex.src.domain.signals.validation.validation_service --> apex.src.domain.signals.validation.confirmation
+apex.src.domain.signals.validation.validation_service --> apex.src.domain.signals.validation.earliness
+apex.src.domain.signals.validation.validation_service --> apex.src.domain.signals.validation.labeler_contract
+apex.src.domain.signals.validation.validation_service --> apex.src.domain.signals.validation.statistics
 apex.src.domain.signals.indicators.regime.models ..> apex.src.domain.signals.indicators.regime.models
 apex.src.domain.signals.indicators.regime.models ..> apex.src.domain.signals.indicators.regime.turning_point.model
 @enduml

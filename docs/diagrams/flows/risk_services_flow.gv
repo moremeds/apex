@@ -14,441 +14,441 @@ subgraph legend{
         <tr><td>Function call</td><td><font color='black'>&#8594;</font></td></tr>
         </table></td></tr></table>
         >];
-}node_7b24a8ca [label="0: (global)()" name="__init__::(global)" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_8c993f9b [label="0: (global)()" name="__init__::(global)" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_1379be3d [label="0: (global)()" name="__init__::(global)" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_070426f7 [label="0: (global)()" name="delta_publisher::(global)" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_715d17b1 [label="64: __init__()" name="delta_publisher::DeltaPublisher.__init__" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_af5ed5fd [label="240: _build_synthetic_ticks()" name="delta_publisher::DeltaPublisher._build_synthetic_ticks" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
-node_907b2997 [label="193: _on_market_data_ready()" name="delta_publisher::DeltaPublisher._on_market_data_ready" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_ae8b0732 [label="182: _on_position_updated()" name="delta_publisher::DeltaPublisher._on_position_updated" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_49f90c9b [label="171: _on_positions_ready()" name="delta_publisher::DeltaPublisher._on_positions_ready" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_1aa80f7a [label="143: _on_tick()" name="delta_publisher::DeltaPublisher._on_tick" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_b07a6799 [label="206: _sync_positions_from_store()" name="delta_publisher::DeltaPublisher._sync_positions_from_store" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
-node_0b4932a4 [label="92: start()" name="delta_publisher::DeltaPublisher.start" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
-node_931aa5f7 [label="297: stats()" name="delta_publisher::DeltaPublisher.stats" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_3a1ab4e9 [label="120: stop()" name="delta_publisher::DeltaPublisher.stop" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_0d814d6c [label="0: (global)()" name="greeks_calculator::(global)" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_368fa432 [label="121: calculate_near_term_greeks()" name="greeks_calculator::calculate_near_term_greeks" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_f9ccd0a1 [label="51: calculate_position_greeks()" name="greeks_calculator::calculate_position_greeks" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
-node_83a2429b [label="0: (global)()" name="notional_calculator::(global)" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_f3530728 [label="120: calculate_concentration()" name="notional_calculator::calculate_concentration" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_8edccde1 [label="75: calculate_delta_dollars()" name="notional_calculator::calculate_delta_dollars" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
-node_be1c4191 [label="37: calculate_notional()" name="notional_calculator::calculate_notional" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
-node_4f720e12 [label="0: (global)()" name="pnl_calculator::(global)" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_4f1e5b7c [label="60: calculate_pnl()" name="pnl_calculator::calculate_pnl" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
-node_f14bd9e5 [label="131: calculate_pnl_delta()" name="pnl_calculator::calculate_pnl_delta" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_fca559c3 [label="0: (global)()" name="portfolio_state::(global)" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_9a839e94 [label="69: __init__()" name="portfolio_state::PortfolioState.__init__" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
-node_01bda7f3 [label="207: add_position()" name="portfolio_state::PortfolioState.add_position" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_792636c7 [label="81: apply_delta()" name="portfolio_state::PortfolioState.apply_delta" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
-node_87d9f387 [label="267: clear()" name="portfolio_state::PortfolioState.clear" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
-node_eca90943 [label="131: get_position()" name="portfolio_state::PortfolioState.get_position" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
-node_da0055e6 [label="289: get_position_states()" name="portfolio_state::PortfolioState.get_position_states" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
-node_35c81bf6 [label="135: has_position()" name="portfolio_state::PortfolioState.has_position" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_c55ea8c0 [label="280: position_count()" name="portfolio_state::PortfolioState.position_count" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_29234d6a [label="235: remove_position()" name="portfolio_state::PortfolioState.remove_position" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_e495a223 [label="285: symbols()" name="portfolio_state::PortfolioState.symbols" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_69cca407 [label="139: to_snapshot()" name="portfolio_state::PortfolioState.to_snapshot" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
-node_d9559a21 [label="0: (global)()" name="position_state::(global)" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_4ffb8760 [label="75: to_event()" name="position_state::PositionDelta.to_event" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
-node_090246ed [label="165: from_position()" name="position_state::PositionState.from_position" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_12bd7721 [label="243: to_dict()" name="position_state::PositionState.to_dict" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_37851ea4 [label="208: with_update()" name="position_state::PositionState.with_update" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
-node_acf43f67 [label="0: (global)()" name="risk_alert_logger::(global)" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_402fd238 [label="105: to_dict()" name="risk_alert_logger::AlertContext.to_dict" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
-node_09eac2fa [label="113: to_json()" name="risk_alert_logger::AlertContext.to_json" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
-node_39460f79 [label="129: __init__()" name="risk_alert_logger::RiskAlertLogger.__init__" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_19c9185c [label="488: _extract_reason_from_market_alert()" name="risk_alert_logger::RiskAlertLogger._extract_reason_from_market_alert" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
-node_a63240a5 [label="510: _extract_reason_from_signal()" name="risk_alert_logger::RiskAlertLogger._extract_reason_from_signal" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
-node_7ca07111 [label="222: _log_namer()" name="risk_alert_logger::RiskAlertLogger._log_namer" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_99413a04 [label="239: _log_rotator()" name="risk_alert_logger::RiskAlertLogger._log_rotator" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_e819214d [label="167: _setup_logger()" name="risk_alert_logger::RiskAlertLogger._setup_logger" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
-node_57dc91f3 [label="537: _write_log()" name="risk_alert_logger::RiskAlertLogger._write_log" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
-node_e2742cf5 [label="544: get_recent_alerts()" name="risk_alert_logger::RiskAlertLogger.get_recent_alerts" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_6490434a [label="446: log_batch()" name="risk_alert_logger::RiskAlertLogger.log_batch" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_0891fef5 [label="294: log_market_alert()" name="risk_alert_logger::RiskAlertLogger.log_market_alert" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
-node_bd7be7ed [label="338: log_risk_signal()" name="risk_alert_logger::RiskAlertLogger.log_risk_signal" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
-node_d7119233 [label="211: stop()" name="risk_alert_logger::RiskAlertLogger.stop" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
-node_27da76b7 [label="258: update_market_cache()" name="risk_alert_logger::RiskAlertLogger.update_market_cache" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_a79d8cf3 [label="0: (global)()" name="risk_facade::(global)" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_ec54f4b5 [label="68: __init__()" name="risk_facade::RiskFacade.__init__" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_9b92a94e [label="164: _build_position_risks()" name="risk_facade::RiskFacade._build_position_risks" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
-node_a0b5fcbd [label="246: add_position()" name="risk_facade::RiskFacade.add_position" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
-node_1f30aa54 [label="295: clear()" name="risk_facade::RiskFacade.clear" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
-node_a3d869d9 [label="319: get_position_state()" name="risk_facade::RiskFacade.get_position_state" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_ac4dd029 [label="130: get_snapshot()" name="risk_facade::RiskFacade.get_snapshot" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_cc83b4d9 [label="305: has_position()" name="risk_facade::RiskFacade.has_position" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_94b6b9c8 [label="201: load_positions()" name="risk_facade::RiskFacade.load_positions" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
-node_f8963b35 [label="90: on_tick()" name="risk_facade::RiskFacade.on_tick" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
-node_fb2fb36d [label="310: position_count()" name="risk_facade::RiskFacade.position_count" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_7d0e17da [label="277: remove_position()" name="risk_facade::RiskFacade.remove_position" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
-node_65ae143f [label="323: set_account_info()" name="risk_facade::RiskFacade.set_account_info" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_829fd817 [label="315: symbols()" name="risk_facade::RiskFacade.symbols" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_0bacadf1 [label="0: (global)()" name="risk_signal_engine::(global)" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_e90a3590 [label="43: __init__()" name="risk_signal_engine::RiskSignalEngine.__init__" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_fb892200 [label="214: __repr__()" name="risk_signal_engine::RiskSignalEngine.__repr__" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_4cf0abcb [label="160: _check_position_rules()" name="risk_signal_engine::RiskSignalEngine._check_position_rules" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
-node_b2c5e8a9 [label="170: _check_strategy_rules()" name="risk_signal_engine::RiskSignalEngine._check_strategy_rules" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
-node_921ff584 [label="82: evaluate()" name="risk_signal_engine::RiskSignalEngine.evaluate" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
-node_e95201e9 [label="187: get_stats()" name="risk_signal_engine::RiskSignalEngine.get_stats" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
-node_094e1ed8 [label="200: reset_stats()" name="risk_signal_engine::RiskSignalEngine.reset_stats" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
-node_4892d95f [label="0: (global)()" name="risk_signal_manager::(global)" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_1edb54e0 [label="32: __init__()" name="risk_signal_manager::RiskSignalManager.__init__" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_7aa93f54 [label="247: __repr__()" name="risk_signal_manager::RiskSignalManager.__repr__" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_35c39f4a [label="230: _severity_value()" name="risk_signal_manager::RiskSignalManager._severity_value" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
-node_59cf6ab0 [label="186: cleanup_expired()" name="risk_signal_manager::RiskSignalManager.cleanup_expired" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_10502459 [label="161: clear_all_for_symbol()" name="risk_signal_manager::RiskSignalManager.clear_all_for_symbol" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_a21fb877 [label="139: clear_signal()" name="risk_signal_manager::RiskSignalManager.clear_signal" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
-node_02c222b2 [label="205: get_stats()" name="risk_signal_manager::RiskSignalManager.get_stats" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_dbe85bf7 [label="64: process()" name="risk_signal_manager::RiskSignalManager.process" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
-node_68b9c4f4 [label="218: reset_stats()" name="risk_signal_manager::RiskSignalManager.reset_stats" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_17cd06af [label="0: (global)()" name="rule_engine::(global)" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_2a94e6a2 [label="37: breach_pct()" name="rule_engine::LimitBreach.breach_pct" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
-node_5d58ac7e [label="43: description()" name="rule_engine::LimitBreach.description" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_95e5be5d [label="61: __init__()" name="rule_engine::RuleEngine.__init__" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_7ca038bf [label="155: _check_limit()" name="rule_engine::RuleEngine._check_limit" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
-node_b5e50ae1 [label="185: _check_range()" name="rule_engine::RuleEngine._check_range" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
-node_b131aa02 [label="72: evaluate()" name="rule_engine::RuleEngine.evaluate" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_093df58b [label="0: (global)()" name="threshold::(global)" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_e8923665 [label="120: breach_pct()" name="threshold::RangeThreshold.breach_pct" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_fa6645ed [label="97: check()" name="threshold::RangeThreshold.check" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_935750c3 [label="59: breach_pct()" name="threshold::Threshold.breach_pct" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_97d509a0 [label="37: check()" name="threshold::Threshold.check" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_4b7ebe24 [label="0: (global)()" name="tick_processor::(global)" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
-node_63c0a414 [label="283: _is_negligible_delta()" name="tick_processor::TickProcessor._is_negligible_delta" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
-node_cd65964f [label="271: _map_quality()" name="tick_processor::TickProcessor._map_quality" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
-node_c19b3416 [label="241: _resolve_mark_price()" name="tick_processor::TickProcessor._resolve_mark_price" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
-node_fc3c0104 [label="315: _resolve_pnl_price()" name="tick_processor::TickProcessor._resolve_pnl_price" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
-node_a009fbd7 [label="211: _should_emit_delta()" name="tick_processor::TickProcessor._should_emit_delta" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
-node_99c0e37f [label="71: process_tick()" name="tick_processor::TickProcessor.process_tick" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
-node_80207502 [label="353: create_initial_state()" name="tick_processor::create_initial_state" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
-node_907b2997 -> node_b07a6799 [color="#CC79A7" penwidth="2"];
-node_ae8b0732 -> node_b07a6799 [color="#56B4E9" penwidth="2"];
-node_49f90c9b -> node_b07a6799 [color="#009E73" penwidth="2"];
-node_1aa80f7a -> node_4ffb8760 [color="#56B4E9" penwidth="2"];
-node_1aa80f7a -> node_f8963b35 [color="#56B4E9" penwidth="2"];
-node_b07a6799 -> node_af5ed5fd [color="#E69F00" penwidth="2"];
-node_b07a6799 -> node_94b6b9c8 [color="#E69F00" penwidth="2"];
-node_792636c7 -> node_37851ea4 [color="#CC79A7" penwidth="2"];
-node_87d9f387 -> node_87d9f387 [color="#CC79A7" penwidth="2"];
-node_87d9f387 -> node_87d9f387 [color="#CC79A7" penwidth="2"];
-node_87d9f387 -> node_87d9f387 [color="#CC79A7" penwidth="2"];
-node_09eac2fa -> node_402fd238 [color="#56B4E9" penwidth="2"];
-node_39460f79 -> node_e819214d [color="#E69F00" penwidth="2"];
-node_e819214d -> node_0b4932a4 [color="#0072B2" penwidth="2"];
-node_57dc91f3 -> node_09eac2fa [color="#009E73" penwidth="2"];
-node_6490434a -> node_0891fef5 [color="#56B4E9" penwidth="2"];
-node_6490434a -> node_bd7be7ed [color="#56B4E9" penwidth="2"];
-node_0891fef5 -> node_19c9185c [color="#0072B2" penwidth="2"];
-node_0891fef5 -> node_57dc91f3 [color="#0072B2" penwidth="2"];
-node_bd7be7ed -> node_a63240a5 [color="#0072B2" penwidth="2"];
-node_bd7be7ed -> node_57dc91f3 [color="#0072B2" penwidth="2"];
-node_d7119233 -> node_d7119233 [color="#009E73" penwidth="2"];
-node_ec54f4b5 -> node_9a839e94 [color="#0072B2" penwidth="2"];
-node_9b92a94e -> node_da0055e6 [color="#D55E00" penwidth="2"];
-node_a0b5fcbd -> node_a0b5fcbd [color="#0072B2" penwidth="2"];
-node_a0b5fcbd -> node_80207502 [color="#0072B2" penwidth="2"];
-node_1f30aa54 -> node_1f30aa54 [color="#F0E442" penwidth="2"];
-node_a3d869d9 -> node_eca90943 [color="#E69F00" penwidth="2"];
-node_ac4dd029 -> node_69cca407 [color="#E69F00" penwidth="2"];
-node_ac4dd029 -> node_9b92a94e [color="#E69F00" penwidth="2"];
-node_94b6b9c8 -> node_a0b5fcbd [color="#000000" penwidth="2"];
-node_94b6b9c8 -> node_1f30aa54 [color="#000000" penwidth="2"];
-node_94b6b9c8 -> node_80207502 [color="#000000" penwidth="2"];
-node_f8963b35 -> node_792636c7 [color="#0072B2" penwidth="2"];
-node_f8963b35 -> node_eca90943 [color="#0072B2" penwidth="2"];
-node_f8963b35 -> node_a0b5fcbd [color="#0072B2" penwidth="2"];
-node_f8963b35 -> node_99c0e37f [color="#0072B2" penwidth="2"];
-node_f8963b35 -> node_80207502 [color="#0072B2" penwidth="2"];
-node_7d0e17da -> node_7d0e17da [color="#56B4E9" penwidth="2"];
-node_921ff584 -> node_4cf0abcb [color="#F0E442" penwidth="2"];
-node_921ff584 -> node_b2c5e8a9 [color="#F0E442" penwidth="2"];
-node_921ff584 -> node_921ff584 [color="#F0E442" penwidth="2"];
-node_921ff584 -> node_dbe85bf7 [color="#F0E442" penwidth="2"];
-node_e95201e9 -> node_e95201e9 [color="#E69F00" penwidth="2"];
-node_e95201e9 -> node_e95201e9 [color="#E69F00" penwidth="2"];
-node_094e1ed8 -> node_094e1ed8 [color="#000000" penwidth="2"];
-node_10502459 -> node_a21fb877 [color="#E69F00" penwidth="2"];
-node_dbe85bf7 -> node_35c39f4a [color="#CC79A7" penwidth="2"];
-node_dbe85bf7 -> node_35c39f4a [color="#CC79A7" penwidth="2"];
-node_5d58ac7e -> node_2a94e6a2 [color="#D55E00" penwidth="2"];
-node_b131aa02 -> node_7ca038bf [color="#56B4E9" penwidth="2"];
-node_b131aa02 -> node_7ca038bf [color="#56B4E9" penwidth="2"];
-node_b131aa02 -> node_7ca038bf [color="#56B4E9" penwidth="2"];
-node_b131aa02 -> node_7ca038bf [color="#56B4E9" penwidth="2"];
-node_b131aa02 -> node_b5e50ae1 [color="#56B4E9" penwidth="2"];
-node_b131aa02 -> node_b5e50ae1 [color="#56B4E9" penwidth="2"];
-node_b131aa02 -> node_b5e50ae1 [color="#56B4E9" penwidth="2"];
-node_99c0e37f -> node_f9ccd0a1 [color="#CC79A7" penwidth="2"];
-node_99c0e37f -> node_8edccde1 [color="#CC79A7" penwidth="2"];
-node_99c0e37f -> node_be1c4191 [color="#CC79A7" penwidth="2"];
-node_99c0e37f -> node_4f1e5b7c [color="#CC79A7" penwidth="2"];
-node_99c0e37f -> node_63c0a414 [color="#CC79A7" penwidth="2"];
-node_99c0e37f -> node_cd65964f [color="#CC79A7" penwidth="2"];
-node_99c0e37f -> node_c19b3416 [color="#CC79A7" penwidth="2"];
-node_99c0e37f -> node_fc3c0104 [color="#CC79A7" penwidth="2"];
-node_99c0e37f -> node_a009fbd7 [color="#CC79A7" penwidth="2"];
-node_80207502 -> node_f9ccd0a1 [color="#56B4E9" penwidth="2"];
-node_80207502 -> node_8edccde1 [color="#56B4E9" penwidth="2"];
-node_80207502 -> node_be1c4191 [color="#56B4E9" penwidth="2"];
-node_80207502 -> node_4f1e5b7c [color="#56B4E9" penwidth="2"];
-node_80207502 -> node_cd65964f [color="#56B4E9" penwidth="2"];
-node_80207502 -> node_c19b3416 [color="#56B4E9" penwidth="2"];
-node_80207502 -> node_fc3c0104 [color="#56B4E9" penwidth="2"];
-node_80207502 -> node_a009fbd7 [color="#56B4E9" penwidth="2"];
-subgraph cluster_b1ebe1d8 {
-    node_7b24a8ca;
+}node_8b8d4765 [label="0: (global)()" name="__init__::(global)" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_093e6ffc [label="0: (global)()" name="__init__::(global)" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_5795c214 [label="0: (global)()" name="__init__::(global)" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_f07da8cc [label="0: (global)()" name="delta_publisher::(global)" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_330eeb20 [label="64: __init__()" name="delta_publisher::DeltaPublisher.__init__" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_f5f0f83a [label="240: _build_synthetic_ticks()" name="delta_publisher::DeltaPublisher._build_synthetic_ticks" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_5b300105 [label="193: _on_market_data_ready()" name="delta_publisher::DeltaPublisher._on_market_data_ready" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_06234312 [label="182: _on_position_updated()" name="delta_publisher::DeltaPublisher._on_position_updated" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_bd5f711b [label="171: _on_positions_ready()" name="delta_publisher::DeltaPublisher._on_positions_ready" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_d56743b3 [label="143: _on_tick()" name="delta_publisher::DeltaPublisher._on_tick" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_78de87c6 [label="206: _sync_positions_from_store()" name="delta_publisher::DeltaPublisher._sync_positions_from_store" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
+node_cd482ecd [label="92: start()" name="delta_publisher::DeltaPublisher.start" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_18192bb6 [label="297: stats()" name="delta_publisher::DeltaPublisher.stats" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_c89a4f5c [label="120: stop()" name="delta_publisher::DeltaPublisher.stop" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_69cc3079 [label="0: (global)()" name="greeks_calculator::(global)" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_31cc4d75 [label="121: calculate_near_term_greeks()" name="greeks_calculator::calculate_near_term_greeks" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_2bb98dc7 [label="51: calculate_position_greeks()" name="greeks_calculator::calculate_position_greeks" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_76d0d96c [label="0: (global)()" name="notional_calculator::(global)" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_4133be48 [label="120: calculate_concentration()" name="notional_calculator::calculate_concentration" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_11e76046 [label="75: calculate_delta_dollars()" name="notional_calculator::calculate_delta_dollars" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_b1904ca8 [label="37: calculate_notional()" name="notional_calculator::calculate_notional" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_ae7fc268 [label="0: (global)()" name="pnl_calculator::(global)" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_2de10c5e [label="60: calculate_pnl()" name="pnl_calculator::calculate_pnl" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_137d18d4 [label="131: calculate_pnl_delta()" name="pnl_calculator::calculate_pnl_delta" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_c81cdaad [label="0: (global)()" name="portfolio_state::(global)" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_1b54c304 [label="69: __init__()" name="portfolio_state::PortfolioState.__init__" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_997194f9 [label="207: add_position()" name="portfolio_state::PortfolioState.add_position" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_c1481525 [label="81: apply_delta()" name="portfolio_state::PortfolioState.apply_delta" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
+node_504db5bf [label="267: clear()" name="portfolio_state::PortfolioState.clear" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
+node_7d28c5d7 [label="131: get_position()" name="portfolio_state::PortfolioState.get_position" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_bc161a40 [label="289: get_position_states()" name="portfolio_state::PortfolioState.get_position_states" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_1518cf20 [label="135: has_position()" name="portfolio_state::PortfolioState.has_position" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_84173cc5 [label="280: position_count()" name="portfolio_state::PortfolioState.position_count" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_9da227b7 [label="235: remove_position()" name="portfolio_state::PortfolioState.remove_position" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_f241a9fd [label="285: symbols()" name="portfolio_state::PortfolioState.symbols" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_ea646686 [label="139: to_snapshot()" name="portfolio_state::PortfolioState.to_snapshot" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_7983fe32 [label="0: (global)()" name="position_state::(global)" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_d29c8481 [label="75: to_event()" name="position_state::PositionDelta.to_event" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_de07d842 [label="165: from_position()" name="position_state::PositionState.from_position" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_1d4144b0 [label="243: to_dict()" name="position_state::PositionState.to_dict" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_8065e0fd [label="208: with_update()" name="position_state::PositionState.with_update" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_a032dc5f [label="0: (global)()" name="risk_alert_logger::(global)" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_262c5d10 [label="105: to_dict()" name="risk_alert_logger::AlertContext.to_dict" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_8e042e67 [label="113: to_json()" name="risk_alert_logger::AlertContext.to_json" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
+node_3414105d [label="129: __init__()" name="risk_alert_logger::RiskAlertLogger.__init__" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_2d93a4d6 [label="488: _extract_reason_from_market_alert()" name="risk_alert_logger::RiskAlertLogger._extract_reason_from_market_alert" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_95d4a82c [label="510: _extract_reason_from_signal()" name="risk_alert_logger::RiskAlertLogger._extract_reason_from_signal" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_e94f39ee [label="222: _log_namer()" name="risk_alert_logger::RiskAlertLogger._log_namer" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_9c0db5aa [label="239: _log_rotator()" name="risk_alert_logger::RiskAlertLogger._log_rotator" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_da8067d9 [label="167: _setup_logger()" name="risk_alert_logger::RiskAlertLogger._setup_logger" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
+node_73dde7e6 [label="537: _write_log()" name="risk_alert_logger::RiskAlertLogger._write_log" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
+node_b3247acc [label="544: get_recent_alerts()" name="risk_alert_logger::RiskAlertLogger.get_recent_alerts" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_4d66dac6 [label="446: log_batch()" name="risk_alert_logger::RiskAlertLogger.log_batch" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_34b67da5 [label="294: log_market_alert()" name="risk_alert_logger::RiskAlertLogger.log_market_alert" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
+node_ffccc26d [label="338: log_risk_signal()" name="risk_alert_logger::RiskAlertLogger.log_risk_signal" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
+node_891b0e17 [label="211: stop()" name="risk_alert_logger::RiskAlertLogger.stop" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
+node_7d2fc670 [label="258: update_market_cache()" name="risk_alert_logger::RiskAlertLogger.update_market_cache" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_322eafee [label="0: (global)()" name="risk_facade::(global)" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_26eef9b3 [label="68: __init__()" name="risk_facade::RiskFacade.__init__" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_fd35e468 [label="164: _build_position_risks()" name="risk_facade::RiskFacade._build_position_risks" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
+node_7f8c9ea3 [label="246: add_position()" name="risk_facade::RiskFacade.add_position" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
+node_adb69a58 [label="295: clear()" name="risk_facade::RiskFacade.clear" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
+node_c449667f [label="319: get_position_state()" name="risk_facade::RiskFacade.get_position_state" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_719a921d [label="130: get_snapshot()" name="risk_facade::RiskFacade.get_snapshot" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_69250d2a [label="305: has_position()" name="risk_facade::RiskFacade.has_position" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_214a4777 [label="201: load_positions()" name="risk_facade::RiskFacade.load_positions" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
+node_b2b508a0 [label="90: on_tick()" name="risk_facade::RiskFacade.on_tick" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
+node_eb26e3f8 [label="310: position_count()" name="risk_facade::RiskFacade.position_count" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_acf808fc [label="277: remove_position()" name="risk_facade::RiskFacade.remove_position" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
+node_00a5ec1d [label="323: set_account_info()" name="risk_facade::RiskFacade.set_account_info" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_539586a6 [label="315: symbols()" name="risk_facade::RiskFacade.symbols" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_2c2fca32 [label="0: (global)()" name="risk_signal_engine::(global)" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_be5fa7cd [label="43: __init__()" name="risk_signal_engine::RiskSignalEngine.__init__" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_515ec1fb [label="214: __repr__()" name="risk_signal_engine::RiskSignalEngine.__repr__" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_123379bf [label="160: _check_position_rules()" name="risk_signal_engine::RiskSignalEngine._check_position_rules" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_3d87b3a1 [label="170: _check_strategy_rules()" name="risk_signal_engine::RiskSignalEngine._check_strategy_rules" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_a4e61872 [label="82: evaluate()" name="risk_signal_engine::RiskSignalEngine.evaluate" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
+node_aa33615b [label="187: get_stats()" name="risk_signal_engine::RiskSignalEngine.get_stats" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
+node_479cb47d [label="200: reset_stats()" name="risk_signal_engine::RiskSignalEngine.reset_stats" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
+node_18ea69fd [label="0: (global)()" name="risk_signal_manager::(global)" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_2f9a291d [label="32: __init__()" name="risk_signal_manager::RiskSignalManager.__init__" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_27dd797e [label="247: __repr__()" name="risk_signal_manager::RiskSignalManager.__repr__" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_0e05fa24 [label="230: _severity_value()" name="risk_signal_manager::RiskSignalManager._severity_value" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_7ba8ecc2 [label="186: cleanup_expired()" name="risk_signal_manager::RiskSignalManager.cleanup_expired" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_d264e8c2 [label="161: clear_all_for_symbol()" name="risk_signal_manager::RiskSignalManager.clear_all_for_symbol" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_d43f3e14 [label="139: clear_signal()" name="risk_signal_manager::RiskSignalManager.clear_signal" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_f91bc443 [label="205: get_stats()" name="risk_signal_manager::RiskSignalManager.get_stats" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_01dd47d2 [label="64: process()" name="risk_signal_manager::RiskSignalManager.process" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
+node_c59fb1a5 [label="218: reset_stats()" name="risk_signal_manager::RiskSignalManager.reset_stats" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_0191066f [label="0: (global)()" name="rule_engine::(global)" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_023237a2 [label="37: breach_pct()" name="rule_engine::LimitBreach.breach_pct" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_ff8a54b3 [label="43: description()" name="rule_engine::LimitBreach.description" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_ed43dd43 [label="61: __init__()" name="rule_engine::RuleEngine.__init__" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_48b6a07b [label="155: _check_limit()" name="rule_engine::RuleEngine._check_limit" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_f29f0576 [label="185: _check_range()" name="rule_engine::RuleEngine._check_range" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_26dae455 [label="72: evaluate()" name="rule_engine::RuleEngine.evaluate" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_49262616 [label="0: (global)()" name="threshold::(global)" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_58a18b3f [label="120: breach_pct()" name="threshold::RangeThreshold.breach_pct" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_18bc571d [label="97: check()" name="threshold::RangeThreshold.check" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_94066c78 [label="59: breach_pct()" name="threshold::Threshold.breach_pct" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_d66d4885 [label="37: check()" name="threshold::Threshold.check" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_a6d3c10a [label="0: (global)()" name="tick_processor::(global)" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_41b98801 [label="283: _is_negligible_delta()" name="tick_processor::TickProcessor._is_negligible_delta" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_e6c0702c [label="271: _map_quality()" name="tick_processor::TickProcessor._map_quality" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_836b7d9e [label="241: _resolve_mark_price()" name="tick_processor::TickProcessor._resolve_mark_price" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_8dbd7609 [label="315: _resolve_pnl_price()" name="tick_processor::TickProcessor._resolve_pnl_price" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_cd9e1df1 [label="211: _should_emit_delta()" name="tick_processor::TickProcessor._should_emit_delta" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_9d0e4402 [label="71: process_tick()" name="tick_processor::TickProcessor.process_tick" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
+node_5319b75b [label="353: create_initial_state()" name="tick_processor::create_initial_state" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
+node_5b300105 -> node_78de87c6 [color="#0072B2" penwidth="2"];
+node_06234312 -> node_78de87c6 [color="#56B4E9" penwidth="2"];
+node_bd5f711b -> node_78de87c6 [color="#009E73" penwidth="2"];
+node_d56743b3 -> node_d29c8481 [color="#009E73" penwidth="2"];
+node_d56743b3 -> node_b2b508a0 [color="#009E73" penwidth="2"];
+node_78de87c6 -> node_f5f0f83a [color="#D55E00" penwidth="2"];
+node_78de87c6 -> node_214a4777 [color="#D55E00" penwidth="2"];
+node_c1481525 -> node_8065e0fd [color="#0072B2" penwidth="2"];
+node_504db5bf -> node_504db5bf [color="#CC79A7" penwidth="2"];
+node_504db5bf -> node_504db5bf [color="#CC79A7" penwidth="2"];
+node_504db5bf -> node_504db5bf [color="#CC79A7" penwidth="2"];
+node_8e042e67 -> node_262c5d10 [color="#CC79A7" penwidth="2"];
+node_3414105d -> node_da8067d9 [color="#0072B2" penwidth="2"];
+node_da8067d9 -> node_cd482ecd [color="#E69F00" penwidth="2"];
+node_73dde7e6 -> node_8e042e67 [color="#D55E00" penwidth="2"];
+node_4d66dac6 -> node_34b67da5 [color="#D55E00" penwidth="2"];
+node_4d66dac6 -> node_ffccc26d [color="#D55E00" penwidth="2"];
+node_34b67da5 -> node_2d93a4d6 [color="#0072B2" penwidth="2"];
+node_34b67da5 -> node_73dde7e6 [color="#0072B2" penwidth="2"];
+node_ffccc26d -> node_95d4a82c [color="#0072B2" penwidth="2"];
+node_ffccc26d -> node_73dde7e6 [color="#0072B2" penwidth="2"];
+node_891b0e17 -> node_891b0e17 [color="#CC79A7" penwidth="2"];
+node_26eef9b3 -> node_1b54c304 [color="#009E73" penwidth="2"];
+node_fd35e468 -> node_bc161a40 [color="#000000" penwidth="2"];
+node_7f8c9ea3 -> node_7f8c9ea3 [color="#009E73" penwidth="2"];
+node_7f8c9ea3 -> node_5319b75b [color="#009E73" penwidth="2"];
+node_adb69a58 -> node_adb69a58 [color="#000000" penwidth="2"];
+node_c449667f -> node_7d28c5d7 [color="#CC79A7" penwidth="2"];
+node_719a921d -> node_ea646686 [color="#0072B2" penwidth="2"];
+node_719a921d -> node_fd35e468 [color="#0072B2" penwidth="2"];
+node_214a4777 -> node_7f8c9ea3 [color="#CC79A7" penwidth="2"];
+node_214a4777 -> node_adb69a58 [color="#CC79A7" penwidth="2"];
+node_214a4777 -> node_5319b75b [color="#CC79A7" penwidth="2"];
+node_b2b508a0 -> node_c1481525 [color="#000000" penwidth="2"];
+node_b2b508a0 -> node_7d28c5d7 [color="#000000" penwidth="2"];
+node_b2b508a0 -> node_7f8c9ea3 [color="#000000" penwidth="2"];
+node_b2b508a0 -> node_9d0e4402 [color="#000000" penwidth="2"];
+node_b2b508a0 -> node_5319b75b [color="#000000" penwidth="2"];
+node_acf808fc -> node_acf808fc [color="#F0E442" penwidth="2"];
+node_a4e61872 -> node_123379bf [color="#56B4E9" penwidth="2"];
+node_a4e61872 -> node_3d87b3a1 [color="#56B4E9" penwidth="2"];
+node_a4e61872 -> node_a4e61872 [color="#56B4E9" penwidth="2"];
+node_a4e61872 -> node_01dd47d2 [color="#56B4E9" penwidth="2"];
+node_aa33615b -> node_aa33615b [color="#009E73" penwidth="2"];
+node_aa33615b -> node_aa33615b [color="#009E73" penwidth="2"];
+node_479cb47d -> node_479cb47d [color="#0072B2" penwidth="2"];
+node_d264e8c2 -> node_d43f3e14 [color="#56B4E9" penwidth="2"];
+node_01dd47d2 -> node_0e05fa24 [color="#56B4E9" penwidth="2"];
+node_01dd47d2 -> node_0e05fa24 [color="#56B4E9" penwidth="2"];
+node_ff8a54b3 -> node_023237a2 [color="#009E73" penwidth="2"];
+node_26dae455 -> node_48b6a07b [color="#0072B2" penwidth="2"];
+node_26dae455 -> node_48b6a07b [color="#0072B2" penwidth="2"];
+node_26dae455 -> node_48b6a07b [color="#0072B2" penwidth="2"];
+node_26dae455 -> node_48b6a07b [color="#0072B2" penwidth="2"];
+node_26dae455 -> node_f29f0576 [color="#0072B2" penwidth="2"];
+node_26dae455 -> node_f29f0576 [color="#0072B2" penwidth="2"];
+node_26dae455 -> node_f29f0576 [color="#0072B2" penwidth="2"];
+node_9d0e4402 -> node_2bb98dc7 [color="#56B4E9" penwidth="2"];
+node_9d0e4402 -> node_11e76046 [color="#56B4E9" penwidth="2"];
+node_9d0e4402 -> node_b1904ca8 [color="#56B4E9" penwidth="2"];
+node_9d0e4402 -> node_2de10c5e [color="#56B4E9" penwidth="2"];
+node_9d0e4402 -> node_41b98801 [color="#56B4E9" penwidth="2"];
+node_9d0e4402 -> node_e6c0702c [color="#56B4E9" penwidth="2"];
+node_9d0e4402 -> node_836b7d9e [color="#56B4E9" penwidth="2"];
+node_9d0e4402 -> node_8dbd7609 [color="#56B4E9" penwidth="2"];
+node_9d0e4402 -> node_cd9e1df1 [color="#56B4E9" penwidth="2"];
+node_5319b75b -> node_2bb98dc7 [color="#009E73" penwidth="2"];
+node_5319b75b -> node_11e76046 [color="#009E73" penwidth="2"];
+node_5319b75b -> node_b1904ca8 [color="#009E73" penwidth="2"];
+node_5319b75b -> node_2de10c5e [color="#009E73" penwidth="2"];
+node_5319b75b -> node_e6c0702c [color="#009E73" penwidth="2"];
+node_5319b75b -> node_836b7d9e [color="#009E73" penwidth="2"];
+node_5319b75b -> node_8dbd7609 [color="#009E73" penwidth="2"];
+node_5319b75b -> node_cd9e1df1 [color="#009E73" penwidth="2"];
+subgraph cluster_d73ee65f {
+    node_8b8d4765;
     label="File: __init__";
     name="__init__";
     style="filled";
     graph[style=dotted];
 };
-subgraph cluster_a0b1e12d {
-    node_8c993f9b;
+subgraph cluster_98c3f3f8 {
+    node_093e6ffc;
     label="File: __init__";
     name="__init__";
     style="filled";
     graph[style=dotted];
 };
-subgraph cluster_64720b61 {
-    node_1379be3d;
+subgraph cluster_18dca72c {
+    node_5795c214;
     label="File: __init__";
     name="__init__";
     style="filled";
     graph[style=dotted];
 };
-subgraph cluster_8daa850c {
-    node_070426f7;
+subgraph cluster_b06e0a90 {
+    node_f07da8cc;
     label="File: delta_publisher";
     name="delta_publisher";
     style="filled";
     graph[style=dotted];
-    subgraph cluster_43caf47f {
-        node_715d17b1 node_0b4932a4 node_3a1ab4e9 node_1aa80f7a node_49f90c9b node_ae8b0732 node_907b2997 node_b07a6799 node_af5ed5fd node_931aa5f7;
+    subgraph cluster_dbf3e82c {
+        node_330eeb20 node_cd482ecd node_c89a4f5c node_d56743b3 node_bd5f711b node_06234312 node_5b300105 node_78de87c6 node_f5f0f83a node_18192bb6;
         label="Class: DeltaPublisher";
         name="DeltaPublisher";
         style="filled";
         graph[style=dotted];
     };
 };
-subgraph cluster_112d1166 {
-    node_f9ccd0a1 node_368fa432 node_0d814d6c;
+subgraph cluster_fa3da6e9 {
+    node_2bb98dc7 node_31cc4d75 node_69cc3079;
     label="File: greeks_calculator";
     name="greeks_calculator";
     style="filled";
     graph[style=dotted];
-    subgraph cluster_f6ef8183 {
+    subgraph cluster_34daf651 {
         label="Class: GreeksResult";
         name="GreeksResult";
         style="filled";
         graph[style=dotted];
     };
 };
-subgraph cluster_f0ea794d {
-    node_be1c4191 node_8edccde1 node_f3530728 node_83a2429b;
+subgraph cluster_6d2f9d3a {
+    node_b1904ca8 node_11e76046 node_4133be48 node_76d0d96c;
     label="File: notional_calculator";
     name="notional_calculator";
     style="filled";
     graph[style=dotted];
-    subgraph cluster_cc7ef2f5 {
+    subgraph cluster_b2042ac7 {
         label="Class: NotionalResult";
         name="NotionalResult";
         style="filled";
         graph[style=dotted];
     };
 };
-subgraph cluster_4e1d2a8e {
-    node_4f1e5b7c node_f14bd9e5 node_4f720e12;
+subgraph cluster_ff124684 {
+    node_2de10c5e node_137d18d4 node_ae7fc268;
     label="File: pnl_calculator";
     name="pnl_calculator";
     style="filled";
     graph[style=dotted];
-    subgraph cluster_045d8214 {
+    subgraph cluster_76914f2c {
         label="Class: DataQuality";
         name="DataQuality";
         style="filled";
         graph[style=dotted];
     };
-    subgraph cluster_e2c588a2 {
+    subgraph cluster_8d83909d {
         label="Class: PnLResult";
         name="PnLResult";
         style="filled";
         graph[style=dotted];
     };
 };
-subgraph cluster_476e35e3 {
-    node_fca559c3;
+subgraph cluster_d18fdc7c {
+    node_c81cdaad;
     label="File: portfolio_state";
     name="portfolio_state";
     style="filled";
     graph[style=dotted];
-    subgraph cluster_ad15c98c {
+    subgraph cluster_7003ccc8 {
         label="Class: PortfolioAggregates";
         name="PortfolioAggregates";
         style="filled";
         graph[style=dotted];
     };
-    subgraph cluster_c4455847 {
-        node_9a839e94 node_792636c7 node_eca90943 node_35c81bf6 node_69cca407 node_01bda7f3 node_29234d6a node_87d9f387 node_c55ea8c0 node_e495a223 node_da0055e6;
+    subgraph cluster_c80cbc57 {
+        node_1b54c304 node_c1481525 node_7d28c5d7 node_1518cf20 node_ea646686 node_997194f9 node_9da227b7 node_504db5bf node_84173cc5 node_f241a9fd node_bc161a40;
         label="Class: PortfolioState";
         name="PortfolioState";
         style="filled";
         graph[style=dotted];
     };
 };
-subgraph cluster_014de58b {
-    node_d9559a21;
+subgraph cluster_51aa0f58 {
+    node_7983fe32;
     label="File: position_state";
     name="position_state";
     style="filled";
     graph[style=dotted];
-    subgraph cluster_9143d2e7 {
-        node_4ffb8760;
+    subgraph cluster_619794aa {
+        node_d29c8481;
         label="Class: PositionDelta";
         name="PositionDelta";
         style="filled";
         graph[style=dotted];
     };
-    subgraph cluster_08280a96 {
-        node_090246ed node_37851ea4 node_12bd7721;
+    subgraph cluster_102654b2 {
+        node_de07d842 node_8065e0fd node_1d4144b0;
         label="Class: PositionState";
         name="PositionState";
         style="filled";
         graph[style=dotted];
     };
 };
-subgraph cluster_4b151aef {
-    node_acf43f67;
+subgraph cluster_65909433 {
+    node_a032dc5f;
     label="File: risk_alert_logger";
     name="risk_alert_logger";
     style="filled";
     graph[style=dotted];
-    subgraph cluster_abe986cb {
-        node_402fd238 node_09eac2fa;
+    subgraph cluster_897eac38 {
+        node_262c5d10 node_8e042e67;
         label="Class: AlertContext";
         name="AlertContext";
         style="filled";
         graph[style=dotted];
     };
-    subgraph cluster_90cf2a8f {
-        node_39460f79 node_e819214d node_d7119233 node_7ca07111 node_99413a04 node_27da76b7 node_0891fef5 node_bd7be7ed node_6490434a node_19c9185c node_a63240a5 node_57dc91f3 node_e2742cf5;
+    subgraph cluster_25fcc690 {
+        node_3414105d node_da8067d9 node_891b0e17 node_e94f39ee node_9c0db5aa node_7d2fc670 node_34b67da5 node_ffccc26d node_4d66dac6 node_2d93a4d6 node_95d4a82c node_73dde7e6 node_b3247acc;
         label="Class: RiskAlertLogger";
         name="RiskAlertLogger";
         style="filled";
         graph[style=dotted];
     };
 };
-subgraph cluster_7104504c {
-    node_a79d8cf3;
+subgraph cluster_6abafba7 {
+    node_322eafee;
     label="File: risk_facade";
     name="risk_facade";
     style="filled";
     graph[style=dotted];
-    subgraph cluster_ba70ce20 {
+    subgraph cluster_36c1a1f0 {
         label="Class: BrokerAccountInfo";
         name="BrokerAccountInfo";
         style="filled";
         graph[style=dotted];
     };
-    subgraph cluster_cd6e6366 {
-        node_ec54f4b5 node_f8963b35 node_ac4dd029 node_9b92a94e node_94b6b9c8 node_a0b5fcbd node_7d0e17da node_1f30aa54 node_cc83b4d9 node_fb2fb36d node_829fd817 node_a3d869d9 node_65ae143f;
+    subgraph cluster_4ed996da {
+        node_26eef9b3 node_b2b508a0 node_719a921d node_fd35e468 node_214a4777 node_7f8c9ea3 node_acf808fc node_adb69a58 node_69250d2a node_eb26e3f8 node_539586a6 node_c449667f node_00a5ec1d;
         label="Class: RiskFacade";
         name="RiskFacade";
         style="filled";
         graph[style=dotted];
     };
 };
-subgraph cluster_cfa42acb {
-    node_0bacadf1;
+subgraph cluster_38122669 {
+    node_2c2fca32;
     label="File: risk_signal_engine";
     name="risk_signal_engine";
     style="filled";
     graph[style=dotted];
-    subgraph cluster_50c7ba03 {
-        node_e90a3590 node_921ff584 node_4cf0abcb node_b2c5e8a9 node_e95201e9 node_094e1ed8 node_fb892200;
+    subgraph cluster_e955326a {
+        node_be5fa7cd node_a4e61872 node_123379bf node_3d87b3a1 node_aa33615b node_479cb47d node_515ec1fb;
         label="Class: RiskSignalEngine";
         name="RiskSignalEngine";
         style="filled";
         graph[style=dotted];
     };
 };
-subgraph cluster_03792a30 {
-    node_4892d95f;
+subgraph cluster_5f2e3f3b {
+    node_18ea69fd;
     label="File: risk_signal_manager";
     name="risk_signal_manager";
     style="filled";
     graph[style=dotted];
-    subgraph cluster_cffb1d4e {
-        node_1edb54e0 node_dbe85bf7 node_a21fb877 node_10502459 node_59cf6ab0 node_02c222b2 node_68b9c4f4 node_35c39f4a node_7aa93f54;
+    subgraph cluster_062ebc97 {
+        node_2f9a291d node_01dd47d2 node_d43f3e14 node_d264e8c2 node_7ba8ecc2 node_f91bc443 node_c59fb1a5 node_0e05fa24 node_27dd797e;
         label="Class: RiskSignalManager";
         name="RiskSignalManager";
         style="filled";
         graph[style=dotted];
     };
 };
-subgraph cluster_c9d92122 {
-    node_17cd06af;
+subgraph cluster_77d0c162 {
+    node_0191066f;
     label="File: rule_engine";
     name="rule_engine";
     style="filled";
     graph[style=dotted];
-    subgraph cluster_e7bd2f21 {
+    subgraph cluster_c3c95f24 {
         label="Class: BreachSeverity";
         name="BreachSeverity";
         style="filled";
         graph[style=dotted];
     };
-    subgraph cluster_70a56c9c {
-        node_2a94e6a2 node_5d58ac7e;
+    subgraph cluster_4ad5792a {
+        node_023237a2 node_ff8a54b3;
         label="Class: LimitBreach";
         name="LimitBreach";
         style="filled";
         graph[style=dotted];
     };
-    subgraph cluster_4ba76129 {
-        node_95e5be5d node_b131aa02 node_7ca038bf node_b5e50ae1;
+    subgraph cluster_561d36b4 {
+        node_ed43dd43 node_26dae455 node_48b6a07b node_f29f0576;
         label="Class: RuleEngine";
         name="RuleEngine";
         style="filled";
         graph[style=dotted];
     };
 };
-subgraph cluster_e27dd9c2 {
-    node_093df58b;
+subgraph cluster_6d8599b7 {
+    node_49262616;
     label="File: threshold";
     name="threshold";
     style="filled";
     graph[style=dotted];
-    subgraph cluster_d3aa6d40 {
+    subgraph cluster_44ba6a3b {
         label="Class: ThresholdDirection";
         name="ThresholdDirection";
         style="filled";
         graph[style=dotted];
     };
-    subgraph cluster_e676e3cd {
-        node_97d509a0 node_935750c3;
+    subgraph cluster_a09bc4cc {
+        node_d66d4885 node_94066c78;
         label="Class: Threshold";
         name="Threshold";
         style="filled";
         graph[style=dotted];
     };
-    subgraph cluster_0138c0cf {
-        node_fa6645ed node_e8923665;
+    subgraph cluster_053969ac {
+        node_18bc571d node_58a18b3f;
         label="Class: RangeThreshold";
         name="RangeThreshold";
         style="filled";
         graph[style=dotted];
     };
 };
-subgraph cluster_0734d030 {
-    node_80207502 node_4b7ebe24;
+subgraph cluster_7e5776b6 {
+    node_5319b75b node_a6d3c10a;
     label="File: tick_processor";
     name="tick_processor";
     style="filled";
     graph[style=dotted];
-    subgraph cluster_36a8ad7a {
-        node_99c0e37f node_a009fbd7 node_c19b3416 node_cd65964f node_63c0a414 node_fc3c0104;
+    subgraph cluster_392607cd {
+        node_9d0e4402 node_cd9e1df1 node_836b7d9e node_e6c0702c node_41b98801 node_8dbd7609;
         label="Class: TickProcessor";
         name="TickProcessor";
         style="filled";

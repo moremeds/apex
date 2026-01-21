@@ -1,7 +1,7 @@
 # APEX Development Makefile
 # Quick commands for common development tasks
 
-.PHONY: install lint format type-check test test-all coverage clean dead-code complexity quality verify help diagrams diagrams-classes diagrams-deps diagrams-flows
+.PHONY: install lint format type-check test test-all coverage clean dead-code complexity quality verify help diagrams diagrams-classes diagrams-deps diagrams-flows validate-fast validate-full validate-holdout validate-gates validate-tp signal-report validate-all
 
 # Virtual environment - use .venv/bin executables directly
 VENV := .venv/bin
@@ -33,13 +33,17 @@ help:
 	@echo "  make test-all      Run all tests (unit + integration)"
 	@echo "  make coverage      Run tests with HTML coverage report"
 	@echo ""
-	@echo "$(GREEN)Verification:$(RESET)"
+	@echo "$(GREEN)Verification (Legacy):$(RESET)"
 	@echo "  make verify        Run signal and regime verification"
 	@echo ""
-	@echo "$(GREEN)M2 Validation (see make/validation.mk):$(RESET)"
-	@echo "  make validate-test          Quick test (~5 min)"
-	@echo "  make validate-full-publish  Full workflow + publish (~30-60 min)"
-	@echo "  make validate-smart         Smart workflow (update if gates pass)"
+	@echo "$(GREEN)Validation (Signal Service v2):$(RESET)"
+	@echo "  make validate-fast     Fast PR gate validation (10 symbols)"
+	@echo "  make validate-full     Full nested CV validation"
+	@echo "  make validate-holdout  Holdout validation for releases"
+	@echo "  make validate-gates    Run quality gates G1-G10"
+	@echo "  make validate-tp       Validate turning points"
+	@echo "  make signal-report     Generate signal report package"
+	@echo "  make validate-all      Run all validations (report + gates + TP)"
 	@echo ""
 	@echo "$(GREEN)Documentation:$(RESET)"
 	@echo "  make diagrams      Generate all architecture diagrams"
@@ -112,7 +116,7 @@ coverage:
 	@echo "$(GREEN)✓ Coverage report generated in htmlcov/$(RESET)"
 
 # ═══════════════════════════════════════════════════════════════
-# Verification
+# Verification (Legacy)
 # ═══════════════════════════════════════════════════════════════
 
 verify:
@@ -123,10 +127,47 @@ verify:
 	$(PYTHON) -m src.verification.regime_verifier --all --profile dev
 
 # ═══════════════════════════════════════════════════════════════
-# M2 Validation (Regime Detector) - see make/validation.mk
+# Validation (Signal Service v2 - M2/M3)
 # ═══════════════════════════════════════════════════════════════
 
-include make/validation.mk
+validate-fast:
+	@echo "$(BOLD)Running fast validation (PR gate)...$(RESET)"
+	$(PYTHON) -m src.runners.validation_runner fast \
+		--symbols SPY QQQ AAPL MSFT NVDA AMD MU GME AMC VIX \
+		--timeframes 1d --folds 2 --no-optuna
+
+validate-full:
+	@echo "$(BOLD)Running full nested CV validation...$(RESET)"
+	$(PYTHON) -m src.runners.validation_runner full \
+		--universe config/validation/regime_universe.yaml \
+		--timeframes 1d --days 600 --max-symbols 40
+
+validate-holdout:
+	@echo "$(BOLD)Running holdout validation...$(RESET)"
+	$(PYTHON) -m src.runners.validation_runner holdout \
+		--universe config/validation/regime_universe.yaml
+
+validate-gates:
+	@echo "$(BOLD)Running signal quality gates (G1-G10)...$(RESET)"
+	$(PYTHON) scripts/validate_gates.py --all \
+		--package reports/validation/signal_report -v
+
+validate-tp:
+	@echo "$(BOLD)Validating turning points...$(RESET)"
+	$(PYTHON) scripts/validate_turning_points.py \
+		--config tests/fixtures/turning_point_samples.yaml --all
+
+signal-report:
+	@echo "$(BOLD)Generating signal report package...$(RESET)"
+	$(PYTHON) -m src.runners.signal_runner --live \
+		--symbols SPY QQQ AAPL MSFT NVDA \
+		--timeframes 1d 4h 1h \
+		--format package \
+		--html-output reports/validation/signal_report
+	@echo "$(GREEN)✓ Report generated at reports/validation/signal_report/$(RESET)"
+
+validate-all: signal-report validate-gates validate-tp
+	@echo "$(GREEN)✓ All validation checks complete$(RESET)"
 
 # ═══════════════════════════════════════════════════════════════
 # Diagrams

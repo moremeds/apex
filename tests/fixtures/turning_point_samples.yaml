@@ -1,0 +1,141 @@
+# Turning Point Validation Samples
+# Ground-truth data for validating TP model predictions
+#
+# Schema Version: tp_validation_v1
+# Updated: 2026-01-21
+#
+# Usage:
+#   python scripts/validate_turning_points.py \
+#     --config tests/fixtures/turning_point_samples.yaml --all
+
+schema_version: tp_validation_v1
+
+# G9 Gate: TP timing bounds
+# - Early warning can fire up to max_lead_bars BEFORE actual TP
+# - Confirmed can fire up to max_lag_bars AFTER actual TP
+timing_bounds:
+  max_lead_bars: 5
+  max_lag_bars: 3
+
+# Ground-truth turning points per symbol
+# Each entry defines a known top or bottom with validation parameters
+symbols:
+  TSLA:
+    - date: "2025-11-15"
+      type: bottom
+      confidence_threshold: 0.7
+      notes: "Post-earnings bottom, confirmed by volume spike"
+    - date: "2025-12-22"
+      type: top
+      confidence_threshold: 0.65
+      notes: "Year-end top before pullback"
+    - date: "2025-08-12"
+      type: bottom
+      confidence_threshold: 0.6
+      notes: "Summer correction low with RSI divergence"
+
+  NVDA:
+    - date: "2025-07-10"
+      type: top
+      confidence_threshold: 0.7
+      notes: "AI hype peak, followed by 15% correction"
+    - date: "2025-10-28"
+      type: bottom
+      confidence_threshold: 0.65
+      notes: "Q3 earnings bottom, strong volume support"
+    - date: "2025-05-20"
+      type: top
+      confidence_threshold: 0.6
+      notes: "Pre-split distribution top"
+
+  AAPL:
+    - date: "2025-08-05"
+      type: bottom
+      confidence_threshold: 0.7
+      notes: "Market-wide correction low"
+    - date: "2025-06-15"
+      type: top
+      confidence_threshold: 0.65
+      notes: "WWDC hype peak"
+    - date: "2025-11-28"
+      type: top
+      confidence_threshold: 0.6
+      notes: "Pre-holiday distribution"
+
+  SPY:
+    - date: "2025-08-05"
+      type: bottom
+      confidence_threshold: 0.7
+      notes: "Market correction low, VIX spike"
+    - date: "2025-10-15"
+      type: bottom
+      confidence_threshold: 0.65
+      notes: "October pullback low"
+    - date: "2025-07-20"
+      type: top
+      confidence_threshold: 0.6
+      notes: "Summer distribution top"
+
+  QQQ:
+    - date: "2025-08-05"
+      type: bottom
+      confidence_threshold: 0.7
+      notes: "Tech selloff bottom, aligned with SPY"
+    - date: "2025-07-10"
+      type: top
+      confidence_threshold: 0.65
+      notes: "Tech sector rotation top"
+
+  MSFT:
+    - date: "2025-07-25"
+      type: top
+      confidence_threshold: 0.65
+      notes: "Q2 earnings reaction top"
+    - date: "2025-10-10"
+      type: bottom
+      confidence_threshold: 0.6
+      notes: "October correction low"
+
+  AMD:
+    - date: "2025-06-01"
+      type: top
+      confidence_threshold: 0.65
+      notes: "AI chip momentum peak"
+    - date: "2025-09-15"
+      type: bottom
+      confidence_threshold: 0.6
+      notes: "Sector rotation bottom"
+
+  META:
+    - date: "2025-07-30"
+      type: top
+      confidence_threshold: 0.65
+      notes: "Ad revenue concerns distribution"
+    - date: "2025-11-05"
+      type: bottom
+      confidence_threshold: 0.6
+      notes: "Post-election sentiment low"
+
+# Validation rules
+validation:
+  # Minimum number of samples required per symbol
+  min_samples_per_symbol: 2
+
+  # Acceptable detection types for each ground-truth type
+  valid_detection_mapping:
+    top:
+      - TOP_RISK
+    bottom:
+      - BOTTOM_RISK
+
+  # Window (in trading days) around ground-truth date to search for signal
+  search_window_days: 10
+
+  # Metrics to compute
+  metrics:
+    - accuracy      # % of TPs correctly identified
+    - precision     # TP / (TP + FP)
+    - recall        # TP / (TP + FN)
+    - mean_lead     # Average bars before actual TP (for early_warning)
+    - mean_lag      # Average bars after actual TP (for confirmed)
+    - timing_mae    # Mean absolute error in bars

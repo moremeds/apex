@@ -70,6 +70,15 @@ class "BarSnapshot" as apex.src.domain.signals.indicators.regime.models.BarSnaps
   ts : datetime
   to_dict() -> Dict[str, Any]
 }
+class "BarValidation" as apex.src.domain.signals.validation.schemas.BarValidation {
+  loaded_bars : int
+  max_lookback_indicator : str
+  reasons : List[str]
+  requested_bars : int
+  usable_bars : int
+  validated_bars : int
+  to_dict() -> dict
+}
 class "BarValidationBuilder" as apex.src.domain.signals.schemas.BarValidationBuilder {
   data_source : str
   end_date : Optional[datetime]
@@ -215,6 +224,19 @@ class "<color:red>ConfigError</color>" as apex.src.domain.signals.config.schema.
   path : str
   value : Optional[Any]
 }
+class "ConfirmationResult" as apex.src.domain.signals.validation.confirmation.ConfirmationResult {
+  confirmation_value : str
+  delta_fp_rate : float
+  delta_precision : float
+  s1
+  s1_ci_fp_rate : Tuple[float, float]
+  s1_ci_precision : Tuple[float, float]
+  s2
+  s2_ci_fp_rate : Tuple[float, float]
+  s2_ci_precision : Tuple[float, float]
+  passes_gates(min_fp_reduction: float, max_precision_drop: float) -> Tuple[bool, List[str]]
+  to_dict() -> dict
+}
 class "ConfluenceCalculator" as apex.src.domain.signals.confluence_calculator.ConfluenceCalculator {
   indicator_state_count : int
   clear_cache(symbol: Optional[str]) -> int
@@ -325,6 +347,17 @@ class "EMAIndicator" as apex.src.domain.signals.indicators.trend.ema.EMAIndicato
   required_fields : list
   warmup_periods : int
 }
+class "EarlinessResult" as apex.src.domain.signals.validation.earliness.EarlinessResult {
+  ci_95 : Tuple[float, float]
+  earliness_values : List[float]
+  median_earliness_days : float
+  n_episodes : int
+  p75_earliness_days : float
+  pct_earlier_than_baseline : float
+  tf_pair : str
+  passes_gates(min_median_earliness: float, min_pct_earlier: float) -> Tuple[bool, List[str]]
+  to_dict() -> dict
+}
 class "EvalResult" as apex.src.domain.signals.indicators.regime.rule_trace.EvalResult {
   current_value : float
   direction : Literal['increase', 'decrease']
@@ -386,11 +419,25 @@ class "ForceIndexIndicator" as apex.src.domain.signals.indicators.volume.force.F
   required_fields : list
   warmup_periods : int
 }
+class "GateResult" as apex.src.domain.signals.validation.schemas.GateResult {
+  gate_name : str
+  message : str
+  passed : bool
+  threshold : float
+  value : float
+  to_dict() -> dict
+}
 class "HistoricalVolatilityIndicator" as apex.src.domain.signals.indicators.volatility.hvol.HistoricalVolatilityIndicator {
   category : VOLATILITY
   name : str
   required_fields : list
   warmup_periods : int
+}
+class "HorizonConfig" as apex.src.domain.signals.validation.schemas.HorizonConfig {
+  bars_per_day : Dict[str, float]
+  horizon_bars_by_tf : Dict[str, int]
+  horizon_calendar_days : int
+  to_dict() -> dict
 }
 class "IVState" as apex.src.domain.signals.indicators.regime.models.IVState {
   name
@@ -474,6 +521,23 @@ class "KeltnerChannelsIndicator" as apex.src.domain.signals.indicators.volatilit
   required_fields : list
   warmup_periods : int
 }
+class "LabeledPeriod" as apex.src.domain.signals.validation.labeler_contract.LabeledPeriod {
+  bar_index : int
+  forward_return : float
+  forward_sharpe : float
+  forward_volatility : float
+  label
+  max_drawdown : float
+  timestamp
+}
+class "LabelerThreshold" as apex.src.domain.signals.validation.schemas.LabelerThreshold {
+  choppy_drawdown_max : float
+  choppy_volatility_min : float
+  trending_forward_return_min : float
+  trending_sharpe_min : float
+  version : str
+  to_dict() -> dict
+}
 class "MACDIndicator" as apex.src.domain.signals.indicators.momentum.macd.MACDIndicator {
   category : MOMENTUM
   name : str
@@ -533,11 +597,44 @@ class "MomentumIndicator" as apex.src.domain.signals.indicators.momentum.momentu
   required_fields : list
   warmup_periods : int
 }
+class "NestedCVConfig" as apex.src.domain.signals.validation.nested_cv.NestedCVConfig {
+  inner_folds : int
+  inner_max_trials : int
+  labeler_version : str
+  outer_folds : int
+  outer_train_pct : float
+  time_config
+  validate() -> None
+}
+class "NestedCVResult" as apex.src.domain.signals.validation.nested_cv.NestedCVResult {
+  aggregated_metrics : List[SymbolMetrics]
+  outer_results : List[OuterFoldResult]
+  to_dict() -> dict
+}
+class "NestedWalkForwardCV" as apex.src.domain.signals.validation.nested_cv.NestedWalkForwardCV {
+  config
+  evaluate_outer_test(symbols: List[str], test_window: TimeWindow, params: Dict[str, Any], evaluate_symbol_fn: Callable[[str, TimeWindow, Dict[str, Any]], SymbolMetrics]) -> List[SymbolMetrics]
+  generate_inner_splits(train_window: TimeWindow) -> Iterator[Tuple[TimeWindow, TimeWindow]]
+  generate_outer_splits(start_date: date, end_date: date) -> Iterator[OuterFold]
+  run(symbols: List[str], start_date: date, end_date: date, objective_fn: Callable[[Dict[str, Any], TimeWindow, TimeWindow], float], evaluate_symbol_fn: Callable[[str, TimeWindow, Dict[str, Any]], SymbolMetrics], param_space: Dict[str, Any]) -> NestedCVResult
+  run_inner_optimization(symbols: List[str], train_window: TimeWindow, objective_fn: Callable[[Dict[str, Any], TimeWindow, TimeWindow], float], param_space: Dict[str, Any]) -> Tuple[Dict[str, Any], float]
+}
 class "OBVIndicator" as apex.src.domain.signals.indicators.volume.obv.OBVIndicator {
   category : VOLUME
   name : str
   required_fields : list
   warmup_periods : int
+}
+class "OuterFold" as apex.src.domain.signals.validation.nested_cv.OuterFold {
+  fold_id : int
+  test_window
+  train_window
+}
+class "OuterFoldResult" as apex.src.domain.signals.validation.nested_cv.OuterFoldResult {
+  best_params : Dict[str, Any]
+  fold_id : int
+  inner_cv_score : float
+  symbol_metrics : List[SymbolMetrics]
 }
 class "PSARIndicator" as apex.src.domain.signals.indicators.trend.psar.PSARIndicator {
   category : TREND
@@ -620,6 +717,27 @@ class "RegimeDetectorIndicator" as apex.src.domain.signals.indicators.regime.reg
   warmup_periods : int
   reset_state(symbol: Optional[str]) -> None
   update_with_hysteresis(symbol: str, state: Dict[str, Any], timestamp: Optional[datetime]) -> RegimeOutput
+}
+class "RegimeDetectorProtocol" as apex.src.domain.signals.validation.nested_cv.RegimeDetectorProtocol {
+  classify(symbol: str, data: Any) -> str
+}
+class "RegimeLabel" as apex.src.domain.signals.validation.labeler_contract.RegimeLabel {
+  name
+}
+class "RegimeLabeler" as apex.src.domain.signals.validation.labeler_contract.RegimeLabeler {
+  config
+  label_period(df: pd.DataFrame, max_end_date: Optional[date]) -> List[LabeledPeriod]
+}
+class "RegimeLabelerConfig" as apex.src.domain.signals.validation.labeler_contract.RegimeLabelerConfig {
+  choppy_drawdown_max : float
+  choppy_volatility_min : float
+  label_horizon_bars : int
+  timeframe : str
+  trending_forward_return_min : float
+  trending_sharpe_min : float
+  version : str
+  load_v1(timeframe: str, horizon_days: int) -> 'RegimeLabelerConfig'
+  to_dict() -> dict
 }
 class "RegimeOutput" as apex.src.domain.signals.indicators.regime.models.RegimeOutput {
   asof_ts : Optional[datetime]
@@ -723,6 +841,10 @@ class "SignalCategory" as apex.src.domain.signals.models.SignalCategory {
 class "SignalDirection" as apex.src.domain.signals.models.SignalDirection {
   name
 }
+class "SignalEvent" as apex.src.domain.signals.validation.earliness.SignalEvent {
+  date : date
+  signal : bool
+}
 class "SignalLogger" as apex.src.domain.signals.signal_logger.SignalLogger {
   env : str
   log_dir : Path
@@ -754,6 +876,7 @@ class "SignalPipelineConfig" as apex.src.domain.signals.pipeline.config.SignalPi
   timeframes : List[str]
   train_concurrency : int
   train_models : bool
+  validate : bool
   validate_bars : bool
   verbose : bool
   with_persistence : bool
@@ -825,6 +948,13 @@ class "SnapshotDiff" as apex.src.domain.signals.reporting.snapshot_builder.Snaps
   summary() -> str
   to_dict() -> Dict[str, Any]
 }
+class "SplitConfig" as apex.src.domain.signals.validation.schemas.SplitConfig {
+  embargo_bars_by_tf : Dict[str, int]
+  inner_folds : int
+  outer_folds : int
+  purge_bars_by_tf : Dict[str, int]
+  to_dict() -> dict
+}
 class "SqueezeIndicator" as apex.src.domain.signals.indicators.volatility.squeeze.SqueezeIndicator {
   category : VOLATILITY
   name : str
@@ -834,11 +964,43 @@ class "SqueezeIndicator" as apex.src.domain.signals.indicators.volatility.squeez
 class "StateChangeEvaluator" as apex.src.domain.signals.conditions.evaluators.StateChangeEvaluator {
   evaluate(config: Dict[str, Any], prev_state: Optional[Dict[str, Any]], curr_state: Dict[str, Any]) -> bool
 }
+class "StatisticalResult" as apex.src.domain.signals.validation.statistics.StatisticalResult {
+  block_size_bars : int
+  choppy_ci_lower : float
+  choppy_ci_upper : float
+  choppy_mean : float
+  choppy_r0_rates : List[float]
+  effect_size_cohens_d : float
+  n_bootstrap_samples : int
+  n_choppy_symbols : int
+  n_trending_symbols : int
+  p_value : float
+  t_statistic : float
+  trending_ci_lower : float
+  trending_ci_upper : float
+  trending_mean : float
+  trending_r0_rates : List[float]
+  passes_gates(min_cohens_d: float, max_p_value: float, min_trending_ci_lower: float, max_choppy_ci_upper: float) -> Tuple[bool, List[str]]
+  to_dict() -> dict
+}
 class "StdDevIndicator" as apex.src.domain.signals.indicators.volatility.stddev.StdDevIndicator {
   category : VOLATILITY
   name : str
   required_fields : list
   warmup_periods : int
+}
+class "StrategyMetrics" as apex.src.domain.signals.validation.confirmation.StrategyMetrics {
+  f1_score : float
+  false_negatives : int
+  false_positive_rate : float
+  false_positives : int
+  precision : float
+  recall : float
+  strategy_name : str
+  total_samples : int
+  true_negatives : int
+  true_positives : int
+  to_dict() -> dict
 }
 class "SuperTrendIndicator" as apex.src.domain.signals.indicators.trend.supertrend.SuperTrendIndicator {
   category : TREND
@@ -862,6 +1024,13 @@ class "SymbolConfig" as apex.src.domain.signals.universe.base.SymbolConfig {
   timeframes : List[str]
   has_timeframe(timeframe: str) -> bool
 }
+class "SymbolMetrics" as apex.src.domain.signals.validation.statistics.SymbolMetrics {
+  label_type : str
+  r0_bars : int
+  r0_rate : float
+  symbol : str
+  total_bars : int
+}
 class "SymbolSummary" as apex.src.domain.signals.schemas.SymbolSummary {
   atr_pct_63 : float
   bottom_prob : Optional[float]
@@ -882,6 +1051,17 @@ class "SymbolSummary" as apex.src.domain.signals.schemas.SymbolSummary {
   trend_state : str
   vol_state : str
   to_dict() -> Dict[str, Any]
+}
+class "SymbolValidationResult" as apex.src.domain.signals.validation.validation_service.SymbolValidationResult {
+  labels : List[RegimeLabel]
+  n_bars : int
+  n_choppy_bars : int
+  n_trending_bars : int
+  predictions : List[bool]
+  r0_rate_choppy : float
+  r0_rate_trending : float
+  symbol : str
+  timeframe : str
 }
 class "TRIXIndicator" as apex.src.domain.signals.indicators.trend.trix.TRIXIndicator {
   category : TREND
@@ -923,6 +1103,11 @@ class "ThresholdPair" as apex.src.domain.signals.indicators.regime.models.Thresh
   should_enter(current_value: float, operator: str) -> bool
   should_exit(current_value: float, operator: str) -> bool
 }
+class "TimeWindow" as apex.src.domain.signals.validation.nested_cv.TimeWindow {
+  days : int
+  end_date : date
+  start_date : date
+}
 class "TradingSignal" as apex.src.domain.signals.models.TradingSignal {
   category
   cooldown_until : Optional[datetime]
@@ -956,6 +1141,12 @@ class "TrainingMetrics" as apex.src.domain.signals.indicators.regime.turning_poi
   n_positive : int
   n_samples : int
   to_dict() -> Dict[str, Any]
+}
+class "TrendEpisode" as apex.src.domain.signals.validation.earliness.TrendEpisode {
+  duration_days : int
+  end_date : date
+  start_date : date
+  symbol : str
 }
 class "TrendState" as apex.src.domain.signals.indicators.regime.models.TrendState {
   name
@@ -1044,6 +1235,8 @@ class "TurningPointModel" as apex.src.domain.signals.indicators.regime.turning_p
   train(X: np.ndarray, y_top: np.ndarray, y_bottom: np.ndarray, cv_splits: int, label_horizon: int, embargo: int) -> Tuple[TrainingMetrics, TrainingMetrics]
 }
 class "TurningPointOutput" as apex.src.domain.signals.indicators.regime.turning_point.model.TurningPointOutput {
+  bars_from_actual_tp : Optional[int]
+  detection_type : Literal['early_warning', 'confirmed', 'none']
   inference_time_ms : float
   model_version : str
   top_features : List[Tuple[str, float]]
@@ -1120,6 +1313,23 @@ class "VWAPIndicator" as apex.src.domain.signals.indicators.volume.vwap.VWAPIndi
   required_fields : list
   warmup_periods : int
 }
+class "ValidationOutput" as apex.src.domain.signals.validation.schemas.ValidationOutput {
+  all_gates_passed : bool
+  bar_validation_by_tf : Dict[str, BarValidation]
+  confirmation_result : Optional[ConfirmationResult]
+  earliness_stats_by_tf_pair : Dict[str, EarlinessResult]
+  gate_results : List[GateResult]
+  generated_at : datetime
+  holdout_symbols : List[str]
+  horizon_config : Optional[HorizonConfig]
+  labeler_thresholds_by_tf : Dict[str, LabelerThreshold]
+  mode : str
+  split_config : Optional[SplitConfig]
+  statistical_result : Optional[StatisticalResult]
+  training_symbols : List[str]
+  version : str
+  to_dict() -> dict
+}
 class "ValidationResult" as apex.src.domain.signals.config.schema.ValidationResult {
   errors : List[ConfigError]
   valid : bool
@@ -1127,6 +1337,34 @@ class "ValidationResult" as apex.src.domain.signals.config.schema.ValidationResu
   add_error(message: str, path: str, value: Any) -> None
   add_warning(message: str) -> None
   merge(other: 'ValidationResult') -> None
+}
+class "ValidationService" as apex.src.domain.signals.validation.validation_service.ValidationService {
+  config
+  compute_confirmation(bars_1d: Dict[str, pd.DataFrame], bars_4h: Dict[str, pd.DataFrame], symbols: List[str]) -> ConfirmationResult
+  compute_earliness(bars_1d: Dict[str, pd.DataFrame], bars_4h: Dict[str, pd.DataFrame], symbols: List[str]) -> EarlinessResult
+  compute_fast_validation(symbols: List[str], bars_by_symbol: Dict[str, pd.DataFrame], timeframe: str) -> Tuple[float, float, bool]
+  validate_symbol(symbol: str, df: pd.DataFrame, timeframe: str, end_date: Optional[date]) -> SymbolValidationResult
+  validate_universe(symbols: List[str], bars_by_symbol: Dict[str, pd.DataFrame], timeframe: str) -> Tuple[List[SymbolValidationResult], StatisticalResult]
+}
+class "ValidationServiceConfig" as apex.src.domain.signals.validation.validation_service.ValidationServiceConfig {
+  detector_params : Dict
+  horizon_days : int
+  min_bars : int
+  timeframes : List[str]
+}
+class "ValidationTimeConfig" as apex.src.domain.signals.validation.time_units.ValidationTimeConfig {
+  embargo_bars : int
+  embargo_bars_by_tf : Dict[str, int]
+  embargo_days : int
+  horizon_bars_by_tf : Dict[str, int]
+  label_horizon_bars : int
+  label_horizon_days : int
+  purge_bars : int
+  purge_bars_by_tf : Dict[str, int]
+  purge_days : int
+  timeframe : str
+  from_days(timeframe: str, label_horizon_days: int, purge_days: int, embargo_days: int, timeframes: tuple[str, ...]) -> 'ValidationTimeConfig'
+  to_dict() -> dict
 }
 class "ValueCard" as apex.src.domain.signals.reporting.value_card.ValueCard {
   name : str
@@ -1276,10 +1514,19 @@ apex.src.domain.signals.models.TradingSignal --> apex.src.domain.signals.models.
 apex.src.domain.signals.models.TradingSignal --> apex.src.domain.signals.models.SignalStatus : status
 apex.src.domain.signals.schemas.BarValidationBuilder --> apex.src.domain.signals.schemas.BarReduction : reductions
 apex.src.domain.signals.schemas.BarReduction --> apex.src.domain.signals.schemas.BarReductionReason : reason
+apex.src.domain.signals.validation.confirmation.ConfirmationResult --> apex.src.domain.signals.validation.confirmation.StrategyMetrics : s1
+apex.src.domain.signals.validation.confirmation.ConfirmationResult --> apex.src.domain.signals.validation.confirmation.StrategyMetrics : s2
+apex.src.domain.signals.validation.labeler_contract.LabeledPeriod --> apex.src.domain.signals.validation.labeler_contract.RegimeLabel : label
+apex.src.domain.signals.validation.nested_cv.OuterFold --> apex.src.domain.signals.validation.nested_cv.TimeWindow : train_window
+apex.src.domain.signals.validation.nested_cv.OuterFold --> apex.src.domain.signals.validation.nested_cv.TimeWindow : test_window
+apex.src.domain.signals.validation.nested_cv.NestedCVConfig --> apex.src.domain.signals.validation.time_units.ValidationTimeConfig : time_config
 apex.src.domain.signals.indicators.regime.turning_point.labels.TurningPointLabeler --* apex.src.domain.signals.indicators.regime.turning_point.experiment.TurningPointExperiment : labeler
 apex.src.domain.signals.indicators.regime.turning_point.model.TrainingMetrics --* apex.src.domain.signals.indicators.regime.turning_point.model.TurningPointModel : training_metrics_top
 apex.src.domain.signals.indicators.regime.turning_point.model.TrainingMetrics --* apex.src.domain.signals.indicators.regime.turning_point.model.TurningPointModel : training_metrics_bottom
 apex.src.domain.signals.pipeline.config.SignalPipelineConfig --o apex.src.domain.signals.pipeline.processor.SignalPipelineProcessor : config
 apex.src.domain.signals.pipeline.config.SignalPipelineConfig --o apex.src.domain.signals.pipeline.trainer.TurningPointTrainer : config
 apex.src.domain.signals.pipeline.config.SignalPipelineConfig --o apex.src.domain.signals.pipeline.validator.BarValidator : config
+apex.src.domain.signals.validation.labeler_contract.RegimeLabelerConfig --o apex.src.domain.signals.validation.labeler_contract.RegimeLabeler : config
+apex.src.domain.signals.validation.nested_cv.NestedCVConfig --o apex.src.domain.signals.validation.nested_cv.NestedWalkForwardCV : config
+apex.src.domain.signals.validation.validation_service.ValidationServiceConfig --o apex.src.domain.signals.validation.validation_service.ValidationService : config
 @enduml

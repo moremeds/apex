@@ -42,6 +42,9 @@ class SignalPipelineConfig:
     deploy_github: bool = False  # Deploy package to GitHub Pages
     github_repo: Optional[str] = None  # GitHub repo for deployment (e.g., "user/signal-reports")
 
+    # Post-generation validation (M3 integration)
+    validate: bool = False  # Run quality gates (G1-G10) after report generation
+
     # Model training options
     train_models: bool = False  # Train models before signal generation
     retrain_models: bool = False  # Walk-forward retrain (mutually exclusive with train_models)
@@ -192,6 +195,11 @@ Examples:
         metavar="REPO",
         help="GitHub repo for deployment (e.g., 'user/signal-reports'). If not set, uses current repo's gh-pages branch.",
     )
+    parser.add_argument(
+        "--validate",
+        action="store_true",
+        help="Run quality gates (G1-G10) after report generation. Requires --format package.",
+    )
 
     # General options
     parser.add_argument(
@@ -324,6 +332,7 @@ def parse_config(args: argparse.Namespace) -> SignalPipelineConfig:
         output_format=args.format,
         deploy_github=args.deploy == "github",
         github_repo=args.github_repo,
+        validate=args.validate,
         # Training options
         train_models=args.train_models,
         retrain_models=args.retrain_models,

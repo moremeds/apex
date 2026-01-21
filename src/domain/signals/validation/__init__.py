@@ -108,4 +108,8 @@ __all__ = [
     "ValidationOutput",
     "create_fast_validation_output",
     "create_full_validation_output",
+    # Validation Service
+    "ValidationService",
+    "ValidationServiceConfig",
+    "SymbolValidationResult",
 ]

@@ -24,11 +24,14 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import logging
 import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 # Gate thresholds (configurable)
 THRESHOLDS = {
@@ -266,7 +269,8 @@ def check_g5_metric_drift(
             else "No significant metric drift",
             details={"drifts": significant_drifts[:10]},
         )
-    except ImportError:
+    except ImportError as e:
+        logger.debug("SnapshotBuilder not available, using manual diff: %s", e)
         # Manual diff if SnapshotBuilder not available
         old_symbols = set(old.get("symbols", []))
         new_symbols = set(new.get("symbols", []))
@@ -314,7 +318,8 @@ def check_g6_bar_validation(package_path: Path) -> GateResult:
                 missing = [fld for fld in required_fields if fld not in data]
                 if missing:
                     invalid_files.append(f"{data_file.name}: missing {missing}")
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as e:
+                logger.warning("Invalid JSON in %s: %s", data_file.name, e)
                 invalid_files.append(f"{data_file.name}: invalid JSON")
 
     passed = len(invalid_files) == 0
@@ -366,7 +371,8 @@ def check_g7_causality_test() -> GateResult:
             severity="FAIL" if not passed else "PASS",
             message=f"Causality tests: {'PASS' if passed else 'FAIL'} - {test_info}",
         )
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as e:
+        logger.error("Causality test timed out after %s seconds", e.timeout)
         return GateResult(
             gate_id="G7",
             gate_name="Causality Test",
@@ -376,7 +382,8 @@ def check_g7_causality_test() -> GateResult:
             severity="FAIL",
             message="Causality tests timed out",
         )
-    except FileNotFoundError:
+    except FileNotFoundError as e:
+        logger.debug("pytest not found, skipping causality test: %s", e)
         return GateResult(
             gate_id="G7",
             gate_name="Causality Test",

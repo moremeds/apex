@@ -8,11 +8,14 @@ Implements strict separation between optimization and evaluation:
 Key invariant: Optuna ONLY sees inner CV results. Outer test is evaluation-only.
 """
 
+import logging
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Any, Callable, Dict, Iterator, List, Optional, Protocol, Tuple
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 from .statistics import SymbolMetrics
 from .time_units import ValidationTimeConfig
@@ -239,8 +242,8 @@ class NestedWalkForwardCV:
         try:
             import optuna
             from optuna.samplers import TPESampler
-        except ImportError:
-            # Fallback if Optuna not available
+        except ImportError as e:
+            logger.warning("Optuna not available, using default params: %s", e)
             return ({}, 0.0)
 
         # Suppress Optuna logging

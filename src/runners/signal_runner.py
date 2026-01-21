@@ -4,6 +4,7 @@ Signal Runner - Standalone TA signal pipeline for live and backfill processing.
 Enables running the signal pipeline independently from the TUI for:
 - Live signal generation without TUI overhead
 - Historical bar backfill for indicator warmup
+- Post-generation validation via --validate flag
 
 Usage:
     # Run pipeline on live market data (headless mode)
@@ -14,6 +15,9 @@ Usage:
 
     # Connect to database for persistence
     python -m src.runners.signal_runner --live --symbols AAPL --with-persistence
+
+    # Generate report and run quality gates
+    python -m src.runners.signal_runner --live --symbols AAPL --format package --validate
 """
 
 from __future__ import annotations
@@ -21,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
+from pathlib import Path
 from typing import Optional
 
 from ..domain.signals.pipeline import (
@@ -90,26 +95,33 @@ class SignalRunner:
                     # Continue to signal phase even if training had issues
 
             # Run signal phase
+            exit_code = 0
             if self.config.validate_bars:
                 # Bar validation mode (PR-01): output BarValidationReport
                 validator = BarValidator(self.config)
-                return await validator.validate()
+                exit_code = await validator.validate()
             elif self.config.backfill:
                 print("\n" + "=" * 60)
                 print("=== SIGNAL PHASE (Backfill) ===")
                 print("=" * 60)
-                return await self._processor.run_backfill()
+                exit_code = await self._processor.run_backfill()
             elif self.config.live:
                 print("\n" + "=" * 60)
                 print("=== SIGNAL PHASE (Live) ===")
                 print("=" * 60)
-                return await self._processor.run_live()
+                exit_code = await self._processor.run_live()
             else:
                 # Training-only mode is valid
                 if self.config.train_models or self.config.retrain_models:
                     return 0
                 print("No mode specified. Use --live, --backfill, or --validate-bars")
                 return 1
+
+            # Run post-generation validation if requested (M3 integration)
+            if self.config.validate and exit_code == 0:
+                exit_code = self._run_validation_gates()
+
+            return exit_code
 
         except KeyboardInterrupt:
             logger.info("Signal runner interrupted by user")
@@ -120,6 +132,48 @@ class SignalRunner:
         finally:
             if self._processor:
                 await self._processor.shutdown()
+
+    def _run_validation_gates(self) -> int:
+        """
+        Run quality gates (G1-G10) on the generated report package.
+
+        Returns:
+            Exit code (0 for all gates passed, 1 for failures).
+        """
+        from scripts.validate_gates import run_all_gates
+
+        print("\n" + "=" * 60)
+        print("=== VALIDATION PHASE (Quality Gates G1-G10) ===")
+        print("=" * 60)
+
+        # Determine package path from html_output
+        if not self.config.html_output:
+            logger.error("--validate requires --html-output to specify package path")
+            return 1
+
+        package_path = Path(self.config.html_output)
+        if not package_path.exists():
+            logger.error(f"Package path not found: {package_path}")
+            return 1
+
+        # Run all gates
+        report = run_all_gates(package_path)
+
+        # Print summary
+        print()
+        for gate in report.gates:
+            status = "PASS" if gate.passed else gate.severity
+            symbol = "+" if gate.passed else "X" if gate.severity == "FAIL" else "~"
+            print(f"  [{symbol}] {gate.gate_id} {gate.gate_name}: {status}")
+            if not gate.passed:
+                print(f"      {gate.message}")
+
+        print()
+        print("-" * 60)
+        print(f"FAILS: {report.fail_count} | WARNS: {report.warn_count}")
+        print(f"Overall: {'PASS' if report.all_passed else 'FAIL'}")
+
+        return 0 if report.all_passed else 1
 
     @property
     def signal_count(self) -> int:
@@ -141,6 +195,10 @@ async def main() -> None:
     # Validate: --deploy requires --format package
     if args.deploy and args.format != "package":
         parser.error("--deploy requires --format package")
+
+    # Validate: --validate requires --format package
+    if args.validate and args.format != "package":
+        parser.error("--validate requires --format package")
 
     # Set up logging
     level = logging.DEBUG if args.verbose else logging.INFO

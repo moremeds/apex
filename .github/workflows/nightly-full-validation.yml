@@ -22,7 +22,7 @@ concurrency:
   cancel-in-progress: false  # Don't cancel nightly runs
 
 env:
-  PYTHON_VERSION: '3.14'
+  PYTHON_VERSION: '3.13'
   VALIDATION_UNIVERSE: config/validation/regime_universe.yaml
   REPORTS_DIR: reports/validation
 
@@ -99,7 +99,7 @@ jobs:
             --outer-folds 3 --inner-folds 2 --inner-trials 20 \
             --days 600 --max-symbols 25 --horizon-days 20 \
             --output ${{ env.REPORTS_DIR }}/optimization_result.json \
-            --params-output config/validation/optimized_params.yaml || true
+            --params-output config/validation/optimized_params.yaml
 
       # ═══════════════════════════════════════════════════════════════
       # Step 2/6: Full Validation
@@ -113,7 +113,7 @@ jobs:
             --horizon-days 20 \
             --outer-folds 3 --inner-folds 2 --inner-trials 10 \
             --days 600 --max-symbols ${{ inputs.max_symbols || 40 }} \
-            --output ${{ env.REPORTS_DIR }}/full_validation.json || true
+            --output ${{ env.REPORTS_DIR }}/full_validation.json
 
       # ═══════════════════════════════════════════════════════════════
       # Step 3/6: Holdout Validation
@@ -124,7 +124,7 @@ jobs:
           python -m src.runners.validation_runner holdout \
             --universe ${{ env.VALIDATION_UNIVERSE }} \
             --horizon-days 20 --days 500 \
-            --output ${{ env.REPORTS_DIR }}/holdout_validation.json || true
+            --output ${{ env.REPORTS_DIR }}/holdout_validation.json
 
       # ═══════════════════════════════════════════════════════════════
       # Step 4/6: Validation Summary Report
@@ -134,7 +134,7 @@ jobs:
           source .venv/bin/activate
           python -m src.domain.signals.reporting.validation_report \
             --reports-dir ${{ env.REPORTS_DIR }} \
-            --output ${{ env.REPORTS_DIR }}/validation_summary.html || true
+            --output ${{ env.REPORTS_DIR }}/validation_summary.html
 
       # ═══════════════════════════════════════════════════════════════
       # Step 5/6: Signal Report (full universe)
@@ -146,7 +146,7 @@ jobs:
             --universe ${{ env.VALIDATION_UNIVERSE }} \
             --timeframes 1d 4h 1h \
             --format package \
-            --html-output ${{ env.REPORTS_DIR }}/signal_report || true
+            --html-output ${{ env.REPORTS_DIR }}/signal_report
 
           # Copy validation summary to signal report
           cp ${{ env.REPORTS_DIR }}/validation_summary.html \
