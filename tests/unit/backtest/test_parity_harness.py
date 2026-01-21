@@ -551,8 +551,10 @@ class TestCompareSignalParity:
 
     def test_nan_treated_as_false(self, sample_index):
         """NaN values should be treated as False."""
-        entries = pd.Series([True, False, False] + [False] * 97, index=sample_index)
-        entries.iloc[1] = float("nan")  # NaN in vectorbt
+        # Use object dtype to allow NaN in boolean-like data (vectorbt output can have NaN)
+        entries = pd.Series(
+            [True, float("nan"), False] + [False] * 97, index=sample_index, dtype=object
+        )
 
         cap_entries = pd.Series([True, False, False] + [False] * 97, index=sample_index)
 
