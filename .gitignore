@@ -170,6 +170,7 @@ temp/
 
 # Generated files
 /results/
+/reports/
 /models/
 /experiments/
 
