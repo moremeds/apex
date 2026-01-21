@@ -156,28 +156,24 @@ test_output/
 tmp/
 temp/
 *.tmp
+# Documentation and working directories
 /docs/design/
+/docs/designs/
 /docs/reviews/
 /docs/plans/
+/docs/ideas/
+/docs/indicators/
+/docs/rules/
+/docs/2.0blueprint/
+/docs/signal_v2/
 /.claude/
-/docs/designs/
+
+# Generated files
+/results/
+/models/
+/experiments/
+
+# AI assistant files (not tracked)
 /GEMINI.md
 /AGENTS.md
 /CLAUDE.md
-/docs/ideas/rich_layout/1_landing_page.png
-/docs/ideas/rich_layout/2_risk_signal.png
-/docs/ideas/rich_layout/3_ib_page_without_atr.png
-/docs/ideas/rich_layout/4_empty_futu_page.png
-/docs/ideas/rich_layout/4_futu_page_with_atr.png
-/docs/ideas/rich_layout/5_lab_page.png
-/docs/ideas/rich_layout/5_lab_page_with_results.png
-/docs/ideas/rich_layout/Screenshot 2025-12-24 at 06.00.40.png
-/docs/ideas/textual/
-/docs/ideas/rich_layout/
-/results/
-/docs/indicators/
-/docs/rules/
-/models/
-/experiments/
-/docs/2.0blueprint/
-/docs/signal_v2/

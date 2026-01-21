@@ -1,0 +1,116 @@
+name: Signal Gates (M3)
+
+on:
+  pull_request:
+    paths:
+      - 'src/domain/signals/**'
+      - 'src/runners/signal_runner.py'
+      - 'config/signals/**'
+      - 'scripts/validate_gates.py'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  signal-gates:
+    name: Signal Quality Gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install dependencies
+        run: |
+          uv venv
+          source .venv/bin/activate
+          uv pip install -e ".[dev]"
+
+      - name: Generate Signal Report
+        id: generate_report
+        run: |
+          source .venv/bin/activate
+          python -m src.runners.signal_runner --live \
+            --symbols SPY QQQ AAPL MSFT NVDA \
+            --timeframes 1d 4h \
+            --format package \
+            --html-output reports/validation/signal_report
+        continue-on-error: true
+
+      - name: Check Report Generated
+        run: |
+          if [ ! -d "reports/validation/signal_report/data" ]; then
+            echo "ERROR: Signal report generation failed - no data directory found"
+            echo "Check the 'Generate Signal Report' step output for errors"
+            exit 1
+          fi
+          echo "Signal report generated successfully"
+
+      - name: Run All Gates
+        run: |
+          source .venv/bin/activate
+          python scripts/validate_gates.py --all \
+            --package reports/validation/signal_report \
+            --output ci_gates_report.json \
+            -v
+
+      - name: Check Gate Results
+        run: |
+          source .venv/bin/activate
+          python -c "
+          import json
+          import sys
+
+          with open('ci_gates_report.json') as f:
+              report = json.load(f)
+
+          print('Gate Results Summary:')
+          print('-' * 50)
+
+          for gate in report['gates']:
+              status = 'PASS' if gate['passed'] else gate['severity']
+              symbol = '+' if gate['passed'] else 'X' if gate['severity'] == 'FAIL' else '~'
+              print(f'  [{symbol}] {gate[\"gate_id\"]} {gate[\"gate_name\"]}: {status}')
+              if not gate['passed']:
+                  print(f'      {gate[\"message\"]}')
+
+          print()
+          print('-' * 50)
+          print(f'FAILS: {report[\"fail_count\"]} | WARNS: {report[\"warn_count\"]}')
+
+          if report['fail_count'] > 0:
+              print()
+              print('ERROR: Some gates FAILED!')
+              sys.exit(1)
+
+          print()
+          print('All critical gates PASSED')
+          "
+
+      - name: Upload Gate Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: signal-gates-report
+          path: |
+            ci_gates_report.json
+            reports/validation/signal_report/manifest.json
+            reports/validation/signal_report/data/summary.json
+          retention-days: 7
+
+      - name: Upload Signal Package (on success)
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: signal-package
+          path: reports/validation/signal_report/
+          retention-days: 3

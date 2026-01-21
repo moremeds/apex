@@ -1,0 +1,79 @@
+name: M2 Fast Validation (PR Gate)
+
+on:
+  pull_request:
+    paths:
+      - 'src/domain/signals/indicators/regime/**'
+      - 'src/domain/signals/validation/**'
+      - 'src/runners/validation_runner.py'
+      - 'config/validation/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fast-validation:
+    name: Fast Regime Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install dependencies
+        run: |
+          uv venv
+          source .venv/bin/activate
+          uv pip install -e ".[dev]"
+
+      - name: Run Fast Validation
+        run: |
+          source .venv/bin/activate
+          python -m src.runners.validation_runner fast \
+            --symbols SPY QQQ AAPL MSFT NVDA AMD MU GME AMC VIX \
+            --timeframes 1d 4h \
+            --folds 2 \
+            --no-optuna \
+            --output ci_fast.json
+
+      - name: Validate Gates
+        run: |
+          source .venv/bin/activate
+          python -c "
+          import json
+          import sys
+
+          with open('ci_fast.json') as f:
+              data = json.load(f)
+
+          print('Gate Results:')
+          print('-' * 40)
+          for gate in data['gate_results']:
+              status = '✓ PASS' if gate['passed'] else '✗ FAIL'
+              print(f\"  {gate['gate_name']}: {status}\")
+
+          if not data['all_gates_passed']:
+              print()
+              print('ERROR: Some gates failed!')
+              sys.exit(1)
+
+          print()
+          print('All gates PASSED')
+          "
+
+      - name: Upload Fast Validation Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fast-validation-report
+          path: ci_fast.json
+          retention-days: 7

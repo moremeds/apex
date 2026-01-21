@@ -52,6 +52,23 @@ class TurningPointOutput:
     model_version: str = "turning_point@1.0"
     inference_time_ms: float = 0.0
 
+    # PR-05: Signal timing classification
+    detection_type: Literal["early_warning", "confirmed", "none"] = "none"
+    """
+    Signal timing classification:
+    - early_warning: Predictive signal, no right-side confirmation yet
+    - confirmed: Right-side confirmation exists (2+ bars after reversal)
+    - none: No turning point detected
+    """
+
+    bars_from_actual_tp: Optional[int] = None
+    """
+    Timing offset from actual turning point (filled during validation).
+    - Negative = signal fired early (e.g., -3 means 3 bars before TP)
+    - Positive = signal fired late (e.g., +2 means 2 bars after TP)
+    - None = not validated against ground truth
+    """
+
     def to_dict(self) -> Dict[str, Any]:
         """Serialize to dictionary."""
         return {
@@ -62,6 +79,8 @@ class TurningPointOutput:
             ],
             "model_version": self.model_version,
             "inference_time_ms": self.inference_time_ms,
+            "detection_type": self.detection_type,
+            "bars_from_actual_tp": self.bars_from_actual_tp,
         }
 
     @classmethod
@@ -74,6 +93,8 @@ class TurningPointOutput:
             top_features=top_features,
             model_version=data.get("model_version", "turning_point@1.0"),
             inference_time_ms=data.get("inference_time_ms", 0.0),
+            detection_type=data.get("detection_type", "none"),
+            bars_from_actual_tp=data.get("bars_from_actual_tp"),
         )
 
     def should_block_r0(self, threshold: float = 0.7) -> bool:
@@ -452,8 +473,6 @@ class TurningPointModel:
             # Ensure scaler exists (might be missing if saved by FileModelRegistry)
             if not hasattr(data, 'scaler') or data.scaler is None:
                 data.scaler = StandardScaler()
-                # Mark as needing refit on first predict
-                data._scaler_needs_fit = True
             return data
 
         # Handle old format: dict with model components
