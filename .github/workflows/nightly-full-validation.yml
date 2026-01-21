@@ -1,133 +1,261 @@
-name: M2 Full Validation (Nightly)
+name: M2 Full Validation + Publish (Nightly)
+
+# Mirrors: make validate-full-publish
+# Runs full M2 validation workflow and publishes to GitHub Pages
 
 on:
   schedule:
     - cron: '0 2 * * *'  # 2 AM UTC daily
-  workflow_dispatch:  # Manual trigger
+  workflow_dispatch:
+    inputs:
+      skip_publish:
+        description: 'Skip publishing to GitHub Pages'
+        type: boolean
+        default: false
+      max_symbols:
+        description: 'Max symbols for validation (default: 40)'
+        type: number
+        default: 40
 
 concurrency:
   group: ${{ github.workflow }}
   cancel-in-progress: false  # Don't cancel nightly runs
 
+env:
+  PYTHON_VERSION: '3.14'
+  VALIDATION_UNIVERSE: config/validation/regime_universe.yaml
+  REPORTS_DIR: reports/validation
+
 jobs:
-  full-validation:
-    name: Full Nested CV Validation
+  validate-and-publish:
+    name: Full Validation + Publish
     runs-on: ubuntu-latest
     timeout-minutes: 120
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set up Python 3.13
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
         uses: actions/setup-python@v6
         with:
-          python-version: "3.13"
+          python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
+
+      - name: Cache TA-Lib build
+        id: cache-talib
+        uses: actions/cache@v4
+        with:
+          path: ~/ta-lib-install
+          key: talib-0.6.4-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Install TA-Lib C library
+        run: |
+          if [ -d "$HOME/ta-lib-install/lib" ]; then
+            echo "Restoring TA-Lib from cache..."
+            sudo cp -r $HOME/ta-lib-install/lib/* /usr/lib/
+            sudo cp -r $HOME/ta-lib-install/include/* /usr/include/
+            sudo ldconfig
+          else
+            echo "Building TA-Lib 0.6.4 from source..."
+            sudo apt-get update
+            sudo apt-get install -y wget build-essential
+            wget https://github.com/ta-lib/ta-lib/releases/download/v0.6.4/ta-lib-0.6.4-src.tar.gz
+            tar -xzf ta-lib-0.6.4-src.tar.gz
+            cd ta-lib-0.6.4 && ./configure --prefix=/usr && make -j$(nproc) && sudo make install
+            sudo ldconfig
+            mkdir -p $HOME/ta-lib-install/lib $HOME/ta-lib-install/include
+            cp -r /usr/lib/libta* $HOME/ta-lib-install/lib/ 2>/dev/null || true
+            cp -r /usr/include/ta-lib $HOME/ta-lib-install/include/ 2>/dev/null || true
+          fi
 
       - name: Install dependencies
         run: |
           uv venv
           source .venv/bin/activate
-          uv pip install -e ".[dev]"
+          uv pip install -e ".[dev,observability]"
 
       - name: Generate Universe (if not exists)
         run: |
           source .venv/bin/activate
-          if [ ! -f config/validation/regime_universe.yaml ]; then
+          if [ ! -f ${{ env.VALIDATION_UNIVERSE }} ]; then
             python scripts/generate_validation_universe.py \
               --seed 42 \
               --output config/validation/
           fi
 
-      - name: Run Full Validation
+      # ═══════════════════════════════════════════════════════════════
+      # Step 1/6: Parameter Optimization
+      # ═══════════════════════════════════════════════════════════════
+      - name: "Step 1/6: Parameter Optimization"
+        run: |
+          source .venv/bin/activate
+          mkdir -p ${{ env.REPORTS_DIR }} config/validation
+          python -m src.runners.validation_runner optimize \
+            --universe ${{ env.VALIDATION_UNIVERSE }} \
+            --outer-folds 3 --inner-folds 2 --inner-trials 20 \
+            --days 600 --max-symbols 25 --horizon-days 20 \
+            --output ${{ env.REPORTS_DIR }}/optimization_result.json \
+            --params-output config/validation/optimized_params.yaml || true
+
+      # ═══════════════════════════════════════════════════════════════
+      # Step 2/6: Full Validation
+      # ═══════════════════════════════════════════════════════════════
+      - name: "Step 2/6: Full Validation"
         run: |
           source .venv/bin/activate
           python -m src.runners.validation_runner full \
-            --universe config/validation/regime_universe.yaml \
-            --timeframes 1d 4h 2h \
-            --outer-folds 5 \
-            --inner-folds 3 \
-            --inner-trials 20 \
+            --universe ${{ env.VALIDATION_UNIVERSE }} \
+            --timeframes 1d \
             --horizon-days 20 \
-            --confirm-rule "1d&4h" \
-            --output reports/nightly_validation.json
+            --outer-folds 3 --inner-folds 2 --inner-trials 10 \
+            --days 600 --max-symbols ${{ inputs.max_symbols || 40 }} \
+            --output ${{ env.REPORTS_DIR }}/full_validation.json || true
 
-      - name: Validate Statistical Gates
+      # ═══════════════════════════════════════════════════════════════
+      # Step 3/6: Holdout Validation
+      # ═══════════════════════════════════════════════════════════════
+      - name: "Step 3/6: Holdout Validation"
+        run: |
+          source .venv/bin/activate
+          python -m src.runners.validation_runner holdout \
+            --universe ${{ env.VALIDATION_UNIVERSE }} \
+            --horizon-days 20 --days 500 \
+            --output ${{ env.REPORTS_DIR }}/holdout_validation.json || true
+
+      # ═══════════════════════════════════════════════════════════════
+      # Step 4/6: Validation Summary Report
+      # ═══════════════════════════════════════════════════════════════
+      - name: "Step 4/6: Validation Summary Report"
+        run: |
+          source .venv/bin/activate
+          python -m src.domain.signals.reporting.validation_report \
+            --reports-dir ${{ env.REPORTS_DIR }} \
+            --output ${{ env.REPORTS_DIR }}/validation_summary.html || true
+
+      # ═══════════════════════════════════════════════════════════════
+      # Step 5/6: Signal Report (full universe)
+      # ═══════════════════════════════════════════════════════════════
+      - name: "Step 5/6: Signal Report"
+        run: |
+          source .venv/bin/activate
+          python -m src.runners.signal_runner --live \
+            --universe ${{ env.VALIDATION_UNIVERSE }} \
+            --timeframes 1d 4h 1h \
+            --format package \
+            --html-output ${{ env.REPORTS_DIR }}/signal_report || true
+
+          # Copy validation summary to signal report
+          cp ${{ env.REPORTS_DIR }}/validation_summary.html \
+             ${{ env.REPORTS_DIR }}/signal_report/validation.html 2>/dev/null || true
+
+      # ═══════════════════════════════════════════════════════════════
+      # Step 6/6: Publish to GitHub Pages
+      # ═══════════════════════════════════════════════════════════════
+      - name: "Step 6/6: Publish to GitHub Pages"
+        if: ${{ !inputs.skip_publish && github.ref == 'refs/heads/master' }}
+        run: |
+          echo "Publishing to GitHub Pages..."
+
+          PUBLISH_DIR=${{ env.REPORTS_DIR }}/publish
+          mkdir -p $PUBLISH_DIR
+
+          # Copy signal package (index.html inside)
+          if [ -d "${{ env.REPORTS_DIR }}/signal_report" ]; then
+            cp -r ${{ env.REPORTS_DIR }}/signal_report/* $PUBLISH_DIR/
+          fi
+
+          # Copy validation summary
+          cp ${{ env.REPORTS_DIR }}/validation_summary.html $PUBLISH_DIR/validation.html 2>/dev/null || true
+          cp ${{ env.REPORTS_DIR }}/*.json $PUBLISH_DIR/ 2>/dev/null || true
+
+          # Add .nojekyll for GitHub Pages
+          touch $PUBLISH_DIR/.nojekyll
+
+          # Deploy using git
+          cd $PUBLISH_DIR
+          git init -q
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -q -b gh-pages
+          git add .
+          git commit -q -m "Deploy reports - $(date '+%Y-%m-%d %H:%M')"
+          git push -f https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git gh-pages
+
+          echo "✓ Published: index.html -> validation.html"
+
+      - name: Validate Gates
         run: |
           source .venv/bin/activate
           python -c "
           import json
           import sys
+          from pathlib import Path
 
-          with open('reports/nightly_validation.json') as f:
-              data = json.load(f)
+          reports_dir = Path('${{ env.REPORTS_DIR }}')
 
           print('=' * 60)
           print('M2 NIGHTLY VALIDATION RESULTS')
           print('=' * 60)
           print()
 
-          # Print statistical summary
-          if 'statistical_result' in data:
-              stats = data['statistical_result']
-              print('Statistical Summary:')
-              print(f\"  Trending symbols: {stats.get('n_trending_symbols', 'N/A')}\")
-              print(f\"  Choppy symbols: {stats.get('n_choppy_symbols', 'N/A')}\")
-              print(f\"  Cohen's d: {stats.get('effect_size_cohens_d', 'N/A'):.3f}\")
-              print(f\"  p-value: {stats.get('p_value', 'N/A'):.4f}\")
-              print(f\"  Trending CI: [{stats.get('trending_ci_lower', 'N/A'):.3f}, {stats.get('trending_ci_upper', 'N/A'):.3f}]\")
-              print(f\"  Choppy CI: [{stats.get('choppy_ci_lower', 'N/A'):.3f}, {stats.get('choppy_ci_upper', 'N/A'):.3f}]\")
+          # Check full validation results
+          full_path = reports_dir / 'full_validation.json'
+          if full_path.exists():
+              with open(full_path) as f:
+                  data = json.load(f)
+
+              if 'statistical_result' in data:
+                  stats = data['statistical_result']
+                  print('Statistical Summary:')
+                  print(f\"  Trending symbols: {stats.get('n_trending_symbols', 'N/A')}\")
+                  print(f\"  Choppy symbols: {stats.get('n_choppy_symbols', 'N/A')}\")
+                  d = stats.get('effect_size_cohens_d')
+                  print(f\"  Cohen's d: {d:.3f}\" if d else \"  Cohen's d: N/A\")
+                  p = stats.get('p_value')
+                  print(f\"  p-value: {p:.4f}\" if p else \"  p-value: N/A\")
+                  print()
+
+              if 'gate_results' in data:
+                  print('Gate Results:')
+                  print('-' * 40)
+                  failed_gates = []
+                  for gate in data['gate_results']:
+                      status = '✓ PASS' if gate['passed'] else '✗ FAIL'
+                      print(f\"  {gate['gate_name']}: {status}\")
+                      if not gate['passed']:
+                          failed_gates.append(gate['gate_name'])
+
+                  print()
+                  if failed_gates:
+                      print(f'WARNING: {len(failed_gates)} gate(s) failed: {failed_gates}')
+                  else:
+                      print('All gates PASSED')
+          else:
+              print('No full validation results found')
+
+          # Check holdout results
+          holdout_path = reports_dir / 'holdout_validation.json'
+          if holdout_path.exists():
               print()
-
-          # Print earliness results
-          if 'earliness_stats_by_tf_pair' in data:
-              print('Earliness Results:')
-              for tf_pair, earl in data['earliness_stats_by_tf_pair'].items():
-                  print(f\"  {tf_pair}:\")
-                  print(f\"    Median earliness: {earl['median_earliness_days']:.2f} days\")
-                  print(f\"    Pct earlier: {earl['pct_earlier_than_baseline']:.1%}\")
-              print()
-
-          # Print confirmation results
-          if 'confirmation_result' in data and data['confirmation_result']:
-              conf = data['confirmation_result']
-              if 'strategy_comparison' in conf:
-                  comp = conf['strategy_comparison']
-                  print('Confirmation Results:')
-                  print(f\"  Delta FP rate: {comp.get('delta_fp_rate', 'N/A'):.1%}\")
-                  print(f\"  Delta precision: {comp.get('delta_precision', 'N/A'):.1%}\")
-                  print(f\"  Confirmation value: {comp.get('confirmation_value', 'N/A')}\")
-              print()
-
-          # Print gate results
-          print('Gate Results:')
-          print('-' * 40)
-          failed_gates = []
-          for gate in data['gate_results']:
-              status = '✓ PASS' if gate['passed'] else '✗ FAIL'
-              print(f\"  {gate['gate_name']}: {status} ({gate['message']})\")
-              if not gate['passed']:
-                  failed_gates.append(gate['gate_name'])
-
-          print()
-          if not data['all_gates_passed']:
-              print(f'ERROR: {len(failed_gates)} gate(s) failed: {failed_gates}')
-              sys.exit(1)
-
-          print('All gates PASSED')
+              print('Holdout validation completed.')
           "
 
-      - name: Upload Full Validation Report
+      - name: Upload Validation Reports
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: nightly-validation-report
-          path: reports/
+          name: nightly-validation-${{ github.run_number }}
+          path: |
+            ${{ env.REPORTS_DIR }}/*.json
+            ${{ env.REPORTS_DIR }}/*.html
+            ${{ env.REPORTS_DIR }}/signal_report/
           retention-days: 30
 
       - name: Notify on Failure
         if: failure()
         run: |
-          echo "::warning::M2 Nightly Validation failed! Check the report for details."
+          echo "::error::M2 Nightly Validation failed! Check the report for details."

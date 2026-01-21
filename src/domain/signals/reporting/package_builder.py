@@ -82,6 +82,15 @@ UNBOUNDED_OSCILLATORS = {"macd", "momentum", "roc", "cmf", "pvo", "force_index"}
 # Version for package format
 PACKAGE_FORMAT_VERSION = "1.0"
 
+# Size budget constants (KB) - M3 PR-03
+SUMMARY_BUDGET_KB = 200
+MARKET_BUDGET_KB = 8
+SECTORS_BUDGET_KB = 20
+TICKERS_BUDGET_KB = 100
+HIGHLIGHTS_BUDGET_KB = 40
+CONFLUENCE_BUDGET_KB = 30
+DATA_QUALITY_BUDGET_KB = 2
+
 
 @dataclass(frozen=True)
 class PackageManifest:
@@ -144,16 +153,82 @@ class PackageBuilder:
         },
     }
 
-    def __init__(self, theme: str = "dark") -> None:
+    # Class-level budget constants for M3 PR-03 enforcement
+    MAX_SUMMARY_KB = SUMMARY_BUDGET_KB
+    TICKERS_BUDGET_KB = TICKERS_BUDGET_KB
+    MARKET_BUDGET_KB = MARKET_BUDGET_KB
+    CONFLUENCE_BUDGET_KB = CONFLUENCE_BUDGET_KB
+
+    def __init__(self, theme: str = "dark", enforce_budget: bool = False) -> None:
         """
         Initialize package builder.
 
         Args:
             theme: Color theme ("dark" or "light")
+            enforce_budget: If True, raise SizeBudgetExceeded on overflow
         """
         self.theme = theme
+        self.enforce_budget = enforce_budget
         self._colors = self.THEMES.get(theme, self.THEMES["dark"])
         self._snapshot_builder = SnapshotBuilder()
+
+    def _check_budget(self, section: str, data: Dict, budget_kb: int) -> None:
+        """
+        Check if section data exceeds budget.
+
+        Args:
+            section: Section name
+            data: Section data dictionary
+            budget_kb: Budget limit in KB
+
+        Raises:
+            SizeBudgetExceeded: If enforce_budget is True and budget exceeded
+        """
+        from .exceptions import BudgetContributor, SizeBudgetExceeded
+
+        size_bytes = len(json.dumps(data, default=str))
+        size_kb = size_bytes / 1024
+
+        if size_kb > budget_kb:
+            if self.enforce_budget:
+                top_contributors = self._find_top_contributors(data)
+                raise SizeBudgetExceeded(
+                    section=section,
+                    actual_kb=size_kb,
+                    budget_kb=budget_kb,
+                    top_contributors=top_contributors,
+                )
+            else:
+                logger.warning(
+                    f"Section '{section}' exceeds budget: "
+                    f"{size_kb:.1f}KB > {budget_kb}KB"
+                )
+
+    def _find_top_contributors(self, data: Dict) -> List:
+        """
+        Find top contributors to section size.
+
+        Args:
+            data: Section data dictionary
+
+        Returns:
+            List of BudgetContributor objects
+        """
+        from .exceptions import BudgetContributor
+
+        total_size = len(json.dumps(data, default=str))
+        contributors = []
+
+        for key, value in data.items():
+            item_size = len(json.dumps(value, default=str))
+            pct = (item_size / total_size) * 100 if total_size > 0 else 0
+            contributors.append(
+                BudgetContributor(key=key, size_bytes=item_size, pct_of_section=pct)
+            )
+
+        # Sort by size descending
+        contributors.sort(key=lambda x: x.size_bytes, reverse=True)
+        return contributors[:10]
 
     def build(
         self,
@@ -474,9 +549,15 @@ class PackageBuilder:
 
         summary["tickers"] = ticker_summaries
 
+        # Check tickers budget
+        self._check_budget("tickers", {"tickers": ticker_summaries}, TICKERS_BUDGET_KB)
+
         # Market overview (for benchmarks like SPY, QQQ)
         market_overview = self._build_market_overview(regime_outputs)
         summary["market"] = market_overview
+
+        # Check market budget
+        self._check_budget("market", market_overview, MARKET_BUDGET_KB)
 
         # Calculate confluence scores for each symbol/timeframe
         confluence_scores = calculate_confluence(data)
@@ -495,6 +576,9 @@ class PackageBuilder:
                 "strongest_signal": score.strongest_signal,
             }
         summary["confluence"] = confluence_data
+
+        # Check confluence budget
+        self._check_budget("confluence", confluence_data, CONFLUENCE_BUDGET_KB)
 
         return summary
 
