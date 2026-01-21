@@ -35,22 +35,22 @@ Usage:
     )
 """
 
-from .header import generate_report_header_html, generate_regime_one_liner_html
-from .methodology import generate_methodology_html
-from .decision_tree import generate_decision_tree_html
 from .components import generate_components_4block_html
-from .quality import generate_quality_html, generate_hysteresis_html
-from .turning_point import generate_turning_point_html
 from .dashboard import (
-    generate_regime_dashboard_html,
-    generate_regime_timeline_html,
-    generate_component_breakdown_html,
     generate_action_summary_html,
     generate_alerts_html,
+    generate_component_breakdown_html,
+    generate_regime_dashboard_html,
+    generate_regime_timeline_html,
 )
+from .decision_tree import generate_decision_tree_html
+from .header import generate_regime_one_liner_html, generate_report_header_html
+from .methodology import generate_methodology_html
 from .optimization import generate_optimization_html, generate_recommendations_html
+from .quality import generate_hysteresis_html, generate_quality_html
 from .styles import generate_regime_styles
-from .utils import build_regime_data_json, REGIME_COLORS, ACTION_COLORS
+from .turning_point import generate_turning_point_html
+from .utils import ACTION_COLORS, REGIME_COLORS, build_regime_data_json
 
 __all__ = [
     # Header

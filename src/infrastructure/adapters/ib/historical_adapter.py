@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import date, datetime, timedelta
-from typing import Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
 from ....domain.events.domain_events import BarData
@@ -96,7 +96,7 @@ class IbHistoricalAdapter(IbBaseAdapter, BarProvider):
 
     ADAPTER_TYPE = "historical"
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         """Initialize historical adapter."""
         super().__init__(*args, **kwargs)
         self._bar_callback: Optional[Callable[[BarData], None]] = None
@@ -170,6 +170,7 @@ class IbHistoricalAdapter(IbBaseAdapter, BarProvider):
             from ib_async import Stock
 
             contract = Stock(symbol, "SMART", currency="USD")
+            assert self.ib is not None  # ensured by ensure_connected()
             await self.ib.qualifyContractsAsync(contract)
 
             bars = await self.ib.reqHistoricalDataAsync(
@@ -291,7 +292,7 @@ class IbHistoricalAdapter(IbBaseAdapter, BarProvider):
         if not requests:
             return results
 
-        async def fetch_single(req: dict) -> tuple[str, List[BarData]]:
+        async def fetch_single(req: dict) -> Tuple[str, List[BarData]]:
             """Fetch a single request and return (symbol, bars)."""
             symbol = req.get("symbol", "")
             timeframe = req.get("timeframe", "1d")
@@ -317,7 +318,7 @@ class IbHistoricalAdapter(IbBaseAdapter, BarProvider):
             # Collect results, log errors
             for req, result in zip(batch, batch_results):
                 symbol = req.get("symbol", "")
-                if isinstance(result, Exception):
+                if isinstance(result, BaseException):
                     logger.error(f"IB historical fetch failed for {symbol}: {result}")
                     results[symbol] = []
                 else:
@@ -385,6 +386,7 @@ class IbHistoricalAdapter(IbBaseAdapter, BarProvider):
 
             # Get option chain
             underlying_contract = Stock(underlying, "SMART", currency="USD")
+            assert self.ib is not None  # ensured by ensure_connected()
             await self.ib.qualifyContractsAsync(underlying_contract)
 
             chains = await self.ib.reqSecDefOptParamsAsync(
@@ -420,6 +422,7 @@ class IbHistoricalAdapter(IbBaseAdapter, BarProvider):
                         currency="USD",
                     )
                     try:
+                        assert self.ib is not None  # ensured by ensure_connected()
                         await self.ib.qualifyContractsAsync(option)
                         bars = await self.fetch_bars(
                             option.localSymbol or f"{underlying}{expiry}{strike}{right}",

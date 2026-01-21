@@ -102,7 +102,7 @@ class TradingSignal:
     reason: str = ""
     metadata: Dict[str, Any] = field(default_factory=dict)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if not self.signal_id:
             self.signal_id = f"sig-{uuid.uuid4().hex[:8]}"
         if self.timestamp is None:

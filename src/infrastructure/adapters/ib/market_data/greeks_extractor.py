@@ -7,17 +7,14 @@ These are pure functions with no side effects, making them easy to test.
 from __future__ import annotations
 
 from math import isnan
-from typing import TYPE_CHECKING
+from typing import Any, Optional
 
 from .....models.market_data import GreeksSource, MarketData
 from .....models.position import AssetType, Position
 from .....utils.timezone import now_utc
 
-if TYPE_CHECKING:
-    pass  # IB Ticker type would go here
 
-
-def extract_market_data(ticker, pos: Position) -> MarketData:
+def extract_market_data(ticker: Any, pos: Position) -> MarketData:
     """
     Extract market data from an IB ticker object.
 
@@ -62,7 +59,7 @@ def extract_market_data(ticker, pos: Position) -> MarketData:
     )
 
 
-def extract_greeks(ticker, md: MarketData, pos: Position) -> None:
+def extract_greeks(ticker: Any, md: MarketData, pos: Position) -> None:
     """
     Extract Greeks from an IB ticker's modelGreeks.
 
@@ -109,7 +106,7 @@ def extract_greeks(ticker, md: MarketData, pos: Position) -> None:
         md.greeks_source = GreeksSource.IBKR
 
 
-def _safe_float(value) -> float | None:
+def _safe_float(value: Any) -> Optional[float]:
     """
     Safely convert a value to float, handling NaN and None.
 

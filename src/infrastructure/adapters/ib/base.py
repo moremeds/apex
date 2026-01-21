@@ -12,10 +12,13 @@ from __future__ import annotations
 
 from abc import ABC
 from datetime import date, datetime
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 from ....domain.interfaces.event_bus import EventBus
 from ....utils.logging_setup import get_logger
+
+if TYPE_CHECKING:
+    from ib_async import IB
 
 logger = get_logger(__name__)
 
@@ -60,7 +63,7 @@ class IbBaseAdapter(ABC):
         self.reconnect_backoff_max = reconnect_backoff_max
         self.reconnect_backoff_factor = reconnect_backoff_factor
 
-        self.ib = None  # ib_async.IB instance (lazy init)
+        self.ib: Optional[IB] = None  # ib_async.IB instance (lazy init)
         self._connected = False
         self._event_bus = event_bus
 
@@ -159,7 +162,7 @@ class IbBaseAdapter(ABC):
     # Utilities
     # -------------------------------------------------------------------------
 
-    def format_expiry_for_ib(self, expiry) -> Optional[str]:
+    def format_expiry_for_ib(self, expiry: Union[date, str, None]) -> Optional[str]:
         """
         Convert expiry to YYYYMMDD string format required by IBKR.
 

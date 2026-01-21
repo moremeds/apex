@@ -33,9 +33,8 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Dict, List, Literal, Optional
 from uuid import uuid4
 
 if TYPE_CHECKING:
@@ -371,9 +370,10 @@ class TurningPointTrainingService:
         outcomes = await asyncio.gather(*tasks, return_exceptions=True)
 
         for outcome in outcomes:
-            if isinstance(outcome, Exception):
+            if isinstance(outcome, BaseException):
                 self._logger.error(f"Unexpected error: {outcome}")
                 continue
+            # outcome is now guaranteed to be the tuple type
             symbol, result, error = outcome
             if result:
                 results[symbol] = result
@@ -425,6 +425,7 @@ class TurningPointTrainingService:
         )
 
         # Decision logic
+        decision: Literal["promote", "reject", "no_baseline"]
         if config.eval_only:
             decision = "reject"
             reason = "eval_only mode - no promotion"
@@ -512,7 +513,7 @@ class TurningPointTrainingService:
         from src.domain.interfaces.experiment_tracker import TrainingRunRecord
 
         for symbol, sym_result in result.results.items():
-            comparison = result.comparisons.get(symbol)
+            _comparison = result.comparisons.get(symbol)  # noqa: F841 - kept for future use
 
             record = TrainingRunRecord(
                 run_id=result.run_id,

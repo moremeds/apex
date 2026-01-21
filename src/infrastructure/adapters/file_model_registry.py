@@ -34,7 +34,7 @@ import pickle
 import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional
 
 from src.domain.interfaces.model_registry import (
     ModelMetadata,

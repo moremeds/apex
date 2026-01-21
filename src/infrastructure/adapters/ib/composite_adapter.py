@@ -28,13 +28,14 @@ Usage:
 from __future__ import annotations
 
 from collections import OrderedDict
-from typing import TYPE_CHECKING, Callable, Dict, List, Optional
+from datetime import datetime
+from typing import TYPE_CHECKING, Callable, Dict, List, Literal, Optional, cast
 
 from ....domain.interfaces.broker_adapter import BrokerAdapter
 from ....domain.interfaces.market_data_provider import MarketDataProvider
 from ....models.account import AccountInfo
 from ....models.market_data import MarketData
-from ....models.order import Order, Trade
+from ....models.order import Order, OrderSide, OrderSource, OrderStatus, OrderType, Trade
 from ....models.position import AssetType, Position, PositionSource
 from ....utils.logging_setup import get_logger
 from .connection_pool import ConnectionPoolConfig, IbConnectionPool
@@ -44,6 +45,7 @@ from .live_adapter import IbLiveAdapter
 
 if TYPE_CHECKING:
     from ....domain.events import PriorityEventBus
+    from ....domain.events.domain_events import BarData, OrderUpdate, QuoteTick
 
 
 logger = get_logger(__name__)
@@ -115,11 +117,16 @@ class IbCompositeAdapter(BrokerAdapter, MarketDataProvider):
             self._pool = IbConnectionPool(self._pool_config)
             await self._pool.connect()
 
+            # Get client_ids (ConnectionPoolConfig.__post_init__ guarantees non-None)
+            client_ids = self._pool_config.client_ids
+            if client_ids is None:
+                raise ValueError("client_ids is required in pool config")
+
             # Initialize live adapter with monitoring connection
             self._live_adapter = IbLiveAdapter(
                 host=self._pool_config.host,
                 port=self._pool_config.port,
-                client_id=self._pool_config.client_ids.monitoring,
+                client_id=client_ids.monitoring,
                 event_bus=self._event_bus,
             )
             # Inject the already-connected IB instance
@@ -128,11 +135,7 @@ class IbCompositeAdapter(BrokerAdapter, MarketDataProvider):
             await self._live_adapter._on_connected()
 
             # Initialize historical adapter
-            hist_client_id = (
-                self._pool_config.client_ids.historical_pool[0]
-                if self._pool_config.client_ids.historical_pool
-                else 3
-            )
+            hist_client_id = client_ids.historical_pool[0] if client_ids.historical_pool else 3
             self._historical_adapter = IbHistoricalAdapter(
                 host=self._pool_config.host,
                 port=self._pool_config.port,
@@ -146,7 +149,7 @@ class IbCompositeAdapter(BrokerAdapter, MarketDataProvider):
             self._execution_adapter = IbExecutionAdapter(
                 host=self._pool_config.host,
                 port=self._pool_config.port,
-                client_id=self._pool_config.client_ids.execution,
+                client_id=client_ids.execution,
                 event_bus=self._event_bus,
             )
             self._execution_adapter.ib = self._pool.execution
@@ -225,6 +228,10 @@ class IbCompositeAdapter(BrokerAdapter, MarketDataProvider):
                 # Convert string enums to proper Enum types
                 asset_type = AssetType(snap.asset_type) if snap.asset_type else AssetType.STOCK
                 source = PositionSource(snap.source) if snap.source else PositionSource.IB
+                # Validate and cast right to Literal["C", "P"] | None
+                right: Literal["C", "P"] | None = None
+                if snap.right in ("C", "P"):
+                    right = cast(Literal["C", "P"], snap.right)
                 pos = Position(
                     symbol=snap.symbol,
                     quantity=snap.quantity,
@@ -233,7 +240,7 @@ class IbCompositeAdapter(BrokerAdapter, MarketDataProvider):
                     underlying=snap.underlying,
                     expiry=snap.expiry,
                     strike=snap.strike,
-                    right=snap.right,
+                    right=right,
                     multiplier=snap.multiplier or 100,
                     source=source,
                 )
@@ -335,18 +342,22 @@ class IbCompositeAdapter(BrokerAdapter, MarketDataProvider):
 
             trades = []
             for fill in fills:
+                # Convert side string to OrderSide enum
+                side = OrderSide.BUY if fill.side == "BUY" else OrderSide.SELL
                 trades.append(
                     Trade(
+                        trade_id=fill.exec_id,  # Use exec_id as trade_id
+                        order_id=fill.order_id,
+                        source=OrderSource.IB,
+                        account_id=fill.account_id,
                         symbol=fill.symbol,
                         underlying=fill.underlying,
-                        side=fill.side,
+                        asset_type=fill.asset_type,
+                        side=side,
                         quantity=fill.quantity,
                         price=fill.price,
                         commission=fill.commission,
-                        exec_id=fill.exec_id,
-                        order_id=fill.order_id,
-                        asset_type=fill.asset_type,
-                        timestamp=fill.timestamp,
+                        trade_time=fill.timestamp,
                     )
                 )
 
@@ -460,10 +471,10 @@ class IbCompositeAdapter(BrokerAdapter, MarketDataProvider):
         self,
         symbol: str,
         timeframe: str,
-        start=None,
-        end=None,
+        start: Optional[datetime] = None,
+        end: Optional[datetime] = None,
         limit: Optional[int] = None,
-    ):
+    ) -> List["BarData"]:
         """
         Fetch historical bar data.
 
@@ -497,10 +508,12 @@ class IbCompositeAdapter(BrokerAdapter, MarketDataProvider):
         while len(self._market_data_cache) > self._market_data_cache_max_size:
             self._market_data_cache.popitem(last=False)
 
-    def _wrap_streaming_callback(self, callback: Callable[[str, MarketData], None]):
+    def _wrap_streaming_callback(
+        self, callback: Callable[[str, MarketData], None]
+    ) -> Callable[["QuoteTick"], None]:
         """Wrap streaming callback to convert QuoteTick to symbol+MarketData."""
 
-        def wrapper(quote_tick):
+        def wrapper(quote_tick: "QuoteTick") -> None:
             # QuoteTick has symbol, bid, ask, last, timestamp
             md = MarketData(
                 symbol=quote_tick.symbol,
@@ -514,23 +527,29 @@ class IbCompositeAdapter(BrokerAdapter, MarketDataProvider):
 
         return wrapper
 
-    def _order_update_to_order(self, order_update) -> Order:
+    def _order_update_to_order(self, order_update: "OrderUpdate") -> Order:
         """Convert OrderUpdate to Order model."""
+        # Convert string enum values to proper enum types
+        side = OrderSide.BUY if order_update.side == "BUY" else OrderSide.SELL
+        order_type = OrderType(order_update.order_type)
+        status = OrderStatus(order_update.status)
+
         return Order(
             order_id=order_update.order_id,
+            source=OrderSource.IB,
+            account_id=order_update.account_id,
             symbol=order_update.symbol,
             underlying=order_update.underlying,
-            side=order_update.side,
-            order_type=order_update.order_type,
-            status=order_update.status,
+            asset_type=order_update.asset_type,
+            side=side,
+            order_type=order_type,
             quantity=order_update.quantity,
-            filled_quantity=order_update.filled_quantity,
-            remaining_quantity=order_update.remaining_quantity,
             limit_price=order_update.limit_price,
             stop_price=order_update.stop_price,
+            status=status,
+            filled_quantity=order_update.filled_quantity,
             avg_fill_price=order_update.avg_fill_price,
-            asset_type=order_update.asset_type,
-            timestamp=order_update.timestamp,
+            updated_time=order_update.timestamp,
         )
 
     # -------------------------------------------------------------------------

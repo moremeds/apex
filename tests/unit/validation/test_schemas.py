@@ -267,19 +267,30 @@ class TestCreateFullValidationOutput:
         }
 
         s1 = StrategyMetrics(
-            "1d_only", precision=0.70, recall=0.80,
-            false_positive_rate=0.20, true_positives=70,
-            false_positives=20, true_negatives=80,
-            false_negatives=30, total_samples=200,
+            "1d_only",
+            precision=0.70,
+            recall=0.80,
+            false_positive_rate=0.20,
+            true_positives=70,
+            false_positives=20,
+            true_negatives=80,
+            false_negatives=30,
+            total_samples=200,
         )
         s2 = StrategyMetrics(
-            "1d_and_4h", precision=0.71, recall=0.75,
-            false_positive_rate=0.10, true_positives=65,
-            false_positives=10, true_negatives=90,
-            false_negatives=35, total_samples=200,
+            "1d_and_4h",
+            precision=0.71,
+            recall=0.75,
+            false_positive_rate=0.10,
+            true_positives=65,
+            false_positives=10,
+            true_negatives=90,
+            false_negatives=35,
+            total_samples=200,
         )
         confirmation = ConfirmationResult(
-            s1=s1, s2=s2,
+            s1=s1,
+            s2=s2,
             s1_ci_precision=(0.65, 0.75),
             s1_ci_fp_rate=(0.15, 0.25),
             s2_ci_precision=(0.66, 0.76),

@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
 
-from .position import Position
+from .position import AssetType, Position
 
 
 @dataclass
@@ -70,7 +70,7 @@ class PositionRisk:
         return self.position.quantity
 
     @property
-    def asset_type(self):
+    def asset_type(self) -> "AssetType":
         """Get asset type."""
         return self.position.asset_type
 

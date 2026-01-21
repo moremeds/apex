@@ -12,7 +12,7 @@ from __future__ import annotations
 import threading
 from collections import defaultdict
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Dict, List, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Tuple, Union
 
 from src.domain.events.domain_events import BarCloseEvent, BarData
 from src.domain.events.event_types import EventType
@@ -20,6 +20,7 @@ from src.utils.logging_setup import get_logger
 from src.utils.timezone import now_utc
 
 if TYPE_CHECKING:
+    from src.domain.events import PriorityEventBus
     from src.domain.interfaces.event_bus import EventBus
     from src.infrastructure.stores.parquet_historical_store import ParquetHistoricalStore
 
@@ -37,7 +38,7 @@ class BarPersistenceService:
 
     def __init__(
         self,
-        event_bus: "EventBus",
+        event_bus: Union["EventBus", "PriorityEventBus"],
         bar_store: "ParquetHistoricalStore",
         flush_threshold_bars: int = 10,
         flush_threshold_sec: float = 60.0,

@@ -22,9 +22,10 @@ except ImportError as exc:
     ) from exc
 
 
-def _to_array(series: pd.Series) -> np.ndarray:
+def _to_array(series: "pd.Series[float]") -> np.ndarray:  # type: ignore[type-arg]
     """Convert pandas Series to float64 numpy array for TA-Lib."""
-    return series.to_numpy(dtype="float64", copy=False)
+    arr: np.ndarray = series.to_numpy(dtype="float64", copy=False)
+    return arr
 
 
 def sma(series: pd.Series, period: int) -> pd.Series:

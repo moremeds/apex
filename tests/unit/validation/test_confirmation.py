@@ -138,9 +138,7 @@ class TestCompareStrategies:
         s1_preds = [True, True, True, True, True, False, False, False]
         s2_preds = [True, True, False, False, False, False, False, False]
 
-        result = compare_strategies(
-            s1_preds, s2_preds, actuals, n_bootstrap=100, seed=42
-        )
+        result = compare_strategies(s1_preds, s2_preds, actuals, n_bootstrap=100, seed=42)
 
         # S2 should have lower FP rate
         assert result.s2.false_positive_rate < result.s1.false_positive_rate
@@ -152,9 +150,7 @@ class TestCompareStrategies:
         s1_preds = [True, True, True, True, False, False]  # Perfect
         s2_preds = [True, True, False, False, False, False]  # Misses 2
 
-        result = compare_strategies(
-            s1_preds, s2_preds, actuals, n_bootstrap=100, seed=42
-        )
+        result = compare_strategies(s1_preds, s2_preds, actuals, n_bootstrap=100, seed=42)
 
         # S2 has lower recall/precision
         assert result.s2.recall < result.s1.recall
@@ -165,9 +161,7 @@ class TestCompareStrategies:
         s1_preds = [True, True, True, False]
         s2_preds = [True, False, False, False]
 
-        result = compare_strategies(
-            s1_preds, s2_preds, actuals, n_bootstrap=50
-        )
+        result = compare_strategies(s1_preds, s2_preds, actuals, n_bootstrap=50)
 
         assert hasattr(result, "s1")
         assert hasattr(result, "s2")
@@ -183,16 +177,26 @@ class TestConfirmationResult:
     def test_passes_gates_success(self):
         """Test when gates pass."""
         s1 = StrategyMetrics(
-            "s1", precision=0.70, recall=0.80,
-            false_positive_rate=0.20, true_positives=70,
-            false_positives=20, true_negatives=80,
-            false_negatives=30, total_samples=200,
+            "s1",
+            precision=0.70,
+            recall=0.80,
+            false_positive_rate=0.20,
+            true_positives=70,
+            false_positives=20,
+            true_negatives=80,
+            false_negatives=30,
+            total_samples=200,
         )
         s2 = StrategyMetrics(
-            "s2", precision=0.72, recall=0.75,
-            false_positive_rate=0.10, true_positives=65,
-            false_positives=10, true_negatives=90,
-            false_negatives=35, total_samples=200,
+            "s2",
+            precision=0.72,
+            recall=0.75,
+            false_positive_rate=0.10,
+            true_positives=65,
+            false_positives=10,
+            true_negatives=90,
+            false_negatives=35,
+            total_samples=200,
         )
 
         result = ConfirmationResult(
@@ -218,20 +222,31 @@ class TestConfirmationResult:
     def test_passes_gates_fails_fp_reduction(self):
         """Test when FP reduction gate fails."""
         s1 = StrategyMetrics(
-            "s1", precision=0.70, recall=0.80,
-            false_positive_rate=0.20, true_positives=70,
-            false_positives=20, true_negatives=80,
-            false_negatives=30, total_samples=200,
+            "s1",
+            precision=0.70,
+            recall=0.80,
+            false_positive_rate=0.20,
+            true_positives=70,
+            false_positives=20,
+            true_negatives=80,
+            false_negatives=30,
+            total_samples=200,
         )
         s2 = StrategyMetrics(
-            "s2", precision=0.70, recall=0.75,
-            false_positive_rate=0.18, true_positives=65,
-            false_positives=18, true_negatives=82,
-            false_negatives=35, total_samples=200,
+            "s2",
+            precision=0.70,
+            recall=0.75,
+            false_positive_rate=0.18,
+            true_positives=65,
+            false_positives=18,
+            true_negatives=82,
+            false_negatives=35,
+            total_samples=200,
         )
 
         result = ConfirmationResult(
-            s1=s1, s2=s2,
+            s1=s1,
+            s2=s2,
             s1_ci_precision=(0.65, 0.75),
             s1_ci_fp_rate=(0.15, 0.25),
             s2_ci_precision=(0.65, 0.75),
@@ -249,20 +264,31 @@ class TestConfirmationResult:
     def test_to_dict(self):
         """Test serialization."""
         s1 = StrategyMetrics(
-            "1d_only", precision=0.70, recall=0.80,
-            false_positive_rate=0.20, true_positives=70,
-            false_positives=20, true_negatives=80,
-            false_negatives=30, total_samples=200,
+            "1d_only",
+            precision=0.70,
+            recall=0.80,
+            false_positive_rate=0.20,
+            true_positives=70,
+            false_positives=20,
+            true_negatives=80,
+            false_negatives=30,
+            total_samples=200,
         )
         s2 = StrategyMetrics(
-            "1d_and_4h", precision=0.72, recall=0.75,
-            false_positive_rate=0.10, true_positives=65,
-            false_positives=10, true_negatives=90,
-            false_negatives=35, total_samples=200,
+            "1d_and_4h",
+            precision=0.72,
+            recall=0.75,
+            false_positive_rate=0.10,
+            true_positives=65,
+            false_positives=10,
+            true_negatives=90,
+            false_negatives=35,
+            total_samples=200,
         )
 
         result = ConfirmationResult(
-            s1=s1, s2=s2,
+            s1=s1,
+            s2=s2,
             s1_ci_precision=(0.65, 0.75),
             s1_ci_fp_rate=(0.15, 0.25),
             s2_ci_precision=(0.68, 0.76),

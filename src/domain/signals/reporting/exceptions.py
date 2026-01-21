@@ -47,7 +47,9 @@ class SizeBudgetExceeded(Exception):
         self.top_contributors = top_contributors or []
 
         # Build message
-        overflow_pct = ((actual_kb - budget_kb) / budget_kb) * 100 if budget_kb > 0 else float("inf")
+        overflow_pct = (
+            ((actual_kb - budget_kb) / budget_kb) * 100 if budget_kb > 0 else float("inf")
+        )
         msg = (
             f"Section '{section}' exceeds budget: "
             f"{actual_kb:.1f}KB > {budget_kb}KB (overflow: +{overflow_pct:.0f}%)"

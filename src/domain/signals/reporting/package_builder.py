@@ -41,22 +41,21 @@ import pandas as pd
 
 from src.utils.logging_setup import get_logger
 
-from .snapshot_builder import SnapshotBuilder
-
 # Import regime HTML generators for 1:1 feature parity
 from .regime import (
-    generate_report_header_html,
-    generate_regime_one_liner_html,
-    generate_methodology_html,
-    generate_decision_tree_html,
     generate_components_4block_html,
-    generate_quality_html,
+    generate_decision_tree_html,
     generate_hysteresis_html,
-    generate_turning_point_html,
+    generate_methodology_html,
     generate_optimization_html,
+    generate_quality_html,
     generate_recommendations_html,
+    generate_regime_one_liner_html,
     generate_regime_styles,
+    generate_report_header_html,
+    generate_turning_point_html,
 )
+from .snapshot_builder import SnapshotBuilder
 
 if TYPE_CHECKING:
     from ..indicators.base import Indicator
@@ -184,7 +183,7 @@ class PackageBuilder:
         Raises:
             SizeBudgetExceeded: If enforce_budget is True and budget exceeded
         """
-        from .exceptions import BudgetContributor, SizeBudgetExceeded
+        from .exceptions import SizeBudgetExceeded
 
         size_bytes = len(json.dumps(data, default=str))
         size_kb = size_bytes / 1024
@@ -200,8 +199,7 @@ class PackageBuilder:
                 )
             else:
                 logger.warning(
-                    f"Section '{section}' exceeds budget: "
-                    f"{size_kb:.1f}KB > {budget_kb}KB"
+                    f"Section '{section}' exceeds budget: " f"{size_kb:.1f}KB > {budget_kb}KB"
                 )
 
     def _find_top_contributors(self, data: Dict) -> List:
@@ -365,14 +363,17 @@ class PackageBuilder:
             if ind_name not in rule_lookup:
                 rule_lookup[ind_name] = []
             # Extract direction value from enum if needed
-            direction = rule.direction
-            if hasattr(direction, "value"):
-                direction = direction.value
-            rule_lookup[ind_name].append({
-                "id": rule.name,  # SignalRule uses 'name' not 'id'
-                "direction": direction,
-                "description": getattr(rule, "message_template", None) or f"{direction.upper()} when {rule.indicator} {rule.condition_type.value}",
-            })
+            direction_str: str = (
+                rule.direction.value if hasattr(rule.direction, "value") else str(rule.direction)
+            )
+            rule_lookup[ind_name].append(
+                {
+                    "id": rule.name,  # SignalRule uses 'name' not 'id'
+                    "direction": direction_str,
+                    "description": getattr(rule, "message_template", None)
+                    or f"{direction_str.upper()} when {rule.indicator} {rule.condition_type.value}",
+                }
+            )
 
         for indicator in indicators:
             category = indicator.category.value if hasattr(indicator, "category") else "other"
@@ -384,22 +385,26 @@ class PackageBuilder:
             if hasattr(indicator, "get_params"):
                 params = indicator.get_params()
 
-            categories[category].append({
-                "name": indicator.name.upper(),
-                "description": getattr(indicator, "description", f"{indicator.name} indicator"),
-                "params": params,
-                "rules": rule_lookup.get(ind_name, []),
-            })
+            categories[category].append(
+                {
+                    "name": indicator.name.upper(),
+                    "description": getattr(indicator, "description", f"{indicator.name} indicator"),
+                    "params": params,
+                    "rules": rule_lookup.get(ind_name, []),
+                }
+            )
 
         # Sort categories
         category_order = ["momentum", "trend", "volatility", "volume", "pattern", "other"]
         sorted_categories = []
         for cat in category_order:
             if cat in categories:
-                sorted_categories.append({
-                    "name": cat.title() + " Indicators",
-                    "indicators": categories[cat],
-                })
+                sorted_categories.append(
+                    {
+                        "name": cat.title() + " Indicators",
+                        "indicators": categories[cat],
+                    }
+                )
 
         indicators_data = {
             "categories": sorted_categories,
@@ -709,7 +714,9 @@ class PackageBuilder:
                 html_sections.append(generate_regime_one_liner_html(regime_output))
                 html_sections.append(generate_methodology_html(theme=self.theme))
                 html_sections.append(generate_decision_tree_html(regime_output, theme=self.theme))
-                html_sections.append(generate_components_4block_html(regime_output, theme=self.theme))
+                html_sections.append(
+                    generate_components_4block_html(regime_output, theme=self.theme)
+                )
                 html_sections.append(generate_quality_html(regime_output, theme=self.theme))
                 html_sections.append(generate_hysteresis_html(regime_output, theme=self.theme))
                 html_sections.append(generate_turning_point_html(regime_output, theme=self.theme))
@@ -2104,7 +2111,9 @@ document.addEventListener('DOMContentLoaded', () => {{
         # Validation link if URL provided
         validation_link = ""
         if validation_url:
-            validation_link = f'<a href="{validation_url}" class="validation-link">📊 Validation Results</a>'
+            validation_link = (
+                f'<a href="{validation_url}" class="validation-link">📊 Validation Results</a>'
+            )
 
         return f"""<!DOCTYPE html>
 <html lang="en">

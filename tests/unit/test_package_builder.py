@@ -7,7 +7,6 @@ Tests the directory-based package format with lazy loading.
 import json
 import shutil
 import tempfile
-from datetime import datetime
 from pathlib import Path
 from typing import Dict, Tuple
 from unittest.mock import MagicMock

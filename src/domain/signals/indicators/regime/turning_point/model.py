@@ -339,7 +339,7 @@ class TurningPointModel:
         X = features.to_array().reshape(1, -1)
 
         # Handle missing or unfitted scaler (can happen with models saved by FileModelRegistry)
-        if hasattr(self, 'scaler') and self.scaler is not None:
+        if hasattr(self, "scaler") and self.scaler is not None:
             try:
                 X_scaled = self.scaler.transform(X)
             except Exception:
@@ -471,7 +471,7 @@ class TurningPointModel:
         # Handle new format: FileModelRegistry saves TurningPointModel directly
         if isinstance(data, cls):
             # Ensure scaler exists (might be missing if saved by FileModelRegistry)
-            if not hasattr(data, 'scaler') or data.scaler is None:
+            if not hasattr(data, "scaler") or data.scaler is None:
                 data.scaler = StandardScaler()
             return data
 

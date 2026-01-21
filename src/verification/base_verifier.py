@@ -18,9 +18,9 @@ import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, cast
 
-import jsonschema
+import jsonschema  # type: ignore[import-untyped]
 import yaml
 
 from .invariants import (
@@ -174,10 +174,10 @@ class BaseVerifier(ABC):
         """Register domain-specific check handlers."""
         ...
 
-    def _load_yaml(self, path: Path) -> Dict:
+    def _load_yaml(self, path: Path) -> Dict[str, Any]:
         """Load YAML file."""
         with open(path, "r") as f:
-            return yaml.safe_load(f)
+            return cast(Dict[str, Any], yaml.safe_load(f))
 
     def _load_schemas(self) -> None:
         """Load all JSON schemas from manifest."""
@@ -202,9 +202,9 @@ class BaseVerifier(ABC):
                 except Exception as e:
                     logger.warning(f"Failed to load invariant {inv_id}: {e}")
 
-    def get_phases(self) -> List[Dict]:
+    def get_phases(self) -> List[Dict[str, Any]]:
         """Get all phases from manifest."""
-        return self.manifest.get("phases", [])
+        return cast(List[Dict[str, Any]], self.manifest.get("phases", []))
 
     def get_phase(self, phase_id: str) -> Optional[Dict]:
         """Get a specific phase by ID."""
@@ -299,7 +299,7 @@ class BaseVerifier(ABC):
             )
 
         try:
-            result = handler(check)
+            result: VerificationResult = handler(check)
             result.duration_ms = (time.perf_counter() - start_time) * 1000
             return result
         except Exception as e:
@@ -315,10 +315,10 @@ class BaseVerifier(ABC):
     # Common Check Handlers
     # ═══════════════════════════════════════════════════════════════
 
-    def _check_json_schema(self, check: Dict) -> VerificationResult:
+    def _check_json_schema(self, check: Dict[str, Any]) -> VerificationResult:
         """Validate data against JSON schema."""
         check_id = check["id"]
-        target = check.get("target")
+        target: str = check.get("target", "")
 
         schema = self.schemas.get(target)
         if schema is None:

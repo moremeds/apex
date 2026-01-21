@@ -4,16 +4,16 @@ Unit tests for BarValidationReport schema (PR-01).
 Tests the bar validation logic that solves the "350 vs 252" mystery.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import pytest
 
 from src.domain.signals.schemas import (
+    SCHEMA_VERSION_STR,
     BarReduction,
     BarReductionReason,
     BarValidationBuilder,
     BarValidationReport,
-    SCHEMA_VERSION_STR,
     SchemaVersionError,
     SizeBudget,
     validate_schema_version,

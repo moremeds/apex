@@ -199,7 +199,10 @@ def _eval_node(node: ast.AST, context: Dict[str, float]) -> Union[float, bool]:
         return _eval_node(node.body, context)
 
     if isinstance(node, ast.Constant):
-        return node.value
+        value = node.value
+        if isinstance(value, (int, float, bool)):
+            return value
+        raise ExpressionError(f"Unexpected constant type: {type(value).__name__}")
 
     if isinstance(node, ast.Name):
         return context[node.id]
@@ -414,7 +417,7 @@ class AlignmentInvariant:
         else:
             output_list = list(output_index)
 
-        return input_list == output_list
+        return bool(input_list == output_list)
 
 
 @dataclass
@@ -464,11 +467,11 @@ class CausalityInvariant:
 
         if self.tolerance == 0.0:
             # Byte-equal comparison
-            return np.array_equal(past_original, past_perturbed)
+            return bool(np.array_equal(past_original, past_perturbed))
         else:
             # Tolerance-based comparison
             diff = np.abs(past_original - past_perturbed)
-            return np.all(diff <= self.tolerance)
+            return bool(np.all(diff <= self.tolerance))
 
 
 @dataclass
@@ -485,7 +488,7 @@ class CustomInvariant:
 
     def check(self, context: Dict[str, Any]) -> bool:
         """Run the custom check function."""
-        return self.check_fn(context)
+        return bool(self.check_fn(context))
 
 
 # ═══════════════════════════════════════════════════════════════

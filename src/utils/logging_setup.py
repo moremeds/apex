@@ -554,6 +554,7 @@ def setup_logging(config: LoggingConfig, logger_name: Optional[str] = None) -> l
     logger.setLevel(getattr(logging, config.level.upper(), logging.INFO))
     logger.handlers.clear()
 
+    formatter: logging.Formatter
     if config.json:
         formatter = JSONFormatter()
     else:

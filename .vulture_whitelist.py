@@ -117,3 +117,40 @@ frame  # Signal handler frame argument (required by signal.signal)
 exc_val  # Context manager __exit__ argument
 exc_tb  # Context manager __exit__ traceback argument
 exc_type  # Context manager __exit__ exception type
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# NoopInstrument Pattern (Observability)
+# These parameters are intentionally unused - NoopInstrument accepts but ignores calls
+# ═══════════════════════════════════════════════════════════════════════════════
+
+attributes  # NoopInstrument method parameter (intentionally unused)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TYPE_CHECKING Imports
+# These imports are only used for type hints, not at runtime
+# ═══════════════════════════════════════════════════════════════════════════════
+
+Meter  # OpenTelemetry Meter type (TYPE_CHECKING import)
+ExperimentTrackerPort  # TYPE_CHECKING import for dependency injection
+ModelRegistryPort  # TYPE_CHECKING import for dependency injection
+time_type  # backtrader type annotation import
+load_labeler_thresholds_from_yaml  # Used dynamically/conditionally
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Context Manager Variables
+# These are required by contextlib patterns but may not be directly used
+# ═══════════════════════════════════════════════════════════════════════════════
+
+__context  # Contextlib context variable (exception context pattern)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Placeholder/Future Use Variables
+# These are defined for future functionality or API compatibility
+# ═══════════════════════════════════════════════════════════════════════════════
+
+prev_features  # Placeholder for delta calculation (future feature)
+label_name  # Model label column name (used in training config)
+connection  # Database connection (used for health check)
+pid  # Process ID (used for connection monitoring)
+orchestrator_callback  # TUI callback (registered dynamically)
+warn_threshold  # Warning threshold (used in visual indicators)

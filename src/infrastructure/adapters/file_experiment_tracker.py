@@ -24,7 +24,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from src.domain.interfaces.experiment_tracker import (
     BaselineMetrics,
@@ -160,6 +160,7 @@ class FileExperimentTracker(ExperimentTrackerPortABC):
 
         meets_threshold = roc_improvement >= improvement_threshold
 
+        decision: Literal["promote", "reject", "no_baseline"]
         if meets_threshold:
             decision = "promote"
             reason = f"ROC-AUC improved by {roc_improvement:.4f} (>= {improvement_threshold})"
@@ -237,14 +238,15 @@ class FileExperimentTracker(ExperimentTrackerPortABC):
 
         return None
 
-    def _load_baselines(self) -> Dict[str, dict]:
+    def _load_baselines(self) -> Dict[str, Dict[str, Any]]:
         """Load baselines from file."""
         if not self._baselines_file.exists():
             return {}
 
         try:
             with open(self._baselines_file) as f:
-                return json.load(f)
+                result: Dict[str, Dict[str, Any]] = json.load(f)
+                return result
         except Exception:
             return {}
 

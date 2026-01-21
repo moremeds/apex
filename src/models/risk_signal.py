@@ -10,7 +10,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
+
+if TYPE_CHECKING:
+    from src.domain.services.risk.rule_engine import LimitBreach
 
 
 class SignalLevel(Enum):
@@ -104,7 +107,7 @@ class RiskSignal:
         }
 
     @classmethod
-    def from_breach(cls, breach, layer: int = 1) -> RiskSignal:
+    def from_breach(cls, breach: "LimitBreach", layer: int = 1) -> RiskSignal:
         """
         Convert legacy LimitBreach to RiskSignal (for backward compatibility).
 

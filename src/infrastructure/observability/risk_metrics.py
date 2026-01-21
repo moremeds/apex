@@ -7,6 +7,9 @@ Exposes key risk indicators for Prometheus alerting:
 - Risk breach levels
 - Concentration metrics
 - Calculation performance
+
+Note: OpenTelemetry is an optional dependency. When not installed,
+RiskMetrics will accept a None meter and operate in no-op mode.
 """
 
 from __future__ import annotations
@@ -15,14 +18,27 @@ import time
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Generator, Optional
 
-from opentelemetry import metrics
-
 from ...utils.logging_setup import get_logger
 
 if TYPE_CHECKING:
+    from opentelemetry.metrics import Meter
+
     from src.models.risk_snapshot import RiskSnapshot
 
 logger = get_logger(__name__)
+
+
+class _NoopInstrument:
+    """No-op instrument that accepts but ignores all metric calls."""
+
+    def add(self, value: Any, attributes: Any = None) -> None:
+        pass
+
+    def set(self, value: Any, attributes: Any = None) -> None:
+        pass
+
+    def record(self, value: Any, attributes: Any = None) -> None:
+        pass
 
 
 class RiskMetrics:
@@ -33,16 +49,73 @@ class RiskMetrics:
     for alerting on breaches, P&L limits, and Greeks thresholds.
 
     All metrics are prefixed with 'apex_' for namespace isolation.
+
+    When meter is None (OpenTelemetry not installed), operates in no-op mode.
     """
 
-    def __init__(self, meter: metrics.Meter):
+    # Type annotations for instruments (Any allows both real and noop instruments)
+    _breach_level: Any
+    _portfolio_delta: Any
+    _portfolio_gamma: Any
+    _portfolio_vega: Any
+    _portfolio_theta: Any
+    _unrealized_pnl: Any
+    _daily_pnl: Any
+    _gross_notional: Any
+    _net_notional: Any
+    _max_single_name_pct: Any
+    _near_term_gamma_notional: Any
+    _near_term_vega_notional: Any
+    _margin_utilization: Any
+    _buying_power: Any
+    _net_liquidation: Any
+    _position_count: Any
+    _positions_missing_md: Any
+    _positions_missing_greeks: Any
+    _calc_duration: Any
+    _snapshot_build_duration: Any
+    _breach_counter: Any
+    _last_snapshot_timestamp: Any
+
+    def __init__(self, meter: Optional["Meter"]):
         """
         Initialize risk metrics instruments.
 
         Args:
-            meter: OpenTelemetry Meter for creating instruments.
+            meter: OpenTelemetry Meter for creating instruments, or None for no-op mode.
         """
         self._meter = meter
+        self._noop = meter is None
+
+        if self._noop:
+            # No-op mode - use NoopInstrument that accepts but ignores calls
+            noop = _NoopInstrument()
+            self._breach_level = noop
+            self._portfolio_delta = noop
+            self._portfolio_gamma = noop
+            self._portfolio_vega = noop
+            self._portfolio_theta = noop
+            self._unrealized_pnl = noop
+            self._daily_pnl = noop
+            self._gross_notional = noop
+            self._net_notional = noop
+            self._max_single_name_pct = noop
+            self._near_term_gamma_notional = noop
+            self._near_term_vega_notional = noop
+            self._margin_utilization = noop
+            self._buying_power = noop
+            self._net_liquidation = noop
+            self._position_count = noop
+            self._positions_missing_md = noop
+            self._positions_missing_greeks = noop
+            self._calc_duration = noop
+            self._snapshot_build_duration = noop
+            self._breach_counter = noop
+            self._last_snapshot_timestamp = noop
+            return
+
+        # mypy: meter is guaranteed non-None after noop check
+        assert meter is not None
 
         # Risk breach level gauge (0=OK, 1=soft, 2=hard)
         self._breach_level = meter.create_gauge(
@@ -173,6 +246,9 @@ class RiskMetrics:
         Args:
             snapshot: Risk snapshot containing aggregated metrics.
         """
+        if self._noop:
+            return
+
         # Portfolio Greeks
         self._portfolio_delta.set(snapshot.portfolio_delta or 0)
         self._portfolio_gamma.set(snapshot.portfolio_gamma or 0)
@@ -221,6 +297,8 @@ class RiskMetrics:
             rule_name: Name of the breached rule (e.g., "delta_limit", "concentration").
             level: Breach level (0=OK, 1=soft breach, 2=hard breach).
         """
+        if self._noop:
+            return
         self._breach_level.set(level, {"rule": rule_name})
 
         # Also increment breach counter for historical tracking
@@ -235,6 +313,8 @@ class RiskMetrics:
         Args:
             duration_ms: Calculation duration in milliseconds.
         """
+        if self._noop:
+            return
         self._calc_duration.record(duration_ms)
 
     def record_snapshot_build_duration(self, duration_ms: float) -> None:
@@ -244,10 +324,14 @@ class RiskMetrics:
         Args:
             duration_ms: Build duration in milliseconds.
         """
+        if self._noop:
+            return
         self._snapshot_build_duration.record(duration_ms)
 
     def clear_breaches(self) -> None:
         """Clear all breach level gauges (set to 0)."""
+        if self._noop:
+            return
         self._breach_level.set(0, {"rule": "all"})
 
 

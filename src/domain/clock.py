@@ -128,7 +128,7 @@ class SystemClock(Clock):
     Uses actual system time and asyncio for scheduling.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._timers: Dict[str, asyncio.TimerHandle] = {}
         self._next_timer_id = 0
         self._loop: Optional[asyncio.AbstractEventLoop] = None
@@ -353,7 +353,8 @@ class BacktraderClock(Clock):
     def now(self) -> datetime:
         """Get current time from Backtrader data."""
         try:
-            return self._bt_strategy.data.datetime.datetime(0)
+            result: datetime = self._bt_strategy.data.datetime.datetime(0)
+            return result
         except (IndexError, AttributeError):
             # No data yet - return epoch
             return datetime(1970, 1, 1)

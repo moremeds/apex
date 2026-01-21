@@ -18,7 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional
+from typing import Dict, List, Literal, Optional
 
 import numpy as np
 import pandas as pd
@@ -243,9 +243,9 @@ def compute_regime_rates(
                 continue
 
             # Run regime detection
-            output = detector.calculate(history)
-            if output:
-                regime = output.regime.value  # "R0", "R1", "R2", or "R3"
+            result_df = detector.calculate(history, {})
+            if not result_df.empty:
+                regime = result_df["regime"].iloc[-1]  # "R0", "R1", "R2", or "R3"
                 regime_counts[regime] = regime_counts.get(regime, 0) + 1
                 total_days += 1
 
@@ -299,9 +299,9 @@ class TestRegimeSensitivity:
 
         rates = compute_regime_rates(df, sample.start_date, sample.end_date)
 
-        assert rates["total_days"] >= 20, (
-            f"Insufficient data: only {rates['total_days']} days for {sample.symbol}"
-        )
+        assert (
+            rates["total_days"] >= 20
+        ), f"Insufficient data: only {rates['total_days']} days for {sample.symbol}"
 
         r0_rate = rates["R0"]
         assert r0_rate >= sample.threshold, (
@@ -333,9 +333,9 @@ class TestRegimeSensitivity:
 
         rates = compute_regime_rates(df, sample.start_date, sample.end_date)
 
-        assert rates["total_days"] >= 20, (
-            f"Insufficient data: only {rates['total_days']} days for {sample.symbol}"
-        )
+        assert (
+            rates["total_days"] >= 20
+        ), f"Insufficient data: only {rates['total_days']} days for {sample.symbol}"
 
         r0_rate = rates["R0"]
         assert r0_rate <= sample.threshold, (
@@ -460,9 +460,9 @@ class TestRegimeStability:
             regimes = []
             for i in range(50, len(df)):
                 history = df.iloc[: i + 1]
-                output = detector.calculate(history)
-                if output:
-                    regimes.append(output.regime.value)
+                result_df = detector.calculate(history, {})
+                if not result_df.empty:
+                    regimes.append(result_df["regime"].iloc[-1])
 
             # Count regime changes
             changes = sum(1 for i in range(1, len(regimes)) if regimes[i] != regimes[i - 1])
@@ -491,8 +491,9 @@ class TestRegimeEdgeCases:
             detector = RegimeDetectorIndicator()
             df = pd.DataFrame()
 
-            output = detector.calculate(df)
-            assert output is None or output.regime is not None
+            # Empty DataFrame should raise ValueError due to missing required fields
+            with pytest.raises(ValueError, match="requires fields"):
+                detector.calculate(df, {})
 
         except ImportError:
             pytest.skip("RegimeDetectorIndicator not available")
@@ -518,9 +519,9 @@ class TestRegimeEdgeCases:
                 index=pd.date_range("2025-01-01", periods=10),
             )
 
-            output = detector.calculate(df)
-            # Should return None or a safe default
-            assert output is None or output.data_quality is not None
+            result_df = detector.calculate(df, {})
+            # Should return DataFrame with regime column (may use fallback values)
+            assert "regime" in result_df.columns
 
         except ImportError:
             pytest.skip("RegimeDetectorIndicator not available")

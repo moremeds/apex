@@ -299,6 +299,7 @@ class TradingRunner:
             await self._initialize()
 
             # Start strategy
+            assert self._strategy is not None
             self._strategy.start()
             self._running = True
 
@@ -416,6 +417,7 @@ class TradingRunner:
                 loop_count += 1
 
                 # 1. Check strategy health
+                assert self._strategy is not None
                 if self._strategy.state.value == "error":
                     logger.error(f"Strategy entered error state: {self._strategy._error_message}")
                     self._running = False
@@ -428,6 +430,7 @@ class TradingRunner:
                 now = int(self._clock.now().timestamp())
                 if now - last_heartbeat >= heartbeat_interval:
                     last_heartbeat = now
+                    assert self._strategy is not None
                     logger.info(
                         f"Trading heartbeat: loop={loop_count}, orders={self._order_count}, "
                         f"rejected={self._rejected_count}, state={self._strategy.state.value}"
@@ -458,6 +461,8 @@ class TradingRunner:
     def _handle_order(self, order: OrderRequest) -> None:
         """Handle order from strategy."""
         # Validate through risk gate
+        assert self._risk_gate is not None
+        assert self._context is not None
         result = self._risk_gate.validate(order, self._context)
 
         if not result.approved:
@@ -523,7 +528,7 @@ class TradingRunner:
     def _setup_signal_handlers(self) -> None:
         """Set up signal handlers for graceful shutdown."""
 
-        def handle_signal(signum, frame):
+        def handle_signal(signum: int, frame: Any) -> None:
             logger.info(f"Received signal {signum}, shutting down...")
             self._running = False
 
@@ -612,7 +617,7 @@ def create_parser() -> argparse.ArgumentParser:
     return parser
 
 
-async def main():
+async def main() -> None:
     """Main entry point."""
     parser = create_parser()
     args = parser.parse_args()

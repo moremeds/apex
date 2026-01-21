@@ -13,7 +13,7 @@ import random
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 
 @dataclass
@@ -211,7 +211,7 @@ class VenueLatencyModel(LatencyModel):
     """
 
     # Default latencies by venue (in milliseconds)
-    DEFAULT_VENUE_LATENCIES: Dict[str, tuple] = {
+    DEFAULT_VENUE_LATENCIES: Dict[str, Tuple[float, float]] = {
         # US Exchanges
         "NYSE": (20, 80),  # (order_latency, fill_latency)
         "NASDAQ": (15, 60),
@@ -227,7 +227,7 @@ class VenueLatencyModel(LatencyModel):
 
     def __init__(
         self,
-        venue_latencies: Optional[Dict[str, tuple]] = None,
+        venue_latencies: Optional[Dict[str, Tuple[float, float]]] = None,
         add_variance: bool = True,
         variance_pct: float = 0.2,
         seed: Optional[int] = None,

@@ -14,7 +14,10 @@ import logging
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
+
+if TYPE_CHECKING:
+    from .backtest_spec import BacktestSpec
 
 logger = logging.getLogger(__name__)
 
@@ -151,7 +154,7 @@ class StrategySource:
     @classmethod
     def _load_from_yaml(cls, yaml_dir: str) -> List[StrategyItem]:
         """Load strategies from YAML spec files."""
-        items = []
+        items: List[StrategyItem] = []
 
         yaml_path = Path(yaml_dir)
         if not yaml_path.exists():
@@ -231,7 +234,7 @@ class StrategySource:
         return None
 
     @classmethod
-    def create_backtest_spec(cls, item: StrategyItem):
+    def create_backtest_spec(cls, item: StrategyItem) -> "BacktestSpec":
         """
         Create a BacktestSpec from a StrategyItem.
 

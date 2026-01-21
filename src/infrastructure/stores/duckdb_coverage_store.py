@@ -68,8 +68,7 @@ class DuckDBCoverageStore:
 
     def _init_schema(self) -> None:
         """Create tables if they don't exist."""
-        self._conn.execute(
-            """
+        self._conn.execute("""
             CREATE TABLE IF NOT EXISTS data_coverage (
                 symbol TEXT NOT NULL,
                 timeframe TEXT NOT NULL,
@@ -81,11 +80,9 @@ class DuckDBCoverageStore:
                 last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (symbol, timeframe, source, start_ts)
             )
-        """
-        )
+        """)
 
-        self._conn.execute(
-            """
+        self._conn.execute("""
             CREATE TABLE IF NOT EXISTS data_gaps (
                 symbol TEXT NOT NULL,
                 timeframe TEXT NOT NULL,
@@ -96,11 +93,9 @@ class DuckDBCoverageStore:
                 status TEXT DEFAULT 'pending',
                 PRIMARY KEY (symbol, timeframe, gap_start, gap_end)
             )
-        """
-        )
+        """)
 
-        self._conn.execute(
-            """
+        self._conn.execute("""
             CREATE TABLE IF NOT EXISTS symbol_metadata (
                 symbol TEXT PRIMARY KEY,
                 yahoo_symbol TEXT,
@@ -109,22 +104,17 @@ class DuckDBCoverageStore:
                 asset_type TEXT DEFAULT 'stock',
                 last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
-        """
-        )
+        """)
 
         # Create indexes for faster queries
-        self._conn.execute(
-            """
+        self._conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_coverage_symbol_tf
             ON data_coverage(symbol, timeframe)
-        """
-        )
-        self._conn.execute(
-            """
+        """)
+        self._conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_gaps_symbol_tf
             ON data_gaps(symbol, timeframe, status)
-        """
-        )
+        """)
 
     def get_coverage(
         self,
@@ -442,11 +432,9 @@ class DuckDBCoverageStore:
                 [timeframe],
             ).fetchall()
         else:
-            result = self._conn.execute(
-                """
+            result = self._conn.execute("""
                 SELECT DISTINCT symbol FROM data_coverage ORDER BY symbol
-            """
-            ).fetchall()
+            """).fetchall()
 
         return [row[0] for row in result]
 
@@ -499,14 +487,12 @@ class DuckDBCoverageStore:
             Each record: {timeframe, earliest, latest, total_bars}
         """
         # Merge all sources per symbol/timeframe
-        result = self._conn.execute(
-            """
+        result = self._conn.execute("""
             SELECT symbol, timeframe, MIN(start_ts), MAX(end_ts), SUM(bar_count)
             FROM data_coverage
             GROUP BY symbol, timeframe
             ORDER BY symbol, timeframe
-        """
-        ).fetchall()
+        """).fetchall()
 
         grouped: Dict[str, List[dict]] = {}
         for row in result:

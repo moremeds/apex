@@ -54,7 +54,7 @@ class AsyncEventBus(EventBus):
         self._async_subscribers: Dict[EventType, List[Callable[[DomainEvent], Any]]] = defaultdict(
             list
         )
-        self._queue: asyncio.Queue[EventEnvelope] = None  # Created in start()
+        self._queue: Optional[asyncio.Queue[EventEnvelope]] = None  # Created in start()
         self._max_queue_size = max_queue_size
         self._debounce_ms = debounce_ms
 
@@ -156,6 +156,7 @@ class AsyncEventBus(EventBus):
         This method is called either directly from the loop thread,
         or via call_soon_threadsafe from other threads.
         """
+        assert self._queue is not None, "Queue not initialized - call start() first"
         try:
             # Use put_nowait for non-blocking
             self._queue.put_nowait(envelope)
@@ -249,8 +250,8 @@ class AsyncEventBus(EventBus):
         logger.info("Stopping AsyncEventBus...")
         self._running = False
 
-        # Publish shutdown event
-        self.publish(EventType.SHUTDOWN, {"timestamp": time.time()})
+        # Publish shutdown event (use type: ignore for internal control dict)
+        self.publish(EventType.SHUTDOWN, {"timestamp": time.time()})  # type: ignore[arg-type]
 
         # Wait for task to complete
         if self._task:
@@ -295,6 +296,7 @@ class AsyncEventBus(EventBus):
 
     async def _dispatch_loop(self) -> None:
         """Main dispatch loop - processes events from queue."""
+        assert self._queue is not None, "Queue not initialized - call start() first"
         logger.debug("Event dispatch loop started")
 
         while self._running:

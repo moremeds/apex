@@ -18,6 +18,8 @@ from math import isnan
 from threading import Lock
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from src.backtest.data.calendar import get_calendar
+
 from ....domain.events.domain_events import AccountSnapshot, PositionSnapshot, QuoteTick
 from ....domain.interfaces.account_provider import AccountProvider
 from ....domain.interfaces.event_bus import EventType
@@ -32,7 +34,6 @@ from ..market_data_fetcher import MarketDataFetcher
 from .base import IbBaseAdapter
 from .contract_qualification_service import ContractQualificationService
 from .converters import convert_position
-from src.backtest.data.calendar import get_calendar
 
 logger = get_logger(__name__)
 
@@ -662,7 +663,11 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
                 qualified_raw = await asyncio.wait_for(
                     self.ib.qualifyContractsAsync(*contracts), timeout=30.0
                 )
-                qualified = [c for c in qualified_raw if c is not None and c.conId]
+                qualified = [
+                    c
+                    for c in qualified_raw
+                    if c is not None and not isinstance(c, list) and c.conId
+                ]
 
             if not qualified:
                 return []
@@ -730,7 +735,11 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
             else:
                 # Fallback to direct qualification if service not available
                 qualified_raw = await self.ib.qualifyContractsAsync(*contracts)
-                qualified = [c for c in qualified_raw if c is not None and c.conId]
+                qualified = [
+                    c
+                    for c in qualified_raw
+                    if c is not None and not isinstance(c, list) and c.conId
+                ]
 
             if not qualified:
                 logger.warning("No contracts qualified for market indicators")

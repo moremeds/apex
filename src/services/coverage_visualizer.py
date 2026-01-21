@@ -196,7 +196,7 @@ class CoverageVisualizer:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         # Build chart data JSON
-        chart_data = {}
+        chart_data: Dict[str, Dict[str, Dict[str, object]]] = {}
         for symbol, tf_data in all_data.items():
             chart_data[symbol] = {}
             for tf, data in tf_data.items():
@@ -217,10 +217,10 @@ class CoverageVisualizer:
         symbols_with_data = sum(1 for s in symbols if all_data.get(s))
 
         # Count validation statuses
-        validation_counts = {"PASS": 0, "WARN": 0, "CAUTION": 0, "FAIL": 0}
+        validation_counts: Dict[str, int] = {"PASS": 0, "WARN": 0, "CAUTION": 0, "FAIL": 0}
         for symbol_data in all_data.values():
-            for tf_data in symbol_data.values():
-                status = tf_data.validation_status
+            for timeframe_data in symbol_data.values():
+                status = timeframe_data.validation_status
                 if status in validation_counts:
                     validation_counts[status] += 1
 
@@ -411,8 +411,7 @@ class CoverageVisualizer:
                     """
                     charts_html.append(chart_html)
                 else:
-                    charts_html.append(
-                        f"""
+                    charts_html.append(f"""
                     <div class="chart-container no-data">
                         <div class="chart-header">
                             <span class="chart-title">{tf}</span>
@@ -420,8 +419,7 @@ class CoverageVisualizer:
                             <span class="chart-info">No data</span>
                         </div>
                     </div>
-                    """
-                    )
+                    """)
 
             section = f"""
             <div class="symbol-section">

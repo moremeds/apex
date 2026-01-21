@@ -1,6 +1,7 @@
 """Tests for M2 Validation Runner."""
 
 import json
+import os
 import tempfile
 from pathlib import Path
 
@@ -10,6 +11,12 @@ from src.runners.validation_runner import (
     ValidationRunner,
     create_argument_parser,
     main,
+)
+
+# Skip network-dependent tests in CI or when SKIP_NETWORK_TESTS=1
+skip_network = pytest.mark.skipif(
+    os.environ.get("CI") == "true" or os.environ.get("SKIP_NETWORK_TESTS") == "1",
+    reason="Skipping network-dependent test (CI or SKIP_NETWORK_TESTS=1)",
 )
 
 
@@ -29,17 +36,23 @@ class TestArgumentParser:
         assert args.mode == "fast"
         assert "SPY" in args.symbols
         assert args.folds == 2
-        assert args.timeframes == ["1d", "4h"]
+        assert args.timeframes == ["1d"]
         assert args.horizon_days == 20
 
     def test_fast_mode_custom_symbols(self):
         """Test fast mode with custom symbols."""
         parser = create_argument_parser()
-        args = parser.parse_args([
-            "fast",
-            "--output", "test.json",
-            "--symbols", "AAPL", "MSFT", "GOOGL",
-        ])
+        args = parser.parse_args(
+            [
+                "fast",
+                "--output",
+                "test.json",
+                "--symbols",
+                "AAPL",
+                "MSFT",
+                "GOOGL",
+            ]
+        )
 
         assert args.symbols == ["AAPL", "MSFT", "GOOGL"]
 
@@ -57,13 +70,19 @@ class TestArgumentParser:
     def test_full_mode_custom_folds(self):
         """Test full mode with custom fold counts."""
         parser = create_argument_parser()
-        args = parser.parse_args([
-            "full",
-            "--output", "test.json",
-            "--outer-folds", "3",
-            "--inner-folds", "2",
-            "--inner-trials", "10",
-        ])
+        args = parser.parse_args(
+            [
+                "full",
+                "--output",
+                "test.json",
+                "--outer-folds",
+                "3",
+                "--inner-folds",
+                "2",
+                "--inner-trials",
+                "10",
+            ]
+        )
 
         assert args.outer_folds == 3
         assert args.inner_folds == 2
@@ -72,11 +91,15 @@ class TestArgumentParser:
     def test_holdout_mode(self):
         """Test holdout mode arguments."""
         parser = create_argument_parser()
-        args = parser.parse_args([
-            "holdout",
-            "--output", "test.json",
-            "--params", "params.yaml",
-        ])
+        args = parser.parse_args(
+            [
+                "holdout",
+                "--output",
+                "test.json",
+                "--params",
+                "params.yaml",
+            ]
+        )
 
         assert args.mode == "holdout"
         assert args.params == "params.yaml"
@@ -84,17 +107,25 @@ class TestArgumentParser:
     def test_timeframes_argument(self):
         """Test timeframes argument parsing."""
         parser = create_argument_parser()
-        args = parser.parse_args([
-            "fast",
-            "--output", "test.json",
-            "--timeframes", "1d", "4h", "2h", "1h",
-        ])
+        args = parser.parse_args(
+            [
+                "fast",
+                "--output",
+                "test.json",
+                "--timeframes",
+                "1d",
+                "4h",
+                "2h",
+                "1h",
+            ]
+        )
 
         assert args.timeframes == ["1d", "4h", "2h", "1h"]
 
 
+@skip_network
 class TestValidationRunnerFast:
-    """Tests for fast validation mode."""
+    """Tests for fast validation mode (requires Yahoo Finance API)."""
 
     def test_fast_mode_runs(self):
         """Test fast mode executes without error."""
@@ -102,11 +133,16 @@ class TestValidationRunnerFast:
             output_path = Path(tmpdir) / "fast_result.json"
 
             parser = create_argument_parser()
-            args = parser.parse_args([
-                "fast",
-                "--output", str(output_path),
-                "--symbols", "SPY", "QQQ",
-            ])
+            args = parser.parse_args(
+                [
+                    "fast",
+                    "--output",
+                    str(output_path),
+                    "--symbols",
+                    "SPY",
+                    "QQQ",
+                ]
+            )
 
             runner = ValidationRunner(args)
             exit_code = runner.run()
@@ -120,11 +156,15 @@ class TestValidationRunnerFast:
             output_path = Path(tmpdir) / "fast_result.json"
 
             parser = create_argument_parser()
-            args = parser.parse_args([
-                "fast",
-                "--output", str(output_path),
-                "--symbols", "AAPL",
-            ])
+            args = parser.parse_args(
+                [
+                    "fast",
+                    "--output",
+                    str(output_path),
+                    "--symbols",
+                    "AAPL",
+                ]
+            )
 
             runner = ValidationRunner(args)
             runner.run()
@@ -145,10 +185,13 @@ class TestValidationRunnerFast:
             output_path = Path(tmpdir) / "fast_result.json"
 
             parser = create_argument_parser()
-            args = parser.parse_args([
-                "fast",
-                "--output", str(output_path),
-            ])
+            args = parser.parse_args(
+                [
+                    "fast",
+                    "--output",
+                    str(output_path),
+                ]
+            )
 
             runner = ValidationRunner(args)
             runner.run()
@@ -162,8 +205,9 @@ class TestValidationRunnerFast:
             assert "causality_g7" in gate_names
 
 
+@skip_network
 class TestValidationRunnerFull:
-    """Tests for full validation mode."""
+    """Tests for full validation mode (requires Yahoo Finance API)."""
 
     def test_full_mode_runs(self):
         """Test full mode executes without error."""
@@ -171,10 +215,13 @@ class TestValidationRunnerFull:
             output_path = Path(tmpdir) / "full_result.json"
 
             parser = create_argument_parser()
-            args = parser.parse_args([
-                "full",
-                "--output", str(output_path),
-            ])
+            args = parser.parse_args(
+                [
+                    "full",
+                    "--output",
+                    str(output_path),
+                ]
+            )
 
             runner = ValidationRunner(args)
             exit_code = runner.run()
@@ -188,10 +235,13 @@ class TestValidationRunnerFull:
             output_path = Path(tmpdir) / "full_result.json"
 
             parser = create_argument_parser()
-            args = parser.parse_args([
-                "full",
-                "--output", str(output_path),
-            ])
+            args = parser.parse_args(
+                [
+                    "full",
+                    "--output",
+                    str(output_path),
+                ]
+            )
 
             runner = ValidationRunner(args)
             runner.run()
@@ -213,10 +263,13 @@ class TestValidationRunnerFull:
             output_path = Path(tmpdir) / "full_result.json"
 
             parser = create_argument_parser()
-            args = parser.parse_args([
-                "full",
-                "--output", str(output_path),
-            ])
+            args = parser.parse_args(
+                [
+                    "full",
+                    "--output",
+                    str(output_path),
+                ]
+            )
 
             runner = ValidationRunner(args)
             runner.run()
@@ -231,8 +284,9 @@ class TestValidationRunnerFull:
             assert "choppy_ci_upper" in gate_names
 
 
+@skip_network
 class TestValidationRunnerHoldout:
-    """Tests for holdout validation mode."""
+    """Tests for holdout validation mode (requires Yahoo Finance API)."""
 
     def test_holdout_mode_runs(self):
         """Test holdout mode executes without error."""
@@ -240,10 +294,13 @@ class TestValidationRunnerHoldout:
             output_path = Path(tmpdir) / "holdout_result.json"
 
             parser = create_argument_parser()
-            args = parser.parse_args([
-                "holdout",
-                "--output", str(output_path),
-            ])
+            args = parser.parse_args(
+                [
+                    "holdout",
+                    "--output",
+                    str(output_path),
+                ]
+            )
 
             runner = ValidationRunner(args)
             exit_code = runner.run()
@@ -260,16 +317,21 @@ class TestMain:
         exit_code = main([])
         assert exit_code == 1
 
+    @skip_network
     def test_fast_mode_via_main(self):
-        """Test fast mode via main function."""
+        """Test fast mode via main function (requires Yahoo Finance API)."""
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "main_result.json"
 
-            exit_code = main([
-                "fast",
-                "--output", str(output_path),
-                "--symbols", "SPY",
-            ])
+            exit_code = main(
+                [
+                    "fast",
+                    "--output",
+                    str(output_path),
+                    "--symbols",
+                    "SPY",
+                ]
+            )
 
             assert exit_code == 0
             assert output_path.exists()

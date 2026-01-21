@@ -429,23 +429,23 @@ class TAMetricsStrategy(Strategy):
 
     def _update_ema(self, symbol: str, attr: str, value: float, period: int) -> Optional[float]:
         """Update Exponential Moving Average with new value."""
-        ema_dict = getattr(self, attr)
+        ema_dict: Dict[str, Optional[float]] = getattr(self, attr)
         prev_ema = ema_dict.get(symbol)
 
         if prev_ema is None:
             # Initialize with SMA
             prices = list(self._prices[symbol])
             if len(prices) >= period:
-                ema = sum(prices[-period:]) / period
+                ema: float = sum(prices[-period:]) / period
                 ema_dict[symbol] = ema
                 return ema
             return None
 
         # EMA formula: EMA = (value - prev_ema) * multiplier + prev_ema
         multiplier = 2 / (period + 1)
-        ema = (value - prev_ema) * multiplier + prev_ema
-        ema_dict[symbol] = ema
-        return ema
+        ema_result: float = (value - prev_ema) * multiplier + prev_ema
+        ema_dict[symbol] = ema_result
+        return ema_result
 
     def _calculate_rsi(self, prices: List[float], period: int) -> Optional[float]:
         """Calculate Relative Strength Index."""

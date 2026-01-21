@@ -303,8 +303,10 @@ def parse_config(args: argparse.Namespace) -> SignalPipelineConfig:
     # Load symbols from universe file if provided
     symbols = args.symbols
     if args.universe:
-        import yaml
         from pathlib import Path
+
+        import yaml
+
         universe_path = Path(args.universe)
         if universe_path.exists():
             with open(universe_path) as f:

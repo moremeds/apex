@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from ...domain.interfaces.event_bus import EventBus
     from ...domain.interfaces.signal_persistence import SignalPersistencePort
     from ...domain.signals import BarAggregator, IndicatorEngine, RuleEngine
+    from ...domain.signals.divergence import CrossIndicatorAnalyzer, MTFDivergenceAnalyzer
     from ...infrastructure.observability import SignalMetrics
 
 logger = get_logger(__name__)
@@ -93,8 +94,8 @@ class TASignalService:
         self._rule_engine: Optional["RuleEngine"] = None
 
         # Confluence analyzers
-        self._cross_analyzer = None
-        self._mtf_analyzer = None
+        self._cross_analyzer: Optional["CrossIndicatorAnalyzer"] = None
+        self._mtf_analyzer: Optional["MTFDivergenceAnalyzer"] = None
 
         # Signal state tracking for invalidation
         self._state_tracker = SignalStateTracker()
@@ -220,7 +221,7 @@ class TASignalService:
         Returns:
             Dict with running status, counts, and timing info.
         """
-        uptime_seconds = 0
+        uptime_seconds: float = 0.0
         if self._start_time:
             uptime_seconds = (now_utc() - self._start_time).total_seconds()
 
@@ -334,15 +335,23 @@ class TASignalService:
         self._indicators_computed += 1
 
         # Extract event data
-        symbol = getattr(payload, "symbol", None)
-        timeframe = getattr(payload, "timeframe", None)
-        indicator = getattr(payload, "indicator", None)
-        state = getattr(payload, "state", None)
+        symbol_raw = getattr(payload, "symbol", None)
+        timeframe_raw = getattr(payload, "timeframe", None)
+        indicator_raw = getattr(payload, "indicator", None)
+        state_raw = getattr(payload, "state", None)
         previous_state = getattr(payload, "previous_state", None)
         timestamp = getattr(payload, "timestamp", None) or now_utc()
 
-        if not all([symbol, timeframe, indicator, state]):
+        # Type narrowing: validate required fields
+        if not isinstance(symbol_raw, str) or not isinstance(timeframe_raw, str):
             return
+        if not isinstance(indicator_raw, str) or not isinstance(state_raw, dict):
+            return
+
+        symbol: str = symbol_raw
+        timeframe: str = timeframe_raw
+        indicator: str = indicator_raw
+        state: Dict[str, Any] = state_raw
 
         # Cache indicator state for confluence calculation
         key = (symbol, timeframe)
@@ -415,6 +424,8 @@ class TASignalService:
         previous_state: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Persist indicator value to database."""
+        if not self._persistence:
+            return
         try:
             await self._persistence.save_indicator(
                 symbol=symbol,
@@ -429,6 +440,8 @@ class TASignalService:
 
     async def _persist_signal(self, signal: Any) -> None:
         """Persist trading signal to database."""
+        if not self._persistence:
+            return
         try:
             # Handle both TradingSignalEvent and TradingSignal
             if hasattr(signal, "signal"):
@@ -451,6 +464,8 @@ class TASignalService:
         dominant_direction: Optional[str] = None,
     ) -> None:
         """Persist confluence score to database."""
+        if not self._persistence:
+            return
         try:
             await self._persistence.save_confluence(
                 symbol=symbol,
@@ -576,4 +591,5 @@ class TASignalService:
             logger.warning("Cannot inject bars - IndicatorEngine not initialized")
             return 0
 
-        return self._indicator_engine.inject_historical_bars(symbol, timeframe, bars)
+        result: int = self._indicator_engine.inject_historical_bars(symbol, timeframe, bars)
+        return result

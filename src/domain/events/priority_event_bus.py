@@ -229,6 +229,8 @@ class PriorityEventBus:
 
     def _enqueue_fast(self, envelope: PriorityEventEnvelope) -> None:
         """Enqueue to fast lane (priority queue)."""
+        if self._fast_queue is None:
+            return
         try:
             self._fast_queue.put_nowait(envelope)
             # OPT-008: Lock-free stats update
@@ -420,7 +422,7 @@ class PriorityEventBus:
                 queue_was_empty = True
 
                 # Process fast events with budget/timeslice limit
-                while not self._fast_queue.empty():
+                while self._fast_queue is not None and not self._fast_queue.empty():
                     queue_was_empty = False
                     # Check budget limits
                     elapsed_ms = (time.perf_counter() - burst_start) * 1000
@@ -523,6 +525,8 @@ class PriorityEventBus:
 
     async def _run_heavy_callback(self, cb: Callable, payload: Any) -> None:
         """Run a heavy callback in thread pool with semaphore protection."""
+        if self._heavy_semaphore is None:
+            return
         async with self._heavy_semaphore:
             try:
                 await asyncio.to_thread(cb, payload)

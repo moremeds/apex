@@ -204,10 +204,101 @@ def _aggregate_bars(df: pd.DataFrame, target_tf: str) -> pd.DataFrame:
     resample_map = {"4h": "4h", "2h": "2h"}
     rule = resample_map.get(target_tf, "4h")
 
-    return df.resample(rule).agg({
-        "open": "first",
-        "high": "max",
-        "low": "min",
-        "close": "last",
-        "volume": "sum",
-    }).dropna()
+    return (
+        df.resample(rule)
+        .agg(
+            {
+                "open": "first",
+                "high": "max",
+                "low": "min",
+                "close": "last",
+                "volume": "sum",
+            }
+        )
+        .dropna()
+    )
+
+
+def generate_synthetic_bars(
+    symbols: List[str],
+    days: int = 500,
+    seed: int = 42,
+) -> Dict[str, pd.DataFrame]:
+    """
+    Generate synthetic OHLCV data for CI testing.
+
+    Creates deterministic price series with both trending and choppy characteristics
+    to exercise the validation logic without external API dependencies.
+
+    Args:
+        symbols: List of symbol names to generate
+        days: Number of trading days to generate
+        seed: Random seed for reproducibility
+
+    Returns:
+        Dict mapping symbol -> OHLCV DataFrame
+    """
+    import numpy as np
+
+    np.random.seed(seed)
+
+    bars_by_symbol: Dict[str, pd.DataFrame] = {}
+    end_date = date.today()
+    dates = pd.bdate_range(end=end_date, periods=days)
+
+    for i, symbol in enumerate(symbols):
+        # Use different seed per symbol for variety
+        np.random.seed(seed + i)
+
+        # Generate price series with mixed trending/choppy regimes
+        n = len(dates)
+        returns = np.zeros(n)
+
+        # Alternate between trending and choppy regimes
+        regime_length = n // 4
+        for j in range(4):
+            start_idx = j * regime_length
+            end_idx = min((j + 1) * regime_length, n)
+
+            if j % 2 == 0:
+                # Trending regime: strong directional drift with low variance
+                # Drift of 0.5% daily with 1% volatility gives clear trends
+                drift = 0.005 if i % 2 == 0 else -0.005  # Uptrend/downtrend
+                regime_returns = np.random.normal(drift, 0.01, end_idx - start_idx)
+            else:
+                # Choppy regime: zero mean with high variance (mean-reverting behavior)
+                regime_returns = np.random.normal(0.0, 0.02, end_idx - start_idx)
+                # Add mean-reversion to make it clearly non-trending
+                for k in range(1, len(regime_returns)):
+                    regime_returns[k] -= 0.3 * regime_returns[k - 1]
+
+            returns[start_idx:end_idx] = regime_returns
+
+        # Convert returns to prices
+        base_price = 100.0 + i * 50  # Different base for each symbol
+        prices = base_price * np.exp(np.cumsum(returns))
+
+        # Generate OHLCV
+        volatility = np.abs(returns) + 0.005
+        high = prices * (1 + volatility * 0.5)
+        low = prices * (1 - volatility * 0.5)
+        open_prices = np.roll(prices, 1)
+        open_prices[0] = base_price
+        volume = np.random.randint(1_000_000, 10_000_000, n)
+
+        df = pd.DataFrame(
+            {
+                "open": open_prices,
+                "high": high,
+                "low": low,
+                "close": prices,
+                "volume": volume,
+            },
+            index=dates,
+        )
+        df.index.name = "Date"
+
+        bars_by_symbol[symbol] = df
+        logger.debug(f"Generated {len(df)} synthetic bars for {symbol}")
+
+    return bars_by_symbol

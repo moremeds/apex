@@ -195,8 +195,8 @@ class SignalRouter:
                 self._execute_signal(signal)
 
             # Post-route callbacks
-            for callback in self._post_route_callbacks:
-                callback(signal)
+            for post_callback in self._post_route_callbacks:
+                post_callback(signal)
 
             return True
 
@@ -262,6 +262,7 @@ class SignalRouter:
 
     def _persist_signal(self, signal: "TradingSignal") -> None:
         """Persist signal to store."""
+        assert self._signal_store is not None, "Signal store not configured"
         try:
             self._signal_store.save(signal)
         except Exception as e:
@@ -269,6 +270,7 @@ class SignalRouter:
 
     def _execute_signal(self, signal: "TradingSignal") -> None:
         """Forward signal to execution adapter."""
+        assert self._execution_adapter is not None, "Execution adapter not configured"
         try:
             self._execution_adapter.submit(signal)
         except Exception as e:
