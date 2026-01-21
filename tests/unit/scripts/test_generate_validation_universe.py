@@ -1,21 +1,21 @@
 """Tests for generate_validation_universe script."""
 
+# Import from scripts directory
+import sys
 import tempfile
 from pathlib import Path
 
 import pytest
 import yaml
 
-# Import from scripts directory
-import sys
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "scripts"))
 from generate_validation_universe import (
-    UniverseGenerationConfig,
-    generate_universe,
+    GICS_SECTORS,
     LARGE_CAP_SYMBOLS,
     MID_CAP_SYMBOLS,
     SMALL_CAP_SYMBOLS,
-    GICS_SECTORS,
+    UniverseGenerationConfig,
+    generate_universe,
     main,
 )
 
@@ -67,10 +67,17 @@ class TestSymbolPools:
     def test_gics_sectors_coverage(self):
         """Test all 11 GICS sectors are covered."""
         expected_sectors = {
-            "Technology", "Healthcare", "Financials",
-            "Consumer Discretionary", "Communication Services",
-            "Consumer Staples", "Industrials", "Energy",
-            "Materials", "Utilities", "Real Estate",
+            "Technology",
+            "Healthcare",
+            "Financials",
+            "Consumer Discretionary",
+            "Communication Services",
+            "Consumer Staples",
+            "Industrials",
+            "Energy",
+            "Materials",
+            "Utilities",
+            "Real Estate",
         }
         assert set(GICS_SECTORS.keys()) == expected_sectors
 
@@ -124,8 +131,10 @@ class TestGenerateUniverse:
         result2 = generate_universe(config2)
 
         # At least one should be different
-        assert (result1["training_universe"] != result2["training_universe"] or
-                result1["holdout_universe"] != result2["holdout_universe"])
+        assert (
+            result1["training_universe"] != result2["training_universe"]
+            or result1["holdout_universe"] != result2["holdout_universe"]
+        )
 
     def test_no_overlap_between_train_and_holdout(self):
         """Test training and holdout have no overlap."""
@@ -165,11 +174,16 @@ class TestMain:
     def test_main_creates_output_file(self):
         """Test main function creates YAML output."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            exit_code = main([
-                "--seed", "42",
-                "--total", "50",
-                "--output", tmpdir,
-            ])
+            exit_code = main(
+                [
+                    "--seed",
+                    "42",
+                    "--total",
+                    "50",
+                    "--output",
+                    tmpdir,
+                ]
+            )
 
             assert exit_code == 0
             output_path = Path(tmpdir) / "regime_universe.yaml"
@@ -189,14 +203,15 @@ class TestMain:
 
     def test_main_respects_seed(self):
         """Test main respects seed for reproducibility."""
-        with tempfile.TemporaryDirectory() as tmpdir1, \
-             tempfile.TemporaryDirectory() as tmpdir2:
+        with tempfile.TemporaryDirectory() as tmpdir1, tempfile.TemporaryDirectory() as tmpdir2:
 
             main(["--seed", "42", "--total", "50", "--output", tmpdir1])
             main(["--seed", "42", "--total", "50", "--output", tmpdir2])
 
-            with open(Path(tmpdir1) / "regime_universe.yaml") as f1, \
-                 open(Path(tmpdir2) / "regime_universe.yaml") as f2:
+            with (
+                open(Path(tmpdir1) / "regime_universe.yaml") as f1,
+                open(Path(tmpdir2) / "regime_universe.yaml") as f2,
+            ):
                 data1 = yaml.safe_load(f1)
                 data2 = yaml.safe_load(f2)
 

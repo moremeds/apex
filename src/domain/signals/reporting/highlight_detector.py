@@ -125,9 +125,7 @@ class HighlightDetector:
 
         # Detect regime changes
         if regime_outputs and previous_regimes:
-            regime_highlights = self._detect_regime_changes(
-                regime_outputs, previous_regimes
-            )
+            regime_highlights = self._detect_regime_changes(regime_outputs, previous_regimes)
             highlights.extend(regime_highlights)
 
         # Detect turning points from regime outputs
@@ -326,7 +324,11 @@ class HighlightDetector:
         """Detect MACD vs price divergence."""
         macd_col = None
         for col in df.columns:
-            if "macd" in col.lower() and "signal" not in col.lower() and "histogram" not in col.lower():
+            if (
+                "macd" in col.lower()
+                and "signal" not in col.lower()
+                and "histogram" not in col.lower()
+            ):
                 macd_col = col
                 break
 

@@ -240,9 +240,9 @@ class TestTurningPointCausality:
             assert p1.turn_state == p2.turn_state, (
                 f"Non-deterministic prediction at index {i}: " f"{p1.turn_state} vs {p2.turn_state}"
             )
-            assert abs(p1.turn_confidence - p2.turn_confidence) < 1e-9, (
-                f"Non-deterministic confidence at index {i}"
-            )
+            assert (
+                abs(p1.turn_confidence - p2.turn_confidence) < 1e-9
+            ), f"Non-deterministic confidence at index {i}"
 
     def test_feature_window_independence(self, sample_price_data: pd.DataFrame) -> None:
         """
@@ -294,9 +294,9 @@ class TestTurningPointCausality:
 
         # Returns should be <= 100% in absolute value for normal conditions
         # This catches bugs where future returns are accidentally included
-        assert np.all(np.abs(arr) < 100), (
-            "Feature values seem unreasonably large - possible future data leak"
-        )
+        assert np.all(
+            np.abs(arr) < 100
+        ), "Feature values seem unreasonably large - possible future data leak"
 
 
 class TestCausalityWithRealModel:
@@ -317,9 +317,7 @@ class TestCausalityWithRealModel:
 
         return TurningPointModel.load(model_path)
 
-    def test_real_model_causality(
-        self, trained_model, sample_price_data: pd.DataFrame
-    ) -> None:
+    def test_real_model_causality(self, trained_model, sample_price_data: pd.DataFrame) -> None:
         """
         Test causality with the real trained model.
 
@@ -340,9 +338,7 @@ class TestCausalityWithRealModel:
             window_df = df_at_cutoff.iloc[: i + 1]
             features = features_from_dataframe(window_df)
             output = model.predict(features)
-            signals_at_cutoff.append(
-                (output.turn_state.value, round(output.turn_confidence, 6))
-            )
+            signals_at_cutoff.append((output.turn_state.value, round(output.turn_confidence, 6)))
 
         # Run with extended data
         df_extended = df
@@ -352,11 +348,9 @@ class TestCausalityWithRealModel:
             window_df = df_extended.iloc[: i + 1]
             features = features_from_dataframe(window_df)
             output = model.predict(features)
-            signals_extended.append(
-                (output.turn_state.value, round(output.turn_confidence, 6))
-            )
+            signals_extended.append((output.turn_state.value, round(output.turn_confidence, 6)))
 
         # Must be identical
-        assert signals_at_cutoff == signals_extended, (
-            "CAUSALITY VIOLATION: Real model predictions changed when future data added!"
-        )
+        assert (
+            signals_at_cutoff == signals_extended
+        ), "CAUSALITY VIOLATION: Real model predictions changed when future data added!"

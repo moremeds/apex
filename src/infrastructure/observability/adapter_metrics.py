@@ -6,19 +6,36 @@ Exposes per-adapter operational metrics for Prometheus:
 - Data throughput (quotes, bars, fills received)
 - Error counts and types
 - Request/response latencies
+
+Note: OpenTelemetry is an optional dependency. When not installed,
+AdapterMetrics will accept a None meter and operate in no-op mode.
 """
 
 from __future__ import annotations
 
 import time
 from contextlib import contextmanager
-from typing import Any, Generator, Optional
-
-from opentelemetry import metrics
+from typing import TYPE_CHECKING, Any, Generator, Optional
 
 from ...utils.logging_setup import get_logger
 
 logger = get_logger(__name__)
+
+if TYPE_CHECKING:
+    from opentelemetry.metrics import Meter
+
+
+class _NoopInstrument:
+    """No-op instrument that accepts but ignores all metric calls."""
+
+    def add(self, value: Any, attributes: Any = None) -> None:
+        pass
+
+    def set(self, value: Any, attributes: Any = None) -> None:
+        pass
+
+    def record(self, value: Any, attributes: Any = None) -> None:
+        pass
 
 
 class AdapterMetrics:
@@ -29,16 +46,53 @@ class AdapterMetrics:
     adapter_name and broker labels for filtering in Prometheus.
 
     Metrics prefixed with 'apex_adapter_' for namespace isolation.
+
+    When meter is None (OpenTelemetry not installed), operates in no-op mode.
     """
 
-    def __init__(self, meter: metrics.Meter):
+    # Type annotations for instruments (Any allows both real and noop instruments)
+    _connection_status: Any
+    _reconnect_total: Any
+    _quotes_received: Any
+    _bars_received: Any
+    _fills_received: Any
+    _orders_submitted: Any
+    _errors_total: Any
+    _request_latency: Any
+    _callback_latency: Any
+    _pending_requests: Any
+    _active_subscriptions: Any
+    _last_activity_timestamp: Any
+
+    def __init__(self, meter: Optional["Meter"]):
         """
         Initialize adapter metrics instruments.
 
         Args:
-            meter: OpenTelemetry Meter for creating instruments.
+            meter: OpenTelemetry Meter for creating instruments, or None for no-op mode.
         """
         self._meter = meter
+        self._noop = meter is None
+
+        if self._noop:
+            # No-op mode - use NoopInstrument that accepts but ignores calls
+            noop = _NoopInstrument()
+            self._connection_status = noop
+            self._reconnect_total = noop
+            self._quotes_received = noop
+            self._bars_received = noop
+            self._fills_received = noop
+            self._orders_submitted = noop
+            self._errors_total = noop
+            self._request_latency = noop
+            self._callback_latency = noop
+            self._pending_requests = noop
+            self._active_subscriptions = noop
+            self._last_activity_timestamp = noop
+            return
+
+        # mypy: meter is guaranteed non-None after noop check
+        assert meter is not None
 
         # Connection status gauge (1=connected, 0=disconnected)
         self._connection_status = meter.create_gauge(
@@ -123,6 +177,8 @@ class AdapterMetrics:
             connected: Whether adapter is connected.
             adapter_type: Type of adapter ("live", "historical", "execution").
         """
+        if self._noop:
+            return
         labels = {
             "adapter": adapter_name,
             "broker": broker,
@@ -144,6 +200,8 @@ class AdapterMetrics:
             broker: Broker name.
             adapter_type: Type of adapter.
         """
+        if self._noop:
+            return
         labels = {
             "adapter": adapter_name,
             "broker": broker,
@@ -165,6 +223,8 @@ class AdapterMetrics:
             broker: Broker name.
             symbol: Symbol for the quote (optional, for per-symbol metrics).
         """
+        if self._noop:
+            return
         labels = {"adapter": adapter_name, "broker": broker}
         self._quotes_received.add(1, labels)
         self._update_last_activity(adapter_name, broker)
@@ -183,6 +243,8 @@ class AdapterMetrics:
             broker: Broker name.
             timeframe: Bar timeframe (e.g., "1m", "5m").
         """
+        if self._noop:
+            return
         labels = {"adapter": adapter_name, "broker": broker}
         if timeframe:
             labels["timeframe"] = timeframe
@@ -203,6 +265,8 @@ class AdapterMetrics:
             broker: Broker name.
             side: Order side ("BUY" or "SELL").
         """
+        if self._noop:
+            return
         labels = {"adapter": adapter_name, "broker": broker}
         if side:
             labels["side"] = side
@@ -223,6 +287,8 @@ class AdapterMetrics:
             broker: Broker name.
             order_type: Order type ("MARKET", "LIMIT", etc.).
         """
+        if self._noop:
+            return
         labels = {"adapter": adapter_name, "broker": broker}
         if order_type:
             labels["order_type"] = order_type
@@ -242,6 +308,8 @@ class AdapterMetrics:
             broker: Broker name.
             error_type: Type of error (e.g., "connection", "timeout", "parse").
         """
+        if self._noop:
+            return
         labels = {
             "adapter": adapter_name,
             "broker": broker,
@@ -265,6 +333,8 @@ class AdapterMetrics:
             latency_ms: Latency in milliseconds.
             operation: Operation type (e.g., "subscribe", "fetch_bars").
         """
+        if self._noop:
+            return
         labels = {"adapter": adapter_name, "broker": broker}
         if operation:
             labels["operation"] = operation
@@ -286,6 +356,8 @@ class AdapterMetrics:
             latency_ms: Processing time in milliseconds.
             callback_type: Type of callback (e.g., "tick", "fill", "order").
         """
+        if self._noop:
+            return
         labels = {"adapter": adapter_name, "broker": broker}
         if callback_type:
             labels["callback_type"] = callback_type
@@ -305,6 +377,8 @@ class AdapterMetrics:
             broker: Broker name.
             count: Number of pending requests.
         """
+        if self._noop:
+            return
         labels = {"adapter": adapter_name, "broker": broker}
         self._pending_requests.set(count, labels)
 
@@ -322,11 +396,15 @@ class AdapterMetrics:
             broker: Broker name.
             count: Number of active symbol subscriptions.
         """
+        if self._noop:
+            return
         labels = {"adapter": adapter_name, "broker": broker}
         self._active_subscriptions.set(count, labels)
 
     def _update_last_activity(self, adapter_name: str, broker: str) -> None:
         """Update last activity timestamp for an adapter."""
+        if self._noop:
+            return
         labels = {"adapter": adapter_name, "broker": broker}
         self._last_activity_timestamp.set(time.time(), labels)
 
@@ -337,6 +415,8 @@ class AdapterMetrics:
         Args:
             status: Object with name, broker, adapter_type, connected, last_updated attributes.
         """
+        if self._noop:
+            return
         labels = {
             "adapter": status.name,
             "broker": status.broker,

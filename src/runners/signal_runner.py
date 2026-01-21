@@ -29,9 +29,9 @@ from pathlib import Path
 from typing import Optional
 
 from ..domain.signals.pipeline import (
+    BarValidator,
     SignalPipelineConfig,
     SignalPipelineProcessor,
-    BarValidator,
     TurningPointTrainer,
     create_argument_parser,
 )
@@ -187,7 +187,13 @@ async def main() -> None:
     args = parser.parse_args()
 
     # Validate: at least one mode must be specified
-    if not args.live and not args.backfill and not args.train_models and not args.retrain_models and not args.validate_bars:
+    if (
+        not args.live
+        and not args.backfill
+        and not args.train_models
+        and not args.retrain_models
+        and not args.validate_bars
+    ):
         parser.error(
             "At least one mode required: --live, --backfill, --validate-bars, --train-models, or --retrain-models"
         )

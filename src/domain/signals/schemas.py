@@ -35,7 +35,9 @@ class SchemaVersionError(Exception):
         super().__init__(f"Schema version mismatch: expected {expected}, got {actual}")
 
 
-def validate_schema_version(version_str: str, expected_prefix: str = "signal_v2@") -> Tuple[int, int]:
+def validate_schema_version(
+    version_str: str, expected_prefix: str = "signal_v2@"
+) -> Tuple[int, int]:
     """
     Validate and parse a schema version string.
 
@@ -249,16 +251,12 @@ class BarValidationReport:
             loaded_bars=data.get("loaded_bars", 0),
             usable_bars=data.get("usable_bars", 0),
             validated_bars=data.get("validated_bars", 0),
-            reductions=tuple(
-                BarReduction.from_dict(r) for r in data.get("reductions", [])
-            ),
+            reductions=tuple(BarReduction.from_dict(r) for r in data.get("reductions", [])),
             data_source=data.get("data_source", ""),
             start_date=(
                 datetime.fromisoformat(data["start_date"]) if data.get("start_date") else None
             ),
-            end_date=(
-                datetime.fromisoformat(data["end_date"]) if data.get("end_date") else None
-            ),
+            end_date=(datetime.fromisoformat(data["end_date"]) if data.get("end_date") else None),
             warmup_satisfied=data.get("warmup_satisfied", False),
             warmup_required=data.get("warmup_required", 252),
             warmup_indicator=data.get("warmup_indicator", ""),

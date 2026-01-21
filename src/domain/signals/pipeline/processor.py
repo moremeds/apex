@@ -109,7 +109,6 @@ class SignalPipelineProcessor:
         """Create persistence layer if database is available."""
         try:
             from config.config_manager import ConfigManager
-
             from src.infrastructure.persistence.database import get_database
             from src.infrastructure.persistence.repositories.ta_signal_repository import (
                 TASignalRepository,
@@ -167,7 +166,9 @@ class SignalPipelineProcessor:
             year=last_trading_date.year,
             month=last_trading_date.month,
             day=last_trading_date.day,
-            hour=21, minute=0, second=0
+            hour=21,
+            minute=0,
+            second=0,
         )
 
     # -------------------------------------------------------------------------
@@ -207,7 +208,6 @@ class SignalPipelineProcessor:
         # Try to set IB source for better data quality
         try:
             from config.config_manager import ConfigManager
-
             from src.infrastructure.adapters.ib.historical_adapter import IbHistoricalAdapter
 
             config = ConfigManager().load()
@@ -409,7 +409,6 @@ class SignalPipelineProcessor:
         # Try to set up IB source
         try:
             from config.config_manager import ConfigManager
-
             from src.infrastructure.adapters.ib.historical_adapter import IbHistoricalAdapter
 
             config = ConfigManager().load()
@@ -634,7 +633,12 @@ class SignalPipelineProcessor:
 
             try:
                 subprocess.run(["git", "init"], cwd=deploy_dir, check=True, capture_output=True)
-                subprocess.run(["git", "checkout", "-b", "gh-pages"], cwd=deploy_dir, check=True, capture_output=True)
+                subprocess.run(
+                    ["git", "checkout", "-b", "gh-pages"],
+                    cwd=deploy_dir,
+                    check=True,
+                    capture_output=True,
+                )
                 subprocess.run(["git", "add", "."], cwd=deploy_dir, check=True, capture_output=True)
 
                 commit_msg = f"Deploy signal report - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
@@ -659,7 +663,9 @@ class SignalPipelineProcessor:
             except subprocess.CalledProcessError as e:
                 print(f"  Deployment failed: {e}")
                 if e.stderr:
-                    print(f"  Error: {e.stderr.decode() if isinstance(e.stderr, bytes) else e.stderr}")
+                    print(
+                        f"  Error: {e.stderr.decode() if isinstance(e.stderr, bytes) else e.stderr}"
+                    )
                 print("  Tip: Make sure you have push access to the repository.")
 
     def _compute_indicators_on_df(

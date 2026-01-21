@@ -9,18 +9,19 @@ from __future__ import annotations
 
 import asyncio
 import time
-from datetime import datetime
 from dataclasses import dataclass
+from datetime import datetime
 from math import isnan
 from threading import Lock
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
+
+from src.backtest.data.calendar import get_calendar
 
 from ...models.market_data import GreeksSource, MarketData
 from ...models.position import AssetType, Position
 from ...utils.logging_setup import get_logger
 from ...utils.market_hours import MarketHours
 from ...utils.timezone import now_utc
-from src.backtest.data.calendar import get_calendar
 
 if TYPE_CHECKING:
     pass
@@ -555,9 +556,7 @@ class MarketDataFetcher:
                     )
 
             if prev_close_tasks:
-                results = await asyncio.gather(
-                    *prev_close_tasks.values(), return_exceptions=True
-                )
+                results = await asyncio.gather(*prev_close_tasks.values(), return_exceptions=True)
                 for symbol, result in zip(prev_close_tasks.keys(), results):
                     if isinstance(result, Exception):
                         continue
@@ -901,8 +900,8 @@ class MarketDataFetcher:
                 for bar in reversed(bars):
                     bar_date_str = str(bar.date)
                     # Handle both date formats: "YYYY-MM-DD" and "YYYYMMDD"
-                    expected_str = last_trading_day.strftime('%Y-%m-%d')
-                    expected_str_alt = last_trading_day.strftime('%Y%m%d')
+                    expected_str = last_trading_day.strftime("%Y-%m-%d")
+                    expected_str_alt = last_trading_day.strftime("%Y%m%d")
 
                     if bar_date_str == expected_str or bar_date_str == expected_str_alt:
                         target_bar = bar

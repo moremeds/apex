@@ -62,9 +62,7 @@ class TestValidationTimeConfig:
 
     def test_horizon_bars_by_tf(self):
         """Test pre-computed horizon bars for multiple timeframes."""
-        cfg = ValidationTimeConfig.from_days(
-            "1d", 20, 5, 3, timeframes=("1d", "4h", "2h", "1h")
-        )
+        cfg = ValidationTimeConfig.from_days("1d", 20, 5, 3, timeframes=("1d", "4h", "2h", "1h"))
 
         assert cfg.horizon_bars_by_tf["1d"] == 20
         assert cfg.horizon_bars_by_tf["4h"] == 32
@@ -73,9 +71,7 @@ class TestValidationTimeConfig:
 
     def test_purge_bars_by_tf(self):
         """Test pre-computed purge bars for multiple timeframes."""
-        cfg = ValidationTimeConfig.from_days(
-            "1d", 20, 5, 3, timeframes=("1d", "4h", "2h")
-        )
+        cfg = ValidationTimeConfig.from_days("1d", 20, 5, 3, timeframes=("1d", "4h", "2h"))
 
         assert cfg.purge_bars_by_tf["1d"] == 5
         assert cfg.purge_bars_by_tf["4h"] == 8

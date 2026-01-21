@@ -7,6 +7,10 @@ Provides OpenTelemetry instrumentation with Prometheus export for:
 - Adapter metrics (connections, throughput, latency)
 - Signal pipeline metrics (bars, indicators, signals, confluence)
 - Performance metrics (latencies, durations)
+
+Note: OpenTelemetry is an optional dependency. When not installed, all metric
+classes operate in no-op mode, accepting calls but doing nothing. This allows
+the rest of the system to function without observability support.
 """
 
 from .adapter_metrics import AdapterMetrics, AdapterMetricsContext, time_adapter_operation

@@ -9,19 +9,36 @@ Exposes key signal pipeline metrics for Prometheus monitoring:
 - Error tracking by module
 
 All metrics are prefixed with 'apex_signal_' for namespace isolation.
+
+Note: OpenTelemetry is an optional dependency. When not installed,
+SignalMetrics will accept a None meter and operate in no-op mode.
 """
 
 from __future__ import annotations
 
 import time
 from contextlib import contextmanager
-from typing import Generator, Optional
-
-from opentelemetry import metrics
+from typing import TYPE_CHECKING, Any, Generator, Optional
 
 from ...utils.logging_setup import get_logger
 
 logger = get_logger(__name__)
+
+if TYPE_CHECKING:
+    from opentelemetry.metrics import Meter
+
+
+class _NoopInstrument:
+    """No-op instrument that accepts but ignores all metric calls."""
+
+    def add(self, value: Any, attributes: Any = None) -> None:
+        pass
+
+    def set(self, value: Any, attributes: Any = None) -> None:
+        pass
+
+    def record(self, value: Any, attributes: Any = None) -> None:
+        pass
 
 
 class SignalMetrics:
@@ -33,16 +50,61 @@ class SignalMetrics:
     - Latency: processing time at each pipeline stage
     - Resource utilization: cache sizes, queue depths
     - Errors: failures by module and operation
+
+    When meter is None (OpenTelemetry not installed), operates in no-op mode.
     """
 
-    def __init__(self, meter: metrics.Meter) -> None:
+    # Type annotations for instruments (Any allows both real and noop instruments)
+    _bars_emitted: Any
+    _indicators_computed: Any
+    _rules_evaluated: Any
+    _signals_emitted: Any
+    _signals_blocked: Any
+    _confluence_calcs: Any
+    _alignment_calcs: Any
+    _errors: Any
+    _indicator_state_cache_size: Any
+    _cooldown_entries: Any
+    _bar_builders_active: Any
+    _bar_aggregation_ms: Any
+    _indicator_compute_ms: Any
+    _rule_evaluation_ms: Any
+    _confluence_calc_ms: Any
+    _alignment_calc_ms: Any
+
+    def __init__(self, meter: Optional["Meter"]) -> None:
         """
         Initialize signal pipeline metrics.
 
         Args:
-            meter: OpenTelemetry Meter for creating instruments.
+            meter: OpenTelemetry Meter for creating instruments, or None for no-op mode.
         """
         self._meter = meter
+        self._noop = meter is None
+
+        if self._noop:
+            # No-op mode - use NoopInstrument that accepts but ignores calls
+            noop = _NoopInstrument()
+            self._bars_emitted = noop
+            self._indicators_computed = noop
+            self._rules_evaluated = noop
+            self._signals_emitted = noop
+            self._signals_blocked = noop
+            self._confluence_calcs = noop
+            self._alignment_calcs = noop
+            self._errors = noop
+            self._indicator_state_cache_size = noop
+            self._cooldown_entries = noop
+            self._bar_builders_active = noop
+            self._bar_aggregation_ms = noop
+            self._indicator_compute_ms = noop
+            self._rule_evaluation_ms = noop
+            self._confluence_calc_ms = noop
+            self._alignment_calc_ms = noop
+            return
+
+        # mypy: meter is guaranteed non-None after noop check
+        assert meter is not None
 
         # -------------------------------------------------------------------------
         # Counters (monotonically increasing)
@@ -147,34 +209,50 @@ class SignalMetrics:
 
     def record_bar_emitted(self, timeframe: str) -> None:
         """Record a bar emission event."""
+        if self._noop:
+            return
         self._bars_emitted.add(1, {"timeframe": timeframe})
 
     def record_indicator_computed(self, indicator: str) -> None:
         """Record an indicator computation."""
+        if self._noop:
+            return
         self._indicators_computed.add(1, {"indicator": indicator})
 
     def record_rule_evaluated(self, rule_id: str) -> None:
         """Record a rule evaluation."""
+        if self._noop:
+            return
         self._rules_evaluated.add(1, {"rule_id": rule_id})
 
     def record_signal_emitted(self, rule_id: str, direction: str) -> None:
         """Record a trading signal emission."""
+        if self._noop:
+            return
         self._signals_emitted.add(1, {"rule_id": rule_id, "direction": direction})
 
     def record_signal_blocked(self, rule_id: str, reason: str) -> None:
         """Record a signal being blocked (cooldown, filter, etc.)."""
+        if self._noop:
+            return
         self._signals_blocked.add(1, {"rule_id": rule_id, "reason": reason})
 
     def record_confluence_calculated(self) -> None:
         """Record a confluence calculation."""
+        if self._noop:
+            return
         self._confluence_calcs.add(1)
 
     def record_alignment_calculated(self) -> None:
         """Record an MTF alignment calculation."""
+        if self._noop:
+            return
         self._alignment_calcs.add(1)
 
     def record_error(self, module: str, operation: str) -> None:
         """Record an error in the signal pipeline."""
+        if self._noop:
+            return
         self._errors.add(1, {"module": module, "operation": operation})
 
     # -------------------------------------------------------------------------
@@ -183,14 +261,20 @@ class SignalMetrics:
 
     def set_indicator_state_cache_size(self, size: int) -> None:
         """Set the current indicator state cache size."""
+        if self._noop:
+            return
         self._indicator_state_cache_size.set(size)
 
     def set_cooldown_entries(self, count: int) -> None:
         """Set the current number of cooldown entries."""
+        if self._noop:
+            return
         self._cooldown_entries.set(count)
 
     def set_bar_builders_active(self, count: int, timeframe: str = "") -> None:
         """Set the number of active bar builders."""
+        if self._noop:
+            return
         attrs = {"timeframe": timeframe} if timeframe else {}
         self._bar_builders_active.set(count, attrs)
 
@@ -200,22 +284,32 @@ class SignalMetrics:
 
     def record_bar_aggregation_latency(self, duration_ms: float, timeframe: str) -> None:
         """Record bar aggregation latency."""
+        if self._noop:
+            return
         self._bar_aggregation_ms.record(duration_ms, {"timeframe": timeframe})
 
     def record_indicator_compute_latency(self, duration_ms: float, indicator: str) -> None:
         """Record indicator computation latency."""
+        if self._noop:
+            return
         self._indicator_compute_ms.record(duration_ms, {"indicator": indicator})
 
     def record_rule_evaluation_latency(self, duration_ms: float) -> None:
         """Record rule evaluation latency."""
+        if self._noop:
+            return
         self._rule_evaluation_ms.record(duration_ms)
 
     def record_confluence_latency(self, duration_ms: float) -> None:
         """Record confluence calculation latency."""
+        if self._noop:
+            return
         self._confluence_calc_ms.record(duration_ms)
 
     def record_alignment_latency(self, duration_ms: float) -> None:
         """Record MTF alignment calculation latency."""
+        if self._noop:
+            return
         self._alignment_calc_ms.record(duration_ms)
 
 

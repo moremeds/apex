@@ -21,23 +21,23 @@ from typing import Dict, List, Optional
 import yaml
 
 from ..domain.signals.validation import (
-    create_fast_validation_output,
-    create_full_validation_output,
     HorizonConfig,
     SplitConfig,
+    create_fast_validation_output,
+    create_full_validation_output,
 )
+from ..domain.signals.validation.earliness import EarlinessResult
 from ..domain.signals.validation.validation_service import (
     ValidationService,
     ValidationServiceConfig,
 )
-from ..domain.signals.validation.earliness import EarlinessResult
 from ..utils.logging_setup import get_logger
 from .validation_helpers import (
+    _default_labeler_thresholds,
     get_bars_per_day,
     load_bars_yahoo,
     load_labeler_thresholds_from_yaml,
     load_universe_from_yaml,
-    _default_labeler_thresholds,
 )
 
 logger = get_logger(__name__)
@@ -54,8 +54,11 @@ def create_argument_parser() -> argparse.ArgumentParser:
     # Fast mode (PR gate)
     fast = subparsers.add_parser("fast", help="Fast PR gate (< 30s)")
     _add_common_args(fast)
-    fast.add_argument("--symbols", nargs="+",
-        default=["SPY", "QQQ", "AAPL", "MSFT", "NVDA", "AMD", "MU", "GME", "AMC", "TSLA"])
+    fast.add_argument(
+        "--symbols",
+        nargs="+",
+        default=["SPY", "QQQ", "AAPL", "MSFT", "NVDA", "AMD", "MU", "GME", "AMC", "TSLA"],
+    )
     fast.add_argument("--folds", type=int, default=2)
     fast.add_argument("--no-optuna", action="store_true")
     fast.add_argument("--days", type=int, default=500, help="Days of history to load")
@@ -86,9 +89,15 @@ def create_argument_parser() -> argparse.ArgumentParser:
     optimize.add_argument("--inner-folds", type=int, default=2)
     optimize.add_argument("--inner-trials", type=int, default=30, help="Optuna trials per inner CV")
     optimize.add_argument("--days", type=int, default=750, help="Days of history to load")
-    optimize.add_argument("--max-symbols", type=int, default=30, help="Max symbols for optimization")
-    optimize.add_argument("--params-output", type=str, default="config/validation/optimized_params.yaml",
-                         help="Output path for optimized params YAML")
+    optimize.add_argument(
+        "--max-symbols", type=int, default=30, help="Max symbols for optimization"
+    )
+    optimize.add_argument(
+        "--params-output",
+        type=str,
+        default="config/validation/optimized_params.yaml",
+        help="Output path for optimized params YAML",
+    )
 
     return parser
 
@@ -197,12 +206,23 @@ class ValidationRunner:
 
         # Load universe
         universe = load_universe_from_yaml(self.args.universe)
-        training_symbols = universe["training_universe"][:self.args.max_symbols]
+        training_symbols = universe["training_universe"][: self.args.max_symbols]
         holdout_symbols = universe["holdout_universe"]
 
         if not training_symbols:
             print("WARNING: No training symbols found, using defaults")
-            training_symbols = ["SPY", "QQQ", "AAPL", "MSFT", "NVDA", "AMD", "GOOGL", "AMZN", "META", "TSLA"]
+            training_symbols = [
+                "SPY",
+                "QQQ",
+                "AAPL",
+                "MSFT",
+                "NVDA",
+                "AMD",
+                "GOOGL",
+                "AMZN",
+                "META",
+                "TSLA",
+            ]
 
         print(f"Training symbols: {len(training_symbols)}")
         print(f"Holdout symbols: {len(holdout_symbols)}\n")
@@ -392,7 +412,7 @@ class ValidationRunner:
 
         # Load universe
         universe = load_universe_from_yaml(self.args.universe)
-        training_symbols = universe["training_universe"][:self.args.max_symbols]
+        training_symbols = universe["training_universe"][: self.args.max_symbols]
 
         if not training_symbols:
             print("WARNING: No training symbols found, using defaults")
@@ -415,14 +435,18 @@ class ValidationRunner:
         print(f"Loaded data for {len(bars_by_symbol)} symbols\n")
 
         # Import optimization components
+        from ..domain.signals.indicators.regime.regime_detector import RegimeDetectorIndicator
+        from ..domain.signals.validation.labeler_contract import (
+            RegimeLabel,
+            RegimeLabeler,
+            RegimeLabelerConfig,
+        )
         from ..domain.signals.validation.nested_cv import (
             NestedCVConfig,
             NestedWalkForwardCV,
             create_default_param_space,
         )
         from ..domain.signals.validation.time_units import ValidationTimeConfig
-        from ..domain.signals.indicators.regime.regime_detector import RegimeDetectorIndicator
-        from ..domain.signals.validation.labeler_contract import RegimeLabeler, RegimeLabelerConfig, RegimeLabel
 
         # Create nested CV config
         time_config = ValidationTimeConfig.from_days("1d", self.args.horizon_days)
@@ -436,7 +460,7 @@ class ValidationRunner:
         # Get date range from data
         all_dates = []
         for df in bars_by_symbol.values():
-            if hasattr(df.index[0], 'date'):
+            if hasattr(df.index[0], "date"):
                 all_dates.extend([d.date() for d in df.index])
             else:
                 all_dates.extend(list(df.index))
@@ -450,10 +474,13 @@ class ValidationRunner:
         labeler = RegimeLabeler(labeler_config)
 
         # Define objective function for inner CV
-        from ..domain.signals.validation.nested_cv import TimeWindow
         from typing import Any
 
-        def objective_fn(params: Dict[str, Any], train_window: TimeWindow, test_window: TimeWindow) -> float:
+        from ..domain.signals.validation.nested_cv import TimeWindow
+
+        def objective_fn(
+            params: Dict[str, Any], train_window: TimeWindow, test_window: TimeWindow
+        ) -> float:
             """Compute R0 rate difference (trending - choppy) on test window."""
             detector = RegimeDetectorIndicator()
             merged_params = {**detector._default_params, **params}
@@ -465,7 +492,9 @@ class ValidationRunner:
 
             for symbol, df in bars_by_symbol.items():
                 # Filter to test window
-                mask = (df.index >= str(test_window.start_date)) & (df.index <= str(test_window.end_date))
+                mask = (df.index >= str(test_window.start_date)) & (
+                    df.index <= str(test_window.end_date)
+                )
                 test_df = df[mask]
                 if len(test_df) < 50:
                     continue
@@ -489,7 +518,9 @@ class ValidationRunner:
                         if is_r0:
                             total_choppy_r0 += 1
 
-            trending_rate = total_trending_r0 / total_trending_bars if total_trending_bars > 0 else 0
+            trending_rate = (
+                total_trending_r0 / total_trending_bars if total_trending_bars > 0 else 0
+            )
             choppy_rate = total_choppy_r0 / total_choppy_bars if total_choppy_bars > 0 else 0
 
             # Objective: maximize trending R0 rate minus choppy R0 rate
@@ -498,16 +529,24 @@ class ValidationRunner:
         # Define evaluation function for outer test
         from ..domain.signals.validation.statistics import SymbolMetrics
 
-        def evaluate_symbol_fn(symbol: str, test_window: TimeWindow, params: Dict[str, Any]) -> SymbolMetrics:
+        def evaluate_symbol_fn(
+            symbol: str, test_window: TimeWindow, params: Dict[str, Any]
+        ) -> SymbolMetrics:
             """Evaluate a single symbol with fixed params."""
             df = bars_by_symbol.get(symbol)
             if df is None:
-                return SymbolMetrics(symbol=symbol, label_type="UNKNOWN", r0_rate=0, total_bars=0, r0_bars=0)
+                return SymbolMetrics(
+                    symbol=symbol, label_type="UNKNOWN", r0_rate=0, total_bars=0, r0_bars=0
+                )
 
-            mask = (df.index >= str(test_window.start_date)) & (df.index <= str(test_window.end_date))
+            mask = (df.index >= str(test_window.start_date)) & (
+                df.index <= str(test_window.end_date)
+            )
             test_df = df[mask]
             if len(test_df) < 50:
-                return SymbolMetrics(symbol=symbol, label_type="UNKNOWN", r0_rate=0, total_bars=0, r0_bars=0)
+                return SymbolMetrics(
+                    symbol=symbol, label_type="UNKNOWN", r0_rate=0, total_bars=0, r0_bars=0
+                )
 
             detector = RegimeDetectorIndicator()
             merged_params = {**detector._default_params, **params}

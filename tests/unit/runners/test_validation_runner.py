@@ -29,17 +29,23 @@ class TestArgumentParser:
         assert args.mode == "fast"
         assert "SPY" in args.symbols
         assert args.folds == 2
-        assert args.timeframes == ["1d", "4h"]
+        assert args.timeframes == ["1d"]
         assert args.horizon_days == 20
 
     def test_fast_mode_custom_symbols(self):
         """Test fast mode with custom symbols."""
         parser = create_argument_parser()
-        args = parser.parse_args([
-            "fast",
-            "--output", "test.json",
-            "--symbols", "AAPL", "MSFT", "GOOGL",
-        ])
+        args = parser.parse_args(
+            [
+                "fast",
+                "--output",
+                "test.json",
+                "--symbols",
+                "AAPL",
+                "MSFT",
+                "GOOGL",
+            ]
+        )
 
         assert args.symbols == ["AAPL", "MSFT", "GOOGL"]
 
@@ -57,13 +63,19 @@ class TestArgumentParser:
     def test_full_mode_custom_folds(self):
         """Test full mode with custom fold counts."""
         parser = create_argument_parser()
-        args = parser.parse_args([
-            "full",
-            "--output", "test.json",
-            "--outer-folds", "3",
-            "--inner-folds", "2",
-            "--inner-trials", "10",
-        ])
+        args = parser.parse_args(
+            [
+                "full",
+                "--output",
+                "test.json",
+                "--outer-folds",
+                "3",
+                "--inner-folds",
+                "2",
+                "--inner-trials",
+                "10",
+            ]
+        )
 
         assert args.outer_folds == 3
         assert args.inner_folds == 2
@@ -72,11 +84,15 @@ class TestArgumentParser:
     def test_holdout_mode(self):
         """Test holdout mode arguments."""
         parser = create_argument_parser()
-        args = parser.parse_args([
-            "holdout",
-            "--output", "test.json",
-            "--params", "params.yaml",
-        ])
+        args = parser.parse_args(
+            [
+                "holdout",
+                "--output",
+                "test.json",
+                "--params",
+                "params.yaml",
+            ]
+        )
 
         assert args.mode == "holdout"
         assert args.params == "params.yaml"
@@ -84,11 +100,18 @@ class TestArgumentParser:
     def test_timeframes_argument(self):
         """Test timeframes argument parsing."""
         parser = create_argument_parser()
-        args = parser.parse_args([
-            "fast",
-            "--output", "test.json",
-            "--timeframes", "1d", "4h", "2h", "1h",
-        ])
+        args = parser.parse_args(
+            [
+                "fast",
+                "--output",
+                "test.json",
+                "--timeframes",
+                "1d",
+                "4h",
+                "2h",
+                "1h",
+            ]
+        )
 
         assert args.timeframes == ["1d", "4h", "2h", "1h"]
 
@@ -102,11 +125,16 @@ class TestValidationRunnerFast:
             output_path = Path(tmpdir) / "fast_result.json"
 
             parser = create_argument_parser()
-            args = parser.parse_args([
-                "fast",
-                "--output", str(output_path),
-                "--symbols", "SPY", "QQQ",
-            ])
+            args = parser.parse_args(
+                [
+                    "fast",
+                    "--output",
+                    str(output_path),
+                    "--symbols",
+                    "SPY",
+                    "QQQ",
+                ]
+            )
 
             runner = ValidationRunner(args)
             exit_code = runner.run()
@@ -120,11 +148,15 @@ class TestValidationRunnerFast:
             output_path = Path(tmpdir) / "fast_result.json"
 
             parser = create_argument_parser()
-            args = parser.parse_args([
-                "fast",
-                "--output", str(output_path),
-                "--symbols", "AAPL",
-            ])
+            args = parser.parse_args(
+                [
+                    "fast",
+                    "--output",
+                    str(output_path),
+                    "--symbols",
+                    "AAPL",
+                ]
+            )
 
             runner = ValidationRunner(args)
             runner.run()
@@ -145,10 +177,13 @@ class TestValidationRunnerFast:
             output_path = Path(tmpdir) / "fast_result.json"
 
             parser = create_argument_parser()
-            args = parser.parse_args([
-                "fast",
-                "--output", str(output_path),
-            ])
+            args = parser.parse_args(
+                [
+                    "fast",
+                    "--output",
+                    str(output_path),
+                ]
+            )
 
             runner = ValidationRunner(args)
             runner.run()
@@ -171,10 +206,13 @@ class TestValidationRunnerFull:
             output_path = Path(tmpdir) / "full_result.json"
 
             parser = create_argument_parser()
-            args = parser.parse_args([
-                "full",
-                "--output", str(output_path),
-            ])
+            args = parser.parse_args(
+                [
+                    "full",
+                    "--output",
+                    str(output_path),
+                ]
+            )
 
             runner = ValidationRunner(args)
             exit_code = runner.run()
@@ -188,10 +226,13 @@ class TestValidationRunnerFull:
             output_path = Path(tmpdir) / "full_result.json"
 
             parser = create_argument_parser()
-            args = parser.parse_args([
-                "full",
-                "--output", str(output_path),
-            ])
+            args = parser.parse_args(
+                [
+                    "full",
+                    "--output",
+                    str(output_path),
+                ]
+            )
 
             runner = ValidationRunner(args)
             runner.run()
@@ -213,10 +254,13 @@ class TestValidationRunnerFull:
             output_path = Path(tmpdir) / "full_result.json"
 
             parser = create_argument_parser()
-            args = parser.parse_args([
-                "full",
-                "--output", str(output_path),
-            ])
+            args = parser.parse_args(
+                [
+                    "full",
+                    "--output",
+                    str(output_path),
+                ]
+            )
 
             runner = ValidationRunner(args)
             runner.run()
@@ -240,10 +284,13 @@ class TestValidationRunnerHoldout:
             output_path = Path(tmpdir) / "holdout_result.json"
 
             parser = create_argument_parser()
-            args = parser.parse_args([
-                "holdout",
-                "--output", str(output_path),
-            ])
+            args = parser.parse_args(
+                [
+                    "holdout",
+                    "--output",
+                    str(output_path),
+                ]
+            )
 
             runner = ValidationRunner(args)
             exit_code = runner.run()
@@ -265,11 +312,15 @@ class TestMain:
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "main_result.json"
 
-            exit_code = main([
-                "fast",
-                "--output", str(output_path),
-                "--symbols", "SPY",
-            ])
+            exit_code = main(
+                [
+                    "fast",
+                    "--output",
+                    str(output_path),
+                    "--symbols",
+                    "SPY",
+                ]
+            )
 
             assert exit_code == 0
             assert output_path.exists()

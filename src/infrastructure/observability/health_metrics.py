@@ -7,21 +7,38 @@ Tracks operational health of the Apex system:
 - Event bus queue depths
 - System readiness state
 - Adapter health per component
+
+Note: OpenTelemetry is an optional dependency. When not installed,
+HealthMetrics will accept a None meter and operate in no-op mode.
 """
 
 from __future__ import annotations
 
 import time
-from typing import Dict, Set
-
-from opentelemetry import metrics
+from typing import TYPE_CHECKING, Any, Dict, Set
 
 from ...utils.logging_setup import get_logger
 
 logger = get_logger(__name__)
 
+if TYPE_CHECKING:
+    from opentelemetry.metrics import Meter
+
 # Default threshold for considering a symbol "active" (received tick recently)
 DEFAULT_ACTIVE_THRESHOLD_SECONDS = 30.0
+
+
+class _NoopInstrument:
+    """No-op instrument that accepts but ignores all metric calls."""
+
+    def add(self, value: Any, attributes: Any = None) -> None:
+        pass
+
+    def set(self, value: Any, attributes: Any = None) -> None:
+        pass
+
+    def record(self, value: Any, attributes: Any = None) -> None:
+        pass
 
 
 class HealthMetrics:
@@ -32,16 +49,68 @@ class HealthMetrics:
     and component health for operational monitoring and alerting.
 
     All metrics are prefixed with 'apex_' for namespace isolation.
+
+    When meter is None (OpenTelemetry not installed), operates in no-op mode.
     """
 
-    def __init__(self, meter: metrics.Meter):
+    # Type annotations for instruments (Any allows both real and noop instruments)
+    _broker_connected: Any
+    _adapter_health: Any
+    _market_data_coverage: Any
+    _last_tick_timestamp: Any
+    _last_any_tick_timestamp: Any
+    _event_bus_queue_size: Any
+    _system_ready: Any
+    _startup_duration_seconds: Any
+    _tick_to_store_ms: Any
+    _event_process_duration_ms: Any
+    _slow_lane_max_gap_ms: Any
+    _connection_attempts: Any
+    _connection_failures: Any
+    _reconnection_count: Any
+    _subscribed_symbols_count: Any
+    _active_symbols_count: Any
+    _tick_reception_coverage: Any
+
+    def __init__(self, meter: "Meter | None"):
         """
         Initialize health metrics instruments.
 
         Args:
-            meter: OpenTelemetry Meter for creating instruments.
+            meter: OpenTelemetry Meter for creating instruments, or None for no-op mode.
         """
         self._meter = meter
+        self._noop = meter is None
+
+        # Track last tick times for staleness calculation (always needed)
+        self._last_tick_times: Dict[str, float] = {}
+        # Track subscribed symbols (OBS-001) (always needed)
+        self._subscribed_symbols: Set[str] = set()
+
+        if self._noop:
+            # No-op mode - use NoopInstrument that accepts but ignores calls
+            noop = _NoopInstrument()
+            self._broker_connected = noop
+            self._adapter_health = noop
+            self._market_data_coverage = noop
+            self._last_tick_timestamp = noop
+            self._last_any_tick_timestamp = noop
+            self._event_bus_queue_size = noop
+            self._system_ready = noop
+            self._startup_duration_seconds = noop
+            self._tick_to_store_ms = noop
+            self._event_process_duration_ms = noop
+            self._slow_lane_max_gap_ms = noop
+            self._connection_attempts = noop
+            self._connection_failures = noop
+            self._reconnection_count = noop
+            self._subscribed_symbols_count = noop
+            self._active_symbols_count = noop
+            self._tick_reception_coverage = noop
+            return
+
+        # mypy: meter is guaranteed non-None after noop check
+        assert meter is not None
 
         # Broker connectivity gauge (1=connected, 0=disconnected)
         self._broker_connected = meter.create_gauge(
@@ -145,11 +214,6 @@ class HealthMetrics:
             description="Ratio of active symbols to subscribed symbols (0.0-1.0)",
         )
 
-        # Track last tick times for staleness calculation
-        self._last_tick_times: Dict[str, float] = {}
-        # Track subscribed symbols (OBS-001)
-        self._subscribed_symbols: Set[str] = set()
-
     def record_broker_status(self, broker: str, connected: bool) -> None:
         """
         Record broker connection status.
@@ -158,8 +222,10 @@ class HealthMetrics:
             broker: Broker name (e.g., "ib", "futu").
             connected: True if connected, False otherwise.
         """
-        self._broker_connected.set(1 if connected else 0, {"broker": broker})
         logger.debug(f"Broker {broker} status: {'connected' if connected else 'disconnected'}")
+        if self._noop:
+            return
+        self._broker_connected.set(1 if connected else 0, {"broker": broker})
 
     def record_adapter_health(self, adapter: str, status: str) -> None:
         """
@@ -169,6 +235,8 @@ class HealthMetrics:
             adapter: Adapter name (e.g., "ib_live", "futu_trade").
             status: Health status ("healthy", "unhealthy", "degraded").
         """
+        if self._noop:
+            return
         status_map = {"healthy": 1, "degraded": -1, "unhealthy": 0}
         value = status_map.get(status.lower(), 0)
         self._adapter_health.set(value, {"adapter": adapter})
@@ -180,6 +248,8 @@ class HealthMetrics:
         Args:
             coverage: Coverage ratio from 0.0 to 1.0.
         """
+        if self._noop:
+            return
         self._market_data_coverage.set(coverage)
 
     def record_tick_received(self, symbol: str, provider: str = "unknown") -> None:
@@ -194,11 +264,13 @@ class HealthMetrics:
             provider: Data provider name (e.g., "ib", "futu").
         """
         now = time.time()
+        # Keep internal per-symbol tracking for staleness checks (always needed)
+        self._last_tick_times[symbol] = now
+        if self._noop:
+            return
         # Low-cardinality metric: track by provider, not by symbol (MAJ-007)
         self._last_tick_timestamp.set(now, {"provider": provider})
         self._last_any_tick_timestamp.set(now)
-        # Keep internal per-symbol tracking for staleness checks
-        self._last_tick_times[symbol] = now
 
     def record_tick_latency(self, latency_ms: float) -> None:
         """
@@ -207,6 +279,8 @@ class HealthMetrics:
         Args:
             latency_ms: Latency from tick receive to store update in ms.
         """
+        if self._noop:
+            return
         self._tick_to_store_ms.record(latency_ms)
 
     def record_queue_size(self, lane: str, size: int) -> None:
@@ -217,6 +291,8 @@ class HealthMetrics:
             lane: Queue lane name (e.g., "fast", "slow", "critical").
             size: Current queue depth.
         """
+        if self._noop:
+            return
         self._event_bus_queue_size.set(size, {"lane": lane})
 
     def record_slow_lane_gap(self, gap_ms: float) -> None:
@@ -228,6 +304,8 @@ class HealthMetrics:
         Args:
             gap_ms: Gap in milliseconds.
         """
+        if self._noop:
+            return
         self._slow_lane_max_gap_ms.set(gap_ms)
 
     def record_system_ready(self, ready: bool) -> None:
@@ -237,6 +315,8 @@ class HealthMetrics:
         Args:
             ready: True if system is ready, False otherwise.
         """
+        if self._noop:
+            return
         self._system_ready.set(1 if ready else 0)
 
     def record_startup_duration(self, duration_seconds: float) -> None:
@@ -246,6 +326,8 @@ class HealthMetrics:
         Args:
             duration_seconds: Startup duration in seconds.
         """
+        if self._noop:
+            return
         self._startup_duration_seconds.set(duration_seconds)
 
     def record_event_processing(self, event_type: str, duration_ms: float) -> None:
@@ -256,6 +338,8 @@ class HealthMetrics:
             event_type: Type of event processed.
             duration_ms: Processing duration in milliseconds.
         """
+        if self._noop:
+            return
         self._event_process_duration_ms.record(duration_ms, {"event_type": event_type})
 
     def record_connection_attempt(self, broker: str, success: bool) -> None:
@@ -266,6 +350,8 @@ class HealthMetrics:
             broker: Broker name.
             success: True if successful, False if failed.
         """
+        if self._noop:
+            return
         self._connection_attempts.add(1, {"broker": broker})
         if not success:
             self._connection_failures.add(1, {"broker": broker})
@@ -277,6 +363,8 @@ class HealthMetrics:
         Args:
             broker: Broker that reconnected.
         """
+        if self._noop:
+            return
         self._reconnection_count.add(1, {"broker": broker})
 
     def get_stale_symbols(self, threshold_seconds: float = 30.0) -> list[str]:
@@ -329,6 +417,8 @@ class HealthMetrics:
             symbols: List of symbols being subscribed to.
         """
         self._subscribed_symbols.update(symbols)
+        if self._noop:
+            return
         self._subscribed_symbols_count.set(len(self._subscribed_symbols))
 
     def remove_subscriptions(self, symbols: list[str]) -> None:
@@ -342,6 +432,8 @@ class HealthMetrics:
         """
         for symbol in symbols:
             self._subscribed_symbols.discard(symbol)
+        if self._noop:
+            return
         self._subscribed_symbols_count.set(len(self._subscribed_symbols))
 
     def update_tick_reception_coverage(
@@ -371,14 +463,16 @@ class HealthMetrics:
 
         subscribed_count = len(self._subscribed_symbols)
 
-        # Record metrics
-        self._active_symbols_count.set(active_count)
-
         if subscribed_count == 0:
             coverage = 1.0  # No subscriptions = full coverage by definition
         else:
             coverage = active_count / subscribed_count
 
+        if self._noop:
+            return coverage
+
+        # Record metrics
+        self._active_symbols_count.set(active_count)
         self._tick_reception_coverage.set(coverage)
         return coverage
 

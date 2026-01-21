@@ -98,7 +98,6 @@ class BarValidator:
         ib_adapter = None
         try:
             from config.config_manager import ConfigManager
-
             from src.infrastructure.adapters.ib.historical_adapter import IbHistoricalAdapter
 
             config = ConfigManager().load()
@@ -125,9 +124,7 @@ class BarValidator:
 
         for symbol in self.config.symbols:
             for tf in self.config.timeframes:
-                report = await self._validate_bars_for_symbol(
-                    historical_manager, symbol, tf
-                )
+                report = await self._validate_bars_for_symbol(historical_manager, symbol, tf)
                 reports.append(report)
 
         # Output reports
@@ -299,5 +296,7 @@ class BarValidator:
             year=last_trading_date.year,
             month=last_trading_date.month,
             day=last_trading_date.day,
-            hour=21, minute=0, second=0
+            hour=21,
+            minute=0,
+            second=0,
         )

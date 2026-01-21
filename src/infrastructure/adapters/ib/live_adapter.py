@@ -18,6 +18,8 @@ from math import isnan
 from threading import Lock
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from src.backtest.data.calendar import get_calendar
+
 from ....domain.events.domain_events import AccountSnapshot, PositionSnapshot, QuoteTick
 from ....domain.interfaces.account_provider import AccountProvider
 from ....domain.interfaces.event_bus import EventType
@@ -32,7 +34,6 @@ from ..market_data_fetcher import MarketDataFetcher
 from .base import IbBaseAdapter
 from .contract_qualification_service import ContractQualificationService
 from .converters import convert_position
-from src.backtest.data.calendar import get_calendar
 
 logger = get_logger(__name__)
 

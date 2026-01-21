@@ -204,10 +204,16 @@ def _aggregate_bars(df: pd.DataFrame, target_tf: str) -> pd.DataFrame:
     resample_map = {"4h": "4h", "2h": "2h"}
     rule = resample_map.get(target_tf, "4h")
 
-    return df.resample(rule).agg({
-        "open": "first",
-        "high": "max",
-        "low": "min",
-        "close": "last",
-        "volume": "sum",
-    }).dropna()
+    return (
+        df.resample(rule)
+        .agg(
+            {
+                "open": "first",
+                "high": "max",
+                "low": "min",
+                "close": "last",
+                "volume": "sum",
+            }
+        )
+        .dropna()
+    )

@@ -299,9 +299,9 @@ class TestRegimeSensitivity:
 
         rates = compute_regime_rates(df, sample.start_date, sample.end_date)
 
-        assert rates["total_days"] >= 20, (
-            f"Insufficient data: only {rates['total_days']} days for {sample.symbol}"
-        )
+        assert (
+            rates["total_days"] >= 20
+        ), f"Insufficient data: only {rates['total_days']} days for {sample.symbol}"
 
         r0_rate = rates["R0"]
         assert r0_rate >= sample.threshold, (
@@ -333,9 +333,9 @@ class TestRegimeSensitivity:
 
         rates = compute_regime_rates(df, sample.start_date, sample.end_date)
 
-        assert rates["total_days"] >= 20, (
-            f"Insufficient data: only {rates['total_days']} days for {sample.symbol}"
-        )
+        assert (
+            rates["total_days"] >= 20
+        ), f"Insufficient data: only {rates['total_days']} days for {sample.symbol}"
 
         r0_rate = rates["R0"]
         assert r0_rate <= sample.threshold, (

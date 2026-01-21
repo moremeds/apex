@@ -150,9 +150,7 @@ class TestSignalPipelineE2E:
         assert isinstance(report["gates"], list)
         assert len(report["gates"]) == 10  # G1-G10
 
-    def test_validate_gates_fails_on_oversized_summary(
-        self, test_output_dir: Path
-    ) -> None:
+    def test_validate_gates_fails_on_oversized_summary(self, test_output_dir: Path) -> None:
         """Test that G1 fails when summary.json exceeds 200KB."""
         data_dir = test_output_dir / "data"
         data_dir.mkdir(exist_ok=True)
@@ -180,9 +178,7 @@ class TestSignalPipelineE2E:
         assert result.returncode == 1
         assert "FAIL" in result.stdout
 
-    def test_validate_gates_fails_on_missing_sections(
-        self, test_output_dir: Path
-    ) -> None:
+    def test_validate_gates_fails_on_missing_sections(self, test_output_dir: Path) -> None:
         """Test that G4 fails when required sections are missing."""
         data_dir = test_output_dir / "data"
         data_dir.mkdir(exist_ok=True)
@@ -263,7 +259,7 @@ class TestValidateGatesImport:
         """Test that run_all_gates function is importable."""
         # This tests that the import path works from signal_runner
         try:
-            from scripts.validate_gates import run_all_gates, ValidationReport
+            from scripts.validate_gates import ValidationReport, run_all_gates
 
             assert callable(run_all_gates)
             assert ValidationReport is not None
