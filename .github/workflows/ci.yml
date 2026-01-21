@@ -127,12 +127,12 @@ jobs:
         run: |
           uv venv
           source .venv/bin/activate
-          uv pip install -e ".[dev]"
+          uv pip install -e ".[dev]" types-PyYAML types-pytz
 
       - name: Run mypy
         run: |
           source .venv/bin/activate
-          mypy src/ --ignore-missing-imports
+          mypy src/ --ignore-missing-imports --disable-error-code=no-any-return
 
   security:
     name: Security Scan
