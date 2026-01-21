@@ -1,0 +1,33 @@
+best_params: &id001
+  atr_period: 22
+  chop_high_pct: 63
+  ma200_period: 218
+  ma50_period: 47
+  vol_high_short_pct: 82
+fold_results:
+- best_params: *id001
+  fold_id: 0
+  inner_cv_score: 0.0
+- best_params:
+    atr_period: 22
+    chop_high_pct: 63
+    ma200_period: 218
+    ma50_period: 47
+    vol_high_short_pct: 82
+  fold_id: 1
+  inner_cv_score: 0.0
+- best_params:
+    atr_period: 22
+    chop_high_pct: 63
+    ma200_period: 218
+    ma50_period: 47
+    vol_high_short_pct: 82
+  fold_id: 2
+  inner_cv_score: 0.0
+generated_at: '2026-01-20T15:37:25.430170+00:00'
+optimization_config:
+  inner_folds: 2
+  inner_trials: 20
+  n_symbols: 25
+  outer_folds: 3
+version: m2_optimized_v1

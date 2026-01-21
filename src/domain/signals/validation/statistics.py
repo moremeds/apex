@@ -79,9 +79,7 @@ class StatisticalResult:
         failures = []
 
         if self.effect_size_cohens_d < min_cohens_d:
-            failures.append(
-                f"Cohen's d ({self.effect_size_cohens_d:.3f}) < {min_cohens_d}"
-            )
+            failures.append(f"Cohen's d ({self.effect_size_cohens_d:.3f}) < {min_cohens_d}")
 
         if self.p_value > max_p_value:
             failures.append(f"p-value ({self.p_value:.4f}) > {max_p_value}")
@@ -92,9 +90,7 @@ class StatisticalResult:
             )
 
         if self.choppy_ci_upper > max_choppy_ci_upper:
-            failures.append(
-                f"choppy_ci_upper ({self.choppy_ci_upper:.3f}) > {max_choppy_ci_upper}"
-            )
+            failures.append(f"choppy_ci_upper ({self.choppy_ci_upper:.3f}) > {max_choppy_ci_upper}")
 
         return len(failures) == 0, failures
 
@@ -256,9 +252,7 @@ def compute_symbol_level_stats(
     cohens_d = compute_cohens_d(trending_rates, choppy_rates)
 
     # Block bootstrap CIs
-    trending_ci = block_bootstrap_ci(
-        trending_rates, block_size, n_bootstrap, 0.95, seed
-    )
+    trending_ci = block_bootstrap_ci(trending_rates, block_size, n_bootstrap, 0.95, seed)
     choppy_ci = block_bootstrap_ci(choppy_rates, block_size, n_bootstrap, 0.95, seed)
 
     return StatisticalResult(

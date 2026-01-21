@@ -249,9 +249,7 @@ def compute_earliness(
     pct_earlier = earlier_count / len(earliness_values)
 
     # Bootstrap CI for median
-    ci = block_bootstrap_ci(
-        earliness_values, block_size=5, n_samples=n_bootstrap, seed=seed
-    )
+    ci = block_bootstrap_ci(earliness_values, block_size=5, n_samples=n_bootstrap, seed=seed)
 
     return EarlinessResult(
         tf_pair="faster_vs_baseline",

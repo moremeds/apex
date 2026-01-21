@@ -116,15 +116,11 @@ class ConfirmationResult:
 
         # FP reduction: S2 - S1 should be negative (lower is better)
         if -self.delta_fp_rate < min_fp_reduction:
-            failures.append(
-                f"FP rate reduction ({-self.delta_fp_rate:.3f}) < {min_fp_reduction}"
-            )
+            failures.append(f"FP rate reduction ({-self.delta_fp_rate:.3f}) < {min_fp_reduction}")
 
         # Precision drop: S2 - S1, negative means drop
         if -self.delta_precision > max_precision_drop:
-            failures.append(
-                f"Precision drop ({-self.delta_precision:.3f}) > {max_precision_drop}"
-            )
+            failures.append(f"Precision drop ({-self.delta_precision:.3f}) > {max_precision_drop}")
 
         return len(failures) == 0, failures
 
@@ -217,15 +213,11 @@ def compare_strategies(
     s1_precision_samples = _bootstrap_metric(
         s1_predictions, actuals, "precision", n_bootstrap, seed
     )
-    s1_fp_samples = _bootstrap_metric(
-        s1_predictions, actuals, "fp_rate", n_bootstrap, seed
-    )
+    s1_fp_samples = _bootstrap_metric(s1_predictions, actuals, "fp_rate", n_bootstrap, seed)
     s2_precision_samples = _bootstrap_metric(
         s2_predictions, actuals, "precision", n_bootstrap, seed + 1
     )
-    s2_fp_samples = _bootstrap_metric(
-        s2_predictions, actuals, "fp_rate", n_bootstrap, seed + 1
-    )
+    s2_fp_samples = _bootstrap_metric(s2_predictions, actuals, "fp_rate", n_bootstrap, seed + 1)
 
     s1_ci_precision = _percentile_ci(s1_precision_samples)
     s1_ci_fp_rate = _percentile_ci(s1_fp_samples)

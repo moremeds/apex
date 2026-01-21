@@ -82,6 +82,15 @@ UNBOUNDED_OSCILLATORS = {"macd", "momentum", "roc", "cmf", "pvo", "force_index"}
 # Version for package format
 PACKAGE_FORMAT_VERSION = "1.0"
 
+# Size budget constants (KB) - M3 PR-03
+SUMMARY_BUDGET_KB = 200
+MARKET_BUDGET_KB = 8
+SECTORS_BUDGET_KB = 20
+TICKERS_BUDGET_KB = 100
+HIGHLIGHTS_BUDGET_KB = 40
+CONFLUENCE_BUDGET_KB = 30
+DATA_QUALITY_BUDGET_KB = 2
+
 
 @dataclass(frozen=True)
 class PackageManifest:
@@ -144,16 +153,82 @@ class PackageBuilder:
         },
     }
 
-    def __init__(self, theme: str = "dark") -> None:
+    # Class-level budget constants for M3 PR-03 enforcement
+    MAX_SUMMARY_KB = SUMMARY_BUDGET_KB
+    TICKERS_BUDGET_KB = TICKERS_BUDGET_KB
+    MARKET_BUDGET_KB = MARKET_BUDGET_KB
+    CONFLUENCE_BUDGET_KB = CONFLUENCE_BUDGET_KB
+
+    def __init__(self, theme: str = "dark", enforce_budget: bool = False) -> None:
         """
         Initialize package builder.
 
         Args:
             theme: Color theme ("dark" or "light")
+            enforce_budget: If True, raise SizeBudgetExceeded on overflow
         """
         self.theme = theme
+        self.enforce_budget = enforce_budget
         self._colors = self.THEMES.get(theme, self.THEMES["dark"])
         self._snapshot_builder = SnapshotBuilder()
+
+    def _check_budget(self, section: str, data: Dict, budget_kb: int) -> None:
+        """
+        Check if section data exceeds budget.
+
+        Args:
+            section: Section name
+            data: Section data dictionary
+            budget_kb: Budget limit in KB
+
+        Raises:
+            SizeBudgetExceeded: If enforce_budget is True and budget exceeded
+        """
+        from .exceptions import BudgetContributor, SizeBudgetExceeded
+
+        size_bytes = len(json.dumps(data, default=str))
+        size_kb = size_bytes / 1024
+
+        if size_kb > budget_kb:
+            if self.enforce_budget:
+                top_contributors = self._find_top_contributors(data)
+                raise SizeBudgetExceeded(
+                    section=section,
+                    actual_kb=size_kb,
+                    budget_kb=budget_kb,
+                    top_contributors=top_contributors,
+                )
+            else:
+                logger.warning(
+                    f"Section '{section}' exceeds budget: "
+                    f"{size_kb:.1f}KB > {budget_kb}KB"
+                )
+
+    def _find_top_contributors(self, data: Dict) -> List:
+        """
+        Find top contributors to section size.
+
+        Args:
+            data: Section data dictionary
+
+        Returns:
+            List of BudgetContributor objects
+        """
+        from .exceptions import BudgetContributor
+
+        total_size = len(json.dumps(data, default=str))
+        contributors = []
+
+        for key, value in data.items():
+            item_size = len(json.dumps(value, default=str))
+            pct = (item_size / total_size) * 100 if total_size > 0 else 0
+            contributors.append(
+                BudgetContributor(key=key, size_bytes=item_size, pct_of_section=pct)
+            )
+
+        # Sort by size descending
+        contributors.sort(key=lambda x: x.size_bytes, reverse=True)
+        return contributors[:10]
 
     def build(
         self,
@@ -162,6 +237,7 @@ class PackageBuilder:
         rules: List["SignalRule"],
         output_dir: Path,
         regime_outputs: Optional[Dict[str, "RegimeOutput"]] = None,
+        validation_url: Optional[str] = None,
     ) -> Path:
         """
         Build the signal package.
@@ -172,6 +248,7 @@ class PackageBuilder:
             rules: List of signal rules
             output_dir: Directory to create package in
             regime_outputs: Optional dict mapping symbol to RegimeOutput
+            validation_url: Optional URL to validation results page
 
         Returns:
             Path to the created package directory
@@ -227,7 +304,7 @@ class PackageBuilder:
         (output_dir / "assets" / "app.js").write_text(js_content, encoding="utf-8")
 
         # 6. Write index.html (shell)
-        html_content = self._build_index_html(symbols, timeframes, regime_outputs)
+        html_content = self._build_index_html(symbols, timeframes, regime_outputs, validation_url)
         (output_dir / "index.html").write_text(html_content, encoding="utf-8")
 
         # 7. Write payload snapshot for diff
@@ -472,9 +549,15 @@ class PackageBuilder:
 
         summary["tickers"] = ticker_summaries
 
+        # Check tickers budget
+        self._check_budget("tickers", {"tickers": ticker_summaries}, TICKERS_BUDGET_KB)
+
         # Market overview (for benchmarks like SPY, QQQ)
         market_overview = self._build_market_overview(regime_outputs)
         summary["market"] = market_overview
+
+        # Check market budget
+        self._check_budget("market", market_overview, MARKET_BUDGET_KB)
 
         # Calculate confluence scores for each symbol/timeframe
         confluence_scores = calculate_confluence(data)
@@ -493,6 +576,9 @@ class PackageBuilder:
                 "strongest_signal": score.strongest_signal,
             }
         summary["confluence"] = confluence_data
+
+        # Check confluence budget
+        self._check_budget("confluence", confluence_data, CONFLUENCE_BUDGET_KB)
 
         return summary
 
@@ -686,10 +772,36 @@ body {{
     color: white;
 }}
 
+.header-top {{
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 24px;
+    margin-bottom: 8px;
+}}
+
 .header h1 {{
     font-size: 28px;
     font-weight: 600;
-    margin-bottom: 8px;
+    margin: 0;
+}}
+
+.validation-link {{
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    background: rgba(255,255,255,0.15);
+    color: white;
+    text-decoration: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    transition: background 0.2s;
+}}
+
+.validation-link:hover {{
+    background: rgba(255,255,255,0.25);
 }}
 
 .header .meta {{
@@ -1975,6 +2087,7 @@ document.addEventListener('DOMContentLoaded', () => {{
         symbols: List[str],
         timeframes: List[str],
         regime_outputs: Optional[Dict[str, "RegimeOutput"]],
+        validation_url: Optional[str] = None,
     ) -> str:
         """Build the index.html shell with full feature parity sections."""
         generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -1988,6 +2101,11 @@ document.addEventListener('DOMContentLoaded', () => {{
             for tf in timeframes
         )
 
+        # Validation link if URL provided
+        validation_link = ""
+        if validation_url:
+            validation_link = f'<a href="{validation_url}" class="validation-link">📊 Validation Results</a>'
+
         return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -2000,7 +2118,10 @@ document.addEventListener('DOMContentLoaded', () => {{
 <body>
     <div class="container">
         <header class="header">
-            <h1>Signal Analysis Report</h1>
+            <div class="header-top">
+                <h1>Signal Analysis Report</h1>
+                {validation_link}
+            </div>
             <div class="meta">
                 <span><strong>Symbols:</strong> {len(symbols)}</span>
                 <span><strong>Timeframes:</strong> {', '.join(timeframes)}</span>

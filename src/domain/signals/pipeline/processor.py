@@ -571,6 +571,7 @@ class SignalPipelineProcessor:
                 rules=ALL_RULES,
                 output_dir=package_dir,
                 regime_outputs=regime_outputs,
+                validation_url="validation.html",  # Link to validation summary
             )
             print(f"  Package saved: {package_path}")
             print(f"  To view: cd {package_path} && python -m http.server 8080")

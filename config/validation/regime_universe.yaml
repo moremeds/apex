@@ -1,0 +1,350 @@
+# Validation Universe for M2 Regime Detector
+# ~70% training, ~30% holdout
+# More symbols = higher statistical power
+
+training_universe:
+# === Index ETFs ===
+- SPY    # S&P 500
+- QQQ    # Nasdaq 100
+- IWM    # Russell 2000
+- DIA    # Dow Jones
+
+# === Mega Cap Tech ===
+- AAPL
+- MSFT
+- GOOGL
+- GOOG
+- AMZN
+- META
+- NVDA
+- TSLA
+- AMD
+- AVGO
+- CRM
+- ADBE
+- ORCL
+- CSCO
+- INTC
+- IBM
+- TXN
+- QCOM
+- MU
+- AMAT
+
+# === Financials ===
+- JPM
+- BAC
+- WFC
+- GS
+- MS
+- C
+- BLK
+- SCHW
+- AXP
+- COF
+- USB
+- PNC
+- TFC
+- BK
+- SPGI
+- ICE
+- CME
+- CBOE
+- MCO
+- MSCI
+
+# === Healthcare ===
+- UNH
+- JNJ
+- PFE
+- ABBV
+- MRK
+- LLY
+- TMO
+- ABT
+- DHR
+- BMY
+- AMGN
+- GILD
+- ISRG
+- MDT
+- CVS
+- CI
+- HUM
+- ELV
+- ZTS
+- VRTX
+- REGN
+- MRNA
+- BNTX
+
+# === Consumer ===
+- WMT
+- COST
+- HD
+- LOW
+- TGT
+- SBUX
+- MCD
+- NKE
+- TJX
+- ROST
+- DG
+- DLTR
+- KR
+- YUM
+- CMG
+- DPZ
+- WYNN
+- LVS
+- MGM
+- MAR
+- HLT
+
+# === Industrials ===
+- CAT
+- DE
+- HON
+- UNP
+- UPS
+- FDX
+- BA
+- LMT
+- RTX
+- NOC
+- GD
+- GE
+- MMM
+- EMR
+- ITW
+- ETN
+- PH
+- ROK
+- FAST
+- PCAR
+
+# === Energy ===
+- XOM
+- CVX
+- COP
+- EOG
+- SLB
+- OXY
+- PSX
+- MPC
+- VLO
+- PXD
+- DVN
+- FANG
+- HAL
+- BKR
+- KMI
+- WMB
+- OKE
+- ET
+
+# === Materials ===
+- LIN
+- APD
+- SHW
+- ECL
+- FCX
+- NEM
+- NUE
+- STLD
+- CLF
+- X
+- AA
+- VMC
+- MLM
+- DD
+- DOW
+
+# === Utilities ===
+- NEE
+- DUK
+- SO
+- D
+- AEP
+- EXC
+- SRE
+- XEL
+- ED
+- WEC
+- ES
+- FE
+- AEE
+- ETR
+
+# === REITs ===
+- PLD
+- AMT
+- CCI
+- EQIX
+- PSA
+- DLR
+- O
+- WELL
+- SPG
+- AVB
+- EQR
+- VTR
+- ARE
+- BXP
+
+# === Communication ===
+- T
+- VZ
+- TMUS
+- CMCSA
+- CHTR
+- DIS
+- NFLX
+- WBD
+- PARA
+- FOX
+
+# === Other High Liquidity ===
+- V
+- MA
+- PYPL
+- SQ
+- COIN
+- HOOD
+- SHOP
+- SNOW
+- CRWD
+- PANW
+- FTNT
+- ZS
+- OKTA
+- NET
+- DDOG
+- MDB
+- PLTR
+- UBER
+- LYFT
+- ABNB
+- DASH
+- RIVN
+- LCID
+- NIO
+- XPEV
+- GME
+- AMC
+- BBBY
+
+holdout_universe:
+# === Held out for final validation (never seen during training) ===
+
+# === Tech ===
+- ADSK
+- ANSS
+- CDNS
+- SNPS
+- KLAC
+- LRCX
+- MRVL
+- "ON"    # ON Semiconductor - quoted to avoid YAML boolean parsing
+- SWKS
+- MPWR
+- ENPH
+- SEDG
+- FSLR
+
+# === Healthcare ===
+- BIIB
+- ILMN
+- DXCM
+- IDXX
+- IQV
+- A
+- WAT
+- MTD
+- BIO
+- HOLX
+- ALGN
+- PODD
+- TFX
+
+# === Financials ===
+- TROW
+- NTRS
+- STT
+- CFG
+- KEY
+- FITB
+- RF
+- HBAN
+- MTB
+- ZION
+- CMA
+- FHN
+
+# === Consumer ===
+- POOL
+- WSM
+- GRMN
+- LULU
+- DECK
+- TPR
+- CPRI
+- ULTA
+- EL
+- COTY
+- SJM
+- GIS
+- KHC
+- K
+- CAG
+- HSY
+- CLX
+- CL
+
+# === Industrials ===
+- CHRW
+- EXPD
+- JBHT
+- ODFL
+- XPO
+- GNRC
+- IEX
+- NDSN
+- GGG
+- ROP
+- AME
+- TDY
+- TT
+
+# === Energy ===
+- EQT
+- AR
+- RRC
+- CNX
+- SM
+- CTRA
+- MTDR
+- PR
+
+# === Other ===
+- ZM
+- DOCU
+- WDAY
+- HUBS
+- TTD
+- ROKU
+- PINS
+- SNAP
+- TWLO
+- FSLY
+- U
+- RBLX
+
+generation_config:
+  seed: 42
+  version: v2.0
+  generated_at: '2026-01-20T21:45:00+08:00'
+  total_symbols: 320
+  training_count: 248
+  holdout_count: 72
+  notes: "Expanded universe with major indices, mega caps, and high-liquidity names"
