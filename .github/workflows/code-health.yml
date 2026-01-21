@@ -24,15 +24,15 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Python 3.13
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.13'
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@v7
 
       - name: Install quality tools
         run: uv pip install --system vulture radon
@@ -100,7 +100,7 @@ jobs:
           echo "- Use \`make quality\` locally to run these checks" >> CODE_HEALTH.md
 
       - name: Create GitHub Issue
-        uses: peter-evans/create-issue-from-file@v5
+        uses: peter-evans/create-issue-from-file@v6
         with:
           title: "📊 Weekly Code Health Report - ${{ github.run_id }}"
           content-filepath: CODE_HEALTH.md
@@ -123,10 +123,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '20'
 
@@ -175,7 +175,7 @@ jobs:
 
       - name: Create duplicate code issue
         if: steps.jscpd.outputs.has_duplicates == 'true'
-        uses: peter-evans/create-issue-from-file@v5
+        uses: peter-evans/create-issue-from-file@v6
         with:
           title: "🔄 Duplicate Code Detected - ${{ github.run_id }}"
           content-filepath: DUPLICATES.md
