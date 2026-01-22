@@ -41,6 +41,8 @@ import pandas as pd
 
 from src.utils.logging_setup import get_logger
 
+from ..data.quality_validator import get_last_valid_close, validate_close_for_regime
+
 # Import regime HTML generators for 1:1 feature parity
 from .regime import (
     generate_components_4block_html,
@@ -158,16 +160,23 @@ class PackageBuilder:
     MARKET_BUDGET_KB = MARKET_BUDGET_KB
     CONFLUENCE_BUDGET_KB = CONFLUENCE_BUDGET_KB
 
-    def __init__(self, theme: str = "dark", enforce_budget: bool = False) -> None:
+    def __init__(
+        self,
+        theme: str = "dark",
+        enforce_budget: bool = False,
+        with_heatmap: bool = False,
+    ) -> None:
         """
         Initialize package builder.
 
         Args:
             theme: Color theme ("dark" or "light")
             enforce_budget: If True, raise SizeBudgetExceeded on overflow
+            with_heatmap: If True, generate heatmap landing page (PR-C)
         """
         self.theme = theme
         self.enforce_budget = enforce_budget
+        self.with_heatmap = with_heatmap
         self._colors = self.THEMES.get(theme, self.THEMES["dark"])
         self._snapshot_builder = SnapshotBuilder()
 
@@ -338,13 +347,76 @@ class PackageBuilder:
         nojekyll_path = output_dir / ".nojekyll"
         nojekyll_path.write_text("", encoding="utf-8")
 
+        # 10. Generate heatmap landing page if enabled (PR-C)
+        heatmap_path = None
+        if self.with_heatmap:
+            heatmap_path = self._build_heatmap(summary, output_dir)
+
         logger.info(
             f"Package built: {output_dir} "
             f"({len(symbols)} symbols, {len(data_files)} data files, "
-            f"{len(regime_files)} regime files, summary={summary_size_kb:.1f}KB)"
+            f"{len(regime_files)} regime files, summary={summary_size_kb:.1f}KB"
+            f"{', heatmap=yes' if heatmap_path else ''}"
+            ")"
         )
 
         return output_dir
+
+    def _build_heatmap(
+        self,
+        summary: Dict[str, Any],
+        output_dir: Path,
+    ) -> Optional[Path]:
+        """
+        Build heatmap landing page from summary data.
+
+        PR-C: Creates an interactive treemap visualization for quick market overview.
+
+        Args:
+            summary: Summary.json data structure
+            output_dir: Package output directory
+
+        Returns:
+            Path to heatmap.html or None if generation failed
+        """
+        try:
+            from src.services.market_cap_service import MarketCapService
+
+            from .heatmap_builder import HeatmapBuilder
+
+            # Load market cap service
+            cap_service = MarketCapService()
+
+            # Build heatmap model
+            builder = HeatmapBuilder(market_cap_service=cap_service)
+
+            # Build manifest for report URL mapping
+            manifest = {
+                "symbol_reports": {
+                    ticker["symbol"]: f"data/regime/{ticker['symbol']}.html"
+                    for ticker in summary.get("tickers", [])
+                    if ticker.get("symbol")
+                }
+            }
+
+            model = builder.build_heatmap_model(summary, manifest)
+
+            # Render and save
+            heatmap_path = builder.save_heatmap(model, output_dir, "heatmap.html")
+
+            logger.info(
+                f"Heatmap generated: {model.symbol_count} symbols, "
+                f"{model.cap_missing_count} missing caps"
+            )
+
+            return heatmap_path
+
+        except ImportError as e:
+            logger.warning(f"Heatmap generation skipped: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Heatmap generation failed: {e}")
+            return None
 
     def _write_indicators_file(
         self,
@@ -533,8 +605,12 @@ class PackageBuilder:
 
         Target: ≤200KB total with ~1.5KB per symbol.
         Includes confluence data for each symbol/timeframe combination.
+
+        PR-B: Added run_data_quality section for aggregate quality metrics.
         """
         from .signal_report_generator import calculate_confluence
+
+        from ..schemas import DataQualityReport
 
         summary: Dict[str, Any] = {
             "version": PACKAGE_FORMAT_VERSION,
@@ -545,14 +621,38 @@ class PackageBuilder:
             "timeframe_count": len(timeframes),
         }
 
+        # PR-B: Track aggregate data quality
+        data_quality_report = DataQualityReport()
+
         # Per-symbol summaries (condensed)
         ticker_summaries = []
         for symbol in symbols:
             regime = regime_outputs.get(symbol)
+            # Find DataFrame for this symbol
+            df = None
+            for tf in ["1d", "1h", "5m"]:
+                if (symbol, tf) in data:
+                    df = data[(symbol, tf)]
+                    break
+
             ticker_summary = self._build_ticker_summary(symbol, data, regime)
+
+            # PR-B: Add per-ticker data_quality and aggregate
+            ticker_quality = self._extract_ticker_data_quality(symbol, df, regime)
+            ticker_summary["data_quality"] = ticker_quality
+
+            # Update aggregate report
+            if not ticker_quality.get("regime_trustworthy", True):
+                data_quality_report.invalid_symbol_count += 1
+                if len(data_quality_report.worst_symbols) < 10:
+                    data_quality_report.worst_symbols.append(symbol)
+
             ticker_summaries.append(ticker_summary)
 
         summary["tickers"] = ticker_summaries
+
+        # PR-B: Add run-level data quality to summary
+        summary["run_data_quality"] = data_quality_report.to_dict()
 
         # Check tickers budget
         self._check_budget("tickers", {"tickers": ticker_summaries}, TICKERS_BUDGET_KB)
@@ -584,6 +684,9 @@ class PackageBuilder:
 
         # Check confluence budget
         self._check_budget("confluence", confluence_data, CONFLUENCE_BUDGET_KB)
+
+        # Check data quality budget
+        self._check_budget("data_quality", summary["run_data_quality"], DATA_QUALITY_BUDGET_KB)
 
         return summary
 
@@ -632,6 +735,22 @@ class PackageBuilder:
             summary["component_states"] = regime_dict["component_states"]
             summary["component_values"] = regime_dict["component_values"]
 
+            # PR-A: Validate close from regime output
+            regime_close = regime_dict.get("component_values", {}).get("close", 0.0)
+            is_valid, error_msg = validate_close_for_regime(
+                regime_close, symbol, "ticker_summary"
+            )
+            if not is_valid:
+                logger.warning(error_msg)
+                # Try to get valid close from DataFrame as fallback
+                if df is not None and not df.empty:
+                    fallback_close, fallback_ts = get_last_valid_close(df, symbol)
+                    if fallback_close > 0:
+                        logger.info(
+                            f"[{symbol}] Using fallback close from DataFrame: {fallback_close}"
+                        )
+                        summary["component_values"]["close"] = round(fallback_close, 2)
+
             # Derived metrics with percentiles
             summary["derived_metrics"] = regime_dict["derived_metrics"]
 
@@ -653,11 +772,14 @@ class PackageBuilder:
             summary["asof_ts"] = regime_dict["asof_ts"]
 
         elif df is not None and not df.empty:
-            # Fallback: extract basic metrics from DataFrame
-            last_row = df.iloc[-1]
+            # PR-A: Use get_last_valid_close for fallback
+            # This ensures we don't get 0.0 or -1.0 sentinel values
+            valid_close, close_ts = get_last_valid_close(df, symbol)
             summary["component_values"] = {
-                "close": round(float(last_row.get("close", 0)), 2),
+                "close": round(valid_close, 2) if valid_close > 0 else 0.0,
             }
+            if valid_close <= 0:
+                logger.warning(f"[{symbol}] No valid close found in DataFrame for summary")
 
         return summary
 
@@ -678,6 +800,69 @@ class PackageBuilder:
                 }
 
         return overview
+
+    def _extract_ticker_data_quality(
+        self,
+        symbol: str,
+        df: Optional[pd.DataFrame],
+        regime: Optional["RegimeOutput"],
+    ) -> Dict[str, Any]:
+        """
+        Extract per-ticker data quality information for PR-B.
+
+        Returns:
+            Dict with data quality metrics for this ticker:
+            - usable_bars: Number of usable bars after cleaning
+            - dropped_bars: Number of bars dropped
+            - sentinel_count: Number of sentinel values detected
+            - gaps_detected: Number of gaps in data
+            - reasons: List of quality issues found
+            - regime_trustworthy: Whether regime classification can be trusted
+        """
+        quality: Dict[str, Any] = {
+            "usable_bars": 0,
+            "dropped_bars": 0,
+            "sentinel_count": 0,
+            "gaps_detected": 0,
+            "reasons": [],
+            "regime_trustworthy": True,
+        }
+
+        # Get quality from DataFrame
+        if df is not None and not df.empty:
+            quality["usable_bars"] = len(df)
+
+            # Check for sentinel values in close column
+            if "close" in df.columns:
+                sentinel_count = (df["close"] == -1.0).sum()
+                quality["sentinel_count"] = int(sentinel_count)
+                if sentinel_count > 0:
+                    quality["reasons"].append("SENTINEL_VALUES")
+                    quality["regime_trustworthy"] = False
+
+            # Check for NaN values
+            if "close" in df.columns:
+                nan_count = df["close"].isna().sum()
+                if nan_count > 0:
+                    quality["reasons"].append("NAN_VALUES")
+
+        # Get quality from regime output if available
+        if regime and hasattr(regime, "quality"):
+            regime_quality = regime.quality
+            if hasattr(regime_quality, "component_validity"):
+                validity = regime_quality.component_validity
+                # Check if close is marked as invalid
+                if isinstance(validity, dict) and not validity.get("close", True):
+                    quality["regime_trustworthy"] = False
+                    if "INVALID_CLOSE" not in quality["reasons"]:
+                        quality["reasons"].append("INVALID_CLOSE")
+
+            if hasattr(regime_quality, "component_issues"):
+                issues = regime_quality.component_issues
+                if isinstance(issues, dict) and issues.get("close"):
+                    quality["regime_trustworthy"] = False
+
+        return quality
 
     def _write_regime_html_files(
         self,

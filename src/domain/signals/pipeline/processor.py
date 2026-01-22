@@ -22,6 +22,7 @@ from src.application.services.ta_signal_service import TASignalService
 from src.domain.events.event_types import EventType
 from src.domain.events.priority_event_bus import PriorityEventBus
 from src.domain.services.bar_count_calculator import BarCountCalculator
+from src.domain.signals.data.quality_validator import DataQualityValidator
 from src.utils.logging_setup import get_logger
 from src.utils.timezone import DisplayTimezone, now_utc
 
@@ -471,6 +472,10 @@ class SignalPipelineProcessor:
         data: Dict[Tuple[str, str], pd.DataFrame] = {}
         end = self._get_last_trading_day()
 
+        # PR-A: Data quality validator for sentinel/holiday filtering
+        validator = DataQualityValidator()
+        quality_issues: Dict[str, List[str]] = {}  # Track quality issues per symbol
+
         for symbol in self.config.symbols:
             for tf in self.config.timeframes:
                 start = end - timedelta(days=550)
@@ -490,10 +495,36 @@ class SignalPipelineProcessor:
                         ]
                         df = pd.DataFrame(records)
                         df.set_index("timestamp", inplace=True)
-                        df = df.tail(350)  # Last 350 bars
-                        data[(symbol, tf)] = df
+
+                        # PR-A: Validate and clean data (filter sentinels, holidays, etc.)
+                        df_clean, quality_result = validator.validate_and_clean(
+                            df=df,
+                            symbol=symbol,
+                            timeframe=tf,
+                        )
+
+                        # Track quality issues for reporting
+                        issues = []
+                        if quality_result.sentinel_counts:
+                            sentinel_total = sum(quality_result.sentinel_counts.values())
+                            issues.append(f"sentinels={sentinel_total}")
+                        if quality_result.dropped_bar_count > 0:
+                            issues.append(f"dropped={quality_result.dropped_bar_count}")
+                        if issues:
+                            quality_issues[f"{symbol}/{tf}"] = issues
+                            logger.warning(f"[{symbol}/{tf}] Data quality: {', '.join(issues)}")
+
+                        # Use cleaned data, limited to last 350 bars
+                        df_clean = df_clean.tail(350)
+                        data[(symbol, tf)] = df_clean
                 except Exception as e:
                     logger.warning(f"Failed to load {symbol}/{tf} for report: {e}")
+
+        # Log quality summary
+        if quality_issues:
+            print(f"  Data quality warnings: {len(quality_issues)} symbol/timeframes")
+            for key, issues in list(quality_issues.items())[:5]:  # Show first 5
+                print(f"    {key}: {', '.join(issues)}")
 
         if not data:
             print("  No data available for HTML report")
@@ -563,7 +594,7 @@ class SignalPipelineProcessor:
             if package_dir.suffix == ".html":
                 package_dir = package_dir.with_suffix("")
 
-            builder = PackageBuilder(theme="dark")
+            builder = PackageBuilder(theme="dark", with_heatmap=self.config.with_heatmap)
             package_path = builder.build(
                 data=data,
                 indicators=indicators,

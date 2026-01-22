@@ -30,6 +30,13 @@ class SignalPipelineConfig:
     # Validate bars mode (PR-01)
     validate_bars: bool = False  # Output BarValidationReport showing bar count breakdown
 
+    # Market cap update mode (PR-C)
+    update_market_caps: bool = False  # Update market cap cache from yfinance
+    universe_path: Optional[str] = None  # Path to universe.yaml for market cap symbols
+
+    # Heatmap generation (PR-C)
+    with_heatmap: bool = False  # Generate heatmap landing page
+
     # Persistence
     with_persistence: bool = False
 
@@ -98,6 +105,12 @@ Examples:
 
   # Backfill historical signals
   python -m src.runners.signal_runner --backfill --symbols AAPL --days 365
+
+  # Update market cap cache (PR-C: run before heatmap generation)
+  python -m src.runners.signal_runner --update-market-caps --universe config/signals/universe.yaml
+
+  # Generate report with heatmap landing page
+  python -m src.runners.signal_runner --live --symbols SPY QQQ --format package --with-heatmap
         """,
     )
 
@@ -117,6 +130,11 @@ Examples:
         "--validate-bars",
         action="store_true",
         help="Output BarValidationReport showing bar count breakdown (PR-01)",
+    )
+    mode_group.add_argument(
+        "--update-market-caps",
+        action="store_true",
+        help="Update market cap cache from yfinance (PR-C). Use with --universe.",
     )
 
     # Symbol/timeframe configuration
@@ -199,6 +217,11 @@ Examples:
         "--validate",
         action="store_true",
         help="Run quality gates (G1-G10) after report generation. Requires --format package.",
+    )
+    parser.add_argument(
+        "--with-heatmap",
+        action="store_true",
+        help="Generate heatmap landing page (PR-C). Requires --format package.",
     )
 
     # General options
@@ -326,6 +349,9 @@ def parse_config(args: argparse.Namespace) -> SignalPipelineConfig:
         backfill=args.backfill,
         backfill_days=args.days,
         validate_bars=args.validate_bars,
+        update_market_caps=args.update_market_caps,
+        universe_path=args.universe,
+        with_heatmap=args.with_heatmap,
         with_persistence=args.with_persistence,
         verbose=args.verbose,
         stats_interval=args.stats_interval,

@@ -10,6 +10,13 @@ defaults:
 
 # Symbol groups with shared settings
 groups:
+  quick_test:
+    # Diverse sample for fast testing (~12 symbols across sectors)
+    # Market ETFs: SPY, QQQ | Tech: AAPL, NVDA, TSLA, AMD, META
+    # Financials: JPM | Energy: XOM | Healthcare: UNH | Consumer: HD | Media: DIS
+    symbols: [SPY, QQQ, AAPL, NVDA, JPM, XOM, UNH, HD, DIS, TSLA, AMD, META]
+    timeframes: ["1d"]
+
   tech_megacap:
     symbols: [AAPL, MSFT, GOOGL, AMZN, NVDA, META, TSLA]
     timeframes: ["15m", "1h", "4h", "1d"]
