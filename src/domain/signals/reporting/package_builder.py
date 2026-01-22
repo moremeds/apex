@@ -391,9 +391,10 @@ class PackageBuilder:
             builder = HeatmapBuilder(market_cap_service=cap_service)
 
             # Build manifest for report URL mapping
+            # Link to index.html with symbol parameter so the main app loads
             manifest = {
                 "symbol_reports": {
-                    ticker["symbol"]: f"data/regime/{ticker['symbol']}.html"
+                    ticker["symbol"]: f"index.html?symbol={ticker['symbol']}"
                     for ticker in summary.get("tickers", [])
                     if ticker.get("symbol")
                 }
@@ -2263,6 +2264,15 @@ function renderIndicatorsSection(container, data) {{
 
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', () => {{
+    // Parse URL query parameters to set initial symbol (e.g., ?symbol=NVDA)
+    const urlParams = new URLSearchParams(window.location.search);
+    const symbolParam = urlParams.get('symbol');
+    if (symbolParam && CONFIG.symbols.includes(symbolParam)) {{
+        CONFIG.currentSymbol = symbolParam;
+        const selectEl = document.getElementById('symbol-select');
+        if (selectEl) selectEl.value = symbolParam;
+    }}
+
     loadSummary();
     loadIndicatorsSection();
 

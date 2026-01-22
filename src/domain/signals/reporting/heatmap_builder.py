@@ -739,9 +739,44 @@ class HeatmapBuilder:
         // Debug: Check if Plotly loaded
         console.log('Plotly loaded:', typeof Plotly !== 'undefined');
 
-        // Normalize values to billions for better rendering
-        const normalizedValues = plotlyData.values.map(v => v / 1e9);
-        console.log('Data loaded - ids:', plotlyData.ids.length, 'values:', normalizedValues);
+        // Determine scale based on size metric (Bug 1 fix: metric-aware normalization)
+        const sizeMetric = modelData.size_metric;
+        const getScale = (metric) => metric === 'volume' ? 1e6 : metric === 'equal' ? 1 : 1e9;
+        let currentScale = getScale(sizeMetric);
+        const normalizedValues = plotlyData.values.map(v => v / currentScale);
+        console.log('Data loaded - ids:', plotlyData.ids.length, 'values:', normalizedValues, 'scale:', currentScale);
+
+        // Build parent-children map once for parent recalculation (Bug 2 fix)
+        function buildChildrenMap(ids, parents) {{
+            const children = {{}};
+            parents.forEach((parent, i) => {{
+                if (parent) {{
+                    if (!children[parent]) children[parent] = [];
+                    children[parent].push(i);
+                }}
+            }});
+            return children;
+        }}
+
+        const childrenMap = buildChildrenMap(plotlyData.ids, plotlyData.parents);
+
+        // Recalculate parent values bottom-up (Bug 2 fix)
+        function recalculateParents(values, children, ids) {{
+            function sumChildren(nodeId) {{
+                const idx = ids.indexOf(nodeId);
+                if (idx === -1) return 0;
+                if (!children[nodeId]) return values[idx];
+
+                let sum = 0;
+                for (const childIdx of children[nodeId]) {{
+                    const childId = ids[childIdx];
+                    sum += sumChildren(childId);
+                }}
+                values[idx] = sum;
+                return sum;
+            }}
+            sumChildren('root');
+        }}
 
         // Debug: Check container dimensions
         const container = document.getElementById('heatmap');
@@ -789,13 +824,38 @@ class HeatmapBuilder:
         }}
 
         function updateSizes(metric) {{
-            const newValues = plotlyData.customdata.map((d, i) => {{
-                if (!d || !d.symbol) return normalizedValues[i];
-                if (metric === 'market_cap') return (d.market_cap || 1) / 1e9;
-                if (metric === 'volume') return (d.volume || 1) / 1e6;
-                return 1;
+            const scale = getScale(metric);
+            currentScale = scale;
+
+            // Copy original values to avoid mutating
+            const newValues = [...plotlyData.values];
+
+            // Update leaf node values based on metric
+            plotlyData.customdata.forEach((d, i) => {{
+                if (d && d.symbol) {{
+                    // Only update leaf nodes (nodes with a symbol)
+                    if (metric === 'market_cap') {{
+                        newValues[i] = (d.market_cap || 1) / scale;
+                    }} else if (metric === 'volume') {{
+                        newValues[i] = (d.volume || 1) / scale;
+                    }} else {{
+                        newValues[i] = 1;  // equal weight
+                    }}
+                }}
             }});
-            Plotly.restyle('heatmap', {{'values': [newValues]}});
+
+            // Bug 2 fix: Recalculate parent values bottom-up
+            recalculateParents(newValues, childrenMap, plotlyData.ids);
+
+            // Update hovertemplate unit suffix
+            const unitSuffix = metric === 'volume' ? 'M' : metric === 'equal' ? '' : 'B';
+            const newTemplate = '<b>%{{label}}</b><br>' +
+                'Regime: %{{customdata.regime}}<br>' +
+                'Close: $%{{customdata.close_price}}<br>' +
+                'Daily: %{{customdata.daily_change_pct}}%<br>' +
+                'Value: %{{value:,.2f}}' + unitSuffix + '<extra></extra>';
+
+            Plotly.restyle('heatmap', {{'values': [newValues], 'hovertemplate': newTemplate}});
         }}
 
         // Initial render
@@ -814,11 +874,12 @@ class HeatmapBuilder:
             textfont: {{ size: 14, color: '#fff' }},
             // Hover template - customdata fields accessed via customdata.field
             // Note: Plotly shows empty string for null values
+            // Bug 1 fix: Dynamic unit suffix based on size metric
             hovertemplate: '<b>%{{label}}</b><br>' +
                 'Regime: %{{customdata.regime}}<br>' +
                 'Close: $%{{customdata.close_price}}<br>' +
                 'Daily: %{{customdata.daily_change_pct}}%<br>' +
-                'Value: %{{value:,.2f}}B<extra></extra>',
+                'Value: %{{value:,.2f}}' + (sizeMetric === 'volume' ? 'M' : sizeMetric === 'equal' ? '' : 'B') + '<extra></extra>',
             pathbar: {{ visible: true, textfont: {{ size: 12 }} }},
             branchvalues: 'total',
             maxdepth: 3  // Show root -> category -> items

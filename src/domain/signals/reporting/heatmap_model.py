@@ -221,7 +221,12 @@ def get_regime_color(regime: Optional[str]) -> str:
 
 
 def get_daily_change_color(change_pct: Optional[float]) -> str:
-    """Map daily change percentage to color (red-green gradient)."""
+    """Map daily change percentage to color (red-green gradient).
+
+    Bug 3 fix: Proper RGB interpolation instead of single-channel manipulation.
+    - Positive changes: interpolate from neutral gray toward #22c55e (green-500)
+    - Negative changes: interpolate from neutral gray toward #ef4444 (red-500)
+    """
     if change_pct is None:
         return RegimeColor.UNKNOWN.value
 
@@ -229,17 +234,28 @@ def get_daily_change_color(change_pct: Optional[float]) -> str:
     clamped = max(-5.0, min(5.0, change_pct))
 
     if clamped >= 0:
-        # Green gradient: 0% = light green, 5% = dark green
-        intensity = int(200 - (clamped / 5.0) * 100)
-        return f"#{intensity:02x}c55e"
+        # Green gradient: interpolate toward #22c55e (green-500)
+        t = clamped / 5.0
+        r = int(200 - t * (200 - 34))   # 200 -> 34
+        g = int(220 - t * (220 - 197))  # 220 -> 197
+        b = int(180 - t * (180 - 94))   # 180 -> 94
+        return f"#{r:02x}{g:02x}{b:02x}"
     else:
-        # Red gradient: 0% = light red, -5% = dark red
-        intensity = int(200 + (clamped / 5.0) * 100)
-        return f"#f4{intensity:02x}{intensity:02x}"
+        # Red gradient: interpolate toward #ef4444 (red-500)
+        t = abs(clamped) / 5.0
+        r = int(200 + t * (239 - 200))  # 200 -> 239
+        g = int(200 - t * (200 - 68))   # 200 -> 68
+        b = int(200 - t * (200 - 68))   # 200 -> 68
+        return f"#{r:02x}{g:02x}{b:02x}"
 
 
 def get_alignment_color(score: Optional[float]) -> str:
-    """Map alignment score (-100 to +100) to color."""
+    """Map alignment score (-100 to +100) to color.
+
+    Bug 4 fix: Align with JavaScript logic in heatmap_builder.py.
+    - Positive alignment: vary green channel (180 -> 220) like JS
+    - Negative alignment: vary red channel (200 -> 244)
+    """
     if score is None:
         return RegimeColor.UNKNOWN.value
 
@@ -247,10 +263,10 @@ def get_alignment_color(score: Optional[float]) -> str:
     clamped = max(-100.0, min(100.0, score))
 
     if clamped >= 0:
-        # Green gradient for positive alignment
-        intensity = int(255 - (clamped / 100.0) * 100)
-        return f"#{intensity:02x}{220:02x}5e"
+        # Green gradient: match JS (vary green channel 180->220)
+        g = int(180 + (clamped / 100.0) * 40)  # 180 -> 220
+        return f"#22{g:02x}5e"
     else:
-        # Red gradient for negative alignment
-        intensity = int(255 + (clamped / 100.0) * 100)
-        return f"#{240:02x}{intensity:02x}{intensity:02x}"
+        # Red gradient: interpolate toward red
+        r = int(200 - (clamped / 100.0) * 44)  # 200 -> 244 (clamped is negative)
+        return f"#{r:02x}4444"
