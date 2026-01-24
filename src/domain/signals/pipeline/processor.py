@@ -8,6 +8,7 @@ Extracted from signal_runner.py for better modularity.
 from __future__ import annotations
 
 import asyncio
+import os
 import shutil
 import signal
 import subprocess
