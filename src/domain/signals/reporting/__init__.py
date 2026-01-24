@@ -13,6 +13,17 @@ from .description_generator import (
     generate_indicator_description,
     generate_rule_description,
 )
+from .heatmap_builder import HeatmapBuilder
+from .heatmap_model import (
+    ColorMetric,
+    HeatmapModel,
+    SectorGroup,
+    SizeMetric,
+    TreemapNode,
+    get_alignment_color,
+    get_daily_change_color,
+    get_regime_color,
+)
 from .package_builder import PackageBuilder
 from .regime_report import (
     build_regime_data_json,
@@ -42,4 +53,14 @@ __all__ = [
     "generate_alerts_html",
     "generate_regime_styles",
     "build_regime_data_json",
+    # Heatmap (PR-C)
+    "HeatmapBuilder",
+    "HeatmapModel",
+    "TreemapNode",
+    "SectorGroup",
+    "SizeMetric",
+    "ColorMetric",
+    "get_regime_color",
+    "get_daily_change_color",
+    "get_alignment_color",
 ]

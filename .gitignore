@@ -2473,3 +2473,6 @@ temp/
 /reports/validation/publish/data/ZTS_1d.json
 /reports/validation/publish/data/ZTS_1h.json
 /reports/validation/publish/data/ZTS_4h.json
+/docs/python/
+/scripts/fonts/
+/models/turning_point/

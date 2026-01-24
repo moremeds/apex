@@ -40,8 +40,8 @@ jobs:
         run: |
           source .venv/bin/activate
           python -m src.runners.signal_runner --live \
-            --symbols SPY QQQ AAPL MSFT NVDA \
-            --timeframes 1d 4h \
+            --universe config/signals/regime_verification_universe.yaml \
+            --timeframes 1d 4h 1h \
             --format package \
             --html-output reports/validation/signal_report
         continue-on-error: true

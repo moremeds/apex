@@ -4,6 +4,12 @@ from src.services.bar_cache_service import BarCacheStore, BarPeriod
 from src.services.bar_persistence_service import BarPersistenceService
 from src.services.historical_data_service import HistoricalDataService
 from src.services.history_loader_service import HistoryLoaderService, LoadResult
+from src.services.market_cap_service import (
+    MarketCapCache,
+    MarketCapResult,
+    MarketCapService,
+    load_universe_symbols,
+)
 from src.services.snapshot_service import SnapshotService
 from src.services.ta_service import ATRLevels, TAService
 from src.services.warm_start_service import WarmStartResult, WarmStartService
@@ -23,4 +29,9 @@ __all__ = [
     "ATRLevels",
     # Bar persistence
     "BarPersistenceService",
+    # Market cap caching (PR-C)
+    "MarketCapService",
+    "MarketCapCache",
+    "MarketCapResult",
+    "load_universe_symbols",
 ]

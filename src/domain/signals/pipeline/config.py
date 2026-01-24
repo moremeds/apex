@@ -9,7 +9,68 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
+
+
+def _extract_symbols_from_universe(universe: Dict[str, Any], fallback: List[str]) -> List[str]:
+    """
+    Extract symbols from various universe YAML formats.
+
+    Supports:
+    1. training_universe + holdout_universe (model training format)
+    2. Flat symbols list
+    3. Groups format (universe.yaml style)
+    4. Regime verification format (market + sectors with ETF/stocks)
+    """
+    symbols: List[str] = []
+    seen: set = set()
+
+    def add_symbol(sym: str) -> None:
+        if sym and sym not in seen:
+            symbols.append(sym)
+            seen.add(sym)
+
+    # 1. training_universe + holdout_universe
+    for sym in universe.get("training_universe", []):
+        add_symbol(sym)
+    for sym in universe.get("holdout_universe", []):
+        add_symbol(sym)
+
+    # 2. Flat symbols list
+    if not symbols:
+        for sym in universe.get("symbols", []):
+            add_symbol(sym)
+
+    # 3. Groups format (universe.yaml style)
+    if not symbols and "groups" in universe:
+        for group_config in universe["groups"].values():
+            if isinstance(group_config, dict) and group_config.get("enabled", True):
+                for sym in group_config.get("symbols", []):
+                    add_symbol(sym)
+
+    # 4. Regime verification format (market + sectors)
+    if not symbols:
+        # Market-level ETFs (list of dicts with 'symbol' key)
+        for item in universe.get("market", []):
+            if isinstance(item, dict):
+                add_symbol(item.get("symbol", ""))
+            elif isinstance(item, str):
+                add_symbol(item)
+
+        # Sector ETFs and stocks
+        for sector_config in universe.get("sectors", {}).values():
+            if isinstance(sector_config, dict):
+                add_symbol(sector_config.get("etf", ""))
+                for sym in sector_config.get("stocks", []):
+                    add_symbol(sym)
+
+    # 5. Quick test subset (flat list)
+    if not symbols:
+        for sym in universe.get("quick_test", []):
+            add_symbol(sym)
+
+    # Final fallback
+    return symbols if symbols else fallback
 
 
 @dataclass
@@ -30,20 +91,27 @@ class SignalPipelineConfig:
     # Validate bars mode (PR-01)
     validate_bars: bool = False  # Output BarValidationReport showing bar count breakdown
 
+    # Market cap update mode (PR-C)
+    update_market_caps: bool = False  # Update market cap cache from yfinance
+    universe_path: Optional[str] = None  # Path to universe.yaml for market cap symbols
+
+    # Heatmap generation (PR-C) - default True for package format
+    with_heatmap: bool = True  # Generate heatmap landing page
+
     # Persistence
     with_persistence: bool = False
 
     # Output
     verbose: bool = False
     stats_interval: int = 10
-    html_output: Optional[str] = None  # Path for HTML report generation
+    html_output: Optional[str] = "results/signals"  # Path for HTML report generation
     json_output: bool = False  # Output results as JSON (for --validate-bars)
-    output_format: str = "singlefile"  # "singlefile" (legacy HTML) or "package" (PR-02)
+    output_format: str = "package"  # "singlefile" (legacy HTML) or "package" (PR-02, default)
     deploy_github: bool = False  # Deploy package to GitHub Pages
     github_repo: Optional[str] = None  # GitHub repo for deployment (e.g., "user/signal-reports")
 
-    # Post-generation validation (M3 integration)
-    validate: bool = False  # Run quality gates (G1-G10) after report generation
+    # Post-generation validation (M3 integration) - default True for package format
+    validate: bool = True  # Run quality gates (G1-G15) after report generation
 
     # Model training options
     train_models: bool = False  # Train models before signal generation
@@ -64,37 +132,33 @@ def create_argument_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Run with HTML report (default output: results/signals/signal_report.html)
+  # Full report with heatmap + validation (default: results/signals/)
   python -m src.runners.signal_runner --live --symbols AAPL TSLA QQQ
 
-  # Custom HTML output path
-  python -m src.runners.signal_runner --live --symbols AAPL --html-output my_report.html
+  # Custom output path
+  python -m src.runners.signal_runner --live --symbols AAPL --html-output /tmp/my_report
 
-  # Validate bar counts (PR-01: solves "350 vs 252" mystery)
-  python -m src.runners.signal_runner --validate-bars --symbols AAPL SPY
+  # Skip validation (faster)
+  python -m src.runners.signal_runner --live --symbols AAPL --no-validate
 
-  # Validate bars with JSON output for scripting
-  python -m src.runners.signal_runner --validate-bars --symbols AAPL --json
+  # Skip heatmap
+  python -m src.runners.signal_runner --live --symbols AAPL --no-heatmap
 
-  # Generate package format with lazy loading (PR-02)
-  python -m src.runners.signal_runner --live --symbols AAPL SPY --format package
+  # Legacy single-file HTML format
+  python -m src.runners.signal_runner --live --symbols AAPL --format singlefile
 
-  # Deploy package to GitHub Pages (auto-deploys to gh-pages branch)
-  python -m src.runners.signal_runner --live --symbols AAPL SPY --format package --deploy github
-
-  # Deploy to a specific GitHub repo
-  python -m src.runners.signal_runner --live --symbols AAPL SPY --format package --deploy github --github-repo user/signal-reports
+  # Deploy to GitHub Pages
+  python -m src.runners.signal_runner --live --symbols AAPL SPY --deploy github
 
   # Train models before generating signals
   python -m src.runners.signal_runner --live --symbols AAPL --train-models \\
       --model-symbols SPY QQQ AAPL
 
-  # Retrain models with walk-forward validation (CI use case)
-  python -m src.runners.signal_runner --live --symbols SPY --retrain-models \\
-      --model-symbols SPY QQQ --dry-run
+  # Validate bar counts (PR-01)
+  python -m src.runners.signal_runner --validate-bars --symbols AAPL SPY
 
-  # Training only (no signal generation)
-  python -m src.runners.signal_runner --train-models --model-symbols SPY QQQ
+  # Update market cap cache (run periodically for accurate heatmap)
+  python -m src.runners.signal_runner --update-market-caps --universe config/signals/universe.yaml
 
   # Backfill historical signals
   python -m src.runners.signal_runner --backfill --symbols AAPL --days 365
@@ -117,6 +181,11 @@ Examples:
         "--validate-bars",
         action="store_true",
         help="Output BarValidationReport showing bar count breakdown (PR-01)",
+    )
+    mode_group.add_argument(
+        "--update-market-caps",
+        action="store_true",
+        help="Update market cap cache from yfinance (PR-C). Use with --universe.",
     )
 
     # Symbol/timeframe configuration
@@ -163,9 +232,9 @@ Examples:
     parser.add_argument(
         "--html-output",
         type=str,
-        default="results/signals/signal_report.html",
+        default="results/signals",
         metavar="PATH",
-        help="HTML report output path (default: results/signals/signal_report.html)",
+        help="HTML report output path (default: results/signals)",
     )
     parser.add_argument(
         "--json",
@@ -176,9 +245,9 @@ Examples:
         "--format",
         type=str,
         choices=["singlefile", "package"],
-        default="singlefile",
+        default="package",
         metavar="FORMAT",
-        help="Output format: singlefile (legacy HTML) or package (PR-02 lazy loading)",
+        help="Output format: singlefile (legacy HTML) or package (default, PR-02 lazy loading)",
     )
 
     # GitHub Pages deployment
@@ -196,9 +265,14 @@ Examples:
         help="GitHub repo for deployment (e.g., 'user/signal-reports'). If not set, uses current repo's gh-pages branch.",
     )
     parser.add_argument(
-        "--validate",
+        "--no-validate",
         action="store_true",
-        help="Run quality gates (G1-G10) after report generation. Requires --format package.",
+        help="Skip quality gates (G1-G15) after report generation.",
+    )
+    parser.add_argument(
+        "--no-heatmap",
+        action="store_true",
+        help="Skip heatmap landing page generation.",
     )
 
     # General options
@@ -307,16 +381,21 @@ def parse_config(args: argparse.Namespace) -> SignalPipelineConfig:
 
         import yaml
 
+        # Project root for resolving relative paths
+        project_root = Path(__file__).resolve().parent.parent.parent.parent.parent
+
         universe_path = Path(args.universe)
+        if not universe_path.is_absolute():
+            universe_path = project_root / universe_path
+
         if universe_path.exists():
             with open(universe_path) as f:
                 universe = yaml.safe_load(f)
-            # Combine training and holdout universes for signal report
-            symbols = universe.get("training_universe", []) + universe.get("holdout_universe", [])
-            if not symbols:
-                # Fallback: try flat list
-                symbols = universe.get("symbols", args.symbols)
+
+            symbols = _extract_symbols_from_universe(universe, args.symbols)
             print(f"Loaded {len(symbols)} symbols from {args.universe}")
+        else:
+            print(f"WARNING: Universe file not found: {universe_path}")
 
     return SignalPipelineConfig(
         symbols=symbols,
@@ -326,6 +405,9 @@ def parse_config(args: argparse.Namespace) -> SignalPipelineConfig:
         backfill=args.backfill,
         backfill_days=args.days,
         validate_bars=args.validate_bars,
+        update_market_caps=args.update_market_caps,
+        universe_path=args.universe,
+        with_heatmap=not args.no_heatmap,
         with_persistence=args.with_persistence,
         verbose=args.verbose,
         stats_interval=args.stats_interval,
@@ -334,7 +416,7 @@ def parse_config(args: argparse.Namespace) -> SignalPipelineConfig:
         output_format=args.format,
         deploy_github=args.deploy == "github",
         github_repo=args.github_repo,
-        validate=args.validate,
+        validate=not args.no_validate,
         # Training options
         train_models=args.train_models,
         retrain_models=args.retrain_models,

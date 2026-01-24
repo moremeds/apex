@@ -193,7 +193,7 @@ class TestPackageBuilder:
 
         # Verify directory structure
         assert package_path.exists()
-        assert (package_path / "index.html").exists()
+        assert (package_path / "report.html").exists()  # Main report (heatmap would be index.html)
         assert (package_path / "assets").is_dir()
         assert (package_path / "assets" / "styles.css").exists()
         assert (package_path / "assets" / "app.js").exists()
@@ -307,7 +307,7 @@ class TestPackageBuilder:
         sample_data: Dict[Tuple[str, str], pd.DataFrame],
         temp_dir: Path,
     ) -> None:
-        """Test that index.html is valid HTML."""
+        """Test that report.html is valid HTML."""
         builder = PackageBuilder()
         output_dir = temp_dir / "test_package"
 
@@ -318,7 +318,7 @@ class TestPackageBuilder:
             output_dir=output_dir,
         )
 
-        html = (output_dir / "index.html").read_text()
+        html = (output_dir / "report.html").read_text()
         assert "<!DOCTYPE html>" in html
         assert "<html" in html
         assert "</html>" in html
@@ -468,7 +468,7 @@ class TestPackageBuilder:
         sample_data: Dict[Tuple[str, str], pd.DataFrame],
         temp_dir: Path,
     ) -> None:
-        """Test that index.html contains all required sections."""
+        """Test that report.html contains all required sections."""
         builder = PackageBuilder()
         output_dir = temp_dir / "test_package"
 
@@ -479,7 +479,7 @@ class TestPackageBuilder:
             output_dir=output_dir,
         )
 
-        html = (output_dir / "index.html").read_text()
+        html = (output_dir / "report.html").read_text()
 
         # Check for confluence section
         assert "confluence-content" in html

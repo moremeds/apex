@@ -27,6 +27,10 @@ import pandas as pd
 
 from src.utils.logging_setup import get_logger
 
+from ...data.quality_validator import validate_close_for_regime
+
+# Project root for resolving relative paths
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
 from ...models import SignalCategory
 from ..base import IndicatorBase
 from .components import (
@@ -1004,9 +1008,25 @@ class RegimeDetectorIndicator(IndicatorBase):
             flat_state.get("iv_state"), IVState, self._VALID_IV_STATES, IVState.NA
         )
 
-        # Build component values
+        # PR-A: Validate close price before building ComponentValues
+        raw_close = flat_state.get("close", 0.0)
+        is_valid_close, close_error = validate_close_for_regime(
+            raw_close, symbol, "update_with_hysteresis"
+        )
+        if not is_valid_close:
+            logger.error(close_error)
+            # Log available state keys for debugging
+            logger.debug(
+                f"[{symbol}] flat_state keys: {list(flat_state.keys())}, "
+                f"close value type: {type(raw_close)}"
+            )
+
+        # Use validated close (or 0.0 if invalid - will be flagged in quality)
+        validated_close = raw_close if is_valid_close else 0.0
+
+        # Build component values with validated close
         component_values = ComponentValues(
-            close=flat_state.get("close", 0.0),
+            close=validated_close,
             ma20=flat_state.get("ma20", 0.0),
             ma50=flat_state.get("ma50", 0.0),
             ma200=flat_state.get("ma200", 0.0),
@@ -1025,16 +1045,22 @@ class RegimeDetectorIndicator(IndicatorBase):
         # Build derived metrics with explicit naming
         derived_metrics = DerivedMetrics.from_component_values(component_values)
 
-        # Build inputs used
+        # Build inputs used with validated close
         inputs_used = InputsUsed(
-            close=flat_state.get("close", 0.0),
+            close=validated_close,
             high=flat_state.get("high", 0.0),
             low=flat_state.get("low", 0.0),
             volume=flat_state.get("volume", 0.0),
         )
 
-        # Build data quality
+        # Build data quality (PR-A: track close validity)
         is_market = symbol.upper() in MARKET_BENCHMARKS
+        component_issues: Dict[str, str] = {}
+        if not is_market:
+            component_issues["iv"] = "not available for non-market symbols"
+        if not is_valid_close:
+            component_issues["close"] = close_error
+
         quality = DataQuality(
             warmup_ok=True,  # Assume warmup OK at this point
             warmup_bars_needed=self.warmup_periods,
@@ -1045,8 +1071,9 @@ class RegimeDetectorIndicator(IndicatorBase):
                 "chop": True,
                 "ext": True,
                 "iv": is_market,
+                "close": is_valid_close,  # PR-A: track close validity
             },
-            component_issues=({} if is_market else {"iv": "not available for non-market symbols"}),
+            component_issues=component_issues,
         )
 
         # Build transition state
@@ -1391,7 +1418,7 @@ class RegimeDetectorIndicator(IndicatorBase):
             )
 
             # Save model
-            model_dir = Path("models/turning_point")
+            model_dir = PROJECT_ROOT / "models/turning_point"
             model_dir.mkdir(parents=True, exist_ok=True)
             model_path = model_dir / f"{symbol.lower()}_logistic.pkl"
             model.save(model_path)
@@ -1432,8 +1459,10 @@ class RegimeDetectorIndicator(IndicatorBase):
         if symbol_key not in self._tp_model_load_attempted:
             self._tp_model_load_attempted[symbol_key] = True
             # Check both new format (symbol/active.pkl) and legacy format (symbol_logistic.pkl)
-            new_model_path = Path("models/turning_point") / symbol.lower() / "active.pkl"
-            legacy_model_path = Path("models/turning_point") / f"{symbol.lower()}_logistic.pkl"
+            new_model_path = PROJECT_ROOT / "models/turning_point" / symbol.lower() / "active.pkl"
+            legacy_model_path = (
+                PROJECT_ROOT / "models/turning_point" / f"{symbol.lower()}_logistic.pkl"
+            )
             model_path = new_model_path if new_model_path.exists() else legacy_model_path
             if model_path.exists():
                 try:

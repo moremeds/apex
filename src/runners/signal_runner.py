@@ -78,6 +78,10 @@ class SignalRunner:
             Exit code (0 for success, non-zero for errors).
         """
         try:
+            # Handle market cap update mode (PR-C) - no processor needed
+            if self.config.update_market_caps:
+                return self._run_market_cap_update()
+
             # Create processor and initialize
             self._processor = SignalPipelineProcessor(self.config)
             await self._processor.initialize()
@@ -133,6 +137,84 @@ class SignalRunner:
             if self._processor:
                 await self._processor.shutdown()
 
+    def _run_market_cap_update(self) -> int:
+        """
+        Update market cap cache from yfinance.
+
+        PR-C: Fetches market caps for all symbols in the universe and
+        saves to data/cache/market_caps.json.
+
+        Returns:
+            Exit code (0 for success, 1 for errors).
+        """
+        from pathlib import Path
+
+        from src.services.market_cap_service import (
+            MarketCapService,
+            load_universe_symbols,
+        )
+
+        print("\n" + "=" * 60)
+        print("=== MARKET CAP UPDATE (PR-C) ===")
+        print("=" * 60)
+
+        # Determine symbols to update
+        symbols = self.config.symbols
+
+        # Load from universe file if provided
+        if self.config.universe_path:
+            universe_path = Path(self.config.universe_path)
+            if universe_path.exists():
+                try:
+                    symbols = load_universe_symbols(universe_path)
+                    print(f"Loaded {len(symbols)} symbols from {universe_path}")
+                except Exception as e:
+                    logger.error(f"Failed to load universe: {e}")
+                    return 1
+            else:
+                logger.error(f"Universe file not found: {universe_path}")
+                return 1
+
+        if not symbols:
+            logger.error("No symbols to update. Use --symbols or --universe.")
+            return 1
+
+        print(f"Updating market caps for {len(symbols)} symbols...")
+
+        # Update market caps
+        service = MarketCapService()
+        try:
+            results = service.update_market_caps(symbols)
+
+            # Print summary
+            success_count = sum(1 for r in results.values() if not r.cap_missing)
+            error_count = sum(1 for r in results.values() if r.cap_missing)
+
+            print()
+            print("-" * 60)
+            print(f"Updated: {success_count}/{len(symbols)} symbols")
+            print(f"Errors:  {error_count}")
+
+            if error_count > 0:
+                print("\nFailed symbols:")
+                for symbol, result in results.items():
+                    if result.cap_missing:
+                        print(f"  - {symbol}: {result.error}")
+
+            # Get cache metadata
+            metadata = service.get_cache_metadata()
+            print(f"\nCache saved: {metadata['symbol_count']} symbols")
+            print(f"Location: data/cache/market_caps.json")
+
+            return 0 if error_count == 0 else 0  # Return 0 even with some errors
+
+        except ImportError:
+            logger.error("yfinance not installed. Run: pip install yfinance")
+            return 1
+        except Exception as e:
+            logger.error(f"Market cap update failed: {e}")
+            return 1
+
     def _run_validation_gates(self) -> int:
         """
         Run quality gates (G1-G10) on the generated report package.
@@ -151,7 +233,12 @@ class SignalRunner:
             logger.error("--validate requires --html-output to specify package path")
             return 1
 
+        # Resolve relative paths to project root
+        project_root = Path(__file__).resolve().parent.parent.parent
         package_path = Path(self.config.html_output)
+        if not package_path.is_absolute():
+            package_path = project_root / package_path
+
         if not package_path.exists():
             logger.error(f"Package path not found: {package_path}")
             return 1
@@ -173,6 +260,11 @@ class SignalRunner:
         print(f"FAILS: {report.fail_count} | WARNS: {report.warn_count}")
         print(f"Overall: {'PASS' if report.all_passed else 'FAIL'}")
 
+        # Generate validation.html in the package
+        validation_html_path = package_path / "validation.html"
+        report.save_html(validation_html_path)
+        print(f"\nValidation report: {validation_html_path}")
+
         return 0 if report.all_passed else 1
 
     @property
@@ -193,18 +285,22 @@ async def main() -> None:
         and not args.train_models
         and not args.retrain_models
         and not args.validate_bars
+        and not args.update_market_caps
     ):
         parser.error(
-            "At least one mode required: --live, --backfill, --validate-bars, --train-models, or --retrain-models"
+            "At least one mode required: --live, --backfill, --validate-bars, "
+            "--train-models, --retrain-models, or --update-market-caps"
         )
 
     # Validate: --deploy requires --format package
     if args.deploy and args.format != "package":
         parser.error("--deploy requires --format package")
 
-    # Validate: --validate requires --format package
-    if args.validate and args.format != "package":
-        parser.error("--validate requires --format package")
+    # Warn if using singlefile format (legacy) - validation/heatmap will be skipped
+    if args.format == "singlefile":
+        print(
+            "Note: Using legacy singlefile format. Validation and heatmap require --format package."
+        )
 
     # Set up logging
     level = logging.DEBUG if args.verbose else logging.INFO
