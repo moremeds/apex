@@ -632,14 +632,16 @@ class SignalPipelineProcessor:
         """
         Deploy package to GitHub Pages.
 
-        Uses gh CLI if available, falls back to git commands.
+        Uses GITHUB_TOKEN for authentication in CI environments.
         """
-        print("\nDeploying to GitHub Pages...")
-
         repo = self.config.github_repo
+        github_token = os.environ.get("GITHUB_TOKEN")
 
         if repo:
-            repo_url = f"https://github.com/{repo}.git"
+            if github_token:
+                repo_url = f"https://x-access-token:{github_token}@github.com/{repo}.git"
+            else:
+                repo_url = f"https://github.com/{repo}.git"
             pages_url = f"https://{repo.split('/')[0]}.github.io/{repo.split('/')[1]}/"
         else:
             try:
@@ -656,11 +658,13 @@ class SignalPipelineProcessor:
                         repo = repo_url.split(":")[1].replace(".git", "")
                     else:
                         repo = "/".join(repo_url.split("/")[-2:]).replace(".git", "")
+                    if github_token and not repo_url.startswith("git@"):
+                        repo_url = f"https://x-access-token:{github_token}@github.com/{repo}.git"
                     pages_url = f"https://{repo.split('/')[0]}.github.io/{repo.split('/')[1]}/"
                 else:
                     pages_url = "(check your repo settings)"
             except subprocess.CalledProcessError:
-                print("  Error: Could not determine git remote. Use --github-repo to specify.")
+                logger.error("Could not determine git remote. Use --github-repo to specify.")
                 return
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -693,16 +697,11 @@ class SignalPipelineProcessor:
                     capture_output=True,
                 )
 
-                print(f"  Deployed to: {pages_url}")
-                print("  Note: May take 1-2 minutes for GitHub Pages to update.")
+                logger.info(f"Deployed to GitHub Pages: {pages_url}")
 
             except subprocess.CalledProcessError as e:
-                print(f"  Deployment failed: {e}")
-                if e.stderr:
-                    print(
-                        f"  Error: {e.stderr.decode() if isinstance(e.stderr, bytes) else e.stderr}"
-                    )
-                print("  Tip: Make sure you have push access to the repository.")
+                error_msg = e.stderr.decode() if isinstance(e.stderr, bytes) else e.stderr
+                logger.error(f"GitHub Pages deployment failed: {error_msg}")
 
     def _compute_indicators_on_df(
         self,
