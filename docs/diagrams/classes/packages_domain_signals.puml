@@ -18,6 +18,8 @@ package "apex.src.domain.signals.data.bar_aggregator" as apex.src.domain.signals
 }
 package "apex.src.domain.signals.data.bar_builder" as apex.src.domain.signals.data.bar_builder {
 }
+package "apex.src.domain.signals.data.quality_validator" as apex.src.domain.signals.data.quality_validator {
+}
 package "apex.src.domain.signals.divergence" as apex.src.domain.signals.divergence {
 }
 package "apex.src.domain.signals.divergence.confluence" as apex.src.domain.signals.divergence.confluence {
@@ -186,6 +188,10 @@ package "apex.src.domain.signals.reporting.description_generator" as apex.src.do
 }
 package "apex.src.domain.signals.reporting.exceptions" as apex.src.domain.signals.reporting.exceptions {
 }
+package "apex.src.domain.signals.reporting.heatmap_builder" as apex.src.domain.signals.reporting.heatmap_builder {
+}
+package "apex.src.domain.signals.reporting.heatmap_model" as apex.src.domain.signals.reporting.heatmap_model {
+}
 package "apex.src.domain.signals.reporting.highlight_detector" as apex.src.domain.signals.reporting.highlight_detector {
 }
 package "apex.src.domain.signals.reporting.package_builder" as apex.src.domain.signals.reporting.package_builder {
@@ -242,6 +248,14 @@ package "apex.src.domain.signals.signal_logger" as apex.src.domain.signals.signa
 }
 package "apex.src.domain.signals.signal_state_tracker" as apex.src.domain.signals.signal_state_tracker {
 }
+package "apex.src.domain.signals.trend" as apex.src.domain.signals.trend {
+}
+package "apex.src.domain.signals.trend.health_analyzer" as apex.src.domain.signals.trend.health_analyzer {
+}
+package "apex.src.domain.signals.trend.hh_hl_detector" as apex.src.domain.signals.trend.hh_hl_detector {
+}
+package "apex.src.domain.signals.trend.ma_alignment" as apex.src.domain.signals.trend.ma_alignment {
+}
 package "apex.src.domain.signals.universe" as apex.src.domain.signals.universe {
 }
 package "apex.src.domain.signals.universe.base" as apex.src.domain.signals.universe.base {
@@ -275,6 +289,7 @@ apex.src.domain.signals.conditions --> apex.src.domain.signals.conditions.evalua
 apex.src.domain.signals.config --> apex.src.domain.signals.config.schema
 apex.src.domain.signals.data --> apex.src.domain.signals.data.bar_aggregator
 apex.src.domain.signals.data --> apex.src.domain.signals.data.bar_builder
+apex.src.domain.signals.data --> apex.src.domain.signals.data.quality_validator
 apex.src.domain.signals.data.bar_aggregator --> apex.src.domain.signals.data.bar_builder
 apex.src.domain.signals.divergence --> apex.src.domain.signals.divergence.confluence
 apex.src.domain.signals.divergence --> apex.src.domain.signals.divergence.cross_divergence
@@ -326,11 +341,15 @@ apex.src.domain.signals.pipeline.processor --> apex.src.domain.signals.pipeline.
 apex.src.domain.signals.pipeline.trainer --> apex.src.domain.signals.pipeline.config
 apex.src.domain.signals.pipeline.validator --> apex.src.domain.signals.pipeline.config
 apex.src.domain.signals.reporting --> apex.src.domain.signals.reporting.description_generator
+apex.src.domain.signals.reporting --> apex.src.domain.signals.reporting.heatmap_builder
+apex.src.domain.signals.reporting --> apex.src.domain.signals.reporting.heatmap_model
 apex.src.domain.signals.reporting --> apex.src.domain.signals.reporting.package_builder
 apex.src.domain.signals.reporting --> apex.src.domain.signals.reporting.regime_report
 apex.src.domain.signals.reporting --> apex.src.domain.signals.reporting.signal_report_generator
 apex.src.domain.signals.reporting --> apex.src.domain.signals.reporting.snapshot_builder
+apex.src.domain.signals.reporting.heatmap_builder --> apex.src.domain.signals.reporting.heatmap_model
 apex.src.domain.signals.reporting.package_builder --> apex.src.domain.signals.reporting.exceptions
+apex.src.domain.signals.reporting.package_builder --> apex.src.domain.signals.reporting.heatmap_builder
 apex.src.domain.signals.reporting.package_builder --> apex.src.domain.signals.reporting.regime
 apex.src.domain.signals.reporting.package_builder --> apex.src.domain.signals.reporting.signal_report_generator
 apex.src.domain.signals.reporting.package_builder --> apex.src.domain.signals.reporting.snapshot_builder
@@ -359,6 +378,11 @@ apex.src.domain.signals.rules --> apex.src.domain.signals.rules.trend_rules
 apex.src.domain.signals.rules --> apex.src.domain.signals.rules.volatility_rules
 apex.src.domain.signals.rules --> apex.src.domain.signals.rules.volume_rules
 apex.src.domain.signals.signal_state_tracker --> apex.src.domain.signals.models
+apex.src.domain.signals.trend --> apex.src.domain.signals.trend.health_analyzer
+apex.src.domain.signals.trend --> apex.src.domain.signals.trend.hh_hl_detector
+apex.src.domain.signals.trend --> apex.src.domain.signals.trend.ma_alignment
+apex.src.domain.signals.trend.health_analyzer --> apex.src.domain.signals.trend.hh_hl_detector
+apex.src.domain.signals.trend.health_analyzer --> apex.src.domain.signals.trend.ma_alignment
 apex.src.domain.signals.universe --> apex.src.domain.signals.universe.base
 apex.src.domain.signals.universe --> apex.src.domain.signals.universe.yaml_provider
 apex.src.domain.signals.universe.yaml_provider --> apex.src.domain.signals.universe.base

@@ -53,6 +53,19 @@ class "BarBuilder" as apex.src.domain.signals.data.bar_builder.BarBuilder {
   to_close_event() -> BarCloseEvent
   update(price: float, volume: Optional[float], timestamp: datetime) -> None
 }
+class "BarQualityResult" as apex.src.domain.signals.schemas.BarQualityResult {
+  close : float
+  dropped_bar_count : int
+  invalid_reason
+  nan_counts : Dict[str, int]
+  sentinel_counts : Dict[str, int]
+  timestamp : Optional[datetime]
+  usable_bar_count : int
+  valid : bool
+  invalid_result(reason: InvalidValueReason, timestamp: Optional[datetime], sentinel_counts: Optional[Dict[str, int]], nan_counts: Optional[Dict[str, int]]) -> 'BarQualityResult'
+  to_dict() -> Dict[str, Any]
+  valid_result(close: float, timestamp: Optional[datetime], usable_bar_count: int) -> 'BarQualityResult'
+}
 class "BarReduction" as apex.src.domain.signals.schemas.BarReduction {
   bars_removed : int
   description : str
@@ -191,6 +204,9 @@ class "ChartPatternsIndicator" as apex.src.domain.signals.indicators.pattern.cha
 class "ChopState" as apex.src.domain.signals.indicators.regime.models.ChopState {
   name
 }
+class "ColorMetric" as apex.src.domain.signals.reporting.heatmap_model.ColorMetric {
+  name
+}
 class "ComponentStates" as apex.src.domain.signals.indicators.regime.models.ComponentStates {
   chop_state
   ext_state
@@ -296,6 +312,18 @@ class "DataQuality" as apex.src.domain.signals.indicators.regime.models.DataQual
   warmup_bars_needed : int
   warmup_ok : bool
   to_dict() -> Dict[str, Any]
+}
+class "DataQualityReport" as apex.src.domain.signals.schemas.DataQualityReport {
+  dropped_bar_total : int
+  invalid_symbol_count : int
+  per_symbol : Dict[str, BarQualityResult]
+  sentinel_total : int
+  worst_symbols : List[str]
+  add_result(symbol: str, result: BarQualityResult) -> None
+  to_dict() -> Dict[str, Any]
+}
+class "DataQualityValidator" as apex.src.domain.signals.data.quality_validator.DataQualityValidator {
+  validate_and_clean(df: pd.DataFrame, symbol: str, timeframe: str) -> Tuple[pd.DataFrame, BarQualityResult]
 }
 class "DataWindow" as apex.src.domain.signals.indicators.regime.models.DataWindow {
   bars : int
@@ -432,6 +460,40 @@ class "GateResult" as apex.src.domain.signals.validation.schemas.GateResult {
   value : float
   to_dict() -> dict
 }
+class "HHHLDetector" as apex.src.domain.signals.trend.hh_hl_detector.HHHLDetector {
+  lookback : int
+  min_bars_between_swings : int
+  swing_threshold : float
+  calculate_score(high: pd.Series, low: pd.Series) -> HHHLResult
+  detect_swings(high: pd.Series, low: pd.Series) -> List[SwingPoint]
+}
+class "HHHLResult" as apex.src.domain.signals.trend.hh_hl_detector.HHHLResult {
+  consecutive_hh : int
+  consecutive_hl : int
+  consecutive_lh : int
+  consecutive_ll : int
+  score : float
+  swing_points : List[SwingPoint]
+  trend_direction : Literal['up', 'down', 'neutral']
+}
+class "HeatmapBuilder" as apex.src.domain.signals.reporting.heatmap_builder.HeatmapBuilder {
+  build_heatmap_model(summary_data: Dict[str, Any], manifest: Optional[Dict[str, Any]]) -> HeatmapModel
+  render_heatmap_html(model: HeatmapModel, output_dir: Path) -> str
+  save_heatmap(model: HeatmapModel, output_dir: Path, filename: str) -> Path
+}
+class "HeatmapModel" as apex.src.domain.signals.reporting.heatmap_model.HeatmapModel {
+  cap_missing_count : int
+  color_metric
+  generated_at : Optional[datetime]
+  market_etfs : List[TreemapNode]
+  regime_distribution : Dict[str, int]
+  sector_etfs : List[TreemapNode]
+  sectors : List[SectorGroup]
+  size_metric
+  symbol_count : int
+  get_all_nodes() -> List[TreemapNode]
+  to_dict() -> Dict[str, Any]
+}
 class "Highlight" as apex.src.domain.signals.reporting.highlight_detector.Highlight {
   description : str
   evidence : Dict[str, Any]
@@ -538,6 +600,9 @@ class "InputsUsed" as apex.src.domain.signals.indicators.regime.models.InputsUse
   volume : float
   to_dict() -> Dict[str, Any]
 }
+class "InvalidValueReason" as apex.src.domain.signals.schemas.InvalidValueReason {
+  name
+}
 class "KDJIndicator" as apex.src.domain.signals.indicators.momentum.kdj.KDJIndicator {
   category : MOMENTUM
   name : str
@@ -566,6 +631,18 @@ class "LabelerThreshold" as apex.src.domain.signals.validation.schemas.LabelerTh
   trending_sharpe_min : float
   version : str
   to_dict() -> dict
+}
+class "MAAlignmentResult" as apex.src.domain.signals.trend.ma_alignment.MAAlignmentResult {
+  direction : Literal['bullish', 'bearish', 'neutral']
+  ma_values : Dict[int, float]
+  order_correct : bool
+  score : float
+  spread_pct : float
+  time_since_cross : int
+}
+class "MAAlignmentScorer" as apex.src.domain.signals.trend.ma_alignment.MAAlignmentScorer {
+  periods : list
+  calculate(close: pd.Series) -> MAAlignmentResult
 }
 class "MACDIndicator" as apex.src.domain.signals.indicators.momentum.macd.MACDIndicator {
   category : MOMENTUM
@@ -679,6 +756,7 @@ class "PackageBuilder" as apex.src.domain.signals.reporting.package_builder.Pack
   TICKERS_BUDGET_KB : int
   enforce_budget : bool
   theme : str
+  with_heatmap : bool
   build(data: Dict[Tuple[str, str], pd.DataFrame], indicators: List['Indicator'], rules: List['SignalRule'], output_dir: Path, regime_outputs: Optional[Dict[str, 'RegimeOutput']], validation_url: Optional[str]) -> Path
 }
 class "PackageManifest" as apex.src.domain.signals.reporting.package_builder.PackageManifest {
@@ -743,6 +821,9 @@ class "RangeEntryEvaluator" as apex.src.domain.signals.conditions.evaluators.Ran
 }
 class "RangeExitEvaluator" as apex.src.domain.signals.conditions.evaluators.RangeExitEvaluator {
   evaluate(config: Dict[str, Any], prev_state: Optional[Dict[str, Any]], curr_state: Dict[str, Any]) -> bool
+}
+class "RegimeColor" as apex.src.domain.signals.reporting.heatmap_model.RegimeColor {
+  name
 }
 class "<color:red>RegimeDataMissing</color>" as apex.src.domain.signals.reporting.exceptions.RegimeDataMissing {
 }
@@ -873,6 +954,13 @@ class "<color:red>SchemaVersionError</color>" as apex.src.domain.signals.indicat
   actual : str
   expected : str
 }
+class "SectorGroup" as apex.src.domain.signals.reporting.heatmap_model.SectorGroup {
+  gics_sector : Optional[str]
+  sector_id : str
+  sector_name : str
+  stocks : List[TreemapNode]
+  to_dict() -> Dict[str, Any]
+}
 class "SignalCategory" as apex.src.domain.signals.models.SignalCategory {
   name
 }
@@ -914,9 +1002,12 @@ class "SignalPipelineConfig" as apex.src.domain.signals.pipeline.config.SignalPi
   timeframes : List[str]
   train_concurrency : int
   train_models : bool
+  universe_path : Optional[str]
+  update_market_caps : bool
   validate : bool
   validate_bars : bool
   verbose : bool
+  with_heatmap : bool
   with_persistence : bool
 }
 class "SignalPipelineProcessor" as apex.src.domain.signals.pipeline.processor.SignalPipelineProcessor {
@@ -977,6 +1068,9 @@ class "<color:red>SizeBudgetExceeded</color>" as apex.src.domain.signals.reporti
   section : str
   top_contributors : list
   to_dict() -> Dict[str, Any]
+}
+class "SizeMetric" as apex.src.domain.signals.reporting.heatmap_model.SizeMetric {
+  name
 }
 class "SnapshotBuilder" as apex.src.domain.signals.reporting.snapshot_builder.SnapshotBuilder {
   build(data: Dict[Tuple[str, str], pd.DataFrame], regime_outputs: Dict[str, 'RegimeOutput'], symbols: List[str], timeframes: List[str]) -> Dict[str, Any]
@@ -1058,6 +1152,11 @@ class "SupportResistanceIndicator" as apex.src.domain.signals.indicators.pattern
   name : str
   required_fields : list
   warmup_periods : int
+}
+class "SwingPoint" as apex.src.domain.signals.trend.hh_hl_detector.SwingPoint {
+  index : int
+  price : float
+  type : Literal['high', 'low']
 }
 class "SymbolConfig" as apex.src.domain.signals.universe.base.SymbolConfig {
   custom_rules : List[str]
@@ -1187,11 +1286,42 @@ class "TrainingMetrics" as apex.src.domain.signals.indicators.regime.turning_poi
   n_samples : int
   to_dict() -> Dict[str, Any]
 }
+class "TreemapNode" as apex.src.domain.signals.reporting.heatmap_model.TreemapNode {
+  alignment_score : Optional[float]
+  close_price : Optional[float]
+  color : str
+  daily_change_pct : Optional[float]
+  label : str
+  market_cap : Optional[float]
+  market_cap_missing : bool
+  parent : str
+  regime : Optional[str]
+  report_url : Optional[str]
+  symbol : str
+  value : float
+  volume : Optional[float]
+  to_dict() -> Dict[str, Any]
+}
 class "TrendEpisode" as apex.src.domain.signals.validation.earliness.TrendEpisode {
   duration_days : int
   end_date : date
   start_date : date
   symbol : str
+}
+class "TrendHealthAnalyzer" as apex.src.domain.signals.trend.health_analyzer.TrendHealthAnalyzer {
+  WEIGHTS : dict
+  hh_hl
+  ma_scorer
+  calculate(high: pd.Series, low: pd.Series, close: pd.Series, adx: float, rsi: float) -> TrendHealthResult
+}
+class "TrendHealthResult" as apex.src.domain.signals.trend.health_analyzer.TrendHealthResult {
+  components : Dict[str, float]
+  confidence : float
+  direction : Literal['bullish', 'bearish', 'neutral']
+  hh_hl_result : Optional[HHHLResult]
+  ma_alignment_result : Optional[MAAlignmentResult]
+  score : float
+  to_dict() -> Dict[str, Any]
 }
 class "TrendState" as apex.src.domain.signals.indicators.regime.models.TrendState {
   name
@@ -1357,6 +1487,16 @@ class "VWAPIndicator" as apex.src.domain.signals.indicators.volume.vwap.VWAPIndi
   name : str
   required_fields : list
   warmup_periods : int
+}
+class "ValidationConfig" as apex.src.domain.signals.data.quality_validator.ValidationConfig {
+  detect_gaps : bool
+  detect_sentinels : bool
+  max_gap_bars : int
+  max_nan_ratio : float
+  reject_zero_close : bool
+  reject_zero_price : bool
+  require_monotonic_timestamps : bool
+  sentinel_value : float
 }
 class "ValidationOutput" as apex.src.domain.signals.validation.schemas.ValidationOutput {
   all_gates_passed : bool
@@ -1557,10 +1697,15 @@ apex.src.domain.signals.models.TradingSignal --> apex.src.domain.signals.models.
 apex.src.domain.signals.models.SignalRule --> apex.src.domain.signals.models.SignalPriority : priority
 apex.src.domain.signals.models.TradingSignal --> apex.src.domain.signals.models.SignalPriority : priority
 apex.src.domain.signals.models.TradingSignal --> apex.src.domain.signals.models.SignalStatus : status
+apex.src.domain.signals.reporting.heatmap_model.HeatmapModel --> apex.src.domain.signals.reporting.heatmap_model.ColorMetric : color_metric
+apex.src.domain.signals.reporting.heatmap_model.HeatmapModel --> apex.src.domain.signals.reporting.heatmap_model.SizeMetric : size_metric
 apex.src.domain.signals.reporting.highlight_detector.Highlight --> apex.src.domain.signals.reporting.highlight_detector.HighlightPriority : priority
 apex.src.domain.signals.reporting.highlight_detector.Highlight --> apex.src.domain.signals.reporting.highlight_detector.HighlightType : type
 apex.src.domain.signals.schemas.BarValidationBuilder --> apex.src.domain.signals.schemas.BarReduction : reductions
 apex.src.domain.signals.schemas.BarReduction --> apex.src.domain.signals.schemas.BarReductionReason : reason
+apex.src.domain.signals.schemas.BarQualityResult --> apex.src.domain.signals.schemas.InvalidValueReason : invalid_reason
+apex.src.domain.signals.trend.health_analyzer.TrendHealthAnalyzer --> apex.src.domain.signals.trend.hh_hl_detector.HHHLDetector : hh_hl
+apex.src.domain.signals.trend.health_analyzer.TrendHealthAnalyzer --> apex.src.domain.signals.trend.ma_alignment.MAAlignmentScorer : ma_scorer
 apex.src.domain.signals.validation.confirmation.ConfirmationResult --> apex.src.domain.signals.validation.confirmation.StrategyMetrics : s1
 apex.src.domain.signals.validation.confirmation.ConfirmationResult --> apex.src.domain.signals.validation.confirmation.StrategyMetrics : s2
 apex.src.domain.signals.validation.labeler_contract.LabeledPeriod --> apex.src.domain.signals.validation.labeler_contract.RegimeLabel : label
