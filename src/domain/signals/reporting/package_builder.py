@@ -609,9 +609,8 @@ class PackageBuilder:
 
         PR-B: Added run_data_quality section for aggregate quality metrics.
         """
-        from .signal_report_generator import calculate_confluence
-
         from ..schemas import DataQualityReport
+        from .signal_report_generator import calculate_confluence
 
         summary: Dict[str, Any] = {
             "version": PACKAGE_FORMAT_VERSION,
