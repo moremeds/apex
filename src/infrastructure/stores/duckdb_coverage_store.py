@@ -19,6 +19,9 @@ from ...utils.logging_setup import get_logger
 
 logger = get_logger(__name__)
 
+# Project root for resolving relative paths
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+
 
 @dataclass
 class CoverageRecord:
@@ -60,7 +63,7 @@ class DuckDBCoverageStore:
         if in_memory:
             self._conn = duckdb.connect(":memory:")
         else:
-            self._db_path = db_path or Path("data/historical/_metadata.duckdb")
+            self._db_path = db_path or PROJECT_ROOT / "data/historical/_metadata.duckdb"
             self._db_path.parent.mkdir(parents=True, exist_ok=True)
             self._conn = duckdb.connect(str(self._db_path))
 
@@ -508,6 +511,87 @@ class DuckDBCoverageStore:
                 }
             )
         return grouped
+
+    def get_ticker_stats(self, symbol: str) -> Dict[str, Any]:
+        """
+        Get coverage stats for a single ticker (for signal reports).
+
+        Returns:
+            Dict with:
+            - coverage: List of timeframe coverage records
+            - gaps: List of pending gaps
+            - total_bars: Total bar count across all timeframes
+            - data_sources: List of unique data sources
+        """
+        from typing import Any
+
+        # Coverage by timeframe (merge sources)
+        coverage_result = self._conn.execute(
+            """
+            SELECT timeframe,
+                   MIN(start_ts) as start_ts,
+                   MAX(end_ts) as end_ts,
+                   SUM(bar_count) as bar_count,
+                   MIN(quality) as quality
+            FROM data_coverage
+            WHERE symbol = ?
+            GROUP BY timeframe
+            ORDER BY timeframe
+        """,
+            [symbol],
+        ).fetchall()
+
+        coverage = [
+            {
+                "timeframe": row[0],
+                "start_ts": row[1].isoformat() if row[1] else None,
+                "end_ts": row[2].isoformat() if row[2] else None,
+                "bar_count": int(row[3]) if row[3] else 0,
+                "quality": row[4] or "unknown",
+            }
+            for row in coverage_result
+        ]
+
+        # Pending gaps (not filled)
+        gaps_result = self._conn.execute(
+            """
+            SELECT timeframe, gap_start, gap_end, status
+            FROM data_gaps
+            WHERE symbol = ? AND status != 'filled'
+            ORDER BY gap_start
+        """,
+            [symbol],
+        ).fetchall()
+
+        gaps = [
+            {
+                "timeframe": row[0],
+                "start": row[1].isoformat() if row[1] else None,
+                "end": row[2].isoformat() if row[2] else None,
+                "status": row[3],
+            }
+            for row in gaps_result
+        ]
+
+        # Total bars across all timeframes
+        total_bars = sum(c["bar_count"] for c in coverage)
+
+        # Unique data sources
+        sources_result = self._conn.execute(
+            """
+            SELECT DISTINCT source FROM data_coverage
+            WHERE symbol = ?
+        """,
+            [symbol],
+        ).fetchall()
+        data_sources = [row[0] for row in sources_result]
+
+        return {
+            "coverage": coverage,
+            "gaps": gaps,
+            "total_bars": total_bars,
+            "data_sources": data_sources,
+        }
 
     def delete_coverage(
         self,

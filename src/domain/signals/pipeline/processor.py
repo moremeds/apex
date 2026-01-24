@@ -28,6 +28,9 @@ from src.utils.timezone import DisplayTimezone, now_utc
 
 from .config import SignalPipelineConfig
 
+# Project root for resolving relative paths (works regardless of cwd)
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
+
 if TYPE_CHECKING:
     from src.domain.interfaces.event_bus import EventBus
 
@@ -202,7 +205,7 @@ class SignalPipelineProcessor:
 
         # Create historical data manager
         historical_manager = HistoricalDataManager(
-            base_dir=Path("data/historical"),
+            base_dir=PROJECT_ROOT / "data/historical",
             source_priority=["ib", "yahoo"],
         )
 
@@ -403,7 +406,7 @@ class SignalPipelineProcessor:
         start_date = end_date - timedelta(days=days)
 
         manager = HistoricalDataManager(
-            base_dir=Path("data/historical"),
+            base_dir=PROJECT_ROOT / "data/historical",
             source_priority=["ib", "yahoo"],
         )
 
@@ -546,6 +549,8 @@ class SignalPipelineProcessor:
 
         # Generate report based on format
         output = Path(output_path)
+        if not output.is_absolute():
+            output = PROJECT_ROOT / output
 
         if self.config.output_format == "package":
             # PR-02: Package format with lazy loading

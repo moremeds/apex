@@ -41,123 +41,44 @@ from .heatmap_model import (
 
 logger = get_logger(__name__)
 
-# Stock to sector mapping (simplified - can be extended with external data)
-# Format: symbol -> sector_etf
-STOCK_SECTOR_MAP: Dict[str, str] = {
-    # Technology (XLK)
-    "AAPL": "XLK",
-    "MSFT": "XLK",
-    "NVDA": "XLK",
-    "AVGO": "XLK",
-    "ORCL": "XLK",
-    "CRM": "XLK",
-    "AMD": "XLK",
-    "ADBE": "XLK",
-    "CSCO": "XLK",
-    "ACN": "XLK",
-    "IBM": "XLK",
-    "INTC": "XLK",
-    "QCOM": "XLK",
-    "TXN": "XLK",
-    "MU": "XLK",
-    # Communication Services (XLC)
-    "GOOGL": "XLC",
-    "GOOG": "XLC",
-    "META": "XLC",
-    "NFLX": "XLC",
-    "DIS": "XLC",
-    "CMCSA": "XLC",
-    "T": "XLC",
-    "VZ": "XLC",
-    "TMUS": "XLC",
-    # Consumer Discretionary (XLY)
-    "AMZN": "XLY",
-    "TSLA": "XLY",
-    "HD": "XLY",
-    "MCD": "XLY",
-    "NKE": "XLY",
-    "LOW": "XLY",
-    "SBUX": "XLY",
-    "TJX": "XLY",
-    "BKNG": "XLY",
-    # Financials (XLF)
-    "BRK.B": "XLF",
-    "JPM": "XLF",
-    "V": "XLF",
-    "MA": "XLF",
-    "BAC": "XLF",
-    "WFC": "XLF",
-    "GS": "XLF",
-    "MS": "XLF",
-    "AXP": "XLF",
-    "BLK": "XLF",
-    "C": "XLF",
-    "SCHW": "XLF",
-    # Health Care (XLV)
-    "UNH": "XLV",
-    "JNJ": "XLV",
-    "LLY": "XLV",
-    "ABBV": "XLV",
-    "MRK": "XLV",
-    "PFE": "XLV",
-    "TMO": "XLV",
-    "ABT": "XLV",
-    "DHR": "XLV",
-    "BMY": "XLV",
-    "AMGN": "XLV",
-    "CVS": "XLV",
-    # Consumer Staples (XLP)
-    "PG": "XLP",
-    "KO": "XLP",
-    "PEP": "XLP",
-    "COST": "XLP",
-    "WMT": "XLP",
-    "PM": "XLP",
-    "MDLZ": "XLP",
-    "CL": "XLP",
-    # Energy (XLE)
-    "XOM": "XLE",
-    "CVX": "XLE",
-    "COP": "XLE",
-    "SLB": "XLE",
-    "EOG": "XLE",
-    "MPC": "XLE",
-    "PSX": "XLE",
-    "VLO": "XLE",
-    # Industrials (XLI)
-    "GE": "XLI",
-    "CAT": "XLI",
-    "RTX": "XLI",
-    "HON": "XLI",
-    "UNP": "XLI",
-    "BA": "XLI",
-    "DE": "XLI",
-    "LMT": "XLI",
-    "UPS": "XLI",
-    "MMM": "XLI",
-    # Materials (XLB)
-    "LIN": "XLB",
-    "APD": "XLB",
-    "SHW": "XLB",
-    "ECL": "XLB",
-    "NEM": "XLB",
-    "FCX": "XLB",
-    "DD": "XLB",
-    # Real Estate (XLRE)
-    "PLD": "XLRE",
-    "AMT": "XLRE",
-    "EQIX": "XLRE",
-    "CCI": "XLRE",
-    "PSA": "XLRE",
-    "SPG": "XLRE",
-    # Utilities (XLU)
-    "NEE": "XLU",
-    "DUK": "XLU",
-    "SO": "XLU",
-    "D": "XLU",
-    "AEP": "XLU",
-    "EXC": "XLU",
-    "SRE": "XLU",
+# Mapping from yfinance sector names to sector ETFs
+# yfinance returns sector names like "Technology", "Financial Services", etc.
+YFINANCE_SECTOR_TO_ETF: Dict[str, str] = {
+    "Technology": "XLK",
+    "Communication Services": "XLC",
+    "Consumer Cyclical": "XLY",  # yfinance uses "Consumer Cyclical"
+    "Consumer Discretionary": "XLY",  # Alternative name
+    "Financial Services": "XLF",
+    "Financials": "XLF",  # Alternative name
+    "Healthcare": "XLV",
+    "Health Care": "XLV",  # Alternative name
+    "Consumer Defensive": "XLP",
+    "Consumer Staples": "XLP",  # Alternative name
+    "Energy": "XLE",
+    "Industrials": "XLI",
+    "Basic Materials": "XLB",
+    "Materials": "XLB",  # Alternative name
+    "Real Estate": "XLRE",
+    "Utilities": "XLU",
+}
+
+# Sector ETFs list (for identification)
+SECTOR_ETFS: Set[str] = {"XLK", "XLC", "XLY", "XLF", "XLV", "XLP", "XLE", "XLI", "XLB", "XLRE", "XLU", "SMH"}
+
+# Sector ETF to display name mapping
+SECTOR_ETF_NAMES: Dict[str, str] = {
+    "XLK": "Technology",
+    "XLC": "Communication Services",
+    "XLY": "Consumer Discretionary",
+    "XLF": "Financials",
+    "XLV": "Healthcare",
+    "XLP": "Consumer Staples",
+    "XLE": "Energy",
+    "XLI": "Industrials",
+    "XLB": "Materials",
+    "XLRE": "Real Estate",
+    "XLU": "Utilities",
+    "SMH": "Semiconductors",
 }
 
 
@@ -212,20 +133,18 @@ class HeatmapBuilder:
         # Extract all symbols
         symbols = [t.get("symbol") for t in tickers if t.get("symbol")]
 
-        # Get market caps
-        cap_results = self._cap_service.get_market_caps(symbols)
+        # Get market caps (auto-fetches missing ones from yfinance)
+        cap_results = self._cap_service.ensure_market_caps(symbols)
 
         # Build report URL map from manifest
         report_urls: Dict[str, str] = {}
         if manifest and "symbol_reports" in manifest:
             report_urls = manifest["symbol_reports"]
 
-        # Classify symbols
+        # Classify symbols using yfinance sector info
         market_etf_nodes: List[TreemapNode] = []
-        sector_etf_nodes: List[TreemapNode] = []
-        stocks_by_sector: Dict[str, List[TreemapNode]] = {
-            sector_id: [] for sector_id in SECTOR_MAPPING.keys()
-        }
+        sector_etf_nodes: List[TreemapNode] = []  # For horizontal ETF bar
+        stocks_by_sector: Dict[str, List[TreemapNode]] = {}  # sector_etf -> stocks
         other_stocks: List[TreemapNode] = []
 
         # Track statistics
@@ -242,11 +161,14 @@ class HeatmapBuilder:
             if regime:
                 regime_counts[regime] = regime_counts.get(regime, 0) + 1
 
-            # Get market cap
+            # Get market cap and sector info from cache
             cap_result = cap_results.get(symbol)
             market_cap = cap_result.market_cap if cap_result else 0.0
             cap_missing = cap_result.cap_missing if cap_result else True
-            if cap_missing:
+            sector = cap_result.sector if cap_result else None
+            quote_type = cap_result.quote_type if cap_result else "EQUITY"
+
+            if cap_missing and quote_type != "ETF":
                 cap_missing_count += 1
 
             # Determine color based on metric
@@ -272,32 +194,47 @@ class HeatmapBuilder:
                 report_url=report_urls.get(symbol),
             )
 
-            # Classify node
+            # Classify node based on quote type and sector
             if symbol in MARKET_ETFS:
-                node.parent = "Market"
+                # Market-level ETFs (SPY, QQQ, IWM, DIA)
+                node.parent = "Market ETFs"
                 market_etf_nodes.append(node)
-            elif symbol in SECTOR_MAPPING:
-                node.parent = "Sectors"
+            elif symbol in SECTOR_ETFS:
+                # Sector ETFs - store for horizontal bar display
+                node.parent = "Sector ETFs"
                 sector_etf_nodes.append(node)
-            elif symbol in STOCK_SECTOR_MAP:
-                sector = STOCK_SECTOR_MAP[symbol]
-                node.parent = sector
-                stocks_by_sector[sector].append(node)
+            elif quote_type == "ETF":
+                # Other ETFs (e.g., GLD, SLV) - put in "Other"
+                node.parent = "Other"
+                other_stocks.append(node)
+            elif sector:
+                # Use yfinance sector to determine sector ETF
+                sector_etf = YFINANCE_SECTOR_TO_ETF.get(sector)
+                if sector_etf:
+                    node.parent = sector_etf
+                    if sector_etf not in stocks_by_sector:
+                        stocks_by_sector[sector_etf] = []
+                    stocks_by_sector[sector_etf].append(node)
+                else:
+                    # Unknown sector mapping
+                    node.parent = "Other"
+                    other_stocks.append(node)
             else:
-                # Unknown sector - put in "Other"
+                # No sector info - put in "Other"
                 node.parent = "Other"
                 other_stocks.append(node)
 
-        # Build sector groups
+        # Build sector groups with ETF as header
         sectors: List[SectorGroup] = []
-        for sector_id, (sector_name, gics_code) in SECTOR_MAPPING.items():
-            stocks = stocks_by_sector.get(sector_id, [])
+        for sector_etf in sorted(stocks_by_sector.keys()):
+            stocks = stocks_by_sector[sector_etf]
             if stocks:
+                sector_name = SECTOR_ETF_NAMES.get(sector_etf, sector_etf)
                 sectors.append(
                     SectorGroup(
-                        sector_id=sector_id,
-                        sector_name=sector_name,
-                        gics_sector=gics_code,
+                        sector_id=sector_etf,
+                        sector_name=f"{sector_name} ({sector_etf})",  # e.g., "Technology (XLK)"
+                        gics_sector=None,
                         stocks=stocks,
                     )
                 )
@@ -315,7 +252,7 @@ class HeatmapBuilder:
 
         return HeatmapModel(
             market_etfs=market_etf_nodes,
-            sector_etfs=sector_etf_nodes,
+            sector_etfs=sector_etf_nodes,  # For horizontal ETF bar
             sectors=sectors,
             generated_at=datetime.now(),
             size_metric=self._size_metric,
@@ -378,6 +315,40 @@ class HeatmapBuilder:
                 return float(score)
 
         return None
+
+    def _render_etf_chips(self, sector_etfs: List[TreemapNode]) -> str:
+        """Render horizontal ETF chips HTML."""
+        if not sector_etfs:
+            return '<span style="color: #64748b; font-size: 0.75rem;">No sector ETFs in universe</span>'
+
+        # Sort by symbol for consistent ordering
+        sorted_etfs = sorted(sector_etfs, key=lambda e: e.symbol)
+
+        chips = []
+        for etf in sorted_etfs:
+            # Get regime color
+            regime_colors = {
+                "R0": "#22c55e",
+                "R1": "#eab308",
+                "R2": "#ef4444",
+                "R3": "#3b82f6",
+            }
+            color = regime_colors.get(etf.regime, "#6b7280")
+
+            # Get sector name
+            sector_name = SECTOR_ETF_NAMES.get(etf.symbol, "")
+
+            # Build URL
+            url = etf.report_url or f"report.html?symbol={etf.symbol}"
+
+            chip = f'''<a href="{url}" class="etf-chip">
+                <span class="regime-dot" style="background: {color};"></span>
+                <span>{etf.symbol}</span>
+                <span class="etf-name">{sector_name}</span>
+            </a>'''
+            chips.append(chip)
+
+        return "\n        ".join(chips)
 
     def _get_node_color(self, ticker: Dict[str, Any], regime: Optional[str]) -> str:
         """Determine node color based on configured metric."""
@@ -662,6 +633,49 @@ class HeatmapBuilder:
             color: #fff;
             font-weight: 500;
         }}
+        .etf-bar {{
+            padding: 12px 20px;
+            background: #0f172a;
+            border-bottom: 1px solid #1e293b;
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            align-items: center;
+        }}
+        .etf-bar-label {{
+            font-size: 0.75rem;
+            color: #64748b;
+            margin-right: 8px;
+        }}
+        .etf-chip {{
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            border-radius: 6px;
+            background: #1e293b;
+            border: 1px solid #334155;
+            color: #e2e8f0;
+            font-size: 0.8rem;
+            font-weight: 500;
+            text-decoration: none;
+            transition: all 0.15s ease;
+            cursor: pointer;
+        }}
+        .etf-chip:hover {{
+            background: #334155;
+            border-color: #475569;
+        }}
+        .etf-chip .regime-dot {{
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }}
+        .etf-chip .etf-name {{
+            color: #94a3b8;
+            font-size: 0.7rem;
+            font-weight: 400;
+        }}
     </style>
 </head>
 <body>
@@ -719,6 +733,11 @@ class HeatmapBuilder:
             <span class="stat-value">{model.cap_missing_count}</span>
         </div>
         {''.join(f'<div class="stat"><span>{r}:</span><span class="stat-value">{c}</span></div>' for r, c in sorted(model.regime_distribution.items()))}
+    </div>
+
+    <div class="etf-bar">
+        <span class="etf-bar-label">Sector ETFs:</span>
+        {self._render_etf_chips(model.sector_etfs)}
     </div>
 
     <div id="heatmap"></div>

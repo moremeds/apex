@@ -400,6 +400,10 @@ def compute_timing_metrics(
             offset = matching_pred["bars_offset"]
             all_offsets.append(offset)
 
+            # PR-05: Populate timing fields on the prediction object
+            matching_pred["bars_from_actual_tp"] = offset
+            matching_pred["detection_type"] = "early_warning" if offset < 0 else "confirmed"
+
             if offset < 0:
                 # Early warning (before actual TP)
                 metrics.early_warnings += 1
@@ -620,6 +624,18 @@ def main(argv: Optional[List[str]] = None) -> int:
                     "metrics": r.metrics.to_dict(),
                     "errors": r.errors,
                     "passed": r.passed,
+                    # PR-05: Include predictions with timing fields
+                    "predictions": [
+                        {
+                            "date": str(p.get("date")),
+                            "turn_state": p.get("turn_state"),
+                            "turn_confidence": p.get("turn_confidence"),
+                            "detection_type": p.get("detection_type", "none"),
+                            "bars_from_actual_tp": p.get("bars_from_actual_tp"),
+                        }
+                        for p in r.predictions
+                        if p.get("turn_state") != "none"  # Only include non-NONE predictions
+                    ],
                 }
                 for symbol, r in results.items()
             }

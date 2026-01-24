@@ -28,6 +28,9 @@ import pandas as pd
 from src.utils.logging_setup import get_logger
 
 from ...data.quality_validator import validate_close_for_regime
+
+# Project root for resolving relative paths
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
 from ...models import SignalCategory
 from ..base import IndicatorBase
 from .components import (
@@ -1415,7 +1418,7 @@ class RegimeDetectorIndicator(IndicatorBase):
             )
 
             # Save model
-            model_dir = Path("models/turning_point")
+            model_dir = PROJECT_ROOT / "models/turning_point"
             model_dir.mkdir(parents=True, exist_ok=True)
             model_path = model_dir / f"{symbol.lower()}_logistic.pkl"
             model.save(model_path)
@@ -1456,8 +1459,8 @@ class RegimeDetectorIndicator(IndicatorBase):
         if symbol_key not in self._tp_model_load_attempted:
             self._tp_model_load_attempted[symbol_key] = True
             # Check both new format (symbol/active.pkl) and legacy format (symbol_logistic.pkl)
-            new_model_path = Path("models/turning_point") / symbol.lower() / "active.pkl"
-            legacy_model_path = Path("models/turning_point") / f"{symbol.lower()}_logistic.pkl"
+            new_model_path = PROJECT_ROOT / "models/turning_point" / symbol.lower() / "active.pkl"
+            legacy_model_path = PROJECT_ROOT / "models/turning_point" / f"{symbol.lower()}_logistic.pkl"
             model_path = new_model_path if new_model_path.exists() else legacy_model_path
             if model_path.exists():
                 try:

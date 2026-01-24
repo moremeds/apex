@@ -29,31 +29,40 @@ from src.utils.logging_setup import get_logger
 
 logger = get_logger(__name__)
 
-# Default cache file location
-DEFAULT_CACHE_PATH = Path("data/cache/market_caps.json")
+# Project root for resolving relative paths
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
-# Cache schema version
-CACHE_VERSION = "1.0"
+# Default cache file location
+DEFAULT_CACHE_PATH = PROJECT_ROOT / "data/cache/market_caps.json"
+
+# Cache schema version - bumped for sector info
+CACHE_VERSION = "2.0"
 
 
 @dataclass
-class MarketCapEntry:
-    """Single market cap entry with metadata."""
+class SymbolInfo:
+    """Complete symbol information from yfinance."""
 
     symbol: str
     market_cap: float  # USD
-    source: str = "yfinance"
-    updated_at: Optional[datetime] = None
+    sector: Optional[str] = None  # e.g., "Technology", "Financial Services"
+    industry: Optional[str] = None  # e.g., "Consumer Electronics"
+    quote_type: str = "EQUITY"  # EQUITY, ETF, INDEX, etc.
+    short_name: Optional[str] = None  # Company short name
 
 
 @dataclass
 class MarketCapCache:
-    """Cached market cap data with metadata."""
+    """Cached market cap and sector data with metadata."""
 
     version: str = CACHE_VERSION
     updated_at: Optional[datetime] = None
     source: str = "yfinance"
     caps: Dict[str, float] = field(default_factory=dict)
+    sectors: Dict[str, str] = field(default_factory=dict)  # symbol -> sector
+    industries: Dict[str, str] = field(default_factory=dict)  # symbol -> industry
+    quote_types: Dict[str, str] = field(default_factory=dict)  # symbol -> EQUITY/ETF/etc
+    short_names: Dict[str, str] = field(default_factory=dict)  # symbol -> short name
     errors: Dict[str, str] = field(default_factory=dict)  # Symbols that failed to fetch
 
     def to_dict(self) -> Dict[str, Any]:
@@ -63,6 +72,10 @@ class MarketCapCache:
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
             "source": self.source,
             "caps": self.caps,
+            "sectors": self.sectors,
+            "industries": self.industries,
+            "quote_types": self.quote_types,
+            "short_names": self.short_names,
             "errors": self.errors,
         }
 
@@ -81,6 +94,10 @@ class MarketCapCache:
             updated_at=updated_at,
             source=data.get("source", "yfinance"),
             caps=data.get("caps", {}),
+            sectors=data.get("sectors", {}),
+            industries=data.get("industries", {}),
+            quote_types=data.get("quote_types", {}),
+            short_names=data.get("short_names", {}),
             errors=data.get("errors", {}),
         )
 
@@ -91,6 +108,10 @@ class MarketCapResult:
 
     symbol: str
     market_cap: float
+    sector: Optional[str] = None
+    industry: Optional[str] = None
+    quote_type: str = "EQUITY"
+    short_name: Optional[str] = None
     cap_missing: bool = False
     error: Optional[str] = None
 
@@ -163,7 +184,7 @@ class MarketCapService:
 
     def get_market_cap(self, symbol: str) -> MarketCapResult:
         """
-        Get market cap for a single symbol from cache.
+        Get market cap and sector info for a single symbol from cache.
 
         Args:
             symbol: Stock symbol (e.g., "AAPL")
@@ -177,6 +198,10 @@ class MarketCapService:
             return MarketCapResult(
                 symbol=symbol,
                 market_cap=cache.caps[symbol],
+                sector=cache.sectors.get(symbol),
+                industry=cache.industries.get(symbol),
+                quote_type=cache.quote_types.get(symbol, "EQUITY"),
+                short_name=cache.short_names.get(symbol),
                 cap_missing=False,
             )
 
@@ -186,6 +211,10 @@ class MarketCapService:
         return MarketCapResult(
             symbol=symbol,
             market_cap=0.0,
+            sector=cache.sectors.get(symbol),
+            industry=cache.industries.get(symbol),
+            quote_type=cache.quote_types.get(symbol, "EQUITY"),
+            short_name=cache.short_names.get(symbol),
             cap_missing=True,
             error=error,
         )
@@ -224,10 +253,14 @@ class MarketCapService:
         source: str = "yfinance",
     ) -> Dict[str, MarketCapResult]:
         """
-        Update market caps from external source (yfinance).
+        Update market caps and sector info from yfinance.
 
-        This method fetches fresh market cap data and updates the cache.
-        Should be called from a dedicated update command, not during report generation.
+        Fetches:
+        - Market cap
+        - Sector (e.g., "Technology", "Financial Services")
+        - Industry (e.g., "Consumer Electronics")
+        - Quote type (EQUITY, ETF, etc.)
+        - Short name
 
         Args:
             symbols: List of symbols to update
@@ -239,7 +272,7 @@ class MarketCapService:
         if source != "yfinance":
             raise ValueError(f"Unsupported market cap source: {source}")
 
-        logger.info(f"Updating market caps for {len(symbols)} symbols from {source}")
+        logger.info(f"Updating market caps and sector info for {len(symbols)} symbols")
 
         # Import yfinance only when needed (optional dependency)
         try:
@@ -252,7 +285,11 @@ class MarketCapService:
         cache = self._load_cache()
 
         results: Dict[str, MarketCapResult] = {}
-        updated_caps: Dict[str, float] = dict(cache.caps)  # Start with existing
+        updated_caps: Dict[str, float] = dict(cache.caps)
+        updated_sectors: Dict[str, str] = dict(cache.sectors)
+        updated_industries: Dict[str, str] = dict(cache.industries)
+        updated_quote_types: Dict[str, str] = dict(cache.quote_types)
+        updated_short_names: Dict[str, str] = dict(cache.short_names)
         errors: Dict[str, str] = dict(cache.errors)
 
         # Fetch in batches to avoid rate limiting
@@ -262,7 +299,6 @@ class MarketCapService:
             logger.info(f"Fetching batch {i // batch_size + 1}: {len(batch)} symbols")
 
             try:
-                # Use download with group_by to get info
                 tickers = yf.Tickers(" ".join(batch))
 
                 for symbol in batch:
@@ -280,24 +316,58 @@ class MarketCapService:
 
                         info = ticker.info
                         market_cap = info.get("marketCap", 0)
+                        sector = info.get("sector")
+                        industry = info.get("industry")
+                        quote_type = info.get("quoteType", "EQUITY")
+                        short_name = info.get("shortName")
+
+                        # Store all info
+                        if sector:
+                            updated_sectors[symbol] = sector
+                        if industry:
+                            updated_industries[symbol] = industry
+                        if quote_type:
+                            updated_quote_types[symbol] = quote_type
+                        if short_name:
+                            updated_short_names[symbol] = short_name
 
                         if market_cap and market_cap > 0:
                             updated_caps[symbol] = float(market_cap)
-                            # Remove from errors if previously failed
                             errors.pop(symbol, None)
                             results[symbol] = MarketCapResult(
                                 symbol=symbol,
                                 market_cap=float(market_cap),
+                                sector=sector,
+                                industry=industry,
+                                quote_type=quote_type,
+                                short_name=short_name,
                                 cap_missing=False,
                             )
                         else:
-                            errors[symbol] = "No market cap in response"
-                            results[symbol] = MarketCapResult(
-                                symbol=symbol,
-                                market_cap=0.0,
-                                cap_missing=True,
-                                error="No market cap in response",
-                            )
+                            # ETFs may not have market cap but still have useful info
+                            if quote_type == "ETF":
+                                errors.pop(symbol, None)
+                                results[symbol] = MarketCapResult(
+                                    symbol=symbol,
+                                    market_cap=0.0,
+                                    sector=sector,
+                                    industry=industry,
+                                    quote_type=quote_type,
+                                    short_name=short_name,
+                                    cap_missing=True,  # No market cap but not an error
+                                )
+                            else:
+                                errors[symbol] = "No market cap in response"
+                                results[symbol] = MarketCapResult(
+                                    symbol=symbol,
+                                    market_cap=0.0,
+                                    sector=sector,
+                                    industry=industry,
+                                    quote_type=quote_type,
+                                    short_name=short_name,
+                                    cap_missing=True,
+                                    error="No market cap in response",
+                                )
 
                     except Exception as e:
                         error_msg = str(e)[:100]
@@ -323,12 +393,16 @@ class MarketCapService:
                             error=error_msg,
                         )
 
-        # Create updated cache
+        # Create updated cache with all info
         new_cache = MarketCapCache(
             version=CACHE_VERSION,
             updated_at=datetime.now(),
             source=source,
             caps=updated_caps,
+            sectors=updated_sectors,
+            industries=updated_industries,
+            quote_types=updated_quote_types,
+            short_names=updated_short_names,
             errors=errors,
         )
 
@@ -337,9 +411,10 @@ class MarketCapService:
 
         # Log summary
         success_count = sum(1 for r in results.values() if not r.cap_missing)
+        sector_count = len(updated_sectors)
         logger.info(
-            f"Market cap update complete: {success_count}/{len(symbols)} successful, "
-            f"{len(errors)} errors"
+            f"Update complete: {success_count}/{len(symbols)} with market cap, "
+            f"{sector_count} with sector info"
         )
 
         return results
@@ -348,6 +423,40 @@ class MarketCapService:
         """Get list of symbols not in cache."""
         cache = self._load_cache()
         return [s for s in symbols if s not in cache.caps]
+
+    def ensure_market_caps(
+        self,
+        symbols: List[str],
+        auto_fetch: bool = True,
+    ) -> Dict[str, MarketCapResult]:
+        """
+        Get market caps, auto-fetching missing ones if needed.
+
+        This is the recommended method for report generation - it ensures
+        all requested symbols have market cap data by fetching any missing
+        ones from yfinance.
+
+        Args:
+            symbols: List of symbols to get market caps for
+            auto_fetch: If True, fetch missing caps from yfinance
+
+        Returns:
+            Dictionary mapping symbol to MarketCapResult
+        """
+        # First check what's missing
+        missing = self.get_missing_symbols(symbols)
+
+        if missing and auto_fetch:
+            logger.info(f"Auto-fetching {len(missing)} missing market caps...")
+            try:
+                self.update_market_caps(missing)
+            except ImportError:
+                logger.warning("yfinance not installed, cannot auto-fetch market caps")
+            except Exception as e:
+                logger.warning(f"Failed to auto-fetch market caps: {e}")
+
+        # Return all results (including any that failed to fetch)
+        return self.get_market_caps(symbols)
 
     def clear_cache(self) -> None:
         """Clear the in-memory cache (forces reload on next access)."""

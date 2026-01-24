@@ -310,9 +310,9 @@ class PackageBuilder:
         js_content = self._build_javascript(symbols, timeframes)
         (output_dir / "assets" / "app.js").write_text(js_content, encoding="utf-8")
 
-        # 6. Write index.html (shell)
+        # 6. Write report.html (signal report shell) - heatmap is index.html
         html_content = self._build_index_html(symbols, timeframes, regime_outputs, validation_url)
-        (output_dir / "index.html").write_text(html_content, encoding="utf-8")
+        (output_dir / "report.html").write_text(html_content, encoding="utf-8")
 
         # 7. Write payload snapshot for diff
         snapshot = self._snapshot_builder.build(
@@ -391,10 +391,10 @@ class PackageBuilder:
             builder = HeatmapBuilder(market_cap_service=cap_service)
 
             # Build manifest for report URL mapping
-            # Link to index.html with symbol parameter so the main app loads
+            # Link to report.html with symbol parameter (heatmap is now index.html)
             manifest = {
                 "symbol_reports": {
-                    ticker["symbol"]: f"index.html?symbol={ticker['symbol']}"
+                    ticker["symbol"]: f"report.html?symbol={ticker['symbol']}"
                     for ticker in summary.get("tickers", [])
                     if ticker.get("symbol")
                 }
@@ -402,8 +402,8 @@ class PackageBuilder:
 
             model = builder.build_heatmap_model(summary, manifest)
 
-            # Render and save
-            heatmap_path = builder.save_heatmap(model, output_dir, "heatmap.html")
+            # Render and save as index.html (heatmap is the landing page)
+            heatmap_path = builder.save_heatmap(model, output_dir, "index.html")
 
             logger.info(
                 f"Heatmap generated: {model.symbol_count} symbols, "
@@ -782,6 +782,18 @@ class PackageBuilder:
             if valid_close <= 0:
                 logger.warning(f"[{symbol}] No valid close found in DataFrame for summary")
 
+        # Add DuckDB coverage stats (PR-03: Data provenance)
+        try:
+            from src.infrastructure.stores.duckdb_coverage_store import DuckDBCoverageStore
+
+            store = DuckDBCoverageStore()
+            data_stats = store.get_ticker_stats(symbol)
+            summary["data_stats"] = data_stats
+            store.close()
+        except Exception as e:
+            logger.debug(f"Could not load DuckDB stats for {symbol}: {e}")
+            summary["data_stats"] = None
+
         return summary
 
     def _build_market_overview(
@@ -971,6 +983,7 @@ body {{
     align-items: center;
     gap: 24px;
     margin-bottom: 8px;
+    position: relative;
 }}
 
 .header h1 {{
@@ -994,6 +1007,26 @@ body {{
 }}
 
 .validation-link:hover {{
+    background: rgba(255,255,255,0.25);
+}}
+
+.back-link {{
+    position: absolute;
+    left: 20px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    background: rgba(255,255,255,0.15);
+    color: white;
+    text-decoration: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    transition: background 0.2s;
+}}
+
+.back-link:hover {{
     background: rgba(255,255,255,0.25);
 }}
 
@@ -2323,6 +2356,7 @@ document.addEventListener('DOMContentLoaded', () => {{
     <div class="container">
         <header class="header">
             <div class="header-top">
+                <a href="index.html" class="back-link">← Heatmap</a>
                 <h1>Signal Analysis Report</h1>
                 {validation_link}
             </div>

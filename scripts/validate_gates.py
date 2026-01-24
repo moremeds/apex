@@ -107,6 +107,185 @@ class ValidationReport:
             "gates": [g.to_dict() for g in self.gates],
         }
 
+    def to_html(self) -> str:
+        """Generate validation.html from gate results."""
+        from datetime import datetime
+
+        def gate_icon(passed: bool, severity: str) -> str:
+            if passed:
+                return "✓"
+            return "✗" if severity == "FAIL" else "~"
+
+        def gate_class(passed: bool, severity: str) -> str:
+            if passed:
+                return "pass"
+            return "fail" if severity == "FAIL" else "warn"
+
+        gates_html = ""
+        for g in self.gates:
+            icon = gate_icon(g.passed, g.severity)
+            cls = gate_class(g.passed, g.severity)
+            gates_html += f"""
+                <li class="gate-item {cls}">
+                    <span class="gate-icon">{icon}</span>
+                    <span class="gate-id">{g.gate_id}</span>
+                    <span class="gate-name">{g.gate_name}</span>
+                    <span class="gate-status">{g.severity if not g.passed else 'PASS'}</span>
+                    <span class="gate-message">{g.message}</span>
+                </li>
+"""
+
+        overall_class = "pass" if self.all_passed else "fail"
+        overall_text = "PASS" if self.all_passed else "FAIL"
+
+        return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Validation Results - G1-G15</title>
+    <style>
+        :root {{
+            --bg-primary: #1a1a2e;
+            --bg-secondary: #16213e;
+            --bg-card: #0f3460;
+            --text-primary: #eaeaea;
+            --text-secondary: #a0a0a0;
+            --accent: #e94560;
+            --success: #4ade80;
+            --warning: #fbbf24;
+            --error: #ef4444;
+            --border: #334155;
+        }}
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            padding: 2rem;
+        }}
+        .container {{ max-width: 900px; margin: 0 auto; }}
+        h1 {{
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+            background: linear-gradient(135deg, var(--accent), #ff6b6b);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }}
+        .subtitle {{ color: var(--text-secondary); margin-bottom: 2rem; }}
+        .summary {{
+            display: flex;
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }}
+        .summary-card {{
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 1.25rem 1.5rem;
+            border: 1px solid var(--border);
+            flex: 1;
+            text-align: center;
+        }}
+        .summary-card h3 {{ font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 0.5rem; }}
+        .summary-card .value {{ font-size: 2rem; font-weight: 700; }}
+        .summary-card .value.pass {{ color: var(--success); }}
+        .summary-card .value.fail {{ color: var(--error); }}
+        .summary-card .value.warn {{ color: var(--warning); }}
+        .gate-list {{ list-style: none; }}
+        .gate-item {{
+            display: grid;
+            grid-template-columns: 30px 50px 180px 60px 1fr;
+            gap: 1rem;
+            align-items: center;
+            padding: 0.875rem 1rem;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            margin-bottom: 0.5rem;
+            border-left: 4px solid var(--border);
+        }}
+        .gate-item.pass {{ border-left-color: var(--success); }}
+        .gate-item.fail {{ border-left-color: var(--error); }}
+        .gate-item.warn {{ border-left-color: var(--warning); }}
+        .gate-icon {{ font-size: 1.25rem; }}
+        .gate-item.pass .gate-icon {{ color: var(--success); }}
+        .gate-item.fail .gate-icon {{ color: var(--error); }}
+        .gate-item.warn .gate-icon {{ color: var(--warning); }}
+        .gate-id {{ font-family: monospace; font-weight: 600; color: var(--accent); }}
+        .gate-name {{ font-weight: 500; }}
+        .gate-status {{
+            font-size: 0.75rem;
+            font-weight: 600;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            text-align: center;
+        }}
+        .gate-item.pass .gate-status {{ background: rgba(74, 222, 128, 0.2); color: var(--success); }}
+        .gate-item.fail .gate-status {{ background: rgba(239, 68, 68, 0.2); color: var(--error); }}
+        .gate-item.warn .gate-status {{ background: rgba(251, 191, 36, 0.2); color: var(--warning); }}
+        .gate-message {{ font-size: 0.875rem; color: var(--text-secondary); }}
+        .back-link {{
+            display: inline-block;
+            margin-bottom: 1.5rem;
+            color: var(--accent);
+            text-decoration: none;
+        }}
+        .back-link:hover {{ text-decoration: underline; }}
+        .timestamp {{
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+            margin-top: 2rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--border);
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="index.html" class="back-link">← Heatmap</a>
+        <h1>Validation Results</h1>
+        <p class="subtitle">Quality Gates G1-G15</p>
+
+        <div class="summary">
+            <div class="summary-card">
+                <h3>Overall</h3>
+                <div class="value {overall_class}">{overall_text}</div>
+            </div>
+            <div class="summary-card">
+                <h3>Failures</h3>
+                <div class="value {'fail' if self.fail_count > 0 else 'pass'}">{self.fail_count}</div>
+            </div>
+            <div class="summary-card">
+                <h3>Warnings</h3>
+                <div class="value {'warn' if self.warn_count > 0 else 'pass'}">{self.warn_count}</div>
+            </div>
+            <div class="summary-card">
+                <h3>Total Gates</h3>
+                <div class="value">{len(self.gates)}</div>
+            </div>
+        </div>
+
+        <ul class="gate-list">
+{gates_html}
+        </ul>
+
+        <div class="timestamp">
+            Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+        </div>
+    </div>
+</body>
+</html>
+"""
+
+    def save_html(self, output_path: Path) -> Path:
+        """Save validation.html to the package."""
+        html = self.to_html()
+        output_path = Path(output_path)
+        output_path.write_text(html, encoding="utf-8")
+        logger.info(f"Validation report saved: {output_path}")
+        return output_path
+
 
 def check_g1_summary_size(package_path: Path) -> GateResult:
     """G1: summary.json <= 200KB"""
@@ -163,7 +342,8 @@ def check_g2_package_size(package_path: Path) -> GateResult:
 
 
 def check_g3_first_screen(package_path: Path) -> GateResult:
-    """G3: first-screen <= 2MB (index.html + summary.json)"""
+    """G3: first-screen <= 2MB (index.html/heatmap + summary.json)"""
+    # index.html is now the heatmap landing page
     index_path = package_path / "index.html"
     summary_path = package_path / "data" / "summary.json"
 
@@ -183,7 +363,7 @@ def check_g3_first_screen(package_path: Path) -> GateResult:
         value=round(size_mb, 3),
         threshold=THRESHOLDS["G3_first_screen_mb"],
         severity="WARN" if not passed else "PASS",
-        message=f"First screen: {size_mb:.3f}MB (limit: {THRESHOLDS['G3_first_screen_mb']}MB)",
+        message=f"First screen (heatmap): {size_mb:.3f}MB (limit: {THRESHOLDS['G3_first_screen_mb']}MB)",
     )
 
 

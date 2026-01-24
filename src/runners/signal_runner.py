@@ -233,7 +233,12 @@ class SignalRunner:
             logger.error("--validate requires --html-output to specify package path")
             return 1
 
+        # Resolve relative paths to project root
+        project_root = Path(__file__).resolve().parent.parent.parent
         package_path = Path(self.config.html_output)
+        if not package_path.is_absolute():
+            package_path = project_root / package_path
+
         if not package_path.exists():
             logger.error(f"Package path not found: {package_path}")
             return 1
@@ -254,6 +259,11 @@ class SignalRunner:
         print("-" * 60)
         print(f"FAILS: {report.fail_count} | WARNS: {report.warn_count}")
         print(f"Overall: {'PASS' if report.all_passed else 'FAIL'}")
+
+        # Generate validation.html in the package
+        validation_html_path = package_path / "validation.html"
+        report.save_html(validation_html_path)
+        print(f"\nValidation report: {validation_html_path}")
 
         return 0 if report.all_passed else 1
 
@@ -286,13 +296,9 @@ async def main() -> None:
     if args.deploy and args.format != "package":
         parser.error("--deploy requires --format package")
 
-    # Validate: --validate requires --format package
-    if args.validate and args.format != "package":
-        parser.error("--validate requires --format package")
-
-    # Validate: --with-heatmap requires --format package
-    if args.with_heatmap and args.format != "package":
-        parser.error("--with-heatmap requires --format package")
+    # Warn if using singlefile format (legacy) - validation/heatmap will be skipped
+    if args.format == "singlefile":
+        print("Note: Using legacy singlefile format. Validation and heatmap require --format package.")
 
     # Set up logging
     level = logging.DEBUG if args.verbose else logging.INFO
