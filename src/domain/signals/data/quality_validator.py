@@ -124,21 +124,15 @@ class DataQualityValidator:
 
         # === STEP 1: Detect and handle sentinel values (-1.0) ===
         if self._config.detect_sentinels:
-            clean_df, sentinel_counts = self._handle_sentinels(
-                clean_df, symbol, timeframe
-            )
+            clean_df, sentinel_counts = self._handle_sentinels(clean_df, symbol, timeframe)
 
         # === STEP 2: Detect and handle NaN values ===
-        clean_df, nan_counts, nan_dropped = self._handle_nans(
-            clean_df, symbol, timeframe
-        )
+        clean_df, nan_counts, nan_dropped = self._handle_nans(clean_df, symbol, timeframe)
         dropped_indices.extend(nan_dropped)
 
         # === STEP 3: Validate close price ===
         if self._config.reject_zero_close:
-            clean_df, zero_dropped = self._validate_close_price(
-                clean_df, symbol, timeframe
-            )
+            clean_df, zero_dropped = self._validate_close_price(clean_df, symbol, timeframe)
             dropped_indices.extend(zero_dropped)
 
         # === STEP 4: Validate timestamp monotonicity ===
@@ -167,9 +161,7 @@ class DataQualityValidator:
 
         # Check if close is valid
         if last_close <= 0:
-            logger.error(
-                f"[{symbol}] Last close is invalid after cleaning: {last_close}"
-            )
+            logger.error(f"[{symbol}] Last close is invalid after cleaning: {last_close}")
             return clean_df, BarQualityResult.invalid_result(
                 reason=InvalidValueReason.ZERO_VALUE,
                 timestamp=last_timestamp,
@@ -216,8 +208,7 @@ class DataQualityValidator:
             if count > 0:
                 sentinel_counts[col] = count
                 logger.warning(
-                    f"[{symbol}:{timeframe}] Found {count} sentinel values "
-                    f"in column '{col}'"
+                    f"[{symbol}:{timeframe}] Found {count} sentinel values " f"in column '{col}'"
                 )
 
                 # Replace sentinels
@@ -229,9 +220,7 @@ class DataQualityValidator:
                     df.loc[sentinel_mask, col] = np.nan
 
         if sentinel_counts:
-            logger.info(
-                f"[{symbol}:{timeframe}] Sentinel summary: {sentinel_counts}"
-            )
+            logger.info(f"[{symbol}:{timeframe}] Sentinel summary: {sentinel_counts}")
 
         return df, sentinel_counts
 
@@ -337,8 +326,7 @@ class DataQualityValidator:
         sorted_df = df.sort_index()
         if not df.index.equals(sorted_df.index):
             logger.warning(
-                f"[{symbol}:{timeframe}] Timestamps were not monotonic, "
-                f"sorted {len(df)} rows"
+                f"[{symbol}:{timeframe}] Timestamps were not monotonic, " f"sorted {len(df)} rows"
             )
             return sorted_df
 
@@ -387,8 +375,7 @@ class DataQualityValidator:
 
         if gap_count > 0:
             logger.info(
-                f"[{symbol}:{timeframe}] Detected {gap_count} gaps, "
-                f"max gap: {max_gap} bars"
+                f"[{symbol}:{timeframe}] Detected {gap_count} gaps, " f"max gap: {max_gap} bars"
             )
 
     def _get_timestamp(

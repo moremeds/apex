@@ -266,11 +266,11 @@ class PackageBuilder:
         if output_dir.exists():
             shutil.rmtree(output_dir)
 
-        output_dir.mkdir(parents=True)
-        (output_dir / "assets").mkdir()
-        (output_dir / "data").mkdir()
-        (output_dir / "data" / "regime").mkdir()
-        (output_dir / "snapshots").mkdir()
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "assets").mkdir(exist_ok=True)
+        (output_dir / "data").mkdir(exist_ok=True)
+        (output_dir / "data" / "regime").mkdir(exist_ok=True)
+        (output_dir / "snapshots").mkdir(exist_ok=True)
 
         symbols = sorted(set(sym for sym, tf in data.keys()))
         timeframes = sorted(
@@ -738,9 +738,7 @@ class PackageBuilder:
 
             # PR-A: Validate close from regime output
             regime_close = regime_dict.get("component_values", {}).get("close", 0.0)
-            is_valid, error_msg = validate_close_for_regime(
-                regime_close, symbol, "ticker_summary"
-            )
+            is_valid, error_msg = validate_close_for_regime(regime_close, symbol, "ticker_summary")
             if not is_valid:
                 logger.warning(error_msg)
                 # Try to get valid close from DataFrame as fallback

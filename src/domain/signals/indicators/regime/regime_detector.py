@@ -1460,7 +1460,9 @@ class RegimeDetectorIndicator(IndicatorBase):
             self._tp_model_load_attempted[symbol_key] = True
             # Check both new format (symbol/active.pkl) and legacy format (symbol_logistic.pkl)
             new_model_path = PROJECT_ROOT / "models/turning_point" / symbol.lower() / "active.pkl"
-            legacy_model_path = PROJECT_ROOT / "models/turning_point" / f"{symbol.lower()}_logistic.pkl"
+            legacy_model_path = (
+                PROJECT_ROOT / "models/turning_point" / f"{symbol.lower()}_logistic.pkl"
+            )
             model_path = new_model_path if new_model_path.exists() else legacy_model_path
             if model_path.exists():
                 try:

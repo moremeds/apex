@@ -298,7 +298,9 @@ async def main() -> None:
 
     # Warn if using singlefile format (legacy) - validation/heatmap will be skipped
     if args.format == "singlefile":
-        print("Note: Using legacy singlefile format. Validation and heatmap require --format package.")
+        print(
+            "Note: Using legacy singlefile format. Validation and heatmap require --format package."
+        )
 
     # Set up logging
     level = logging.DEBUG if args.verbose else logging.INFO

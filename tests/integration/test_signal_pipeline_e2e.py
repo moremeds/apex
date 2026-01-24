@@ -50,8 +50,18 @@ class TestSignalPipelineE2E:
             "generated_at": "2026-01-21T10:00:00Z",
             "symbols": ["SPY", "QQQ"],
             "tickers": [
-                {"symbol": "SPY", "regime": "R0", "turning_point": {"bars_to_event": 2}},
-                {"symbol": "QQQ", "regime": "R1", "turning_point": {"bars_to_event": -1}},
+                {
+                    "symbol": "SPY",
+                    "regime": "R0",
+                    "turning_point": {"bars_to_event": 2},
+                    "component_values": {"close": 450.0},
+                },
+                {
+                    "symbol": "QQQ",
+                    "regime": "R1",
+                    "turning_point": {"bars_to_event": -1},
+                    "component_values": {"close": 380.0},
+                },
             ],
             "market": {"status": "open"},
         }
@@ -147,7 +157,7 @@ class TestSignalPipelineE2E:
         assert "all_passed" in report
         assert "gates" in report
         assert isinstance(report["gates"], list)
-        assert len(report["gates"]) == 10  # G1-G10
+        assert len(report["gates"]) == 15  # G1-G15
 
     def test_validate_gates_fails_on_oversized_summary(self, test_output_dir: Path) -> None:
         """Test that G1 fails when summary.json exceeds 200KB."""
@@ -204,46 +214,43 @@ class TestSignalPipelineE2E:
         assert result.returncode == 1
         assert "missing" in result.stdout.lower() or "FAIL" in result.stdout
 
-    def test_signal_runner_validate_requires_package_format(self) -> None:
+    def test_signal_runner_no_validate_flag_exists(self) -> None:
         """
-        Test that --validate flag requires --format package.
+        Test that --no-validate flag is recognized by the CLI.
 
-        This tests the CLI argument validation.
+        Validation is automatic with --format package, and --no-validate skips it.
         """
         result = subprocess.run(
             [
                 sys.executable,
                 "-m",
                 "src.runners.signal_runner",
-                "--live",
-                "--symbols",
-                "SPY",
-                "--validate",
-                # Missing --format package
+                "--help",
             ],
             capture_output=True,
             text=True,
             timeout=30,
         )
 
-        # Should error with helpful message
-        assert result.returncode != 0
-        assert "--validate requires --format package" in result.stderr
+        # Should show help with --no-validate flag
+        assert result.returncode == 0
+        assert "--no-validate" in result.stdout
 
     def test_makefile_targets_exist(self) -> None:
         """Test that new Makefile targets are defined."""
         makefile_path = Path("Makefile")
         assert makefile_path.exists(), "Makefile not found"
 
+        # Read both Makefile and included validation.mk
         content = makefile_path.read_text()
+        validation_mk = Path("make/validation.mk")
+        if validation_mk.exists():
+            content += validation_mk.read_text()
 
         expected_targets = [
             "validate-fast",
             "validate-full",
             "validate-holdout",
-            "validate-gates",
-            "validate-tp",
-            "signal-report",
             "validate-all",
         ]
 

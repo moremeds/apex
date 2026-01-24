@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import duckdb
 
@@ -523,7 +523,6 @@ class DuckDBCoverageStore:
             - total_bars: Total bar count across all timeframes
             - data_sources: List of unique data sources
         """
-        from typing import Any
 
         # Coverage by timeframe (merge sources)
         coverage_result = self._conn.execute(

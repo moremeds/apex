@@ -55,7 +55,9 @@ class TestHHHLDetector:
             [100, 102, 105, 103, 108, 106, 112, 110, 118, 115]
             + [120 + i * 2 for i in range(n - 10)]
         )
-        low = pd.Series([99, 100, 102, 101, 105, 104, 109, 108, 114, 113] + [118 + i * 2 for i in range(n - 10)])
+        low = pd.Series(
+            [99, 100, 102, 101, 105, 104, 109, 108, 114, 113] + [118 + i * 2 for i in range(n - 10)]
+        )
 
         detector = HHHLDetector(lookback=30, swing_threshold=0.01)
         result = detector.calculate_score(high, low)

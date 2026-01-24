@@ -544,8 +544,8 @@ class SignalPipelineProcessor:
             logger.info(f"Loaded {len(indicators)} indicators from registry")
 
         # Compute indicators on DataFrames
-        for key, df in data.items():
-            data[key] = self._compute_indicators_on_df(df, indicators)
+        for data_key in list(data.keys()):
+            data[data_key] = self._compute_indicators_on_df(data[data_key], indicators)
 
         # Generate report based on format
         output = Path(output_path)

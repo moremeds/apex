@@ -236,16 +236,16 @@ def get_daily_change_color(change_pct: Optional[float]) -> str:
     if clamped >= 0:
         # Green gradient: interpolate toward #22c55e (green-500)
         t = clamped / 5.0
-        r = int(200 - t * (200 - 34))   # 200 -> 34
+        r = int(200 - t * (200 - 34))  # 200 -> 34
         g = int(220 - t * (220 - 197))  # 220 -> 197
-        b = int(180 - t * (180 - 94))   # 180 -> 94
+        b = int(180 - t * (180 - 94))  # 180 -> 94
         return f"#{r:02x}{g:02x}{b:02x}"
     else:
         # Red gradient: interpolate toward #ef4444 (red-500)
         t = abs(clamped) / 5.0
         r = int(200 + t * (239 - 200))  # 200 -> 239
-        g = int(200 - t * (200 - 68))   # 200 -> 68
-        b = int(200 - t * (200 - 68))   # 200 -> 68
+        g = int(200 - t * (200 - 68))  # 200 -> 68
+        b = int(200 - t * (200 - 68))  # 200 -> 68
         return f"#{r:02x}{g:02x}{b:02x}"
 
 

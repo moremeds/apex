@@ -28,7 +28,6 @@ from src.utils.logging_setup import get_logger
 
 from .heatmap_model import (
     MARKET_ETFS,
-    SECTOR_MAPPING,
     ColorMetric,
     HeatmapModel,
     SectorGroup,
@@ -63,7 +62,20 @@ YFINANCE_SECTOR_TO_ETF: Dict[str, str] = {
 }
 
 # Sector ETFs list (for identification)
-SECTOR_ETFS: Set[str] = {"XLK", "XLC", "XLY", "XLF", "XLV", "XLP", "XLE", "XLI", "XLB", "XLRE", "XLU", "SMH"}
+SECTOR_ETFS: Set[str] = {
+    "XLK",
+    "XLC",
+    "XLY",
+    "XLF",
+    "XLV",
+    "XLP",
+    "XLE",
+    "XLI",
+    "XLB",
+    "XLRE",
+    "XLU",
+    "SMH",
+}
 
 # Sector ETF to display name mapping
 SECTOR_ETF_NAMES: Dict[str, str] = {
@@ -266,7 +278,6 @@ class HeatmapBuilder:
         self,
         model: HeatmapModel,
         output_dir: Path,
-        template_name: str = "heatmap.html",
     ) -> str:
         """
         Render HeatmapModel to HTML page.
@@ -333,7 +344,7 @@ class HeatmapBuilder:
                 "R2": "#ef4444",
                 "R3": "#3b82f6",
             }
-            color = regime_colors.get(etf.regime, "#6b7280")
+            color = regime_colors.get(etf.regime or "R0", "#6b7280")
 
             # Get sector name
             sector_name = SECTOR_ETF_NAMES.get(etf.symbol, "")
@@ -341,11 +352,11 @@ class HeatmapBuilder:
             # Build URL
             url = etf.report_url or f"report.html?symbol={etf.symbol}"
 
-            chip = f'''<a href="{url}" class="etf-chip">
+            chip = f"""<a href="{url}" class="etf-chip">
                 <span class="regime-dot" style="background: {color};"></span>
                 <span>{etf.symbol}</span>
                 <span class="etf-name">{sector_name}</span>
-            </a>'''
+            </a>"""
             chips.append(chip)
 
         return "\n        ".join(chips)
