@@ -61,7 +61,7 @@ concurrency:
 
 env:
   PYTHON_VERSION: '3.14'
-  VALIDATION_UNIVERSE: config/validation/regime_universe.yaml
+  VALIDATION_UNIVERSE: config/signals/regime_verification_universe.yaml
   REPORTS_DIR: reports/validation
 
 jobs:
@@ -343,6 +343,11 @@ jobs:
         id: date
         run: echo "date=$(date -u +'%Y-%m-%d')" >> $GITHUB_OUTPUT
 
+      - name: Configure git for deployment
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
       - name: Generate signal report
         id: generate
         run: |
@@ -360,9 +365,9 @@ jobs:
           # Determine timeframes
           TIMEFRAMES="${{ inputs.timeframes || '1d 4h 1h' }}"
 
-          # Build deploy flag
+          # Build deploy flag - deploy on master or when manually triggered
           DEPLOY_FLAG=""
-          if [ "${{ inputs.dry_run }}" != "true" ] && [ "${{ github.ref }}" = "refs/heads/master" ]; then
+          if [ "${{ inputs.dry_run }}" != "true" ]; then
             DEPLOY_FLAG="--deploy github"
           fi
 
