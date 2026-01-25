@@ -1,7 +1,6 @@
-name: M2 Full Validation + Publish (Nightly)
+name: "Nightly: Validation + Deploy"
 
-# Mirrors: make validate-full-publish
-# Runs full M2 validation workflow and publishes to GitHub Pages
+# Runs full validation workflow and publishes to GitHub Pages
 
 on:
   schedule:
@@ -198,7 +197,7 @@ jobs:
           reports_dir = Path('${{ env.REPORTS_DIR }}')
 
           print('=' * 60)
-          print('M2 NIGHTLY VALIDATION RESULTS')
+          print('NIGHTLY VALIDATION RESULTS')
           print('=' * 60)
           print()
 
@@ -258,4 +257,4 @@ jobs:
       - name: Notify on Failure
         if: failure()
         run: |
-          echo "::error::M2 Nightly Validation failed! Check the report for details."
+          echo "::error::Nightly Validation failed! Check the report for details."

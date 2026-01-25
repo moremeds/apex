@@ -2,7 +2,7 @@
 # Automatically runs black + isort on push to master/main and creates a PR if changes are needed
 # The PR branch will be automatically deleted after merge (delete-branch: true)
 
-name: Auto Format
+name: "Push: Auto Format"
 
 on:
   push:
@@ -30,18 +30,18 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           # Use a PAT to allow the PR to trigger other workflows
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Python 3.13
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.13'
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@v7
 
       - name: Install formatters
         run: uv pip install --system black isort

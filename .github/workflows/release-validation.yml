@@ -1,4 +1,4 @@
-name: M2 Holdout Validation (Release Gate)
+name: "Release: Holdout Validation"
 
 on:
   release:
@@ -47,7 +47,7 @@ jobs:
               data = json.load(f)
 
           print('=' * 60)
-          print('M2 HOLDOUT VALIDATION (Release Gate)')
+          print('HOLDOUT VALIDATION (Release Gate)')
           print('=' * 60)
           print()
           print(f\"Mode: {data.get('mode', 'unknown')}\")
