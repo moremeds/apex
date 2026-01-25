@@ -2,9 +2,48 @@
 
 **Production-grade portfolio risk monitoring and strategy backtesting for options and derivatives trading**
 
-[![Python](https://img.shields.io/badge/python-3.14+-blue.svg)](https://www.python.org/downloads/)
+[![Python](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Code Style](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+
+---
+
+## Quick Reference (Make Commands)
+
+```bash
+# Setup
+make install              # Install all dependencies
+
+# Run TUI Dashboard
+make run                  # Start TUI (dev mode, verbose)
+make run-prod             # Start TUI (production mode)
+make run-demo             # Start TUI (demo/offline, no broker needed)
+make run-headless         # Run without TUI
+
+# Quality Checks
+make lint                 # Check formatting (black, isort, flake8)
+make format               # Auto-fix formatting
+make type-check           # Run mypy
+make quality              # All checks (lint + type-check + dead-code + complexity)
+
+# Testing
+make test                 # Unit tests
+make test-all             # All tests
+make coverage             # Tests with HTML coverage
+
+# Signal Pipeline
+make signals-test         # Quick test (12 symbols) + HTTP server
+make signals              # Full pipeline (caps, retrain, report)
+make signals-deploy       # Deploy to GitHub Pages
+
+# Validation
+make validate-fast        # PR gate validation
+make validate             # Full validation suite
+make validate-smart       # Conditional param update
+
+# Help
+make help                 # Show all available commands
+```
 
 ---
 
@@ -55,7 +94,7 @@ APEX is a comprehensive risk management and backtesting platform designed for ac
                               │
 ┌─────────────────────────────────────────────────────────────────┐
 │                  INFRASTRUCTURE LAYER                           │
-│  IB Adapter  │  Futu Adapter  │  Backtest Engines  │  Stores    │
+│  IB/Futu Adapters  │  Backtest Engines  │  Stores  │  Reporting │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -101,10 +140,11 @@ apex/
 │   │   ├── signals/      # 44+ indicators, rule engine
 │   │   ├── strategy/     # Strategy framework
 │   │   └── interfaces/   # Port definitions (DI)
-│   ├── infrastructure/   # External integrations (62 files)
+│   ├── infrastructure/   # External integrations (70+ files)
 │   │   ├── adapters/     # IB, Futu, Yahoo
 │   │   ├── stores/       # RCU stores
-│   │   └── persistence/  # Database repositories
+│   │   ├── persistence/  # Database repositories
+│   │   └── reporting/    # HTML reports, package builder
 │   ├── models/           # Data models (9 files)
 │   ├── runners/          # CLI runners (3 files)
 │   ├── services/         # Application services (13 files)
@@ -120,8 +160,8 @@ apex/
 
 | Requirement | Version | Notes |
 |-------------|---------|-------|
-| Python | 3.14+ | Required (uses latest features) |
-| TA-Lib | 0.4.19+ | Required for indicators |
+| Python | 3.13+ | Required (uses latest features) |
+| TA-Lib | 0.6.4+ | Required for indicators |
 | IBKR TWS/Gateway | Latest | Required for live market data |
 | PostgreSQL | 14+ | Optional, for persistence |
 | TimescaleDB | 2.x | Optional, for time-series |
@@ -131,7 +171,15 @@ apex/
 
 ## Installation
 
-### Using uv (Recommended)
+### Using Make (Recommended)
+
+```bash
+# One command to install everything
+make install
+source .venv/bin/activate
+```
+
+### Using uv (Manual)
 
 ```bash
 # Install uv
@@ -280,19 +328,19 @@ python -m src.backtest.runner --strategy ma_cross --symbols AAPL \
 ### Signal Runner
 
 ```bash
-# Live signal generation
+# Makefile shortcuts (preferred)
+make signals-test         # Quick test (12 symbols) + HTTP server
+make signals              # Full pipeline (update caps, retrain, generate)
+make signals-deploy       # Full pipeline + deploy to GitHub Pages
+make signals-deploy-quick # Deploy without retraining
+make signals-serve        # Serve existing report at localhost:8080
+make signals-push         # Push existing out/signals to gh-pages
+
+# Direct runner commands
 python -m src.runners.signal_runner --live --symbols AAPL TSLA QQQ
-
-# Multiple timeframes
 python -m src.runners.signal_runner --live --symbols AAPL --timeframes 1m 5m 1h 1d
-
-# Generate HTML report
 python -m src.runners.signal_runner --live --symbols AAPL --html-output report.html
-
-# Backfill historical signals
 python -m src.runners.signal_runner --backfill --symbols AAPL --days 365
-
-# With database persistence
 python -m src.runners.signal_runner --live --symbols AAPL --with-persistence
 ```
 
@@ -304,6 +352,29 @@ python scripts/history_loader.py --broker ib --days 30
 python scripts/history_loader.py --broker futu --days 30 --market US
 python scripts/history_loader.py --broker all --dry-run
 python scripts/history_loader.py --broker ib --from-date 2024-01-01 --to-date 2024-06-30
+```
+
+### Validation Runner (M2 Regime Detector)
+
+```bash
+# Makefile shortcuts (preferred)
+make validate-fast          # PR gate (10 symbols, fast)
+make validate               # Full validation suite (3 steps)
+make validate-test          # Quick test (~5 min)
+make validate-full-publish  # Full workflow + publish (~30-60 min)
+make validate-smart         # Conditional param update (only if gates pass)
+
+# Individual validation steps
+make validate-optimize      # Optuna parameter optimization
+make validate-full          # Full nested CV validation
+make validate-holdout       # Holdout validation (release gate)
+make validate-publish       # Publish reports to GitHub Pages
+
+# Direct runner commands
+python -m src.runners.validation_runner fast --symbols SPY QQQ AAPL --timeframes 1d
+python -m src.runners.validation_runner full --universe config/universe.yaml --outer-folds 5
+python -m src.runners.validation_runner holdout --universe config/universe.yaml
+python -m src.runners.validation_runner optimize --universe config/universe.yaml --inner-trials 30
 ```
 
 ---
@@ -477,34 +548,37 @@ See [docs/OBSERVABILITY_SETUP.md](docs/OBSERVABILITY_SETUP.md) for setup.
 ### Testing
 
 ```bash
-# All tests with coverage (85% enforced)
-pytest
+# Makefile shortcuts
+make test               # Run unit tests
+make test-all           # Run all tests (unit + integration)
+make coverage           # Run tests with HTML coverage report
 
-# Specific test file
-pytest tests/unit/test_risk_engine.py
-
-# Pattern matching
-pytest tests/unit/ -k "test_rule"
-
-# Integration tests
-pytest tests/integration/
-
-# Skip slow tests
-pytest -m "not slow"
-
-# HTML coverage report
-pytest --cov=src --cov-report=html
-open htmlcov/index.html
+# Direct pytest commands
+pytest                                    # All tests (85% coverage enforced)
+pytest tests/unit/test_risk_engine.py    # Specific test file
+pytest tests/unit/ -k "test_rule"        # Pattern matching
+pytest tests/integration/                 # Integration tests
+pytest -m "not slow"                      # Skip slow tests
+pytest --cov=src --cov-report=html       # HTML coverage report
 ```
 
 ### Code Quality
 
 ```bash
-mypy src/              # Type checking (strict)
-black src/ tests/      # Formatting (100-char lines)
-isort src/ tests/      # Import sorting
-flake8 src/ tests/     # Linting
+# Makefile shortcuts (recommended)
+make lint               # Check all (black, isort, flake8)
+make format             # Auto-fix formatting
+make type-check         # Run mypy
+make quality            # All checks: lint + type-check + dead-code + complexity
+
+# Direct commands
+mypy src/ tests/        # Type checking (strict)
+black src/ tests/       # Formatting (100-char lines)
+isort src/ tests/       # Import sorting
+flake8 src/ tests/      # Linting
 ```
+
+**Important:** Always run `make format && make type-check` before committing to avoid CI failures.
 
 ### Performance Targets
 
@@ -521,10 +595,12 @@ flake8 src/ tests/     # Linting
 | File | Purpose |
 |------|---------|
 | `config/base.yaml` | Main configuration (brokers, ports, API keys) |
+| `config/universe.yaml` | **Primary universe** (symbols, sectors, subsets) |
 | `config/risk_config.yaml` | Risk limits and signal thresholds |
 | `config/demo.yaml` | Demo mode offline configuration |
 | `config/signals/rules.yaml` | Signal rule definitions |
-| `config/signals/universe.yaml` | Trading universe definition |
+| `config/validation/regime_universe.yaml` | Validation universe for regime detector |
+| `config/validation/optimized_params.yaml` | Optuna-tuned parameters |
 | `config/backtest/*.yaml` | Backtest specification examples |
 
 ---
