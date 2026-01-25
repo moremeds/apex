@@ -188,7 +188,7 @@ def main() -> int:
 
     # Step 6: Generate Validation Summary Report
     run_command([
-        sys.executable, "-m", "src.domain.signals.reporting.validation_report",
+        sys.executable, "-m", "src.infrastructure.reporting.validation_report",
         "--reports-dir", str(reports_dir),
         "--output", str(reports_dir / "validation_summary.html"),
     ], "Validation Summary Report")

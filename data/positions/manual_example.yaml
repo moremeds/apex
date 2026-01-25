@@ -1,0 +1,195 @@
+# Manual Position File
+# Positions parsed from screenshots on 2025-11-25
+# These positions will be reconciled with IB positions
+
+positions:
+  # === STOCKS ===
+
+  # NVDA Stock
+  - symbol: NVDA
+    underlying: NVDA
+    asset_type: STOCK
+    quantity: 250.0518
+    avg_price: -61.052
+    multiplier: 1
+    strategy_tag: long_stock
+
+  # AMZN Stock
+  - symbol: AMZN
+    underlying: AMZN
+    asset_type: STOCK
+    quantity: 9.4255
+    avg_price: 212.19
+    multiplier: 1
+    strategy_tag: long_stock
+
+  # NAK (Northern Dynasty) Stock
+  - symbol: NAK
+    underlying: NAK
+    asset_type: STOCK
+    quantity: 2000
+    avg_price: -0.165
+    multiplier: 1
+    strategy_tag: long_stock
+
+  # GOOGL Stock
+  - symbol: GOOGL
+    underlying: GOOGL
+    asset_type: STOCK
+    quantity: 5.0245
+    avg_price: 145.631
+    multiplier: 1
+    strategy_tag: long_stock
+
+  # AAPL Stock
+  - symbol: AAPL
+    underlying: AAPL
+    asset_type: STOCK
+    quantity: 5.0243
+    avg_price: 137.559
+    multiplier: 1
+    strategy_tag: long_stock
+
+  # TSLA Stock
+  - symbol: TSLA
+    underlying: TSLA
+    asset_type: STOCK
+    quantity: 300
+    avg_price: 320.714
+    multiplier: 1
+    strategy_tag: long_stock
+
+  # === OPTIONS - QQQ ===
+
+  # QQQ Call 600 Jan 16, 2026
+  - symbol: "QQQ   260116C00600000"
+    underlying: QQQ
+    asset_type: OPTION
+    quantity: 4
+    avg_price: 19.38
+    multiplier: 100
+    expiry: "2026-01-16"
+    strike: 600.0
+    right: C
+    strategy_tag: long_call
+
+  # === OPTIONS - AMZN ===
+
+  # AMZN Call 220 Dec 19, 2025
+  - symbol: "AMZN  251219C00220000"
+    underlying: AMZN
+    asset_type: OPTION
+    quantity: 4
+    avg_price: 7.692
+    multiplier: 100
+    expiry: "2025-12-19"
+    strike: 220.0
+    right: C
+    strategy_tag: long_call
+
+  # === OPTIONS - TSLA ===
+
+  # TSLA Call 700 Jan 15, 2027 (short)
+  - symbol: "TSLA  270115C00700000"
+    underlying: TSLA
+    asset_type: OPTION
+    quantity: -1
+    avg_price: 60.70
+    multiplier: 100
+    expiry: "2027-01-15"
+    strike: 700.0
+    right: C
+    strategy_tag: short_call
+
+  # TSLA Call 450 Mar 20, 2026
+  - symbol: "TSLA  260320C00450000"
+    underlying: TSLA
+    asset_type: OPTION
+    quantity: 4
+    avg_price: 55.037
+    multiplier: 100
+    expiry: "2026-03-20"
+    strike: 450.0
+    right: C
+    strategy_tag: long_call
+
+  # TSLA Call 360 Dec 19, 2025
+  - symbol: "TSLA  251219C00360000"
+    underlying: TSLA
+    asset_type: OPTION
+    quantity: 1
+    avg_price: 56.29
+    multiplier: 100
+    expiry: "2025-12-19"
+    strike: 360.0
+    right: C
+    strategy_tag: long_call
+
+  # TSLA Call 425 Dec 19, 2025
+  - symbol: "TSLA  251219C00425000"
+    underlying: TSLA
+    asset_type: OPTION
+    quantity: 2
+    avg_price: 25.44
+    multiplier: 100
+    expiry: "2025-12-19"
+    strike: 425.0
+    right: C
+    strategy_tag: long_call
+
+  # TSLA Call 500 Jan 16, 2026
+  - symbol: "TSLA  260116C00500000"
+    underlying: TSLA
+    asset_type: OPTION
+    quantity: 4
+    avg_price: 34.85
+    multiplier: 100
+    expiry: "2026-01-16"
+    strike: 500.0
+    right: C
+    strategy_tag: long_call
+
+  # TSLA Call 450 Dec 19, 2025
+  - symbol: "TSLA  251219C00450000"
+    underlying: TSLA
+    asset_type: OPTION
+    quantity: 2
+    avg_price: -7.625
+    multiplier: 100
+    expiry: "2025-12-19"
+    strike: 450.0
+    right: C
+    strategy_tag: long_call
+
+  # TSLA Put 400 Nov 28, 2025 (short)
+  - symbol: "TSLA  251128P00400000"
+    underlying: TSLA
+    asset_type: OPTION
+    quantity: -10
+    avg_price: 8.69
+    multiplier: 100
+    expiry: "2025-11-28"
+    strike: 400.0
+    right: P
+    strategy_tag: short_put
+
+  # TSLA Put 390 Nov 28, 2025
+  - symbol: "TSLA  251128P00390000"
+    underlying: TSLA
+    asset_type: OPTION
+    quantity: 10
+    avg_price: 6
+    multiplier: 100
+    expiry: "2025-11-28"
+    strike: 390.0
+    right: P
+    strategy_tag: long_put
+
+
+# Position reconciliation notes:
+# - These positions will be merged with IB positions
+# - Positions with same key() will be aggregated (quantities summed)
+# - Weighted average price will be calculated when merging
+# - Source: Screenshots captured on 2025-11-25
+#
+# Key format: (symbol, underlying, asset_type, expiry, strike, right)

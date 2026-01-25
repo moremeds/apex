@@ -131,7 +131,7 @@ jobs:
       - name: "Step 4/6: Validation Summary Report"
         run: |
           source .venv/bin/activate
-          python -m src.domain.signals.reporting.validation_report \
+          python -m src.infrastructure.reporting.validation_report \
             --reports-dir ${{ env.REPORTS_DIR }} \
             --output ${{ env.REPORTS_DIR }}/validation_summary.html
 
