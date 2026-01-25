@@ -8,6 +8,10 @@ Three-Layer Architecture:
 2. render_heatmap_html() - Renders HeatmapModel to HTML with embedded data
 3. heatmap.js - Frontend Plotly rendering with interactive toggles
 
+ETF Dashboard + Stocks-Only Treemap Architecture:
+- ETF Dashboard: Card grid showing ALL ETFs (market indices, commodities, sectors)
+- Treemap: Shows ONLY individual stocks grouped by sector
+
 Usage:
     from src.infrastructure.reporting.heatmap_builder import HeatmapBuilder
 
@@ -21,14 +25,19 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional
 
 from src.services.market_cap_service import MarketCapService
 from src.utils.logging_setup import get_logger
 
-from .heatmap_model import (
-    MARKET_ETFS,
+from .heatmap_model import (  # ETF configuration from single source of truth; Model classes
+    ALL_DASHBOARD_ETFS,
+    ETF_CONFIG,
+    MARKET_ETF_NAMES,
+    OTHER_ETF_NAMES,
+    SECTOR_ETF_NAMES,
     ColorMetric,
+    ETFCardData,
     HeatmapModel,
     SectorGroup,
     SizeMetric,
@@ -61,37 +70,404 @@ YFINANCE_SECTOR_TO_ETF: Dict[str, str] = {
     "Utilities": "XLU",
 }
 
-# Sector ETFs list (for identification)
-SECTOR_ETFS: Set[str] = {
-    "XLK",
-    "XLC",
-    "XLY",
-    "XLF",
-    "XLV",
-    "XLP",
-    "XLE",
-    "XLI",
-    "XLB",
-    "XLRE",
-    "XLU",
-    "SMH",
+# Regime name mapping
+REGIME_NAMES: Dict[str, str] = {
+    "R0": "Healthy Uptrend",
+    "R1": "Choppy/Extended",
+    "R2": "Risk-Off",
+    "R3": "Rebound Window",
 }
 
-# Sector ETF to display name mapping
-SECTOR_ETF_NAMES: Dict[str, str] = {
-    "XLK": "Technology",
-    "XLC": "Communication Services",
-    "XLY": "Consumer Discretionary",
-    "XLF": "Financials",
-    "XLV": "Healthcare",
-    "XLP": "Consumer Staples",
-    "XLE": "Energy",
-    "XLI": "Industrials",
-    "XLB": "Materials",
-    "XLRE": "Real Estate",
-    "XLU": "Utilities",
-    "SMH": "Semiconductors",
+# =============================================================================
+# Heatmap CSS - Professional Dark Trading Theme
+# =============================================================================
+# All CSS is scoped under .apex-hm to prevent global bleed
+HEATMAP_CSS = """
+/* APEX Heatmap Theme - Professional Dark Trading Dashboard */
+/* All styles scoped under .apex-hm to prevent global bleed */
+
+.apex-hm {
+    /* Base Colors */
+    --bg-primary: #0c0f14;
+    --bg-secondary: #151921;
+    --bg-tertiary: #1c2230;
+    --bg-hover: #252d3d;
+
+    /* Borders */
+    --border-subtle: #2d3748;
+    --border-default: #3d4a5c;
+    --border-focus: #4a6fa5;
+
+    /* Text */
+    --text-primary: #f0f4f8;
+    --text-secondary: #a0aec0;
+    --text-muted: #718096;
+
+    /* Regime Colors */
+    --regime-r0: #22c55e;
+    --regime-r1: #f59e0b;
+    --regime-r2: #ef4444;
+    --regime-r3: #3b82f6;
+
+    /* Performance */
+    --positive: #10b981;
+    --negative: #f43f5e;
+
+    /* Accent (Claude-inspired) */
+    --accent-primary: #e07a3b;
+
+    /* Base styles */
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Inter', sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    min-height: 100vh;
+    margin: 0;
+    padding: 0;
 }
+
+/* Header */
+.apex-hm .hm-header {
+    padding: 20px 24px;
+    background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%);
+    border-bottom: 1px solid var(--border-subtle);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.apex-hm .hm-header h1 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin: 0;
+    color: var(--text-primary);
+}
+
+.apex-hm .hm-header .meta {
+    font-size: 0.875rem;
+    color: var(--text-muted);
+}
+
+/* ETF Dashboard Container */
+.apex-hm .hm-dashboard {
+    padding: 20px 24px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.apex-hm .hm-dashboard-title {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    margin-bottom: 16px;
+}
+
+/* ETF Category Section */
+.apex-hm .hm-etf-category {
+    margin-bottom: 20px;
+}
+
+.apex-hm .hm-etf-category:last-child {
+    margin-bottom: 0;
+}
+
+.apex-hm .hm-category-label {
+    font-size: 0.7rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+}
+
+/* ETF Card Grid */
+.apex-hm .hm-cards-large {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+}
+
+.apex-hm .hm-cards-compact {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.apex-hm .hm-cards-mini {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+    gap: 8px;
+}
+
+/* ETF Card Base */
+.apex-hm .hm-card {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    padding: 12px;
+    text-decoration: none;
+    color: inherit;
+    transition: all 0.15s ease;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+}
+
+.apex-hm .hm-card:hover {
+    background: var(--bg-hover);
+    border-color: var(--border-default);
+    transform: translateY(-1px);
+}
+
+/* Large Card (Market Indices) */
+.apex-hm .hm-card-large {
+    padding: 14px 16px;
+}
+
+.apex-hm .hm-card-large .hm-card-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+
+.apex-hm .hm-card-large .hm-card-symbol {
+    font-size: 1.1rem;
+    font-weight: 700;
+    font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+}
+
+.apex-hm .hm-card-large .hm-card-name {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    flex: 1;
+}
+
+.apex-hm .hm-card-large .hm-card-price {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.apex-hm .hm-card-large .hm-card-change {
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+/* Compact Card (Commodities, Fixed Income, Volatility) */
+.apex-hm .hm-card-compact {
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    min-width: 140px;
+}
+
+.apex-hm .hm-card-compact .hm-card-symbol {
+    font-size: 0.9rem;
+    font-weight: 600;
+    font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+}
+
+.apex-hm .hm-card-compact .hm-card-price {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.apex-hm .hm-card-compact .hm-card-change {
+    font-size: 0.8rem;
+    font-weight: 500;
+    margin-left: auto;
+}
+
+/* Mini Card (Sector ETFs) */
+.apex-hm .hm-card-mini {
+    padding: 8px 10px;
+    text-align: center;
+}
+
+.apex-hm .hm-card-mini .hm-card-symbol {
+    font-size: 0.85rem;
+    font-weight: 600;
+    font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+    margin-bottom: 2px;
+}
+
+.apex-hm .hm-card-mini .hm-card-name {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Regime Badge */
+.apex-hm .hm-regime {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+}
+
+.apex-hm .hm-regime-r0 {
+    background: rgba(34, 197, 94, 0.15);
+    color: var(--regime-r0);
+    border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.apex-hm .hm-regime-r1 {
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--regime-r1);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.apex-hm .hm-regime-r2 {
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--regime-r2);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.apex-hm .hm-regime-r3 {
+    background: rgba(59, 130, 246, 0.15);
+    color: var(--regime-r3);
+    border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.apex-hm .hm-regime-unknown {
+    background: rgba(113, 128, 150, 0.15);
+    color: var(--text-muted);
+    border: 1px solid rgba(113, 128, 150, 0.3);
+}
+
+/* Change Color */
+.apex-hm .hm-positive { color: var(--positive); }
+.apex-hm .hm-negative { color: var(--negative); }
+.apex-hm .hm-neutral { color: var(--text-muted); }
+
+/* Controls Bar */
+.apex-hm .hm-controls {
+    padding: 12px 24px;
+    background: var(--bg-tertiary);
+    border-bottom: 1px solid var(--border-subtle);
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.apex-hm .hm-control-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.apex-hm .hm-control-group label {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.apex-hm .hm-control-group select {
+    padding: 6px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border-default);
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-size: 0.8rem;
+    cursor: pointer;
+    outline: none;
+}
+
+.apex-hm .hm-control-group select:focus {
+    border-color: var(--border-focus);
+}
+
+/* Legend */
+.apex-hm .hm-legend {
+    display: flex;
+    gap: 16px;
+    margin-left: auto;
+}
+
+.apex-hm .hm-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+}
+
+.apex-hm .hm-legend-color {
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+}
+
+/* Stats Bar */
+.apex-hm .hm-stats {
+    padding: 8px 24px;
+    background: var(--bg-primary);
+    display: flex;
+    gap: 24px;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.apex-hm .hm-stat {
+    display: flex;
+    gap: 6px;
+}
+
+.apex-hm .hm-stat-value {
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+/* Treemap Container */
+.apex-hm .hm-treemap-container {
+    flex: 1;
+    min-height: 500px;
+    padding: 0;
+}
+
+.apex-hm #heatmap {
+    width: 100%;
+    height: 100%;
+    min-height: 500px;
+}
+
+/* Responsive */
+@media (max-width: 1024px) {
+    .apex-hm .hm-cards-large {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    .apex-hm .hm-cards-mini {
+        grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+    }
+}
+
+@media (max-width: 640px) {
+    .apex-hm .hm-cards-large {
+        grid-template-columns: 1fr;
+    }
+    .apex-hm .hm-controls {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    .apex-hm .hm-legend {
+        margin-left: 0;
+        margin-top: 10px;
+    }
+}
+"""
 
 
 class HeatmapBuilder:
@@ -130,6 +506,10 @@ class HeatmapBuilder:
         """
         Build HeatmapModel from summary.json data.
 
+        ETF Dashboard + Stocks-Only Treemap:
+        - ETF Dashboard: Shows ALL ETFs in card grid (excluded from treemap)
+        - Treemap: Shows ONLY individual stocks by sector
+
         Args:
             summary_data: Parsed summary.json content
             manifest: Optional manifest.json for report URLs
@@ -153,9 +533,10 @@ class HeatmapBuilder:
         if manifest and "symbol_reports" in manifest:
             report_urls = manifest["symbol_reports"]
 
-        # Classify symbols using yfinance sector info
-        market_etf_nodes: List[TreemapNode] = []
-        sector_etf_nodes: List[TreemapNode] = []  # For horizontal ETF bar
+        # Build ETF dashboard (cards for all dashboard ETFs)
+        etf_dashboard = self._build_etf_dashboard(tickers, cap_results, report_urls)
+
+        # Stocks-only classification (exclude all dashboard ETFs from treemap)
         stocks_by_sector: Dict[str, List[TreemapNode]] = {}  # sector_etf -> stocks
         other_stocks: List[TreemapNode] = []
 
@@ -166,6 +547,10 @@ class HeatmapBuilder:
         for ticker in tickers:
             symbol = ticker.get("symbol")
             if not symbol:
+                continue
+
+            # Skip ALL dashboard ETFs - they go in the ETF dashboard, not treemap
+            if symbol in ALL_DASHBOARD_ETFS:
                 continue
 
             # Extract regime from ticker data
@@ -189,7 +574,7 @@ class HeatmapBuilder:
             # Calculate size value
             size_value = self._get_size_value(ticker, market_cap)
 
-            # Build node
+            # Build node for STOCKS ONLY (ETFs excluded above)
             node = TreemapNode(
                 symbol=symbol,
                 label=symbol,
@@ -206,20 +591,8 @@ class HeatmapBuilder:
                 report_url=report_urls.get(symbol),
             )
 
-            # Classify node based on quote type and sector
-            if symbol in MARKET_ETFS:
-                # Market-level ETFs (SPY, QQQ, IWM, DIA)
-                node.parent = "Market ETFs"
-                market_etf_nodes.append(node)
-            elif symbol in SECTOR_ETFS:
-                # Sector ETFs - store for horizontal bar display
-                node.parent = "Sector ETFs"
-                sector_etf_nodes.append(node)
-            elif quote_type == "ETF":
-                # Other ETFs (e.g., GLD, SLV) - put in "Other"
-                node.parent = "Other"
-                other_stocks.append(node)
-            elif sector:
+            # Classify stock by sector
+            if sector:
                 # Use yfinance sector to determine sector ETF
                 sector_etf = YFINANCE_SECTOR_TO_ETF.get(sector)
                 if sector_etf:
@@ -236,7 +609,7 @@ class HeatmapBuilder:
                 node.parent = "Other"
                 other_stocks.append(node)
 
-        # Build sector groups with ETF as header
+        # Build sector groups (stocks only)
         sectors: List[SectorGroup] = []
         for sector_etf in sorted(stocks_by_sector.keys()):
             stocks = stocks_by_sector[sector_etf]
@@ -245,7 +618,7 @@ class HeatmapBuilder:
                 sectors.append(
                     SectorGroup(
                         sector_id=sector_etf,
-                        sector_name=f"{sector_name} ({sector_etf})",  # e.g., "Technology (XLK)"
+                        sector_name=f"{sector_name} ({sector_etf})",
                         gics_sector=None,
                         stocks=stocks,
                     )
@@ -263,8 +636,9 @@ class HeatmapBuilder:
             )
 
         return HeatmapModel(
-            market_etfs=market_etf_nodes,
-            sector_etfs=sector_etf_nodes,  # For horizontal ETF bar
+            etf_dashboard=etf_dashboard,
+            market_etfs=[],  # Legacy - kept for backward compat
+            sector_etfs=[],  # Legacy - kept for backward compat
             sectors=sectors,
             generated_at=datetime.now(),
             size_metric=self._size_metric,
@@ -274,27 +648,253 @@ class HeatmapBuilder:
             regime_distribution=regime_counts,
         )
 
+    def _build_etf_dashboard(
+        self,
+        tickers: List[Dict[str, Any]],
+        cap_results: Dict[str, Any],
+        report_urls: Dict[str, str],
+    ) -> Dict[str, List[ETFCardData]]:
+        """
+        Build ETF dashboard card data organized by category.
+
+        Args:
+            tickers: List of ticker summary dicts from summary.json
+            cap_results: Market cap results from MarketCapService
+            report_urls: Symbol -> report URL mapping
+
+        Returns:
+            Dict mapping category key to list of ETFCardData
+        """
+        # Build ticker lookup for quick access
+        ticker_lookup = {t["symbol"]: t for t in tickers if t.get("symbol")}
+
+        dashboard: Dict[str, List[ETFCardData]] = {}
+
+        for category_key, category_config in ETF_CONFIG.items():
+            cards: List[ETFCardData] = []
+
+            for symbol in category_config["symbols"]:
+                ticker = ticker_lookup.get(symbol, {})
+                cap_result = cap_results.get(symbol)
+
+                # Get display name - prefer short_name from MarketCapService
+                display_name = self._get_etf_display_name(symbol, cap_result)
+
+                # Extract regime info
+                regime = self._extract_regime(ticker)
+                regime_name = REGIME_NAMES.get(regime, None) if regime else None
+
+                card = ETFCardData(
+                    symbol=symbol,
+                    display_name=display_name,
+                    category=category_key,
+                    regime=regime,
+                    regime_name=regime_name,
+                    close_price=ticker.get("close"),
+                    daily_change_pct=ticker.get("daily_change_pct"),
+                    report_url=report_urls.get(symbol, f"report.html?symbol={symbol}"),
+                )
+                cards.append(card)
+
+            if cards:
+                dashboard[category_key] = cards
+
+        return dashboard
+
+    def _get_etf_display_name(
+        self,
+        symbol: str,
+        cap_result: Optional[Any],
+    ) -> str:
+        """
+        Get display name for ETF from MarketCapService or fallback.
+
+        Priority:
+        1. MarketCapService.short_name (from yfinance)
+        2. Predefined name constants (MARKET_ETF_NAMES, SECTOR_ETF_NAMES, etc.)
+        3. Symbol itself
+        """
+        # Try short_name from MarketCapService
+        if cap_result and hasattr(cap_result, "short_name") and cap_result.short_name:
+            return cap_result.short_name
+
+        # Try predefined names
+        if symbol in MARKET_ETF_NAMES:
+            return MARKET_ETF_NAMES[symbol]
+        if symbol in SECTOR_ETF_NAMES:
+            return SECTOR_ETF_NAMES[symbol]
+        if symbol in OTHER_ETF_NAMES:
+            return OTHER_ETF_NAMES[symbol]
+
+        return symbol
+
+    def _ensure_css_asset(self, output_dir: Path) -> str:
+        """
+        Write CSS to assets/ directory and return relative path.
+
+        Args:
+            output_dir: Package output directory
+
+        Returns:
+            Relative path to CSS file (e.g., "assets/heatmap-theme.css")
+        """
+        assets_dir = output_dir / "assets"
+        assets_dir.mkdir(parents=True, exist_ok=True)
+
+        css_path = assets_dir / "heatmap-theme.css"
+        css_path.write_text(HEATMAP_CSS, encoding="utf-8")
+
+        logger.debug(f"Wrote heatmap CSS to {css_path}")
+        return "assets/heatmap-theme.css"
+
+    def _render_etf_dashboard_html(self, model: HeatmapModel) -> str:
+        """
+        Render ETF dashboard HTML from model data.
+
+        Args:
+            model: HeatmapModel with etf_dashboard populated
+
+        Returns:
+            HTML string for ETF dashboard section
+        """
+        if not model.etf_dashboard:
+            return ""
+
+        sections: List[str] = []
+
+        # Category display order
+        category_order = [
+            "market_indices",
+            "commodities",
+            "fixed_income",
+            "volatility",
+            "sectors",
+        ]
+
+        for category_key in category_order:
+            if category_key not in model.etf_dashboard:
+                continue
+
+            cards = model.etf_dashboard[category_key]
+            if not cards:
+                continue
+
+            # Get category config
+            config = ETF_CONFIG.get(category_key, {})
+            category_name = config.get("name", category_key.replace("_", " ").title())
+            card_style = config.get("card_style", "compact")
+
+            # Determine grid class
+            if card_style == "large":
+                grid_class = "hm-cards-large"
+            elif card_style == "mini":
+                grid_class = "hm-cards-mini"
+            else:
+                grid_class = "hm-cards-compact"
+
+            # Build cards HTML
+            cards_html = []
+            for card in cards:
+                card_html = self._render_etf_card_html(card, card_style)
+                cards_html.append(card_html)
+
+            section_html = f"""
+            <div class="hm-etf-category">
+                <div class="hm-category-label">{category_name}</div>
+                <div class="{grid_class}">
+                    {"".join(cards_html)}
+                </div>
+            </div>"""
+            sections.append(section_html)
+
+        return f"""
+        <div class="hm-dashboard">
+            <div class="hm-dashboard-title">Market Overview</div>
+            {"".join(sections)}
+        </div>"""
+
+    def _render_etf_card_html(self, card: ETFCardData, style: str) -> str:
+        """
+        Render a single ETF card HTML.
+
+        Args:
+            card: ETFCardData to render
+            style: Card style ("large", "compact", or "mini")
+
+        Returns:
+            HTML string for the card
+        """
+        # Regime class
+        regime_class = f"hm-regime-{card.regime.lower()}" if card.regime else "hm-regime-unknown"
+        regime_text = card.regime if card.regime else "—"
+
+        # Price formatting
+        price_str = f"${card.close_price:.2f}" if card.close_price else "—"
+
+        # Change formatting
+        if card.daily_change_pct is not None:
+            change_sign = "+" if card.daily_change_pct >= 0 else ""
+            change_class = "hm-positive" if card.daily_change_pct >= 0 else "hm-negative"
+            change_str = f"{change_sign}{card.daily_change_pct:.2f}%"
+        else:
+            change_class = "hm-neutral"
+            change_str = "—"
+
+        url = card.report_url or f"report.html?symbol={card.symbol}"
+
+        if style == "large":
+            return f"""
+            <a href="{url}" class="hm-card hm-card-large">
+                <div class="hm-card-header">
+                    <span class="hm-card-symbol">{card.symbol}</span>
+                    <span class="hm-card-name">{card.display_name}</span>
+                    <span class="hm-regime {regime_class}">{regime_text}</span>
+                </div>
+                <div class="hm-card-price">{price_str}</div>
+                <div class="hm-card-change {change_class}">{change_str}</div>
+            </a>"""
+        elif style == "mini":
+            return f"""
+            <a href="{url}" class="hm-card hm-card-mini">
+                <div class="hm-card-symbol">{card.symbol}</div>
+                <span class="hm-regime {regime_class}">{regime_text}</span>
+                <div class="hm-card-name">{card.display_name}</div>
+            </a>"""
+        else:  # compact
+            return f"""
+            <a href="{url}" class="hm-card hm-card-compact">
+                <span class="hm-regime {regime_class}">{regime_text}</span>
+                <span class="hm-card-symbol">{card.symbol}</span>
+                <span class="hm-card-price">{price_str}</span>
+                <span class="hm-card-change {change_class}">{change_str}</span>
+            </a>"""
+
     def render_heatmap_html(
         self,
         model: HeatmapModel,
         output_dir: Path,
     ) -> str:
         """
-        Render HeatmapModel to HTML page.
+        Render HeatmapModel to HTML page with ETF dashboard and stocks-only treemap.
 
         Args:
             model: HeatmapModel to render
             output_dir: Directory where HTML will be written
-            template_name: Output filename
 
         Returns:
             HTML content as string
         """
-        # Build Plotly-compatible data structure
+        # Ensure CSS asset is written to assets/
+        css_path = self._ensure_css_asset(output_dir)
+
+        # Build Plotly-compatible data structure (stocks only)
         plotly_data = self._build_plotly_data(model)
 
+        # Build ETF dashboard HTML
+        dashboard_html = self._render_etf_dashboard_html(model)
+
         # Generate HTML with embedded data
-        html = self._render_template(model, plotly_data, output_dir)
+        html = self._render_template(model, plotly_data, output_dir, css_path, dashboard_html)
 
         return html
 
@@ -439,37 +1039,10 @@ class HeatmapBuilder:
             return idx
 
         # Single root node - ALL other nodes must trace back to this
-        add_node("root", "Signal Universe", "", 0, "#1a1a2e", {"type": "root"})
+        # NOTE: Treemap is stocks-only; ETFs are in the dashboard above
+        add_node("root", "Stock Universe", "", 0, "#0c0f14", {"type": "root"})
 
-        # Market ETFs category (under root)
-        if model.market_etfs:
-            add_node("cat_market", "Market ETFs", "root", 0, "#374151", {"type": "category"})
-
-            for etf in model.market_etfs:
-                add_node(
-                    f"etf_{etf.symbol}",
-                    etf.label,
-                    "cat_market",
-                    etf.value if etf.value > 0 else 1.0,  # Ensure positive value
-                    etf.color,
-                    etf.to_dict(),
-                )
-
-        # Sector ETFs category (under root) - if any
-        if model.sector_etfs:
-            add_node("cat_sectors", "Sector ETFs", "root", 0, "#374151", {"type": "category"})
-
-            for etf in model.sector_etfs:
-                add_node(
-                    f"setf_{etf.symbol}",
-                    etf.label,
-                    "cat_sectors",
-                    etf.value if etf.value > 0 else 1.0,  # Ensure positive value
-                    etf.color,
-                    etf.to_dict(),
-                )
-
-        # Sector groups with stocks (under root)
+        # Sector groups with stocks (under root) - NO ETFs in treemap
         for sector in model.sectors:
             # Sector container - directly under root
             sector_id = f"sector_{sector.sector_id}"
@@ -478,7 +1051,7 @@ class HeatmapBuilder:
                 sector.sector_name,
                 "root",
                 0,  # Will be calculated from children
-                "#4b5563",
+                "#1c2230",  # Match CSS --bg-tertiary
                 {"type": "sector", "sector_id": sector.sector_id},
             )
 
@@ -537,11 +1110,31 @@ class HeatmapBuilder:
         model: HeatmapModel,
         plotly_data: Dict[str, Any],
         output_dir: Path,
+        css_path: str,
+        dashboard_html: str,
     ) -> str:
-        """Render the HTML template with embedded data."""
+        """
+        Render the HTML template with external CSS and ETF dashboard.
+
+        Args:
+            model: HeatmapModel with etf_dashboard populated
+            plotly_data: Plotly treemap data structure
+            output_dir: Output directory (for potential asset paths)
+            css_path: Relative path to external CSS file
+            dashboard_html: Pre-rendered ETF dashboard HTML
+
+        Returns:
+            Complete HTML page content
+        """
         # Embedded model data for frontend
         model_json = json.dumps(model.to_dict(), indent=2)
         plotly_json = json.dumps(plotly_data)
+
+        # Build regime distribution stats
+        regime_stats = "".join(
+            f'<div class="hm-stat"><span>{r}:</span><span class="hm-stat-value">{c}</span></div>'
+            for r, c in sorted(model.regime_distribution.items())
+        )
 
         html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -550,152 +1143,22 @@ class HeatmapBuilder:
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Signal Heatmap - {model.generated_at.strftime('%Y-%m-%d') if model.generated_at else 'N/A'}</title>
     <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
-    <style>
-        * {{
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }}
-        body {{
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #1a1a2e;
-            color: #eee;
-            min-height: 100vh;
-        }}
-        .header {{
-            padding: 20px;
-            background: #16213e;
-            border-bottom: 1px solid #0f3460;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }}
-        .header h1 {{
-            font-size: 1.5rem;
-            font-weight: 600;
-        }}
-        .header .meta {{
-            font-size: 0.875rem;
-            color: #9ca3af;
-        }}
-        .controls {{
-            padding: 15px 20px;
-            background: #1f2937;
-            display: flex;
-            gap: 20px;
-            flex-wrap: wrap;
-            align-items: center;
-        }}
-        .control-group {{
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }}
-        .control-group label {{
-            font-size: 0.875rem;
-            color: #9ca3af;
-        }}
-        .control-group select {{
-            padding: 6px 12px;
-            border-radius: 6px;
-            border: 1px solid #374151;
-            background: #111827;
-            color: #fff;
-            font-size: 0.875rem;
-            cursor: pointer;
-        }}
-        .legend {{
-            display: flex;
-            gap: 15px;
-            margin-left: auto;
-        }}
-        .legend-item {{
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            font-size: 0.75rem;
-        }}
-        .legend-color {{
-            width: 16px;
-            height: 16px;
-            border-radius: 3px;
-        }}
-        #heatmap {{
-            width: 100%;
-            height: calc(100vh - 140px);
-            min-height: 500px;
-        }}
-        .stats {{
-            padding: 10px 20px;
-            background: #111827;
-            display: flex;
-            gap: 30px;
-            font-size: 0.75rem;
-            color: #9ca3af;
-        }}
-        .stat {{
-            display: flex;
-            gap: 6px;
-        }}
-        .stat-value {{
-            color: #fff;
-            font-weight: 500;
-        }}
-        .etf-bar {{
-            padding: 12px 20px;
-            background: #0f172a;
-            border-bottom: 1px solid #1e293b;
-            display: flex;
-            gap: 8px;
-            flex-wrap: wrap;
-            align-items: center;
-        }}
-        .etf-bar-label {{
-            font-size: 0.75rem;
-            color: #64748b;
-            margin-right: 8px;
-        }}
-        .etf-chip {{
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 6px 12px;
-            border-radius: 6px;
-            background: #1e293b;
-            border: 1px solid #334155;
-            color: #e2e8f0;
-            font-size: 0.8rem;
-            font-weight: 500;
-            text-decoration: none;
-            transition: all 0.15s ease;
-            cursor: pointer;
-        }}
-        .etf-chip:hover {{
-            background: #334155;
-            border-color: #475569;
-        }}
-        .etf-chip .regime-dot {{
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-        }}
-        .etf-chip .etf-name {{
-            color: #94a3b8;
-            font-size: 0.7rem;
-            font-weight: 400;
-        }}
-    </style>
+    <link rel="stylesheet" href="{css_path}">
 </head>
-<body>
-    <div class="header">
+<body class="apex-hm">
+    <div class="hm-header">
         <h1>Signal Heatmap</h1>
         <div class="meta">
             Generated: {model.generated_at.strftime('%Y-%m-%d %H:%M') if model.generated_at else 'N/A'}
         </div>
     </div>
 
-    <div class="controls">
-        <div class="control-group">
+    <!-- ETF Dashboard -->
+    {dashboard_html}
+
+    <!-- Controls -->
+    <div class="hm-controls">
+        <div class="hm-control-group">
             <label>Color by:</label>
             <select id="colorMetric">
                 <option value="regime" {'selected' if model.color_metric == ColorMetric.REGIME else ''}>Regime (R0-R3)</option>
@@ -703,7 +1166,7 @@ class HeatmapBuilder:
                 <option value="alignment" {'selected' if model.color_metric == ColorMetric.ALIGNMENT_SCORE else ''}>Alignment Score</option>
             </select>
         </div>
-        <div class="control-group">
+        <div class="hm-control-group">
             <label>Size by:</label>
             <select id="sizeMetric">
                 <option value="market_cap" {'selected' if model.size_metric == SizeMetric.MARKET_CAP else ''}>Market Cap</option>
@@ -711,56 +1174,66 @@ class HeatmapBuilder:
                 <option value="equal" {'selected' if model.size_metric == SizeMetric.EQUAL else ''}>Equal Weight</option>
             </select>
         </div>
-        <div class="legend">
-            <div class="legend-item">
-                <div class="legend-color" style="background: #22c55e;"></div>
+        <div class="hm-legend">
+            <div class="hm-legend-item">
+                <div class="hm-legend-color" style="background: #22c55e;"></div>
                 <span>R0 Healthy</span>
             </div>
-            <div class="legend-item">
-                <div class="legend-color" style="background: #eab308;"></div>
+            <div class="hm-legend-item">
+                <div class="hm-legend-color" style="background: #f59e0b;"></div>
                 <span>R1 Choppy</span>
             </div>
-            <div class="legend-item">
-                <div class="legend-color" style="background: #ef4444;"></div>
+            <div class="hm-legend-item">
+                <div class="hm-legend-color" style="background: #ef4444;"></div>
                 <span>R2 Risk-Off</span>
             </div>
-            <div class="legend-item">
-                <div class="legend-color" style="background: #3b82f6;"></div>
+            <div class="hm-legend-item">
+                <div class="hm-legend-color" style="background: #3b82f6;"></div>
                 <span>R3 Rebound</span>
             </div>
         </div>
     </div>
 
-    <div class="stats">
-        <div class="stat">
+    <!-- Stats -->
+    <div class="hm-stats">
+        <div class="hm-stat">
             <span>Symbols:</span>
-            <span class="stat-value">{model.symbol_count}</span>
+            <span class="hm-stat-value">{model.symbol_count}</span>
         </div>
-        <div class="stat">
+        <div class="hm-stat">
             <span>Missing Caps:</span>
-            <span class="stat-value">{model.cap_missing_count}</span>
+            <span class="hm-stat-value">{model.cap_missing_count}</span>
         </div>
-        {''.join(f'<div class="stat"><span>{r}:</span><span class="stat-value">{c}</span></div>' for r, c in sorted(model.regime_distribution.items()))}
+        {regime_stats}
     </div>
 
-    <div class="etf-bar">
-        <span class="etf-bar-label">Sector ETFs:</span>
-        {self._render_etf_chips(model.sector_etfs)}
+    <!-- Treemap (Stocks Only) -->
+    <div class="hm-treemap-container">
+        <div id="heatmap"></div>
     </div>
-
-    <div id="heatmap"></div>
 
     <script>
         // Embedded model data
         const modelData = {model_json};
         const plotlyData = {plotly_json};
 
-        // Report URL mapping for click navigation
+        // Report URL mapping for click navigation (from etf_dashboard and sectors)
         const reportUrls = {{}};
-        modelData.market_etfs.forEach(e => {{ if (e.report_url) reportUrls[e.symbol] = e.report_url; }});
-        modelData.sector_etfs.forEach(e => {{ if (e.report_url) reportUrls[e.symbol] = e.report_url; }});
+
+        // Build URLs from ETF dashboard (new structure)
+        if (modelData.etf_dashboard) {{
+            Object.values(modelData.etf_dashboard).forEach(cards => {{
+                cards.forEach(card => {{
+                    if (card.report_url) reportUrls[card.symbol] = card.report_url;
+                }});
+            }});
+        }}
+
+        // Build URLs from sectors (stocks in treemap)
         modelData.sectors.forEach(s => {{
-            s.stocks.forEach(stock => {{ if (stock.report_url) reportUrls[stock.symbol] = stock.report_url; }});
+            s.stocks.forEach(stock => {{
+                if (stock.report_url) reportUrls[stock.symbol] = stock.report_url;
+            }});
         }});
 
         // Debug: Check if Plotly loaded
@@ -885,7 +1358,7 @@ class HeatmapBuilder:
             Plotly.restyle('heatmap', {{'values': [newValues], 'hovertemplate': newTemplate}});
         }}
 
-        // Initial render
+        // Initial render - stocks-only treemap
         const trace = {{
             type: 'treemap',
             ids: plotlyData.ids,
@@ -895,10 +1368,10 @@ class HeatmapBuilder:
             customdata: plotlyData.customdata,
             marker: {{
                 colors: plotlyData.colors,
-                line: {{ width: 1, color: '#1a1a2e' }}
+                line: {{ width: 1, color: '#0c0f14' }}  // Match CSS --bg-primary
             }},
             textinfo: 'label',
-            textfont: {{ size: 14, color: '#fff' }},
+            textfont: {{ size: 14, color: '#f0f4f8' }},  // Match CSS --text-primary
             // Hover template - customdata fields accessed via customdata.field
             // Note: Plotly shows empty string for null values
             // Bug 1 fix: Dynamic unit suffix based on size metric
@@ -912,13 +1385,21 @@ class HeatmapBuilder:
             maxdepth: 3  // Show root -> category -> items
         }};
 
+        // Calculate treemap height - account for ETF dashboard
+        function calculateTreemapHeight() {{
+            const dashboard = document.querySelector('.hm-dashboard');
+            const dashboardHeight = dashboard ? dashboard.offsetHeight : 0;
+            // Header + dashboard + controls + stats + some padding
+            const reservedHeight = 60 + dashboardHeight + 50 + 40 + 20;
+            return Math.max(500, window.innerHeight - reservedHeight);
+        }}
+
         const layout = {{
             margin: {{ t: 30, l: 10, r: 10, b: 10 }},
-            paper_bgcolor: '#1a1a2e',
-            font: {{ color: '#fff' }},
-            // Explicit sizing to prevent empty render
+            paper_bgcolor: '#0c0f14',  // Match CSS --bg-primary
+            font: {{ color: '#f0f4f8' }},  // Match CSS --text-primary
             autosize: true,
-            height: Math.max(500, window.innerHeight - 140)
+            height: calculateTreemapHeight()
         }};
 
         const config = {{
@@ -931,8 +1412,7 @@ class HeatmapBuilder:
         Plotly.newPlot('heatmap', [trace], layout, config).then(function(gd) {{
             console.log('Plotly render complete!');
 
-            // CRITICAL: .on() is a Plotly method added AFTER newPlot completes
-            // Click handler for navigation - must be inside .then()
+            // Click handler for navigation
             gd.on('plotly_click', function(data) {{
                 if (data && data.points && data.points.length > 0) {{
                     const point = data.points[0];
@@ -949,7 +1429,7 @@ class HeatmapBuilder:
             console.error('Plotly render error:', err);
         }});
 
-        // Control handlers (these use standard DOM events, not Plotly)
+        // Control handlers
         document.getElementById('colorMetric').addEventListener('change', function(e) {{
             updateColors(e.target.value);
         }});
@@ -961,7 +1441,7 @@ class HeatmapBuilder:
         // Handle window resize
         window.addEventListener('resize', function() {{
             Plotly.relayout('heatmap', {{
-                height: Math.max(500, window.innerHeight - 140)
+                height: calculateTreemapHeight()
             }});
         }});
     </script>

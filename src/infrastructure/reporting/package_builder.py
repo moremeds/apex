@@ -693,6 +693,35 @@ class PackageBuilder:
 
         return summary
 
+    def _compute_daily_change(self, df: pd.DataFrame, symbol: str) -> Optional[float]:
+        """
+        Compute daily change % from last two closes.
+
+        Args:
+            df: DataFrame with OHLCV data
+            symbol: Symbol for logging
+
+        Returns:
+            Daily change percentage rounded to 2 decimals, or None if insufficient data
+        """
+        if df is None or df.empty:
+            return None
+        if "close" not in df.columns or len(df) < 2:
+            return None
+
+        prev_close = df["close"].iloc[-2]
+        curr_close = df["close"].iloc[-1]
+
+        # Validate closes
+        if pd.isna(prev_close) or pd.isna(curr_close):
+            return None
+        if prev_close <= 0:
+            logger.warning(f"[{symbol}] Invalid prev_close for daily_change: {prev_close}")
+            return None
+
+        daily_change = ((curr_close - prev_close) / prev_close) * 100
+        return round(daily_change, 2)
+
     def _build_ticker_summary(
         self,
         symbol: str,
@@ -719,6 +748,20 @@ class PackageBuilder:
                 break
 
         summary: Dict[str, Any] = {"symbol": symbol}
+
+        # Compute daily_change_pct, volume, and close from DataFrame (for heatmap dashboard)
+        summary["daily_change_pct"] = self._compute_daily_change(df, symbol)
+        summary["volume"] = (
+            int(df["volume"].iloc[-1])
+            if df is not None and "volume" in df.columns and not pd.isna(df["volume"].iloc[-1])
+            else None
+        )
+        # Close at top level for easy access by heatmap
+        summary["close"] = (
+            round(float(df["close"].iloc[-1]), 2)
+            if df is not None and "close" in df.columns and not pd.isna(df["close"].iloc[-1])
+            else None
+        )
 
         # Add full regime info if available (1:1 feature parity)
         if regime:
