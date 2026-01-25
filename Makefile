@@ -1,7 +1,7 @@
 # APEX Development Makefile
 # Quick commands for common development tasks
 
-.PHONY: install lint format type-check dead-code complexity quality test test-all coverage clean help diagrams diagrams-classes diagrams-deps diagrams-flows validate-fast validate signals-test signals signals-deploy
+.PHONY: install run run-dev run-prod run-demo run-headless lint format type-check dead-code complexity quality test test-all coverage clean help diagrams diagrams-classes diagrams-deps diagrams-flows validate-fast validate signals-test signals signals-deploy
 
 # Virtual environment - use .venv/bin executables directly
 VENV := .venv/bin
@@ -19,6 +19,12 @@ help:
 	@echo ""
 	@echo "$(GREEN)Setup:$(RESET)"
 	@echo "  make install        Install all dependencies with uv"
+	@echo ""
+	@echo "$(GREEN)Run:$(RESET)"
+	@echo "  make run            Start TUI dashboard (dev mode, verbose)"
+	@echo "  make run-prod       Start TUI dashboard (production mode)"
+	@echo "  make run-demo       Start TUI dashboard (demo/offline mode)"
+	@echo "  make run-headless   Run without TUI (headless mode)"
 	@echo ""
 	@echo "$(GREEN)Quality:$(RESET)"
 	@echo "  make lint           Check formatting (black, isort, flake8)"
@@ -53,6 +59,46 @@ install:
 	uv venv
 	. .venv/bin/activate && uv pip install -e ".[dev,observability]"
 	@echo "$(GREEN)✓ Installation complete. Run 'source .venv/bin/activate' to activate.$(RESET)"
+
+# ═══════════════════════════════════════════════════════════════
+# Run TUI Dashboard
+# ═══════════════════════════════════════════════════════════════
+
+run: run-dev
+
+run-dev:
+	@echo "$(BOLD)═══════════════════════════════════════════════════════════════$(RESET)"
+	@echo "$(BOLD)  APEX Risk Monitor - Development Mode$(RESET)"
+	@echo "$(BOLD)═══════════════════════════════════════════════════════════════$(RESET)"
+	@echo ""
+	@echo "$(YELLOW)  TUI Controls:$(RESET)"
+	@echo "    $(GREEN)1-6$(RESET)  Switch views (Summary/Positions/Signals/Introspect/Data/Lab)"
+	@echo "    $(GREEN)q$(RESET)    Quit"
+	@echo "    $(GREEN)^C$(RESET)   Graceful shutdown"
+	@echo ""
+	@echo "$(YELLOW)  Connecting to IB Gateway (port 4001)...$(RESET)"
+	@echo ""
+	$(PYTHON) main.py --env dev --verbose
+
+run-prod:
+	@echo "$(BOLD)═══════════════════════════════════════════════════════════════$(RESET)"
+	@echo "$(BOLD)  APEX Risk Monitor - Production Mode$(RESET)"
+	@echo "$(BOLD)═══════════════════════════════════════════════════════════════$(RESET)"
+	@echo ""
+	$(PYTHON) main.py --env prod
+
+run-demo:
+	@echo "$(BOLD)═══════════════════════════════════════════════════════════════$(RESET)"
+	@echo "$(BOLD)  APEX Risk Monitor - Demo Mode (Offline)$(RESET)"
+	@echo "$(BOLD)═══════════════════════════════════════════════════════════════$(RESET)"
+	@echo ""
+	@echo "$(YELLOW)  Running with sample data (no broker connection required)$(RESET)"
+	@echo ""
+	$(PYTHON) main.py --env demo --verbose
+
+run-headless:
+	@echo "$(BOLD)Starting APEX in headless mode (no TUI)...$(RESET)"
+	$(PYTHON) main.py --env dev --no-dashboard --verbose
 
 # ═══════════════════════════════════════════════════════════════
 # Code Quality
