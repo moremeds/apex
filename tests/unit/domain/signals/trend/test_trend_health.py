@@ -11,10 +11,9 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from src.domain.signals.trend.health_analyzer import TrendHealthAnalyzer, TrendHealthResult
-from src.domain.signals.trend.hh_hl_detector import HHHLDetector, HHHLResult, SwingPoint
+from src.domain.signals.trend.hh_hl_detector import HHHLDetector, HHHLResult
 from src.domain.signals.trend.ma_alignment import MAAlignmentResult, MAAlignmentScorer
 
 
