@@ -40,7 +40,7 @@ jobs:
         run: |
           source .venv/bin/activate
           python -m src.runners.signal_runner --live \
-            --universe config/signals/regime_verification_universe.yaml \
+            --universe config/universe.yaml \
             --timeframes 1d 4h 1h \
             --format package \
             --html-output reports/validation/signal_report

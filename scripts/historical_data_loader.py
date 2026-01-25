@@ -442,7 +442,7 @@ async def cmd_backfill(args: argparse.Namespace) -> int:
         symbols.update(config_symbols)
         print(f"  CLI: {len(config_symbols)} symbols specified")
     else:
-        universe_path = Path("config/signals/universe.yaml")
+        universe_path = Path("config/universe.yaml")
         config_symbols = load_universe_symbols(universe_path)
         symbols.update(config_symbols)
         print(f"  Config: {len(config_symbols)} symbols from universe.yaml")
@@ -1150,7 +1150,7 @@ def main() -> int:
     )
     backfill_parser.add_argument(
         "--symbols", "-s",
-        help="Comma-separated symbols (default: from config/signals/universe.yaml)",
+        help="Comma-separated symbols (default: from config/universe.yaml)",
     )
     backfill_parser.add_argument(
         "--timeframes", "-t",

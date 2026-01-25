@@ -122,11 +122,13 @@ validate-fast:
 		--timeframes 1d --folds 2 --no-optuna
 
 # Full validation suite (signal report + quality gates + turning points)
+# Uses unified config/universe.yaml
 validate:
 	@echo "$(BOLD)Running full validation suite...$(RESET)"
 	@echo "Step 1/3: Generating signal report..."
 	$(PYTHON) -m src.runners.signal_runner --live \
-		--symbols SPY QQQ AAPL MSFT NVDA \
+		--universe config/universe.yaml \
+		--subset pr_validation \
 		--timeframes 1d 4h 1h \
 		--format package \
 		--html-output reports/validation/signal_report
@@ -149,7 +151,6 @@ signals-test:
 		--symbols SPY QQQ AAPL NVDA JPM XOM UNH HD DIS TSLA AMD META \
 		--timeframes 1d \
 		--format package \
-		--with-heatmap \
 		--html-output /tmp/signal_test
 	@echo ""
 	@echo "$(GREEN)Starting HTTP server at http://localhost:8080$(RESET)"
@@ -157,31 +158,79 @@ signals-test:
 	cd /tmp/signal_test && python3 -m http.server 8080
 
 # Full production run with ALL features (update-caps, retrain, heatmap, validate)
+# Uses unified config/universe.yaml for all operations
 signals:
 	@echo "$(BOLD)Full signal pipeline...$(RESET)"
 	@echo "Step 1/3: Updating market caps..."
 	$(PYTHON) -m src.runners.signal_runner --update-market-caps \
-		--universe config/signals/universe.yaml
-	@echo "Step 2/3: Retraining models..."
+		--universe config/universe.yaml
+	@echo "Step 2/3: Retraining models (full universe)..."
 	$(PYTHON) -m src.runners.signal_runner --retrain-models \
-		--model-symbols SPY QQQ AAPL NVDA TSLA
+		--universe config/universe.yaml
 	@echo "Step 3/3: Generating report..."
 	$(PYTHON) -m src.runners.signal_runner --live \
-		--universe config/signals/universe.yaml \
+		--universe config/universe.yaml \
 		--timeframes 1d 4h 1h \
 		--format package \
-		--with-heatmap \
-		--validate \
 		--html-output out/signals
 	@echo "$(GREEN)✓ Report: out/signals/index.html$(RESET)"
 	@echo "$(GREEN)✓ Heatmap: out/signals/heatmap.html$(RESET)"
 
-# Deploy to GitHub Pages (calls signals first)
+# Deploy to GitHub Pages (full pipeline + deploy in one command)
 signals-deploy:
-	@echo "$(BOLD)Generating and deploying signal report...$(RESET)"
-	$(MAKE) signals
-	$(PYTHON) -m src.runners.signal_runner --deploy github \
-		--html-output out/signals
+	@echo "$(BOLD)Generating and deploying signal report to GitHub Pages...$(RESET)"
+	@echo "Step 1/3: Updating market caps..."
+	$(PYTHON) -m src.runners.signal_runner --update-market-caps \
+		--universe config/universe.yaml
+	@echo "Step 2/3: Retraining models (full universe)..."
+	$(PYTHON) -m src.runners.signal_runner --retrain-models \
+		--universe config/universe.yaml
+	@echo "Step 3/3: Generating report and deploying to GitHub Pages..."
+	$(PYTHON) -m src.runners.signal_runner --live \
+		--universe config/universe.yaml \
+		--timeframes 1d 4h 1h \
+		--format package \
+		--html-output out/signals \
+		--deploy github
+	@echo "$(GREEN)✓ Report deployed to GitHub Pages$(RESET)"
+
+# Deploy existing out/signals directory (no regeneration)
+signals-push:
+	@echo "$(BOLD)Deploying existing out/signals to GitHub Pages...$(RESET)"
+	@test -d out/signals || (echo "$(RED)Error: out/signals not found. Run 'make signals' first.$(RESET)" && exit 1)
+	$(eval REMOTE_URL := $(shell git remote get-url origin))
+	@rm -rf /tmp/gh-pages-deploy
+	@cp -r out/signals /tmp/gh-pages-deploy
+	@cd /tmp/gh-pages-deploy && \
+		git init -b gh-pages && \
+		git add -A && \
+		git commit -m "Deploy signal report $$(date +%Y-%m-%d_%H-%M)" && \
+		git remote add origin $(REMOTE_URL) && \
+		git push -f origin gh-pages
+	@rm -rf /tmp/gh-pages-deploy
+	@echo "$(GREEN)✓ Deployed to GitHub Pages$(RESET)"
+
+# Serve local report (for testing before deploy)
+signals-serve:
+	@echo "$(BOLD)Serving signal report at http://localhost:8080$(RESET)"
+	@test -d out/signals || (echo "$(RED)Error: out/signals not found. Run 'make signals' first.$(RESET)" && exit 1)
+	@echo "$(YELLOW)Press Ctrl+C to stop$(RESET)"
+	@cd out/signals && python3 -m http.server 8080
+
+# Quick deploy (skip retraining - use existing models)
+signals-deploy-quick:
+	@echo "$(BOLD)Quick deploy (skip retraining)...$(RESET)"
+	@echo "Step 1/2: Updating market caps..."
+	$(PYTHON) -m src.runners.signal_runner --update-market-caps \
+		--universe config/universe.yaml
+	@echo "Step 2/2: Generating report and deploying..."
+	$(PYTHON) -m src.runners.signal_runner --live \
+		--universe config/universe.yaml \
+		--timeframes 1d 4h 1h \
+		--format package \
+		--html-output out/signals \
+		--deploy github
+	@echo "$(GREEN)✓ Report deployed to GitHub Pages$(RESET)"
 
 # ═══════════════════════════════════════════════════════════════
 # Diagrams

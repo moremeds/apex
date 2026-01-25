@@ -61,7 +61,7 @@ concurrency:
 
 env:
   PYTHON_VERSION: '3.13'
-  VALIDATION_UNIVERSE: config/signals/regime_verification_universe.yaml
+  VALIDATION_UNIVERSE: config/universe.yaml
   REPORTS_DIR: reports/validation
 
 jobs:

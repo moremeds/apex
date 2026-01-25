@@ -491,9 +491,9 @@ class SignalPipelineProcessor:
             output_path: Path to save the HTML report.
         """
         from src.domain.signals.indicators.registry import get_indicator_registry
-        from src.domain.signals.reporting import SignalReportGenerator
-        from src.domain.signals.reporting.package_builder import PackageBuilder
         from src.domain.signals.rules import ALL_RULES
+        from src.infrastructure.reporting import SignalReportGenerator
+        from src.infrastructure.reporting.package_builder import PackageBuilder
 
         print(f"\nGenerating HTML report...")
 

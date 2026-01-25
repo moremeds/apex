@@ -22,8 +22,8 @@ import pandas as pd
 
 from src.utils.logging_setup import get_logger
 
-from ..divergence.cross_divergence import CrossIndicatorAnalyzer
-from ..models import ConfluenceScore
+from src.domain.signals.divergence.cross_divergence import CrossIndicatorAnalyzer
+from src.domain.signals.models import ConfluenceScore
 from .description_generator import generate_indicator_description, generate_rule_description
 from .regime_report import (
     generate_components_4block_html,
@@ -42,9 +42,9 @@ from .regime_report import (
 if TYPE_CHECKING:
     from src.domain.services.regime import ParamProvenanceSet, RecommenderResult
 
-    from ..indicators.base import Indicator
-    from ..indicators.regime import RegimeOutput
-    from ..models import SignalRule
+    from src.domain.signals.indicators.base import Indicator
+    from src.domain.signals.indicators.regime import RegimeOutput
+    from src.domain.signals.models import SignalRule
 
 logger = get_logger(__name__)
 
@@ -515,7 +515,7 @@ def detect_historical_signals(
     Returns:
         List of detected signal events with timestamps and details
     """
-    from ..models import ConditionType
+    from src.domain.signals.models import ConditionType
 
     signals: List[Dict[str, Any]] = []
     timestamps = df.index.tolist()
@@ -667,7 +667,7 @@ class SignalReportGenerator:
         Returns:
             Dict mapping symbol to RegimeOutput
         """
-        from ..indicators.regime import RegimeDetectorIndicator, RegimeOutput
+        from src.domain.signals.indicators.regime import RegimeDetectorIndicator, RegimeOutput
 
         regime_outputs: Dict[str, RegimeOutput] = {}
 
@@ -808,7 +808,7 @@ class SignalReportGenerator:
             get_regime_params,
         )
 
-        from ..indicators.regime import RegimeDetectorIndicator
+        from src.domain.signals.indicators.regime import RegimeDetectorIndicator
 
         provenance_dict: Dict[str, ParamProvenanceSet] = {}
         recommendations_dict: Dict[str, RecommenderResult] = {}

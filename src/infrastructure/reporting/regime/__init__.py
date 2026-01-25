@@ -14,7 +14,7 @@ This package contains the regime report components broken down into logical modu
 - utils: Shared utilities and helpers
 
 Usage:
-    from src.domain.signals.reporting.regime import (
+    from src.infrastructure.reporting.regime import (
         generate_report_header_html,
         generate_regime_one_liner_html,
         generate_methodology_html,

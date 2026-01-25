@@ -3,7 +3,7 @@ Universe Consistency Tests (Drift Guard).
 
 These tests ensure that the universe YAML remains the single source of truth
 and that derived mappings are consistent. Run these tests after any changes
-to config/signals/regime_verification_universe.yaml.
+to config/universe.yaml.
 
 Tests verify:
 1. All YAML symbols have valid sector assignments
@@ -87,7 +87,8 @@ class TestDerivedMappings:
         # Known overlaps: stocks that appear in multiple sectors
         # These map to the LAST sector processed (dict iteration order)
         # NVDA/AMD appear in both technology and semiconductors
-        known_overlaps = {"NVDA", "AMD"}
+        # GOOGL/META appear in both technology and communication_services
+        known_overlaps = {"NVDA", "AMD", "GOOGL", "META"}
 
         for sector in universe.sectors.values():
             for stock in sector.stocks:

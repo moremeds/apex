@@ -9,7 +9,7 @@ Three-Layer Architecture:
 3. heatmap.js - Frontend Plotly rendering with interactive toggles
 
 Usage:
-    from src.domain.signals.reporting.heatmap_builder import HeatmapBuilder
+    from src.infrastructure.reporting.heatmap_builder import HeatmapBuilder
 
     builder = HeatmapBuilder(market_cap_service)
     model = builder.build_heatmap_model(summary_data, universe_config)

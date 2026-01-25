@@ -59,7 +59,7 @@ jobs:
         run: |
           source .venv/bin/activate
           python -m src.runners.validation_runner holdout \
-            --universe config/validation/regime_universe.yaml \
+            --universe config/universe.yaml \
             --timeframes 1d 4h \
             --output reports/holdout_validation.json
 

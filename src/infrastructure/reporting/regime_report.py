@@ -5,7 +5,7 @@ This module has been refactored into the `regime/` subpackage for better modular
 This file maintains backward compatibility by re-exporting all public functions.
 
 For new code, prefer importing directly from the subpackage:
-    from src.domain.signals.reporting.regime import (
+    from src.infrastructure.reporting.regime import (
         generate_report_header_html,
         generate_methodology_html,
         generate_decision_tree_html,
