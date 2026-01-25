@@ -41,7 +41,10 @@ import pandas as pd
 
 from src.utils.logging_setup import get_logger
 
-from src.domain.signals.data.quality_validator import get_last_valid_close, validate_close_for_regime
+from src.domain.signals.data.quality_validator import (
+    get_last_valid_close,
+    validate_close_for_regime,
+)
 
 # Import regime HTML generators for 1:1 feature parity
 from .regime import (

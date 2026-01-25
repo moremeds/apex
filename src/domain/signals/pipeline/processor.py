@@ -294,6 +294,8 @@ class SignalPipelineProcessor:
 
     def _print_stats(self) -> None:
         """Print final pipeline statistics."""
+        if not self._service:
+            return
         stats = self._service.stats
         time_str = (
             self._display_tz.format_with_tz(now_utc(), "%H:%M:%S %Z")

@@ -17,7 +17,16 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime
 from functools import wraps
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, TypeVar
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Awaitable,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    TypeVar,
+)
 
 from tenacity import (
     retry,
@@ -34,11 +43,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Type variable for generic retry decorator
+# Type variable for async function return type
 T = TypeVar("T")
 
 
-def db_retry() -> Callable[[Callable[..., T]], Callable[..., T]]:
+def db_retry() -> Callable[[Callable[..., Awaitable[T]]], Callable[..., Awaitable[T]]]:
     """
     Retry decorator for database operations.
 
@@ -51,7 +60,9 @@ def db_retry() -> Callable[[Callable[..., T]], Callable[..., T]]:
     """
     import asyncpg
 
-    def decorator(func: Callable[..., T]) -> Callable[..., T]:
+    def decorator(
+        func: Callable[..., Awaitable[T]],
+    ) -> Callable[..., Awaitable[T]]:
         @retry(
             stop=stop_after_attempt(3),
             wait=wait_exponential(multiplier=1, min=1, max=10),
@@ -77,7 +88,7 @@ def db_retry() -> Callable[[Callable[..., T]], Callable[..., T]]:
         async def wrapper(*args: Any, **kwargs: Any) -> T:
             return await func(*args, **kwargs)
 
-        return wrapper
+        return wrapper  # type: ignore[return-value]
 
     return decorator
 
@@ -172,7 +183,7 @@ class TASignalRepository(SignalPersistencePort):
     # -------------------------------------------------------------------------
 
     @db_retry()
-    async def save_signal(self, signal: Any) -> None:
+    async def save_signal(self, signal: Any) -> None:  # type: ignore[override]
         """
         Persist a trading signal.
 
@@ -354,7 +365,7 @@ class TASignalRepository(SignalPersistencePort):
     # -------------------------------------------------------------------------
 
     @db_retry()
-    async def save_indicator(
+    async def save_indicator(  # type: ignore[override]
         self,
         symbol: str,
         timeframe: str,
@@ -459,7 +470,7 @@ class TASignalRepository(SignalPersistencePort):
     # -------------------------------------------------------------------------
 
     @db_retry()
-    async def save_confluence(
+    async def save_confluence(  # type: ignore[override]
         self,
         symbol: str,
         timeframe: str,
