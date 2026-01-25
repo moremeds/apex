@@ -494,8 +494,7 @@ class SignalPipelineProcessor:
         """
         from src.domain.signals.indicators.registry import get_indicator_registry
         from src.domain.signals.rules import ALL_RULES
-        from src.infrastructure.reporting import SignalReportGenerator
-        from src.infrastructure.reporting.package_builder import PackageBuilder
+        from src.infrastructure.reporting import PackageBuilder, SignalReportGenerator
 
         print(f"\nGenerating HTML report...")
 

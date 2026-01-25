@@ -13,8 +13,10 @@ from .description_generator import (
     generate_indicator_description,
     generate_rule_description,
 )
-from .heatmap_builder import HeatmapBuilder
-from .heatmap_model import (
+
+# Heatmap sub-package
+from .heatmap import HeatmapBuilder
+from .heatmap.model import (
     ColorMetric,
     HeatmapModel,
     SectorGroup,
@@ -24,7 +26,11 @@ from .heatmap_model import (
     get_daily_change_color,
     get_regime_color,
 )
-from .package_builder import PackageBuilder
+
+# Package sub-package
+from .package import PackageBuilder
+
+# Regime reports
 from .regime_report import (
     build_regime_data_json,
     generate_action_summary_html,
@@ -34,7 +40,11 @@ from .regime_report import (
     generate_regime_styles,
     generate_regime_timeline_html,
 )
-from .signal_report_generator import SignalReportGenerator
+
+# Signal report sub-package
+from .signal_report import SignalReportGenerator
+from .signal_report.confluence_analyzer import calculate_confluence, derive_indicator_states
+from .signal_report.signal_detection import detect_historical_signals
 from .snapshot_builder import SnapshotBuilder, SnapshotDiff
 
 __all__ = [
@@ -45,6 +55,10 @@ __all__ = [
     "SnapshotDiff",
     "generate_indicator_description",
     "generate_rule_description",
+    # Confluence and signal detection
+    "calculate_confluence",
+    "derive_indicator_states",
+    "detect_historical_signals",
     # Regime reports
     "generate_regime_dashboard_html",
     "generate_regime_timeline_html",

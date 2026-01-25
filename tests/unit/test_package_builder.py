@@ -14,7 +14,7 @@ from unittest.mock import MagicMock
 import pandas as pd
 import pytest
 
-from src.infrastructure.reporting.package_builder import (
+from src.infrastructure.reporting.package import (
     PACKAGE_FORMAT_VERSION,
     PackageBuilder,
     PackageManifest,
