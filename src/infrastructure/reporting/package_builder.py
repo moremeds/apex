@@ -39,12 +39,11 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 
-from src.utils.logging_setup import get_logger
-
 from src.domain.signals.data.quality_validator import (
     get_last_valid_close,
     validate_close_for_regime,
 )
+from src.utils.logging_setup import get_logger
 
 # Import regime HTML generators for 1:1 feature parity
 from .regime import (
@@ -612,9 +611,9 @@ class PackageBuilder:
 
         PR-B: Added run_data_quality section for aggregate quality metrics.
         """
-        from .signal_report_generator import calculate_confluence
-
         from src.domain.signals.schemas import DataQualityReport
+
+        from .signal_report_generator import calculate_confluence
 
         summary: Dict[str, Any] = {
             "version": PACKAGE_FORMAT_VERSION,

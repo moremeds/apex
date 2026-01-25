@@ -20,10 +20,10 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 
-from src.utils.logging_setup import get_logger
-
 from src.domain.signals.divergence.cross_divergence import CrossIndicatorAnalyzer
 from src.domain.signals.models import ConfluenceScore
+from src.utils.logging_setup import get_logger
+
 from .description_generator import generate_indicator_description, generate_rule_description
 from .regime_report import (
     generate_components_4block_html,
@@ -41,7 +41,6 @@ from .regime_report import (
 
 if TYPE_CHECKING:
     from src.domain.services.regime import ParamProvenanceSet, RecommenderResult
-
     from src.domain.signals.indicators.base import Indicator
     from src.domain.signals.indicators.regime import RegimeOutput
     from src.domain.signals.models import SignalRule
@@ -807,7 +806,6 @@ class SignalReportGenerator:
             RecommenderResult,
             get_regime_params,
         )
-
         from src.domain.signals.indicators.regime import RegimeDetectorIndicator
 
         provenance_dict: Dict[str, ParamProvenanceSet] = {}
