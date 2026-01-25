@@ -2,6 +2,7 @@
 
 import time
 from datetime import datetime
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -36,7 +37,7 @@ def sample_signal():
 class TestSignalRouterBasic:
     """Test basic signal routing."""
 
-    def test_route_publishes_event(self, mock_event_bus, sample_signal):
+    def test_route_publishes_event(self, mock_event_bus: Any, sample_signal: Any) -> None:
         """Signal should be published to event bus."""
         router = SignalRouter(mock_event_bus)
         result = router.route(sample_signal)
@@ -46,7 +47,7 @@ class TestSignalRouterBasic:
         call_args = mock_event_bus.publish.call_args
         assert call_args[0][0] == EventType.TRADING_SIGNAL
 
-    def test_route_increments_stats(self, mock_event_bus, sample_signal):
+    def test_route_increments_stats(self, mock_event_bus: Any, sample_signal: Any) -> None:
         """Routing should increment statistics."""
         router = SignalRouter(mock_event_bus)
         router.route(sample_signal)
@@ -54,7 +55,7 @@ class TestSignalRouterBasic:
         assert router.stats.total_received == 1
         assert router.stats.total_published == 1
 
-    def test_route_logs_signal(self, mock_event_bus, sample_signal):
+    def test_route_logs_signal(self, mock_event_bus: Any, sample_signal: Any) -> None:
         """Routing should log signal."""
         router = SignalRouter(mock_event_bus)
 
@@ -66,7 +67,7 @@ class TestSignalRouterBasic:
 class TestSignalRouterFiltering:
     """Test signal filtering."""
 
-    def test_filter_by_strength(self, mock_event_bus, sample_signal):
+    def test_filter_by_strength(self, mock_event_bus: Any, sample_signal: Any) -> None:
         """Signals below min strength should be filtered."""
         config = SignalRouterConfig(min_strength=0.9)
         router = SignalRouter(mock_event_bus, config)
@@ -78,7 +79,7 @@ class TestSignalRouterFiltering:
         assert router.stats.filtered == 1
         mock_event_bus.publish.assert_not_called()
 
-    def test_filter_by_direction(self, mock_event_bus, sample_signal):
+    def test_filter_by_direction(self, mock_event_bus: Any, sample_signal: Any) -> None:
         """Signals with disallowed direction should be filtered."""
         config = SignalRouterConfig(allowed_directions={"LONG"})
         router = SignalRouter(mock_event_bus, config)
@@ -89,7 +90,7 @@ class TestSignalRouterFiltering:
         assert result is False
         assert router.stats.filtered == 1
 
-    def test_allow_all_directions(self, mock_event_bus, sample_signal):
+    def test_allow_all_directions(self, mock_event_bus: Any, sample_signal: Any) -> None:
         """Default config should allow all directions."""
         router = SignalRouter(mock_event_bus)
 
@@ -104,7 +105,7 @@ class TestSignalRouterFiltering:
 class TestSignalRouterRateLimiting:
     """Test rate limiting."""
 
-    def test_rate_limit_blocks_rapid_signals(self, mock_event_bus, sample_signal):
+    def test_rate_limit_blocks_rapid_signals(self, mock_event_bus: Any, sample_signal: Any) -> None:
         """Rapid signals should be rate-limited."""
         config = SignalRouterConfig(rate_limit_ms=1000)  # 1 second
         router = SignalRouter(mock_event_bus, config)
@@ -118,7 +119,7 @@ class TestSignalRouterRateLimiting:
         assert result2 is False
         assert router.stats.rate_limited == 1
 
-    def test_rate_limit_allows_after_window(self, mock_event_bus, sample_signal):
+    def test_rate_limit_allows_after_window(self, mock_event_bus: Any, sample_signal: Any) -> None:
         """Signals should pass after rate limit window."""
         config = SignalRouterConfig(rate_limit_ms=10)  # 10ms
         router = SignalRouter(mock_event_bus, config)
@@ -130,7 +131,7 @@ class TestSignalRouterRateLimiting:
         # Note: May still be deduplicated, so check rate_limited didn't increase
         assert router.stats.rate_limited == 0 or result is False
 
-    def test_rate_limit_per_symbol(self, mock_event_bus):
+    def test_rate_limit_per_symbol(self, mock_event_bus: Any) -> None:
         """Rate limiting should be per-symbol."""
         config = SignalRouterConfig(rate_limit_ms=1000)
         router = SignalRouter(mock_event_bus, config)
@@ -148,7 +149,7 @@ class TestSignalRouterRateLimiting:
 class TestSignalRouterDeduplication:
     """Test signal deduplication."""
 
-    def test_dedupe_blocks_duplicate(self, mock_event_bus, sample_signal):
+    def test_dedupe_blocks_duplicate(self, mock_event_bus: Any, sample_signal: Any) -> None:
         """Duplicate signals within window should be deduplicated."""
         config = SignalRouterConfig(dedupe_window_ms=1000, rate_limit_ms=0)
         router = SignalRouter(mock_event_bus, config)
@@ -160,7 +161,7 @@ class TestSignalRouterDeduplication:
         assert result2 is False
         assert router.stats.deduplicated == 1
 
-    def test_dedupe_allows_different_signals(self, mock_event_bus):
+    def test_dedupe_allows_different_signals(self, mock_event_bus: Any) -> None:
         """Different signals should not be deduplicated."""
         config = SignalRouterConfig(dedupe_window_ms=1000, rate_limit_ms=0)
         router = SignalRouter(mock_event_bus, config)
@@ -178,7 +179,7 @@ class TestSignalRouterDeduplication:
 class TestSignalRouterCallbacks:
     """Test pre/post route callbacks."""
 
-    def test_pre_route_can_veto(self, mock_event_bus, sample_signal):
+    def test_pre_route_can_veto(self, mock_event_bus: Any, sample_signal: Any) -> None:
         """Pre-route callback returning False should veto signal."""
         router = SignalRouter(mock_event_bus)
         router.add_pre_route_callback(lambda s: False)
@@ -188,7 +189,7 @@ class TestSignalRouterCallbacks:
         assert result is False
         assert router.stats.filtered == 1
 
-    def test_pre_route_can_allow(self, mock_event_bus, sample_signal):
+    def test_pre_route_can_allow(self, mock_event_bus: Any, sample_signal: Any) -> None:
         """Pre-route callback returning True should allow signal."""
         router = SignalRouter(mock_event_bus)
         router.add_pre_route_callback(lambda s: True)
@@ -197,7 +198,7 @@ class TestSignalRouterCallbacks:
 
         assert result is True
 
-    def test_post_route_called(self, mock_event_bus, sample_signal):
+    def test_post_route_called(self, mock_event_bus: Any, sample_signal: Any) -> None:
         """Post-route callback should be called after successful routing."""
         router = SignalRouter(mock_event_bus)
         callback = MagicMock()
@@ -207,7 +208,7 @@ class TestSignalRouterCallbacks:
 
         callback.assert_called_once_with(sample_signal)
 
-    def test_post_route_not_called_on_filter(self, mock_event_bus, sample_signal):
+    def test_post_route_not_called_on_filter(self, mock_event_bus: Any, sample_signal: Any) -> None:
         """Post-route callback should not be called if signal filtered."""
         config = SignalRouterConfig(min_strength=1.0)
         router = SignalRouter(mock_event_bus, config)
@@ -223,7 +224,7 @@ class TestSignalRouterCallbacks:
 class TestSignalRouterPersistence:
     """Test signal persistence."""
 
-    def test_persist_when_enabled(self, mock_event_bus, sample_signal):
+    def test_persist_when_enabled(self, mock_event_bus: Any, sample_signal: Any) -> None:
         """Signal should be persisted when enabled."""
         config = SignalRouterConfig(persist=True)
         store = MagicMock()
@@ -233,7 +234,7 @@ class TestSignalRouterPersistence:
 
         store.save.assert_called_once_with(sample_signal)
 
-    def test_no_persist_when_disabled(self, mock_event_bus, sample_signal):
+    def test_no_persist_when_disabled(self, mock_event_bus: Any, sample_signal: Any) -> None:
         """Signal should not be persisted when disabled."""
         config = SignalRouterConfig(persist=False)
         store = MagicMock()
@@ -247,7 +248,7 @@ class TestSignalRouterPersistence:
 class TestSignalRouterExecution:
     """Test signal execution forwarding."""
 
-    def test_execute_when_enabled(self, mock_event_bus, sample_signal):
+    def test_execute_when_enabled(self, mock_event_bus: Any, sample_signal: Any) -> None:
         """Signal should be forwarded to execution when enabled."""
         config = SignalRouterConfig(execute=True)
         adapter = MagicMock()
@@ -257,7 +258,7 @@ class TestSignalRouterExecution:
 
         adapter.submit.assert_called_once_with(sample_signal)
 
-    def test_no_execute_when_disabled(self, mock_event_bus, sample_signal):
+    def test_no_execute_when_disabled(self, mock_event_bus: Any, sample_signal: Any) -> None:
         """Signal should not be executed when disabled."""
         config = SignalRouterConfig(execute=False)
         adapter = MagicMock()
@@ -271,7 +272,7 @@ class TestSignalRouterExecution:
 class TestSignalRouterState:
     """Test state management."""
 
-    def test_reset_stats(self, mock_event_bus, sample_signal):
+    def test_reset_stats(self, mock_event_bus: Any, sample_signal: Any) -> None:
         """Stats should be reset."""
         router = SignalRouter(mock_event_bus)
         router.route(sample_signal)
@@ -280,7 +281,7 @@ class TestSignalRouterState:
         assert router.stats.total_received == 0
         assert router.stats.total_published == 0
 
-    def test_clear_state(self, mock_event_bus, sample_signal):
+    def test_clear_state(self, mock_event_bus: Any, sample_signal: Any) -> None:
         """Rate limit and dedupe state should be cleared."""
         config = SignalRouterConfig(rate_limit_ms=10000, dedupe_window_ms=10000)
         router = SignalRouter(mock_event_bus, config)
@@ -296,7 +297,7 @@ class TestSignalRouterState:
 class TestSignalRouterIntegration:
     """Integration tests with strategy callback pattern."""
 
-    def test_strategy_callback_pattern(self, mock_event_bus):
+    def test_strategy_callback_pattern(self, mock_event_bus: Any) -> None:
         """Router should work as strategy callback."""
         router = SignalRouter(mock_event_bus)
 

@@ -16,6 +16,8 @@ Usage:
     pytest tests/unit/test_universe_consistency.py -v
 """
 
+from typing import Any
+
 import pytest
 
 from src.domain.services.regime.universe_loader import (
@@ -29,7 +31,7 @@ from src.domain.services.regime.universe_loader import (
 
 
 @pytest.fixture(autouse=True)
-def clear_cache():
+def clear_cache() -> None:
     """Clear universe cache before each test."""
     clear_universe_cache()
     yield
@@ -39,13 +41,13 @@ def clear_cache():
 class TestUniverseLoading:
     """Test universe YAML loading and parsing."""
 
-    def test_load_default_universe(self):
+    def test_load_default_universe(self) -> None:
         """Default universe YAML loads successfully."""
         universe = load_universe()
         assert isinstance(universe, UniverseConfig)
         assert len(universe.sectors) > 0
 
-    def test_load_universe_has_market_symbols(self):
+    def test_load_universe_has_market_symbols(self) -> None:
         """Universe includes market benchmark symbols."""
         universe = load_universe()
         assert len(universe.market_symbols) >= 2  # QQQ, SPY at minimum
@@ -53,7 +55,7 @@ class TestUniverseLoading:
         assert "QQQ" in symbols
         assert "SPY" in symbols
 
-    def test_load_universe_has_all_sp500_sectors(self):
+    def test_load_universe_has_all_sp500_sectors(self) -> None:
         """Universe covers all 11 S&P 500 sectors."""
         universe = load_universe()
         sector_names = set(universe.sectors.keys())
@@ -80,7 +82,7 @@ class TestUniverseLoading:
 class TestDerivedMappings:
     """Test that derived mappings are correct."""
 
-    def test_all_yaml_symbols_have_sector_mapping(self):
+    def test_all_yaml_symbols_have_sector_mapping(self) -> None:
         """Every stock in YAML has a sector assignment in stock_to_sector."""
         universe = load_universe()
 
@@ -102,7 +104,7 @@ class TestDerivedMappings:
                         f"but expected {sector.etf}"
                     )
 
-    def test_full_symbols_list_derived_correctly(self):
+    def test_full_symbols_list_derived_correctly(self) -> None:
         """all_symbols includes all ETFs and stocks without duplicates."""
         universe = load_universe()
         all_symbols = universe.all_symbols
@@ -126,7 +128,7 @@ class TestDerivedMappings:
             for stock in sector.stocks:
                 assert stock in all_symbols
 
-    def test_sector_etfs_list_complete(self):
+    def test_sector_etfs_list_complete(self) -> None:
         """sector_etfs includes all sector ETFs from YAML."""
         universe = load_universe()
         sector_etfs = set(universe.sector_etfs)
@@ -134,7 +136,7 @@ class TestDerivedMappings:
         expected_etfs = {sector.etf for sector in universe.sectors.values()}
         assert sector_etfs == expected_etfs
 
-    def test_sector_names_mapping_complete(self):
+    def test_sector_names_mapping_complete(self) -> None:
         """sector_names maps all sector ETFs to readable names."""
         universe = load_universe()
 
@@ -145,7 +147,7 @@ class TestDerivedMappings:
             assert len(name) > 0
             assert name[0].isupper()  # Should be title case
 
-    def test_market_benchmarks_complete(self):
+    def test_market_benchmarks_complete(self) -> None:
         """market_benchmarks includes all market-level ETFs."""
         universe = load_universe()
 
@@ -156,7 +158,7 @@ class TestDerivedMappings:
 class TestDuplicateDetection:
     """Test duplicate symbol detection."""
 
-    def test_stocks_within_sector_no_duplicates(self):
+    def test_stocks_within_sector_no_duplicates(self) -> None:
         """No stock appears twice within the same sector."""
         universe = load_universe()
 
@@ -166,7 +168,7 @@ class TestDuplicateDetection:
                 sector.stocks
             ), f"Sector {sector.name} has duplicate stocks"
 
-    def test_etf_symbols_unique(self):
+    def test_etf_symbols_unique(self) -> None:
         """Each sector has a unique ETF symbol."""
         universe = load_universe()
 
@@ -183,7 +185,7 @@ class TestDuplicateDetection:
 class TestSchemaValidation:
     """Test YAML schema validation catches errors."""
 
-    def test_missing_sectors_key_raises_error(self, tmp_path):
+    def test_missing_sectors_key_raises_error(self, tmp_path: Any) -> None:
         """YAML without 'sectors' key raises UniverseLoadError."""
         invalid_yaml = tmp_path / "invalid.yaml"
         invalid_yaml.write_text("market:\n  - symbol: QQQ\n")
@@ -191,7 +193,7 @@ class TestSchemaValidation:
         with pytest.raises(UniverseLoadError, match="Missing 'sectors' key"):
             load_universe(invalid_yaml)
 
-    def test_sector_missing_etf_raises_error(self, tmp_path):
+    def test_sector_missing_etf_raises_error(self, tmp_path: Any) -> None:
         """Sector without 'etf' key raises UniverseLoadError."""
         invalid_yaml = tmp_path / "invalid.yaml"
         invalid_yaml.write_text("""
@@ -204,7 +206,7 @@ sectors:
         with pytest.raises(UniverseLoadError, match="missing 'etf' key"):
             load_universe(invalid_yaml)
 
-    def test_sector_missing_stocks_raises_error(self, tmp_path):
+    def test_sector_missing_stocks_raises_error(self, tmp_path: Any) -> None:
         """Sector without 'stocks' key raises UniverseLoadError."""
         invalid_yaml = tmp_path / "invalid.yaml"
         invalid_yaml.write_text("""
@@ -216,7 +218,7 @@ sectors:
         with pytest.raises(UniverseLoadError, match="missing 'stocks' key"):
             load_universe(invalid_yaml)
 
-    def test_empty_yaml_raises_error(self, tmp_path):
+    def test_empty_yaml_raises_error(self, tmp_path: Any) -> None:
         """Empty YAML file raises UniverseLoadError."""
         empty_yaml = tmp_path / "empty.yaml"
         empty_yaml.write_text("")
@@ -224,7 +226,7 @@ sectors:
         with pytest.raises(UniverseLoadError, match="Empty YAML"):
             load_universe(empty_yaml)
 
-    def test_nonexistent_file_raises_error(self, tmp_path):
+    def test_nonexistent_file_raises_error(self, tmp_path: Any) -> None:
         """Nonexistent file raises FileNotFoundError."""
         missing = tmp_path / "missing.yaml"
 
@@ -235,7 +237,7 @@ sectors:
 class TestSectorConfigValidation:
     """Test SectorConfig dataclass validation."""
 
-    def test_sector_config_normalizes_uppercase(self):
+    def test_sector_config_normalizes_uppercase(self) -> None:
         """SectorConfig normalizes symbols to uppercase."""
         sector = SectorConfig(
             name="test",
@@ -246,12 +248,12 @@ class TestSectorConfigValidation:
         assert sector.etf == "XLK"
         assert sector.stocks == ["AAPL", "MSFT"]
 
-    def test_sector_config_empty_etf_raises_error(self):
+    def test_sector_config_empty_etf_raises_error(self) -> None:
         """SectorConfig with empty ETF raises UniverseLoadError."""
         with pytest.raises(UniverseLoadError, match="missing ETF"):
             SectorConfig(name="test", etf="", stocks=["AAPL"])
 
-    def test_sector_config_empty_stocks_raises_error(self):
+    def test_sector_config_empty_stocks_raises_error(self) -> None:
         """SectorConfig with empty stocks raises UniverseLoadError."""
         with pytest.raises(UniverseLoadError, match="has no stocks"):
             SectorConfig(name="test", etf="XLK", stocks=[])
@@ -260,13 +262,13 @@ class TestSectorConfigValidation:
 class TestCacheFunction:
     """Test universe cache functionality."""
 
-    def test_get_universe_returns_cached(self):
+    def test_get_universe_returns_cached(self) -> None:
         """get_universe returns same instance on subsequent calls."""
         u1 = get_universe()
         u2 = get_universe()
         assert u1 is u2
 
-    def test_clear_cache_resets(self):
+    def test_clear_cache_resets(self) -> None:
         """clear_universe_cache allows fresh load."""
         u1 = get_universe()
         clear_universe_cache()
@@ -280,28 +282,28 @@ class TestCacheFunction:
 class TestIntegrationWithModels:
     """Test that models.py correctly uses derived mappings."""
 
-    def test_models_stock_to_sector_matches_loader(self):
+    def test_models_stock_to_sector_matches_loader(self) -> None:
         """STOCK_TO_SECTOR in models matches loader derivation."""
         from src.domain.services.regime.models import STOCK_TO_SECTOR
 
         universe = load_universe()
         assert STOCK_TO_SECTOR == universe.stock_to_sector
 
-    def test_models_sector_names_matches_loader(self):
+    def test_models_sector_names_matches_loader(self) -> None:
         """SECTOR_NAMES in models matches loader derivation."""
         from src.domain.services.regime.models import SECTOR_NAMES
 
         universe = load_universe()
         assert SECTOR_NAMES == universe.sector_names
 
-    def test_models_sector_etfs_matches_loader(self):
+    def test_models_sector_etfs_matches_loader(self) -> None:
         """SECTOR_ETFS in models matches loader derivation."""
         from src.domain.services.regime.models import SECTOR_ETFS
 
         universe = load_universe()
         assert SECTOR_ETFS == set(universe.sector_etfs)
 
-    def test_models_market_benchmarks_matches_loader(self):
+    def test_models_market_benchmarks_matches_loader(self) -> None:
         """MARKET_BENCHMARKS in models matches loader derivation."""
         from src.domain.services.regime.models import MARKET_BENCHMARKS
 
@@ -312,7 +314,7 @@ class TestIntegrationWithModels:
 class TestRealWorldScenarios:
     """Test real-world usage scenarios."""
 
-    def test_get_sector_for_known_stock(self):
+    def test_get_sector_for_known_stock(self) -> None:
         """get_sector_for_symbol returns correct sector."""
         universe = load_universe()
 
@@ -321,18 +323,18 @@ class TestRealWorldScenarios:
         assert universe.get_sector_for_symbol("JPM") == "XLF"
         assert universe.get_sector_for_symbol("XOM") == "XLE"
 
-    def test_get_sector_for_unknown_stock(self):
+    def test_get_sector_for_unknown_stock(self) -> None:
         """get_sector_for_symbol returns None for unknown symbol."""
         universe = load_universe()
         assert universe.get_sector_for_symbol("UNKNOWN") is None
 
-    def test_get_sector_case_insensitive(self):
+    def test_get_sector_case_insensitive(self) -> None:
         """get_sector_for_symbol is case-insensitive."""
         universe = load_universe()
         assert universe.get_sector_for_symbol("aapl") == "XLK"
         assert universe.get_sector_for_symbol("Aapl") == "XLK"
 
-    def test_quick_test_symbols_all_exist(self):
+    def test_quick_test_symbols_all_exist(self) -> None:
         """All quick_test symbols exist in all_symbols."""
         universe = load_universe()
         all_set = set(universe.all_symbols)

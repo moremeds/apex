@@ -13,7 +13,7 @@ from src.domain.services.risk.calculators.pnl_calculator import (
 class TestCalculatePnl:
     """Tests for calculate_pnl function."""
 
-    def test_basic_long_position_profit(self):
+    def test_basic_long_position_profit(self) -> None:
         """Long position with price increase should show profit."""
         result = calculate_pnl(
             mark=155.0,
@@ -30,7 +30,7 @@ class TestCalculatePnl:
         assert result.is_reliable is True
         assert result.mark_price == 155.0
 
-    def test_basic_long_position_loss(self):
+    def test_basic_long_position_loss(self) -> None:
         """Long position with price decrease should show loss."""
         result = calculate_pnl(
             mark=145.0,
@@ -46,7 +46,7 @@ class TestCalculatePnl:
         assert result.intraday == -200.0  # (145-147) * 100
         assert result.is_reliable is True
 
-    def test_short_position_profit(self):
+    def test_short_position_profit(self) -> None:
         """Short position with price decrease should show profit."""
         result = calculate_pnl(
             mark=145.0,
@@ -61,7 +61,7 @@ class TestCalculatePnl:
         assert result.daily == 300.0  # (145-148) * -100
         assert result.intraday == 200.0  # (145-147) * -100
 
-    def test_short_position_loss(self):
+    def test_short_position_loss(self) -> None:
         """Short position with price increase should show loss."""
         result = calculate_pnl(
             mark=155.0,
@@ -76,7 +76,7 @@ class TestCalculatePnl:
         assert result.daily == -300.0  # (155-152) * -100
         assert result.intraday == -200.0  # (155-153) * -100
 
-    def test_option_with_multiplier(self):
+    def test_option_with_multiplier(self) -> None:
         """Option position should scale by multiplier."""
         result = calculate_pnl(
             mark=5.50,
@@ -93,7 +93,7 @@ class TestCalculatePnl:
             pytest.approx(result.intraday, rel=0.01) == 400.0
         )  # (5.50-5.10) * 10 * 100 = 0.40 * 1000
 
-    def test_missing_yesterday_close(self):
+    def test_missing_yesterday_close(self) -> None:
         """Daily P&L should be zero when yesterday_close is None."""
         result = calculate_pnl(
             mark=155.0,
@@ -108,7 +108,7 @@ class TestCalculatePnl:
         assert result.daily == 0.0  # No yesterday_close
         assert result.intraday == 200.0
 
-    def test_missing_session_open(self):
+    def test_missing_session_open(self) -> None:
         """Intraday P&L should be zero when session_open is None."""
         result = calculate_pnl(
             mark=155.0,
@@ -123,7 +123,7 @@ class TestCalculatePnl:
         assert result.daily == 100.0
         assert result.intraday == 0.0  # No session_open
 
-    def test_zero_yesterday_close(self):
+    def test_zero_yesterday_close(self) -> None:
         """Daily P&L should be zero when yesterday_close is zero."""
         result = calculate_pnl(
             mark=155.0,
@@ -136,7 +136,7 @@ class TestCalculatePnl:
 
         assert result.daily == 0.0  # Zero yesterday_close treated as unavailable
 
-    def test_zero_session_open(self):
+    def test_zero_session_open(self) -> None:
         """Intraday P&L should be zero when session_open is zero."""
         result = calculate_pnl(
             mark=155.0,
@@ -153,7 +153,7 @@ class TestCalculatePnl:
 class TestDataQuality:
     """Tests for data quality handling."""
 
-    def test_good_quality(self):
+    def test_good_quality(self) -> None:
         """Good quality should be reliable."""
         result = calculate_pnl(
             mark=155.0,
@@ -167,7 +167,7 @@ class TestDataQuality:
 
         assert result.is_reliable is True
 
-    def test_stale_quality(self):
+    def test_stale_quality(self) -> None:
         """Stale quality should not be reliable."""
         result = calculate_pnl(
             mark=155.0,
@@ -181,7 +181,7 @@ class TestDataQuality:
 
         assert result.is_reliable is False
 
-    def test_suspicious_quality(self):
+    def test_suspicious_quality(self) -> None:
         """Suspicious quality should not be reliable."""
         result = calculate_pnl(
             mark=155.0,
@@ -195,7 +195,7 @@ class TestDataQuality:
 
         assert result.is_reliable is False
 
-    def test_zero_quote_quality(self):
+    def test_zero_quote_quality(self) -> None:
         """Zero quote quality should not be reliable."""
         result = calculate_pnl(
             mark=155.0,
@@ -213,7 +213,7 @@ class TestDataQuality:
 class TestCalculatePnlDelta:
     """Tests for calculate_pnl_delta function."""
 
-    def test_delta_calculation(self):
+    def test_delta_calculation(self) -> None:
         """Delta should be new - old for all fields."""
         old = PnLResult(
             unrealized=500.0,
@@ -239,7 +239,7 @@ class TestCalculatePnlDelta:
         assert delta.mark_price == 156.0  # New mark price
         assert delta.is_reliable is True
 
-    def test_delta_with_negative_change(self):
+    def test_delta_with_negative_change(self) -> None:
         """Delta should handle negative changes."""
         old = PnLResult(
             unrealized=500.0,
@@ -268,7 +268,7 @@ class TestCalculatePnlDelta:
 class TestPnLResultImmutability:
     """Tests for PnLResult frozen dataclass."""
 
-    def test_result_is_frozen(self):
+    def test_result_is_frozen(self) -> None:
         """PnLResult should be immutable."""
         result = calculate_pnl(
             mark=155.0,
@@ -282,7 +282,7 @@ class TestPnLResultImmutability:
         with pytest.raises(AttributeError):
             result.unrealized = 1000.0  # type: ignore
 
-    def test_result_is_hashable(self):
+    def test_result_is_hashable(self) -> None:
         """Frozen dataclass should be hashable."""
         result = calculate_pnl(
             mark=155.0,

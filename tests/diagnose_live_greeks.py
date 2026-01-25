@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from ib_async import IB, Option
 
 
-async def diagnose_live_greeks():
+async def diagnose_live_greeks() -> None:
     """Test live Greeks retrieval from IBKR."""
     print("=" * 80)
     print("LIVE GREEKS DIAGNOSTIC")

@@ -87,11 +87,6 @@ class SignalReportGenerator:
         Returns:
             Path to generated HTML file
         """
-        from ..description_generator import (
-            generate_indicator_description,
-            generate_rule_description,
-        )
-
         symbols = sorted(set(sym for sym, tf in data.keys()))
         timeframes = sorted(
             set(tf for sym, tf in data.keys()),

@@ -14,7 +14,7 @@ from src.domain.events.event_types import EventType
 class MockEventBus:
     """Mock event bus for testing."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.published_events: List[Tuple[EventType, Any]] = []
 
     def publish(self, event_type: EventType, payload: Any) -> None:
@@ -23,14 +23,14 @@ class MockEventBus:
     def get_events_of_type(self, event_type: EventType) -> List[Any]:
         return [p for et, p in self.published_events if et == event_type]
 
-    def clear(self):
+    def clear(self) -> None:
         self.published_events.clear()
 
 
 class TestReadinessManagerInit:
     """Tests for ReadinessManager initialization."""
 
-    def test_initial_state_is_starting(self):
+    def test_initial_state_is_starting(self) -> None:
         """Manager starts in STARTING state."""
         bus = MockEventBus()
         manager = ReadinessManager(bus, required_brokers=["ib"])
@@ -40,7 +40,7 @@ class TestReadinessManagerInit:
         assert not manager.is_positions_ready()
         assert not manager.is_market_data_ready()
 
-    def test_broker_status_initialized(self):
+    def test_broker_status_initialized(self) -> None:
         """Required brokers are tracked."""
         bus = MockEventBus()
         manager = ReadinessManager(bus, required_brokers=["ib", "futu"])
@@ -55,7 +55,7 @@ class TestReadinessManagerInit:
 class TestBrokerReadiness:
     """Tests for broker connection tracking."""
 
-    def test_broker_connected_event_emitted(self):
+    def test_broker_connected_event_emitted(self) -> None:
         """BROKER_CONNECTED event emitted on connection."""
         bus = MockEventBus()
         manager = ReadinessManager(bus, required_brokers=["ib"])
@@ -66,7 +66,7 @@ class TestBrokerReadiness:
         assert len(events) == 1
         assert events[0]["broker"] == "ib"
 
-    def test_broker_disconnected_event_emitted(self):
+    def test_broker_disconnected_event_emitted(self) -> None:
         """BROKER_DISCONNECTED event emitted on disconnection."""
         bus = MockEventBus()
         manager = ReadinessManager(bus, required_brokers=["ib"])
@@ -79,7 +79,7 @@ class TestBrokerReadiness:
         assert events[0]["broker"] == "ib"
         assert events[0]["error"] == "Connection lost"
 
-    def test_state_transitions_to_brokers_connecting(self):
+    def test_state_transitions_to_brokers_connecting(self) -> None:
         """State transitions to BROKERS_CONNECTING when broker connects."""
         bus = MockEventBus()
         manager = ReadinessManager(bus, required_brokers=["ib"])
@@ -90,7 +90,7 @@ class TestBrokerReadiness:
 
         assert manager.state == ReadinessState.BROKERS_CONNECTING
 
-    def test_unknown_broker_added_dynamically(self):
+    def test_unknown_broker_added_dynamically(self) -> None:
         """Unknown brokers are tracked when they connect."""
         bus = MockEventBus()
         manager = ReadinessManager(bus, required_brokers=["ib"])
@@ -105,7 +105,7 @@ class TestBrokerReadiness:
 class TestPositionsReadiness:
     """Tests for positions loading tracking."""
 
-    def test_positions_ready_when_all_brokers_loaded(self):
+    def test_positions_ready_when_all_brokers_loaded(self) -> None:
         """POSITIONS_READY emitted when all connected brokers have loaded."""
         bus = MockEventBus()
         manager = ReadinessManager(bus, required_brokers=["ib", "futu"])
@@ -127,7 +127,7 @@ class TestPositionsReadiness:
         assert events[0]["brokers"]["ib"] == 50
         assert events[0]["brokers"]["futu"] == 20
 
-    def test_positions_ready_with_single_broker(self):
+    def test_positions_ready_with_single_broker(self) -> None:
         """POSITIONS_READY works with single broker."""
         bus = MockEventBus()
         manager = ReadinessManager(bus, required_brokers=["ib"])
@@ -140,7 +140,7 @@ class TestPositionsReadiness:
         assert len(events) == 1
         assert events[0]["total_positions"] == 100
 
-    def test_positions_ready_only_emitted_once(self):
+    def test_positions_ready_only_emitted_once(self) -> None:
         """POSITIONS_READY event only emitted once."""
         bus = MockEventBus()
         manager = ReadinessManager(bus, required_brokers=["ib"])
@@ -152,7 +152,7 @@ class TestPositionsReadiness:
         events = bus.get_events_of_type(EventType.POSITIONS_READY)
         assert len(events) == 1
 
-    def test_state_transitions_to_data_loading_after_positions(self):
+    def test_state_transitions_to_data_loading_after_positions(self) -> None:
         """State transitions to DATA_LOADING after positions loaded (when positions > 0)."""
         bus = MockEventBus()
         manager = ReadinessManager(bus, required_brokers=["ib"])
@@ -167,7 +167,7 @@ class TestPositionsReadiness:
 class TestMarketDataReadiness:
     """Tests for market data coverage tracking."""
 
-    def test_market_data_ready_at_threshold(self):
+    def test_market_data_ready_at_threshold(self) -> None:
         """MARKET_DATA_READY emitted at coverage threshold."""
         bus = MockEventBus()
         manager = ReadinessManager(bus, required_brokers=["ib"], market_data_coverage_threshold=0.9)
@@ -187,7 +187,7 @@ class TestMarketDataReadiness:
         assert len(events) == 1
         assert events[0]["coverage_ratio"] == 0.9
 
-    def test_market_data_ready_only_emitted_once(self):
+    def test_market_data_ready_only_emitted_once(self) -> None:
         """MARKET_DATA_READY event only emitted once."""
         bus = MockEventBus()
         manager = ReadinessManager(bus, required_brokers=["ib"], market_data_coverage_threshold=0.9)
@@ -200,7 +200,7 @@ class TestMarketDataReadiness:
         events = bus.get_events_of_type(EventType.MARKET_DATA_READY)
         assert len(events) == 1
 
-    def test_coverage_ratio_property(self):
+    def test_coverage_ratio_property(self) -> None:
         """Coverage ratio property returns current value."""
         bus = MockEventBus()
         manager = ReadinessManager(bus, required_brokers=["ib"])
@@ -214,7 +214,7 @@ class TestMarketDataReadiness:
 class TestSystemReadiness:
     """Tests for full system readiness."""
 
-    def test_system_ready_when_both_conditions_met(self):
+    def test_system_ready_when_both_conditions_met(self) -> None:
         """SYSTEM_READY emitted when positions and market data ready."""
         bus = MockEventBus()
         manager = ReadinessManager(bus, required_brokers=["ib"], market_data_coverage_threshold=0.9)
@@ -229,7 +229,7 @@ class TestSystemReadiness:
         events = bus.get_events_of_type(EventType.SYSTEM_READY)
         assert len(events) == 1
 
-    def test_system_ready_requires_positions_first(self):
+    def test_system_ready_requires_positions_first(self) -> None:
         """Must have positions before system can be ready."""
         bus = MockEventBus()
         manager = ReadinessManager(bus, required_brokers=["ib"])
@@ -239,7 +239,7 @@ class TestSystemReadiness:
 
         assert not manager.is_ready()
 
-    def test_system_ready_with_empty_portfolio(self):
+    def test_system_ready_with_empty_portfolio(self) -> None:
         """System can be ready with zero positions."""
         bus = MockEventBus()
         manager = ReadinessManager(bus, required_brokers=["ib"])
@@ -254,7 +254,7 @@ class TestSystemReadiness:
 class TestDegradedState:
     """Tests for system degradation handling."""
 
-    def test_system_degraded_when_broker_disconnects(self):
+    def test_system_degraded_when_broker_disconnects(self) -> None:
         """SYSTEM_DEGRADED emitted when all brokers disconnect."""
         bus = MockEventBus()
         manager = ReadinessManager(bus, required_brokers=["ib"])
@@ -277,7 +277,7 @@ class TestDegradedState:
         assert len(events) == 1
         assert "No brokers connected" in events[0]["reason"]
 
-    def test_system_degraded_when_coverage_drops(self):
+    def test_system_degraded_when_coverage_drops(self) -> None:
         """SYSTEM_DEGRADED emitted when coverage drops below threshold."""
         bus = MockEventBus()
         manager = ReadinessManager(bus, required_brokers=["ib"], market_data_coverage_threshold=0.9)
@@ -294,7 +294,7 @@ class TestDegradedState:
 
         assert manager.state == ReadinessState.DEGRADED
 
-    def test_recovery_from_degraded(self):
+    def test_recovery_from_degraded(self) -> None:
         """System can recover from DEGRADED state."""
         bus = MockEventBus()
         manager = ReadinessManager(bus, required_brokers=["ib"])
@@ -322,7 +322,7 @@ class TestDegradedState:
 class TestDataFreshness:
     """Tests for data freshness tracking."""
 
-    def test_freshness_initial_state(self):
+    def test_freshness_initial_state(self) -> None:
         """Initial freshness state shows all data as stale."""
         freshness = DataFreshness()
 
@@ -331,7 +331,7 @@ class TestDataFreshness:
         assert freshness.is_exec_stale()
         assert freshness.any_stale()
 
-    def test_freshness_updated_on_tick(self):
+    def test_freshness_updated_on_tick(self) -> None:
         """Tick freshness updated when tick received."""
         bus = MockEventBus()
         manager = ReadinessManager(bus, required_brokers=["ib"])
@@ -342,7 +342,7 @@ class TestDataFreshness:
         assert snapshot.freshness.last_tick_time is not None
         assert not snapshot.freshness.is_tick_stale()
 
-    def test_freshness_updated_on_positions(self):
+    def test_freshness_updated_on_positions(self) -> None:
         """Position freshness updated when positions loaded."""
         bus = MockEventBus()
         manager = ReadinessManager(bus, required_brokers=["ib"])
@@ -353,7 +353,7 @@ class TestDataFreshness:
         snapshot = manager.get_snapshot()
         assert snapshot.freshness.last_position_time is not None
 
-    def test_freshness_updated_on_exec_heartbeat(self):
+    def test_freshness_updated_on_exec_heartbeat(self) -> None:
         """Exec freshness updated on heartbeat."""
         bus = MockEventBus()
         manager = ReadinessManager(bus, required_brokers=["ib"])
@@ -364,7 +364,7 @@ class TestDataFreshness:
         assert snapshot.freshness.last_exec_heartbeat is not None
         assert not snapshot.freshness.is_exec_stale()
 
-    def test_stale_reasons(self):
+    def test_stale_reasons(self) -> None:
         """Stale reasons reported correctly."""
         freshness = DataFreshness()
 
@@ -377,7 +377,7 @@ class TestDataFreshness:
 class TestSnapshot:
     """Tests for readiness snapshot."""
 
-    def test_snapshot_contains_all_info(self):
+    def test_snapshot_contains_all_info(self) -> None:
         """Snapshot contains complete readiness info."""
         bus = MockEventBus()
         manager = ReadinessManager(bus, required_brokers=["ib", "futu"])
@@ -402,7 +402,7 @@ class TestSnapshot:
 class TestShutdown:
     """Tests for shutdown handling."""
 
-    def test_shutdown_transitions_state(self):
+    def test_shutdown_transitions_state(self) -> None:
         """Shutdown method transitions to SHUTDOWN state."""
         bus = MockEventBus()
         manager = ReadinessManager(bus, required_brokers=["ib"])
@@ -422,7 +422,7 @@ class TestShutdown:
 class TestStateTransitions:
     """Tests for state machine transitions."""
 
-    def test_full_startup_sequence(self):
+    def test_full_startup_sequence(self) -> None:
         """Complete startup sequence transitions correctly."""
         bus = MockEventBus()
         manager = ReadinessManager(bus, required_brokers=["ib"])
@@ -443,7 +443,7 @@ class TestStateTransitions:
         # State machine cascades: DATA_LOADING -> DATA_READY -> SYSTEM_READY
         assert manager.state == ReadinessState.SYSTEM_READY
 
-    def test_multi_broker_startup(self):
+    def test_multi_broker_startup(self) -> None:
         """Multi-broker startup waits for all."""
         bus = MockEventBus()
         manager = ReadinessManager(bus, required_brokers=["ib", "futu"])

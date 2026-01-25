@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -63,7 +63,7 @@ class MockAccountSnapshot:
     currency: str = "USD"
     timestamp: datetime = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.timestamp is None:
             self.timestamp = datetime.now()
 
@@ -79,7 +79,7 @@ class MockMarketData:
     mid: Optional[float] = None
     timestamp: datetime = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.timestamp is None:
             self.timestamp = datetime.now()
 
@@ -127,7 +127,7 @@ class TestIbCompositeAdapter:
         return pool
 
     @pytest.fixture
-    def adapter(self, pool_config):
+    def adapter(self, pool_config: Any):
         """Create an IbCompositeAdapter instance."""
         return IbCompositeAdapter(pool_config)
 
@@ -135,7 +135,7 @@ class TestIbCompositeAdapter:
     # Initialization Tests
     # -------------------------------------------------------------------------
 
-    def test_initialization(self, pool_config):
+    def test_initialization(self, pool_config: Any) -> None:
         """Test adapter initializes correctly."""
         adapter = IbCompositeAdapter(pool_config)
 
@@ -146,7 +146,7 @@ class TestIbCompositeAdapter:
         assert adapter._execution_adapter is None
         assert not adapter._connected
 
-    def test_initialization_with_event_bus(self, pool_config):
+    def test_initialization_with_event_bus(self, pool_config: Any) -> None:
         """Test adapter initializes with event bus."""
         event_bus = MagicMock()
         adapter = IbCompositeAdapter(pool_config, event_bus=event_bus)
@@ -158,12 +158,12 @@ class TestIbCompositeAdapter:
     # -------------------------------------------------------------------------
 
     @pytest.mark.asyncio
-    async def test_is_connected_before_connect(self, adapter):
+    async def test_is_connected_before_connect(self, adapter) -> None:
         """Test is_connected returns False before connect."""
         assert not adapter.is_connected()
 
     @pytest.mark.asyncio
-    async def test_disconnect_before_connect(self, adapter):
+    async def test_disconnect_before_connect(self, adapter) -> None:
         """Test disconnect is safe to call before connect."""
         await adapter.disconnect()
         assert not adapter.is_connected()
@@ -172,11 +172,11 @@ class TestIbCompositeAdapter:
     # Interface Tests (MarketDataProvider)
     # -------------------------------------------------------------------------
 
-    def test_supports_streaming(self, adapter):
+    def test_supports_streaming(self, adapter: Any) -> None:
         """Test supports_streaming returns True."""
         assert adapter.supports_streaming() is True
 
-    def test_supports_greeks(self, adapter):
+    def test_supports_greeks(self, adapter: Any) -> None:
         """Test supports_greeks returns True."""
         assert adapter.supports_greeks() is True
 
@@ -184,7 +184,7 @@ class TestIbCompositeAdapter:
     # Cache Tests
     # -------------------------------------------------------------------------
 
-    def test_update_cache_basic(self, adapter):
+    def test_update_cache_basic(self, adapter: Any) -> None:
         """Test cache update works."""
         md = MockMarketData(symbol="AAPL", last=150.0)
         adapter._update_cache("AAPL", md)
@@ -192,7 +192,7 @@ class TestIbCompositeAdapter:
         assert "AAPL" in adapter._market_data_cache
         assert adapter._market_data_cache["AAPL"].last == 150.0
 
-    def test_update_cache_lru_eviction(self, adapter):
+    def test_update_cache_lru_eviction(self, adapter: Any) -> None:
         """Test cache evicts old entries when full."""
         adapter._market_data_cache_max_size = 3
 
@@ -206,7 +206,7 @@ class TestIbCompositeAdapter:
         assert "SYM0" not in adapter._market_data_cache
         assert "SYM3" in adapter._market_data_cache
 
-    def test_update_cache_moves_to_end(self, adapter):
+    def test_update_cache_moves_to_end(self, adapter: Any) -> None:
         """Test cache moves accessed items to end (LRU)."""
         adapter._market_data_cache_max_size = 3
 
@@ -233,38 +233,38 @@ class TestIbCompositeAdapter:
     # -------------------------------------------------------------------------
 
     @pytest.mark.asyncio
-    async def test_fetch_positions_no_adapter(self, adapter):
+    async def test_fetch_positions_no_adapter(self, adapter) -> None:
         """Test fetch_positions returns empty when adapter not connected."""
         positions = await adapter.fetch_positions()
         assert positions == []
 
     @pytest.mark.asyncio
-    async def test_fetch_market_data_no_adapter(self, adapter):
+    async def test_fetch_market_data_no_adapter(self, adapter) -> None:
         """Test fetch_market_data returns empty when adapter not connected."""
         positions = [MockPosition("AAPL", 100, 150.0)]
         market_data = await adapter.fetch_market_data(positions)
         assert market_data == []
 
     @pytest.mark.asyncio
-    async def test_fetch_quotes_no_adapter(self, adapter):
+    async def test_fetch_quotes_no_adapter(self, adapter) -> None:
         """Test fetch_quotes returns empty when adapter not connected."""
         quotes = await adapter.fetch_quotes(["AAPL", "GOOG"])
         assert quotes == {}
 
     @pytest.mark.asyncio
-    async def test_fetch_orders_no_adapter(self, adapter):
+    async def test_fetch_orders_no_adapter(self, adapter) -> None:
         """Test fetch_orders returns empty when adapter not connected."""
         orders = await adapter.fetch_orders()
         assert orders == []
 
     @pytest.mark.asyncio
-    async def test_fetch_trades_no_adapter(self, adapter):
+    async def test_fetch_trades_no_adapter(self, adapter) -> None:
         """Test fetch_trades returns empty when adapter not connected."""
         trades = await adapter.fetch_trades()
         assert trades == []
 
     @pytest.mark.asyncio
-    async def test_fetch_historical_bars_no_adapter(self, adapter):
+    async def test_fetch_historical_bars_no_adapter(self, adapter) -> None:
         """Test fetch_historical_bars returns empty when adapter not connected."""
         bars = await adapter.fetch_historical_bars("AAPL", "1d")
         assert bars == []
@@ -274,29 +274,29 @@ class TestIbCompositeAdapter:
     # -------------------------------------------------------------------------
 
     @pytest.mark.asyncio
-    async def test_subscribe_no_adapter(self, adapter):
+    async def test_subscribe_no_adapter(self, adapter) -> None:
         """Test subscribe is safe when adapter not connected."""
         await adapter.subscribe(["AAPL", "GOOG"])
 
     @pytest.mark.asyncio
-    async def test_unsubscribe_no_adapter(self, adapter):
+    async def test_unsubscribe_no_adapter(self, adapter) -> None:
         """Test unsubscribe is safe when adapter not connected."""
         await adapter.unsubscribe(["AAPL", "GOOG"])
 
-    def test_enable_streaming_no_adapter(self, adapter):
+    def test_enable_streaming_no_adapter(self, adapter: Any) -> None:
         """Test enable_streaming is safe when adapter not connected."""
         adapter.enable_streaming()
 
-    def test_disable_streaming_no_adapter(self, adapter):
+    def test_disable_streaming_no_adapter(self, adapter: Any) -> None:
         """Test disable_streaming is safe when adapter not connected."""
         adapter.disable_streaming()
 
-    def test_get_latest_no_adapter(self, adapter):
+    def test_get_latest_no_adapter(self, adapter: Any) -> None:
         """Test get_latest returns None when adapter not connected."""
         result = adapter.get_latest("AAPL")
         assert result is None
 
-    def test_get_latest_from_cache(self, adapter):
+    def test_get_latest_from_cache(self, adapter: Any) -> None:
         """Test get_latest returns cached data."""
         md = MockMarketData(symbol="AAPL", last=150.0)
         adapter._market_data_cache["AAPL"] = md
@@ -309,7 +309,7 @@ class TestIbCompositeAdapter:
     # Status Tests
     # -------------------------------------------------------------------------
 
-    def test_get_connection_info_disconnected(self, adapter):
+    def test_get_connection_info_disconnected(self, adapter: Any) -> None:
         """Test get_connection_info when disconnected."""
         info = adapter.get_connection_info()
 

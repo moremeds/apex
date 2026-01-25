@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING, Any, List
 
 import numpy as np
 import pandas as pd
@@ -321,7 +321,9 @@ class TestCausalityWithRealModel:
 
         return TurningPointModel.load(model_path)
 
-    def test_real_model_causality(self, trained_model, sample_price_data: pd.DataFrame) -> None:
+    def test_real_model_causality(
+        self, trained_model: Any, sample_price_data: pd.DataFrame
+    ) -> None:
         """
         Test causality with the real trained model.
 

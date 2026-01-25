@@ -11,7 +11,7 @@ import pytest
 from src.models.account import AccountInfo
 
 
-def test_account_info_model():
+def test_account_info_model() -> None:
     """Test AccountInfo model initialization and calculations."""
     account = AccountInfo(
         net_liquidation=100000.0,
@@ -43,7 +43,7 @@ def test_account_info_model():
     assert account.account_id == "U12345678"
 
 
-def test_margin_utilization_zero_buying_power():
+def test_margin_utilization_zero_buying_power() -> None:
     """Test margin utilization calculation when buying power is zero."""
     account = AccountInfo(
         net_liquidation=100000.0,
@@ -60,7 +60,7 @@ def test_margin_utilization_zero_buying_power():
     assert account.margin_utilization() == 0.0
 
 
-def test_account_info_defaults():
+def test_account_info_defaults() -> None:
     """Test AccountInfo with default values."""
     account = AccountInfo(
         net_liquidation=100000.0,

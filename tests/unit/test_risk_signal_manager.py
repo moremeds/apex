@@ -15,7 +15,7 @@ from src.models.risk_signal import (
 class TestRiskSignalManager:
     """Test RiskSignalManager debounce and cooldown logic."""
 
-    def test_initialization(self):
+    def test_initialization(self) -> None:
         """Test manager initialization."""
         manager = RiskSignalManager(debounce_seconds=10, cooldown_minutes=3)
 
@@ -24,7 +24,7 @@ class TestRiskSignalManager:
         assert len(manager._pending) == 0
         assert len(manager._cooldowns) == 0
 
-    def test_first_signal_debounced(self):
+    def test_first_signal_debounced(self) -> None:
         """Test first occurrence of signal is debounced."""
         manager = RiskSignalManager(debounce_seconds=15, cooldown_minutes=5)
 
@@ -48,7 +48,7 @@ class TestRiskSignalManager:
         assert stats["debounced"] == 1
         assert stats["fired"] == 0
 
-    def test_signal_fires_after_debounce(self):
+    def test_signal_fires_after_debounce(self) -> None:
         """Test signal fires after debounce period."""
         manager = RiskSignalManager(debounce_seconds=0, cooldown_minutes=5)
 
@@ -77,7 +77,7 @@ class TestRiskSignalManager:
         stats = manager.get_stats()
         assert stats["fired"] == 1
 
-    def test_cooldown_suppresses_duplicate(self):
+    def test_cooldown_suppresses_duplicate(self) -> None:
         """Test cooldown prevents duplicate signals."""
         manager = RiskSignalManager(debounce_seconds=0, cooldown_minutes=5)
 
@@ -106,7 +106,7 @@ class TestRiskSignalManager:
         stats = manager.get_stats()
         assert stats["cooldown_suppressed"] == 2
 
-    def test_severity_escalation_bypasses_cooldown(self):
+    def test_severity_escalation_bypasses_cooldown(self) -> None:
         """Test severity escalation allows signal through cooldown."""
         manager = RiskSignalManager(debounce_seconds=0, cooldown_minutes=5)
 
@@ -144,7 +144,7 @@ class TestRiskSignalManager:
         stats = manager.get_stats()
         assert stats["escalated"] == 2
 
-    def test_lower_severity_still_suppressed(self):
+    def test_lower_severity_still_suppressed(self) -> None:
         """Test lower severity doesn't bypass cooldown."""
         manager = RiskSignalManager(debounce_seconds=0, cooldown_minutes=5)
 
@@ -177,7 +177,7 @@ class TestRiskSignalManager:
         assert stats["cooldown_suppressed"] == 1
         assert stats["escalated"] == 0
 
-    def test_clear_signal(self):
+    def test_clear_signal(self) -> None:
         """Test clearing a signal."""
         manager = RiskSignalManager(debounce_seconds=0, cooldown_minutes=5)
 
@@ -204,7 +204,7 @@ class TestRiskSignalManager:
         result = manager.process(signal)
         assert len(result) == 1
 
-    def test_clear_pending_signal(self):
+    def test_clear_pending_signal(self) -> None:
         """Test clearing a pending (debouncing) signal."""
         manager = RiskSignalManager(debounce_seconds=15, cooldown_minutes=5)
 
@@ -224,7 +224,7 @@ class TestRiskSignalManager:
         manager.clear_signal("TEST:Signal")
         assert "TEST:Signal" not in manager._pending
 
-    def test_clear_all_for_symbol(self):
+    def test_clear_all_for_symbol(self) -> None:
         """Test clearing all signals for a symbol."""
         manager = RiskSignalManager(debounce_seconds=0, cooldown_minutes=5)
 
@@ -259,7 +259,7 @@ class TestRiskSignalManager:
         manager.clear_all_for_symbol("TSLA")
         assert len(manager._cooldowns) == 0
 
-    def test_different_signals_independent(self):
+    def test_different_signals_independent(self) -> None:
         """Test different signal IDs are handled independently."""
         manager = RiskSignalManager(debounce_seconds=0, cooldown_minutes=5)
 
@@ -289,7 +289,7 @@ class TestRiskSignalManager:
         result2 = manager.process(signal2)
         assert len(result2) == 1
 
-    def test_cleanup_expired_cooldowns(self):
+    def test_cleanup_expired_cooldowns(self) -> None:
         """Test cleanup of expired cooldowns."""
         manager = RiskSignalManager(debounce_seconds=0, cooldown_minutes=0)  # 0 min cooldown
 
@@ -310,7 +310,7 @@ class TestRiskSignalManager:
         manager.cleanup_expired()
         assert len(manager._cooldowns) == 0
 
-    def test_stats(self):
+    def test_stats(self) -> None:
         """Test statistics tracking."""
         manager = RiskSignalManager(debounce_seconds=0, cooldown_minutes=5)
 
@@ -340,7 +340,7 @@ class TestRiskSignalManager:
         stats = manager.get_stats()
         assert stats["cooldown_suppressed"] == 1
 
-    def test_reset_stats(self):
+    def test_reset_stats(self) -> None:
         """Test resetting statistics."""
         manager = RiskSignalManager(debounce_seconds=0, cooldown_minutes=5)
 
@@ -366,7 +366,7 @@ class TestRiskSignalManager:
         assert stats["total_processed"] == 0
         assert stats["fired"] == 0
 
-    def test_repr(self):
+    def test_repr(self) -> None:
         """Test string representation."""
         manager = RiskSignalManager(debounce_seconds=10, cooldown_minutes=3)
         repr_str = repr(manager)

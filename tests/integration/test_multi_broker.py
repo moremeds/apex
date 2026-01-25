@@ -18,13 +18,14 @@ from pathlib import Path
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+
 from src.domain.services.pos_reconciler import Reconciler
 from src.infrastructure.adapters import BrokerManager, FutuAdapter, IbCompositeAdapter
 from src.infrastructure.adapters.ib import ConnectionPoolConfig
 from src.infrastructure.monitoring import HealthMonitor, HealthStatus
 
 
-def print_health_status(health_monitor: HealthMonitor):
+def print_health_status(health_monitor: HealthMonitor) -> None:
     """Print health status for all components."""
     print("\n  Health Status:")
     for health in health_monitor.get_all_health():

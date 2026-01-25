@@ -7,7 +7,7 @@ Contains the app.js content with lazy loading and full chart rendering.
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List
+from typing import Dict, List
 
 
 def build_javascript(

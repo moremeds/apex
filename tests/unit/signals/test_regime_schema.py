@@ -29,18 +29,18 @@ from src.domain.signals.indicators.regime.models import (
 class TestSchemaVersionConstants:
     """Test schema version constants."""
 
-    def test_schema_version_is_tuple(self):
+    def test_schema_version_is_tuple(self) -> None:
         """Schema version should be a (major, minor) tuple."""
         assert isinstance(SCHEMA_VERSION, tuple)
         assert len(SCHEMA_VERSION) == 2
         assert all(isinstance(v, int) for v in SCHEMA_VERSION)
 
-    def test_schema_version_str_format(self):
+    def test_schema_version_str_format(self) -> None:
         """Schema version string should match expected format."""
         expected = f"regime_output@{SCHEMA_VERSION[0]}.{SCHEMA_VERSION[1]}"
         assert SCHEMA_VERSION_STR == expected
 
-    def test_current_version(self):
+    def test_current_version(self) -> None:
         """Current version should be 1.1."""
         assert SCHEMA_VERSION == (1, 1)
         assert SCHEMA_VERSION_STR == "regime_output@1.1"
@@ -49,41 +49,41 @@ class TestSchemaVersionConstants:
 class TestValidateSchemaVersion:
     """Test schema version validation."""
 
-    def test_valid_current_version(self):
+    def test_valid_current_version(self) -> None:
         """Current version should validate."""
         result = validate_schema_version("regime_output@1.1")
         assert result == (1, 1)
 
-    def test_valid_minor_upgrade(self):
+    def test_valid_minor_upgrade(self) -> None:
         """Higher minor version should validate (forward compatible)."""
         # This tests that we can read newer minor versions
         # Note: This may need adjustment based on compatibility policy
         result = validate_schema_version("regime_output@1.0")
         assert result == (1, 0)
 
-    def test_invalid_major_version_raises(self):
+    def test_invalid_major_version_raises(self) -> None:
         """Different major version should raise SchemaVersionError."""
         with pytest.raises(SchemaVersionError) as exc_info:
             validate_schema_version("regime_output@2.0")
         assert exc_info.value.expected == SCHEMA_VERSION_STR
         assert exc_info.value.actual == "regime_output@2.0"
 
-    def test_invalid_format_raises(self):
+    def test_invalid_format_raises(self) -> None:
         """Invalid format should raise SchemaVersionError."""
         with pytest.raises(SchemaVersionError):
             validate_schema_version("invalid_format")
 
-    def test_missing_prefix_raises(self):
+    def test_missing_prefix_raises(self) -> None:
         """Missing prefix should raise SchemaVersionError."""
         with pytest.raises(SchemaVersionError):
             validate_schema_version("1.1")
 
-    def test_empty_string_raises(self):
+    def test_empty_string_raises(self) -> None:
         """Empty string should raise SchemaVersionError."""
         with pytest.raises(SchemaVersionError):
             validate_schema_version("")
 
-    def test_none_raises(self):
+    def test_none_raises(self) -> None:
         """None should raise SchemaVersionError."""
         with pytest.raises(SchemaVersionError):
             validate_schema_version(None)
@@ -92,13 +92,13 @@ class TestValidateSchemaVersion:
 class TestRegimeOutputToDict:
     """Test RegimeOutput.to_dict() serialization."""
 
-    def test_to_dict_includes_schema_version(self):
+    def test_to_dict_includes_schema_version(self) -> None:
         """to_dict should include schema_version."""
         output = RegimeOutput(symbol="QQQ")
         result = output.to_dict()
         assert result["schema_version"] == SCHEMA_VERSION_STR
 
-    def test_to_dict_round_trip_preserves_data(self):
+    def test_to_dict_round_trip_preserves_data(self) -> None:
         """to_dict followed by from_dict should preserve all data."""
         now = datetime.now().replace(microsecond=0)  # Remove microseconds for comparison
 
@@ -151,13 +151,13 @@ class TestRegimeOutputToDict:
 class TestRegimeOutputFromDict:
     """Test RegimeOutput.from_dict() deserialization."""
 
-    def test_from_dict_validates_schema_version(self):
+    def test_from_dict_validates_schema_version(self) -> None:
         """from_dict should validate schema version."""
         data = {"schema_version": "regime_output@2.0", "symbol": "QQQ"}
         with pytest.raises(SchemaVersionError):
             RegimeOutput.from_dict(data)
 
-    def test_from_dict_handles_missing_fields(self):
+    def test_from_dict_handles_missing_fields(self) -> None:
         """from_dict should handle missing optional fields gracefully."""
         data = {
             "schema_version": SCHEMA_VERSION_STR,
@@ -168,7 +168,7 @@ class TestRegimeOutputFromDict:
         assert result.decision_regime == MarketRegime.R1_CHOPPY_EXTENDED  # Default
         assert result.confidence == 50  # Default
 
-    def test_from_dict_parses_enums(self):
+    def test_from_dict_parses_enums(self) -> None:
         """from_dict should correctly parse enum values."""
         data = {
             "schema_version": SCHEMA_VERSION_STR,
@@ -190,7 +190,7 @@ class TestRegimeOutputFromDict:
         assert result.component_states.vol_state == VolState.HIGH
         assert result.component_states.iv_state == IVState.HIGH
 
-    def test_from_dict_parses_datetime(self):
+    def test_from_dict_parses_datetime(self) -> None:
         """from_dict should correctly parse datetime strings."""
         now = datetime(2024, 6, 15, 10, 30, 0)
         data = {
@@ -205,7 +205,7 @@ class TestRegimeOutputFromDict:
 class TestSchemaVersionMigration:
     """Test schema version migration scenarios."""
 
-    def test_legacy_version_1_0_can_be_parsed(self):
+    def test_legacy_version_1_0_can_be_parsed(self) -> None:
         """Legacy 1.0 format should be parseable."""
         # The 1.0 format might have slightly different structure
         # This test ensures backward compatibility
@@ -219,7 +219,7 @@ class TestSchemaVersionMigration:
         assert result.symbol == "AAPL"
         assert result.final_regime == MarketRegime.R0_HEALTHY_UPTREND
 
-    def test_modified_version_raises_on_deserialize(self):
+    def test_modified_version_raises_on_deserialize(self) -> None:
         """
         Serialize → modify version → deserialize should raise error.
 
@@ -238,7 +238,7 @@ class TestSchemaVersionMigration:
 class TestSchemaVersionErrorMessage:
     """Test SchemaVersionError message formatting."""
 
-    def test_error_message_includes_versions(self):
+    def test_error_message_includes_versions(self) -> None:
         """Error message should include both expected and actual versions."""
         error = SchemaVersionError("regime_output@1.1", "regime_output@2.0")
         assert "regime_output@1.1" in str(error)

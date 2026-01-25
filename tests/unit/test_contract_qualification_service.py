@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -36,7 +37,7 @@ class MockContract:
 class TestQualifiedContract:
     """Tests for the QualifiedContract dataclass."""
 
-    def test_is_expired_fresh_contract(self):
+    def test_is_expired_fresh_contract(self) -> None:
         """Fresh contracts should not be expired."""
         qc = QualifiedContract(
             contract=MockContract("AAPL"),
@@ -45,7 +46,7 @@ class TestQualifiedContract:
         )
         assert not qc.is_expired
 
-    def test_is_expired_old_contract(self):
+    def test_is_expired_old_contract(self) -> None:
         """Contracts older than TTL should be expired."""
         qc = QualifiedContract(
             contract=MockContract("AAPL"),
@@ -54,7 +55,7 @@ class TestQualifiedContract:
         )
         assert qc.is_expired
 
-    def test_is_expired_boundary(self):
+    def test_is_expired_boundary(self) -> None:
         """Contracts just under TTL should not be expired."""
         # Use slightly less than TTL to avoid timing edge cases
         qc = QualifiedContract(
@@ -76,7 +77,7 @@ class TestContractQualificationService:
         return ib
 
     @pytest.fixture
-    def service(self, mock_ib):
+    def service(self, mock_ib: Any):
         """Create a ContractQualificationService instance."""
         return ContractQualificationService(
             ib=mock_ib,
@@ -90,7 +91,7 @@ class TestContractQualificationService:
     # -------------------------------------------------------------------------
 
     @pytest.mark.asyncio
-    async def test_cache_hit(self, service, mock_ib):
+    async def test_cache_hit(self, service, mock_ib) -> None:
         """Cached contracts should be returned without API call."""
         contract = MockContract("AAPL", conId=12345)
 
@@ -106,7 +107,7 @@ class TestContractQualificationService:
         mock_ib.qualifyContractsAsync.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_cache_miss(self, service, mock_ib):
+    async def test_cache_miss(self, service, mock_ib) -> None:
         """Uncached contracts should be queued."""
         contract = MockContract("AAPL")
 
@@ -117,7 +118,7 @@ class TestContractQualificationService:
         assert service._stats["cache_misses"] == 1
 
     @pytest.mark.asyncio
-    async def test_cache_expired(self, service, mock_ib):
+    async def test_cache_expired(self, service, mock_ib) -> None:
         """Expired cache entries should be treated as misses."""
         contract = MockContract("AAPL", conId=12345)
 
@@ -134,7 +135,7 @@ class TestContractQualificationService:
         assert result is None
         assert service._stats["cache_misses"] == 1
 
-    def test_clear_cache(self, service, mock_ib):
+    def test_clear_cache(self, service: Any, mock_ib: Any) -> None:
         """Cache should be clearable."""
         contract = MockContract("AAPL", conId=12345)
         service._update_cache(contract)
@@ -143,7 +144,7 @@ class TestContractQualificationService:
         service.clear_cache()
         assert service.get_cache_size() == 0
 
-    def test_clear_expired(self, service, mock_ib):
+    def test_clear_expired(self, service: Any, mock_ib: Any) -> None:
         """clear_expired should remove only expired entries."""
         # Add fresh entry
         fresh = MockContract("AAPL", conId=1)
@@ -171,7 +172,7 @@ class TestContractQualificationService:
     # -------------------------------------------------------------------------
 
     @pytest.mark.asyncio
-    async def test_qualify_batch_success(self, service, mock_ib):
+    async def test_qualify_batch_success(self, service, mock_ib) -> None:
         """qualify_batch should batch multiple contracts."""
         contracts = [
             MockContract("AAPL", conId=1),
@@ -190,7 +191,7 @@ class TestContractQualificationService:
         assert service._stats["contracts_qualified"] == 3
 
     @pytest.mark.asyncio
-    async def test_qualify_batch_partial_failure(self, service, mock_ib):
+    async def test_qualify_batch_partial_failure(self, service, mock_ib) -> None:
         """qualify_batch should handle partial qualification failures."""
         contracts = [
             MockContract("AAPL"),
@@ -211,7 +212,7 @@ class TestContractQualificationService:
         assert all(c.conId for c in result)
 
     @pytest.mark.asyncio
-    async def test_qualify_batch_uses_cache(self, service, mock_ib):
+    async def test_qualify_batch_uses_cache(self, service, mock_ib) -> None:
         """qualify_batch should use cache for known contracts."""
         cached = MockContract("AAPL", conId=1)
         service._update_cache(cached)
@@ -232,7 +233,7 @@ class TestContractQualificationService:
         assert args[0].symbol == "GOOG"
 
     @pytest.mark.asyncio
-    async def test_qualify_batch_empty(self, service, mock_ib):
+    async def test_qualify_batch_empty(self, service, mock_ib) -> None:
         """qualify_batch should handle empty input."""
         result = await service.qualify_batch([])
         assert result == []
@@ -243,7 +244,7 @@ class TestContractQualificationService:
     # -------------------------------------------------------------------------
 
     @pytest.mark.asyncio
-    async def test_debounce_collects_requests(self, service, mock_ib):
+    async def test_debounce_collects_requests(self, service, mock_ib) -> None:
         """Multiple qualify calls within debounce window should batch."""
         contracts = [
             MockContract("AAPL"),
@@ -273,14 +274,14 @@ class TestContractQualificationService:
     # -------------------------------------------------------------------------
 
     @pytest.mark.asyncio
-    async def test_callback_on_cache_hit(self, service, mock_ib):
+    async def test_callback_on_cache_hit(self, service, mock_ib) -> None:
         """Callback should be invoked for cached contracts."""
         contract = MockContract("AAPL", conId=12345)
         service._update_cache(contract)
 
         callback_result = []
 
-        async def callback(c):
+        async def callback(c) -> None:
             callback_result.append(c)
 
         await service.qualify(contract, callback=callback)
@@ -292,13 +293,13 @@ class TestContractQualificationService:
     # Contract Key Tests
     # -------------------------------------------------------------------------
 
-    def test_contract_key_stock(self, service):
+    def test_contract_key_stock(self, service: Any) -> None:
         """Stock contract key should include symbol, type, exchange, currency."""
         contract = MockContract("AAPL", secType="STK", exchange="SMART", currency="USD")
         key = service._contract_key(contract)
         assert key == "AAPL:STK:SMART:USD"
 
-    def test_contract_key_option(self, service):
+    def test_contract_key_option(self, service: Any) -> None:
         """Option contract key should include symbol, expiry, strike, right."""
         contract = MockContract(
             symbol="AAPL",
@@ -315,7 +316,7 @@ class TestContractQualificationService:
     # -------------------------------------------------------------------------
 
     @pytest.mark.asyncio
-    async def test_fallback_on_timeout(self, service, mock_ib):
+    async def test_fallback_on_timeout(self, service, mock_ib) -> None:
         """Should fall back to sequential on batch timeout."""
         contracts = [
             MockContract("AAPL"),
@@ -336,7 +337,7 @@ class TestContractQualificationService:
         assert len(result) == 2
 
     @pytest.mark.asyncio
-    async def test_fallback_on_exception(self, service, mock_ib):
+    async def test_fallback_on_exception(self, service, mock_ib) -> None:
         """Should fall back to sequential on batch exception."""
         contracts = [MockContract("AAPL")]
 
@@ -353,7 +354,7 @@ class TestContractQualificationService:
     # -------------------------------------------------------------------------
 
     @pytest.mark.asyncio
-    async def test_stats_tracking(self, service, mock_ib):
+    async def test_stats_tracking(self, service, mock_ib) -> None:
         """Stats should be tracked correctly."""
         # Cache hit
         cached = MockContract("AAPL", conId=1)
@@ -370,7 +371,7 @@ class TestContractQualificationService:
         assert stats["batches_sent"] >= 1
         assert stats["contracts_qualified"] >= 1
 
-    def test_get_cached(self, service, mock_ib):
+    def test_get_cached(self, service: Any, mock_ib: Any) -> None:
         """get_cached should return cached contract without triggering qualification."""
         contract = MockContract("AAPL", conId=12345)
 

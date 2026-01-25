@@ -1,6 +1,7 @@
 """Tests for Earliness Metrics."""
 
 from datetime import date
+from typing import Any
 
 import pytest
 
@@ -17,7 +18,7 @@ from src.domain.signals.validation.earliness import (
 class TestTrendEpisode:
     """Tests for TrendEpisode dataclass."""
 
-    def test_duration_days(self):
+    def test_duration_days(self) -> None:
         """Test duration calculation."""
         episode = TrendEpisode(
             start_date=date(2024, 1, 1),
@@ -30,7 +31,7 @@ class TestTrendEpisode:
 class TestDetectTrendEpisodes:
     """Tests for detect_trend_episodes function."""
 
-    def test_single_episode(self):
+    def test_single_episode(self) -> None:
         """Test detection of single episode."""
         signals = {
             date(2024, 1, 1): False,
@@ -54,7 +55,7 @@ class TestDetectTrendEpisodes:
         assert len(episodes) == 1
         assert episodes[0].start_date == date(2024, 1, 2)
 
-    def test_multiple_episodes(self):
+    def test_multiple_episodes(self) -> None:
         """Test detection of multiple episodes."""
         signals = {}
         # First episode: Jan 1-15
@@ -73,7 +74,7 @@ class TestDetectTrendEpisodes:
 
         assert len(episodes) == 2
 
-    def test_short_episode_filtered(self):
+    def test_short_episode_filtered(self) -> None:
         """Test that short episodes are filtered out."""
         signals = {date(2024, 1, i): True for i in range(1, 6)}  # 5 days
         for i in range(6, 10):
@@ -83,7 +84,7 @@ class TestDetectTrendEpisodes:
 
         assert len(episodes) == 0
 
-    def test_empty_signals(self):
+    def test_empty_signals(self) -> None:
         """Test handling of empty signals."""
         episodes = detect_trend_episodes({}, min_episode_days=5)
         assert len(episodes) == 0
@@ -92,7 +93,7 @@ class TestDetectTrendEpisodes:
 class TestFindFirstSignalDate:
     """Tests for find_first_signal_date function."""
 
-    def test_finds_early_signal(self):
+    def test_finds_early_signal(self) -> None:
         """Test finding early signal before episode."""
         signals = {
             date(2024, 1, 1): False,
@@ -107,7 +108,7 @@ class TestFindFirstSignalDate:
 
         assert first == date(2024, 1, 2)
 
-    def test_no_signal_found(self):
+    def test_no_signal_found(self) -> None:
         """Test when no signal is found."""
         signals = {
             date(2024, 1, 1): False,
@@ -159,7 +160,7 @@ class TestComputeEarliness:
             signals[date(2024, 1, i)] = True
         return signals
 
-    def test_faster_tf_earlier(self, baseline_signals, faster_signals_early):
+    def test_faster_tf_earlier(self, baseline_signals: Any, faster_signals_early: Any) -> None:
         """Test when faster TF fires earlier."""
         result = compute_earliness(
             signals_baseline=baseline_signals,
@@ -171,7 +172,7 @@ class TestComputeEarliness:
         assert result.median_earliness_days > 0  # Positive = earlier
         assert result.pct_earlier_than_baseline == 1.0  # 100% earlier
 
-    def test_faster_tf_later(self, baseline_signals, faster_signals_late):
+    def test_faster_tf_later(self, baseline_signals: Any, faster_signals_late: Any) -> None:
         """Test when faster TF fires later (negative earliness)."""
         result = compute_earliness(
             signals_baseline=baseline_signals,
@@ -183,7 +184,7 @@ class TestComputeEarliness:
         assert result.median_earliness_days < 0  # Negative = later
         assert result.pct_earlier_than_baseline == 0.0
 
-    def test_empty_baseline(self):
+    def test_empty_baseline(self) -> None:
         """Test with empty baseline signals."""
         result = compute_earliness(
             signals_baseline={},
@@ -198,7 +199,7 @@ class TestComputeEarliness:
 class TestEarlinessResult:
     """Tests for EarlinessResult dataclass."""
 
-    def test_passes_gates_success(self):
+    def test_passes_gates_success(self) -> None:
         """Test when all gates pass."""
         result = EarlinessResult(
             tf_pair="4h_vs_1d",
@@ -218,7 +219,7 @@ class TestEarlinessResult:
         assert passes
         assert len(failures) == 0
 
-    def test_passes_gates_fails_median(self):
+    def test_passes_gates_fails_median(self) -> None:
         """Test when median earliness gate fails."""
         result = EarlinessResult(
             tf_pair="4h_vs_1d",
@@ -235,7 +236,7 @@ class TestEarlinessResult:
         assert not passes
         assert any("median_earliness_days" in f for f in failures)
 
-    def test_passes_gates_fails_pct(self):
+    def test_passes_gates_fails_pct(self) -> None:
         """Test when pct_earlier gate fails."""
         result = EarlinessResult(
             tf_pair="4h_vs_1d",
@@ -252,7 +253,7 @@ class TestEarlinessResult:
         assert not passes
         assert any("pct_earlier_than_baseline" in f for f in failures)
 
-    def test_to_dict(self):
+    def test_to_dict(self) -> None:
         """Test serialization."""
         result = EarlinessResult(
             tf_pair="4h_vs_1d",
@@ -274,7 +275,7 @@ class TestEarlinessResult:
 class TestComputeMultiTfEarliness:
     """Tests for compute_multi_tf_earliness function."""
 
-    def test_computes_for_all_tfs(self):
+    def test_computes_for_all_tfs(self) -> None:
         """Test computation for multiple timeframes."""
         signals_by_tf = {
             "1d": {date(2024, 1, i): (i >= 10) for i in range(1, 31)},
@@ -294,7 +295,7 @@ class TestComputeMultiTfEarliness:
         assert results["4h_vs_1d"].median_earliness_days >= 0
         assert results["2h_vs_1d"].median_earliness_days >= 0
 
-    def test_missing_baseline(self):
+    def test_missing_baseline(self) -> None:
         """Test handling of missing baseline."""
         signals_by_tf = {
             "4h": {date(2024, 1, i): (i >= 8) for i in range(1, 31)},
@@ -307,7 +308,7 @@ class TestComputeMultiTfEarliness:
 
         assert len(results) == 0
 
-    def test_missing_faster_tf(self):
+    def test_missing_faster_tf(self) -> None:
         """Test handling of missing faster TF."""
         signals_by_tf = {
             "1d": {date(2024, 1, i): (i >= 10) for i in range(1, 31)},

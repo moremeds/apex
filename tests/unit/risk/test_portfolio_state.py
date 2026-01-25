@@ -54,7 +54,7 @@ class TestPortfolioState:
             last_update=datetime.now(),
         )
 
-    def test_add_position(self):
+    def test_add_position(self) -> None:
         """add_position() should update aggregates."""
         state = PortfolioState()
         position = self._create_test_position()
@@ -71,7 +71,7 @@ class TestPortfolioState:
         assert snapshot.portfolio_delta == 100.0
         assert snapshot.total_gross_notional == 15500.0
 
-    def test_add_multiple_positions(self):
+    def test_add_multiple_positions(self) -> None:
         """Multiple positions should aggregate correctly."""
         state = PortfolioState()
         state.add_position(self._create_test_position("AAPL", "AAPL"))
@@ -82,7 +82,7 @@ class TestPortfolioState:
         snapshot = state.to_snapshot()
         assert snapshot.total_unrealized_pnl == 800.0  # 500 + 300
 
-    def test_remove_position(self):
+    def test_remove_position(self) -> None:
         """remove_position() should reverse aggregates."""
         state = PortfolioState()
         position = self._create_test_position()
@@ -97,7 +97,7 @@ class TestPortfolioState:
         snapshot = state.to_snapshot()
         assert snapshot.total_unrealized_pnl == 0.0
 
-    def test_remove_nonexistent_position(self):
+    def test_remove_nonexistent_position(self) -> None:
         """remove_position() should return None for unknown symbol."""
         state = PortfolioState()
 
@@ -105,7 +105,7 @@ class TestPortfolioState:
 
         assert removed is None
 
-    def test_get_position(self):
+    def test_get_position(self) -> None:
         """get_position() should return the position state."""
         state = PortfolioState()
         position = self._create_test_position()
@@ -117,7 +117,7 @@ class TestPortfolioState:
         assert retrieved.symbol == "AAPL"
         assert retrieved.unrealized_pnl == 500.0
 
-    def test_get_nonexistent_position(self):
+    def test_get_nonexistent_position(self) -> None:
         """get_position() should return None for unknown symbol."""
         state = PortfolioState()
 
@@ -125,7 +125,7 @@ class TestPortfolioState:
 
         assert retrieved is None
 
-    def test_apply_delta(self):
+    def test_apply_delta(self) -> None:
         """apply_delta() should update position and aggregates."""
         state = PortfolioState()
         position = self._create_test_position()
@@ -160,7 +160,7 @@ class TestPortfolioState:
         snapshot = state.to_snapshot()
         assert snapshot.total_unrealized_pnl == 600.0
 
-    def test_apply_delta_unknown_position(self):
+    def test_apply_delta_unknown_position(self) -> None:
         """apply_delta() should ignore unknown symbols."""
         state = PortfolioState()
 
@@ -186,7 +186,7 @@ class TestPortfolioState:
         state.apply_delta(delta)
         assert state.position_count == 0
 
-    def test_apply_delta_updates_reliability_counts(self):
+    def test_apply_delta_updates_reliability_counts(self) -> None:
         """apply_delta() should update reliability counts when state changes."""
         state = PortfolioState()
         # Start with unreliable position
@@ -222,7 +222,7 @@ class TestPortfolioState:
         assert snapshot.positions_with_missing_md == 0
         assert snapshot.missing_greeks_count == 0
 
-    def test_clear(self):
+    def test_clear(self) -> None:
         """clear() should reset all state."""
         state = PortfolioState()
         state.add_position(self._create_test_position("AAPL", "AAPL"))
@@ -234,7 +234,7 @@ class TestPortfolioState:
         snapshot = state.to_snapshot()
         assert snapshot.total_unrealized_pnl == 0.0
 
-    def test_to_snapshot_thread_safety(self):
+    def test_to_snapshot_thread_safety(self) -> None:
         """to_snapshot() should be thread-safe."""
         state = PortfolioState()
         state.add_position(self._create_test_position())
@@ -242,7 +242,7 @@ class TestPortfolioState:
         # Take snapshot while another thread updates
         errors = []
 
-        def update_loop():
+        def update_loop() -> None:
             try:
                 for i in range(100):
                     delta = PositionDelta(
@@ -267,7 +267,7 @@ class TestPortfolioState:
             except Exception as e:
                 errors.append(e)
 
-        def snapshot_loop():
+        def snapshot_loop() -> None:
             try:
                 for _ in range(100):
                     snapshot = state.to_snapshot()
@@ -289,7 +289,7 @@ class TestPortfolioState:
 
         assert len(errors) == 0, f"Thread errors: {errors}"
 
-    def test_concentration_calculation(self):
+    def test_concentration_calculation(self) -> None:
         """to_snapshot() should calculate concentration correctly."""
         state = PortfolioState()
         # Add positions with different notionals

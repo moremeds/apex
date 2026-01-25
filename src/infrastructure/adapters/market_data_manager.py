@@ -21,7 +21,7 @@ from ...utils.logging_setup import get_logger
 from ...utils.timezone import age_seconds
 
 if TYPE_CHECKING:
-    from ...application.event_bus import EventBusProtocol
+    from ...domain.interfaces.event_bus import EventBus as EventBusProtocol
     from ...infrastructure.monitoring import HealthMonitor
 
 

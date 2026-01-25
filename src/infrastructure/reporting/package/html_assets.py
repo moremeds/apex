@@ -7,7 +7,7 @@ Generates CSS stylesheets and HTML page templates for the signal package.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional
 
 if TYPE_CHECKING:
     from src.domain.signals.indicators.regime import RegimeOutput

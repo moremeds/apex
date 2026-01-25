@@ -114,6 +114,7 @@ format:
 	@echo "$(BOLD)Auto-formatting code...$(RESET)"
 	$(VENV)/black src/ tests/
 	$(VENV)/isort src/ tests/
+	$(VENV)/flake8 src/ tests/
 	@echo "$(GREEN)✓ Formatting complete$(RESET)"
 
 type-check:

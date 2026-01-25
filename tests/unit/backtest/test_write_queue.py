@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 import time
+from typing import Any
 
 from src.backtest.data.storage.write_queue import (
     WriteOperation,
@@ -17,11 +18,11 @@ from src.backtest.data.storage.write_queue import (
 class MockDatabaseManager:
     """Mock database manager for testing."""
 
-    def __init__(self):
-        self.inserted_records = []
+    def __init__(self) -> None:
+        self.inserted_records: list[tuple[str, Any]] = []
         self.conn = self  # Self-reference for conn.execute
 
-    def execute(self, query: str, params=None):
+    def execute(self, query: str, params: Any = None) -> None:
         """Track executed queries."""
 
     def insert_batch(self, table: str, records: list) -> int:
@@ -284,7 +285,7 @@ class TestWriteQueue:
 
         with WriteQueue(db, config) as queue:
             # Simulate concurrent inserts from multiple threads
-            def insert_records(thread_id: int, count: int):
+            def insert_records(thread_id: int, count: int) -> None:
                 for i in range(count):
                     queue.insert(
                         "runs",

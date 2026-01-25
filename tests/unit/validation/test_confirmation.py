@@ -15,7 +15,7 @@ from src.domain.signals.validation.confirmation import (
 class TestStrategyMetrics:
     """Tests for StrategyMetrics dataclass."""
 
-    def test_f1_score(self):
+    def test_f1_score(self) -> None:
         """Test F1 score calculation."""
         # precision=0.8, recall=0.6
         m = StrategyMetrics(
@@ -34,7 +34,7 @@ class TestStrategyMetrics:
         expected_f1 = 2 * (0.8 * 0.6) / (0.8 + 0.6)
         assert abs(m.f1_score - expected_f1) < 0.001
 
-    def test_f1_score_zero(self):
+    def test_f1_score_zero(self) -> None:
         """Test F1 score when precision and recall are zero."""
         m = StrategyMetrics(
             strategy_name="test",
@@ -49,7 +49,7 @@ class TestStrategyMetrics:
         )
         assert m.f1_score == 0.0
 
-    def test_to_dict(self):
+    def test_to_dict(self) -> None:
         """Test serialization."""
         m = StrategyMetrics(
             strategy_name="test",
@@ -73,7 +73,7 @@ class TestStrategyMetrics:
 class TestComputeStrategyMetrics:
     """Tests for compute_strategy_metrics function."""
 
-    def test_perfect_predictions(self):
+    def test_perfect_predictions(self) -> None:
         """Test with perfect predictions."""
         predictions = [True, True, False, False]
         actuals = [True, True, False, False]
@@ -86,7 +86,7 @@ class TestComputeStrategyMetrics:
         assert m.true_positives == 2
         assert m.true_negatives == 2
 
-    def test_all_false_positives(self):
+    def test_all_false_positives(self) -> None:
         """Test with all false positives."""
         predictions = [True, True, True, True]
         actuals = [False, False, False, False]
@@ -97,7 +97,7 @@ class TestComputeStrategyMetrics:
         assert m.false_positive_rate == 1.0
         assert m.false_positives == 4
 
-    def test_mixed_results(self):
+    def test_mixed_results(self) -> None:
         """Test with mixed results."""
         # 3 TP, 2 FP, 2 TN, 1 FN
         predictions = [True, True, True, True, True, False, False, False]
@@ -113,7 +113,7 @@ class TestComputeStrategyMetrics:
         assert m.recall == 3 / 4  # 3 / (3+1)
         assert m.false_positive_rate == 2 / 4  # 2 / (2+2)
 
-    def test_empty_inputs(self):
+    def test_empty_inputs(self) -> None:
         """Test with empty inputs."""
         m = compute_strategy_metrics([], [], "test")
 
@@ -121,7 +121,7 @@ class TestComputeStrategyMetrics:
         assert m.recall == 0.0
         assert m.total_samples == 0
 
-    def test_length_mismatch(self):
+    def test_length_mismatch(self) -> None:
         """Test that length mismatch raises error."""
         with pytest.raises(ValueError, match="same length"):
             compute_strategy_metrics([True], [True, False], "test")
@@ -130,7 +130,7 @@ class TestComputeStrategyMetrics:
 class TestCompareStrategies:
     """Tests for compare_strategies function."""
 
-    def test_s2_better(self):
+    def test_s2_better(self) -> None:
         """Test when S2 is clearly better (lower FP rate)."""
         # S1: predicts True often (more FPs)
         # S2: more conservative (fewer FPs)
@@ -144,7 +144,7 @@ class TestCompareStrategies:
         assert result.s2.false_positive_rate < result.s1.false_positive_rate
         assert result.delta_fp_rate < 0
 
-    def test_s2_worse(self):
+    def test_s2_worse(self) -> None:
         """Test when S2 is worse (misses too much)."""
         actuals = [True, True, True, True, False, False]
         s1_preds = [True, True, True, True, False, False]  # Perfect
@@ -155,7 +155,7 @@ class TestCompareStrategies:
         # S2 has lower recall/precision
         assert result.s2.recall < result.s1.recall
 
-    def test_result_structure(self):
+    def test_result_structure(self) -> None:
         """Test that result has all required fields."""
         actuals = [True, True, False, False]
         s1_preds = [True, True, True, False]
@@ -174,7 +174,7 @@ class TestCompareStrategies:
 class TestConfirmationResult:
     """Tests for ConfirmationResult."""
 
-    def test_passes_gates_success(self):
+    def test_passes_gates_success(self) -> None:
         """Test when gates pass."""
         s1 = StrategyMetrics(
             "s1",
@@ -219,7 +219,7 @@ class TestConfirmationResult:
         assert passes
         assert len(failures) == 0
 
-    def test_passes_gates_fails_fp_reduction(self):
+    def test_passes_gates_fails_fp_reduction(self) -> None:
         """Test when FP reduction gate fails."""
         s1 = StrategyMetrics(
             "s1",
@@ -261,7 +261,7 @@ class TestConfirmationResult:
         assert not passes
         assert any("FP rate reduction" in f for f in failures)
 
-    def test_to_dict(self):
+    def test_to_dict(self) -> None:
         """Test serialization."""
         s1 = StrategyMetrics(
             "1d_only",
@@ -309,7 +309,7 @@ class TestConfirmationResult:
 class TestApplyAndRule:
     """Tests for apply_and_rule function."""
 
-    def test_and_logic(self):
+    def test_and_logic(self) -> None:
         """Test basic AND logic."""
         tf1 = [True, True, False, False]
         tf2 = [True, False, True, False]
@@ -318,7 +318,7 @@ class TestApplyAndRule:
 
         assert result == [True, False, False, False]
 
-    def test_length_mismatch(self):
+    def test_length_mismatch(self) -> None:
         """Test that length mismatch raises error."""
         with pytest.raises(ValueError, match="same length"):
             apply_and_rule([True], [True, False])
@@ -327,7 +327,7 @@ class TestApplyAndRule:
 class TestApplyMajorityVote:
     """Tests for apply_majority_vote function."""
 
-    def test_majority_3_of_3(self):
+    def test_majority_3_of_3(self) -> None:
         """Test majority vote with 3 TFs."""
         tf1 = [True, True, True, False]
         tf2 = [True, True, False, False]
@@ -338,7 +338,7 @@ class TestApplyMajorityVote:
         # Majority (2 of 3) needed
         assert result == [True, True, False, False]
 
-    def test_custom_min_agree(self):
+    def test_custom_min_agree(self) -> None:
         """Test with custom min_agree."""
         tf1 = [True, True, True]
         tf2 = [True, True, False]
@@ -352,12 +352,12 @@ class TestApplyMajorityVote:
         result = apply_majority_vote([tf1, tf2, tf3], min_agree=1)
         assert result == [True, True, True]
 
-    def test_empty_input(self):
+    def test_empty_input(self) -> None:
         """Test with empty input."""
         result = apply_majority_vote([])
         assert result == []
 
-    def test_length_mismatch(self):
+    def test_length_mismatch(self) -> None:
         """Test that length mismatch raises error."""
         with pytest.raises(ValueError, match="same length"):
             apply_majority_vote([[True], [True, False]])

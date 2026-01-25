@@ -146,8 +146,6 @@ def get_heatmap_javascript(
     Returns:
         JavaScript code string
     """
-    size_metric_str = size_metric.value if hasattr(size_metric, "value") else str(size_metric)
-
     return f"""
         // Embedded model data
         const modelData = {model_json};

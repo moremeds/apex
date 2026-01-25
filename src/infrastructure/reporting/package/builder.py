@@ -7,16 +7,15 @@ Generates a complete package with heatmap landing page, data files, and assets.
 
 from __future__ import annotations
 
-import json
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 import pandas as pd
 
 from src.utils.logging_setup import get_logger
 
-from .constants import PACKAGE_FORMAT_VERSION, THEMES
+from .constants import PACKAGE_FORMAT_VERSION
 from .file_writers import (
     write_data_files,
     write_indicators_file,

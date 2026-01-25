@@ -42,13 +42,13 @@ class TestRiskFacade:
             right="C",
         )
 
-    def test_initial_state(self, facade: RiskFacade):
+    def test_initial_state(self, facade: RiskFacade) -> None:
         """RiskFacade should start with no positions."""
         assert facade.position_count == 0
         assert facade.symbols == []
         assert facade.has_position("AAPL") is False
 
-    def test_load_positions(self, facade: RiskFacade, stock_position: Position):
+    def test_load_positions(self, facade: RiskFacade, stock_position: Position) -> None:
         """load_positions() should register positions."""
         facade.load_positions([stock_position])
 
@@ -57,7 +57,7 @@ class TestRiskFacade:
         # Position count is 0 because no initial tick provided
         assert facade.position_count == 0
 
-    def test_load_positions_with_ticks(self, facade: RiskFacade, stock_position: Position):
+    def test_load_positions_with_ticks(self, facade: RiskFacade, stock_position: Position) -> None:
         """load_positions() with ticks should create initial state."""
         tick = MarketDataTickEvent(
             symbol="AAPL",
@@ -81,7 +81,7 @@ class TestRiskFacade:
         assert state is not None
         assert state.mark_price == 155.0
 
-    def test_on_tick_without_position(self, facade: RiskFacade):
+    def test_on_tick_without_position(self, facade: RiskFacade) -> None:
         """on_tick() should return None for unknown symbol."""
         tick = MarketDataTickEvent(
             symbol="UNKNOWN",
@@ -94,7 +94,7 @@ class TestRiskFacade:
         delta = facade.on_tick(tick)
         assert delta is None
 
-    def test_on_tick_without_state(self, facade: RiskFacade, stock_position: Position):
+    def test_on_tick_without_state(self, facade: RiskFacade, stock_position: Position) -> None:
         """on_tick() should return None if position has no state yet."""
         facade.load_positions([stock_position])  # No initial tick
 
@@ -109,7 +109,7 @@ class TestRiskFacade:
         delta = facade.on_tick(tick)
         assert delta is None  # No state to update
 
-    def test_on_tick_produces_delta(self, facade: RiskFacade, stock_position: Position):
+    def test_on_tick_produces_delta(self, facade: RiskFacade, stock_position: Position) -> None:
         """on_tick() should produce delta for valid tick."""
         # Initialize with tick
         initial_tick = MarketDataTickEvent(
@@ -142,7 +142,7 @@ class TestRiskFacade:
         # Verify delta was produced (exact P&L calculation formula may vary)
         # The important assertion is that we got a delta for a valid tick
 
-    def test_on_tick_updates_state(self, facade: RiskFacade, stock_position: Position):
+    def test_on_tick_updates_state(self, facade: RiskFacade, stock_position: Position) -> None:
         """on_tick() should update portfolio state."""
         initial_tick = MarketDataTickEvent(
             symbol="AAPL",
@@ -171,7 +171,9 @@ class TestRiskFacade:
         assert state is not None
         assert state.mark_price == 156.0
 
-    def test_on_tick_filters_bad_quality(self, facade: RiskFacade, stock_position: Position):
+    def test_on_tick_filters_bad_quality(
+        self, facade: RiskFacade, stock_position: Position
+    ) -> None:
         """on_tick() should filter bad quality ticks."""
         initial_tick = MarketDataTickEvent(
             symbol="AAPL",
@@ -195,7 +197,7 @@ class TestRiskFacade:
         delta = facade.on_tick(stale_tick)
         assert delta is None
 
-    def test_get_snapshot(self, facade: RiskFacade, stock_position: Position):
+    def test_get_snapshot(self, facade: RiskFacade, stock_position: Position) -> None:
         """get_snapshot() should return portfolio metrics."""
         initial_tick = MarketDataTickEvent(
             symbol="AAPL",
@@ -215,7 +217,7 @@ class TestRiskFacade:
         # Unrealized P&L should be positive (mark > avg_price for long position)
         assert snapshot.total_unrealized_pnl >= 0
 
-    def test_add_position(self, facade: RiskFacade, stock_position: Position):
+    def test_add_position(self, facade: RiskFacade, stock_position: Position) -> None:
         """add_position() should add a single position."""
         tick = MarketDataTickEvent(
             symbol="AAPL",
@@ -232,7 +234,7 @@ class TestRiskFacade:
         assert facade.has_position("AAPL")
         assert facade.position_count == 1
 
-    def test_remove_position(self, facade: RiskFacade, stock_position: Position):
+    def test_remove_position(self, facade: RiskFacade, stock_position: Position) -> None:
         """remove_position() should remove a position."""
         tick = MarketDataTickEvent(
             symbol="AAPL",
@@ -250,7 +252,7 @@ class TestRiskFacade:
         assert removed.symbol == "AAPL"
         assert facade.has_position("AAPL") is False
 
-    def test_clear(self, facade: RiskFacade, stock_position: Position):
+    def test_clear(self, facade: RiskFacade, stock_position: Position) -> None:
         """clear() should remove all positions."""
         tick = MarketDataTickEvent(
             symbol="AAPL",
@@ -272,7 +274,7 @@ class TestRiskFacade:
         facade: RiskFacade,
         stock_position: Position,
         option_position: Position,
-    ):
+    ) -> None:
         """RiskFacade should handle multiple positions."""
         stock_tick = MarketDataTickEvent(
             symbol="AAPL",

@@ -6,6 +6,7 @@ Tests the multi-timeframe RSI calculation and signal generation.
 
 from collections import deque
 from datetime import datetime
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -26,7 +27,7 @@ def mock_context():
 
 
 @pytest.fixture
-def strategy(mock_context):
+def strategy(mock_context: Any):
     """Create MTF RSI Trend strategy instance."""
     return MTFRsiTrendStrategy(
         strategy_id="test_mtf_rsi",
@@ -60,7 +61,7 @@ def make_bar(symbol: str, close: float, timeframe: str = "1d") -> BarData:
 class TestMTFRsiStrategy:
     """Test MTF RSI Trend Strategy."""
 
-    def test_strategy_initialization(self, strategy):
+    def test_strategy_initialization(self, strategy: Any) -> None:
         """Test strategy initializes correctly."""
         assert strategy.primary_tf == "1d"
         assert strategy.secondary_tf == "1h"
@@ -68,7 +69,7 @@ class TestMTFRsiStrategy:
         assert strategy.entry_rsi_period == 14
         assert "AAPL" in strategy._prices
 
-    def test_rsi_calculation_with_talib(self, strategy):
+    def test_rsi_calculation_with_talib(self, strategy: Any) -> None:
         """Test RSI calculation uses TA-Lib via indicators module."""
         # Fill price history with enough data for RSI
         prices = deque(maxlen=20)
@@ -84,13 +85,13 @@ class TestMTFRsiStrategy:
         # Uptrending prices should give high RSI
         assert rsi > 50, f"Expected RSI > 50 for uptrend, got {rsi}"
 
-    def test_rsi_returns_none_insufficient_data(self, strategy):
+    def test_rsi_returns_none_insufficient_data(self, strategy: Any) -> None:
         """Test RSI returns None when not enough data."""
         prices = deque([100, 101, 102])  # Only 3 prices
         rsi = strategy._calculate_rsi(prices, period=14)
         assert rsi is None
 
-    def test_on_bars_with_mtf_data(self, strategy, mock_context):
+    def test_on_bars_with_mtf_data(self, strategy: Any, mock_context: Any) -> None:
         """Test on_bars() processes multi-timeframe data."""
         # Warm up with enough bars for RSI calculation
         for i in range(20):
@@ -105,7 +106,7 @@ class TestMTFRsiStrategy:
         assert strategy._trend_rsi["AAPL"] is not None
         assert strategy._entry_rsi["AAPL"] is not None
 
-    def test_on_bar_fallback(self, strategy):
+    def test_on_bar_fallback(self, strategy: Any) -> None:
         """Test on_bar() falls back to single timeframe mode."""
         # Warm up
         for i in range(20):
@@ -115,7 +116,7 @@ class TestMTFRsiStrategy:
         # Should have trend RSI
         assert strategy._trend_rsi["AAPL"] is not None
 
-    def test_buy_signal_conditions(self, strategy, mock_context):
+    def test_buy_signal_conditions(self, strategy: Any, mock_context: Any) -> None:
         """Test BUY signal when trend bullish + entry oversold."""
         # Simulate bullish trend (RSI > 50) with oversold entry (RSI < 30)
         # This requires specific price patterns
@@ -143,7 +144,7 @@ class TestMTFRsiStrategy:
         # Trend should be bullish (>50) for uptrending prices
         assert trend_rsi > 50
 
-    def test_get_state(self, strategy):
+    def test_get_state(self, strategy: Any) -> None:
         """Test get_state returns correct structure."""
         state = strategy.get_state()
 
@@ -157,13 +158,13 @@ class TestMTFRsiStrategy:
 class TestTALibIntegration:
     """Test TA-Lib indicator integration."""
 
-    def test_indicators_module_import(self):
+    def test_indicators_module_import(self) -> None:
         """Test indicators module imports correctly."""
         from src.domain.strategy.signals.indicators import rsi
 
         assert callable(rsi)
 
-    def test_rsi_matches_expected_range(self):
+    def test_rsi_matches_expected_range(self) -> None:
         """Test RSI output is in valid range."""
         import pandas as pd
 

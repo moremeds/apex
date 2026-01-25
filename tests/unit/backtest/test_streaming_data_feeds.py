@@ -26,7 +26,7 @@ from src.domain.events.domain_events import BarData
 
 
 @pytest.fixture
-def csv_test_dir():
+def csv_test_dir() -> None:
     """Create temporary directory with test CSV files."""
     with tempfile.TemporaryDirectory() as tmpdir:
         tmppath = Path(tmpdir)
@@ -74,7 +74,7 @@ class TestStreamingCsvDataFeed:
     """Tests for StreamingCsvDataFeed."""
 
     @pytest.mark.asyncio
-    async def test_streams_bars_in_timestamp_order(self, csv_test_dir):
+    async def test_streams_bars_in_timestamp_order(self, csv_test_dir) -> None:
         """Verify bars are yielded in correct timestamp order."""
         feed = StreamingCsvDataFeed(
             csv_dir=str(csv_test_dir),
@@ -97,7 +97,7 @@ class TestStreamingCsvDataFeed:
             prev_timestamp = bar.timestamp
 
     @pytest.mark.asyncio
-    async def test_bar_count_unknown_before_streaming(self, csv_test_dir):
+    async def test_bar_count_unknown_before_streaming(self, csv_test_dir) -> None:
         """Verify bar_count is -1 before streaming completes."""
         feed = StreamingCsvDataFeed(
             csv_dir=str(csv_test_dir),
@@ -116,7 +116,7 @@ class TestStreamingCsvDataFeed:
         assert feed.bar_count == 10
 
     @pytest.mark.asyncio
-    async def test_date_filtering(self, csv_test_dir):
+    async def test_date_filtering(self, csv_test_dir) -> None:
         """Verify date range filtering works."""
         feed = StreamingCsvDataFeed(
             csv_dir=str(csv_test_dir),
@@ -140,7 +140,7 @@ class TestStreamingCsvDataFeed:
         assert bars[-1].timestamp.date() == date(2024, 1, 7)
 
     @pytest.mark.asyncio
-    async def test_missing_symbol_handled(self, csv_test_dir):
+    async def test_missing_symbol_handled(self, csv_test_dir) -> None:
         """Verify missing symbol files don't cause errors."""
         feed = StreamingCsvDataFeed(
             csv_dir=str(csv_test_dir),
@@ -157,7 +157,7 @@ class TestStreamingCsvDataFeed:
         assert all(bar.symbol == "AAPL" for bar in bars)
 
     @pytest.mark.asyncio
-    async def test_empty_directory_handled(self):
+    async def test_empty_directory_handled(self) -> None:
         """Verify empty directory returns no bars."""
         with tempfile.TemporaryDirectory() as tmpdir:
             feed = StreamingCsvDataFeed(
@@ -174,7 +174,7 @@ class TestStreamingCsvDataFeed:
             assert feed.bar_count == 0
 
     @pytest.mark.asyncio
-    async def test_interleaved_timestamps(self, csv_test_dir):
+    async def test_interleaved_timestamps(self, csv_test_dir) -> None:
         """Verify multi-symbol bars are correctly interleaved."""
         feed = StreamingCsvDataFeed(
             csv_dir=str(csv_test_dir),
@@ -204,7 +204,7 @@ class TestStreamingVsFullLoad:
     """Compare streaming vs full-load feeds."""
 
     @pytest.mark.asyncio
-    async def test_same_results(self, csv_test_dir):
+    async def test_same_results(self, csv_test_dir) -> None:
         """Verify streaming and full-load produce same results."""
         # Streaming feed
         streaming_feed = StreamingCsvDataFeed(
@@ -243,7 +243,7 @@ class TestCreateDataFeedFactory:
     """Tests for create_data_feed factory function."""
 
     @pytest.mark.asyncio
-    async def test_creates_streaming_csv_by_default(self, csv_test_dir):
+    async def test_creates_streaming_csv_by_default(self, csv_test_dir) -> None:
         """Verify factory creates streaming feed by default."""
         feed = create_data_feed(
             source=str(csv_test_dir),
@@ -253,7 +253,7 @@ class TestCreateDataFeedFactory:
         assert isinstance(feed, StreamingCsvDataFeed)
 
     @pytest.mark.asyncio
-    async def test_creates_full_load_when_streaming_false(self, csv_test_dir):
+    async def test_creates_full_load_when_streaming_false(self, csv_test_dir) -> None:
         """Verify factory creates full-load feed when streaming=False."""
         feed = create_data_feed(
             source=str(csv_test_dir),
@@ -264,7 +264,7 @@ class TestCreateDataFeedFactory:
         assert isinstance(feed, CsvDataFeed)
 
     @pytest.mark.asyncio
-    async def test_factory_date_filtering(self, csv_test_dir):
+    async def test_factory_date_filtering(self, csv_test_dir) -> None:
         """Verify factory passes date filters correctly."""
         feed = create_data_feed(
             source=str(csv_test_dir),
@@ -286,7 +286,7 @@ class TestLargeDataset:
     """Tests for larger datasets to verify memory efficiency."""
 
     @pytest.mark.asyncio
-    async def test_many_symbols_streaming(self):
+    async def test_many_symbols_streaming(self) -> None:
         """Test streaming with many symbols (memory stress test)."""
         with tempfile.TemporaryDirectory() as tmpdir:
             tmppath = Path(tmpdir)

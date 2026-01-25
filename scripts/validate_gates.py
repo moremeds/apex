@@ -773,8 +773,8 @@ def check_g11_close_positive(package_path: Path) -> GateResult:
         summary = json.load(f)
 
     # Check close values for all tickers
-    invalid_symbols = []
-    sample_closes = []
+    invalid_symbols: list[str] = []
+    sample_closes: list[str] = []
 
     for ticker in summary.get("tickers", []):
         symbol = ticker.get("symbol", "UNKNOWN")

@@ -14,7 +14,7 @@ from src.domain.reality import ConstantAdminFeeModel, create_zero_cost_pack
 class TestAdminFeeModel:
     """Tests for AdminFeeModel classes."""
 
-    def test_constant_admin_fee_calculation(self):
+    def test_constant_admin_fee_calculation(self) -> None:
         """Test mgmt fee and margin interest calculation."""
         # 2% mgmt fee, 5% margin interest
         model = ConstantAdminFeeModel(mgmt_fee_annual_pct=2.0, margin_interest_annual_pct=5.0)
@@ -41,7 +41,7 @@ class TestBacktestEngineAdminFees:
     """Tests for admin fee integration in BacktestEngine."""
 
     @pytest.mark.asyncio
-    async def test_engine_accrues_admin_fees(self):
+    async def test_engine_accrues_admin_fees(self) -> None:
         """Test that engine actually deducts fees daily."""
         # 10% mgmt fee (high for testing visibility)
         reality_pack = create_zero_cost_pack()

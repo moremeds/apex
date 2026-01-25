@@ -21,13 +21,13 @@ from src.services.indicator_store import IndicatorStore
 class TestIndicatorStoreBasics:
     """Basic cache operations."""
 
-    def test_cache_miss_returns_none(self):
+    def test_cache_miss_returns_none(self) -> None:
         """Empty cache returns None."""
         store = IndicatorStore()
         result = store.get("AAPL", "ATR", {"period": 14})
         assert result is None
 
-    def test_cache_put_and_get(self):
+    def test_cache_put_and_get(self) -> None:
         """Can store and retrieve values."""
         store = IndicatorStore()
         store.put("AAPL", "ATR", {"period": 14}, value=2.5)
@@ -35,7 +35,7 @@ class TestIndicatorStoreBasics:
         result = store.get("AAPL", "ATR", {"period": 14})
         assert result == 2.5
 
-    def test_different_params_are_separate_keys(self):
+    def test_different_params_are_separate_keys(self) -> None:
         """Different params create separate cache entries."""
         store = IndicatorStore()
         store.put("AAPL", "ATR", {"period": 14}, value=2.5)
@@ -44,7 +44,7 @@ class TestIndicatorStoreBasics:
         assert store.get("AAPL", "ATR", {"period": 14}) == 2.5
         assert store.get("AAPL", "ATR", {"period": 20}) == 3.0
 
-    def test_different_symbols_are_separate_keys(self):
+    def test_different_symbols_are_separate_keys(self) -> None:
         """Different symbols create separate cache entries."""
         store = IndicatorStore()
         store.put("AAPL", "ATR", {"period": 14}, value=2.5)
@@ -57,7 +57,7 @@ class TestIndicatorStoreBasics:
 class TestIndicatorStoreTTL:
     """TTL expiration behavior."""
 
-    def test_expired_entry_returns_none(self):
+    def test_expired_entry_returns_none(self) -> None:
         """Expired entries are treated as cache miss."""
         store = IndicatorStore(ttl_seconds=1)
         store.put("AAPL", "ATR", {"period": 14}, value=2.5)
@@ -71,7 +71,7 @@ class TestIndicatorStoreTTL:
         # Entry is now expired
         assert store.get("AAPL", "ATR", {"period": 14}) is None
 
-    def test_expired_entry_increments_eviction_count(self):
+    def test_expired_entry_increments_eviction_count(self) -> None:
         """Expired entries increment eviction metric."""
         store = IndicatorStore(ttl_seconds=0)  # Immediate expiry
         store.put("AAPL", "ATR", {"period": 14}, value=2.5)
@@ -87,7 +87,7 @@ class TestIndicatorStoreGetOrCompute:
     """get_or_compute() pattern."""
 
     @pytest.mark.asyncio
-    async def test_cache_hit_skips_computation(self):
+    async def test_cache_hit_skips_computation(self) -> None:
         """Cached value avoids calling compute_fn."""
         store = IndicatorStore()
         store.put("AAPL", "ATR", {"period": 14}, value=2.5)
@@ -100,7 +100,7 @@ class TestIndicatorStoreGetOrCompute:
         compute_fn.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_cache_miss_calls_compute(self):
+    async def test_cache_miss_calls_compute(self) -> None:
         """Cache miss triggers computation."""
         store = IndicatorStore()
         compute_fn = AsyncMock(return_value=2.5)
@@ -111,7 +111,7 @@ class TestIndicatorStoreGetOrCompute:
         compute_fn.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_computed_value_is_cached(self):
+    async def test_computed_value_is_cached(self) -> None:
         """Computed value is stored for future use."""
         store = IndicatorStore()
         compute_fn = AsyncMock(return_value=2.5)
@@ -130,7 +130,7 @@ class TestIndicatorStoreGetOrCompute:
 class TestIndicatorStoreInvalidation:
     """Cache invalidation."""
 
-    def test_invalidate_by_symbol(self):
+    def test_invalidate_by_symbol(self) -> None:
         """Invalidate all entries for a symbol."""
         store = IndicatorStore()
         store.put("AAPL", "ATR", {"period": 14}, value=2.5)
@@ -144,7 +144,7 @@ class TestIndicatorStoreInvalidation:
         assert store.get("AAPL", "RSI", {"period": 14}) is None
         assert store.get("MSFT", "ATR", {"period": 14}) == 1.8
 
-    def test_invalidate_by_indicator(self):
+    def test_invalidate_by_indicator(self) -> None:
         """Invalidate all entries for an indicator type."""
         store = IndicatorStore()
         store.put("AAPL", "ATR", {"period": 14}, value=2.5)
@@ -156,7 +156,7 @@ class TestIndicatorStoreInvalidation:
         assert count == 2
         assert store.get("AAPL", "RSI", {"period": 14}) == 65.0
 
-    def test_clear_removes_all(self):
+    def test_clear_removes_all(self) -> None:
         """clear() removes all entries."""
         store = IndicatorStore()
         store.put("AAPL", "ATR", {"period": 14}, value=2.5)
@@ -171,7 +171,7 @@ class TestIndicatorStoreInvalidation:
 class TestIndicatorStoreEviction:
     """Capacity-based eviction."""
 
-    def test_evicts_oldest_when_over_capacity(self):
+    def test_evicts_oldest_when_over_capacity(self) -> None:
         """Oldest entries evicted when max_entries reached."""
         store = IndicatorStore(max_entries=5)
 
@@ -192,7 +192,7 @@ class TestIndicatorStoreEviction:
 class TestIndicatorStoreMetrics:
     """Metrics tracking."""
 
-    def test_tracks_hits_and_misses(self):
+    def test_tracks_hits_and_misses(self) -> None:
         """Metrics track cache hits and misses."""
         store = IndicatorStore()
         store.put("AAPL", "ATR", {"period": 14}, value=2.5)
@@ -208,7 +208,7 @@ class TestIndicatorStoreMetrics:
         assert metrics.hits == 2
         assert metrics.misses == 1
 
-    def test_hit_rate_calculation(self):
+    def test_hit_rate_calculation(self) -> None:
         """Hit rate is calculated correctly."""
         store = IndicatorStore()
         store.put("AAPL", "ATR", {"period": 14}, value=2.5)
@@ -221,7 +221,7 @@ class TestIndicatorStoreMetrics:
 
         assert store.get_metrics().hit_rate == 75.0
 
-    def test_get_stats_returns_dict(self):
+    def test_get_stats_returns_dict(self) -> None:
         """get_stats() returns monitoring-friendly dict."""
         store = IndicatorStore()
         store.put("AAPL", "ATR", {"period": 14}, value=2.5)

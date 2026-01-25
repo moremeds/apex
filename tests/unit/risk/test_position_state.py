@@ -14,7 +14,7 @@ from src.domain.services.risk.state.position_state import (
 class TestPositionDelta:
     """Tests for PositionDelta dataclass."""
 
-    def test_delta_is_frozen(self):
+    def test_delta_is_frozen(self) -> None:
         """PositionDelta should be immutable."""
         delta = PositionDelta(
             symbol="AAPL",
@@ -37,7 +37,7 @@ class TestPositionDelta:
         with pytest.raises(AttributeError):
             delta.pnl_change = 20.0  # type: ignore
 
-    def test_to_event_conversion(self):
+    def test_to_event_conversion(self) -> None:
         """to_event() should convert to PositionDeltaEvent."""
         timestamp = datetime.now()
         delta = PositionDelta(
@@ -77,7 +77,7 @@ class TestPositionDelta:
         assert event.is_reliable is True
         assert event.has_greeks is True
 
-    def test_to_event_preserves_has_greeks_false(self):
+    def test_to_event_preserves_has_greeks_false(self) -> None:
         """has_greeks=False should be preserved in event."""
         delta = PositionDelta(
             symbol="AAPL",
@@ -104,7 +104,7 @@ class TestPositionDelta:
 class TestPositionState:
     """Tests for PositionState dataclass."""
 
-    def test_state_is_frozen(self):
+    def test_state_is_frozen(self) -> None:
         """PositionState should be immutable."""
         state = PositionState(
             symbol="AAPL",
@@ -132,7 +132,7 @@ class TestPositionState:
         with pytest.raises(AttributeError):
             state.unrealized_pnl = 1000.0  # type: ignore
 
-    def test_with_update_creates_new_state(self):
+    def test_with_update_creates_new_state(self) -> None:
         """with_update() should return a new PositionState."""
         timestamp = datetime.now()
         old_state = PositionState(
@@ -192,7 +192,7 @@ class TestPositionState:
         assert old_state.unrealized_pnl == 500.0
         assert old_state.has_greeks is False
 
-    def test_with_update_preserves_static_fields(self):
+    def test_with_update_preserves_static_fields(self) -> None:
         """with_update() should preserve quantity, avg_cost, etc."""
         old_state = PositionState(
             symbol="AAPL",
@@ -246,7 +246,7 @@ class TestPositionState:
         assert new_state.yesterday_close == 154.0
         assert new_state.session_open == 153.0
 
-    def test_to_dict_serialization(self):
+    def test_to_dict_serialization(self) -> None:
         """to_dict() should serialize all fields."""
         timestamp = datetime.now()
         state = PositionState(

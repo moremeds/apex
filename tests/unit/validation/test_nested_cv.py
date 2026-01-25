@@ -1,6 +1,7 @@
 """Tests for Nested Walk-Forward Cross-Validation Framework."""
 
 from datetime import date
+from typing import Any
 
 import pytest
 
@@ -19,7 +20,7 @@ from src.domain.signals.validation.statistics import SymbolMetrics
 class TestTimeWindow:
     """Tests for TimeWindow dataclass."""
 
-    def test_days_calculation(self):
+    def test_days_calculation(self) -> None:
         """Test days property calculation."""
         window = TimeWindow(
             start_date=date(2024, 1, 1),
@@ -27,7 +28,7 @@ class TestTimeWindow:
         )
         assert window.days == 30
 
-    def test_frozen(self):
+    def test_frozen(self) -> None:
         """Test that TimeWindow is frozen."""
         window = TimeWindow(date(2024, 1, 1), date(2024, 1, 31))
         with pytest.raises(AttributeError):
@@ -37,7 +38,7 @@ class TestTimeWindow:
 class TestNestedCVConfig:
     """Tests for NestedCVConfig."""
 
-    def test_default_config(self):
+    def test_default_config(self) -> None:
         """Test default configuration values."""
         config = NestedCVConfig()
 
@@ -46,19 +47,19 @@ class TestNestedCVConfig:
         assert config.outer_train_pct == 0.7
         assert config.inner_max_trials == 20
 
-    def test_validate_outer_folds(self):
+    def test_validate_outer_folds(self) -> None:
         """Test validation rejects outer_folds < 2."""
         config = NestedCVConfig(outer_folds=1)
         with pytest.raises(ValueError, match="outer_folds"):
             config.validate()
 
-    def test_validate_inner_folds(self):
+    def test_validate_inner_folds(self) -> None:
         """Test validation rejects inner_folds < 2."""
         config = NestedCVConfig(inner_folds=1)
         with pytest.raises(ValueError, match="inner_folds"):
             config.validate()
 
-    def test_validate_train_pct(self):
+    def test_validate_train_pct(self) -> None:
         """Test validation rejects invalid train_pct."""
         config = NestedCVConfig(outer_train_pct=0.1)
         with pytest.raises(ValueError, match="outer_train_pct"):
@@ -82,7 +83,7 @@ class TestNestedWalkForwardCV:
         )
         return NestedWalkForwardCV(config)
 
-    def test_generate_outer_splits(self, cv):
+    def test_generate_outer_splits(self, cv: Any) -> None:
         """Test outer split generation."""
         start = date(2023, 1, 1)
         end = date(2024, 1, 1)  # 365 days
@@ -97,7 +98,7 @@ class TestNestedWalkForwardCV:
             # Train should end before test starts
             assert split.train_window.end_date < split.test_window.start_date
 
-    def test_outer_splits_no_overlap(self, cv):
+    def test_outer_splits_no_overlap(self, cv: Any) -> None:
         """Test that outer train doesn't overlap with test (with purge)."""
         start = date(2023, 1, 1)
         end = date(2024, 1, 1)
@@ -107,7 +108,7 @@ class TestNestedWalkForwardCV:
             gap_days = (split.test_window.start_date - split.train_window.end_date).days
             assert gap_days >= purge_days, "Purge gap not respected"
 
-    def test_generate_inner_splits(self, cv):
+    def test_generate_inner_splits(self, cv: Any) -> None:
         """Test inner split generation."""
         # Use larger window to ensure enough days for splits
         train_window = TimeWindow(date(2023, 1, 1), date(2023, 12, 31))
@@ -134,18 +135,18 @@ class TestNestedCVIntegration:
         )
         return NestedWalkForwardCV(config)
 
-    def test_run_with_mock_functions(self, simple_cv):
+    def test_run_with_mock_functions(self, simple_cv: Any) -> None:
         """Test full run with mock objective and evaluation functions."""
         symbols = ["AAPL", "MSFT", "GOOGL"]
         start = date(2023, 1, 1)
         end = date(2024, 1, 1)
 
         # Mock objective function (returns fixed score)
-        def mock_objective(params, train_window, test_window):
+        def mock_objective(params: Any, train_window: Any, test_window: Any):
             return 0.75
 
         # Mock evaluation function
-        def mock_evaluate(symbol, window, params):
+        def mock_evaluate(symbol: Any, window: Any, params: Any):
             return SymbolMetrics(
                 symbol=symbol,
                 label_type="TRENDING",
@@ -172,7 +173,7 @@ class TestNestedCVIntegration:
         assert len(result.outer_results) > 0
         assert len(result.aggregated_metrics) > 0
 
-    def test_run_aggregates_metrics(self, simple_cv):
+    def test_run_aggregates_metrics(self, simple_cv: Any) -> None:
         """Test that metrics are properly aggregated across folds."""
         symbols = ["AAPL", "GME"]
         start = date(2023, 1, 1)
@@ -180,10 +181,10 @@ class TestNestedCVIntegration:
 
         fold_counter = [0]
 
-        def mock_objective(params, train_window, test_window):
+        def mock_objective(params: Any, train_window: Any, test_window: Any):
             return 0.7
 
-        def mock_evaluate(symbol, window, params):
+        def mock_evaluate(symbol: Any, window: Any, params: Any):
             # Different rates per fold to verify aggregation
             fold_counter[0] += 1
             rate = 0.8 if fold_counter[0] % 2 == 0 else 0.6
@@ -211,7 +212,7 @@ class TestNestedCVIntegration:
 class TestOuterFoldResult:
     """Tests for OuterFoldResult."""
 
-    def test_structure(self):
+    def test_structure(self) -> None:
         """Test OuterFoldResult structure."""
         result = OuterFoldResult(
             fold_id=0,
@@ -231,7 +232,7 @@ class TestOuterFoldResult:
 class TestNestedCVResult:
     """Tests for NestedCVResult."""
 
-    def test_to_dict(self):
+    def test_to_dict(self) -> None:
         """Test serialization to dictionary."""
         result = NestedCVResult(
             outer_results=[
@@ -260,7 +261,7 @@ class TestNestedCVResult:
 class TestCreateDefaultParamSpace:
     """Tests for create_default_param_space function."""
 
-    def test_has_expected_params(self):
+    def test_has_expected_params(self) -> None:
         """Test that default param space has expected parameters."""
         space = create_default_param_space()
 
@@ -268,7 +269,7 @@ class TestCreateDefaultParamSpace:
         assert "ma200_period" in space
         assert "atr_period" in space
 
-    def test_valid_param_structure(self):
+    def test_valid_param_structure(self) -> None:
         """Test that each param has valid structure."""
         space = create_default_param_space()
 

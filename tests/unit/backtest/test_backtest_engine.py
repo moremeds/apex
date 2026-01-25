@@ -3,6 +3,7 @@ Unit tests for the backtest engine.
 """
 
 from datetime import date, datetime, timedelta
+from typing import Any
 
 import pytest
 
@@ -19,13 +20,13 @@ from src.domain.strategy.registry import StrategyRegistry, register_strategy
 class TestSimulatedClock:
     """Tests for SimulatedClock."""
 
-    def test_initial_time(self):
+    def test_initial_time(self) -> None:
         """Test clock starts at specified time."""
         start = datetime(2024, 1, 1, 9, 30)
         clock = SimulatedClock(start)
         assert clock.now() == start
 
-    def test_advance_to(self):
+    def test_advance_to(self) -> None:
         """Test advancing clock to future time."""
         start = datetime(2024, 1, 1, 9, 30)
         clock = SimulatedClock(start)
@@ -35,7 +36,7 @@ class TestSimulatedClock:
 
         assert clock.now() == target
 
-    def test_advance_by(self):
+    def test_advance_by(self) -> None:
         """Test advancing clock by delta."""
         start = datetime(2024, 1, 1, 9, 30)
         clock = SimulatedClock(start)
@@ -44,7 +45,7 @@ class TestSimulatedClock:
 
         assert clock.now() == datetime(2024, 1, 1, 10, 0)
 
-    def test_timer_fires(self):
+    def test_timer_fires(self) -> None:
         """Test timer fires during advancement."""
         start = datetime(2024, 1, 1, 9, 30)
         clock = SimulatedClock(start)
@@ -57,7 +58,7 @@ class TestSimulatedClock:
 
         assert len(fired) == 1
 
-    def test_timer_cancelled(self):
+    def test_timer_cancelled(self) -> None:
         """Test cancelled timer doesn't fire."""
         start = datetime(2024, 1, 1, 9, 30)
         clock = SimulatedClock(start)
@@ -81,7 +82,7 @@ class TestSimulatedExecution:
         return SimulatedExecution(clock, fill_model=FillModel.IMMEDIATE)
 
     @pytest.mark.asyncio
-    async def test_market_order_fills_immediately(self, execution):
+    async def test_market_order_fills_immediately(self, execution) -> None:
         """Test market order fills at ask for buys."""
         # Set price
         tick = QuoteTick(symbol="AAPL", bid=150.0, ask=150.05, last=150.02)
@@ -107,7 +108,7 @@ class TestSimulatedExecution:
         assert fills[0].price == 150.05  # Filled at ask
 
     @pytest.mark.asyncio
-    async def test_position_tracking(self, execution):
+    async def test_position_tracking(self, execution) -> None:
         """Test position is tracked after fill."""
         tick = QuoteTick(symbol="AAPL", bid=150.0, ask=150.05, last=150.02)
         execution.update_price(tick)
@@ -129,7 +130,7 @@ class TestSimulatedExecution:
         assert pos.avg_price == 150.05
 
     @pytest.mark.asyncio
-    async def test_limit_order_fills_when_price_reached(self, execution):
+    async def test_limit_order_fills_when_price_reached(self, execution) -> None:
         """Test limit order fills when price is favorable."""
         # Set initial price (above limit)
         tick1 = QuoteTick(symbol="AAPL", bid=151.0, ask=151.05, last=151.0)
@@ -164,7 +165,7 @@ class TestDataFeeds:
     """Tests for data feeds."""
 
     @pytest.mark.asyncio
-    async def test_in_memory_feed(self):
+    async def test_in_memory_feed(self) -> None:
         """Test in-memory data feed."""
         feed = InMemoryDataFeed()
         feed.add_bar(
@@ -200,25 +201,25 @@ class TestDataFeeds:
 class TestStrategy:
     """Tests for strategy base class."""
 
-    def test_strategy_lifecycle(self):
+    def test_strategy_lifecycle(self) -> None:
         """Test strategy start/stop lifecycle."""
 
         # Create a simple test strategy
         @register_strategy("test_simple")
         class SimpleStrategy(Strategy):
-            def __init__(self, *args, **kwargs):
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
                 super().__init__(*args, **kwargs)
                 self.started = False
                 self.stopped = False
                 self.ticks_received = []
 
-            def on_start(self):
+            def on_start(self) -> None:
                 self.started = True
 
-            def on_stop(self):
+            def on_stop(self) -> None:
                 self.stopped = True
 
-            def on_tick(self, tick):
+            def on_tick(self, tick: Any) -> None:
                 self.ticks_received.append(tick)
 
         clock = SimulatedClock(datetime(2024, 1, 1))
@@ -257,7 +258,7 @@ class TestBacktestEngine:
         )
 
     @pytest.mark.asyncio
-    async def test_engine_runs_with_in_memory_feed(self, config):
+    async def test_engine_runs_with_in_memory_feed(self, config) -> None:
         """Test engine runs successfully with in-memory data."""
         # Import to register strategies
 

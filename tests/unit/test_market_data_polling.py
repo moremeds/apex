@@ -13,7 +13,7 @@ from src.infrastructure.adapters.market_data_fetcher import MarketDataFetcher
 
 
 @pytest.mark.asyncio
-async def test_wait_for_data_population_all_ready():
+async def test_wait_for_data_population_all_ready() -> None:
     """Test that polling exits early when all data is ready."""
     # Create mock IB instance
     ib = MagicMock()
@@ -50,7 +50,7 @@ async def test_wait_for_data_population_all_ready():
 
 
 @pytest.mark.asyncio
-async def test_wait_for_data_population_timeout():
+async def test_wait_for_data_population_timeout() -> None:
     """Test that polling times out when data doesn't arrive."""
     # Create mock IB instance
     ib = MagicMock()
@@ -89,7 +89,7 @@ async def test_wait_for_data_population_timeout():
 
 
 @pytest.mark.asyncio
-async def test_wait_for_data_population_partial():
+async def test_wait_for_data_population_partial() -> None:
     """Test polling with partial data availability."""
     # Create mock IB instance
     ib = MagicMock()
@@ -120,7 +120,7 @@ async def test_wait_for_data_population_partial():
 
 
 @pytest.mark.asyncio
-async def test_wait_for_data_population_delayed():
+async def test_wait_for_data_population_delayed() -> None:
     """Test polling that waits for delayed data arrival."""
     # Create mock IB instance
     ib = MagicMock()
@@ -138,7 +138,7 @@ async def test_wait_for_data_population_delayed():
     tickers = [ticker]
 
     # Schedule data to arrive after 0.2 seconds
-    async def populate_data_later():
+    async def populate_data_later() -> None:
         await asyncio.sleep(0.2)
         ticker.bid = 100.0
         ticker.ask = 101.0
@@ -162,7 +162,7 @@ async def test_wait_for_data_population_delayed():
 
 
 @pytest.mark.asyncio
-async def test_wait_for_data_zero_timeout():
+async def test_wait_for_data_zero_timeout() -> None:
     """Test polling with zero timeout."""
     # Create mock IB instance
     ib = MagicMock()
@@ -190,7 +190,7 @@ async def test_wait_for_data_zero_timeout():
 
 
 @pytest.mark.asyncio
-async def test_wait_for_data_empty_ticker_list():
+async def test_wait_for_data_empty_ticker_list() -> None:
     """Test polling with empty ticker list."""
     # Create mock IB instance
     ib = MagicMock()

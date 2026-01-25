@@ -2,6 +2,7 @@
 
 import asyncio
 import time
+from typing import Any
 
 import pytest
 
@@ -16,7 +17,7 @@ from src.domain.events import (
 class TestEventPriority:
     """Tests for event priority ordering."""
 
-    def test_priority_values(self):
+    def test_priority_values(self) -> None:
         """Verify priority values are correctly ordered."""
         assert EventPriority.CRITICAL < EventPriority.RISK
         assert EventPriority.RISK < EventPriority.TRADING
@@ -28,7 +29,7 @@ class TestEventPriority:
         assert EventPriority.SNAPSHOT < EventPriority.DIAGNOSTIC
         assert EventPriority.DIAGNOSTIC < EventPriority.UI
 
-    def test_envelope_ordering(self):
+    def test_envelope_ordering(self) -> None:
         """PriorityEventEnvelope orders by priority then sequence."""
         envelope_low = PriorityEventEnvelope(
             priority=EventPriority.UI,
@@ -45,7 +46,7 @@ class TestEventPriority:
         # Higher priority (lower number) should be "less than"
         assert envelope_high < envelope_low
 
-    def test_envelope_sequence_tiebreaker(self):
+    def test_envelope_sequence_tiebreaker(self) -> None:
         """Same priority uses sequence as tiebreaker."""
         envelope1 = PriorityEventEnvelope(
             priority=EventPriority.MARKET_DATA,
@@ -66,7 +67,7 @@ class TestPriorityEventBusBasic:
     """Basic functionality tests for PriorityEventBus."""
 
     @pytest.mark.asyncio
-    async def test_start_stop(self):
+    async def test_start_stop(self) -> None:
         """Event bus starts and stops cleanly."""
         bus = PriorityEventBus()
         await bus.start()
@@ -75,7 +76,7 @@ class TestPriorityEventBusBasic:
         assert not bus.is_running
 
     @pytest.mark.asyncio
-    async def test_publish_subscribe(self):
+    async def test_publish_subscribe(self) -> None:
         """Basic publish/subscribe works."""
         bus = PriorityEventBus()
         await bus.start()
@@ -92,14 +93,14 @@ class TestPriorityEventBusBasic:
         await bus.stop()
 
     @pytest.mark.asyncio
-    async def test_async_subscriber(self):
+    async def test_async_subscriber(self) -> None:
         """Async subscribers are awaited."""
         bus = PriorityEventBus()
         await bus.start()
 
         received = []
 
-        async def async_handler(payload):
+        async def async_handler(payload) -> None:
             await asyncio.sleep(0.01)
             received.append(payload)
 
@@ -114,7 +115,7 @@ class TestPriorityEventBusBasic:
         await bus.stop()
 
     @pytest.mark.asyncio
-    async def test_unsubscribe(self):
+    async def test_unsubscribe(self) -> None:
         """Unsubscribe removes callback."""
         bus = PriorityEventBus()
         await bus.start()
@@ -141,7 +142,7 @@ class TestFastLane:
     """Tests for fast lane behavior."""
 
     @pytest.mark.asyncio
-    async def test_fast_lane_events_route_correctly(self):
+    async def test_fast_lane_events_route_correctly(self) -> None:
         """Events with priority < SNAPSHOT go to fast lane."""
         bus = PriorityEventBus()
         await bus.start()
@@ -165,7 +166,7 @@ class TestFastLane:
         await bus.stop()
 
     @pytest.mark.asyncio
-    async def test_priority_ordering(self):
+    async def test_priority_ordering(self) -> None:
         """
         RISK_SIGNAL processed before MARKET_DATA_TICK.
 
@@ -191,7 +192,7 @@ class TestFastLane:
         await bus.stop()
 
     @pytest.mark.asyncio
-    async def test_fast_lane_no_debounce(self):
+    async def test_fast_lane_no_debounce(self) -> None:
         """Fast lane events dispatched immediately without debouncing."""
         bus = PriorityEventBus(slow_lane_debounce_ms=500)
         await bus.start()
@@ -199,7 +200,7 @@ class TestFastLane:
         received = []
         times = []
 
-        def handler(p):
+        def handler(p: Any) -> None:
             received.append(p)
             times.append(time.time())
 
@@ -225,7 +226,7 @@ class TestSlowLane:
     """Tests for slow lane behavior."""
 
     @pytest.mark.asyncio
-    async def test_slow_lane_events_route_correctly(self):
+    async def test_slow_lane_events_route_correctly(self) -> None:
         """Events with priority >= SNAPSHOT go to slow lane."""
         bus = PriorityEventBus(slow_lane_debounce_ms=50, slow_lane_min_interval_ms=50)
         await bus.start()
@@ -249,7 +250,7 @@ class TestSlowLane:
         await bus.stop()
 
     @pytest.mark.asyncio
-    async def test_slow_lane_coalesces_by_symbol(self):
+    async def test_slow_lane_coalesces_by_symbol(self) -> None:
         """Multiple slow events for same symbol coalesce to latest."""
         bus = PriorityEventBus(slow_lane_debounce_ms=50, slow_lane_min_interval_ms=50)
         await bus.start()
@@ -272,7 +273,7 @@ class TestSlowLane:
         await bus.stop()
 
     @pytest.mark.asyncio
-    async def test_slow_lane_debounce(self):
+    async def test_slow_lane_debounce(self) -> None:
         """Slow lane applies debouncing."""
         bus = PriorityEventBus(slow_lane_debounce_ms=100)
         await bus.start()
@@ -300,7 +301,7 @@ class TestStarvationPrevention:
     """Tests for preventing slow-lane starvation under fast-lane load."""
 
     @pytest.mark.asyncio
-    async def test_slow_lane_runs_under_fast_load(self):
+    async def test_slow_lane_runs_under_fast_load(self) -> None:
         """
         Slow lane events are dispatched even when fast lane is flooded.
 
@@ -316,7 +317,7 @@ class TestStarvationPrevention:
 
         slow_dispatch_times = []
 
-        def track_slow(payload):
+        def track_slow(payload: Any) -> None:
             slow_dispatch_times.append(time.time())
 
         bus.subscribe(EventType.SNAPSHOT_READY, track_slow)
@@ -343,14 +344,14 @@ class TestStarvationPrevention:
         await bus.stop()
 
     @pytest.mark.asyncio
-    async def test_fast_lane_yields_after_budget(self):
+    async def test_fast_lane_yields_after_budget(self) -> None:
         """Fast lane yields after processing budget events."""
         bus = PriorityEventBus(fast_budget=10, fast_time_slice_ms=5)
         await bus.start()
 
         fast_count = 0
 
-        def count_fast(p):
+        def count_fast(p: Any) -> None:
             nonlocal fast_count
             fast_count += 1
 
@@ -372,7 +373,7 @@ class TestDropPolicy:
     """Tests for event drop policy under overload."""
 
     @pytest.mark.asyncio
-    async def test_drop_policy_removes_low_priority_first(self):
+    async def test_drop_policy_removes_low_priority_first(self) -> None:
         """
         UI events dropped first when slow queue is full.
 
@@ -403,7 +404,7 @@ class TestStats:
     """Tests for statistics collection."""
 
     @pytest.mark.asyncio
-    async def test_stats_tracking(self):
+    async def test_stats_tracking(self) -> None:
         """Statistics are tracked correctly."""
         bus = PriorityEventBus()
         await bus.start()
@@ -428,7 +429,7 @@ class TestStats:
         await bus.stop()
 
     @pytest.mark.asyncio
-    async def test_high_water_mark(self):
+    async def test_high_water_mark(self) -> None:
         """High water mark tracks peak queue depth."""
         bus = PriorityEventBus()
         await bus.start()
@@ -448,7 +449,7 @@ class TestStats:
 class TestSyncFallback:
     """Tests for sync dispatch when bus not running."""
 
-    def test_sync_fallback_dispatch(self):
+    def test_sync_fallback_dispatch(self) -> None:
         """Events dispatch synchronously when bus not started."""
         bus = PriorityEventBus()
 
@@ -466,17 +467,17 @@ class TestErrorHandling:
     """Tests for error handling in subscribers."""
 
     @pytest.mark.asyncio
-    async def test_subscriber_error_isolated(self):
+    async def test_subscriber_error_isolated(self) -> None:
         """One subscriber error doesn't affect others."""
         bus = PriorityEventBus()
         await bus.start()
 
         results = []
 
-        def good_handler(p):
+        def good_handler(p: Any) -> None:
             results.append("good")
 
-        def bad_handler(p):
+        def bad_handler(p: Any) -> None:
             raise ValueError("intentional error")
 
         bus.subscribe(EventType.MARKET_DATA_TICK, bad_handler)

@@ -31,7 +31,7 @@ from src.domain.events.event_types import (
 class TestQuoteTick:
     """Tests for QuoteTick domain event."""
 
-    def test_create_quote_tick(self):
+    def test_create_quote_tick(self) -> None:
         """Test creating a QuoteTick."""
         tick = QuoteTick(
             symbol="AAPL",
@@ -48,33 +48,33 @@ class TestQuoteTick:
         assert tick.last == 150.05
         assert tick.source == "IB"
 
-    def test_quote_tick_mid_price(self):
+    def test_quote_tick_mid_price(self) -> None:
         """Test mid price calculation."""
         tick = QuoteTick(symbol="AAPL", bid=150.0, ask=150.10)
         assert tick.mid == 150.05
 
-    def test_quote_tick_mid_fallback_to_last(self):
+    def test_quote_tick_mid_fallback_to_last(self) -> None:
         """Test mid price fallback to last when bid/ask missing."""
         tick = QuoteTick(symbol="AAPL", last=150.0)
         assert tick.mid == 150.0
 
-    def test_quote_tick_spread(self):
+    def test_quote_tick_spread(self) -> None:
         """Test spread calculation."""
         tick = QuoteTick(symbol="AAPL", bid=150.0, ask=150.10)
         assert tick.spread == pytest.approx(0.10)
 
-    def test_quote_tick_spread_pct(self):
+    def test_quote_tick_spread_pct(self) -> None:
         """Test spread percentage calculation."""
         tick = QuoteTick(symbol="AAPL", bid=100.0, ask=101.0)
         assert tick.spread_pct == pytest.approx(0.99, rel=0.01)
 
-    def test_quote_tick_immutable(self):
+    def test_quote_tick_immutable(self) -> None:
         """Test that QuoteTick is immutable."""
         tick = QuoteTick(symbol="AAPL", last=150.0)
         with pytest.raises(AttributeError):
             tick.symbol = "MSFT"
 
-    def test_quote_tick_to_dict(self):
+    def test_quote_tick_to_dict(self) -> None:
         """Test serialization to dict."""
         tick = QuoteTick(symbol="AAPL", last=150.0, source="IB")
         d = tick.to_dict()
@@ -84,7 +84,7 @@ class TestQuoteTick:
         assert d["_event_type"] == "QuoteTick"
         assert "timestamp" in d
 
-    def test_quote_tick_from_dict(self):
+    def test_quote_tick_from_dict(self) -> None:
         """Test deserialization from dict."""
         tick = QuoteTick(symbol="AAPL", last=150.0, source="IB")
         d = tick.to_dict()
@@ -93,7 +93,7 @@ class TestQuoteTick:
         assert restored.last == tick.last
         assert restored.source == tick.source
 
-    def test_quote_tick_to_json(self):
+    def test_quote_tick_to_json(self) -> None:
         """Test JSON serialization."""
         tick = QuoteTick(symbol="AAPL", last=150.0)
         json_str = tick.to_json()
@@ -101,7 +101,7 @@ class TestQuoteTick:
         assert parsed["symbol"] == "AAPL"
         assert parsed["last"] == 150.0
 
-    def test_quote_tick_from_json(self):
+    def test_quote_tick_from_json(self) -> None:
         """Test JSON deserialization."""
         tick = QuoteTick(symbol="AAPL", last=150.0)
         json_str = tick.to_json()
@@ -113,7 +113,7 @@ class TestQuoteTick:
 class TestBarData:
     """Tests for BarData domain event."""
 
-    def test_create_bar_data(self):
+    def test_create_bar_data(self) -> None:
         """Test creating BarData."""
         bar = BarData(
             symbol="AAPL",
@@ -129,24 +129,24 @@ class TestBarData:
         assert bar.timeframe == "1m"
         assert bar.close == 150.5
 
-    def test_bar_data_range(self):
+    def test_bar_data_range(self) -> None:
         """Test range calculation."""
         bar = BarData(symbol="AAPL", high=151.0, low=149.0)
         assert bar.range == 2.0
 
-    def test_bar_data_body(self):
+    def test_bar_data_body(self) -> None:
         """Test body calculation."""
         bar = BarData(symbol="AAPL", open=150.0, close=151.5)
         assert bar.body == 1.5
 
-    def test_bar_data_is_bullish(self):
+    def test_bar_data_is_bullish(self) -> None:
         """Test bullish candle detection."""
         bullish = BarData(symbol="AAPL", open=150.0, close=151.0)
         bearish = BarData(symbol="AAPL", open=151.0, close=150.0)
         assert bullish.is_bullish is True
         assert bearish.is_bullish is False
 
-    def test_bar_data_serialization(self):
+    def test_bar_data_serialization(self) -> None:
         """Test BarData serialization round trip."""
         bar = BarData(
             symbol="AAPL",
@@ -166,7 +166,7 @@ class TestBarData:
 class TestTradeFill:
     """Tests for TradeFill domain event."""
 
-    def test_create_trade_fill(self):
+    def test_create_trade_fill(self) -> None:
         """Test creating TradeFill."""
         fill = TradeFill(
             symbol="AAPL",
@@ -184,7 +184,7 @@ class TestTradeFill:
         assert fill.quantity == 100.0
         assert fill.price == 150.0
 
-    def test_trade_fill_notional(self):
+    def test_trade_fill_notional(self) -> None:
         """Test notional calculation."""
         fill = TradeFill(
             symbol="AAPL",
@@ -194,7 +194,7 @@ class TestTradeFill:
         )
         assert fill.notional == 15000.0
 
-    def test_trade_fill_notional_options(self):
+    def test_trade_fill_notional_options(self) -> None:
         """Test notional calculation for options."""
         fill = TradeFill(
             symbol="AAPL 240315C180",
@@ -205,7 +205,7 @@ class TestTradeFill:
         )
         assert fill.notional == 5000.0
 
-    def test_trade_fill_net_amount_buy(self):
+    def test_trade_fill_net_amount_buy(self) -> None:
         """Test net amount for buy order."""
         fill = TradeFill(
             symbol="AAPL",
@@ -218,7 +218,7 @@ class TestTradeFill:
         # Buy: -quantity * price - commission
         assert fill.net_amount == -15001.0
 
-    def test_trade_fill_net_amount_sell(self):
+    def test_trade_fill_net_amount_sell(self) -> None:
         """Test net amount for sell order."""
         fill = TradeFill(
             symbol="AAPL",
@@ -235,7 +235,7 @@ class TestTradeFill:
 class TestOrderUpdate:
     """Tests for OrderUpdate domain event."""
 
-    def test_create_order_update(self):
+    def test_create_order_update(self) -> None:
         """Test creating OrderUpdate."""
         order = OrderUpdate(
             order_id="order123",
@@ -249,7 +249,7 @@ class TestOrderUpdate:
         assert order.order_id == "order123"
         assert order.status == "SUBMITTED"
 
-    def test_order_is_active(self):
+    def test_order_is_active(self) -> None:
         """Test active order detection."""
         submitted = OrderUpdate(order_id="1", status="SUBMITTED")
         partial = OrderUpdate(order_id="2", status="PARTIALLY_FILLED")
@@ -261,7 +261,7 @@ class TestOrderUpdate:
         assert filled.is_active is False
         assert cancelled.is_active is False
 
-    def test_order_is_terminal(self):
+    def test_order_is_terminal(self) -> None:
         """Test terminal state detection."""
         submitted = OrderUpdate(order_id="1", status="SUBMITTED")
         filled = OrderUpdate(order_id="2", status="FILLED")
@@ -271,7 +271,7 @@ class TestOrderUpdate:
         assert filled.is_terminal is True
         assert rejected.is_terminal is True
 
-    def test_order_fill_pct(self):
+    def test_order_fill_pct(self) -> None:
         """Test fill percentage calculation."""
         order = OrderUpdate(
             order_id="1",
@@ -284,7 +284,7 @@ class TestOrderUpdate:
 class TestPositionSnapshot:
     """Tests for PositionSnapshot domain event."""
 
-    def test_create_position_snapshot(self):
+    def test_create_position_snapshot(self) -> None:
         """Test creating PositionSnapshot."""
         pos = PositionSnapshot(
             symbol="AAPL",
@@ -297,7 +297,7 @@ class TestPositionSnapshot:
         assert pos.symbol == "AAPL"
         assert pos.quantity == 100.0
 
-    def test_position_is_long_short(self):
+    def test_position_is_long_short(self) -> None:
         """Test long/short detection."""
         long_pos = PositionSnapshot(symbol="AAPL", quantity=100.0)
         short_pos = PositionSnapshot(symbol="AAPL", quantity=-100.0)
@@ -307,7 +307,7 @@ class TestPositionSnapshot:
         assert short_pos.is_long is False
         assert short_pos.is_short is True
 
-    def test_position_cost_basis(self):
+    def test_position_cost_basis(self) -> None:
         """Test cost basis calculation."""
         pos = PositionSnapshot(
             symbol="AAPL",
@@ -321,7 +321,7 @@ class TestPositionSnapshot:
 class TestAccountSnapshot:
     """Tests for AccountSnapshot domain event."""
 
-    def test_create_account_snapshot(self):
+    def test_create_account_snapshot(self) -> None:
         """Test creating AccountSnapshot."""
         acct = AccountSnapshot(
             account_id="U12345",
@@ -334,7 +334,7 @@ class TestAccountSnapshot:
         assert acct.account_id == "U12345"
         assert acct.net_liquidation == 1000000.0
 
-    def test_account_margin_utilization(self):
+    def test_account_margin_utilization(self) -> None:
         """Test margin utilization calculation."""
         acct = AccountSnapshot(
             net_liquidation=1000000.0,
@@ -346,7 +346,7 @@ class TestAccountSnapshot:
 class TestConnectionEvent:
     """Tests for ConnectionEvent domain event."""
 
-    def test_create_connection_event(self):
+    def test_create_connection_event(self) -> None:
         """Test creating ConnectionEvent."""
         event = ConnectionEvent(
             adapter_name="ib_live",
@@ -363,7 +363,7 @@ class TestConnectionEvent:
 class TestRiskBreachEvent:
     """Tests for RiskBreachEvent domain event."""
 
-    def test_create_risk_breach_event(self):
+    def test_create_risk_breach_event(self) -> None:
         """Test creating RiskBreachEvent."""
         event = RiskBreachEvent(
             rule_name="max_delta",
@@ -381,7 +381,7 @@ class TestRiskBreachEvent:
 class TestEventRegistry:
     """Tests for event registry and deserialization."""
 
-    def test_event_registry_contains_all_events(self):
+    def test_event_registry_contains_all_events(self) -> None:
         """Test that registry contains all domain events."""
         assert "QuoteTick" in EVENT_REGISTRY
         assert "BarData" in EVENT_REGISTRY
@@ -392,7 +392,7 @@ class TestEventRegistry:
         assert "ConnectionEvent" in EVENT_REGISTRY
         assert "RiskBreachEvent" in EVENT_REGISTRY
 
-    def test_deserialize_event(self):
+    def test_deserialize_event(self) -> None:
         """Test generic event deserialization."""
         tick = QuoteTick(symbol="AAPL", last=150.0)
         d = tick.to_dict()
@@ -400,7 +400,7 @@ class TestEventRegistry:
         assert isinstance(restored, QuoteTick)
         assert restored.symbol == "AAPL"
 
-    def test_deserialize_events_list(self):
+    def test_deserialize_events_list(self) -> None:
         """Test deserializing list of events."""
         tick = QuoteTick(symbol="AAPL", last=150.0)
         bar = BarData(symbol="AAPL", close=151.0)
@@ -409,13 +409,13 @@ class TestEventRegistry:
         assert isinstance(events[0], QuoteTick)
         assert isinstance(events[1], BarData)
 
-    def test_deserialize_unknown_event_raises(self):
+    def test_deserialize_unknown_event_raises(self) -> None:
         """Test that unknown event type raises ValueError."""
         data = {"_event_type": "UnknownEvent", "foo": "bar"}
         with pytest.raises(ValueError, match="Unknown event type"):
             deserialize_event(data)
 
-    def test_deserialize_missing_type_raises(self):
+    def test_deserialize_missing_type_raises(self) -> None:
         """Test that missing _event_type raises ValueError."""
         data = {"symbol": "AAPL"}
         with pytest.raises(ValueError, match="Missing _event_type"):
@@ -425,7 +425,7 @@ class TestEventRegistry:
 class TestEventTypeMapping:
     """Tests for EventType to DomainEvent mapping."""
 
-    def test_get_event_type_mapping(self):
+    def test_get_event_type_mapping(self) -> None:
         """Test that mapping returns expected types."""
         from src.domain.events.domain_events import MarketDataTickEvent
 
@@ -437,7 +437,7 @@ class TestEventTypeMapping:
         assert mapping[EventType.POSITION_UPDATED] == PositionSnapshot
         assert mapping[EventType.ACCOUNT_UPDATED] == AccountSnapshot
 
-    def test_validate_event_payload_valid(self):
+    def test_validate_event_payload_valid(self) -> None:
         """Test validation passes for correct payload type."""
         from src.domain.events.domain_events import MarketDataTickEvent
 
@@ -445,18 +445,18 @@ class TestEventTypeMapping:
         tick = MarketDataTickEvent(symbol="AAPL", bid=150.0, ask=150.10, quality="good")
         assert validate_event_payload(EventType.MARKET_DATA_TICK, tick) is True
 
-    def test_validate_event_payload_invalid(self):
+    def test_validate_event_payload_invalid(self) -> None:
         """Test validation fails for incorrect payload type."""
         tick = QuoteTick(symbol="AAPL", last=150.0)
         # Using tick for ACCOUNT_UPDATED (expects AccountSnapshot)
         assert validate_event_payload(EventType.ACCOUNT_UPDATED, tick) is False
 
-    def test_validate_event_payload_dict_backward_compat(self):
+    def test_validate_event_payload_dict_backward_compat(self) -> None:
         """Test that dicts fail validation for mapped types."""
         payload = {"symbol": "AAPL", "last": 150.0}
         assert validate_event_payload(EventType.MARKET_DATA_TICK, payload) is False
 
-    def test_validate_event_payload_unmapped_type(self):
+    def test_validate_event_payload_unmapped_type(self) -> None:
         """Test that unmapped types allow any payload."""
         # TIMER_TICK is not mapped
         payload = {"tick": 1}
@@ -466,24 +466,24 @@ class TestEventTypeMapping:
 class TestEnums:
     """Tests for domain event enums."""
 
-    def test_timeframe_enum(self):
+    def test_timeframe_enum(self) -> None:
         """Test Timeframe enum values."""
         assert Timeframe.M1.value == "1m"
         assert Timeframe.H1.value == "1h"
         assert Timeframe.D1.value == "1d"
 
-    def test_order_side_enum(self):
+    def test_order_side_enum(self) -> None:
         """Test OrderSide enum values."""
         assert OrderSide.BUY.value == "BUY"
         assert OrderSide.SELL.value == "SELL"
 
-    def test_order_status_enum(self):
+    def test_order_status_enum(self) -> None:
         """Test OrderStatus enum values."""
         assert OrderStatus.PENDING.value == "PENDING"
         assert OrderStatus.FILLED.value == "FILLED"
         assert OrderStatus.CANCELLED.value == "CANCELLED"
 
-    def test_order_type_enum(self):
+    def test_order_type_enum(self) -> None:
         """Test OrderType enum values."""
         assert OrderType.MARKET.value == "MARKET"
         assert OrderType.LIMIT.value == "LIMIT"
