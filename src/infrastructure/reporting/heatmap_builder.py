@@ -116,6 +116,19 @@ HEATMAP_CSS = """
     /* Accent (Claude-inspired) */
     --accent-primary: #e07a3b;
 
+    /* Aliases for regime/styles.py compatibility */
+    --text: var(--text-primary);
+    --border: var(--border-subtle);
+    --bg: var(--bg-secondary);
+    --header-bg: var(--bg-tertiary);
+    --highlight-bg: var(--bg-hover);
+    --code-bg: var(--bg-primary);
+    --card-bg: var(--bg-tertiary);
+    --primary: var(--accent-primary);
+    --success: var(--positive);
+    --warning: var(--regime-r1);
+    --danger: var(--negative);
+
     /* Base styles */
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Inter', sans-serif;
     background: var(--bg-primary);
@@ -465,6 +478,589 @@ HEATMAP_CSS = """
     .apex-hm .hm-legend {
         margin-left: 0;
         margin-top: 10px;
+    }
+}
+
+/* =================================================================
+   Signal Report Styles (report.html)
+   Scoped under .apex-hm to share theme with heatmap
+   ================================================================= */
+
+.apex-hm * { margin: 0; padding: 0; box-sizing: border-box; }
+
+.apex-hm .container {
+    max-width: 1600px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+.apex-hm .header {
+    text-align: center;
+    padding: 24px;
+    margin-bottom: 24px;
+    background: linear-gradient(135deg, #1e40af 0%, var(--accent-primary) 100%);
+    border-radius: 12px;
+    color: white;
+}
+
+.apex-hm .header-top {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 24px;
+    margin-bottom: 8px;
+    position: relative;
+}
+
+.apex-hm .header h1 {
+    font-size: 28px;
+    font-weight: 600;
+    margin: 0;
+}
+
+.apex-hm .validation-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    background: rgba(255,255,255,0.15);
+    color: white;
+    text-decoration: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    transition: background 0.2s;
+}
+
+.apex-hm .validation-link:hover {
+    background: rgba(255,255,255,0.25);
+}
+
+.apex-hm .back-link {
+    position: absolute;
+    left: 20px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    background: rgba(255,255,255,0.15);
+    color: white;
+    text-decoration: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    transition: background 0.2s;
+}
+
+.apex-hm .back-link:hover {
+    background: rgba(255,255,255,0.25);
+}
+
+.apex-hm .header .meta {
+    display: flex;
+    justify-content: center;
+    gap: 24px;
+    font-size: 14px;
+    opacity: 0.9;
+}
+
+.apex-hm .controls {
+    display: flex;
+    gap: 24px;
+    align-items: end;
+    margin-bottom: 24px;
+    padding: 16px;
+    background: var(--card-bg);
+    border-radius: 12px;
+    border: 1px solid var(--border);
+}
+
+.apex-hm .control-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.apex-hm .control-group label {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+.apex-hm .control-group select {
+    padding: 10px 16px;
+    font-size: 14px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg);
+    color: var(--text);
+    cursor: pointer;
+    min-width: 150px;
+}
+
+.apex-hm .timeframe-buttons {
+    display: flex;
+    gap: 4px;
+}
+
+.apex-hm .tf-btn {
+    padding: 10px 16px;
+    font-size: 14px;
+    font-weight: 500;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg);
+    color: var(--text);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.apex-hm .tf-btn:hover {
+    border-color: var(--primary);
+}
+
+.apex-hm .tf-btn.active {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: white;
+}
+
+.apex-hm .chart-container {
+    background: var(--card-bg);
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    padding: 16px;
+    margin-bottom: 24px;
+}
+
+.apex-hm #main-chart {
+    min-height: 800px;
+}
+
+.apex-hm #main-chart.loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 800px;
+    color: var(--text-muted);
+}
+
+.apex-hm .loading-spinner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.apex-hm .loading-spinner::after {
+    content: '';
+    width: 24px;
+    height: 24px;
+    border: 3px solid var(--border);
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: apex-spin 1s linear infinite;
+}
+
+.apex-hm .loading-error {
+    color: var(--danger);
+    text-align: center;
+    padding: 40px;
+}
+
+@keyframes apex-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Section Headers */
+.apex-hm .section {
+    margin-bottom: 24px;
+}
+
+.apex-hm .section-header {
+    cursor: pointer;
+    padding: 16px;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px 8px 0 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 16px;
+    font-weight: 600;
+    user-select: none;
+}
+
+.apex-hm .section-header:hover {
+    background: var(--bg);
+}
+
+.apex-hm .toggle-icon {
+    font-size: 12px;
+    transition: transform 0.2s ease;
+}
+
+.apex-hm .section-content {
+    padding: 16px;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-top: none;
+    border-radius: 0 0 8px 8px;
+}
+
+.apex-hm .section-content.collapsed {
+    display: none;
+}
+
+/* Confluence Panel */
+.apex-hm .confluence-panel {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+}
+
+.apex-hm .confluence-score {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.apex-hm .alignment-meter {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.apex-hm .alignment-bar {
+    height: 24px;
+    background: linear-gradient(to right, var(--danger) 0%, var(--text-muted) 50%, var(--success) 100%);
+    border-radius: 12px;
+    position: relative;
+    overflow: visible;
+}
+
+.apex-hm .alignment-indicator {
+    position: absolute;
+    top: 50%;
+    transform: translateX(-50%) translateY(-50%);
+    width: 4px;
+    height: 32px;
+    background: white;
+    border-radius: 2px;
+    box-shadow: 0 0 8px rgba(0,0,0,0.5);
+}
+
+.apex-hm .alignment-value {
+    font-size: 28px;
+    font-weight: 700;
+    text-align: center;
+}
+
+.apex-hm .alignment-value.bullish { color: var(--success); }
+.apex-hm .alignment-value.bearish { color: var(--danger); }
+.apex-hm .alignment-value.neutral { color: var(--text-muted); }
+
+.apex-hm .signal-counts {
+    display: flex;
+    justify-content: center;
+    gap: 24px;
+}
+
+.apex-hm .count-item {
+    text-align: center;
+}
+
+.apex-hm .count-value {
+    font-size: 24px;
+    font-weight: 600;
+}
+
+.apex-hm .count-value.bullish { color: var(--success); }
+.apex-hm .count-value.bearish { color: var(--danger); }
+.apex-hm .count-value.neutral { color: var(--text-muted); }
+
+.apex-hm .count-label {
+    font-size: 12px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+}
+
+.apex-hm .strongest-signal {
+    text-align: center;
+    padding: 12px;
+    background: var(--bg);
+    border-radius: 8px;
+}
+
+.apex-hm .strongest-signal .label {
+    font-size: 12px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+}
+
+.apex-hm .strongest-signal .value {
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.apex-hm .strongest-signal .value.bullish { color: var(--success); }
+.apex-hm .strongest-signal .value.bearish { color: var(--danger); }
+.apex-hm .strongest-signal .value.neutral { color: var(--text-muted); }
+
+.apex-hm .divergence-section h4 {
+    margin-bottom: 12px;
+    color: var(--text-muted);
+    font-size: 12px;
+    text-transform: uppercase;
+}
+
+.apex-hm .divergence-item {
+    padding: 12px;
+    background: var(--bg);
+    border-radius: 8px;
+    margin-bottom: 8px;
+}
+
+.apex-hm .divergence-item .indicators {
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.apex-hm .divergence-item .reason {
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+.apex-hm .no-divergences,
+.apex-hm .no-confluence,
+.apex-hm .no-regime,
+.apex-hm .no-signals {
+    text-align: center;
+    color: var(--text-muted);
+    padding: 24px;
+    font-style: italic;
+}
+
+/* Regime Dashboard */
+.apex-hm .regime-dashboard {
+    display: grid;
+    gap: 16px;
+}
+
+.apex-hm .regime-header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px;
+    background: var(--bg);
+    border-radius: 8px;
+}
+
+.apex-hm .regime-badge {
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 18px;
+    font-weight: 700;
+}
+
+.apex-hm .regime-name {
+    font-size: 16px;
+    font-weight: 600;
+    flex: 1;
+}
+
+.apex-hm .regime-confidence {
+    color: var(--text-muted);
+    font-size: 14px;
+}
+
+.apex-hm .regime-components,
+.apex-hm .regime-metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 8px;
+    padding: 16px;
+    background: var(--bg);
+    border-radius: 8px;
+}
+
+.apex-hm .component-row,
+.apex-hm .metric-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px;
+}
+
+.apex-hm .component-label,
+.apex-hm .metric-label {
+    color: var(--text-muted);
+    font-size: 13px;
+}
+
+.apex-hm .component-value,
+.apex-hm .metric-value {
+    font-weight: 500;
+    font-size: 13px;
+}
+
+/* Signal History Table */
+.apex-hm .signal-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.apex-hm .signal-table th {
+    text-align: left;
+    padding: 12px 8px;
+    border-bottom: 2px solid var(--border);
+    color: var(--text-muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 11px;
+}
+
+.apex-hm .signal-table td {
+    padding: 10px 8px;
+    border-bottom: 1px solid var(--border);
+}
+
+.apex-hm .signal-table tr:hover {
+    background: var(--bg);
+}
+
+.apex-hm .signal-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.apex-hm .signal-badge.buy {
+    background: rgba(34, 197, 94, 0.2);
+    color: var(--success);
+}
+
+.apex-hm .signal-badge.sell {
+    background: rgba(239, 68, 68, 0.2);
+    color: var(--danger);
+}
+
+.apex-hm .signal-badge.alert {
+    background: rgba(59, 130, 246, 0.2);
+    color: var(--regime-r3);
+}
+
+/* Indicators Section */
+.apex-hm .category-group {
+    margin-bottom: 24px;
+}
+
+.apex-hm .category-title {
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+}
+
+.apex-hm .indicator-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 12px;
+}
+
+.apex-hm .indicator-card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+}
+
+.apex-hm .indicator-card h3 {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: var(--primary);
+}
+
+.apex-hm .indicator-card .description {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+}
+
+.apex-hm .indicator-card .rules {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+}
+
+.apex-hm .indicator-card .rules h4 {
+    font-size: 11px;
+    font-weight: 600;
+    margin-bottom: 6px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+}
+
+.apex-hm .rule-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-bottom: 6px;
+    padding: 4px 6px;
+    background: var(--card-bg);
+    border-radius: 4px;
+}
+
+.apex-hm .rule-name {
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.apex-hm .rule-name.direction-buy {
+    color: var(--success);
+}
+
+.apex-hm .rule-name.direction-sell {
+    color: var(--danger);
+}
+
+.apex-hm .rule-name.direction-alert {
+    color: var(--regime-r3);
+}
+
+.apex-hm .rule-desc {
+    font-size: 10px;
+    color: var(--text-muted);
+}
+
+.apex-hm .no-indicators {
+    text-align: center;
+    color: var(--text-muted);
+    padding: 24px;
+    font-style: italic;
+}
+
+/* Responsive for Report */
+@media (max-width: 768px) {
+    .apex-hm .controls {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .apex-hm .timeframe-buttons {
+        flex-wrap: wrap;
+    }
+    .apex-hm .confluence-panel {
+        grid-template-columns: 1fr;
+    }
+    .apex-hm .regime-header {
+        flex-direction: column;
+        text-align: center;
     }
 }
 """
