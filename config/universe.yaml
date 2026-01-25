@@ -1,0 +1,383 @@
+# APEX Unified Universe Configuration
+# Single source of truth for all symbol lists across the system
+#
+# Usage:
+#   - Signal pipeline: python -m src.runners.signal_runner --universe config/universe.yaml
+#   - Validation: python -m src.runners.validation_runner full --universe config/universe.yaml
+#   - Model training: Uses full universe by default
+#
+# Structure:
+#   - market: Index ETFs for benchmarking
+#   - sectors: Organized by GICS sectors with ETF + individual stocks
+#   - subsets: Pre-defined symbol lists for different use cases
+
+version: "2.0"
+description: "Unified universe for signals, validation, and model training"
+
+# =============================================================================
+# Default Settings
+# =============================================================================
+defaults:
+  timeframes: ["1h", "4h", "1d"]
+  min_volume_usd: 1_000_000
+
+# =============================================================================
+# Market-Level ETFs (Benchmarks)
+# =============================================================================
+market:
+  - symbol: SPY
+    name: "SPDR S&P 500 ETF"
+    role: "Broad market benchmark"
+  - symbol: QQQ
+    name: "Invesco QQQ Trust"
+    role: "Tech/Growth benchmark"
+  - symbol: IWM
+    name: "Russell 2000 ETF"
+    role: "Small cap benchmark"
+  - symbol: DIA
+    name: "Dow Jones ETF"
+    role: "Blue chip benchmark"
+  - symbol: GLD
+    name: "Gold ETF"
+    role: "Precious metal / safe haven"
+  - symbol: SLV
+    name: "Silver ETF"
+    role: "Precious metal / Speculative haven"
+  - symbol: TLT
+    name: "20+ Year Treasury ETF"
+    role: "Long-term bonds"
+  - symbol: UVXY
+    name: "ProShares Ultra VIX Short-Term Futures ETF"
+    role: "Track VIX future with Volatility"
+# =============================================================================
+# Sector Organization (GICS-based)
+# =============================================================================
+sectors:
+  technology:
+    etf: XLK
+    stocks:
+      - AAPL   # Mega-cap, consumer tech
+      - MSFT   # Mega-cap, enterprise
+      - GOOGL  # Mega-cap, advertising
+      - NVDA   # AI/GPU leader
+      - AMD    # CPU/GPU
+      - META   # Social/advertising
+      - CRM    # SaaS, enterprise
+      - ORCL   # Database, cloud
+      - ADBE   # Creative software
+      - CSCO   # Networking
+      - INTC   # CPU (legacy)
+      - IBM    # Enterprise IT
+      - NOW    # ServiceNow
+
+  semiconductors:
+    etf: SMH
+    stocks:
+      - NVDA   # AI/GPU
+      - AMD    # CPU/GPU
+      - AVGO   # Diversified semi
+      - QCOM   # Mobile/wireless
+      - MU     # Memory
+      - TXN    # Analog
+      - AMAT   # Equipment
+      - LRCX   # Equipment
+      - KLAC   # Equipment
+      - MRVL   # Data infrastructure
+      - TSM    # Foundry
+      - ASML   # Lithography
+
+  financials:
+    etf: XLF
+    stocks:
+      - JPM    # Mega-cap bank
+      - BAC    # Mega-cap bank
+      - WFC    # Mega-cap bank
+      - GS     # Investment bank
+      - MS     # Investment bank
+      - C      # Global bank
+      - BLK    # Asset management
+      - SCHW   # Brokerage
+      - AXP    # Credit cards
+      - V      # Payments
+      - MA     # Payments
+      - SPGI   # Data/ratings
+      - ICE    # Exchanges
+      - CME    # Derivatives
+
+  healthcare:
+    etf: XLV
+    stocks:
+      - UNH    # Health insurance
+      - JNJ    # Pharma/consumer
+      - LLY    # Pharma, high growth
+      - PFE    # Large pharma
+      - ABBV   # Biotech
+      - MRK    # Large pharma
+      - TMO    # Life sciences
+      - ABT    # Medical devices
+      - DHR    # Life sciences
+      - AMGN   # Biotech
+      - GILD   # Biotech
+      - ISRG   # Medical robotics
+      - MDT    # Medical devices
+      - CVS    # Pharmacy/insurance
+
+  consumer_discretionary:
+    etf: XLY
+    stocks:
+      - AMZN   # E-commerce
+      - TSLA   # EV, high volatility
+      - HD     # Home improvement
+      - LOW    # Home improvement
+      - NKE    # Consumer brand
+      - SBUX   # Consumer brand
+      - MCD    # Fast food
+      - TJX    # Off-price retail
+      - COST   # Warehouse retail
+      - TGT    # General retail
+
+  consumer_staples:
+    etf: XLP
+    stocks:
+      - WMT    # Mass retail
+      - PG     # Consumer products
+      - KO     # Beverages
+      - PEP    # Beverages
+      - PM     # Tobacco
+      - MO     # Tobacco
+      - CL     # Consumer products
+      - KHC    # Food
+      - GIS    # Food
+      - STZ    # Alcohol
+
+  industrials:
+    etf: XLI
+    stocks:
+      - CAT    # Machinery
+      - DE     # Agriculture equipment
+      - HON    # Diversified
+      - UNP    # Railroad
+      - UPS    # Logistics
+      - FDX    # Logistics
+      - BA     # Aerospace
+      - LMT    # Defense
+      - RTX    # Defense
+      - GE     # Diversified
+      - MMM    # Diversified
+
+  energy:
+    etf: XLE
+    stocks:
+      - XOM    # Integrated oil
+      - CVX    # Integrated oil
+      - COP    # E&P
+      - EOG    # E&P
+      - SLB    # Services
+      - OXY    # E&P
+      - PSX    # Refining
+      - MPC    # Refining
+      - VLO    # Refining
+      - KMI    # Midstream
+      - WMB    # Midstream
+
+  utilities:
+    etf: XLU
+    stocks:
+      - NEE    # Electric utility
+      - DUK    # Electric utility
+      - SO     # Electric utility
+      - D      # Electric utility
+      - AEP    # Electric utility
+      - EXC    # Electric utility
+      - SRE    # Gas utility
+      - XEL    # Electric utility
+
+  materials:
+    etf: XLB
+    stocks:
+      - LIN    # Industrial gases
+      - APD    # Industrial gases
+      - SHW    # Paints
+      - ECL    # Chemicals
+      - FCX    # Copper mining
+      - NEM    # Gold mining
+      - NUE    # Steel
+      - DOW    # Chemicals
+
+  real_estate:
+    etf: XLRE
+    stocks:
+      - PLD    # Industrial REIT
+      - AMT    # Tower REIT
+      - CCI    # Tower REIT
+      - EQIX   # Data center REIT
+      - PSA    # Storage REIT
+      - DLR    # Data center REIT
+      - O      # Triple-net REIT
+      - WELL   # Healthcare REIT
+      - SPG    # Mall REIT
+
+  communication:
+    etf: XLC
+    stocks:
+      - GOOGL  # Advertising
+      - META   # Social
+      - NFLX   # Streaming
+      - DIS    # Media
+      - CMCSA  # Cable
+      - T      # Telecom
+      - VZ     # Telecom
+      - TMUS   # Telecom
+      - CHTR   # Cable
+
+# =============================================================================
+# High-Volatility / Speculative (for regime testing)
+# =============================================================================
+speculative:
+  etf: MEME
+  stocks:
+    - COIN   # Crypto exchange
+    - HOOD   # Retail brokerage
+    - PLTR   # Data analytics
+    - SNOW   # Cloud data
+    - CRWD   # Cybersecurity
+    - PANW   # Cybersecurity
+    - DDOG   # Observability
+    - MDB    # Database
+    - NET    # Edge computing
+    - UBER   # Rideshare
+    - ABNB   # Travel
+    - DASH   # Delivery
+    - RIVN   # EV
+    - LCID   # EV
+    - GME    # Meme stock
+    - AMC    # Meme stock
+
+# =============================================================================
+# Pre-defined Subsets
+# =============================================================================
+subsets:
+  # Quick test: ~12 symbols across sectors (for fast iteration)
+  quick_test:
+    - SPY
+    - QQQ
+    - AAPL
+    - NVDA
+    - JPM
+    - XOM
+    - UNH
+    - HD
+    - TSLA
+    - AMD
+    - META
+    - DIS
+
+  # PR gate validation: 10 high-liquidity symbols
+  pr_validation:
+    - SPY
+    - QQQ
+    - AAPL
+    - MSFT
+    - NVDA
+    - AMD
+    - TSLA
+    - JPM
+    - META
+    - GOOGL
+
+  # Model training: Comprehensive symbols for regime model training (~35 symbols)
+  # Includes: Market ETFs + Sector ETFs + 2-3 stocks per sector for diversity
+  model_training:
+    # Market benchmarks
+    - SPY
+    - QQQ
+    # Sector ETFs (critical for regime detection)
+    - XLK   # Technology
+    - XLF   # Financials
+    - XLV   # Healthcare
+    - XLE   # Energy
+    - XLY   # Consumer Discretionary
+    - XLI   # Industrials
+    - SMH   # Semiconductors
+    # Technology (mega-cap leaders)
+    - AAPL
+    - MSFT
+    - GOOGL
+    # Semiconductors
+    - NVDA
+    - AMD
+    # Financials
+    - JPM
+    - GS
+    - BAC
+    # Healthcare
+    - UNH
+    - JNJ
+    - LLY
+    # Energy
+    - XOM
+    - CVX
+    # Consumer Discretionary
+    - AMZN
+    - TSLA
+    - HD
+    # Consumer Staples
+    - WMT
+    - PG
+    - KO
+    # Industrials
+    - CAT
+    - HON
+    # Communication
+    - META
+    - NFLX
+    # Utilities
+    - NEE
+    # Materials
+    - LIN
+    # Real Estate
+    - PLD
+
+# =============================================================================
+# Validation Split (for ML validation)
+# =============================================================================
+validation:
+  # ~70% for training
+  training_ratio: 0.7
+  # Holdout symbols (never seen during training)
+  holdout:
+    - ADSK   # Tech
+    - CDNS   # Tech
+    - SNPS   # Tech
+    - SWKS   # Semi
+    - MPWR   # Semi
+    - BIIB   # Healthcare
+    - ILMN   # Healthcare
+    - DXCM   # Healthcare
+    - TROW   # Financials
+    - NTRS   # Financials
+    - POOL   # Consumer
+    - LULU   # Consumer
+    - DECK   # Consumer
+    - CHRW   # Industrials
+    - ODFL   # Industrials
+    - EQT    # Energy
+    - ZM     # Tech
+    - DOCU   # Tech
+    - WDAY   # Tech
+
+# =============================================================================
+# Provider Settings
+# =============================================================================
+provider:
+  type: yaml
+  refresh_interval_seconds: 3600
+  cache_market_caps: true
+
+# =============================================================================
+# Generation Metadata
+# =============================================================================
+metadata:
+  generated_at: "2026-01-25"
+  version: "2.0"
+  notes: "Unified universe consolidating signals, validation, and training configs"
