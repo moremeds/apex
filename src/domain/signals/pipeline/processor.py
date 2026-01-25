@@ -201,7 +201,7 @@ class SignalPipelineProcessor:
         bar_preloader = self._create_bar_preloader(historical_manager)
 
         # Run pipeline
-        results = await self._preload_bars(bar_preloader)
+        _ = await self._preload_bars(bar_preloader)
         await self._wait_for_signals()
         self._print_stats()
 
