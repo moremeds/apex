@@ -98,3 +98,11 @@ coverage.xml
 *.tmp
 *.temp
 /scripts/fonts/
+/AGENTS.md
+/GEMINI.md
+/docs/
+/results/
+/.claude/
+/data/equity.csv
+/data/historical/_metadata.duckdb
+/data/coverage_report.html
