@@ -6,6 +6,10 @@ on:
     - cron: '0 2 * * *'
   workflow_dispatch:  # Allow manual trigger
 
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false  # Don't cancel critical validation runs
+
 jobs:
   # ═══════════════════════════════════════════════════════════════
   # Full Signal Verification with TA-Lib
@@ -14,6 +18,7 @@ jobs:
   signal-verification:
     name: Full Signal Verification
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
 
@@ -27,7 +32,7 @@ jobs:
 
       - name: Cache TA-Lib
         id: cache-talib
-        uses: actions/cache@v5
+        uses: actions/cache@v4
         with:
           path: ~/ta-lib-install
           key: talib-0.6.4-${{ runner.os }}-${{ runner.arch }}
@@ -67,7 +72,7 @@ jobs:
 
       - name: Upload signal verification results
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v4
         with:
           name: signal-verification-nightly
           path: |
@@ -82,6 +87,7 @@ jobs:
   regime-verification:
     name: Full Regime Verification
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
 
@@ -95,7 +101,7 @@ jobs:
 
       - name: Cache TA-Lib
         id: cache-talib
-        uses: actions/cache@v5
+        uses: actions/cache@v4
         with:
           path: ~/ta-lib-install
           key: talib-0.6.4-${{ runner.os }}-${{ runner.arch }}
@@ -130,7 +136,7 @@ jobs:
 
       - name: Upload regime verification results
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v4
         with:
           name: regime-verification-nightly
           path: regime_verification.json
@@ -144,6 +150,7 @@ jobs:
     name: Full Test Suite
     runs-on: ubuntu-latest
     needs: [signal-verification, regime-verification]
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
 
@@ -157,7 +164,7 @@ jobs:
 
       - name: Cache TA-Lib
         id: cache-talib
-        uses: actions/cache@v5
+        uses: actions/cache@v4
         with:
           path: ~/ta-lib-install
           key: talib-0.6.4-${{ runner.os }}-${{ runner.arch }}
@@ -196,7 +203,7 @@ jobs:
 
       - name: Upload coverage report
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v4
         with:
           name: coverage-nightly
           path: |

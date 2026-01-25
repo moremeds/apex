@@ -72,7 +72,7 @@ format:
 
 type-check:
 	@echo "$(BOLD)Running mypy type checker...$(RESET)"
-	$(VENV)/mypy src/
+	$(VENV)/mypy src/ tests/
 
 # Hidden from help but still functional
 dead-code:

@@ -12,9 +12,8 @@ Pipeline: TICK → BAR → INDICATOR → RULE → SIGNAL → PERSISTENCE → NOT
 from __future__ import annotations
 
 import asyncio
-import time
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from ...domain.events.event_types import EventType
 from ...domain.signals.signal_state_tracker import SignalStateTracker
@@ -25,7 +24,7 @@ if TYPE_CHECKING:
     from ...domain.interfaces.event_bus import EventBus
     from ...domain.interfaces.signal_persistence import SignalPersistencePort
     from ...domain.signals import BarAggregator, IndicatorEngine, RuleEngine
-    from ...domain.signals.divergence import CrossIndicatorAnalyzer, MTFDivergenceAnalyzer
+    from ...domain.signals.confluence_calculator import ConfluenceCalculator
     from ...infrastructure.observability import SignalMetrics
 
 logger = get_logger(__name__)
@@ -93,18 +92,14 @@ class TASignalService:
         self._indicator_engine: Optional["IndicatorEngine"] = None
         self._rule_engine: Optional["RuleEngine"] = None
 
-        # Confluence analyzers
-        self._cross_analyzer: Optional["CrossIndicatorAnalyzer"] = None
-        self._mtf_analyzer: Optional["MTFDivergenceAnalyzer"] = None
+        # Confluence calculator (replaces inline logic with canonical implementation)
+        self._confluence_calculator: Optional["ConfluenceCalculator"] = None
 
         # Signal state tracking for invalidation
         self._state_tracker = SignalStateTracker()
 
         # State tracking
         self._running = False
-        self._indicator_states: Dict[Tuple[str, str], Dict[str, Dict[str, Any]]] = {}
-        self._last_confluence_calc: Dict[Tuple[str, str], float] = {}
-        self._confluence_debounce_ms: float = 500.0
 
         # Statistics
         self._bars_processed = 0
@@ -112,6 +107,9 @@ class TASignalService:
         self._signals_emitted = 0
         self._signals_persisted = 0
         self._start_time: Optional[datetime] = None
+
+        # Track pending persistence tasks for graceful shutdown
+        self._pending_tasks: set[asyncio.Task[None]] = set()
 
     # -------------------------------------------------------------------------
     # Public API
@@ -169,9 +167,9 @@ class TASignalService:
         # Unsubscribe from events
         self._unsubscribe_events()
 
-        # Clear state caches
-        self._indicator_states.clear()
-        self._last_confluence_calc.clear()
+        # Stop confluence calculator
+        if self._confluence_calculator:
+            self._confluence_calculator.stop()
 
         # Flush remaining bars
         for aggregator in list(self._bar_aggregators.values()):
@@ -186,12 +184,25 @@ class TASignalService:
         if self._rule_engine:
             self._rule_engine.stop()
 
+        # Drain pending persistence tasks (wait up to 5 seconds)
+        if self._pending_tasks:
+            logger.debug(f"Draining {len(self._pending_tasks)} pending persistence tasks")
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*self._pending_tasks, return_exceptions=True),
+                    timeout=5.0,
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    f"Timeout draining persistence tasks, {len(self._pending_tasks)} tasks cancelled"
+                )
+            self._pending_tasks.clear()
+
         # Cleanup
         self._bar_aggregators.clear()
         self._indicator_engine = None
         self._rule_engine = None
-        self._cross_analyzer = None
-        self._mtf_analyzer = None
+        self._confluence_calculator = None
 
         logger.info(
             f"TASignalService stopped",
@@ -247,7 +258,7 @@ class TASignalService:
         """Initialize pipeline components."""
         # Import here to avoid circular imports
         from ...domain.signals import BarAggregator, IndicatorEngine, RuleEngine, RuleRegistry
-        from ...domain.signals.divergence import CrossIndicatorAnalyzer, MTFDivergenceAnalyzer
+        from ...domain.signals.confluence_calculator import ConfluenceCalculator
         from ...domain.signals.rules import ALL_RULES
 
         # Create bar aggregators for each timeframe
@@ -278,9 +289,19 @@ class TASignalService:
         self._indicator_engine.start()
         self._rule_engine.start()
 
-        # Create confluence analyzers
-        self._cross_analyzer = CrossIndicatorAnalyzer()
-        self._mtf_analyzer = MTFDivergenceAnalyzer(self._cross_analyzer)
+        # Create and start confluence calculator (canonical implementation)
+        self._confluence_calculator = ConfluenceCalculator(
+            event_bus=self._event_bus,
+            metrics=self._metrics,
+            debounce_ms=500.0,
+            min_indicators=2,
+        )
+
+        # Set persistence callback if enabled
+        if self._persistence:
+            self._confluence_calculator.set_persistence_callback(self._persist_confluence)
+
+        self._confluence_calculator.start()
 
     def _subscribe_events(self) -> None:
         """Subscribe to relevant events."""
@@ -324,7 +345,7 @@ class TASignalService:
 
     def _on_indicator_update(self, payload: Any) -> None:
         """
-        Handle INDICATOR_UPDATE - cache state and persist if enabled.
+        Handle INDICATOR_UPDATE - delegate to confluence calculator and persist.
 
         Args:
             payload: IndicatorUpdateEvent with symbol, timeframe, indicator, state.
@@ -335,33 +356,26 @@ class TASignalService:
         self._indicators_computed += 1
 
         # Extract event data
-        symbol_raw = getattr(payload, "symbol", None)
-        timeframe_raw = getattr(payload, "timeframe", None)
-        indicator_raw = getattr(payload, "indicator", None)
-        state_raw = getattr(payload, "state", None)
+        symbol = getattr(payload, "symbol", None)
+        timeframe = getattr(payload, "timeframe", None)
+        indicator = getattr(payload, "indicator", None)
+        state = getattr(payload, "state", None)
         previous_state = getattr(payload, "previous_state", None)
         timestamp = getattr(payload, "timestamp", None) or now_utc()
 
         # Type narrowing: validate required fields
-        if not isinstance(symbol_raw, str) or not isinstance(timeframe_raw, str):
+        if not isinstance(symbol, str) or not isinstance(timeframe, str):
             return
-        if not isinstance(indicator_raw, str) or not isinstance(state_raw, dict):
+        if not isinstance(indicator, str) or not isinstance(state, dict):
             return
 
-        symbol: str = symbol_raw
-        timeframe: str = timeframe_raw
-        indicator: str = indicator_raw
-        state: Dict[str, Any] = state_raw
-
-        # Cache indicator state for confluence calculation
-        key = (symbol, timeframe)
-        if key not in self._indicator_states:
-            self._indicator_states[key] = {}
-        self._indicator_states[key][indicator] = state
+        # Delegate to confluence calculator (canonical implementation with -100 to +100 range)
+        if self._confluence_calculator:
+            self._confluence_calculator.on_indicator_update(symbol, timeframe, indicator, state)
 
         # Persist indicator value if persistence enabled
         if self._persistence:
-            asyncio.create_task(
+            self._create_tracked_task(
                 self._persist_indicator(
                     symbol=symbol,
                     timeframe=timeframe,
@@ -371,9 +385,6 @@ class TASignalService:
                     previous_state=previous_state,
                 )
             )
-
-        # Maybe calculate confluence (debounced)
-        self._maybe_calculate_confluence(symbol, timeframe)
 
     def _on_trading_signal(self, payload: Any) -> None:
         """
@@ -408,7 +419,24 @@ class TASignalService:
 
         # Persist signal if persistence enabled
         if self._persistence:
-            asyncio.create_task(self._persist_signal(payload))
+            self._create_tracked_task(self._persist_signal(payload))
+
+    # -------------------------------------------------------------------------
+    # Task Management
+    # -------------------------------------------------------------------------
+
+    def _create_tracked_task(self, coro: Any) -> asyncio.Task[None]:
+        """
+        Create a tracked async task for graceful shutdown.
+
+        Tasks are tracked in _pending_tasks and removed on completion.
+        This prevents "Task exception was never retrieved" warnings
+        and allows draining on stop().
+        """
+        task = asyncio.create_task(coro)
+        self._pending_tasks.add(task)
+        task.add_done_callback(self._pending_tasks.discard)
+        return task
 
     # -------------------------------------------------------------------------
     # Persistence Helpers
@@ -480,89 +508,6 @@ class TASignalService:
             )
         except Exception as e:
             logger.error(f"Failed to persist confluence for {symbol}/{timeframe}: {e}")
-
-    # -------------------------------------------------------------------------
-    # Confluence Calculation (copied from SignalCoordinator)
-    # -------------------------------------------------------------------------
-
-    def _maybe_calculate_confluence(self, symbol: str, timeframe: str) -> None:
-        """
-        Calculate confluence if enough time has passed (debounced).
-
-        Prevents excessive calculations when multiple indicators update in quick succession.
-        """
-        key = (symbol, timeframe)
-        now_ms = time.time() * 1000
-
-        last_calc = self._last_confluence_calc.get(key, 0)
-        if now_ms - last_calc < self._confluence_debounce_ms:
-            return
-
-        self._last_confluence_calc[key] = now_ms
-
-        # Get cached indicator states
-        states = self._indicator_states.get(key, {})
-        if len(states) < 2:
-            return  # Need at least 2 indicators for confluence
-
-        # Calculate confluence
-        bullish_count = 0
-        bearish_count = 0
-        neutral_count = 0
-
-        for indicator_name, state in states.items():
-            direction = state.get("direction") or state.get("trend") or state.get("zone")
-            if direction in ("bullish", "buy", "oversold"):
-                bullish_count += 1
-            elif direction in ("bearish", "sell", "overbought"):
-                bearish_count += 1
-            else:
-                neutral_count += 1
-
-        total = bullish_count + bearish_count + neutral_count
-        if total == 0:
-            return
-
-        # Calculate alignment score: -1.0 (all bearish) to +1.0 (all bullish)
-        alignment_score = (bullish_count - bearish_count) / total
-
-        # Determine dominant direction
-        if bullish_count > bearish_count:
-            dominant_direction = "bullish"
-        elif bearish_count > bullish_count:
-            dominant_direction = "bearish"
-        else:
-            dominant_direction = "neutral"
-
-        # Publish confluence update event
-        from ...domain.events.domain_events import ConfluenceUpdateEvent
-
-        event = ConfluenceUpdateEvent(
-            symbol=symbol,
-            timeframe=timeframe,
-            alignment_score=alignment_score,
-            bullish_count=bullish_count,
-            bearish_count=bearish_count,
-            neutral_count=neutral_count,
-            total_indicators=total,
-            dominant_direction=dominant_direction,
-        )
-        self._event_bus.publish(EventType.CONFLUENCE_UPDATE, event)
-
-        # Persist confluence if enabled
-        if self._persistence:
-            asyncio.create_task(
-                self._persist_confluence(
-                    symbol=symbol,
-                    timeframe=timeframe,
-                    alignment_score=alignment_score,
-                    bullish_count=bullish_count,
-                    bearish_count=bearish_count,
-                    neutral_count=neutral_count,
-                    total_indicators=total,
-                    dominant_direction=dominant_direction,
-                )
-            )
 
     # -------------------------------------------------------------------------
     # Historical Data Integration

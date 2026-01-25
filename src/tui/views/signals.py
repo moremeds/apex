@@ -185,8 +185,8 @@ class UnifiedSignalsView(Container, can_focus=True):
             signals_table = self.query_one("#signals-table", SignalsTable)
             signals_table.signals = signals or []
             signals_table.snapshot = snapshot
-        except Exception:
-            self.log.error("Failed to update risk signals table")
+        except Exception as e:
+            self.log.error(f"Failed to update risk signals table: {e}", exc_info=True)
 
     # -------------------------------------------------------------------------
     # Public API for Trading Signals (from event bus)

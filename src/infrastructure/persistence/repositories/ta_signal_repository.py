@@ -16,7 +16,15 @@ import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from functools import wraps
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, TypeVar
+
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from src.domain.interfaces.signal_persistence import SignalPersistencePort
 from src.infrastructure.persistence.database import Database
@@ -25,6 +33,53 @@ if TYPE_CHECKING:
     from src.domain.signals.models import TradingSignal
 
 logger = logging.getLogger(__name__)
+
+# Type variable for generic retry decorator
+T = TypeVar("T")
+
+
+def db_retry() -> Callable[[Callable[..., T]], Callable[..., T]]:
+    """
+    Retry decorator for database operations.
+
+    Retries up to 3 times with exponential backoff (1s, 2s, 4s) on:
+    - Connection errors
+    - Timeout errors
+    - Transient database errors
+
+    Logs each retry attempt with context.
+    """
+    import asyncpg
+
+    def decorator(func: Callable[..., T]) -> Callable[..., T]:
+        @retry(
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=1, min=1, max=10),
+            retry=retry_if_exception_type(
+                (
+                    asyncpg.PostgresConnectionError,
+                    asyncpg.InterfaceError,
+                    asyncpg.InternalClientError,
+                    ConnectionError,
+                    TimeoutError,
+                )
+            ),
+            reraise=True,
+            before_sleep=lambda retry_state: logger.warning(
+                f"Database operation failed, retrying ({retry_state.attempt_number}/3)",
+                extra={
+                    "function": func.__name__,
+                    "error": str(retry_state.outcome.exception()) if retry_state.outcome else None,
+                },
+            ),
+        )
+        @wraps(func)
+        async def wrapper(*args: Any, **kwargs: Any) -> T:
+            return await func(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
 
 
 # =============================================================================
@@ -116,6 +171,7 @@ class TASignalRepository(SignalPersistencePort):
     # Signal Operations (implements SignalPersistencePort)
     # -------------------------------------------------------------------------
 
+    @db_retry()
     async def save_signal(self, signal: Any) -> None:
         """
         Persist a trading signal.
@@ -297,6 +353,7 @@ class TASignalRepository(SignalPersistencePort):
     # Indicator Operations (implements SignalPersistencePort)
     # -------------------------------------------------------------------------
 
+    @db_retry()
     async def save_indicator(
         self,
         symbol: str,
@@ -401,6 +458,7 @@ class TASignalRepository(SignalPersistencePort):
     # Confluence Operations (implements SignalPersistencePort)
     # -------------------------------------------------------------------------
 
+    @db_retry()
     async def save_confluence(
         self,
         symbol: str,
@@ -547,6 +605,7 @@ class TASignalRepository(SignalPersistencePort):
             for r in records
         }
 
+    @db_retry()
     async def delete_old_data(self, retention_days: int = 90) -> Dict[str, int]:
         """
         Delete data older than retention_days.

@@ -139,6 +139,7 @@ jobs:
     name: Retrain Models
     runs-on: ubuntu-latest
     needs: [preflight]
+    timeout-minutes: 90
     if: needs.preflight.outputs.should_run_training == 'true'
     steps:
       - uses: actions/checkout@v6
@@ -270,6 +271,7 @@ jobs:
     name: Generate Signal Report
     runs-on: ubuntu-latest
     needs: [preflight, retrain-models]
+    timeout-minutes: 60
     # Run if:
     # - Not a holiday (or holiday check skipped)
     # - Not Sunday (Sunday is training-only)
