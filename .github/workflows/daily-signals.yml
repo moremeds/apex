@@ -1,4 +1,4 @@
-name: Daily Full Trend Signal Reports
+name: "Daily: Signal Reports"
 
 # ═══════════════════════════════════════════════════════════════════════════
 # This workflow generates daily signal reports and handles model retraining.
@@ -60,7 +60,7 @@ concurrency:
   cancel-in-progress: false  # Don't cancel running jobs
 
 env:
-  PYTHON_VERSION: '3.14'
+  PYTHON_VERSION: '3.13'
   VALIDATION_UNIVERSE: config/signals/regime_verification_universe.yaml
   REPORTS_DIR: reports/validation
 

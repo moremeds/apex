@@ -1,4 +1,4 @@
-name: Diagrams
+name: "Push: Architecture Diagrams"
 
 on:
   push:

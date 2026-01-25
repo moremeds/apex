@@ -1,4 +1,4 @@
-name: Signal Gates (M3)
+name: "PR: Signal Quality Gates"
 
 on:
   pull_request:

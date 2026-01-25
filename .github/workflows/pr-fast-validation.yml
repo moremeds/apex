@@ -1,4 +1,4 @@
-name: M2 Fast Validation (PR Gate)
+name: "PR: Fast Validation"
 
 on:
   pull_request:
