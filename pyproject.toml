@@ -19,6 +19,7 @@ dependencies = [
     # TUI and database
     "textual>=6.11.0",         # TUI framework for terminal dashboard
     "asyncpg>=0.31.0",         # PostgreSQL async driver for persistence
+    "tenacity>=8.2.0",         # Retry logic for database operations
 
     # Data science stack
     "numpy>=2.3.0,<2.4",       # Numerical computing library (capped for numba/vectorbt compat)

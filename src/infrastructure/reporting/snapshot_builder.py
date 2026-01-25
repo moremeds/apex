@@ -36,7 +36,7 @@ import pandas as pd
 from src.utils.logging_setup import get_logger
 
 if TYPE_CHECKING:
-    from ..indicators.regime import RegimeOutput
+    from src.domain.signals.indicators.regime import RegimeOutput
 
 logger = get_logger(__name__)
 

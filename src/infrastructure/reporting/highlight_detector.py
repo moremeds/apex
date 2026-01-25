@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 import pandas as pd
 
 if TYPE_CHECKING:
-    from ..indicators.regime import RegimeOutput
+    from src.domain.signals.indicators.regime import RegimeOutput
 
 
 class HighlightType(Enum):

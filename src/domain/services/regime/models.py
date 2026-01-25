@@ -410,11 +410,11 @@ class HierarchicalRegime:
 # Derived Mappings from Universe YAML (Single Source of Truth)
 # =============================================================================
 #
-# These mappings are derived from config/signals/regime_verification_universe.yaml
+# These mappings are derived from config/universe.yaml
 # via the universe_loader module. This eliminates manual synchronization.
 #
 # To add a new stock or sector:
-# 1. Edit config/signals/regime_verification_universe.yaml
+# 1. Edit config/universe.yaml
 # 2. Run tests to verify consistency: pytest tests/unit/test_universe_consistency.py
 #
 # The loader handles:

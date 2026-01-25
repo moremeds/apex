@@ -9,7 +9,7 @@ Three-Layer Architecture:
 3. heatmap.js - Frontend Plotly rendering with interactive toggles
 
 Usage:
-    from src.domain.signals.reporting.heatmap_builder import HeatmapBuilder
+    from src.infrastructure.reporting.heatmap_builder import HeatmapBuilder
 
     builder = HeatmapBuilder(market_cap_service)
     model = builder.build_heatmap_model(summary_data, universe_config)
@@ -496,9 +496,6 @@ class HeatmapBuilder:
         # === CRITICAL: Calculate parent values from children ===
         # With branchvalues="total", parent values must equal sum of children.
         # We need to aggregate bottom-up: sectors -> categories -> root
-
-        # Build id->index map
-        id_to_idx: Dict[str, int] = {node_id: i for i, node_id in enumerate(ids)}
 
         # Calculate parent values bottom-up
         def calculate_parent_value(parent_id: str) -> float:

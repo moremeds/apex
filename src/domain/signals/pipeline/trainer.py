@@ -24,14 +24,16 @@ def load_training_universe(subset: str = "quick_test") -> List[str]:
     """
     Load symbols for model training from the universe config.
 
-    Uses the regime_verification_universe.yaml as single source of truth.
+    Uses config/universe.yaml as single source of truth.
 
     Args:
         subset: Which subset to load. Options:
-            - "quick_test": 11 core symbols for fast iteration (default)
-            - "all": Full universe (~66 symbols)
-            - "market": Market ETFs only (6 symbols)
-            - "sector_etfs": Sector ETFs only (11 symbols)
+            - "quick_test": ~12 symbols for fast iteration (default)
+            - "model_training": Core training symbols for full runs
+            - "pr_validation": Symbols for PR validation
+            - "all": Full universe from all sectors
+            - "market": Market ETFs only
+            - "sector_etfs": All sector ETFs
 
     Returns:
         List of symbols for training.
@@ -42,6 +44,10 @@ def load_training_universe(subset: str = "quick_test") -> List[str]:
 
     if subset == "quick_test":
         return universe.quick_test
+    elif subset == "model_training":
+        return universe.model_training
+    elif subset == "pr_validation":
+        return universe.pr_validation
     elif subset == "all":
         return universe.all_symbols
     elif subset == "market":
@@ -106,11 +112,19 @@ class TurningPointTrainer:
         )
 
         # Determine symbols for training
-        # Priority: --model-symbols > quick_test universe (if training-only) > --symbols
+        # Priority: --model-symbols > model_training (with --universe) > quick_test > --symbols
         if self.config.model_symbols:
             model_symbols = self.config.model_symbols
+            print(f"Using --model-symbols: {', '.join(model_symbols)}")
+        elif self.config.universe_path and not self.config.live and not self.config.backfill:
+            # Training with --universe flag: use model_training subset
+            model_symbols = load_training_universe("model_training")
+            if not model_symbols:
+                # Fall back to full universe if model_training subset empty
+                model_symbols = load_training_universe("all")
+            print(f"Using model_training subset ({len(model_symbols)} symbols)")
         elif not self.config.live and not self.config.backfill:
-            # Training-only mode: use quick_test universe from config
+            # Training-only mode without universe: use quick_test for fast iteration
             model_symbols = load_training_universe("quick_test")
             print(f"Using quick_test universe: {', '.join(model_symbols)}")
         else:

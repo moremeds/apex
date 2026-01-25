@@ -130,7 +130,7 @@ def main() -> int:
         opt_output = reports_dir / f"{prefix}optimization.json"
         run_command([
             sys.executable, "-m", "src.runners.validation_runner", "optimize",
-            "--universe", "config/validation/regime_universe.yaml",
+            "--universe", "config/universe.yaml",
             "--horizon-days", "20",
             "--output", str(opt_output),
             "--params-output", str(args.params_output),
@@ -140,7 +140,7 @@ def main() -> int:
     val_output = reports_dir / f"{prefix}full_validation.json"
     run_command([
         sys.executable, "-m", "src.runners.validation_runner", "full",
-        "--universe", "config/validation/regime_universe.yaml",
+        "--universe", "config/universe.yaml",
         "--timeframes", "1d",
         "--horizon-days", "20",
         "--output", str(val_output),
@@ -150,7 +150,7 @@ def main() -> int:
     holdout_output = reports_dir / f"{prefix}holdout_validation.json"
     run_command([
         sys.executable, "-m", "src.runners.validation_runner", "holdout",
-        "--universe", "config/validation/regime_universe.yaml",
+        "--universe", "config/universe.yaml",
         "--horizon-days", "20",
         "--days", "500",
         "--output", str(holdout_output),
@@ -188,7 +188,7 @@ def main() -> int:
 
     # Step 6: Generate Validation Summary Report
     run_command([
-        sys.executable, "-m", "src.domain.signals.reporting.validation_report",
+        sys.executable, "-m", "src.infrastructure.reporting.validation_report",
         "--reports-dir", str(reports_dir),
         "--output", str(reports_dir / "validation_summary.html"),
     ], "Validation Summary Report")

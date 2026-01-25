@@ -39,9 +39,11 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 
+from src.domain.signals.data.quality_validator import (
+    get_last_valid_close,
+    validate_close_for_regime,
+)
 from src.utils.logging_setup import get_logger
-
-from ..data.quality_validator import get_last_valid_close, validate_close_for_regime
 
 # Import regime HTML generators for 1:1 feature parity
 from .regime import (
@@ -60,9 +62,9 @@ from .regime import (
 from .snapshot_builder import SnapshotBuilder
 
 if TYPE_CHECKING:
-    from ..indicators.base import Indicator
-    from ..indicators.regime import RegimeOutput
-    from ..models import SignalRule
+    from src.domain.signals.indicators.base import Indicator
+    from src.domain.signals.indicators.regime import RegimeOutput
+    from src.domain.signals.models import SignalRule
 
 logger = get_logger(__name__)
 
@@ -609,9 +611,9 @@ class PackageBuilder:
 
         PR-B: Added run_data_quality section for aggregate quality metrics.
         """
-        from .signal_report_generator import calculate_confluence
+        from src.domain.signals.schemas import DataQualityReport
 
-        from ..schemas import DataQualityReport
+        from .signal_report_generator import calculate_confluence
 
         summary: Dict[str, Any] = {
             "version": PACKAGE_FORMAT_VERSION,
@@ -1562,7 +1564,8 @@ async function loadSummary() {{
         const response = await fetch('data/summary.json');
         CONFIG.summary = await response.json();
         console.log('Summary loaded:', CONFIG.summary.symbol_count, 'symbols');
-        await updateChart();
+        // Pass current symbol to ensure URL param is respected
+        await updateChart(CONFIG.currentSymbol);
     }} catch (error) {{
         console.error('Failed to load summary:', error);
     }}
@@ -1599,11 +1602,18 @@ async function loadData(symbol, timeframe) {{
 }}
 
 // Update chart with current selection
-async function updateChart() {{
-    const symbol = document.getElementById('symbol-select').value;
+async function updateChart(symbolOverride = null) {{
+    // Use override if provided, otherwise read from select (for user interactions)
+    const symbol = symbolOverride || document.getElementById('symbol-select').value;
     const timeframe = CONFIG.currentTimeframe;
 
     CONFIG.currentSymbol = symbol;
+
+    // Sync select element with current symbol
+    const selectEl = document.getElementById('symbol-select');
+    if (selectEl && selectEl.value !== symbol) {{
+        selectEl.value = symbol;
+    }}
 
     const data = await loadData(symbol, timeframe);
     if (!data) return;

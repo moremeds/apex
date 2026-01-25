@@ -118,7 +118,7 @@ validate-test:
 		--html-output $(REPORTS_DIR)/signal_report || true
 	@echo ""
 	@echo "$(YELLOW)Step 5/5: Validation Summary Report$(RESET)"
-	$(PYTHON) -m src.domain.signals.reporting.validation_report \
+	$(PYTHON) -m src.infrastructure.reporting.validation_report \
 		--reports-dir $(REPORTS_DIR) \
 		--output $(REPORTS_DIR)/validation_summary.html || true
 	@cp $(REPORTS_DIR)/validation_summary.html $(REPORTS_DIR)/signal_report/validation.html 2>/dev/null || true
@@ -184,7 +184,7 @@ validate-full-publish:
 		--output $(REPORTS_DIR)/holdout_validation.json || true
 	@echo ""
 	@echo "$(YELLOW)Step 4/6: Validation Summary Report$(RESET)"
-	$(PYTHON) -m src.domain.signals.reporting.validation_report \
+	$(PYTHON) -m src.infrastructure.reporting.validation_report \
 		--reports-dir $(REPORTS_DIR) \
 		--output $(REPORTS_DIR)/validation_summary.html || true
 	@echo ""

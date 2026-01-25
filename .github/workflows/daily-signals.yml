@@ -61,7 +61,7 @@ concurrency:
 
 env:
   PYTHON_VERSION: '3.13'
-  VALIDATION_UNIVERSE: config/signals/regime_verification_universe.yaml
+  VALIDATION_UNIVERSE: config/universe.yaml
   REPORTS_DIR: reports/validation
 
 jobs:
@@ -139,6 +139,7 @@ jobs:
     name: Retrain Models
     runs-on: ubuntu-latest
     needs: [preflight]
+    timeout-minutes: 90
     if: needs.preflight.outputs.should_run_training == 'true'
     steps:
       - uses: actions/checkout@v6
@@ -207,13 +208,18 @@ jobs:
 
           MODEL_SYMBOLS="${{ inputs.model_symbols }}"
           if [ -z "$MODEL_SYMBOLS" ]; then
-            # Load quick_test symbols from universe config (single source of truth)
+            # Load model_training symbols from universe config (single source of truth)
+            # model_training has 35 symbols for accurate regime detection
             MODEL_SYMBOLS=$(python << 'EOF'
           from src.domain.signals.pipeline.trainer import load_training_universe
-          print(' '.join(load_training_universe("quick_test")))
+          symbols = load_training_universe("model_training")
+          if not symbols:
+              # Fallback to quick_test if model_training not defined
+              symbols = load_training_universe("quick_test")
+          print(' '.join(symbols))
           EOF
           )
-            echo "Using quick_test universe: $MODEL_SYMBOLS"
+            echo "Using model_training universe: $MODEL_SYMBOLS"
           fi
 
           echo "eval_only=$EVAL_ONLY" >> $GITHUB_OUTPUT
@@ -270,6 +276,7 @@ jobs:
     name: Generate Signal Report
     runs-on: ubuntu-latest
     needs: [preflight, retrain-models]
+    timeout-minutes: 60
     # Run if:
     # - Not a holiday (or holiday check skipped)
     # - Not Sunday (Sunday is training-only)
@@ -347,6 +354,13 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Update market caps
+        run: |
+          source .venv/bin/activate
+          echo "Updating market caps and sector info..."
+          python -m src.runners.signal_runner --update-market-caps \
+            --universe ${{ env.VALIDATION_UNIVERSE }}
 
       - name: Generate signal report
         id: generate

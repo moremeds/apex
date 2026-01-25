@@ -12,8 +12,9 @@ This class handles:
 
 from __future__ import annotations
 
+import asyncio
 import time
-from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Set, Tuple, Union
 
 from ...domain.events.event_types import EventType
 from ...infrastructure.observability import (
@@ -29,6 +30,10 @@ if TYPE_CHECKING:
     from ...domain.signals.divergence import CrossIndicatorAnalyzer, MTFDivergenceAnalyzer
 
 logger = get_logger(__name__)
+
+# Cache limits to prevent unbounded growth
+MAX_SYMBOL_TIMEFRAME_PAIRS = 500  # Max (symbol, timeframe) combinations
+MAX_INDICATORS_PER_PAIR = 50  # Max indicators per (symbol, timeframe)
 
 
 class ConfluenceCalculator:
@@ -87,12 +92,40 @@ class ConfluenceCalculator:
         # Optional callback for persistence (injected by coordinator)
         self._persistence_callback: Optional[Callable] = None
 
+        # Track pending async tasks for graceful shutdown
+        self._pending_tasks: Set[asyncio.Task[None]] = set()
+
         self._started = False
 
     @property
     def indicator_state_count(self) -> int:
         """Total number of cached indicator entries."""
         return sum(len(indicators) for indicators in self._indicator_states.values())
+
+    def _evict_oldest_cache_entry(self) -> None:
+        """Evict the oldest (symbol, timeframe) entry from cache when full."""
+        if not self._indicator_states:
+            return
+        # Remove first entry (oldest insertion in Python 3.7+ dicts)
+        oldest_key = next(iter(self._indicator_states))
+        del self._indicator_states[oldest_key]
+        # Also clean up debounce tracking
+        self._last_calc_time.pop(oldest_key, None)
+        logger.debug(f"Evicted cache entry for {oldest_key[0]}/{oldest_key[1]} due to size limit")
+
+    def clear_symbol(self, symbol: str) -> None:
+        """
+        Clear all cached data for a symbol (call on watchlist removal or session end).
+
+        Args:
+            symbol: Symbol to clear from cache
+        """
+        keys_to_remove = [key for key in self._indicator_states if key[0] == symbol]
+        for key in keys_to_remove:
+            del self._indicator_states[key]
+            self._last_calc_time.pop(key, None)
+        if keys_to_remove:
+            logger.debug(f"Cleared {len(keys_to_remove)} cache entries for symbol {symbol}")
 
     def start(self) -> None:
         """Start the calculator and create analyzers."""
@@ -124,6 +157,13 @@ class ConfluenceCalculator:
         self._last_calc_time.clear()
         self._cross_analyzer = None
         self._mtf_analyzer = None
+
+        # Cancel pending tasks (don't wait - stop() is sync)
+        if self._pending_tasks:
+            logger.debug(f"Cancelling {len(self._pending_tasks)} pending confluence tasks")
+            for task in self._pending_tasks:
+                task.cancel()
+            self._pending_tasks.clear()
 
         logger.info("ConfluenceCalculator stopped")
 
@@ -165,8 +205,18 @@ class ConfluenceCalculator:
         # Cache the indicator state
         key = (symbol, timeframe)
         if key not in self._indicator_states:
+            # Evict oldest entries if cache is full
+            if len(self._indicator_states) >= MAX_SYMBOL_TIMEFRAME_PAIRS:
+                self._evict_oldest_cache_entry()
             self._indicator_states[key] = {}
         self._indicator_states[key][indicator] = state
+
+        # Limit indicators per pair
+        if len(self._indicator_states[key]) > MAX_INDICATORS_PER_PAIR:
+            # Remove oldest indicator (first key in dict)
+            oldest = next(iter(self._indicator_states[key]))
+            del self._indicator_states[key][oldest]
+            logger.debug(f"Evicted oldest indicator {oldest} from cache for {symbol}/{timeframe}")
 
         # Update cache size metric
         if self._metrics:
@@ -194,7 +244,7 @@ class ConfluenceCalculator:
             timeframe: Bar timeframe
         """
         key = (symbol, timeframe)
-        now_ms = time.time() * 1000
+        now_ms = time.monotonic() * 1000  # Use monotonic to avoid NTP drift issues
 
         # Check debounce
         last_calc = self._last_calc_time.get(key, 0)
@@ -261,11 +311,9 @@ class ConfluenceCalculator:
             event = ConfluenceUpdateEvent.from_score(score)
             self._event_bus.publish(EventType.CONFLUENCE_UPDATE, event)
 
-            # Optional persistence callback
+            # Optional persistence callback (tracked for graceful shutdown)
             if self._persistence_callback:
-                import asyncio
-
-                asyncio.create_task(
+                task = asyncio.create_task(
                     self._persistence_callback(
                         symbol=symbol,
                         timeframe=timeframe,
@@ -277,6 +325,8 @@ class ConfluenceCalculator:
                         dominant_direction=getattr(score, "dominant_direction", None),
                     )
                 )
+                self._pending_tasks.add(task)
+                task.add_done_callback(self._pending_tasks.discard)
 
             # Log results
             duration_ms = (time.perf_counter() - start_time) * 1000
@@ -310,6 +360,7 @@ class ConfluenceCalculator:
             logger.error(
                 "Confluence calculation failed",
                 extra={"symbol": symbol, "timeframe": timeframe, "error": str(e)},
+                exc_info=True,
             )
 
     def _calculate_multi_timeframe(self, symbol: str) -> None:
@@ -380,6 +431,7 @@ class ConfluenceCalculator:
             logger.error(
                 "MTF alignment calculation failed",
                 extra={"symbol": symbol, "error": str(e)},
+                exc_info=True,
             )
 
     def get_cached_states(

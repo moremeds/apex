@@ -158,7 +158,7 @@ Examples:
   python -m src.runners.signal_runner --validate-bars --symbols AAPL SPY
 
   # Update market cap cache (run periodically for accurate heatmap)
-  python -m src.runners.signal_runner --update-market-caps --universe config/signals/universe.yaml
+  python -m src.runners.signal_runner --update-market-caps --universe config/universe.yaml
 
   # Backfill historical signals
   python -m src.runners.signal_runner --backfill --symbols AAPL --days 365

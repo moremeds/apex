@@ -10,10 +10,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Dict
 
 if TYPE_CHECKING:
-    from ..indicators.base import Indicator
-    from ..models import SignalRule
+    from src.domain.signals.indicators.base import Indicator
+    from src.domain.signals.models import SignalRule
 
-from ..models import ConditionType
+from src.domain.signals.models import ConditionType
 
 # Template descriptions for known indicators
 INDICATOR_TEMPLATES: Dict[str, str] = {

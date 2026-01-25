@@ -10,7 +10,7 @@ Core Principles:
 
 Usage:
     # Update cache (run separately, e.g., daily cron)
-    python -m src.runners.signal_runner update-market-caps --universe config/signals/universe.yaml
+    python -m src.runners.signal_runner update-market-caps --universe config/universe.yaml
 
     # Read cache (during report generation)
     service = MarketCapService()

@@ -9,7 +9,7 @@ Usage:
     python scripts/generate_validation_universe.py --seed 42 --output config/validation/
 
 Output:
-    config/validation/regime_universe.yaml
+    config/universe.yaml
 """
 
 from __future__ import annotations

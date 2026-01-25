@@ -412,7 +412,7 @@ class TestHTMLReportSmoke:
 
     def test_escape_html_prevents_xss(self):
         """escape_html should prevent XSS attacks."""
-        from src.domain.signals.reporting.value_card import escape_html
+        from src.infrastructure.reporting.value_card import escape_html
 
         malicious = "<script>alert('xss')</script>"
         escaped = escape_html(malicious)
@@ -422,7 +422,7 @@ class TestHTMLReportSmoke:
 
     def test_regime_styles_returns_css(self):
         """generate_regime_styles should return CSS string."""
-        from src.domain.signals.reporting.regime_report import generate_regime_styles
+        from src.infrastructure.reporting.regime_report import generate_regime_styles
 
         css = generate_regime_styles()
         assert ".regime-dashboard" in css
@@ -430,7 +430,7 @@ class TestHTMLReportSmoke:
 
     def test_report_header_renders(self):
         """generate_report_header_html should render without errors."""
-        from src.domain.signals.reporting.regime_report import generate_report_header_html
+        from src.infrastructure.reporting.regime_report import generate_report_header_html
 
         output = RegimeOutput(
             symbol="TEST",
@@ -445,7 +445,7 @@ class TestHTMLReportSmoke:
 
     def test_one_liner_renders(self):
         """generate_regime_one_liner_html should render without errors."""
-        from src.domain.signals.reporting.regime_report import generate_regime_one_liner_html
+        from src.infrastructure.reporting.regime_report import generate_regime_one_liner_html
 
         output = RegimeOutput(
             symbol="TEST",
@@ -458,7 +458,7 @@ class TestHTMLReportSmoke:
 
     def test_decision_tree_renders(self):
         """generate_decision_tree_html should render without errors."""
-        from src.domain.signals.reporting.regime_report import generate_decision_tree_html
+        from src.infrastructure.reporting.regime_report import generate_decision_tree_html
 
         output = RegimeOutput(
             symbol="TEST",
@@ -483,7 +483,7 @@ class TestHTMLReportSmoke:
         """generate_recommendations_html should render 'no changes' case."""
         from datetime import date
 
-        from src.domain.signals.reporting.regime_report import generate_recommendations_html
+        from src.infrastructure.reporting.regime_report import generate_recommendations_html
 
         result = RecommenderResult(
             symbol="TEST",

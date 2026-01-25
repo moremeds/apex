@@ -1,0 +1,95 @@
+# Demo Positions File
+# Sample positions for demo mode - no broker connection required
+# Includes SPY, QQQ stocks and ATM QQQ options
+
+positions:
+  # === STOCKS ===
+
+  # SPY ETF - S&P 500 tracker
+  - symbol: SPY
+    underlying: SPY
+    asset_type: STOCK
+    quantity: 100
+    avg_price: 595.00
+    multiplier: 1
+    strategy_tag: long_stock
+
+  # QQQ ETF - Nasdaq 100 tracker
+  - symbol: QQQ
+    underlying: QQQ
+    asset_type: STOCK
+    quantity: 50
+    avg_price: 505.00
+    multiplier: 1
+    strategy_tag: long_stock
+
+  # === OPTIONS - QQQ ===
+
+  # QQQ Call 505 Dec 19, 2025 (ATM, ~1 month expiry)
+  - symbol: "QQQ   251219C00505000"
+    underlying: QQQ
+    asset_type: OPTION
+    quantity: 2
+    avg_price: 12.50
+    multiplier: 100
+    expiry: "2025-12-19"
+    strike: 505.0
+    right: C
+    strategy_tag: long_call
+
+  # QQQ Put 505 Dec 19, 2025 (ATM, ~1 month expiry)
+  - symbol: "QQQ   251219P00505000"
+    underlying: QQQ
+    asset_type: OPTION
+    quantity: 1
+    avg_price: 11.80
+    multiplier: 100
+    expiry: "2025-12-19"
+    strike: 505.0
+    right: P
+    strategy_tag: long_put
+
+  # QQQ Call 520 Dec 19, 2025 (OTM call)
+  - symbol: "QQQ   251219C00520000"
+    underlying: QQQ
+    asset_type: OPTION
+    quantity: 3
+    avg_price: 6.25
+    multiplier: 100
+    expiry: "2025-12-19"
+    strike: 520.0
+    right: C
+    strategy_tag: long_call
+
+  # === OPTIONS - SPY ===
+
+  # SPY Call 600 Dec 19, 2025 (ATM)
+  - symbol: "SPY   251219C00600000"
+    underlying: SPY
+    asset_type: OPTION
+    quantity: 2
+    avg_price: 8.50
+    multiplier: 100
+    expiry: "2025-12-19"
+    strike: 600.0
+    right: C
+    strategy_tag: long_call
+
+  # SPY Put 590 Dec 19, 2025 (slightly OTM put)
+  - symbol: "SPY   251219P00590000"
+    underlying: SPY
+    asset_type: OPTION
+    quantity: -1
+    avg_price: 7.20
+    multiplier: 100
+    expiry: "2025-12-19"
+    strike: 590.0
+    right: P
+    strategy_tag: short_put
+
+
+# Demo position notes:
+# - SPY @ ~$595, QQQ @ ~$505 (approximate current prices)
+# - Options expire Dec 19, 2025 (~1 month out)
+# - Mix of long calls, long puts, and short puts
+# - No broker connection needed - uses mock market data

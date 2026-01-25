@@ -33,7 +33,9 @@ from .config import SignalPipelineConfig
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
 
 if TYPE_CHECKING:
+    from src.application.orchestrator.signal_pipeline import BarPreloader
     from src.domain.interfaces.event_bus import EventBus
+    from src.services.historical_data_manager import HistoricalDataManager
 
 logger = get_logger(__name__)
 
@@ -190,9 +192,27 @@ class SignalPipelineProcessor:
         Returns:
             Exit code (0 for success).
         """
-        from src.application.orchestrator.signal_pipeline import BarPreloader
-        from src.services.historical_data_manager import HistoricalDataManager
+        self._print_banner()
+        self._running = True
+        self._setup_signal_handlers()
 
+        # Initialize data sources and preloader
+        historical_manager = await self._create_historical_manager()
+        bar_preloader = self._create_bar_preloader(historical_manager)
+
+        # Run pipeline
+        _ = await self._preload_bars(bar_preloader)
+        await self._wait_for_signals()
+        self._print_stats()
+
+        # Generate report if requested
+        if self.config.html_output:
+            await self._generate_html_report(historical_manager, self.config.html_output)
+
+        return 0
+
+    def _print_banner(self) -> None:
+        """Print pipeline startup banner."""
         print("=" * 60)
         print("SIGNAL PIPELINE (Historical Bars)")
         print("=" * 60)
@@ -201,10 +221,10 @@ class SignalPipelineProcessor:
         print(f"Persistence: {'enabled' if self.config.with_persistence else 'disabled'}")
         print("=" * 60)
 
-        self._running = True
-        self._setup_signal_handlers()
+    async def _create_historical_manager(self) -> "HistoricalDataManager":
+        """Create and configure historical data manager with optional IB source."""
+        from src.services.historical_data_manager import HistoricalDataManager
 
-        # Create historical data manager
         historical_manager = HistoricalDataManager(
             base_dir=PROJECT_ROOT / "data/historical",
             source_priority=["ib", "yahoo"],
@@ -235,10 +255,16 @@ class SignalPipelineProcessor:
             logger.warning(f"IB not available, using Yahoo only: {e}")
             print("Using Yahoo Finance for historical data (IB unavailable)")
 
-        # Create bar preloader with indicator engine from TASignalService
+        return historical_manager
+
+    def _create_bar_preloader(self, historical_manager: "HistoricalDataManager") -> "BarPreloader":
+        """Create bar preloader with indicator engine from TASignalService."""
+        from src.application.orchestrator.signal_pipeline import BarPreloader
+
         assert self._service is not None, "TASignalService not initialized"
         assert self._service._indicator_engine is not None, "IndicatorEngine not initialized"
-        bar_preloader = BarPreloader(
+
+        return BarPreloader(
             historical_data_manager=historical_manager,
             indicator_engine=self._service._indicator_engine,
             timeframes=self.config.timeframes,
@@ -248,7 +274,8 @@ class SignalPipelineProcessor:
             },
         )
 
-        # Preload historical bars and compute indicators
+    async def _preload_bars(self, bar_preloader: "BarPreloader") -> Dict[str, int]:
+        """Preload historical bars and return results per symbol."""
         print(f"\nLoading historical bars for {len(self.config.symbols)} symbols...")
         results = await bar_preloader.preload_startup(self.config.symbols)
 
@@ -257,12 +284,18 @@ class SignalPipelineProcessor:
         for symbol, count in results.items():
             print(f"  {symbol}: {count} bars")
 
-        # Allow event bus to dispatch
+        return results
+
+    async def _wait_for_signals(self) -> None:
+        """Allow event bus to dispatch signals."""
         print("\nProcessing signals...")
         for _ in range(20):
             await asyncio.sleep(0.1)
 
-        # Show final stats
+    def _print_stats(self) -> None:
+        """Print final pipeline statistics."""
+        if not self._service:
+            return
         stats = self._service.stats
         time_str = (
             self._display_tz.format_with_tz(now_utc(), "%H:%M:%S %Z")
@@ -274,12 +307,6 @@ class SignalPipelineProcessor:
         print(f"  Indicators computed: {stats['indicators_computed']}")
         print(f"  Signals emitted:     {stats['signals_emitted']}")
         print(f"  Signals received:    {self._signal_count}")
-
-        # Generate HTML report if requested
-        if self.config.html_output:
-            await self._generate_html_report(historical_manager, self.config.html_output)
-
-        return 0
 
     # -------------------------------------------------------------------------
     # Backfill Mode
@@ -466,9 +493,9 @@ class SignalPipelineProcessor:
             output_path: Path to save the HTML report.
         """
         from src.domain.signals.indicators.registry import get_indicator_registry
-        from src.domain.signals.reporting import SignalReportGenerator
-        from src.domain.signals.reporting.package_builder import PackageBuilder
         from src.domain.signals.rules import ALL_RULES
+        from src.infrastructure.reporting import SignalReportGenerator
+        from src.infrastructure.reporting.package_builder import PackageBuilder
 
         print(f"\nGenerating HTML report...")
 

@@ -394,7 +394,16 @@ class IndicatorEngine:
         indicators_computed = 0
         for result in results:
             if isinstance(result, BaseException):
-                logger.error(f"Indicator computation error: {result}")
+                logger.error(
+                    "Indicator computation error during history injection",
+                    extra={
+                        "symbol": symbol,
+                        "timeframe": timeframe,
+                        "error": str(result),
+                        "error_type": type(result).__name__,
+                    },
+                    exc_info=result,
+                )
                 continue
 
             if result is None:
@@ -644,7 +653,9 @@ class IndicatorEngine:
                     "timeframe": timeframe,
                     "duration_ms": round(duration_ms, 2),
                     "error": str(e),
+                    "error_type": type(e).__name__,
                 },
+                exc_info=True,
             )
             return None
 

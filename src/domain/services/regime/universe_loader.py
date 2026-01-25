@@ -28,7 +28,7 @@ from typing import Any, Dict, List, Optional, Set
 import yaml
 
 # Default path to universe YAML (relative to project root)
-DEFAULT_UNIVERSE_PATH = Path("config/signals/regime_verification_universe.yaml")
+DEFAULT_UNIVERSE_PATH = Path("config/universe.yaml")
 
 
 class UniverseLoadError(Exception):
@@ -77,6 +77,8 @@ class UniverseConfig:
     market_symbols: List[MarketSymbol]
     sectors: Dict[str, SectorConfig]  # sector_name -> SectorConfig
     quick_test: List[str]
+    model_training: List[str]
+    pr_validation: List[str]
 
     @cached_property
     def all_symbols(self) -> List[str]:
@@ -293,13 +295,18 @@ def load_universe(path: Optional[Path] = None) -> UniverseConfig:
     # Validate no duplicates (currently just logs, doesn't fail)
     _validate_no_duplicate_symbols(sectors)
 
-    # Parse quick_test
-    quick_test = [s.upper() for s in data.get("quick_test", [])]
+    # Parse subsets (quick_test, pr_validation, model_training, etc.)
+    subsets = data.get("subsets", {})
+    quick_test = [s.upper() for s in subsets.get("quick_test", data.get("quick_test", []))]
+    model_training = [s.upper() for s in subsets.get("model_training", [])]
+    pr_validation = [s.upper() for s in subsets.get("pr_validation", [])]
 
     return UniverseConfig(
         market_symbols=market_symbols,
         sectors=sectors,
         quick_test=quick_test,
+        model_training=model_training,
+        pr_validation=pr_validation,
     )
 
 
