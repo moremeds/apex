@@ -40,9 +40,9 @@ jobs:
         run: |
           source .venv/bin/activate
           # Use only 1d timeframe for PR gates - more reliable (no weekend intraday gaps)
+          # Use 10 diverse symbols for quick validation
           python -m src.runners.signal_runner --live \
-            --universe config/universe.yaml \
-            --subset pr_validation \
+            --symbols SPY QQQ AAPL NVDA TSLA JPM XOM UNH COST META \
             --timeframes 1d \
             --format package \
             --html-output reports/validation/signal_report
