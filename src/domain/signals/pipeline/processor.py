@@ -700,6 +700,19 @@ class SignalPipelineProcessor:
 
             try:
                 subprocess.run(["git", "init"], cwd=deploy_dir, check=True, capture_output=True)
+                # Configure git user identity (required in CI environments)
+                subprocess.run(
+                    ["git", "config", "user.name", "github-actions[bot]"],
+                    cwd=deploy_dir,
+                    check=True,
+                    capture_output=True,
+                )
+                subprocess.run(
+                    ["git", "config", "user.email", "github-actions[bot]@users.noreply.github.com"],
+                    cwd=deploy_dir,
+                    check=True,
+                    capture_output=True,
+                )
                 subprocess.run(
                     ["git", "checkout", "-b", "gh-pages"],
                     cwd=deploy_dir,
@@ -717,6 +730,7 @@ class SignalPipelineProcessor:
                     capture_output=True,
                 )
 
+                print(f"Deploying to GitHub Pages: {pages_url}")
                 subprocess.run(
                     ["git", "push", "-f", repo_url, "gh-pages"],
                     cwd=deploy_dir,
@@ -724,11 +738,15 @@ class SignalPipelineProcessor:
                     capture_output=True,
                 )
 
+                print(f"Successfully deployed to GitHub Pages: {pages_url}")
                 logger.info(f"Deployed to GitHub Pages: {pages_url}")
 
             except subprocess.CalledProcessError as e:
-                error_msg = e.stderr.decode() if isinstance(e.stderr, bytes) else e.stderr
+                stderr = e.stderr.decode() if isinstance(e.stderr, bytes) else (e.stderr or "")
+                stdout = e.stdout.decode() if isinstance(e.stdout, bytes) else (e.stdout or "")
+                error_msg = stderr or stdout or "Unknown error"
                 logger.error(f"GitHub Pages deployment failed: {error_msg}")
+                print(f"GitHub Pages deployment failed: {error_msg}")
 
     def _compute_indicators_on_df(
         self,

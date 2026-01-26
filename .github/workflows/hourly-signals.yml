@@ -160,7 +160,7 @@ jobs:
           subject: "APEX Signals - ${{ github.run_id }}"
           to: ${{ secrets.SIGNAL_REPORT_RECIPIENTS }}
           from: "APEX Signal Bot <${{ secrets.SMTP_USERNAME }}>"
-          html_body: file://email_body.html
+          html_body: file://${{ github.workspace }}/email_body.html
           convert_markdown: false
 
       - name: Holiday notice
