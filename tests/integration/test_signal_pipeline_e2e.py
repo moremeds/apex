@@ -157,16 +157,16 @@ class TestSignalPipelineE2E:
         assert "all_passed" in report
         assert "gates" in report
         assert isinstance(report["gates"], list)
-        assert len(report["gates"]) == 15  # G1-G15
+        assert len(report["gates"]) == 13  # G3-G15 (G1/G2 removed)
 
-    def test_validate_gates_fails_on_oversized_summary(self, test_output_dir: Path) -> None:
-        """Test that G1 fails when summary.json exceeds 200KB."""
+    def test_validate_gates_fails_on_invalid_close(self, test_output_dir: Path) -> None:
+        """Test that G11 fails when close values are <= 0."""
         data_dir = test_output_dir / "data"
         data_dir.mkdir(exist_ok=True)
 
-        # Create oversized summary (> 200KB)
-        large_data = {"padding": "x" * 250_000}
-        (data_dir / "summary.json").write_text(json.dumps(large_data))
+        # Create summary with invalid close (0 or negative)
+        invalid_data = {"tickers": [{"symbol": "TEST", "component_values": {"close": 0.0}}]}
+        (data_dir / "summary.json").write_text(json.dumps(invalid_data))
         (test_output_dir / "index.html").write_text("<html></html>")
 
         result = subprocess.run(
@@ -174,7 +174,7 @@ class TestSignalPipelineE2E:
                 sys.executable,
                 "scripts/validate_gates.py",
                 "--gate",
-                "G1",
+                "G11",
                 "--package",
                 str(test_output_dir),
             ],
@@ -183,7 +183,7 @@ class TestSignalPipelineE2E:
             timeout=30,
         )
 
-        # Should fail on oversized summary
+        # Should fail on invalid close
         assert result.returncode == 1
         assert "FAIL" in result.stdout
 
