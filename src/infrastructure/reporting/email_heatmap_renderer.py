@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from src.infrastructure.reporting.heatmap.etf_dashboard import REGIME_NAMES
 from src.infrastructure.reporting.heatmap.extractors import extract_regime
