@@ -54,8 +54,9 @@ _verbose_mode: bool = False
 # Global console output flag (set when --no-dashboard)
 _console_enabled: bool = False
 
-# Global log level override (set via --log-level CLI flag)
-_log_level_override: Optional[str] = None
+# Global log level override (set via --log-level CLI flag or LOG_LEVEL env var)
+# Check environment variable at module load for CI/automated runs
+_log_level_override: Optional[str] = os.environ.get("LOG_LEVEL")
 
 # Configured category loggers
 _category_loggers: Dict[str, logging.Logger] = {}
