@@ -17,7 +17,7 @@ from src.domain.signals.models import IndicatorTrace
 class TestIndicatorTrace:
     """Tests for IndicatorTrace dataclass."""
 
-    def test_basic_creation(self):
+    def test_basic_creation(self) -> None:
         """Test creating an IndicatorTrace with basic fields."""
         trace = IndicatorTrace(
             indicator_name="rsi",
@@ -33,7 +33,7 @@ class TestIndicatorTrace:
         assert trace.state == {}
         assert trace.rules_triggered_now == []
 
-    def test_creation_with_values(self):
+    def test_creation_with_values(self) -> None:
         """Test creating an IndicatorTrace with raw values and state."""
         trace = IndicatorTrace(
             indicator_name="macd",
@@ -51,7 +51,7 @@ class TestIndicatorTrace:
         assert "macd_bearish_cross" in trace.rules_triggered_now
         assert trace.lookback == 26
 
-    def test_to_dict(self):
+    def test_to_dict(self) -> None:
         """Test serialization to dictionary."""
         ts = datetime(2024, 1, 15, 10, 30)
         trace = IndicatorTrace(
@@ -76,7 +76,7 @@ class TestIndicatorTrace:
         assert data["rules_triggered_now"] == ["rsi_oversold"]
         assert data["lookback"] == 14
 
-    def test_from_dict(self):
+    def test_from_dict(self) -> None:
         """Test deserialization from dictionary."""
         data = {
             "indicator_name": "bollinger",
@@ -99,7 +99,7 @@ class TestIndicatorTrace:
         assert trace.state["band_width"] == "normal"
         assert trace.lookback == 20
 
-    def test_roundtrip_serialization(self):
+    def test_roundtrip_serialization(self) -> None:
         """Test that to_dict/from_dict roundtrip preserves data."""
         original = IndicatorTrace(
             indicator_name="atr",
@@ -124,7 +124,7 @@ class TestIndicatorTrace:
         assert restored.rules_triggered_now == original.rules_triggered_now
         assert restored.prev_raw == original.prev_raw
 
-    def test_get_delta_with_prev_raw(self):
+    def test_get_delta_with_prev_raw(self) -> None:
         """Test delta calculation when prev_raw is available."""
         trace = IndicatorTrace(
             indicator_name="rsi",
@@ -138,7 +138,7 @@ class TestIndicatorTrace:
 
         assert delta == pytest.approx(6.5)
 
-    def test_get_delta_without_prev_raw(self):
+    def test_get_delta_without_prev_raw(self) -> None:
         """Test delta returns None when prev_raw is not available."""
         trace = IndicatorTrace(
             indicator_name="rsi",
@@ -151,7 +151,7 @@ class TestIndicatorTrace:
 
         assert delta is None
 
-    def test_get_delta_missing_key(self):
+    def test_get_delta_missing_key(self) -> None:
         """Test delta returns None when key is missing from either raw dict."""
         trace = IndicatorTrace(
             indicator_name="macd",
@@ -165,7 +165,7 @@ class TestIndicatorTrace:
 
         assert delta is None
 
-    def test_str_representation(self):
+    def test_str_representation(self) -> None:
         """Test human-readable string representation."""
         trace = IndicatorTrace(
             indicator_name="regime",
@@ -182,7 +182,7 @@ class TestIndicatorTrace:
         assert "1d" in str_repr
         assert "trend_up" in str_repr
 
-    def test_str_no_rules(self):
+    def test_str_no_rules(self) -> None:
         """Test string representation with no rules triggered."""
         trace = IndicatorTrace(
             indicator_name="rsi",
@@ -200,7 +200,7 @@ class TestIndicatorTrace:
 class TestIndicatorTraceWithRegimeOutput:
     """Tests for IndicatorTrace integration with RegimeOutput."""
 
-    def test_regime_output_with_indicator_traces(self):
+    def test_regime_output_with_indicator_traces(self) -> None:
         """Test that RegimeOutput can store and serialize indicator traces."""
         from src.domain.signals.indicators.regime.models import (
             MarketRegime,
@@ -246,7 +246,7 @@ class TestIndicatorTraceWithRegimeOutput:
         assert len(data["indicator_traces"]) == 3
         assert data["indicator_traces"][0]["indicator_name"] == "trend"
 
-    def test_regime_output_roundtrip_with_traces(self):
+    def test_regime_output_roundtrip_with_traces(self) -> None:
         """Test RegimeOutput roundtrip preserves indicator traces."""
         from src.domain.signals.indicators.regime.models import (
             MarketRegime,
@@ -281,7 +281,7 @@ class TestIndicatorTraceWithRegimeOutput:
         assert trace.raw["confidence"] == 80
         assert "trend_confirmed" in trace.rules_triggered_now
 
-    def test_regime_output_empty_traces(self):
+    def test_regime_output_empty_traces(self) -> None:
         """Test RegimeOutput with empty indicator traces."""
         from src.domain.signals.indicators.regime.models import RegimeOutput
 

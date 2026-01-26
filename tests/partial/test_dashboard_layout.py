@@ -261,7 +261,7 @@ def create_sample_health():
     ]
 
 
-def main():
+def main() -> None:
     """Run dashboard test."""
     # Create sample data
     positions = create_sample_positions()

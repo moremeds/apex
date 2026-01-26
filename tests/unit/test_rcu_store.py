@@ -11,18 +11,19 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import List
+from typing import Any, List
 from unittest.mock import MagicMock
 
 import pytest
 
 from src.infrastructure.stores.rcu_store import RCUDict, RCUList
+from src.models.position import AssetType, PositionSource
 
 
 class TestRCUDict:
     """Tests for RCUDict."""
 
-    def test_basic_get_set(self):
+    def test_basic_get_set(self) -> None:
         """Test basic get/set operations."""
         store = RCUDict[str, int]()
 
@@ -34,7 +35,7 @@ class TestRCUDict:
         assert store.get("c") is None
         assert store.get("c", 0) == 0
 
-    def test_update_batch(self):
+    def test_update_batch(self) -> None:
         """Test batch update is atomic."""
         store = RCUDict[str, int]()
         store.set("a", 1)
@@ -45,7 +46,7 @@ class TestRCUDict:
         assert store.get("b") == 2
         assert store.get("c") == 3
 
-    def test_empty_update(self):
+    def test_empty_update(self) -> None:
         """Test empty update does nothing."""
         store = RCUDict[str, int]()
         store.set("a", 1)
@@ -56,7 +57,7 @@ class TestRCUDict:
         assert store.version == initial_version
         assert store.get("a") == 1
 
-    def test_delete(self):
+    def test_delete(self) -> None:
         """Test delete operation."""
         store = RCUDict[str, int]()
         store.set("a", 1)
@@ -67,7 +68,7 @@ class TestRCUDict:
         assert store.get("a") is None
         assert store.get("b") == 2
 
-    def test_clear(self):
+    def test_clear(self) -> None:
         """Test clear operation."""
         store = RCUDict[str, int]()
         store.update({"a": 1, "b": 2, "c": 3})
@@ -77,7 +78,7 @@ class TestRCUDict:
         assert len(store) == 0
         assert store.get("a") is None
 
-    def test_len(self):
+    def test_len(self) -> None:
         """Test length operation."""
         store = RCUDict[str, int]()
 
@@ -89,7 +90,7 @@ class TestRCUDict:
         store.update({"b": 2, "c": 3})
         assert len(store) == 3
 
-    def test_contains(self):
+    def test_contains(self) -> None:
         """Test membership test."""
         store = RCUDict[str, int]()
         store.set("a", 1)
@@ -97,7 +98,7 @@ class TestRCUDict:
         assert "a" in store
         assert "b" not in store
 
-    def test_iter(self):
+    def test_iter(self) -> None:
         """Test iteration over keys."""
         store = RCUDict[str, int]()
         store.update({"a": 1, "b": 2, "c": 3})
@@ -105,7 +106,7 @@ class TestRCUDict:
         keys = list(store)
         assert set(keys) == {"a", "b", "c"}
 
-    def test_keys_values_items(self):
+    def test_keys_values_items(self) -> None:
         """Test keys, values, items methods."""
         store = RCUDict[str, int]()
         store.update({"a": 1, "b": 2})
@@ -114,7 +115,7 @@ class TestRCUDict:
         assert set(store.values()) == {1, 2}
         assert set(store.items()) == {("a", 1), ("b", 2)}
 
-    def test_get_all(self):
+    def test_get_all(self) -> None:
         """Test get_all returns reference to internal dict."""
         store = RCUDict[str, int]()
         store.update({"a": 1, "b": 2})
@@ -122,7 +123,7 @@ class TestRCUDict:
         all_data = store.get_all()
         assert all_data == {"a": 1, "b": 2}
 
-    def test_get_many(self):
+    def test_get_many(self) -> None:
         """Test get_many for multiple keys."""
         store = RCUDict[str, int]()
         store.update({"a": 1, "b": 2, "c": 3})
@@ -130,7 +131,7 @@ class TestRCUDict:
         result = store.get_many(["a", "c", "d"])
         assert result == {"a": 1, "c": 3}
 
-    def test_compute_if_absent(self):
+    def test_compute_if_absent(self) -> None:
         """Test compute_if_absent for lazy initialization."""
         store = RCUDict[str, int]()
         factory = MagicMock(return_value=42)
@@ -146,7 +147,7 @@ class TestRCUDict:
         assert result == 42
         factory.assert_not_called()
 
-    def test_version_tracking(self):
+    def test_version_tracking(self) -> None:
         """Test version increments on writes."""
         store = RCUDict[str, int]()
         assert store.version == 0
@@ -163,7 +164,7 @@ class TestRCUDict:
         store.clear()
         assert store.version == 4
 
-    def test_initial_data(self):
+    def test_initial_data(self) -> None:
         """Test initialization with data."""
         initial = {"a": 1, "b": 2}
         store = RCUDict[str, int](initial)
@@ -175,7 +176,7 @@ class TestRCUDict:
         initial["c"] = 3
         assert store.get("c") is None
 
-    def test_concurrent_reads_no_contention(self):
+    def test_concurrent_reads_no_contention(self) -> None:
         """Test concurrent reads don't block each other."""
         store = RCUDict[str, int]()
         store.update({f"key{i}": i for i in range(1000)})
@@ -183,7 +184,7 @@ class TestRCUDict:
         results: List[int] = []
         errors: List[Exception] = []
 
-        def reader(key: str):
+        def reader(key: str) -> None:
             try:
                 for _ in range(100):
                     value = store.get(key)
@@ -205,7 +206,7 @@ class TestRCUDict:
         assert len(results) == 2000  # 20 threads * 100 iterations
         assert elapsed < 2.0  # Should complete quickly with no contention
 
-    def test_concurrent_read_write(self):
+    def test_concurrent_read_write(self) -> None:
         """Test concurrent reads during writes see consistent state."""
         store = RCUDict[str, int]()
         store.set("counter", 0)
@@ -213,7 +214,7 @@ class TestRCUDict:
         read_values: List[int] = []
         errors: List[Exception] = []
 
-        def writer():
+        def writer() -> None:
             try:
                 for i in range(100):
                     store.set("counter", i)
@@ -221,7 +222,7 @@ class TestRCUDict:
             except Exception as e:
                 errors.append(e)
 
-        def reader():
+        def reader() -> None:
             try:
                 for _ in range(200):
                     value = store.get("counter")
@@ -250,7 +251,7 @@ class TestRCUDict:
 class TestRCUList:
     """Tests for RCUList."""
 
-    def test_basic_operations(self):
+    def test_basic_operations(self) -> None:
         """Test basic list operations."""
         store = RCUList[int]()
 
@@ -262,7 +263,7 @@ class TestRCUList:
         assert len(store) == 2
         assert list(store) == [1, 2]
 
-    def test_get_all(self):
+    def test_get_all(self) -> None:
         """Test get_all returns reference."""
         store = RCUList[int]()
         store.append(1)
@@ -271,7 +272,7 @@ class TestRCUList:
         all_data = store.get_all()
         assert all_data == [1, 2]
 
-    def test_set_all(self):
+    def test_set_all(self) -> None:
         """Test set_all replaces data atomically."""
         store = RCUList[int]()
         store.append(1)
@@ -280,7 +281,7 @@ class TestRCUList:
 
         assert list(store) == [10, 20, 30]
 
-    def test_clear(self):
+    def test_clear(self) -> None:
         """Test clear operation."""
         store = RCUList[int]()
         store.set_all([1, 2, 3])
@@ -289,7 +290,7 @@ class TestRCUList:
 
         assert len(store) == 0
 
-    def test_version_tracking(self):
+    def test_version_tracking(self) -> None:
         """Test version increments on writes."""
         store = RCUList[int]()
         assert store.version == 0
@@ -303,7 +304,7 @@ class TestRCUList:
         store.clear()
         assert store.version == 3
 
-    def test_initial_data(self):
+    def test_initial_data(self) -> None:
         """Test initialization with data."""
         initial = [1, 2, 3]
         store = RCUList[int](initial)
@@ -340,7 +341,7 @@ class TestMarketDataStoreRCU:
             timestamp=now_utc(),
         )
 
-    def test_upsert_and_get(self, store, mock_market_data):
+    def test_upsert_and_get(self, store: Any, mock_market_data: Any) -> None:
         """Test upsert and get operations."""
         store.upsert([mock_market_data])
 
@@ -349,12 +350,12 @@ class TestMarketDataStoreRCU:
         assert result.symbol == "AAPL"
         assert result.bid == 150.0
 
-    def test_get_nonexistent(self, store):
+    def test_get_nonexistent(self, store: Any) -> None:
         """Test get returns None for nonexistent symbol."""
         result = store.get("NONEXISTENT")
         assert result is None
 
-    def test_get_all(self, store, mock_market_data):
+    def test_get_all(self, store: Any, mock_market_data: Any) -> None:
         """Test get_all returns all data."""
         from src.models.market_data import MarketData
         from src.utils.timezone import now_utc
@@ -367,14 +368,14 @@ class TestMarketDataStoreRCU:
         assert "AAPL" in all_data
         assert "GOOG" in all_data
 
-    def test_count(self, store, mock_market_data):
+    def test_count(self, store: Any, mock_market_data: Any) -> None:
         """Test count operation."""
         assert store.count() == 0
 
         store.upsert([mock_market_data])
         assert store.count() == 1
 
-    def test_clear(self, store, mock_market_data):
+    def test_clear(self, store: Any, mock_market_data: Any) -> None:
         """Test clear operation."""
         store.upsert([mock_market_data])
         assert store.count() == 1
@@ -382,14 +383,14 @@ class TestMarketDataStoreRCU:
         store.clear()
         assert store.count() == 0
 
-    def test_has_fresh_data(self, store, mock_market_data):
+    def test_has_fresh_data(self, store: Any, mock_market_data: Any) -> None:
         """Test has_fresh_data checks price TTL."""
         assert store.has_fresh_data("AAPL") is False
 
         store.upsert([mock_market_data])
         assert store.has_fresh_data("AAPL") is True
 
-    def test_concurrent_upsert_and_get(self, store):
+    def test_concurrent_upsert_and_get(self, store: Any) -> None:
         """Test concurrent upsert and get are thread-safe."""
         from src.models.market_data import MarketData
         from src.utils.timezone import now_utc
@@ -397,7 +398,7 @@ class TestMarketDataStoreRCU:
         errors: List[Exception] = []
         read_count = [0]
 
-        def writer():
+        def writer() -> None:
             try:
                 for i in range(50):
                     md = MarketData(
@@ -411,7 +412,7 @@ class TestMarketDataStoreRCU:
             except Exception as e:
                 errors.append(e)
 
-        def reader():
+        def reader() -> None:
             try:
                 for _ in range(100):
                     for j in range(10):
@@ -458,7 +459,7 @@ class TestPositionStoreRCU:
             source="test",
         )
 
-    def test_upsert_and_get_all(self, store, mock_position):
+    def test_upsert_and_get_all(self, store: Any, mock_position: Any) -> None:
         """Test upsert and get_all operations."""
         store.upsert_positions([mock_position])
 
@@ -466,7 +467,7 @@ class TestPositionStoreRCU:
         assert len(positions) == 1
         assert positions[0].symbol == "AAPL"
 
-    def test_get_by_key(self, store, mock_position):
+    def test_get_by_key(self, store: Any, mock_position: Any) -> None:
         """Test get_by_key operation."""
         store.upsert_positions([mock_position])
 
@@ -475,7 +476,7 @@ class TestPositionStoreRCU:
         assert result is not None
         assert result.symbol == "AAPL"
 
-    def test_get_by_underlying(self, store):
+    def test_get_by_underlying(self, store: Any) -> None:
         """Test get_by_underlying filters correctly."""
         from src.models.position import Position
 
@@ -483,25 +484,25 @@ class TestPositionStoreRCU:
             symbol="AAPL",
             quantity=100,
             avg_price=150.0,
-            asset_type="STK",
+            asset_type=AssetType.STOCK,
             underlying="AAPL",
-            source="test",
+            source=PositionSource.MANUAL,
         )
         p2 = Position(
             symbol="AAPL_OPT",
             quantity=10,
             avg_price=5.0,
-            asset_type="OPT",
+            asset_type=AssetType.OPTION,
             underlying="AAPL",
-            source="test",
+            source=PositionSource.MANUAL,
         )
         p3 = Position(
             symbol="GOOG",
             quantity=50,
             avg_price=100.0,
-            asset_type="STK",
+            asset_type=AssetType.STOCK,
             underlying="GOOG",
-            source="test",
+            source=PositionSource.MANUAL,
         )
 
         store.upsert_positions([p1, p2, p3])
@@ -510,20 +511,20 @@ class TestPositionStoreRCU:
         assert len(aapl_positions) == 2
         assert all(p.underlying == "AAPL" for p in aapl_positions)
 
-    def test_count(self, store, mock_position):
+    def test_count(self, store: Any, mock_position: Any) -> None:
         """Test count operation."""
         assert store.count() == 0
 
         store.upsert_positions([mock_position])
         assert store.count() == 1
 
-    def test_clear(self, store, mock_position):
+    def test_clear(self, store: Any, mock_position: Any) -> None:
         """Test clear operation."""
         store.upsert_positions([mock_position])
         store.clear()
         assert store.count() == 0
 
-    def test_refresh_flag(self, store):
+    def test_refresh_flag(self, store: Any) -> None:
         """Test refresh flag operations."""
         assert store.needs_refresh() is False
 
@@ -534,30 +535,30 @@ class TestPositionStoreRCU:
         store.clear_refresh_flag()
         assert store.needs_refresh() is False
 
-    def test_concurrent_access(self, store):
+    def test_concurrent_access(self, store: Any) -> None:
         """Test concurrent access is thread-safe."""
         from src.models.position import Position
 
         errors: List[Exception] = []
         read_count = [0]
 
-        def writer():
+        def writer() -> None:
             try:
                 for i in range(50):
                     p = Position(
                         symbol=f"SYM{i % 10}",
                         quantity=float(i),
                         avg_price=100.0,
-                        asset_type="STK",
+                        asset_type=AssetType.STOCK,
                         underlying=f"SYM{i % 10}",
-                        source="test",
+                        source=PositionSource.MANUAL,
                     )
                     store.upsert_positions([p])
                     time.sleep(0.001)
             except Exception as e:
                 errors.append(e)
 
-        def reader():
+        def reader() -> None:
             try:
                 for _ in range(100):
                     positions = store.get_all()

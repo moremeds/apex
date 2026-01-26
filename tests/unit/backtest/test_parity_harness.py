@@ -1,6 +1,7 @@
 """Tests for strategy parity harness."""
 
 from datetime import date, datetime
+from typing import Any
 from unittest.mock import MagicMock
 
 import pandas as pd
@@ -84,14 +85,14 @@ def create_run_result(
 class TestParityConfig:
     """Test parity configuration."""
 
-    def test_default_tolerances(self):
+    def test_default_tolerances(self) -> None:
         """Default tolerances should be sensible."""
         config = ParityConfig()
         assert config.sharpe_tolerance == 0.05
         assert config.return_tolerance == 0.01
         assert config.max_dd_tolerance == 0.02
 
-    def test_custom_tolerances(self):
+    def test_custom_tolerances(self) -> None:
         """Custom tolerances should be settable."""
         config = ParityConfig(
             sharpe_tolerance=0.10,
@@ -104,7 +105,7 @@ class TestParityConfig:
 class TestParityResult:
     """Test parity result structure."""
 
-    def test_parity_ok_summary(self, run_spec):
+    def test_parity_ok_summary(self, run_spec: Any) -> None:
         """Parity OK should have clear summary."""
         result = ParityResult(
             spec=run_spec,
@@ -115,7 +116,7 @@ class TestParityResult:
         )
         assert "Parity OK" in result.summary
 
-    def test_parity_failed_summary(self, run_spec):
+    def test_parity_failed_summary(self, run_spec: Any) -> None:
         """Failed parity should list drifts."""
         drift = DriftDetail(
             drift_type=DriftType.PNL_MISMATCH,
@@ -135,7 +136,7 @@ class TestParityResult:
         )
         assert "critical" in result.summary.lower()
 
-    def test_critical_drifts_filter(self, run_spec):
+    def test_critical_drifts_filter(self, run_spec: Any) -> None:
         """Critical drifts should be filterable."""
         critical = DriftDetail(
             drift_type=DriftType.PNL_MISMATCH,
@@ -165,7 +166,7 @@ class TestParityResult:
         assert len(result.critical_drifts) == 1
         assert result.critical_drifts[0].field == "total_return"
 
-    def test_to_dict(self, run_spec):
+    def test_to_dict(self, run_spec: Any) -> None:
         """Result should convert to dict."""
         result = ParityResult(
             spec=run_spec,
@@ -182,7 +183,7 @@ class TestParityResult:
 class TestDriftDetail:
     """Test drift detail structure."""
 
-    def test_pnl_drift_is_critical(self):
+    def test_pnl_drift_is_critical(self) -> None:
         """PNL mismatch should be critical."""
         drift = DriftDetail(
             drift_type=DriftType.PNL_MISMATCH,
@@ -195,7 +196,7 @@ class TestDriftDetail:
         )
         assert drift.is_critical is True
 
-    def test_metric_drift_not_critical(self):
+    def test_metric_drift_not_critical(self) -> None:
         """Metric mismatch should not be critical."""
         drift = DriftDetail(
             drift_type=DriftType.METRIC_MISMATCH,
@@ -212,7 +213,7 @@ class TestDriftDetail:
 class TestStrategyParityHarness:
     """Test parity harness comparison."""
 
-    def test_compare_identical_results(self, run_spec):
+    def test_compare_identical_results(self, run_spec: Any) -> None:
         """Identical results should pass parity."""
         result = create_run_result(run_spec)
 
@@ -225,7 +226,7 @@ class TestStrategyParityHarness:
         assert parity.is_parity is True
         assert len(parity.drift_detected) == 0
 
-    def test_compare_detects_return_drift(self, run_spec):
+    def test_compare_detects_return_drift(self, run_spec: Any) -> None:
         """Should detect return drift beyond tolerance."""
         ref_result = create_run_result(run_spec, total_return=0.15)
         test_result = create_run_result(run_spec, total_return=0.05)  # 10% diff
@@ -239,7 +240,7 @@ class TestStrategyParityHarness:
         assert parity.is_parity is False
         assert any(d.field == "total_return" for d in parity.drift_detected)
 
-    def test_compare_detects_trade_count_drift(self, run_spec):
+    def test_compare_detects_trade_count_drift(self, run_spec: Any) -> None:
         """Should detect trade count drift."""
         ref_result = create_run_result(run_spec, total_trades=50)
         test_result = create_run_result(run_spec, total_trades=40)
@@ -252,7 +253,7 @@ class TestStrategyParityHarness:
 
         assert any(d.field == "total_trades" for d in parity.drift_detected)
 
-    def test_compare_tolerates_small_drift(self, run_spec):
+    def test_compare_tolerates_small_drift(self, run_spec: Any) -> None:
         """Small drifts within tolerance should pass."""
         ref_result = create_run_result(run_spec, total_return=0.150)
         test_result = create_run_result(run_spec, total_return=0.155)  # 0.5% diff
@@ -267,7 +268,7 @@ class TestStrategyParityHarness:
         pnl_drifts = [d for d in parity.drift_detected if d.field == "total_return"]
         assert len(pnl_drifts) == 0
 
-    def test_compare_handles_status_mismatch(self, run_spec):
+    def test_compare_handles_status_mismatch(self, run_spec: Any) -> None:
         """Should detect status mismatch."""
         ref_result = create_run_result(run_spec, status=RunStatus.SUCCESS)
         test_result = create_run_result(run_spec, status=RunStatus.FAIL_DATA)
@@ -281,7 +282,7 @@ class TestStrategyParityHarness:
         assert parity.is_parity is False
         assert any(d.field == "status" for d in parity.drift_detected)
 
-    def test_compare_tracks_timing(self, run_spec):
+    def test_compare_tracks_timing(self, run_spec: Any) -> None:
         """Should track comparison timing."""
         result = create_run_result(run_spec)
 
@@ -299,7 +300,7 @@ class TestStrategyParityHarness:
 class TestParityBatch:
     """Test batch parity comparison."""
 
-    def test_compare_batch_multiple_specs(self, run_spec):
+    def test_compare_batch_multiple_specs(self, run_spec: Any) -> None:
         """Batch should compare multiple specs."""
         result = create_run_result(run_spec)
 
@@ -312,7 +313,7 @@ class TestParityBatch:
         assert len(results) == 3
         assert all(r.is_parity for r in results)
 
-    def test_compare_batch_empty(self):
+    def test_compare_batch_empty(self) -> None:
         """Empty batch should return empty list."""
         ref_engine = MagicMock()
         test_engine = MagicMock()
@@ -326,7 +327,7 @@ class TestParityBatch:
 class TestParityReport:
     """Test parity report generation."""
 
-    def test_generate_report_all_passed(self, run_spec):
+    def test_generate_report_all_passed(self, run_spec: Any) -> None:
         """Report should show all passed."""
         result = create_run_result(run_spec)
 
@@ -340,7 +341,7 @@ class TestParityReport:
         assert "Passed: 1" in report
         assert "Failed: 0" in report
 
-    def test_generate_report_with_failures(self, run_spec):
+    def test_generate_report_with_failures(self, run_spec: Any) -> None:
         """Report should show failures."""
         ref_result = create_run_result(run_spec, total_return=0.20)
         test_result = create_run_result(run_spec, total_return=0.05)
@@ -359,7 +360,7 @@ class TestParityReport:
 class TestCustomTolerances:
     """Test custom tolerance configuration."""
 
-    def test_strict_tolerances(self, run_spec):
+    def test_strict_tolerances(self, run_spec: Any) -> None:
         """Strict tolerances should catch smaller drifts."""
         ref_result = create_run_result(run_spec, sharpe=1.50)
         test_result = create_run_result(run_spec, sharpe=1.47)  # 2% diff
@@ -373,7 +374,7 @@ class TestCustomTolerances:
 
         assert any(d.field == "sharpe" for d in parity.drift_detected)
 
-    def test_relaxed_tolerances(self, run_spec):
+    def test_relaxed_tolerances(self, run_spec: Any) -> None:
         """Relaxed tolerances should allow larger drifts."""
         ref_result = create_run_result(run_spec, sharpe=1.50)
         test_result = create_run_result(run_spec, sharpe=1.35)  # 10% diff
@@ -403,7 +404,7 @@ def sample_index():
 class TestSignalParityResult:
     """Test SignalParityResult dataclass."""
 
-    def test_passed_summary(self):
+    def test_passed_summary(self) -> None:
         """Passed result should have clear summary."""
         result = SignalParityResult(
             passed=True,
@@ -417,7 +418,7 @@ class TestSignalParityResult:
         assert "80 bars compared" in result.summary()
         assert "20 warmup" in result.summary()
 
-    def test_failed_summary(self):
+    def test_failed_summary(self) -> None:
         """Failed result should show accuracy stats."""
         result = SignalParityResult(
             passed=False,
@@ -435,7 +436,7 @@ class TestSignalParityResult:
         assert "PARITY FAILED" in summary
         assert "entries" in summary.lower()
 
-    def test_entry_accuracy_calculation(self):
+    def test_entry_accuracy_calculation(self) -> None:
         """Entry accuracy should be matches / total."""
         result = SignalParityResult(
             passed=True,
@@ -447,7 +448,7 @@ class TestSignalParityResult:
         )
         assert result.entry_accuracy == 85 / 90
 
-    def test_exit_accuracy_calculation(self):
+    def test_exit_accuracy_calculation(self) -> None:
         """Exit accuracy should be matches / total."""
         result = SignalParityResult(
             passed=True,
@@ -459,7 +460,7 @@ class TestSignalParityResult:
         )
         assert result.exit_accuracy == 1.0
 
-    def test_accuracy_when_no_signals(self):
+    def test_accuracy_when_no_signals(self) -> None:
         """Accuracy should be 1.0 when no signals to compare."""
         result = SignalParityResult(
             passed=True,
@@ -476,7 +477,7 @@ class TestSignalParityResult:
 class TestCompareSignalParity:
     """Test compare_signal_parity function."""
 
-    def test_identical_signals_pass(self, sample_index):
+    def test_identical_signals_pass(self, sample_index: Any) -> None:
         """Identical signals should pass parity."""
         entries = pd.Series([i % 20 == 0 for i in range(100)], index=sample_index)
         exits = pd.Series([i % 20 == 10 for i in range(100)], index=sample_index)
@@ -493,7 +494,7 @@ class TestCompareSignalParity:
         assert result.entry_mismatches == 0
         assert result.exit_mismatches == 0
 
-    def test_different_entries_fail(self, sample_index):
+    def test_different_entries_fail(self, sample_index: Any) -> None:
         """Different entry signals should fail parity."""
         vbt_entries = pd.Series([i % 10 == 0 for i in range(100)], index=sample_index)
         cap_entries = pd.Series([i % 10 == 1 for i in range(100)], index=sample_index)
@@ -511,7 +512,7 @@ class TestCompareSignalParity:
         assert result.entry_mismatches > 0
         assert "Entry mismatch" in result.mismatches[0]
 
-    def test_different_exits_fail(self, sample_index):
+    def test_different_exits_fail(self, sample_index: Any) -> None:
         """Different exit signals should fail parity."""
         entries = pd.Series([i == 5 for i in range(100)], index=sample_index)
         vbt_exits = pd.Series([i == 50 for i in range(100)], index=sample_index)
@@ -528,7 +529,7 @@ class TestCompareSignalParity:
         assert result.passed is False
         assert result.exit_mismatches > 0
 
-    def test_warmup_skipped(self, sample_index):
+    def test_warmup_skipped(self, sample_index: Any) -> None:
         """Warmup period should be skipped in comparison."""
         # Different during warmup, same after
         vbt_entries = pd.Series([i < 20 for i in range(100)], index=sample_index)
@@ -549,7 +550,7 @@ class TestCompareSignalParity:
         assert result.passed is True
         assert result.compared_bars == 60
 
-    def test_nan_treated_as_false(self, sample_index):
+    def test_nan_treated_as_false(self, sample_index: Any) -> None:
         """NaN values should be treated as False."""
         # Use object dtype to allow NaN in boolean-like data (vectorbt output can have NaN)
         entries = pd.Series(
@@ -570,7 +571,7 @@ class TestCompareSignalParity:
 
         assert result.passed is True
 
-    def test_first_mismatch_recorded(self, sample_index):
+    def test_first_mismatch_recorded(self, sample_index: Any) -> None:
         """First mismatch index should be recorded as datetime."""
         vbt_entries = pd.Series([i == 25 for i in range(100)], index=sample_index)
         cap_entries = pd.Series([i == 30 for i in range(100)], index=sample_index)
@@ -587,7 +588,7 @@ class TestCompareSignalParity:
         assert result.first_entry_mismatch_idx is not None
         assert isinstance(result.first_entry_mismatch_idx, datetime)
 
-    def test_index_mismatch_fails(self):
+    def test_index_mismatch_fails(self) -> None:
         """Mismatched indices should fail with clear message."""
         index1 = pd.date_range("2023-01-01", periods=50, freq="D")
         index2 = pd.date_range("2023-02-01", periods=50, freq="D")
@@ -603,7 +604,7 @@ class TestCompareSignalParity:
         assert result.passed is False
         assert "Index mismatch" in result.mismatches[0]
 
-    def test_warmup_exceeds_bars(self, sample_index):
+    def test_warmup_exceeds_bars(self, sample_index: Any) -> None:
         """Warmup exceeding total bars should pass with 0 compared."""
         entries = pd.Series(True, index=sample_index)
         exits = pd.Series(False, index=sample_index)
@@ -623,7 +624,7 @@ class TestCompareSignalParity:
 class TestSignalCapture:
     """Test SignalCapture order recording."""
 
-    def test_record_buy_creates_entry(self, sample_index):
+    def test_record_buy_creates_entry(self, sample_index: Any) -> None:
         """BUY order while flat should create entry signal."""
         capture = SignalCapture(sample_index, symbol="AAPL")
 
@@ -633,7 +634,7 @@ class TestSignalCapture:
         assert entries.iloc[10] is True or entries.iloc[10] == True
         assert exits.sum() == 0
 
-    def test_record_sell_creates_exit(self, sample_index):
+    def test_record_sell_creates_exit(self, sample_index: Any) -> None:
         """SELL order while long should create exit signal."""
         capture = SignalCapture(sample_index, symbol="AAPL")
 
@@ -646,7 +647,7 @@ class TestSignalCapture:
         assert entries.iloc[10] is True or entries.iloc[10] == True
         assert exits.iloc[20] is True or exits.iloc[20] == True
 
-    def test_sell_while_flat_no_exit(self, sample_index):
+    def test_sell_while_flat_no_exit(self, sample_index: Any) -> None:
         """SELL order while flat should not create exit signal."""
         capture = SignalCapture(sample_index, symbol="AAPL")
 
@@ -656,7 +657,7 @@ class TestSignalCapture:
         assert entries.sum() == 0
         assert exits.sum() == 0
 
-    def test_buy_while_long_no_entry(self, sample_index):
+    def test_buy_while_long_no_entry(self, sample_index: Any) -> None:
         """BUY order while already long should not create entry signal."""
         capture = SignalCapture(sample_index, symbol="AAPL")
 
@@ -666,7 +667,7 @@ class TestSignalCapture:
         entries, exits = capture.get_signals()
         assert entries.sum() == 1  # Only first entry
 
-    def test_shadow_position_tracking(self, sample_index):
+    def test_shadow_position_tracking(self, sample_index: Any) -> None:
         """Shadow position should track multiple orders correctly."""
         capture = SignalCapture(sample_index, symbol="AAPL")
 
@@ -691,7 +692,7 @@ class TestSignalCapture:
         assert exits.iloc[25] is True or exits.iloc[25] == True
         assert exits.sum() == 2
 
-    def test_symbol_filtering(self, sample_index):
+    def test_symbol_filtering(self, sample_index: Any) -> None:
         """Orders for different symbols should be filtered."""
         capture = SignalCapture(sample_index, symbol="AAPL")
 
@@ -701,7 +702,7 @@ class TestSignalCapture:
         entries, exits = capture.get_signals()
         assert entries.sum() == 1  # Only AAPL order counted
 
-    def test_unmatched_timestamps_tracked(self):
+    def test_unmatched_timestamps_tracked(self) -> None:
         """Timestamps not in index should be tracked."""
         index = pd.date_range("2023-01-01", periods=10, freq="D")
         capture = SignalCapture(index, symbol="AAPL")
@@ -714,7 +715,7 @@ class TestSignalCapture:
         assert entries.sum() == 0  # Not matched
         assert capture.unmatched_count == 1
 
-    def test_reset_clears_state(self, sample_index):
+    def test_reset_clears_state(self, sample_index: Any) -> None:
         """Reset should clear all captured signals and position."""
         capture = SignalCapture(sample_index, symbol="AAPL")
 
@@ -725,7 +726,7 @@ class TestSignalCapture:
         assert entries.sum() == 0
         assert exits.sum() == 0
 
-    def test_case_insensitive_side(self, sample_index):
+    def test_case_insensitive_side(self, sample_index: Any) -> None:
         """Order side should be case-insensitive."""
         capture = SignalCapture(sample_index, symbol="AAPL")
 

@@ -1,5 +1,7 @@
 """Tests for Symbol-Level Statistics and Block Bootstrap."""
 
+from typing import Any
+
 import numpy as np
 import pytest
 
@@ -16,7 +18,7 @@ from src.domain.signals.validation.statistics import (
 class TestBlockBootstrapCI:
     """Tests for block_bootstrap_ci function."""
 
-    def test_basic_ci(self):
+    def test_basic_ci(self) -> None:
         """Test basic confidence interval calculation."""
         np.random.seed(42)
         data = list(np.random.randn(100) + 5)  # Mean ~5
@@ -27,7 +29,7 @@ class TestBlockBootstrapCI:
         assert lower > 4.0  # Mean should be around 5
         assert upper < 6.0
 
-    def test_ci_contains_mean(self):
+    def test_ci_contains_mean(self) -> None:
         """Test that CI typically contains the sample mean."""
         # Use data with some variance
         np.random.seed(42)
@@ -39,13 +41,13 @@ class TestBlockBootstrapCI:
         # Mean should be within CI (with some tolerance for boundary)
         assert lower <= mean <= upper
 
-    def test_empty_data(self):
+    def test_empty_data(self) -> None:
         """Test handling of empty data."""
         lower, upper = block_bootstrap_ci([], block_size=10, n_samples=100)
         assert lower == 0.0
         assert upper == 0.0
 
-    def test_small_data_fallback(self):
+    def test_small_data_fallback(self) -> None:
         """Test fallback for data smaller than block size."""
         data = [1.0, 2.0, 3.0]  # Less than default block size
 
@@ -54,7 +56,7 @@ class TestBlockBootstrapCI:
         assert lower < upper
         assert lower > 0
 
-    def test_reproducibility(self):
+    def test_reproducibility(self) -> None:
         """Test that same seed gives same results."""
         data = list(np.random.randn(50))
 
@@ -63,7 +65,7 @@ class TestBlockBootstrapCI:
 
         assert ci1 == ci2
 
-    def test_different_seeds_differ(self):
+    def test_different_seeds_differ(self) -> None:
         """Test that different seeds give different results."""
         data = list(np.random.randn(100))
 
@@ -77,7 +79,7 @@ class TestBlockBootstrapCI:
 class TestCohensD:
     """Tests for compute_cohens_d function."""
 
-    def test_known_effect_size(self):
+    def test_known_effect_size(self) -> None:
         """Test with known effect size."""
         # Two groups with clear separation
         group1 = [10.0] * 100
@@ -89,7 +91,7 @@ class TestCohensD:
         # Actually both have zero variance, so pooled_std=0
         assert d == 0.0  # Division by zero protection
 
-    def test_moderate_effect(self):
+    def test_moderate_effect(self) -> None:
         """Test moderate effect size."""
         np.random.seed(42)
         group1 = list(np.random.randn(100) + 0.5)  # Mean ~0.5
@@ -100,7 +102,7 @@ class TestCohensD:
         # Effect size should be around 0.5 (moderate)
         assert 0.3 < d < 0.8
 
-    def test_large_effect(self):
+    def test_large_effect(self) -> None:
         """Test large effect size."""
         np.random.seed(42)
         group1 = list(np.random.randn(100) + 1.0)  # Mean ~1
@@ -111,7 +113,7 @@ class TestCohensD:
         # Effect size should be around 1.0 (large)
         assert d > 0.7
 
-    def test_empty_groups(self):
+    def test_empty_groups(self) -> None:
         """Test handling of empty groups."""
         assert compute_cohens_d([], [1, 2, 3]) == 0.0
         assert compute_cohens_d([1, 2, 3], []) == 0.0
@@ -121,7 +123,7 @@ class TestCohensD:
 class TestSymbolMetrics:
     """Tests for SymbolMetrics dataclass."""
 
-    def test_creation(self):
+    def test_creation(self) -> None:
         """Test basic creation."""
         m = SymbolMetrics(
             symbol="AAPL",
@@ -163,7 +165,7 @@ class TestComputeSymbolLevelStats:
             SymbolMetrics("WISH", "CHOPPY", 0.22, 100, 22),
         ]
 
-    def test_basic_stats(self, trending_metrics, choppy_metrics):
+    def test_basic_stats(self, trending_metrics: Any, choppy_metrics: Any) -> None:
         """Test basic statistical computation."""
         all_metrics = trending_metrics + choppy_metrics
 
@@ -177,7 +179,7 @@ class TestComputeSymbolLevelStats:
         assert result.p_value < 0.05  # Significant difference
         assert result.effect_size_cohens_d > 0.8  # Large effect
 
-    def test_ci_ordering(self, trending_metrics, choppy_metrics):
+    def test_ci_ordering(self, trending_metrics: Any, choppy_metrics: Any) -> None:
         """Test that CIs are properly ordered."""
         all_metrics = trending_metrics + choppy_metrics
 
@@ -186,7 +188,7 @@ class TestComputeSymbolLevelStats:
         assert result.trending_ci_lower < result.trending_ci_upper
         assert result.choppy_ci_lower < result.choppy_ci_upper
 
-    def test_empty_group(self):
+    def test_empty_group(self) -> None:
         """Test handling of empty groups."""
         metrics = [SymbolMetrics("AAPL", "TRENDING", 0.80, 100, 80)]
 
@@ -196,7 +198,7 @@ class TestComputeSymbolLevelStats:
         assert result.n_choppy_symbols == 0
         assert result.p_value == 1.0  # No comparison possible
 
-    def test_to_dict(self, trending_metrics, choppy_metrics):
+    def test_to_dict(self, trending_metrics: Any, choppy_metrics: Any) -> None:
         """Test serialization to dict."""
         all_metrics = trending_metrics + choppy_metrics
         result = compute_symbol_level_stats(all_metrics, n_bootstrap=100)
@@ -213,7 +215,7 @@ class TestComputeSymbolLevelStats:
 class TestStatisticalResultGates:
     """Tests for StatisticalResult gate checking."""
 
-    def test_passes_all_gates(self):
+    def test_passes_all_gates(self) -> None:
         """Test result that passes all gates."""
         result = StatisticalResult(
             n_trending_symbols=70,
@@ -237,7 +239,7 @@ class TestStatisticalResultGates:
         assert passes
         assert len(failures) == 0
 
-    def test_fails_cohens_d(self):
+    def test_fails_cohens_d(self) -> None:
         """Test failure on Cohen's d."""
         result = StatisticalResult(
             n_trending_symbols=70,
@@ -261,7 +263,7 @@ class TestStatisticalResultGates:
         assert not passes
         assert any("Cohen's d" in f for f in failures)
 
-    def test_fails_p_value(self):
+    def test_fails_p_value(self) -> None:
         """Test failure on p-value."""
         result = StatisticalResult(
             n_trending_symbols=70,
@@ -285,7 +287,7 @@ class TestStatisticalResultGates:
         assert not passes
         assert any("p-value" in f for f in failures)
 
-    def test_fails_trending_ci_lower(self):
+    def test_fails_trending_ci_lower(self) -> None:
         """Test failure on trending CI lower bound."""
         result = StatisticalResult(
             n_trending_symbols=70,
@@ -309,7 +311,7 @@ class TestStatisticalResultGates:
         assert not passes
         assert any("trending_ci_lower" in f for f in failures)
 
-    def test_fails_choppy_ci_upper(self):
+    def test_fails_choppy_ci_upper(self) -> None:
         """Test failure on choppy CI upper bound."""
         result = StatisticalResult(
             n_trending_symbols=70,
@@ -337,7 +339,7 @@ class TestStatisticalResultGates:
 class TestAggregateSymbolMetrics:
     """Tests for aggregate_symbol_metrics_across_folds function."""
 
-    def test_aggregate_single_fold(self):
+    def test_aggregate_single_fold(self) -> None:
         """Test aggregation with single fold."""
         fold1 = [
             SymbolMetrics("AAPL", "TRENDING", 0.80, 100, 80),
@@ -350,7 +352,7 @@ class TestAggregateSymbolMetrics:
         aapl = next(m for m in aggregated if m.symbol == "AAPL")
         assert aapl.r0_rate == 0.80
 
-    def test_aggregate_multiple_folds(self):
+    def test_aggregate_multiple_folds(self) -> None:
         """Test aggregation across multiple folds."""
         fold1 = [
             SymbolMetrics("AAPL", "TRENDING", 0.80, 100, 80),
@@ -371,7 +373,7 @@ class TestAggregateSymbolMetrics:
         gme = next(m for m in aggregated if m.symbol == "GME")
         assert gme.r0_rate == 0.25  # Average of 0.20 and 0.30
 
-    def test_empty_folds(self):
+    def test_empty_folds(self) -> None:
         """Test handling of empty folds."""
         aggregated = aggregate_symbol_metrics_across_folds([])
         assert len(aggregated) == 0

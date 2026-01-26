@@ -23,12 +23,12 @@ skip_network = pytest.mark.skipif(
 class TestArgumentParser:
     """Tests for CLI argument parser."""
 
-    def test_parser_creates(self):
+    def test_parser_creates(self) -> None:
         """Test parser is created."""
         parser = create_argument_parser()
         assert parser is not None
 
-    def test_fast_mode_defaults(self):
+    def test_fast_mode_defaults(self) -> None:
         """Test fast mode default arguments."""
         parser = create_argument_parser()
         args = parser.parse_args(["fast", "--output", "test.json"])
@@ -39,7 +39,7 @@ class TestArgumentParser:
         assert args.timeframes == ["1d"]
         assert args.horizon_days == 20
 
-    def test_fast_mode_custom_symbols(self):
+    def test_fast_mode_custom_symbols(self) -> None:
         """Test fast mode with custom symbols."""
         parser = create_argument_parser()
         args = parser.parse_args(
@@ -56,7 +56,7 @@ class TestArgumentParser:
 
         assert args.symbols == ["AAPL", "MSFT", "GOOGL"]
 
-    def test_full_mode_defaults(self):
+    def test_full_mode_defaults(self) -> None:
         """Test full mode default arguments."""
         parser = create_argument_parser()
         args = parser.parse_args(["full", "--output", "test.json"])
@@ -67,7 +67,7 @@ class TestArgumentParser:
         assert args.inner_trials == 20
         assert args.confirm_rule == "1d&4h"
 
-    def test_full_mode_custom_folds(self):
+    def test_full_mode_custom_folds(self) -> None:
         """Test full mode with custom fold counts."""
         parser = create_argument_parser()
         args = parser.parse_args(
@@ -88,7 +88,7 @@ class TestArgumentParser:
         assert args.inner_folds == 2
         assert args.inner_trials == 10
 
-    def test_holdout_mode(self):
+    def test_holdout_mode(self) -> None:
         """Test holdout mode arguments."""
         parser = create_argument_parser()
         args = parser.parse_args(
@@ -104,7 +104,7 @@ class TestArgumentParser:
         assert args.mode == "holdout"
         assert args.params == "params.yaml"
 
-    def test_timeframes_argument(self):
+    def test_timeframes_argument(self) -> None:
         """Test timeframes argument parsing."""
         parser = create_argument_parser()
         args = parser.parse_args(
@@ -127,7 +127,7 @@ class TestArgumentParser:
 class TestValidationRunnerFast:
     """Tests for fast validation mode (requires Yahoo Finance API)."""
 
-    def test_fast_mode_runs(self):
+    def test_fast_mode_runs(self) -> None:
         """Test fast mode executes without error.
 
         Note: exit_code 0 = all gates passed, 1 = some gates failed.
@@ -156,7 +156,7 @@ class TestValidationRunnerFast:
             assert exit_code in [0, 1], f"Unexpected exit code: {exit_code}"
             assert output_path.exists()
 
-    def test_fast_mode_output_structure(self):
+    def test_fast_mode_output_structure(self) -> None:
         """Test fast mode produces valid output structure."""
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "fast_result.json"
@@ -185,7 +185,7 @@ class TestValidationRunnerFast:
             assert "all_gates_passed" in output
             assert "universe" in output
 
-    def test_fast_mode_gate_results(self):
+    def test_fast_mode_gate_results(self) -> None:
         """Test fast mode produces expected gates."""
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "fast_result.json"
@@ -215,7 +215,7 @@ class TestValidationRunnerFast:
 class TestValidationRunnerFull:
     """Tests for full validation mode (requires Yahoo Finance API)."""
 
-    def test_full_mode_runs(self):
+    def test_full_mode_runs(self) -> None:
         """Test full mode executes without error.
 
         Note: exit_code 0 = all gates passed, 1 = some gates failed.
@@ -241,7 +241,7 @@ class TestValidationRunnerFull:
             assert exit_code in [0, 1], f"Unexpected exit code: {exit_code}"
             assert output_path.exists()
 
-    def test_full_mode_output_structure(self):
+    def test_full_mode_output_structure(self) -> None:
         """Test full mode produces valid output structure.
 
         Note: exit_code 0 = all gates passed, 1 = some gates failed.
@@ -280,7 +280,7 @@ class TestValidationRunnerFull:
             assert "gate_results" in output
             assert "all_gates_passed" in output
 
-    def test_full_mode_gate_results(self):
+    def test_full_mode_gate_results(self) -> None:
         """Test full mode produces expected gates."""
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "full_result.json"
@@ -311,7 +311,7 @@ class TestValidationRunnerFull:
 class TestValidationRunnerHoldout:
     """Tests for holdout validation mode (requires Yahoo Finance API)."""
 
-    def test_holdout_mode_runs(self):
+    def test_holdout_mode_runs(self) -> None:
         """Test holdout mode executes without error."""
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "holdout_result.json"
@@ -335,13 +335,13 @@ class TestValidationRunnerHoldout:
 class TestMain:
     """Tests for main entry point."""
 
-    def test_no_mode_shows_help(self):
+    def test_no_mode_shows_help(self) -> None:
         """Test that no mode argument returns error."""
         exit_code = main([])
         assert exit_code == 1
 
     @skip_network
-    def test_fast_mode_via_main(self):
+    def test_fast_mode_via_main(self) -> None:
         """Test fast mode via main function (requires Yahoo Finance API).
 
         Note: exit_code 0 = all gates passed, 1 = some gates failed.

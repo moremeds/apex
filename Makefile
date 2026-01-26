@@ -114,6 +114,7 @@ format:
 	@echo "$(BOLD)Auto-formatting code...$(RESET)"
 	$(VENV)/black src/ tests/
 	$(VENV)/isort src/ tests/
+	$(VENV)/flake8 src/ tests/
 	@echo "$(GREEN)✓ Formatting complete$(RESET)"
 
 type-check:
@@ -194,14 +195,14 @@ validate:
 signals-test:
 	@echo "$(BOLD)Quick signal test (12 symbols)...$(RESET)"
 	$(PYTHON) -m src.runners.signal_runner --live \
-		--symbols SPY QQQ AAPL NVDA JPM XOM UNH HD DIS TSLA AMD META \
+		--symbols SPY QQQ XLB GLD TLT UVXY AAPL NVDA JPM XOM UNH HD DIS TSLA AMD META \
 		--timeframes 1d \
 		--format package \
 		--html-output /tmp/signal_test
 	@echo ""
-	@echo "$(GREEN)Starting HTTP server at http://localhost:8080$(RESET)"
+	@echo "$(GREEN)Starting HTTP server at http://localhost:8800$(RESET)"
 	@echo "$(YELLOW)Press Ctrl+C to stop$(RESET)"
-	cd /tmp/signal_test && python3 -m http.server 8080
+	cd /tmp/signal_test && python3 -m http.server 8800
 
 # Full production run with ALL features (update-caps, retrain, heatmap, validate)
 # Uses unified config/universe.yaml for all operations

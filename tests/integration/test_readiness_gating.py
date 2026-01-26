@@ -17,23 +17,23 @@ class TestReadinessWithEventBus:
     """Tests for ReadinessManager integration with PriorityEventBus."""
 
     @pytest.mark.asyncio
-    async def test_readiness_events_flow_through_bus(self):
+    async def test_readiness_events_flow_through_bus(self) -> None:
         """Readiness events are published through the event bus."""
         bus = PriorityEventBus()
         await bus.start()
 
         received_events: List[Tuple[str, Any]] = []
 
-        def capture_broker_connected(payload):
+        def capture_broker_connected(payload: Any) -> None:
             received_events.append(("broker_connected", payload))
 
-        def capture_positions_ready(payload):
+        def capture_positions_ready(payload: Any) -> None:
             received_events.append(("positions_ready", payload))
 
-        def capture_market_data_ready(payload):
+        def capture_market_data_ready(payload: Any) -> None:
             received_events.append(("market_data_ready", payload))
 
-        def capture_system_ready(payload):
+        def capture_system_ready(payload: Any) -> None:
             received_events.append(("system_ready", payload))
 
         bus.subscribe(EventType.BROKER_CONNECTED, capture_broker_connected)
@@ -61,14 +61,14 @@ class TestReadinessWithEventBus:
         assert "system_ready" in event_types
 
     @pytest.mark.asyncio
-    async def test_degraded_event_on_disconnect(self):
+    async def test_degraded_event_on_disconnect(self) -> None:
         """SYSTEM_DEGRADED event flows through bus on disconnect."""
         bus = PriorityEventBus()
         await bus.start()
 
         degraded_events = []
 
-        def capture_degraded(payload):
+        def capture_degraded(payload: Any) -> None:
             degraded_events.append(payload)
 
         bus.subscribe(EventType.SYSTEM_DEGRADED, capture_degraded)
@@ -92,7 +92,7 @@ class TestReadinessWithEventBus:
         assert degraded_events[0]["reason"] == "No brokers connected"
 
     @pytest.mark.asyncio
-    async def test_fast_startup_with_quick_data(self):
+    async def test_fast_startup_with_quick_data(self) -> None:
         """
         System becomes ready quickly when data arrives fast.
 
@@ -103,7 +103,7 @@ class TestReadinessWithEventBus:
 
         ready_time = None
 
-        def capture_ready(payload):
+        def capture_ready(payload: Any) -> None:
             nonlocal ready_time
             ready_time = datetime.now()
 
@@ -127,7 +127,7 @@ class TestReadinessWithEventBus:
         assert elapsed < 1.0, f"Took {elapsed}s to become ready"
 
     @pytest.mark.asyncio
-    async def test_gating_pattern(self):
+    async def test_gating_pattern(self) -> None:
         """
         Demonstrate gating pattern for downstream operations.
 
@@ -141,7 +141,7 @@ class TestReadinessWithEventBus:
 
         manager = ReadinessManager(bus, required_brokers=["ib"])
 
-        def gated_operation(payload):
+        def gated_operation(payload: Any) -> None:
             nonlocal operation_performed, operation_performed_at_state
             operation_performed = True
             operation_performed_at_state = manager.state
@@ -167,20 +167,20 @@ class TestReadinessWithEventBus:
         assert operation_performed_at_state == ReadinessState.SYSTEM_READY
 
     @pytest.mark.asyncio
-    async def test_multiple_subscribers_notified(self):
+    async def test_multiple_subscribers_notified(self) -> None:
         """Multiple components can subscribe to readiness events."""
         bus = PriorityEventBus()
         await bus.start()
 
         notifications = []
 
-        def component_a(payload):
+        def component_a(payload: Any) -> None:
             notifications.append("A")
 
-        def component_b(payload):
+        def component_b(payload: Any) -> None:
             notifications.append("B")
 
-        def component_c(payload):
+        def component_c(payload: Any) -> None:
             notifications.append("C")
 
         bus.subscribe(EventType.SYSTEM_READY, component_a)
@@ -206,14 +206,14 @@ class TestReadinessRecovery:
     """Tests for system recovery scenarios."""
 
     @pytest.mark.asyncio
-    async def test_recovery_after_degradation(self):
+    async def test_recovery_after_degradation(self) -> None:
         """System can recover and emit SYSTEM_READY again."""
         bus = PriorityEventBus()
         await bus.start()
 
         ready_count = 0
 
-        def count_ready(payload):
+        def count_ready(payload: Any) -> None:
             nonlocal ready_count
             ready_count += 1
 
@@ -247,7 +247,7 @@ class TestReadinessRecovery:
         assert ready_count == 2
 
     @pytest.mark.asyncio
-    async def test_partial_broker_failure(self):
+    async def test_partial_broker_failure(self) -> None:
         """System handles partial broker failures."""
         bus = PriorityEventBus()
         await bus.start()
@@ -281,7 +281,7 @@ class TestReadinessPerformance:
     """Tests for readiness system performance."""
 
     @pytest.mark.asyncio
-    async def test_rapid_updates_handled(self):
+    async def test_rapid_updates_handled(self) -> None:
         """System handles rapid status updates without issues."""
         bus = PriorityEventBus()
         await bus.start()
@@ -303,7 +303,7 @@ class TestReadinessPerformance:
         assert manager.coverage_ratio == 0.99
 
     @pytest.mark.asyncio
-    async def test_concurrent_broker_updates(self):
+    async def test_concurrent_broker_updates(self) -> None:
         """Handles concurrent broker status updates."""
         bus = PriorityEventBus()
         await bus.start()

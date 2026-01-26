@@ -12,7 +12,7 @@ from src.models.position import AssetType
 class TestCalculatePositionGreeks:
     """Tests for calculate_position_greeks function."""
 
-    def test_stock_position_delta(self):
+    def test_stock_position_delta(self) -> None:
         """Stock should have synthetic delta = quantity * multiplier."""
         result = calculate_position_greeks(
             raw_delta=None,  # Ignored for stocks
@@ -30,7 +30,7 @@ class TestCalculatePositionGreeks:
         assert result.theta == 0.0
         assert result.has_greeks is False  # Synthetic, not market
 
-    def test_stock_short_position(self):
+    def test_stock_short_position(self) -> None:
         """Short stock should have negative delta."""
         result = calculate_position_greeks(
             raw_delta=None,
@@ -44,7 +44,7 @@ class TestCalculatePositionGreeks:
 
         assert result.delta == -100.0  # Short 100 shares = -100 delta
 
-    def test_option_long_call(self):
+    def test_option_long_call(self) -> None:
         """Long call option should scale Greeks by quantity * multiplier."""
         result = calculate_position_greeks(
             raw_delta=0.5,
@@ -62,7 +62,7 @@ class TestCalculatePositionGreeks:
         assert result.theta == -150.0  # -0.15 * 10 * 100
         assert result.has_greeks is True
 
-    def test_option_short_put(self):
+    def test_option_short_put(self) -> None:
         """Short put option with negative quantity."""
         result = calculate_position_greeks(
             raw_delta=-0.3,  # Put delta
@@ -80,7 +80,7 @@ class TestCalculatePositionGreeks:
         assert result.vega == -100.0  # 0.20 * -5 * 100
         assert result.theta == 50.0  # -0.10 * -5 * 100
 
-    def test_option_missing_some_greeks(self):
+    def test_option_missing_some_greeks(self) -> None:
         """Option with some missing Greeks should use zero for missing."""
         result = calculate_position_greeks(
             raw_delta=0.5,
@@ -98,7 +98,7 @@ class TestCalculatePositionGreeks:
         assert result.theta == 0.0  # Missing → zero
         assert result.has_greeks is True  # Some Greeks were available
 
-    def test_option_all_greeks_missing(self):
+    def test_option_all_greeks_missing(self) -> None:
         """Option with all missing Greeks should have has_greeks=False."""
         result = calculate_position_greeks(
             raw_delta=None,
@@ -116,7 +116,7 @@ class TestCalculatePositionGreeks:
         assert result.theta == 0.0
         assert result.has_greeks is False  # All missing
 
-    def test_future_asset_type(self):
+    def test_future_asset_type(self) -> None:
         """Future should use market Greeks like options."""
         result = calculate_position_greeks(
             raw_delta=1.0,  # Future delta
@@ -135,7 +135,7 @@ class TestCalculatePositionGreeks:
 class TestCalculateNearTermGreeks:
     """Tests for near-term Greeks concentration metrics."""
 
-    def test_short_dated_gamma_concentration(self):
+    def test_short_dated_gamma_concentration(self) -> None:
         """0-7 DTE should show gamma notional."""
         gamma_notional, vega_notional = calculate_near_term_greeks(
             gamma=0.05,
@@ -152,7 +152,7 @@ class TestCalculateNearTermGreeks:
         # Vega notional: |0.30 * 10 * 100| = 300
         assert vega_notional == pytest.approx(300.0, rel=0.01)
 
-    def test_medium_dated_vega_only(self):
+    def test_medium_dated_vega_only(self) -> None:
         """8-30 DTE should only show vega notional."""
         gamma_notional, vega_notional = calculate_near_term_greeks(
             gamma=0.05,
@@ -166,7 +166,7 @@ class TestCalculateNearTermGreeks:
         assert gamma_notional == 0.0  # Outside 7 DTE threshold
         assert vega_notional == pytest.approx(300.0, rel=0.01)
 
-    def test_long_dated_no_concentration(self):
+    def test_long_dated_no_concentration(self) -> None:
         """31+ DTE should have no concentration metrics."""
         gamma_notional, vega_notional = calculate_near_term_greeks(
             gamma=0.05,
@@ -180,7 +180,7 @@ class TestCalculateNearTermGreeks:
         assert gamma_notional == 0.0
         assert vega_notional == 0.0
 
-    def test_no_expiry(self):
+    def test_no_expiry(self) -> None:
         """Stock/no expiry should have no concentration metrics."""
         gamma_notional, vega_notional = calculate_near_term_greeks(
             gamma=0.0,
@@ -194,7 +194,7 @@ class TestCalculateNearTermGreeks:
         assert gamma_notional == 0.0
         assert vega_notional == 0.0
 
-    def test_zero_dte(self):
+    def test_zero_dte(self) -> None:
         """0DTE should show both gamma and vega notional."""
         gamma_notional, vega_notional = calculate_near_term_greeks(
             gamma=0.10,  # High gamma on 0DTE
@@ -212,7 +212,7 @@ class TestCalculateNearTermGreeks:
         # |0.10 * 5 * 100| = 50
         assert vega_notional == pytest.approx(50.0, rel=0.01)
 
-    def test_custom_thresholds(self):
+    def test_custom_thresholds(self) -> None:
         """Custom DTE thresholds should work."""
         gamma_notional, vega_notional = calculate_near_term_greeks(
             gamma=0.05,
@@ -233,7 +233,7 @@ class TestCalculateNearTermGreeks:
 class TestGreeksResultImmutability:
     """Tests for GreeksResult frozen dataclass."""
 
-    def test_result_is_frozen(self):
+    def test_result_is_frozen(self) -> None:
         """GreeksResult should be immutable."""
         result = calculate_position_greeks(
             raw_delta=0.5,
@@ -248,7 +248,7 @@ class TestGreeksResultImmutability:
         with pytest.raises(AttributeError):
             result.delta = 1000.0  # type: ignore
 
-    def test_result_is_hashable(self):
+    def test_result_is_hashable(self) -> None:
         """Frozen dataclass should be hashable."""
         result = calculate_position_greeks(
             raw_delta=0.5,

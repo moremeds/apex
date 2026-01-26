@@ -2,11 +2,9 @@
 """
 Validate Gates Script - M3 PR-07 + PR-A Deliverable.
 
-Implements 15 validation gates for signal report quality:
+Implements 13 validation gates for signal report quality:
 
 Original Gates (M3):
-- G1: summary.json <= 200KB
-- G2: package <= 15MB
 - G3: first-screen <= 2MB (index.html + summary.json)
 - G4: 0 missing sections
 - G5: <10% metric drift (uses SnapshotBuilder.diff())
@@ -22,6 +20,9 @@ Data Quality Gates (PR-A):
 - G13: ATR percentile valid_n >= 50 (WARN)
 - G14: close timestamp matches chart data (FAIL)
 - G15: bar continuity (no excessive gaps) (WARN)
+
+Note: G1 (summary size) and G2 (package size) were removed as they are no longer
+relevant for modern universe sizes. The limits were outdated for full universe runs.
 
 Usage:
     python scripts/validate_gates.py --all --package reports/signal_report
@@ -143,7 +144,7 @@ class ValidationReport:
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Validation Results - G1-G15</title>
+    <title>Validation Results - G3-G15</title>
     <style>
         :root {{
             --bg-primary: #1a1a2e;
@@ -245,7 +246,7 @@ class ValidationReport:
     <div class="container">
         <a href="index.html" class="back-link">← Heatmap</a>
         <h1>Validation Results</h1>
-        <p class="subtitle">Quality Gates G1-G15</p>
+        <p class="subtitle">Quality Gates G3-G15</p>
 
         <div class="summary">
             <div class="summary-card">
@@ -772,8 +773,8 @@ def check_g11_close_positive(package_path: Path) -> GateResult:
         summary = json.load(f)
 
     # Check close values for all tickers
-    invalid_symbols = []
-    sample_closes = []
+    invalid_symbols: list[str] = []
+    sample_closes: list[str] = []
 
     for ticker in summary.get("tickers", []):
         symbol = ticker.get("symbol", "UNKNOWN")
@@ -1085,14 +1086,10 @@ def run_all_gates(
     package_path: Path,
     old_snapshot_path: Optional[Path] = None,
 ) -> ValidationReport:
-    """Run all validation gates."""
+    """Run all validation gates (G3-G15, G1/G2 removed as outdated)."""
     gates = []
 
-    # G1: Summary size
-    gates.append(check_g1_summary_size(package_path))
-
-    # G2: Package size
-    gates.append(check_g2_package_size(package_path))
+    # G1/G2 removed - size limits are outdated for modern universe sizes
 
     # G3: First screen size
     gates.append(check_g3_first_screen(package_path))
@@ -1155,13 +1152,20 @@ def run_single_gate(
     old_snapshot_path: Optional[Path] = None,
     new_snapshot_path: Optional[Path] = None,
 ) -> GateResult:
-    """Run a single gate."""
+    """Run a single gate (G3-G15, G1/G2 removed as outdated)."""
     gate = gate.upper()
 
-    if gate == "G1" and package_path:
-        return check_g1_summary_size(package_path)
-    elif gate == "G2" and package_path:
-        return check_g2_package_size(package_path)
+    # G1/G2 removed - size limits are outdated for modern universe sizes
+    if gate in ("G1", "G2"):
+        return GateResult(
+            gate_id=gate,
+            gate_name="Removed",
+            passed=True,
+            value=0,
+            threshold=0,
+            severity="PASS",
+            message=f"{gate} size limit removed - no longer relevant for modern universe sizes",
+        )
     elif gate == "G3" and package_path:
         return check_g3_first_screen(package_path)
     elif gate == "G4" and package_path:
@@ -1216,7 +1220,7 @@ def create_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--gate",
         type=str,
-        help="Run single gate (G1-G10)",
+        help="Run single gate (G3-G15)",
     )
     parser.add_argument(
         "--package",

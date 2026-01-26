@@ -12,6 +12,8 @@ Tests cover:
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -114,12 +116,12 @@ def _assert_allclose_with_nan(
 class TestIndicatorDiscovery:
     """Tests for indicator discovery."""
 
-    def test_total_indicator_count(self, registry: IndicatorRegistry):
+    def test_total_indicator_count(self, registry: IndicatorRegistry) -> None:
         """Verify all 45 indicators are discovered."""
         indicators = registry.get_all()
         assert len(indicators) == 45, f"Expected 45 indicators, found {len(indicators)}"
 
-    def test_momentum_indicators(self, registry: IndicatorRegistry):
+    def test_momentum_indicators(self, registry: IndicatorRegistry) -> None:
         """Verify all 12 momentum indicators."""
         indicators = registry.get_by_category(SignalCategory.MOMENTUM)
         names = {ind.name for ind in indicators}
@@ -139,7 +141,7 @@ class TestIndicatorDiscovery:
         }
         assert names == expected, f"Missing momentum indicators: {expected - names}"
 
-    def test_trend_indicators(self, registry: IndicatorRegistry):
+    def test_trend_indicators(self, registry: IndicatorRegistry) -> None:
         """Verify all 10 trend indicators."""
         indicators = registry.get_by_category(SignalCategory.TREND)
         names = {ind.name for ind in indicators}
@@ -157,7 +159,7 @@ class TestIndicatorDiscovery:
         }
         assert names == expected, f"Missing trend indicators: {expected - names}"
 
-    def test_volatility_indicators(self, registry: IndicatorRegistry):
+    def test_volatility_indicators(self, registry: IndicatorRegistry) -> None:
         """Verify all 8 volatility indicators."""
         indicators = registry.get_by_category(SignalCategory.VOLATILITY)
         names = {ind.name for ind in indicators}
@@ -173,7 +175,7 @@ class TestIndicatorDiscovery:
         }
         assert names == expected, f"Missing volatility indicators: {expected - names}"
 
-    def test_volume_indicators(self, registry: IndicatorRegistry):
+    def test_volume_indicators(self, registry: IndicatorRegistry) -> None:
         """Verify all 8 volume indicators."""
         indicators = registry.get_by_category(SignalCategory.VOLUME)
         names = {ind.name for ind in indicators}
@@ -189,7 +191,7 @@ class TestIndicatorDiscovery:
         }
         assert names == expected, f"Missing volume indicators: {expected - names}"
 
-    def test_pattern_indicators(self, registry: IndicatorRegistry):
+    def test_pattern_indicators(self, registry: IndicatorRegistry) -> None:
         """Verify all 6 pattern indicators."""
         indicators = registry.get_by_category(SignalCategory.PATTERN)
         names = {ind.name for ind in indicators}
@@ -203,7 +205,7 @@ class TestIndicatorDiscovery:
         }
         assert names == expected, f"Missing pattern indicators: {expected - names}"
 
-    def test_regime_indicators(self, registry: IndicatorRegistry):
+    def test_regime_indicators(self, registry: IndicatorRegistry) -> None:
         """Verify regime indicator."""
         indicators = registry.get_by_category(SignalCategory.REGIME)
         names = {ind.name for ind in indicators}
@@ -214,14 +216,14 @@ class TestIndicatorDiscovery:
 class TestIndicatorProperties:
     """Tests for indicator properties."""
 
-    def test_all_have_name(self, all_indicators):
+    def test_all_have_name(self, all_indicators: Any) -> None:
         """All indicators must have a name."""
         for ind in all_indicators:
             assert hasattr(ind, "name"), f"{type(ind).__name__} missing 'name'"
             assert isinstance(ind.name, str), f"{type(ind).__name__}.name not a string"
             assert len(ind.name) > 0, f"{type(ind).__name__}.name is empty"
 
-    def test_all_have_category(self, all_indicators):
+    def test_all_have_category(self, all_indicators: Any) -> None:
         """All indicators must have a category."""
         for ind in all_indicators:
             assert hasattr(ind, "category"), f"{ind.name} missing 'category'"
@@ -229,7 +231,7 @@ class TestIndicatorProperties:
                 ind.category, SignalCategory
             ), f"{ind.name}.category not SignalCategory"
 
-    def test_all_have_required_fields(self, all_indicators):
+    def test_all_have_required_fields(self, all_indicators: Any) -> None:
         """All indicators must have required_fields."""
         for ind in all_indicators:
             assert hasattr(ind, "required_fields"), f"{ind.name} missing 'required_fields'"
@@ -238,14 +240,14 @@ class TestIndicatorProperties:
             ), f"{ind.name}.required_fields not list/tuple"
             assert len(ind.required_fields) > 0, f"{ind.name}.required_fields is empty"
 
-    def test_all_have_warmup_periods(self, all_indicators):
+    def test_all_have_warmup_periods(self, all_indicators: Any) -> None:
         """All indicators must have warmup_periods."""
         for ind in all_indicators:
             assert hasattr(ind, "warmup_periods"), f"{ind.name} missing 'warmup_periods'"
             assert isinstance(ind.warmup_periods, int), f"{ind.name}.warmup_periods not int"
             assert ind.warmup_periods >= 1, f"{ind.name}.warmup_periods must be >= 1"
 
-    def test_all_have_default_params(self, all_indicators):
+    def test_all_have_default_params(self, all_indicators: Any) -> None:
         """All indicators must have default_params."""
         for ind in all_indicators:
             params = ind.default_params
@@ -255,7 +257,7 @@ class TestIndicatorProperties:
 class TestIndicatorCalculation:
     """Tests for indicator calculation."""
 
-    def test_calculate_normal_data(self, all_indicators, sample_ohlcv_data):
+    def test_calculate_normal_data(self, all_indicators: Any, sample_ohlcv_data: Any) -> None:
         """All indicators should calculate without errors on normal data."""
         for ind in all_indicators:
             # Filter data to only include required fields
@@ -269,7 +271,7 @@ class TestIndicatorCalculation:
             ), f"{ind.name}.calculate() didn't return DataFrame"
             assert len(result) == len(data), f"{ind.name}.calculate() length mismatch"
 
-    def test_calculate_empty_data(self, all_indicators, empty_ohlcv_data):
+    def test_calculate_empty_data(self, all_indicators: Any, empty_ohlcv_data: Any) -> None:
         """All indicators should handle empty data gracefully."""
         for ind in all_indicators:
             cols = [c for c in ind.required_fields if c in empty_ohlcv_data.columns]
@@ -280,7 +282,7 @@ class TestIndicatorCalculation:
             assert isinstance(result, pd.DataFrame), f"{ind.name} failed on empty data"
             assert len(result) == 0, f"{ind.name} should return empty DataFrame"
 
-    def test_calculate_short_data(self, all_indicators, short_ohlcv_data):
+    def test_calculate_short_data(self, all_indicators: Any, short_ohlcv_data: Any) -> None:
         """All indicators should handle short data (< warmup) gracefully."""
         for ind in all_indicators:
             cols = [c for c in ind.required_fields if c in short_ohlcv_data.columns]
@@ -291,7 +293,9 @@ class TestIndicatorCalculation:
             assert isinstance(result, pd.DataFrame), f"{ind.name} failed on short data"
             assert len(result) == len(data), f"{ind.name} length mismatch on short data"
 
-    def test_calculate_output_columns_prefixed(self, all_indicators, sample_ohlcv_data):
+    def test_calculate_output_columns_prefixed(
+        self, all_indicators: Any, sample_ohlcv_data: Any
+    ) -> None:
         """Most indicators should prefix their output columns."""
         exceptions = {"candlestick"}  # Uses cdl_ prefix
 
@@ -319,7 +323,7 @@ class TestIndicatorCalculation:
 class TestIndicatorState:
     """Tests for indicator state extraction."""
 
-    def test_get_state_with_nan(self, all_indicators):
+    def test_get_state_with_nan(self, all_indicators: Any) -> None:
         """All indicators should handle NaN values in _get_state."""
         nan_row = pd.Series(dtype=float)  # Empty series
 
@@ -329,7 +333,9 @@ class TestIndicatorState:
             assert isinstance(state, dict), f"{ind.name}._get_state() didn't return dict"
             assert len(state) > 0, f"{ind.name}._get_state() returned empty dict"
 
-    def test_get_state_returns_required_keys(self, all_indicators, sample_ohlcv_data):
+    def test_get_state_returns_required_keys(
+        self, all_indicators: Any, sample_ohlcv_data: Any
+    ) -> None:
         """All indicators should return consistent state keys."""
         for ind in all_indicators:
             cols = [c for c in ind.required_fields if c in sample_ohlcv_data.columns]
@@ -375,9 +381,11 @@ class TestIndicatorState:
 class TestSpecificIndicators:
     """Tests for specific indicator behaviors."""
 
-    def test_rsi_range(self, registry: IndicatorRegistry, sample_ohlcv_data):
+    def test_rsi_range(self, registry: IndicatorRegistry, sample_ohlcv_data: Any) -> None:
         """RSI should be bounded 0-100."""
         rsi = registry.get("rsi")
+
+        assert rsi is not None
         data = sample_ohlcv_data[["close"]].copy()
         result = rsi.calculate(data, rsi.default_params)
 
@@ -385,9 +393,13 @@ class TestSpecificIndicators:
         assert (valid_values >= 0).all(), "RSI has values < 0"
         assert (valid_values <= 100).all(), "RSI has values > 100"
 
-    def test_bollinger_bands_order(self, registry: IndicatorRegistry, sample_ohlcv_data):
+    def test_bollinger_bands_order(
+        self, registry: IndicatorRegistry, sample_ohlcv_data: Any
+    ) -> None:
         """Bollinger upper > middle > lower."""
         bb = registry.get("bollinger")
+
+        assert bb is not None
         data = sample_ohlcv_data[["close"]].copy()
         result = bb.calculate(data, bb.default_params)
 
@@ -400,9 +412,11 @@ class TestSpecificIndicators:
             assert (valid["bb_upper"] >= valid["bb_middle"]).all(), "BB upper < middle"
             assert (valid["bb_middle"] >= valid["bb_lower"]).all(), "BB middle < lower"
 
-    def test_macd_signal_line(self, registry: IndicatorRegistry, sample_ohlcv_data):
+    def test_macd_signal_line(self, registry: IndicatorRegistry, sample_ohlcv_data: Any) -> None:
         """MACD should have macd, signal, and histogram."""
         macd = registry.get("macd")
+
+        assert macd is not None
         data = sample_ohlcv_data[["close"]].copy()
         result = macd.calculate(data, macd.default_params)
 
@@ -410,9 +424,11 @@ class TestSpecificIndicators:
         assert "signal" in result.columns, "Missing signal column"
         assert "histogram" in result.columns, "Missing histogram column"
 
-    def test_adx_range(self, registry: IndicatorRegistry, sample_ohlcv_data):
+    def test_adx_range(self, registry: IndicatorRegistry, sample_ohlcv_data: Any) -> None:
         """ADX should be bounded 0-100."""
         adx = registry.get("adx")
+
+        assert adx is not None
         data = sample_ohlcv_data[["high", "low", "close"]].copy()
         result = adx.calculate(data, adx.default_params)
 
@@ -421,9 +437,11 @@ class TestSpecificIndicators:
             assert (valid_values >= 0).all(), "ADX has values < 0"
             assert (valid_values <= 100).all(), "ADX has values > 100"
 
-    def test_vwap_session_reset(self, registry: IndicatorRegistry):
+    def test_vwap_session_reset(self, registry: IndicatorRegistry) -> None:
         """VWAP should reset at session boundaries."""
         vwap = registry.get("vwap")
+
+        assert vwap is not None
 
         # Create multi-day data
         dates = pd.date_range("2024-01-01 09:30", periods=20, freq="30min")
@@ -443,15 +461,19 @@ class TestSpecificIndicators:
         assert "vwap" in result.columns
         assert not result["vwap"].isna().all(), "VWAP all NaN"
 
-    def test_candlestick_pattern_count(self, registry: IndicatorRegistry):
+    def test_candlestick_pattern_count(self, registry: IndicatorRegistry) -> None:
         """Candlestick should have 61 patterns."""
         candlestick = registry.get("candlestick")
+
+        assert candlestick is not None
         patterns = candlestick.default_params.get("patterns", [])
         assert len(patterns) == 61, f"Expected 61 patterns, got {len(patterns)}"
 
-    def test_ichimoku_components(self, registry: IndicatorRegistry, sample_ohlcv_data):
+    def test_ichimoku_components(self, registry: IndicatorRegistry, sample_ohlcv_data: Any) -> None:
         """Ichimoku should have all 4 main lines."""
         ichimoku = registry.get("ichimoku")
+
+        assert ichimoku is not None
         data = sample_ohlcv_data[["high", "low", "close"]].copy()
         result = ichimoku.calculate(data, ichimoku.default_params)
 
@@ -459,9 +481,11 @@ class TestSpecificIndicators:
         actual = set(result.columns)
         assert required <= actual, f"Missing Ichimoku columns: {required - actual}"
 
-    def test_pivot_methods(self, registry: IndicatorRegistry, sample_ohlcv_data):
+    def test_pivot_methods(self, registry: IndicatorRegistry, sample_ohlcv_data: Any) -> None:
         """Pivot should support multiple methods."""
         pivot = registry.get("pivot")
+
+        assert pivot is not None
         data = sample_ohlcv_data[["high", "low", "close"]].copy()
 
         for method in ["classic", "woodie", "camarilla", "fibonacci"]:
@@ -470,9 +494,13 @@ class TestSpecificIndicators:
             assert "pivot_r1" in result.columns, f"Missing pivot_r1 for {method}"
             assert "pivot_s1" in result.columns, f"Missing pivot_s1 for {method}"
 
-    def test_cmf_uses_manual_calculation(self, registry: IndicatorRegistry, sample_ohlcv_data):
+    def test_cmf_uses_manual_calculation(
+        self, registry: IndicatorRegistry, sample_ohlcv_data: Any
+    ) -> None:
         """CMF should use manual calculation, not TA-Lib ADOSC."""
         cmf = registry.get("cmf")
+
+        assert cmf is not None
         data = sample_ohlcv_data[["high", "low", "close", "volume"]].copy()
         result = cmf.calculate(data, cmf.default_params)
 
@@ -482,9 +510,11 @@ class TestSpecificIndicators:
             assert (valid_values >= -1.01).all(), "CMF has values < -1"
             assert (valid_values <= 1.01).all(), "CMF has values > 1"
 
-    def test_ichimoku_displacement_matches_manual(self, registry: IndicatorRegistry):
+    def test_ichimoku_displacement_matches_manual(self, registry: IndicatorRegistry) -> None:
         """Ichimoku Senkou spans should be displaced by 26 periods."""
         ichimoku = registry.get("ichimoku")
+
+        assert ichimoku is not None
         n = 120
         close = np.linspace(100.0, 220.0, n)
         high = close + 2.0
@@ -518,10 +548,12 @@ class TestSpecificIndicators:
         price_at_chikou[26:] = close[:-26]
         _assert_allclose_with_nan(result["price_at_chikou"].to_numpy(), price_at_chikou)
 
-    def test_aroon_matches_talib(self, registry: IndicatorRegistry, sample_ohlcv_data):
+    def test_aroon_matches_talib(self, registry: IndicatorRegistry, sample_ohlcv_data: Any) -> None:
         """Aroon should match TA-Lib output (alignment/off-by-one check)."""
         talib = pytest.importorskip("talib")
         aroon = registry.get("aroon")
+
+        assert aroon is not None
         data = sample_ohlcv_data[["high", "low"]].copy()
         result = aroon.calculate(data, aroon.default_params)
 
@@ -533,14 +565,16 @@ class TestSpecificIndicators:
         _assert_allclose_with_nan(result["aroon_up"].to_numpy(), expected_up)
         _assert_allclose_with_nan(result["aroon_down"].to_numpy(), expected_down)
 
-    def test_support_resistance_distance_calculation(self, registry: IndicatorRegistry):
+    def test_support_resistance_distance_calculation(self, registry: IndicatorRegistry) -> None:
         """Support/resistance distance percentages should be correct."""
         sr = registry.get("support_resistance")
+
+        assert sr is not None
         params = sr.default_params
 
         # Test case: price at 100, support at 95, resistance at 110
         current = pd.Series({"sr_support": 95.0, "sr_resistance": 110.0, "sr_close": 100.0})
-        state = sr._get_state(current, None, params)
+        state = sr.get_state(current, None, params)  # type: ignore[attr-defined]
 
         # Distance to support: (100 - 95) / 95 * 100 = 5.26%
         assert state["support_distance_pct"] == pytest.approx((100.0 - 95.0) / 95.0 * 100)
@@ -550,10 +584,10 @@ class TestSpecificIndicators:
 
         # Test at_support position (within 1% proximity)
         current = pd.Series({"sr_support": 99.5, "sr_resistance": 110.0, "sr_close": 100.0})
-        state = sr._get_state(current, None, params)
+        state = sr.get_state(current, None, params)  # type: ignore[attr-defined]
         assert state["position"] == "at_support"
 
-    def test_reference_indicators_match_talib(self, registry: IndicatorRegistry):
+    def test_reference_indicators_match_talib(self, registry: IndicatorRegistry) -> None:
         """Core indicators should match TA-Lib reference outputs."""
         talib = pytest.importorskip("talib")
         n = 300
@@ -565,36 +599,42 @@ class TestSpecificIndicators:
         # EMA tests
         ema_fast = talib.EMA(close, timeperiod=12)
         ema_slow = talib.EMA(close, timeperiod=26)
-        ema_result = registry.get("ema").calculate(
-            data[["close"]], {"fast_period": 12, "slow_period": 26}
-        )
+        ema = registry.get("ema")
+        assert ema is not None
+        ema_result = ema.calculate(data[["close"]], {"fast_period": 12, "slow_period": 26})
         _assert_allclose_with_nan(ema_result["ema_fast"].to_numpy(), ema_fast)
         _assert_allclose_with_nan(ema_result["ema_slow"].to_numpy(), ema_slow)
 
         # SMA tests
         sma_fast = talib.SMA(close, timeperiod=50)
         sma_slow = talib.SMA(close, timeperiod=200)
-        sma_result = registry.get("sma").calculate(
-            data[["close"]], {"fast_period": 50, "slow_period": 200}
-        )
+        sma = registry.get("sma")
+        assert sma is not None
+        sma_result = sma.calculate(data[["close"]], {"fast_period": 50, "slow_period": 200})
         _assert_allclose_with_nan(sma_result["sma_fast"].to_numpy(), sma_fast)
         _assert_allclose_with_nan(sma_result["sma_slow"].to_numpy(), sma_slow)
 
         # RSI test
         rsi_vals = talib.RSI(close, timeperiod=14)
-        rsi_result = registry.get("rsi").calculate(data[["close"]], {"period": 14})
+        rsi = registry.get("rsi")
+        assert rsi is not None
+        rsi_result = rsi.calculate(data[["close"]], {"period": 14})
         _assert_allclose_with_nan(rsi_result["rsi"].to_numpy(), rsi_vals)
 
         # ATR test
         atr_vals = talib.ATR(high, low, close, timeperiod=14)
-        atr_result = registry.get("atr").calculate(data[["high", "low", "close"]], {"period": 14})
+        atr = registry.get("atr")
+        assert atr is not None
+        atr_result = atr.calculate(data[["high", "low", "close"]], {"period": 14})
         _assert_allclose_with_nan(atr_result["atr"].to_numpy(), atr_vals)
 
         # MACD test
         macd_line, macd_signal, macd_hist = talib.MACD(
             close, fastperiod=12, slowperiod=26, signalperiod=9
         )
-        macd_result = registry.get("macd").calculate(
+        macd = registry.get("macd")
+        assert macd is not None
+        macd_result = macd.calculate(
             data[["close"]], {"fast_period": 12, "slow_period": 26, "signal_period": 9}
         )
         _assert_allclose_with_nan(macd_result["macd"].to_numpy(), macd_line)
@@ -605,7 +645,7 @@ class TestSpecificIndicators:
 class TestEdgeCases:
     """Tests for edge cases."""
 
-    def test_all_same_prices(self, all_indicators):
+    def test_all_same_prices(self, all_indicators: Any) -> None:
         """Indicators should handle flat prices."""
         dates = pd.date_range("2024-01-01", periods=100, freq="1h")
         data = pd.DataFrame(
@@ -627,7 +667,7 @@ class TestEdgeCases:
             result = ind.calculate(filtered_data, ind.default_params)
             assert isinstance(result, pd.DataFrame), f"{ind.name} failed on flat prices"
 
-    def test_extreme_values(self, all_indicators):
+    def test_extreme_values(self, all_indicators: Any) -> None:
         """Indicators should handle extreme price values."""
         dates = pd.date_range("2024-01-01", periods=100, freq="1h")
         data = pd.DataFrame(
@@ -649,7 +689,7 @@ class TestEdgeCases:
             result = ind.calculate(filtered_data, ind.default_params)
             assert isinstance(result, pd.DataFrame), f"{ind.name} failed on extreme values"
 
-    def test_zero_volume(self, all_indicators):
+    def test_zero_volume(self, all_indicators: Any) -> None:
         """Volume indicators should handle zero volume."""
         volume_indicators = {
             "obv",

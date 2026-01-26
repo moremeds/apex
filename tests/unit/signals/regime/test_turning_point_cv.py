@@ -6,6 +6,8 @@ Verifies the mathematical properties that prevent data leakage:
 2. Embargo Property: After test ends, embargo_bars excluded from next train
 """
 
+from typing import Any
+
 import numpy as np
 import pytest
 
@@ -18,7 +20,7 @@ from src.domain.signals.indicators.regime.turning_point.cv import (
 class TestPurgedTimeSeriesSplit:
     """Tests for PurgedTimeSeriesSplit."""
 
-    def test_basic_split(self):
+    def test_basic_split(self) -> None:
         """Test basic split produces valid indices."""
         n_samples = 100
         X = np.random.randn(n_samples, 10)
@@ -41,7 +43,7 @@ class TestPurgedTimeSeriesSplit:
             assert len(train_idx) > 0
             assert len(test_idx) > 0
 
-    def test_no_overlap_property(self):
+    def test_no_overlap_property(self) -> None:
         """
         Test No-Overlap Property (Go/No-Go Gate #4).
 
@@ -74,7 +76,7 @@ class TestPurgedTimeSeriesSplit:
                     f"overlaps test period starting at {test_start}"
                 )
 
-    def test_embargo_property(self):
+    def test_embargo_property(self) -> None:
         """
         Test Embargo Property (Go/No-Go Gate #4).
 
@@ -96,7 +98,7 @@ class TestPurgedTimeSeriesSplit:
 
         assert passed, f"Embargo property violated: {violations}"
 
-    def test_get_folds_returns_detailed_info(self):
+    def test_get_folds_returns_detailed_info(self) -> None:
         """Test that get_folds returns detailed fold information."""
         n_samples = 100
         X = np.random.randn(n_samples, 10)
@@ -116,7 +118,7 @@ class TestPurgedTimeSeriesSplit:
             assert fold.purge_end >= fold.purge_start
             assert fold.embargo_end >= fold.purge_end
 
-    def test_time_ordering(self):
+    def test_time_ordering(self) -> None:
         """Test that splits maintain time ordering."""
         n_samples = 200
         X = np.random.randn(n_samples, 10)
@@ -138,7 +140,7 @@ class TestPurgedTimeSeriesSplit:
             assert test_idx.min() >= prev_test_end
             prev_test_end = test_idx.max() + 1
 
-    def test_expanding_window(self):
+    def test_expanding_window(self) -> None:
         """Test that training window expands (or at least doesn't shrink)."""
         n_samples = 200
         X = np.random.randn(n_samples, 10)
@@ -154,7 +156,7 @@ class TestPurgedTimeSeriesSplit:
             assert train_idx[0] == 0
             len(train_idx)
 
-    def test_invalid_params(self):
+    def test_invalid_params(self) -> None:
         """Test that invalid parameters raise errors."""
         with pytest.raises(ValueError, match="n_splits must be at least 2"):
             PurgedTimeSeriesSplit(n_splits=1)
@@ -165,7 +167,7 @@ class TestPurgedTimeSeriesSplit:
         with pytest.raises(ValueError, match="embargo must be non-negative"):
             PurgedTimeSeriesSplit(n_splits=5, embargo=-1)
 
-    def test_small_dataset(self):
+    def test_small_dataset(self) -> None:
         """Test behavior with small dataset."""
         X = np.random.randn(20, 5)
         y = np.random.randint(0, 2, 20)
@@ -181,7 +183,7 @@ class TestPurgedTimeSeriesSplit:
         # Should still produce some folds
         assert len(folds) >= 1
 
-    def test_get_n_splits(self):
+    def test_get_n_splits(self) -> None:
         """Test get_n_splits returns correct value."""
         splitter = PurgedTimeSeriesSplit(n_splits=5)
         assert splitter.get_n_splits() == 5
@@ -191,7 +193,7 @@ class TestNoOverlapPropertyExplicit:
     """Explicit index-level verification of no-overlap property."""
 
     @pytest.mark.parametrize("label_horizon", [5, 10, 20])
-    def test_no_overlap_various_horizons(self, label_horizon):
+    def test_no_overlap_various_horizons(self, label_horizon: Any) -> None:
         """
         Verify no-overlap for various label horizons.
 
@@ -223,7 +225,7 @@ class TestEmbargoPropertyExplicit:
     """Explicit index-level verification of embargo property."""
 
     @pytest.mark.parametrize("embargo_bars", [2, 5, 10])
-    def test_embargo_various_values(self, embargo_bars):
+    def test_embargo_various_values(self, embargo_bars: Any) -> None:
         """
         Verify embargo for various values.
 

@@ -22,7 +22,7 @@ from generate_validation_universe import (
 class TestUniverseGenerationConfig:
     """Tests for UniverseGenerationConfig."""
 
-    def test_default_config(self):
+    def test_default_config(self) -> None:
         """Test default configuration values."""
         config = UniverseGenerationConfig()
 
@@ -35,7 +35,7 @@ class TestUniverseGenerationConfig:
         assert config.small_cap_pct == 0.20
         assert config.min_per_sector == 5
 
-    def test_custom_config(self):
+    def test_custom_config(self) -> None:
         """Test custom configuration."""
         config = UniverseGenerationConfig(
             seed=123,
@@ -51,19 +51,19 @@ class TestUniverseGenerationConfig:
 class TestSymbolPools:
     """Tests for symbol pool constants."""
 
-    def test_large_cap_not_empty(self):
+    def test_large_cap_not_empty(self) -> None:
         """Test large cap pool has symbols."""
         assert len(LARGE_CAP_SYMBOLS) > 50
 
-    def test_mid_cap_not_empty(self):
+    def test_mid_cap_not_empty(self) -> None:
         """Test mid cap pool has symbols."""
         assert len(MID_CAP_SYMBOLS) > 50
 
-    def test_small_cap_not_empty(self):
+    def test_small_cap_not_empty(self) -> None:
         """Test small cap pool has symbols."""
         assert len(SMALL_CAP_SYMBOLS) > 50
 
-    def test_gics_sectors_coverage(self):
+    def test_gics_sectors_coverage(self) -> None:
         """Test all 11 GICS sectors are covered."""
         expected_sectors = {
             "Technology",
@@ -80,7 +80,7 @@ class TestSymbolPools:
         }
         assert set(GICS_SECTORS.keys()) == expected_sectors
 
-    def test_each_sector_has_symbols(self):
+    def test_each_sector_has_symbols(self) -> None:
         """Test each sector has at least some symbols."""
         for sector, symbols in GICS_SECTORS.items():
             assert len(symbols) >= 5, f"{sector} has fewer than 5 symbols"
@@ -89,7 +89,7 @@ class TestSymbolPools:
 class TestGenerateUniverse:
     """Tests for generate_universe function."""
 
-    def test_generates_correct_structure(self):
+    def test_generates_correct_structure(self) -> None:
         """Test output has required keys."""
         config = UniverseGenerationConfig(total_symbols=50)
         result = generate_universe(config)
@@ -98,7 +98,7 @@ class TestGenerateUniverse:
         assert "holdout_universe" in result
         assert "generation_config" in result
 
-    def test_generates_correct_counts(self):
+    def test_generates_correct_counts(self) -> None:
         """Test approximate symbol counts."""
         config = UniverseGenerationConfig(total_symbols=100, holdout_pct=0.30)
         result = generate_universe(config)
@@ -111,7 +111,7 @@ class TestGenerateUniverse:
         holdout_ratio = len(result["holdout_universe"]) / total
         assert 0.25 <= holdout_ratio <= 0.35
 
-    def test_deterministic_with_same_seed(self):
+    def test_deterministic_with_same_seed(self) -> None:
         """Test same seed produces same universe."""
         config = UniverseGenerationConfig(seed=42, total_symbols=50)
 
@@ -121,7 +121,7 @@ class TestGenerateUniverse:
         assert result1["training_universe"] == result2["training_universe"]
         assert result1["holdout_universe"] == result2["holdout_universe"]
 
-    def test_different_seed_produces_different_universe(self):
+    def test_different_seed_produces_different_universe(self) -> None:
         """Test different seed produces different universe."""
         config1 = UniverseGenerationConfig(seed=42, total_symbols=50)
         config2 = UniverseGenerationConfig(seed=123, total_symbols=50)
@@ -135,7 +135,7 @@ class TestGenerateUniverse:
             or result1["holdout_universe"] != result2["holdout_universe"]
         )
 
-    def test_no_overlap_between_train_and_holdout(self):
+    def test_no_overlap_between_train_and_holdout(self) -> None:
         """Test training and holdout have no overlap."""
         config = UniverseGenerationConfig(total_symbols=100)
         result = generate_universe(config)
@@ -145,7 +145,7 @@ class TestGenerateUniverse:
 
         assert train_set.isdisjoint(holdout_set)
 
-    def test_symbols_are_sorted(self):
+    def test_symbols_are_sorted(self) -> None:
         """Test output symbols are alphabetically sorted."""
         config = UniverseGenerationConfig(total_symbols=50)
         result = generate_universe(config)
@@ -153,7 +153,7 @@ class TestGenerateUniverse:
         assert result["training_universe"] == sorted(result["training_universe"])
         assert result["holdout_universe"] == sorted(result["holdout_universe"])
 
-    def test_generation_config_metadata(self):
+    def test_generation_config_metadata(self) -> None:
         """Test generation config has required metadata."""
         config = UniverseGenerationConfig(seed=42, total_symbols=100)
         result = generate_universe(config)
@@ -170,7 +170,7 @@ class TestGenerateUniverse:
 class TestMain:
     """Tests for main entry point."""
 
-    def test_main_creates_output_file(self):
+    def test_main_creates_output_file(self) -> None:
         """Test main function creates YAML output."""
         with tempfile.TemporaryDirectory() as tmpdir:
             exit_code = main(
@@ -188,7 +188,7 @@ class TestMain:
             output_path = Path(tmpdir) / "regime_universe.yaml"
             assert output_path.exists()
 
-    def test_main_output_is_valid_yaml(self):
+    def test_main_output_is_valid_yaml(self) -> None:
         """Test output is valid YAML."""
         with tempfile.TemporaryDirectory() as tmpdir:
             main(["--seed", "42", "--total", "50", "--output", tmpdir])
@@ -200,7 +200,7 @@ class TestMain:
             assert "training_universe" in data
             assert "holdout_universe" in data
 
-    def test_main_respects_seed(self):
+    def test_main_respects_seed(self) -> None:
         """Test main respects seed for reproducibility."""
         with tempfile.TemporaryDirectory() as tmpdir1, tempfile.TemporaryDirectory() as tmpdir2:
 

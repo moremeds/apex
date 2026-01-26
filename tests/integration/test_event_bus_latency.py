@@ -3,6 +3,7 @@
 import asyncio
 import statistics
 import time
+from typing import Any
 
 import pytest
 
@@ -13,7 +14,7 @@ class TestTickLatency:
     """Tests for market tick latency under various conditions."""
 
     @pytest.mark.asyncio
-    async def test_tick_latency_under_load(self):
+    async def test_tick_latency_under_load(self) -> None:
         """
         Market ticks processed within 5ms even with 1000 pending snapshots.
 
@@ -24,7 +25,7 @@ class TestTickLatency:
 
         tick_latencies = []
 
-        def on_tick(payload):
+        def on_tick(payload: Any) -> None:
             tick_latencies.append(time.time() - payload["sent_at"])
 
         bus.subscribe(EventType.MARKET_DATA_TICK, on_tick)
@@ -52,7 +53,7 @@ class TestTickLatency:
         await bus.stop()
 
     @pytest.mark.asyncio
-    async def test_risk_signal_latency(self):
+    async def test_risk_signal_latency(self) -> None:
         """
         Risk signals processed faster than market data.
 
@@ -64,10 +65,10 @@ class TestTickLatency:
         tick_latencies = []
         risk_latencies = []
 
-        def on_tick(payload):
+        def on_tick(payload: Any) -> None:
             tick_latencies.append(time.time() - payload["sent_at"])
 
-        def on_risk(payload):
+        def on_risk(payload: Any) -> None:
             risk_latencies.append(time.time() - payload["sent_at"])
 
         bus.subscribe(EventType.MARKET_DATA_TICK, on_tick)
@@ -99,7 +100,7 @@ class TestThroughput:
     """Tests for event throughput."""
 
     @pytest.mark.asyncio
-    async def test_high_throughput_fast_lane(self):
+    async def test_high_throughput_fast_lane(self) -> None:
         """
         Fast lane can handle high event rate.
 
@@ -110,7 +111,7 @@ class TestThroughput:
 
         received = 0
 
-        def counter(p):
+        def counter(p: Any) -> None:
             nonlocal received
             received += 1
 
@@ -138,7 +139,7 @@ class TestThroughput:
         await bus.stop()
 
     @pytest.mark.asyncio
-    async def test_mixed_lane_throughput(self):
+    async def test_mixed_lane_throughput(self) -> None:
         """
         Both lanes can handle mixed traffic.
 
@@ -150,11 +151,11 @@ class TestThroughput:
         fast_received = 0
         slow_received = 0
 
-        def fast_counter(p):
+        def fast_counter(p: Any) -> None:
             nonlocal fast_received
             fast_received += 1
 
-        def slow_counter(p):
+        def slow_counter(p: Any) -> None:
             nonlocal slow_received
             slow_received += 1
 
@@ -179,7 +180,7 @@ class TestDurability:
     """Tests for event bus durability under stress."""
 
     @pytest.mark.asyncio
-    async def test_sustained_load(self):
+    async def test_sustained_load(self) -> None:
         """
         Event bus remains stable under sustained load.
 
@@ -190,7 +191,7 @@ class TestDurability:
 
         received = 0
 
-        def counter(p):
+        def counter(p: Any) -> None:
             nonlocal received
             received += 1
 
@@ -218,7 +219,7 @@ class TestDurability:
         await bus.stop()
 
     @pytest.mark.asyncio
-    async def test_stop_drains_events(self):
+    async def test_stop_drains_events(self) -> None:
         """
         Stop drains remaining events gracefully.
 
@@ -246,7 +247,7 @@ class TestPriorityFairness:
     """Tests for priority-based fairness."""
 
     @pytest.mark.asyncio
-    async def test_priority_ordering_at_scale(self):
+    async def test_priority_ordering_at_scale(self) -> None:
         """
         Priority ordering maintained under high load.
 
@@ -258,13 +259,13 @@ class TestPriorityFairness:
 
         order = []
 
-        def risk_handler(p):
+        def risk_handler(p: Any) -> None:
             order.append(("risk", p["seq"]))
 
-        def tick_handler(p):
+        def tick_handler(p: Any) -> None:
             order.append(("tick", p["seq"]))
 
-        def pos_handler(p):
+        def pos_handler(p: Any) -> None:
             order.append(("pos", p["seq"]))
 
         bus.subscribe(EventType.RISK_SIGNAL, risk_handler)

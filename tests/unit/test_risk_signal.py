@@ -15,7 +15,7 @@ from src.models.risk_signal import (
 class TestRiskSignal:
     """Test RiskSignal model."""
 
-    def test_create_basic_signal(self):
+    def test_create_basic_signal(self) -> None:
         """Test creating a basic risk signal."""
         signal = RiskSignal(
             signal_id="PORTFOLIO:Delta_Breach:CRITICAL",
@@ -38,7 +38,7 @@ class TestRiskSignal:
         assert signal.breach_pct == 20.0
         assert signal.suggested_action == SuggestedAction.HEDGE
 
-    def test_signal_with_symbol(self):
+    def test_signal_with_symbol(self) -> None:
         """Test signal with symbol context."""
         signal = RiskSignal(
             signal_id="POSITION:TSLA:Stop_Loss",
@@ -57,7 +57,7 @@ class TestRiskSignal:
         assert signal.level == SignalLevel.POSITION
         assert signal.suggested_action == SuggestedAction.CLOSE
 
-    def test_signal_with_strategy(self):
+    def test_signal_with_strategy(self) -> None:
         """Test signal with strategy context."""
         signal = RiskSignal(
             signal_id="STRATEGY:NVDA:Diagonal_Delta_Flip",
@@ -76,7 +76,7 @@ class TestRiskSignal:
         assert signal.level == SignalLevel.STRATEGY
         assert signal.layer == 2
 
-    def test_to_dict_serialization(self):
+    def test_to_dict_serialization(self) -> None:
         """Test serialization to dictionary."""
         signal = RiskSignal(
             signal_id="TEST:Signal",
@@ -107,7 +107,7 @@ class TestRiskSignal:
         assert data["action_details"] == "Test signal"
         assert data["layer"] == 1
 
-    def test_from_breach_conversion(self):
+    def test_from_breach_conversion(self) -> None:
         """Test conversion from legacy LimitBreach."""
         from src.domain.services.risk.rule_engine import BreachSeverity, LimitBreach
 
@@ -128,7 +128,7 @@ class TestRiskSignal:
         assert signal.suggested_action == SuggestedAction.HALT_NEW_TRADES
         assert signal.layer == 1
 
-    def test_from_breach_soft(self):
+    def test_from_breach_soft(self) -> None:
         """Test conversion from soft breach."""
         from src.domain.services.risk.rule_engine import BreachSeverity, LimitBreach
 
@@ -144,7 +144,7 @@ class TestRiskSignal:
         assert signal.severity == SignalSeverity.WARNING
         assert signal.suggested_action == SuggestedAction.MONITOR
 
-    def test_signal_str_representation(self):
+    def test_signal_str_representation(self) -> None:
         """Test string representation."""
         signal = RiskSignal(
             signal_id="TEST:Signal",
@@ -165,7 +165,7 @@ class TestRiskSignal:
         assert "Rule=Stop_Loss" in str_repr
         assert "Action=CLOSE" in str_repr
 
-    def test_signal_repr(self):
+    def test_signal_repr(self) -> None:
         """Test debug representation."""
         signal = RiskSignal(
             signal_id="TEST:Signal",
@@ -180,7 +180,7 @@ class TestRiskSignal:
         assert "TEST:Signal" in repr_str
         assert "CRITICAL" in repr_str
 
-    def test_signal_with_metadata(self):
+    def test_signal_with_metadata(self) -> None:
         """Test signal with additional metadata."""
         signal = RiskSignal(
             signal_id="TEST:Signal",
@@ -203,7 +203,7 @@ class TestRiskSignal:
         assert "metadata" in data
         assert data["metadata"]["position_size"] == 100
 
-    def test_cooldown_until(self):
+    def test_cooldown_until(self) -> None:
         """Test cooldown_until field."""
         cooldown_time = datetime(2025, 1, 1, 13, 0, 0)
         signal = RiskSignal(

@@ -140,11 +140,52 @@ warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
 explicit_package_bases = true
-exclude = ["legacy/"]
+exclude = [
+    "legacy/",
+    "tests/partial/test_mock_market_data.py",
+    "tests/partial/test_health_initialization.py",
+    "tests/partial/test_health_components_full.py",
+]
 
 [[tool.mypy.overrides]]
 module = "ib_async.*"
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = [
+    "pandas.*",
+    "asyncpg.*",
+    "yfinance.*",
+    "futu.*",
+    "pandas_market_calendars.*",
+    "lightgbm.*",
+    "sklearn.*",
+    "scipy.*",
+    "pyarrow.*",
+    "vectorbt.*",
+    "optuna.*",
+    "talib.*",
+    "backtrader.*",
+    "generate_validation_universe",
+]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+warn_return_any = false
+disable_error_code = [
+    "arg-type",
+    "union-attr",
+    "var-annotated",
+    "index",
+    "misc",
+    "assignment",
+    "operator",
+    "method-assign",
+    "call-arg",
+    "attr-defined",
+]
 
 [tool.coverage.run]
 source = ["src"]

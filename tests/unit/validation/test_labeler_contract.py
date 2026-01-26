@@ -1,6 +1,7 @@
 """Tests for Frozen Labeler Contract."""
 
 from datetime import date
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -18,7 +19,7 @@ from src.domain.signals.validation.labeler_contract import (
 class TestRegimeLabelerConfig:
     """Tests for RegimeLabelerConfig dataclass."""
 
-    def test_load_v1_daily(self):
+    def test_load_v1_daily(self) -> None:
         """Test loading v1.0 config for daily timeframe."""
         cfg = RegimeLabelerConfig.load_v1("1d", horizon_days=20)
 
@@ -30,7 +31,7 @@ class TestRegimeLabelerConfig:
         assert cfg.choppy_drawdown_max == -0.10
         assert cfg.label_horizon_bars == 20
 
-    def test_load_v1_4h(self):
+    def test_load_v1_4h(self) -> None:
         """Test loading v1.0 config for 4h timeframe."""
         cfg = RegimeLabelerConfig.load_v1("4h", horizon_days=20)
 
@@ -40,7 +41,7 @@ class TestRegimeLabelerConfig:
         assert cfg.trending_sharpe_min == 0.8
         assert cfg.label_horizon_bars == 32  # 20 * 1.625
 
-    def test_load_v1_2h(self):
+    def test_load_v1_2h(self) -> None:
         """Test loading v1.0 config for 2h timeframe."""
         cfg = RegimeLabelerConfig.load_v1("2h", horizon_days=20)
 
@@ -48,19 +49,19 @@ class TestRegimeLabelerConfig:
         assert cfg.trending_forward_return_min == 0.04
         assert cfg.label_horizon_bars == 65  # 20 * 3.25
 
-    def test_load_v1_unknown_timeframe(self):
+    def test_load_v1_unknown_timeframe(self) -> None:
         """Test that unknown timeframe raises ValueError."""
         with pytest.raises(ValueError, match="Unknown timeframe"):
             RegimeLabelerConfig.load_v1("3h")
 
-    def test_config_is_frozen(self):
+    def test_config_is_frozen(self) -> None:
         """Test that config is immutable."""
         cfg = RegimeLabelerConfig.load_v1("1d")
 
         with pytest.raises(AttributeError):
             cfg.trending_forward_return_min = 0.5  # type: ignore
 
-    def test_to_dict(self):
+    def test_to_dict(self) -> None:
         """Test serialization to dictionary."""
         cfg = RegimeLabelerConfig.load_v1("1d")
         d = cfg.to_dict()
@@ -106,7 +107,7 @@ class TestRegimeLabeler:
         prices = 100 + np.arange(50) * 0.1  # Very slight drift
         return pd.DataFrame({"close": prices}, index=dates)
 
-    def test_label_trending_period(self, labeler_1d, trending_df):
+    def test_label_trending_period(self, labeler_1d: Any, trending_df: Any) -> None:
         """Test that strong uptrend is labeled as TRENDING."""
         labels = labeler_1d.label_period(trending_df)
 
@@ -117,7 +118,7 @@ class TestRegimeLabeler:
         trending_count = sum(1 for lp in labels if lp.label == RegimeLabel.TRENDING)
         assert trending_count > len(labels) * 0.5, "Strong uptrend should be mostly TRENDING"
 
-    def test_label_choppy_period(self, labeler_1d, choppy_df):
+    def test_label_choppy_period(self, labeler_1d: Any, choppy_df: Any) -> None:
         """Test that high volatility is labeled as CHOPPY."""
         labels = labeler_1d.label_period(choppy_df)
 
@@ -127,7 +128,7 @@ class TestRegimeLabeler:
         choppy_count = sum(1 for lp in labels if lp.label == RegimeLabel.CHOPPY)
         assert choppy_count > len(labels) * 0.3, "High vol should have some CHOPPY labels"
 
-    def test_label_neutral_period(self, labeler_1d, neutral_df):
+    def test_label_neutral_period(self, labeler_1d: Any, neutral_df: Any) -> None:
         """Test that sideways market is labeled as NEUTRAL."""
         labels = labeler_1d.label_period(neutral_df)
 
@@ -137,7 +138,7 @@ class TestRegimeLabeler:
         neutral_count = sum(1 for lp in labels if lp.label == RegimeLabel.NEUTRAL)
         assert neutral_count > 0, "Sideways market should have NEUTRAL labels"
 
-    def test_max_end_date_boundary(self, labeler_1d):
+    def test_max_end_date_boundary(self, labeler_1d: Any) -> None:
         """Test that max_end_date prevents label leakage."""
         dates = pd.date_range("2024-01-01", periods=50, freq="D")
         prices = 100 * (1.01 ** np.arange(50))
@@ -156,7 +157,7 @@ class TestRegimeLabeler:
         for lp in labels_with_boundary:
             assert lp.timestamp.date() <= boundary
 
-    def test_labeled_period_structure(self, labeler_1d, trending_df):
+    def test_labeled_period_structure(self, labeler_1d: Any, trending_df: Any) -> None:
         """Test that LabeledPeriod has all required fields."""
         labels = labeler_1d.label_period(trending_df)
 
@@ -172,7 +173,7 @@ class TestRegimeLabeler:
         assert isinstance(lp.forward_volatility, float)
         assert isinstance(lp.max_drawdown, float)
 
-    def test_missing_close_column(self, labeler_1d):
+    def test_missing_close_column(self, labeler_1d: Any) -> None:
         """Test that missing close column raises ValueError."""
         df = pd.DataFrame({"high": [1, 2, 3]})
 
@@ -183,13 +184,13 @@ class TestRegimeLabeler:
 class TestLabelerThresholdsV1:
     """Tests for frozen thresholds constant."""
 
-    def test_all_timeframes_present(self):
+    def test_all_timeframes_present(self) -> None:
         """Test that all standard timeframes have thresholds."""
         expected = {"1d", "4h", "2h", "1h"}
         actual = {k for k in LABELER_THRESHOLDS_V1 if not k.startswith("_")}
         assert expected == actual
 
-    def test_threshold_values_reasonable(self):
+    def test_threshold_values_reasonable(self) -> None:
         """Test that threshold values are in reasonable ranges."""
         for tf, thresholds in LABELER_THRESHOLDS_V1.items():
             if tf.startswith("_"):
@@ -207,7 +208,7 @@ class TestLabelerThresholdsV1:
             # Drawdown should be negative
             assert -0.5 < thresholds["choppy_drawdown_max"] < 0
 
-    def test_meta_version(self):
+    def test_meta_version(self) -> None:
         """Test that meta version is set."""
         meta = LABELER_THRESHOLDS_V1["_meta"]
         assert meta["version"] == 1.0
@@ -217,7 +218,7 @@ class TestLabelerThresholdsV1:
 class TestRegimeLabel:
     """Tests for RegimeLabel enum."""
 
-    def test_all_labels(self):
+    def test_all_labels(self) -> None:
         """Test that all expected labels exist."""
         assert RegimeLabel.TRENDING.value == "TRENDING"
         assert RegimeLabel.CHOPPY.value == "CHOPPY"

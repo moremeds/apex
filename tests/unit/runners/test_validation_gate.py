@@ -15,20 +15,20 @@ from src.runners.trading_runner import (
 class TestLoadStrategyManifest:
     """Tests for manifest loading."""
 
-    def test_load_manifest_returns_dict(self):
+    def test_load_manifest_returns_dict(self) -> None:
         """Should load manifest.yaml and return dict."""
         manifest = load_strategy_manifest()
         assert isinstance(manifest, dict)
         assert "strategies" in manifest
 
-    def test_load_manifest_contains_strategies(self):
+    def test_load_manifest_contains_strategies(self) -> None:
         """Manifest should contain known strategies."""
         manifest = load_strategy_manifest()
         strategies = manifest.get("strategies", {})
         assert "ma_cross" in strategies
         assert "buy_and_hold" in strategies
 
-    def test_load_manifest_has_validation_section(self):
+    def test_load_manifest_has_validation_section(self) -> None:
         """Each strategy should have validation section."""
         manifest = load_strategy_manifest()
         strategies = manifest.get("strategies", {})
@@ -39,7 +39,7 @@ class TestLoadStrategyManifest:
 class TestValidationGateDryRun:
     """Tests for validation gate in dry-run mode."""
 
-    def test_dry_run_always_allowed(self):
+    def test_dry_run_always_allowed(self) -> None:
         """Dry run should always pass validation gate."""
         runner = TradingRunner(
             strategy_name="unknown_strategy",
@@ -49,7 +49,7 @@ class TestValidationGateDryRun:
         # Should not raise even for unknown strategy
         runner._check_validation_gate()
 
-    def test_dry_run_skips_manifest_check(self):
+    def test_dry_run_skips_manifest_check(self) -> None:
         """Dry run should not check manifest."""
         with patch("src.runners.trading_runner.load_strategy_manifest") as mock_load:
             runner = TradingRunner(
@@ -64,7 +64,7 @@ class TestValidationGateDryRun:
 class TestValidationGateLive:
     """Tests for validation gate in live mode."""
 
-    def test_live_unvalidated_raises_error(self):
+    def test_live_unvalidated_raises_error(self) -> None:
         """Live trading with unvalidated strategy should raise error."""
         runner = TradingRunner(
             strategy_name="ma_cross",
@@ -78,7 +78,7 @@ class TestValidationGateLive:
         assert "LIVE TRADING BLOCKED" in str(exc_info.value)
         assert "ma_cross" in str(exc_info.value)
 
-    def test_live_validated_passes(self):
+    def test_live_validated_passes(self) -> None:
         """Live trading with validated strategy should pass."""
         # Create mock manifest with validated strategy
         mock_manifest = {
@@ -105,7 +105,7 @@ class TestValidationGateLive:
             # Should not raise
             runner._check_validation_gate()
 
-    def test_live_unknown_strategy_raises_error(self):
+    def test_live_unknown_strategy_raises_error(self) -> None:
         """Live trading with unknown strategy should raise error."""
         runner = TradingRunner(
             strategy_name="nonexistent_strategy",
@@ -115,7 +115,7 @@ class TestValidationGateLive:
         with pytest.raises(StrategyNotValidatedError):
             runner._check_validation_gate()
 
-    def test_live_missing_validation_section_raises_error(self):
+    def test_live_missing_validation_section_raises_error(self) -> None:
         """Strategy without validation section should raise error."""
         mock_manifest = {
             "strategies": {
@@ -142,7 +142,7 @@ class TestValidationGateLive:
 class TestValidationGateErrorMessages:
     """Tests for validation gate error messages."""
 
-    def test_error_includes_strategy_name(self):
+    def test_error_includes_strategy_name(self) -> None:
         """Error message should include strategy name."""
         runner = TradingRunner(
             strategy_name="my_custom_strategy",
@@ -154,7 +154,7 @@ class TestValidationGateErrorMessages:
 
         assert "my_custom_strategy" in str(exc_info.value)
 
-    def test_error_includes_instructions(self):
+    def test_error_includes_instructions(self) -> None:
         """Error message should include validation instructions."""
         runner = TradingRunner(
             strategy_name="ma_cross",
@@ -173,7 +173,7 @@ class TestValidationGateErrorMessages:
 class TestValidationGateManifestMissing:
     """Tests for when manifest.yaml is missing or malformed."""
 
-    def test_missing_manifest_blocks_live(self):
+    def test_missing_manifest_blocks_live(self) -> None:
         """Missing manifest should block live trading (fail-closed)."""
         with patch(
             "src.runners.trading_runner.load_strategy_manifest",
@@ -189,7 +189,7 @@ class TestValidationGateManifestMissing:
 
             assert "Cannot verify validation" in str(exc_info.value)
 
-    def test_malformed_yaml_blocks_live(self):
+    def test_malformed_yaml_blocks_live(self) -> None:
         """Malformed YAML should block live trading."""
         with patch(
             "src.runners.trading_runner.load_strategy_manifest",
@@ -203,7 +203,7 @@ class TestValidationGateManifestMissing:
             with pytest.raises(StrategyNotValidatedError):
                 runner._check_validation_gate()
 
-    def test_invalid_strategies_section_blocks_live(self):
+    def test_invalid_strategies_section_blocks_live(self) -> None:
         """Non-dict strategies section should block live trading."""
         mock_manifest = {"strategies": "not a dict"}
 
@@ -221,7 +221,7 @@ class TestValidationGateManifestMissing:
 
             assert "Invalid manifest format" in str(exc_info.value)
 
-    def test_non_dict_validation_section_treated_as_unvalidated(self):
+    def test_non_dict_validation_section_treated_as_unvalidated(self) -> None:
         """Non-dict validation section should be treated as unvalidated."""
         mock_manifest = {
             "strategies": {
@@ -248,7 +248,7 @@ class TestValidationGateManifestMissing:
 class TestValidationGateIntegration:
     """Integration tests with actual manifest."""
 
-    def test_all_strategies_have_validation_false_by_default(self):
+    def test_all_strategies_have_validation_false_by_default(self) -> None:
         """All strategies should start with validated_by_apex: false."""
         manifest = load_strategy_manifest()
         strategies = manifest.get("strategies", {})
@@ -265,11 +265,11 @@ class TestValidationGateIntegration:
 class TestStrategyNotValidatedError:
     """Tests for StrategyNotValidatedError exception."""
 
-    def test_exception_is_exception_subclass(self):
+    def test_exception_is_exception_subclass(self) -> None:
         """StrategyNotValidatedError should be an Exception."""
         assert issubclass(StrategyNotValidatedError, Exception)
 
-    def test_exception_can_be_raised_with_message(self):
+    def test_exception_can_be_raised_with_message(self) -> None:
         """Exception should accept and store message."""
         with pytest.raises(StrategyNotValidatedError) as exc_info:
             raise StrategyNotValidatedError("Test message")
@@ -280,11 +280,11 @@ class TestStrategyNotValidatedError:
 class TestManifestLoadError:
     """Tests for ManifestLoadError exception."""
 
-    def test_exception_is_exception_subclass(self):
+    def test_exception_is_exception_subclass(self) -> None:
         """ManifestLoadError should be an Exception."""
         assert issubclass(ManifestLoadError, Exception)
 
-    def test_exception_can_be_raised_with_message(self):
+    def test_exception_can_be_raised_with_message(self) -> None:
         """Exception should accept and store message."""
         with pytest.raises(ManifestLoadError) as exc_info:
             raise ManifestLoadError("Manifest not found")

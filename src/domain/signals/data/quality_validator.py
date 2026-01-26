@@ -387,7 +387,8 @@ class DataQualityValidator:
         try:
             ts = df.index[idx]
             if hasattr(ts, "to_pydatetime"):
-                return ts.to_pydatetime()
+                result = ts.to_pydatetime()
+                return result if isinstance(result, datetime) else None
             elif isinstance(ts, datetime):
                 return ts
             else:

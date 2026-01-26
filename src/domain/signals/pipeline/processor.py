@@ -494,8 +494,7 @@ class SignalPipelineProcessor:
         """
         from src.domain.signals.indicators.registry import get_indicator_registry
         from src.domain.signals.rules import ALL_RULES
-        from src.infrastructure.reporting import SignalReportGenerator
-        from src.infrastructure.reporting.package_builder import PackageBuilder
+        from src.infrastructure.reporting import PackageBuilder, SignalReportGenerator
 
         print(f"\nGenerating HTML report...")
 
@@ -628,7 +627,7 @@ class SignalPipelineProcessor:
                 package_dir = package_dir.with_suffix("")
 
             builder = PackageBuilder(theme="dark", with_heatmap=self.config.with_heatmap)
-            package_path = builder.build(
+            manifest = builder.build(
                 data=data,
                 indicators=indicators,
                 rules=ALL_RULES,
@@ -636,13 +635,13 @@ class SignalPipelineProcessor:
                 regime_outputs=regime_outputs,
                 validation_url="validation.html",  # Link to validation summary
             )
-            print(f"  Package saved: {package_path}")
-            print(f"  To view: cd {package_path} && python -m http.server 8080")
+            print(f"  Package saved: {package_dir} (v{manifest.version})")
+            print(f"  To view: cd {package_dir} && python -m http.server 8080")
             print(f"  Then open: http://localhost:8080")
 
             # Deploy to GitHub Pages if requested
             if self.config.deploy_github:
-                self._deploy_to_github(package_path)
+                self._deploy_to_github(package_dir)
         else:
             # Legacy: Single HTML file
             output.parent.mkdir(parents=True, exist_ok=True)

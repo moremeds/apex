@@ -28,7 +28,7 @@ class TestHealthBar:
     """Tests for HealthBar widget."""
 
     @pytest.mark.asyncio
-    async def test_health_bar_renders_empty_on_mount(self):
+    async def test_health_bar_renders_empty_on_mount(self) -> None:
         """HealthBar should render with hidden widgets when no health data."""
         async with HealthBarTestApp().run_test() as pilot:
             app = pilot.app
@@ -42,7 +42,7 @@ class TestHealthBar:
                 assert widget.display is False
 
     @pytest.mark.asyncio
-    async def test_health_bar_renders_health_data(self):
+    async def test_health_bar_renders_health_data(self) -> None:
         """HealthBar should display health components when data is set."""
         async with HealthBarTestApp().run_test() as pilot:
             app = pilot.app
@@ -76,7 +76,7 @@ class TestHealthBar:
             assert widget2.display is False  # Unused
 
     @pytest.mark.asyncio
-    async def test_health_bar_formats_status_correctly(self):
+    async def test_health_bar_formats_status_correctly(self) -> None:
         """HealthBar should format status icons correctly."""
         async with HealthBarTestApp().run_test() as pilot:
             app = pilot.app
@@ -114,7 +114,7 @@ class TestHealthBar:
             assert "[?]" in formatted
 
     @pytest.mark.asyncio
-    async def test_health_bar_market_data_coverage_metadata(self):
+    async def test_health_bar_market_data_coverage_metadata(self) -> None:
         """HealthBar should handle market_data_coverage metadata correctly."""
         async with HealthBarTestApp().run_test() as pilot:
             app = pilot.app
@@ -140,7 +140,7 @@ class TestHealthBar:
             assert "3/10 missing MD" in formatted
 
     @pytest.mark.asyncio
-    async def test_health_bar_clears_unused_widgets(self):
+    async def test_health_bar_clears_unused_widgets(self) -> None:
         """HealthBar should hide widgets when health list shrinks."""
         async with HealthBarTestApp().run_test() as pilot:
             app = pilot.app

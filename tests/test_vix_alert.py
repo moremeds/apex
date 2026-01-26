@@ -14,7 +14,7 @@ from src.infrastructure.adapters import IbCompositeAdapter
 from src.infrastructure.adapters.ib import ConnectionPoolConfig
 
 
-async def test_vix_alert():
+async def test_vix_alert() -> None:
     """Test VIX alert end-to-end."""
     print("=" * 80)
     print("VIX ALERT DIAGNOSTIC")

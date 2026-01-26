@@ -76,7 +76,7 @@ class TestTickProcessor:
 
     def test_process_tick_basic(
         self, processor: TickProcessor, stock_position: Position, current_state: PositionState
-    ):
+    ) -> None:
         """process_tick() should calculate delta correctly."""
         tick = MarketDataTickEvent(
             symbol="AAPL",
@@ -100,7 +100,7 @@ class TestTickProcessor:
 
     def test_process_tick_filters_stale(
         self, processor: TickProcessor, stock_position: Position, current_state: PositionState
-    ):
+    ) -> None:
         """process_tick() should filter stale ticks."""
         tick = MarketDataTickEvent(
             symbol="AAPL",
@@ -116,7 +116,7 @@ class TestTickProcessor:
 
     def test_process_tick_filters_suspicious(
         self, processor: TickProcessor, stock_position: Position, current_state: PositionState
-    ):
+    ) -> None:
         """process_tick() should filter suspicious ticks."""
         tick = MarketDataTickEvent(
             symbol="AAPL",
@@ -132,7 +132,7 @@ class TestTickProcessor:
 
     def test_process_tick_filters_zero_quote(
         self, processor: TickProcessor, stock_position: Position, current_state: PositionState
-    ):
+    ) -> None:
         """process_tick() should filter zero_quote ticks."""
         tick = MarketDataTickEvent(
             symbol="AAPL",
@@ -148,7 +148,7 @@ class TestTickProcessor:
 
     def test_process_tick_case_insensitive_quality(
         self, processor: TickProcessor, stock_position: Position, current_state: PositionState
-    ):
+    ) -> None:
         """process_tick() should handle uppercase quality values."""
         tick = MarketDataTickEvent(
             symbol="AAPL",
@@ -164,7 +164,7 @@ class TestTickProcessor:
 
     def test_process_tick_filters_wide_spread(
         self, processor: TickProcessor, stock_position: Position, current_state: PositionState
-    ):
+    ) -> None:
         """process_tick() should filter wide spread ticks (>5%)."""
         tick = MarketDataTickEvent(
             symbol="AAPL",
@@ -180,7 +180,7 @@ class TestTickProcessor:
 
     def test_process_tick_handles_crossed_market(
         self, processor: TickProcessor, stock_position: Position, current_state: PositionState
-    ):
+    ) -> None:
         """process_tick() should filter crossed market (bid > ask)."""
         tick = MarketDataTickEvent(
             symbol="AAPL",
@@ -196,7 +196,7 @@ class TestTickProcessor:
 
     def test_process_tick_uses_fallback_prices(
         self, processor: TickProcessor, stock_position: Position, current_state: PositionState
-    ):
+    ) -> None:
         """process_tick() should use current_state for missing reference prices."""
         tick = MarketDataTickEvent(
             symbol="AAPL",
@@ -218,7 +218,7 @@ class TestTickProcessor:
 
     def test_process_tick_no_valid_mark_falls_back_to_current_state(
         self, processor: TickProcessor, stock_position: Position, current_state: PositionState
-    ):
+    ) -> None:
         """process_tick() should fallback to current_state.mark_price when tick has no prices."""
         tick = MarketDataTickEvent(
             symbol="AAPL",
@@ -239,7 +239,7 @@ class TestTickProcessor:
 
     def test_process_tick_no_valid_mark_falls_back_to_avg_price(
         self, processor: TickProcessor, stock_position: Position
-    ):
+    ) -> None:
         """process_tick() should fallback to avg_price when current_state has no mark."""
         # Create a state with mark_price = 0 (no valid price)
         zero_mark_state = PositionState(
@@ -279,7 +279,7 @@ class TestTickProcessor:
         assert delta is not None
         assert delta.new_mark_price == 150.0
 
-    def test_process_tick_no_fallback_available(self, processor: TickProcessor):
+    def test_process_tick_no_fallback_available(self, processor: TickProcessor) -> None:
         """process_tick() should return None when no price available at all."""
         # Position with zero avg_price
         zero_price_position = Position(
@@ -329,7 +329,7 @@ class TestTickProcessor:
 
     def test_process_tick_uses_last_as_fallback(
         self, processor: TickProcessor, stock_position: Position, current_state: PositionState
-    ):
+    ) -> None:
         """process_tick() should use last price when bid/ask unavailable."""
         tick = MarketDataTickEvent(
             symbol="AAPL",
@@ -362,7 +362,7 @@ class TestCreateInitialState:
             multiplier=1,
         )
 
-    def test_creates_state_from_good_tick(self, stock_position: Position):
+    def test_creates_state_from_good_tick(self, stock_position: Position) -> None:
         """create_initial_state() should create state from good tick."""
         tick = MarketDataTickEvent(
             symbol="AAPL",
@@ -386,7 +386,7 @@ class TestCreateInitialState:
         assert state.yesterday_close == 154.0
         assert state.session_open == 153.0
 
-    def test_rejects_stale_tick_with_strict_quality(self, stock_position: Position):
+    def test_rejects_stale_tick_with_strict_quality(self, stock_position: Position) -> None:
         """create_initial_state() should reject stale tick when strict."""
         tick = MarketDataTickEvent(
             symbol="AAPL",
@@ -400,7 +400,7 @@ class TestCreateInitialState:
 
         assert state is None
 
-    def test_accepts_stale_tick_without_strict_quality(self, stock_position: Position):
+    def test_accepts_stale_tick_without_strict_quality(self, stock_position: Position) -> None:
         """create_initial_state() should accept stale tick when not strict."""
         tick = MarketDataTickEvent(
             symbol="AAPL",
@@ -416,7 +416,7 @@ class TestCreateInitialState:
         assert state is not None
         assert state.is_reliable is False  # Marked as unreliable
 
-    def test_no_valid_mark_falls_back_to_avg_price(self, stock_position: Position):
+    def test_no_valid_mark_falls_back_to_avg_price(self, stock_position: Position) -> None:
         """create_initial_state() should fallback to avg_price when tick has no prices."""
         tick = MarketDataTickEvent(
             symbol="AAPL",
@@ -435,7 +435,7 @@ class TestCreateInitialState:
         # P&L is zero when mark == avg_cost
         assert state.unrealized_pnl == 0.0
 
-    def test_no_fallback_available_returns_none(self):
+    def test_no_fallback_available_returns_none(self) -> None:
         """create_initial_state() should return None when no price available at all."""
         zero_price_position = Position(
             symbol="AAPL",
@@ -459,7 +459,7 @@ class TestCreateInitialState:
         # No fallback available, should return None
         assert state is None
 
-    def test_uses_zero_for_missing_reference_prices(self, stock_position: Position):
+    def test_uses_zero_for_missing_reference_prices(self, stock_position: Position) -> None:
         """create_initial_state() should handle missing reference prices."""
         tick = MarketDataTickEvent(
             symbol="AAPL",

@@ -246,7 +246,7 @@ class AppContainer:
         """Phase 2b: Create market data manager."""
         self.market_data_manager = MarketDataManager(
             health_monitor=self.health_monitor,
-            event_bus=self.event_bus,
+            event_bus=self.event_bus,  # type: ignore[arg-type]
         )
         self._log(LogCategory.SYSTEM, "MarketDataManager created")
 

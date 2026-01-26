@@ -2,6 +2,8 @@
 Unit tests for PositionRiskAnalyzer - Position-level risk rules.
 """
 
+from typing import Any
+
 import pytest
 
 from src.domain.services.position_risk_analyzer import PositionRiskAnalyzer
@@ -27,7 +29,7 @@ def config():
 
 
 @pytest.fixture
-def analyzer(config):
+def analyzer(config: Any):
     """Create position risk analyzer."""
     return PositionRiskAnalyzer(config)
 
@@ -43,7 +45,7 @@ def create_pos_risk(position: Position, mark_price: float) -> PositionRisk:
     )
 
 
-def test_stop_loss_triggered(analyzer):
+def test_stop_loss_triggered(analyzer: Any) -> None:
     """Test stop loss detection at -60%."""
     # Create position with -70% loss
     position = Position(
@@ -71,7 +73,7 @@ def test_stop_loss_triggered(analyzer):
     assert stop_loss_signals[0].symbol == "TSLA 250120C00300000"
 
 
-def test_take_profit_triggered(analyzer):
+def test_take_profit_triggered(analyzer: Any) -> None:
     """Test take profit at +100%."""
     position = Position(
         symbol="NVDA 250131C00500000",
@@ -98,7 +100,7 @@ def test_take_profit_triggered(analyzer):
     assert take_profit_signals[0].suggested_action == SuggestedAction.REDUCE
 
 
-def test_trailing_stop_from_peak(analyzer):
+def test_trailing_stop_from_peak(analyzer: Any) -> None:
     """Test trailing stop after 30% drawdown from peak."""
     position = Position(
         symbol="AAPL 250207C00180000",
@@ -125,7 +127,7 @@ def test_trailing_stop_from_peak(analyzer):
     assert trailing_signal.suggested_action == SuggestedAction.CLOSE
 
 
-def test_low_dte_long_option(analyzer):
+def test_low_dte_long_option(analyzer: Any) -> None:
     """Test DTE warning for long options."""
     position = Position(
         symbol="SPY 250128C00600000",
@@ -150,7 +152,7 @@ def test_low_dte_long_option(analyzer):
     assert dte_signals[0].suggested_action == SuggestedAction.ROLL
 
 
-def test_low_dte_short_option(analyzer):
+def test_low_dte_short_option(analyzer: Any) -> None:
     """Test DTE warning for short options (assignment risk)."""
     position = Position(
         symbol="TSLA 250128P00250000",
@@ -175,7 +177,7 @@ def test_low_dte_short_option(analyzer):
     assert dte_signals[0].suggested_action == SuggestedAction.CLOSE
 
 
-def test_no_signals_healthy_position(analyzer):
+def test_no_signals_healthy_position(analyzer: Any) -> None:
     """Test no signals for healthy position."""
     position = Position(
         symbol="META 250214C00400000",
@@ -199,7 +201,7 @@ def test_no_signals_healthy_position(analyzer):
     assert len(critical_signals) == 0
 
 
-def test_max_profit_watermark_updates_during_check(analyzer):
+def test_max_profit_watermark_updates_during_check(analyzer: Any) -> None:
     """Test max profit watermark is updated during check() calls."""
     position = Position(
         symbol="TEST",

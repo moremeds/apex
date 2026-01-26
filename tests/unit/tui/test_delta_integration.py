@@ -4,6 +4,7 @@ Tests the streaming delta flow from event bus to position table updates.
 """
 
 from dataclasses import dataclass
+from typing import Any
 
 import pytest
 
@@ -35,7 +36,7 @@ class MockPosition:
 class TestTUIEventBusDelta:
     """Tests for TUIEventBus delta handling."""
 
-    def test_push_delta_adds_to_buffer(self):
+    def test_push_delta_adds_to_buffer(self) -> None:
         """push_delta() should add delta to buffer."""
         bus = TUIEventBus()
         delta = PositionDeltaEvent(symbol="AAPL", underlying="AAPL", new_mark_price=150.0)
@@ -46,7 +47,7 @@ class TestTUIEventBusDelta:
             assert "AAPL" in bus._delta_buffer
             assert bus._delta_buffer["AAPL"].new_mark_price == 150.0
 
-    def test_push_delta_coalesces_by_symbol(self):
+    def test_push_delta_coalesces_by_symbol(self) -> None:
         """push_delta() should keep only latest delta per symbol."""
         bus = TUIEventBus()
         delta1 = PositionDeltaEvent(symbol="AAPL", underlying="AAPL", new_mark_price=150.0)
@@ -59,7 +60,7 @@ class TestTUIEventBusDelta:
             assert len(bus._delta_buffer) == 1
             assert bus._delta_buffer["AAPL"].new_mark_price == 151.0
 
-    def test_push_delta_multiple_symbols(self):
+    def test_push_delta_multiple_symbols(self) -> None:
         """push_delta() should track multiple symbols independently."""
         bus = TUIEventBus()
         delta1 = PositionDeltaEvent(symbol="AAPL", underlying="AAPL", new_mark_price=150.0)
@@ -71,7 +72,7 @@ class TestTUIEventBusDelta:
         with bus._delta_lock:
             assert len(bus._delta_buffer) == 2
 
-    def test_poll_returns_deltas(self):
+    def test_poll_returns_deltas(self) -> None:
         """poll() should return accumulated deltas."""
         bus = TUIEventBus()
         delta = PositionDeltaEvent(symbol="AAPL", underlying="AAPL", new_mark_price=150.0)
@@ -83,7 +84,7 @@ class TestTUIEventBusDelta:
         assert "AAPL" in result.deltas
         assert result.deltas["AAPL"].new_mark_price == 150.0
 
-    def test_poll_clears_delta_buffer(self):
+    def test_poll_clears_delta_buffer(self) -> None:
         """poll() should clear delta buffer after returning."""
         bus = TUIEventBus()
         delta = PositionDeltaEvent(symbol="AAPL", underlying="AAPL", new_mark_price=150.0)
@@ -94,7 +95,7 @@ class TestTUIEventBusDelta:
 
         assert len(result2.deltas) == 0
 
-    def test_poll_has_data_with_deltas(self):
+    def test_poll_has_data_with_deltas(self) -> None:
         """has_data should be True when deltas present."""
         bus = TUIEventBus()
         delta = PositionDeltaEvent(symbol="AAPL", underlying="AAPL", new_mark_price=150.0)
@@ -104,7 +105,7 @@ class TestTUIEventBusDelta:
 
         assert result.has_data is True
 
-    def test_poll_has_data_without_deltas(self):
+    def test_poll_has_data_without_deltas(self) -> None:
         """has_data should be False when no events present."""
         bus = TUIEventBus()
 
@@ -112,7 +113,7 @@ class TestTUIEventBusDelta:
 
         assert result.has_data is False
 
-    def test_queue_sizes_includes_deltas(self):
+    def test_queue_sizes_includes_deltas(self) -> None:
         """queue_sizes() should report delta buffer size."""
         bus = TUIEventBus()
         delta = PositionDeltaEvent(symbol="AAPL", underlying="AAPL", new_mark_price=150.0)
@@ -144,7 +145,9 @@ class TestPositionViewModelDelta:
         """Create detailed view model."""
         return PositionViewModel(consolidated=False, show_portfolio_row=True, broker_filter="ib")
 
-    def test_compute_display_data_populates_symbol_mapping(self, consolidated_vm, positions):
+    def test_compute_display_data_populates_symbol_mapping(
+        self, consolidated_vm: Any, positions: Any
+    ) -> None:
         """compute_display_data() should populate symbol to row key mapping."""
         consolidated_vm.compute_display_data(positions)
 
@@ -153,7 +156,9 @@ class TestPositionViewModelDelta:
         assert "__portfolio__" in consolidated_vm._symbol_to_row_keys["AAPL"]
         assert "underlying-AAPL" in consolidated_vm._symbol_to_row_keys["AAPL"]
 
-    def test_compute_display_data_populates_values_cache(self, consolidated_vm, positions):
+    def test_compute_display_data_populates_values_cache(
+        self, consolidated_vm: Any, positions: Any
+    ) -> None:
         """compute_display_data() should populate values cache."""
         consolidated_vm.compute_display_data(positions)
 
@@ -161,7 +166,7 @@ class TestPositionViewModelDelta:
         assert "underlying-AAPL" in consolidated_vm._values_cache
         assert "underlying-TSLA" in consolidated_vm._values_cache
 
-    def test_apply_deltas_returns_cell_updates(self, consolidated_vm, positions):
+    def test_apply_deltas_returns_cell_updates(self, consolidated_vm: Any, positions: Any) -> None:
         """apply_deltas() should return cell updates."""
         consolidated_vm.compute_display_data(positions)
         delta = PositionDeltaEvent(
@@ -186,7 +191,7 @@ class TestPositionViewModelDelta:
         assert "__portfolio__" in row_keys
         assert "underlying-AAPL" in row_keys
 
-    def test_apply_deltas_updates_values_cache(self, consolidated_vm, positions):
+    def test_apply_deltas_updates_values_cache(self, consolidated_vm: Any, positions: Any) -> None:
         """apply_deltas() should update cached values."""
         consolidated_vm.compute_display_data(positions)
         original_pnl = consolidated_vm._values_cache["underlying-AAPL"]["pnl"]
@@ -201,7 +206,7 @@ class TestPositionViewModelDelta:
 
         assert consolidated_vm._values_cache["underlying-AAPL"]["pnl"] == original_pnl + 25.0
 
-    def test_apply_deltas_skips_unknown_symbols(self, consolidated_vm, positions):
+    def test_apply_deltas_skips_unknown_symbols(self, consolidated_vm: Any, positions: Any) -> None:
         """apply_deltas() should skip symbols not in view."""
         consolidated_vm.compute_display_data(positions)
 
@@ -214,7 +219,7 @@ class TestPositionViewModelDelta:
 
         assert len(cell_updates) == 0
 
-    def test_apply_deltas_detailed_view(self, detailed_vm, positions):
+    def test_apply_deltas_detailed_view(self, detailed_vm: Any, positions: Any) -> None:
         """apply_deltas() should work with detailed view."""
         detailed_vm.compute_display_data(positions)
 
@@ -232,7 +237,9 @@ class TestPositionViewModelDelta:
         assert "__total__" in row_keys
         assert "header-AAPL" in row_keys
 
-    def test_apply_deltas_position_row_includes_mark_price(self, detailed_vm, positions):
+    def test_apply_deltas_position_row_includes_mark_price(
+        self, detailed_vm: Any, positions: Any
+    ) -> None:
         """apply_deltas() on position row should update mark price."""
         detailed_vm.compute_display_data(positions)
 
@@ -251,7 +258,9 @@ class TestPositionViewModelDelta:
         assert len(spot_updates) > 0
         assert "151" in spot_updates[0].value
 
-    def test_apply_deltas_consolidated_column_indices(self, consolidated_vm, positions):
+    def test_apply_deltas_consolidated_column_indices(
+        self, consolidated_vm: Any, positions: Any
+    ) -> None:
         """apply_deltas() should use correct column indices for consolidated view."""
         consolidated_vm.compute_display_data(positions)
 
@@ -268,7 +277,7 @@ class TestPositionViewModelDelta:
         assert 5 in col_indices  # pnl
         assert 6 in col_indices  # upnl
 
-    def test_apply_deltas_detailed_column_indices(self, detailed_vm, positions):
+    def test_apply_deltas_detailed_column_indices(self, detailed_vm: Any, positions: Any) -> None:
         """apply_deltas() should use correct column indices for detailed view."""
         detailed_vm.compute_display_data(positions)
 
@@ -285,7 +294,7 @@ class TestPositionViewModelDelta:
         assert 6 in col_indices  # pnl
         assert 7 in col_indices  # upnl
 
-    def test_multiple_deltas_accumulate(self, consolidated_vm, positions):
+    def test_multiple_deltas_accumulate(self, consolidated_vm: Any, positions: Any) -> None:
         """Multiple deltas for same symbol should accumulate."""
         consolidated_vm.compute_display_data(positions)
         original_pnl = consolidated_vm._values_cache["underlying-AAPL"]["pnl"]

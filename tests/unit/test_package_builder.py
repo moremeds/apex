@@ -14,7 +14,7 @@ from unittest.mock import MagicMock
 import pandas as pd
 import pytest
 
-from src.infrastructure.reporting.package_builder import (
+from src.infrastructure.reporting.package import (
     PACKAGE_FORMAT_VERSION,
     PackageBuilder,
     PackageManifest,
@@ -155,7 +155,7 @@ def mock_regime_outputs() -> Dict[str, MagicMock]:
 
 
 @pytest.fixture
-def temp_dir():
+def temp_dir() -> None:
     """Create temporary directory for tests."""
     tmpdir = tempfile.mkdtemp()
     yield Path(tmpdir)
@@ -184,24 +184,26 @@ class TestPackageBuilder:
         builder = PackageBuilder()
         output_dir = temp_dir / "test_package"
 
-        package_path = builder.build(
+        manifest = builder.build(
             data=sample_data,
             indicators=[],
             rules=[],
             output_dir=output_dir,
         )
 
+        # Verify manifest is returned
+        assert manifest.version is not None
         # Verify directory structure
-        assert package_path.exists()
-        assert (package_path / "report.html").exists()  # Main report (heatmap would be index.html)
-        assert (package_path / "assets").is_dir()
-        assert (package_path / "assets" / "styles.css").exists()
-        assert (package_path / "assets" / "app.js").exists()
-        assert (package_path / "data").is_dir()
-        assert (package_path / "data" / "summary.json").exists()
-        assert (package_path / "snapshots").is_dir()
-        assert (package_path / "snapshots" / "payload_snapshot.json").exists()
-        assert (package_path / "manifest.json").exists()
+        assert output_dir.exists()
+        assert (output_dir / "report.html").exists()  # Main report (heatmap would be index.html)
+        assert (output_dir / "assets").is_dir()
+        assert (output_dir / "assets" / "styles.css").exists()
+        assert (output_dir / "assets" / "app.js").exists()
+        assert (output_dir / "data").is_dir()
+        assert (output_dir / "data" / "summary.json").exists()
+        assert (output_dir / "snapshots").is_dir()
+        assert (output_dir / "snapshots" / "payload_snapshot.json").exists()
+        assert (output_dir / "manifest.json").exists()
 
     def test_build_creates_data_files(
         self,

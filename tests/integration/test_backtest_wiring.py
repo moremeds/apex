@@ -21,7 +21,7 @@ import yaml
 class TestParallelRunnerWiring:
     """Verify parallel execution is properly wired."""
 
-    def test_systematic_runner_uses_parallel_when_configured(self):
+    def test_systematic_runner_uses_parallel_when_configured(self) -> None:
         """Verify parallel_workers > 1 uses ParallelRunner."""
         from src.backtest.execution.systematic import RunnerConfig, SystematicRunner
 
@@ -32,7 +32,7 @@ class TestParallelRunnerWiring:
         # The runner should be configured for parallel execution
         assert runner.config.parallel_workers == 4
 
-    def test_parallel_runner_can_be_instantiated(self):
+    def test_parallel_runner_can_be_instantiated(self) -> None:
         """Verify ParallelRunner can be created with valid config."""
         from src.backtest.execution.parallel import ParallelConfig, ParallelRunner
 
@@ -41,7 +41,7 @@ class TestParallelRunnerWiring:
 
         assert runner.config.max_workers == 4
 
-    def test_parallel_config_validates_workers(self):
+    def test_parallel_config_validates_workers(self) -> None:
         """Verify ParallelConfig validates worker count."""
         from src.backtest.execution.parallel import ParallelConfig
 
@@ -56,7 +56,7 @@ class TestParallelRunnerWiring:
 class TestWalkForwardSplitter:
     """Verify WalkForwardSplitter returns proper train/test tuples."""
 
-    def test_wfo_splitter_returns_train_test_tuples(self):
+    def test_wfo_splitter_returns_train_test_tuples(self) -> None:
         """Verify WalkForwardSplitter yields (train_window, test_window)."""
         from src.backtest.core import TimeWindow
         from src.backtest.data import SplitConfig, WalkForwardSplitter
@@ -90,7 +90,7 @@ class TestWalkForwardSplitter:
             # Windows should have matching fold_index
             assert train_window.fold_index == test_window.fold_index
 
-    def test_wfo_splitter_respects_purge_gap(self):
+    def test_wfo_splitter_respects_purge_gap(self) -> None:
         """Verify purge gap is respected between train and test."""
         from src.backtest.data import SplitConfig, WalkForwardSplitter
 
@@ -111,7 +111,7 @@ class TestWalkForwardSplitter:
 class TestStrategyRegistryConsistency:
     """Verify example specs reference registered strategies."""
 
-    def test_strategy_registry_contains_expected_strategies(self):
+    def test_strategy_registry_contains_expected_strategies(self) -> None:
         """Verify core strategies are registered."""
         from src.domain.strategy import examples  # noqa: F401 - triggers registration
         from src.domain.strategy.registry import StrategyRegistry
@@ -124,7 +124,7 @@ class TestStrategyRegistryConsistency:
 
         assert not missing, f"Missing strategies: {missing}"
 
-    def test_example_specs_reference_registered_strategies(self):
+    def test_example_specs_reference_registered_strategies(self) -> None:
         """Verify all example specs reference strategies that exist."""
         from src.domain.strategy import examples  # noqa: F401
         from src.domain.strategy.registry import StrategyRegistry
@@ -153,7 +153,7 @@ class TestStrategyRegistryConsistency:
                 f"Available strategies: {sorted(registered)}"
             )
 
-    def test_mtf_strategy_registered(self):
+    def test_mtf_strategy_registered(self) -> None:
         """Verify MTF RSI Trend strategy is registered."""
         from src.domain.strategy import examples  # noqa: F401
         from src.domain.strategy.registry import StrategyRegistry
@@ -165,7 +165,7 @@ class TestStrategyRegistryConsistency:
 class TestHTMLReportGenerator:
     """Verify HTMLReportGenerator receives valid data."""
 
-    def test_report_data_has_required_fields(self):
+    def test_report_data_has_required_fields(self) -> None:
         """Verify ReportData has all required fields."""
         from src.backtest.analysis.reporting import ReportData
 
@@ -186,7 +186,7 @@ class TestHTMLReportGenerator:
         missing = required_fields - data_fields
         assert not missing, f"ReportData missing fields: {missing}"
 
-    def test_report_generator_accepts_minimal_data(self):
+    def test_report_generator_accepts_minimal_data(self) -> None:
         """Verify report generator can handle minimal valid data."""
         import tempfile
 
@@ -219,7 +219,7 @@ class TestHTMLReportGenerator:
 class TestMTFDataFeedWiring:
     """Verify Multi-Timeframe data feed is properly wired."""
 
-    def test_aligned_bar_buffer_exists(self):
+    def test_aligned_bar_buffer_exists(self) -> None:
         """Verify AlignedBarBuffer can be imported."""
         from src.backtest.data.feeds import AlignedBarBuffer
 
@@ -230,7 +230,7 @@ class TestMTFDataFeedWiring:
         assert buffer.primary_timeframe == "1d"
         assert "1h" in buffer.secondary_timeframes
 
-    def test_historical_store_data_feed_accepts_secondary_timeframes(self):
+    def test_historical_store_data_feed_accepts_secondary_timeframes(self) -> None:
         """Verify HistoricalStoreDataFeed accepts secondary_timeframes parameter."""
         import inspect
 
@@ -243,7 +243,7 @@ class TestMTFDataFeedWiring:
             "secondary_timeframes" in params
         ), "HistoricalStoreDataFeed missing secondary_timeframes parameter"
 
-    def test_aligned_bar_buffer_sorting(self):
+    def test_aligned_bar_buffer_sorting(self) -> None:
         """Verify secondary timeframes sort before primary at same timestamp."""
         from datetime import datetime
 
@@ -285,7 +285,7 @@ class TestMTFDataFeedWiring:
 class TestRunSpecWiring:
     """Verify RunSpec has required MTF fields."""
 
-    def test_run_spec_has_secondary_timeframes(self):
+    def test_run_spec_has_secondary_timeframes(self) -> None:
         """Verify RunSpec has secondary_timeframes field."""
         from datetime import date
 
@@ -313,7 +313,7 @@ class TestRunSpecWiring:
 
         assert spec.secondary_timeframes == ["1h", "4h"]
 
-    def test_run_spec_bar_size_default(self):
+    def test_run_spec_bar_size_default(self) -> None:
         """Verify RunSpec has sensible bar_size default."""
         from datetime import date
 
@@ -344,7 +344,7 @@ class TestRunSpecWiring:
 class TestVersionAutoIncrement:
     """Verify version auto-increment is implemented."""
 
-    def test_get_next_version_function_exists(self):
+    def test_get_next_version_function_exists(self) -> None:
         """Verify get_next_version function exists in hashing module."""
         from src.backtest.core import hashing
 
@@ -352,7 +352,7 @@ class TestVersionAutoIncrement:
             hashing, "get_next_version"
         ), "get_next_version function not found in hashing module"
 
-    def test_experiment_result_has_run_version(self):
+    def test_experiment_result_has_run_version(self) -> None:
         """Verify ExperimentResult can store version information."""
         from src.backtest.core import ExperimentResult
 
@@ -372,21 +372,21 @@ class TestVersionAutoIncrement:
 class TestEngineWiring:
     """Verify backtest engines are properly wired."""
 
-    def test_apex_engine_implements_base_interface(self):
+    def test_apex_engine_implements_base_interface(self) -> None:
         """Verify ApexEngine implements BaseEngine interface."""
         from src.backtest.execution.engines import ApexEngine, BaseEngine
 
         engine = ApexEngine()
         assert isinstance(engine, BaseEngine)
 
-    def test_vectorbt_engine_implements_base_interface(self):
+    def test_vectorbt_engine_implements_base_interface(self) -> None:
         """Verify VectorBTEngine implements BaseEngine interface."""
         from src.backtest.execution.engines import BaseEngine, VectorBTEngine
 
         engine = VectorBTEngine()
         assert isinstance(engine, BaseEngine)
 
-    def test_engines_have_run_method(self):
+    def test_engines_have_run_method(self) -> None:
         """Verify both engines have run method with correct signature."""
         import inspect
 
@@ -405,19 +405,19 @@ class TestEngineWiring:
 class TestOptimizerWiring:
     """Verify optimizer classes are properly implemented."""
 
-    def test_grid_optimizer_exists(self):
+    def test_grid_optimizer_exists(self) -> None:
         """Verify GridOptimizer can be imported."""
         from src.backtest.optimization import GridOptimizer
 
         assert GridOptimizer is not None
 
-    def test_bayesian_optimizer_exists(self):
+    def test_bayesian_optimizer_exists(self) -> None:
         """Verify BayesianOptimizer can be imported."""
         from src.backtest.optimization import BayesianOptimizer
 
         assert BayesianOptimizer is not None
 
-    def test_optimizers_share_interface(self):
+    def test_optimizers_share_interface(self) -> None:
         """Verify both optimizers have similar interfaces."""
         from src.backtest.optimization import BayesianOptimizer, GridOptimizer
 

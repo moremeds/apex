@@ -130,10 +130,10 @@ class TestIndicatorRegistry:
             warmup_periods = 5
             _default_params = {}
 
-            def _calculate(self, data, params):
+            def _calculate(self, data: Any, params: Any):
                 return pd.DataFrame({"value": [0]})
 
-            def _get_state(self, current, previous, params):
+            def _get_state(self, current: Any, previous: Any, params: Any):
                 return {"value": 0}
 
         ind2 = DuplicateMock()
@@ -221,13 +221,13 @@ class TestIndicatorRegistry:
             warmup_periods = 10
             _default_params = {}
 
-            def __init__(self, required_param: str):
+            def __init__(self, required_param: str) -> None:
                 self.required_param = required_param
 
-            def _calculate(self, data, params):
+            def _calculate(self, data: Any, params: Any):
                 return pd.DataFrame({"value": [0]})
 
-            def _get_state(self, current, previous, params):
+            def _get_state(self, current: Any, previous: Any, params: Any):
                 return {"value": 0}
 
         registry = IndicatorRegistry()

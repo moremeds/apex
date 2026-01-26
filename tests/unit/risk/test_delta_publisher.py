@@ -1,5 +1,6 @@
 """Unit tests for DeltaPublisher."""
 
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -56,7 +57,7 @@ class TestDeltaPublisher:
             multiplier=1,
         )
 
-    def test_start_subscribes_to_events(self, publisher, mock_event_bus):
+    def test_start_subscribes_to_events(self, publisher: Any, mock_event_bus: Any) -> None:
         """start() should subscribe to tick and position events."""
         publisher.start()
 
@@ -70,7 +71,7 @@ class TestDeltaPublisher:
         assert EventType.POSITION_UPDATED in call_args
         assert EventType.MARKET_DATA_READY in call_args
 
-    def test_start_twice_warns(self, publisher, mock_event_bus):
+    def test_start_twice_warns(self, publisher: Any, mock_event_bus: Any) -> None:
         """start() should warn if called twice."""
         publisher.start()
         publisher.start()  # Second call
@@ -78,7 +79,7 @@ class TestDeltaPublisher:
         # Should only subscribe once (4 event types)
         assert mock_event_bus.subscribe.call_count == 4
 
-    def test_stop_unsubscribes(self, publisher, mock_event_bus):
+    def test_stop_unsubscribes(self, publisher: Any, mock_event_bus: Any) -> None:
         """stop() should unsubscribe from events."""
         publisher.start()
         publisher.stop()
@@ -86,12 +87,12 @@ class TestDeltaPublisher:
         # Should unsubscribe from all four subscriptions
         assert mock_event_bus.unsubscribe.call_count == 4
 
-    def test_stop_without_start(self, publisher, mock_event_bus):
+    def test_stop_without_start(self, publisher: Any, mock_event_bus: Any) -> None:
         """stop() should be safe to call without start."""
         publisher.stop()  # Should not raise
         assert mock_event_bus.unsubscribe.call_count == 0
 
-    def test_on_tick_without_position(self, publisher, facade):
+    def test_on_tick_without_position(self, publisher: Any, facade: Any) -> None:
         """_on_tick() should filter ticks for unknown symbols."""
         publisher.start()
 
@@ -109,7 +110,9 @@ class TestDeltaPublisher:
         assert publisher.stats["ticks_filtered"] == 1
         assert publisher.stats["deltas_published"] == 0
 
-    def test_on_tick_publishes_delta(self, publisher, facade, mock_event_bus, stock_position):
+    def test_on_tick_publishes_delta(
+        self, publisher: Any, facade: Any, mock_event_bus: Any, stock_position: Any
+    ) -> None:
         """_on_tick() should publish delta for valid tick."""
         # Initialize with position
         initial_tick = MarketDataTickEvent(
@@ -149,7 +152,7 @@ class TestDeltaPublisher:
 
     def test_on_positions_ready_syncs_positions(
         self, publisher, facade, mock_position_store, stock_position
-    ):
+    ) -> None:
         """_on_positions_ready() should sync positions from store to facade."""
         # Configure store to return position
         mock_position_store.get_all.return_value = [stock_position]
@@ -162,7 +165,9 @@ class TestDeltaPublisher:
         assert facade.has_position("AAPL")
         assert publisher.stats["positions_synced"] == 1
 
-    def test_on_positions_ready_empty_store(self, publisher, facade, mock_position_store):
+    def test_on_positions_ready_empty_store(
+        self, publisher: Any, facade: Any, mock_position_store: Any
+    ) -> None:
         """_on_positions_ready() should handle empty store."""
         # Store returns no positions
         mock_position_store.get_all.return_value = []
@@ -172,7 +177,7 @@ class TestDeltaPublisher:
 
         assert facade.position_count == 0
 
-    def test_on_positions_ready_no_store(self, facade, mock_event_bus):
+    def test_on_positions_ready_no_store(self, facade: Any, mock_event_bus: Any) -> None:
         """_on_positions_ready() should skip sync when no store provided."""
         # Create publisher without position store
         publisher = DeltaPublisher(
@@ -189,7 +194,7 @@ class TestDeltaPublisher:
 
     def test_on_position_updated_syncs_positions(
         self, publisher, facade, mock_position_store, stock_position
-    ):
+    ) -> None:
         """_on_position_updated() should resync positions from store."""
         # Configure store to return position
         mock_position_store.get_all.return_value = [stock_position]
@@ -202,7 +207,7 @@ class TestDeltaPublisher:
         assert facade.has_position("AAPL")
         assert publisher.stats["positions_synced"] == 1
 
-    def test_stats_property(self, publisher, facade, stock_position):
+    def test_stats_property(self, publisher: Any, facade: Any, stock_position: Any) -> None:
         """stats property should return publisher statistics."""
         initial_tick = MarketDataTickEvent(
             symbol="AAPL",
@@ -235,7 +240,7 @@ class TestDeltaPublisher:
         assert "facade_position_count" in stats
         assert "filter_rate" in stats
 
-    def test_filter_rate_calculation(self, publisher, facade):
+    def test_filter_rate_calculation(self, publisher: Any, facade: Any) -> None:
         """Filter rate should be calculated correctly."""
         publisher.start()
 
@@ -252,7 +257,7 @@ class TestDeltaPublisher:
 
         assert publisher.stats["filter_rate"] == 1.0  # All filtered
 
-    def test_filter_rate_zero_ticks(self, publisher):
+    def test_filter_rate_zero_ticks(self, publisher: Any) -> None:
         """Filter rate should handle zero ticks."""
         publisher.start()
         assert publisher.stats["filter_rate"] == 0.0

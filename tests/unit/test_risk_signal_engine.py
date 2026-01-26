@@ -3,6 +3,7 @@ Unit tests for RiskSignalEngine - Integration of all risk layers.
 """
 
 from datetime import datetime
+from typing import Any
 
 import pytest
 
@@ -57,7 +58,7 @@ def config():
 
 
 @pytest.fixture
-def rule_engine(config):
+def rule_engine(config: Any):
     """Create rule engine."""
     return RuleEngine(
         risk_limits=config["risk_limits"],
@@ -72,7 +73,7 @@ def signal_manager():
 
 
 @pytest.fixture
-def risk_signal_engine(config, rule_engine, signal_manager):
+def risk_signal_engine(config: Any, rule_engine: Any, signal_manager: Any):
     """Create risk signal engine."""
     return RiskSignalEngine(
         config=config,
@@ -81,7 +82,7 @@ def risk_signal_engine(config, rule_engine, signal_manager):
     )
 
 
-def test_portfolio_limit_breach_signal(risk_signal_engine):
+def test_portfolio_limit_breach_signal(risk_signal_engine: Any) -> None:
     """Test portfolio-level limit breach generates raw signals (before debounce)."""
     # Create snapshot with delta breach
     snapshot = RiskSnapshot(
@@ -113,7 +114,7 @@ def test_portfolio_limit_breach_signal(risk_signal_engine):
     assert stats["raw_signals"] > 0  # At least some signals generated
 
 
-def test_sector_concentration_signal(risk_signal_engine):
+def test_sector_concentration_signal(risk_signal_engine: Any) -> None:
     """Test sector concentration detection (simplified - tests correlation analyzer separately)."""
     # This test would require full Position and PositionRisk objects
     # Instead, test the correlation analyzer directly in a separate test file
@@ -141,7 +142,7 @@ def test_sector_concentration_signal(risk_signal_engine):
     assert isinstance(signals, list)
 
 
-def test_earnings_event_risk_signal(risk_signal_engine):
+def test_earnings_event_risk_signal(risk_signal_engine: Any) -> None:
     """Test earnings event risk detection (simplified)."""
     # Event risk detector would need position_risks with proper structure
     # For now, test that the engine handles evaluation without errors
@@ -159,7 +160,7 @@ def test_earnings_event_risk_signal(risk_signal_engine):
     assert isinstance(signals, list)
 
 
-def test_get_stats(risk_signal_engine):
+def test_get_stats(risk_signal_engine: Any) -> None:
     """Test statistics tracking."""
     snapshot = RiskSnapshot(
         timestamp=datetime.now(),
@@ -181,7 +182,7 @@ def test_get_stats(risk_signal_engine):
     assert stats["total_evaluations"] >= 1
 
 
-def test_no_signals_healthy_portfolio(risk_signal_engine):
+def test_no_signals_healthy_portfolio(risk_signal_engine: Any) -> None:
     """Test no signals for healthy portfolio."""
     snapshot = RiskSnapshot(
         timestamp=datetime.now(),

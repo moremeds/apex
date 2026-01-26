@@ -9,6 +9,7 @@ Tests:
 """
 
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -113,7 +114,7 @@ class TestUniverseConfigValidation:
 
     def test_missing_version(self) -> None:
         """Test missing version field."""
-        config = {"defaults": {}, "groups": {}}
+        config: dict[str, Any] = {"defaults": {}, "groups": {}}
 
         result = validate_universe_config(config)
         assert result.valid is False

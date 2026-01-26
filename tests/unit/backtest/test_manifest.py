@@ -34,7 +34,7 @@ from src.backtest.core.verification import (
 class TestRunManifest:
     """Tests for RunManifest dataclass."""
 
-    def test_default_manifest(self):
+    def test_default_manifest(self) -> None:
         """Test creating a manifest with defaults."""
         manifest = RunManifest()
         assert manifest.manifest_version == MANIFEST_VERSION
@@ -42,7 +42,7 @@ class TestRunManifest:
         assert manifest.artifact_checksums == {}
         assert manifest.metrics_summary == {}
 
-    def test_manifest_with_values(self):
+    def test_manifest_with_values(self) -> None:
         """Test creating a manifest with specific values."""
         manifest = RunManifest(
             run_id="test-run-001",
@@ -61,7 +61,7 @@ class TestRunManifest:
         assert manifest.artifact_checksums["trades.parquet"] == "sha256:trades789"
         assert manifest.metrics_summary["sharpe"] == 1.5
 
-    def test_manifest_to_dict(self):
+    def test_manifest_to_dict(self) -> None:
         """Test manifest serialization to dict."""
         now = datetime.now()
         manifest = RunManifest(
@@ -79,7 +79,7 @@ class TestRunManifest:
         assert "artifact_checksums" in data
         assert "metrics_summary" in data
 
-    def test_manifest_from_dict(self):
+    def test_manifest_from_dict(self) -> None:
         """Test manifest deserialization from dict."""
         data = {
             "manifest_version": MANIFEST_VERSION,
@@ -104,7 +104,7 @@ class TestRunManifest:
         assert manifest.started_at == datetime.fromisoformat("2024-01-15T10:30:00")
         assert manifest.metrics_summary["cagr"] == 0.15
 
-    def test_manifest_save_and_load(self):
+    def test_manifest_save_and_load(self) -> None:
         """Test manifest save to file and load from file."""
         with tempfile.TemporaryDirectory() as tmpdir:
             manifest_path = Path(tmpdir) / "manifest.json"
@@ -122,7 +122,7 @@ class TestRunManifest:
             assert loaded.git_commit == original.git_commit
             assert loaded.metrics_summary == original.metrics_summary
 
-    def test_manifest_from_dict_with_none_dates(self):
+    def test_manifest_from_dict_with_none_dates(self) -> None:
         """Test manifest deserialization handles None dates."""
         data = {
             "run_id": "test-003",
@@ -139,7 +139,7 @@ class TestRunManifest:
 class TestChecksumFunctions:
     """Tests for SHA-256 checksum functions."""
 
-    def test_compute_sha256(self):
+    def test_compute_sha256(self) -> None:
         """Test SHA-256 computation for a file."""
         with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as f:
             f.write("test content for hashing")
@@ -153,7 +153,7 @@ class TestChecksumFunctions:
         finally:
             filepath.unlink()
 
-    def test_compute_sha256_deterministic(self):
+    def test_compute_sha256_deterministic(self) -> None:
         """Test that SHA-256 is deterministic for same content."""
         with tempfile.NamedTemporaryFile(mode="w", delete=False) as f:
             f.write("deterministic test")
@@ -167,7 +167,7 @@ class TestChecksumFunctions:
         finally:
             filepath.unlink()
 
-    def test_compute_data_fingerprint(self):
+    def test_compute_data_fingerprint(self) -> None:
         """Test data fingerprint computation."""
         data = {"key": "value", "number": 42}
 
@@ -176,7 +176,7 @@ class TestChecksumFunctions:
         assert fingerprint.startswith("sha256:")
         assert len(fingerprint) == 7 + 64
 
-    def test_compute_data_fingerprint_deterministic(self):
+    def test_compute_data_fingerprint_deterministic(self) -> None:
         """Test that fingerprint is deterministic (key order independent)."""
         data1 = {"a": 1, "b": 2}
         data2 = {"b": 2, "a": 1}
@@ -186,10 +186,10 @@ class TestChecksumFunctions:
 
         assert fp1 == fp2  # sort_keys=True ensures same hash
 
-    def test_generate_sha256sums(self):
+    def test_generate_sha256sums(self) -> None:
         """Test sha256sums.txt generation."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmpdir = Path(tmp_str)
 
             # Create test files
             (tmpdir / "file1.txt").write_text("content 1")
@@ -213,10 +213,10 @@ class TestChecksumFunctions:
 class TestVerification:
     """Tests for verification functions."""
 
-    def test_verify_checksums_pass(self):
+    def test_verify_checksums_pass(self) -> None:
         """Test checksum verification when all files match."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmpdir = Path(tmp_str)
 
             # Create file
             test_file = tmpdir / "test.txt"
@@ -230,10 +230,10 @@ class TestVerification:
             assert passed is True
             assert len(errors) == 0
 
-    def test_verify_checksums_fail_mismatch(self):
+    def test_verify_checksums_fail_mismatch(self) -> None:
         """Test checksum verification fails on mismatch."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmpdir = Path(tmp_str)
 
             # Create file
             test_file = tmpdir / "test.txt"
@@ -248,7 +248,7 @@ class TestVerification:
             assert len(errors) == 1
             assert "Checksum mismatch" in errors[0]
 
-    def test_verify_checksums_fail_missing(self):
+    def test_verify_checksums_fail_missing(self) -> None:
         """Test checksum verification fails when file missing."""
         with tempfile.TemporaryDirectory() as tmpdir:
             manifest = RunManifest(artifact_checksums={"nonexistent.txt": "sha256:abc123"})
@@ -258,10 +258,10 @@ class TestVerification:
             assert passed is False
             assert "Missing artifact" in errors[0]
 
-    def test_verify_sha256sums_pass(self):
+    def test_verify_sha256sums_pass(self) -> None:
         """Test sha256sums.txt verification passes."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmpdir = Path(tmp_str)
 
             # Create files and generate checksums
             (tmpdir / "file1.txt").write_text("content 1")
@@ -273,10 +273,10 @@ class TestVerification:
             assert passed is True
             assert len(errors) == 0
 
-    def test_verify_sha256sums_fail(self):
+    def test_verify_sha256sums_fail(self) -> None:
         """Test sha256sums.txt verification fails on tampering."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmpdir = Path(tmp_str)
 
             # Create file and generate checksums
             (tmpdir / "file1.txt").write_text("original content")
@@ -294,7 +294,7 @@ class TestVerification:
 class TestDualToleranceVerification:
     """Tests for dual tolerance metric verification (Go/No-Go Gate #7)."""
 
-    def test_verify_metrics_exact_match(self):
+    def test_verify_metrics_exact_match(self) -> None:
         """Test metrics verification with exact match."""
         manifest_metrics = {"sharpe": 1.5, "cagr": 0.12}
         computed_metrics = {"sharpe": 1.5, "cagr": 0.12}
@@ -304,7 +304,7 @@ class TestDualToleranceVerification:
         assert passed is True
         assert len(errors) == 0
 
-    def test_verify_metrics_within_abs_tol(self):
+    def test_verify_metrics_within_abs_tol(self) -> None:
         """Test metrics within absolute tolerance."""
         manifest_metrics = {"sharpe": 0.0}  # Near zero
         computed_metrics = {"sharpe": 5e-7}  # Within abs_tol=1e-6
@@ -315,7 +315,7 @@ class TestDualToleranceVerification:
 
         assert passed is True
 
-    def test_verify_metrics_within_rel_tol(self):
+    def test_verify_metrics_within_rel_tol(self) -> None:
         """Test metrics within relative tolerance."""
         manifest_metrics = {"cagr": 0.15}
         # rel_tol=1e-6, so tolerance = 1e-6 + 1e-6 * 0.15 = 1.15e-6
@@ -327,7 +327,7 @@ class TestDualToleranceVerification:
 
         assert passed is True
 
-    def test_verify_metrics_outside_tolerance(self):
+    def test_verify_metrics_outside_tolerance(self) -> None:
         """Test metrics verification fails outside tolerance."""
         manifest_metrics = {"sharpe": 1.5}
         computed_metrics = {"sharpe": 1.6}  # 0.1 diff >> tolerance
@@ -340,7 +340,7 @@ class TestDualToleranceVerification:
         assert len(errors) == 1
         assert "sharpe" in errors[0]
 
-    def test_verify_metrics_missing_computed(self):
+    def test_verify_metrics_missing_computed(self) -> None:
         """Test verification fails when computed metric missing."""
         manifest_metrics = {"sharpe": 1.5, "cagr": 0.12}
         computed_metrics = {"sharpe": 1.5}  # Missing cagr
@@ -350,7 +350,7 @@ class TestDualToleranceVerification:
         assert passed is False
         assert "Missing computed metric: cagr" in errors[0]
 
-    def test_dual_tolerance_formula(self):
+    def test_dual_tolerance_formula(self) -> None:
         """Test the dual tolerance formula explicitly.
 
         Formula: |computed - manifest| <= abs_tol + rel_tol * |manifest|
@@ -379,10 +379,10 @@ class TestDualToleranceVerification:
 class TestVerifyRunReproducibility:
     """Tests for complete run reproducibility verification."""
 
-    def test_verify_run_full_pass(self):
+    def test_verify_run_full_pass(self) -> None:
         """Test full run verification passes."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmpdir = Path(tmp_str)
 
             # Create artifacts
             (tmpdir / "trades.parquet").write_bytes(b"trade data")
@@ -413,10 +413,10 @@ class TestVerifyRunReproducibility:
             assert len(result.checksum_errors) == 0
             assert len(result.metric_errors) == 0
 
-    def test_verify_run_checksum_fail(self):
+    def test_verify_run_checksum_fail(self) -> None:
         """Test run verification fails on checksum error."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmpdir = Path(tmp_str)
 
             # Create artifact
             (tmpdir / "trades.parquet").write_bytes(b"original")
@@ -438,10 +438,10 @@ class TestVerifyRunReproducibility:
             assert result.passed is False
             assert len(result.checksum_errors) > 0
 
-    def test_verify_run_metric_fail(self):
+    def test_verify_run_metric_fail(self) -> None:
         """Test run verification fails on metric error."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmpdir = Path(tmp_str)
 
             manifest = RunManifest(
                 metrics_summary={"sharpe": 1.5},
@@ -457,10 +457,10 @@ class TestVerifyRunReproducibility:
             assert result.passed is False
             assert len(result.metric_errors) > 0
 
-    def test_verify_run_git_dirty_warning(self):
+    def test_verify_run_git_dirty_warning(self) -> None:
         """Test git dirty state produces warning."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmpdir = Path(tmp_str)
 
             manifest = RunManifest(git_dirty=True)
             manifest_path = tmpdir / "manifest.json"
@@ -474,7 +474,7 @@ class TestVerifyRunReproducibility:
 class TestVerificationResult:
     """Tests for VerificationResult dataclass."""
 
-    def test_verification_result_bool_pass(self):
+    def test_verification_result_bool_pass(self) -> None:
         """Test VerificationResult bool conversion (pass)."""
         result = VerificationResult(
             passed=True,
@@ -485,7 +485,7 @@ class TestVerificationResult:
 
         assert bool(result) is True
 
-    def test_verification_result_bool_fail(self):
+    def test_verification_result_bool_fail(self) -> None:
         """Test VerificationResult bool conversion (fail)."""
         result = VerificationResult(
             passed=False,
@@ -496,7 +496,7 @@ class TestVerificationResult:
 
         assert bool(result) is False
 
-    def test_verification_result_to_dict(self):
+    def test_verification_result_to_dict(self) -> None:
         """Test VerificationResult serialization."""
         result = VerificationResult(
             passed=True,
@@ -514,7 +514,7 @@ class TestVerificationResult:
 class TestHelperFunctions:
     """Tests for helper functions."""
 
-    def test_get_git_info(self):
+    def test_get_git_info(self) -> None:
         """Test git info retrieval."""
         info = get_git_info()
 
@@ -523,7 +523,7 @@ class TestHelperFunctions:
         assert "dirty" in info
         assert "branch" in info
 
-    def test_get_runner_info(self):
+    def test_get_runner_info(self) -> None:
         """Test runner info retrieval."""
         info = get_runner_info()
 
@@ -532,10 +532,10 @@ class TestHelperFunctions:
         assert "python_version" in info
         assert "pid" in info
 
-    def test_create_manifest(self):
+    def test_create_manifest(self) -> None:
         """Test manifest creation from artifacts directory."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmpdir = Path(tmp_str)
 
             # Create some artifacts
             (tmpdir / "trades.csv").write_text("trade data")

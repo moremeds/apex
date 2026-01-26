@@ -8,6 +8,8 @@ These tests verify the core invariants:
 - Invariant B: direction ↔ operator (structural, not text-based)
 """
 
+from typing import Any
+
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
@@ -37,7 +39,7 @@ safe_floats = st.floats(min_value=-1e6, max_value=1e6, allow_nan=False, allow_in
 class TestEvalConditionBasic:
     """Basic unit tests for eval_condition()."""
 
-    def test_greater_than_passed(self):
+    def test_greater_than_passed(self) -> None:
         """Test > operator when condition passes."""
         result = eval_condition("close", 80.0, 70.0, ">", "$")
         assert result.passed is True
@@ -45,21 +47,21 @@ class TestEvalConditionBasic:
         assert result.direction == "increase"
         assert result.rendered_op == "above"
 
-    def test_greater_than_failed(self):
+    def test_greater_than_failed(self) -> None:
         """Test > operator when condition fails."""
         result = eval_condition("close", 60.0, 70.0, ">", "$")
         assert result.passed is False
         assert result.gap == 10.0  # 70 - 60 = 10 (positive = need to increase)
         assert result.direction == "increase"
 
-    def test_greater_equal_at_threshold(self):
+    def test_greater_equal_at_threshold(self) -> None:
         """Test >= operator at exactly threshold."""
         result = eval_condition("pctile", 70.0, 70.0, ">=", "%")
         assert result.passed is True
         assert result.gap == 0.0  # At threshold
         assert result.direction == "increase"
 
-    def test_less_than_passed(self):
+    def test_less_than_passed(self) -> None:
         """Test < operator when condition passes."""
         result = eval_condition("chop_pct", 60.0, 70.0, "<", "%")
         assert result.passed is True
@@ -67,26 +69,26 @@ class TestEvalConditionBasic:
         assert result.direction == "decrease"
         assert result.rendered_op == "below"
 
-    def test_less_than_failed(self):
+    def test_less_than_failed(self) -> None:
         """Test < operator when condition fails."""
         result = eval_condition("chop_pct", 80.0, 70.0, "<", "%")
         assert result.passed is False
         assert result.gap == 10.0  # 80 - 70 = 10 (positive = need to decrease)
         assert result.direction == "decrease"
 
-    def test_less_equal_at_threshold(self):
+    def test_less_equal_at_threshold(self) -> None:
         """Test <= operator at exactly threshold."""
         result = eval_condition("ext", -2.0, -2.0, "<=", " ATR")
         assert result.passed is True
         assert result.gap == 0.0  # At threshold
         assert result.direction == "decrease"
 
-    def test_equality_operator_rejected(self):
+    def test_equality_operator_rejected(self) -> None:
         """Test that == operator is explicitly rejected."""
         with pytest.raises(ValueError, match="Unsupported operator"):
             eval_condition("metric", 70.0, 70.0, "==")
 
-    def test_invalid_operator_rejected(self):
+    def test_invalid_operator_rejected(self) -> None:
         """Test that invalid operators are rejected."""
         with pytest.raises(ValueError, match="Unsupported operator"):
             eval_condition("metric", 70.0, 70.0, "!=")
@@ -118,7 +120,7 @@ class TestEvalConditionTestMatrix:
     )
     def test_matrix(
         self, current, threshold, operator, expected_passed, expected_gap, expected_direction
-    ):
+    ) -> None:
         """Test the complete matrix from the plan."""
         result = eval_condition("metric", current, threshold, operator)
         assert result.passed == expected_passed
@@ -131,7 +133,7 @@ class TestEvalConditionTestMatrix:
         else:
             assert result.gap > 0, f"Invariant A violated: passed=False but gap={result.gap}"
 
-    def test_strict_inequality_at_threshold(self):
+    def test_strict_inequality_at_threshold(self) -> None:
         """
         Edge case: current == threshold with strict operators (> or <).
 
@@ -165,7 +167,7 @@ class TestInvariantAProperty:
 
     @given(current=safe_floats, threshold=safe_floats)
     @settings(max_examples=200)
-    def test_invariant_a_for_greater_than(self, current, threshold):
+    def test_invariant_a_for_greater_than(self, current: Any, threshold: Any) -> None:
         """Invariant A: passed ↔ gap sign consistency for > operator."""
         result = eval_condition("metric", current, threshold, ">")
         if result.passed:
@@ -175,7 +177,7 @@ class TestInvariantAProperty:
 
     @given(current=safe_floats, threshold=safe_floats)
     @settings(max_examples=200)
-    def test_invariant_a_for_greater_equal(self, current, threshold):
+    def test_invariant_a_for_greater_equal(self, current: Any, threshold: Any) -> None:
         """Invariant A: passed ↔ gap sign consistency for >= operator."""
         result = eval_condition("metric", current, threshold, ">=")
         if result.passed:
@@ -185,7 +187,7 @@ class TestInvariantAProperty:
 
     @given(current=safe_floats, threshold=safe_floats)
     @settings(max_examples=200)
-    def test_invariant_a_for_less_than(self, current, threshold):
+    def test_invariant_a_for_less_than(self, current: Any, threshold: Any) -> None:
         """Invariant A: passed ↔ gap sign consistency for < operator."""
         result = eval_condition("metric", current, threshold, "<")
         if result.passed:
@@ -195,7 +197,7 @@ class TestInvariantAProperty:
 
     @given(current=safe_floats, threshold=safe_floats)
     @settings(max_examples=200)
-    def test_invariant_a_for_less_equal(self, current, threshold):
+    def test_invariant_a_for_less_equal(self, current: Any, threshold: Any) -> None:
         """Invariant A: passed ↔ gap sign consistency for <= operator."""
         result = eval_condition("metric", current, threshold, "<=")
         if result.passed:
@@ -218,7 +220,9 @@ class TestInvariantBProperty:
         op=st.sampled_from(["<", "<=", ">", ">="]),
     )
     @settings(max_examples=300)
-    def test_invariant_b_direction_matches_operator(self, current, threshold, op):
+    def test_invariant_b_direction_matches_operator(
+        self, current: Any, threshold: Any, op: Any
+    ) -> None:
         """Invariant B: direction ↔ operator (structural)."""
         result = eval_condition("metric", current, threshold, op)
         if op in (">", ">="):
@@ -236,7 +240,7 @@ class TestGapSemantics:
 
     @given(current=safe_floats, threshold=safe_floats)
     @settings(max_examples=200)
-    def test_gap_formula_for_greater_operators(self, current, threshold):
+    def test_gap_formula_for_greater_operators(self, current: Any, threshold: Any) -> None:
         """
         For > or >=: gap = threshold - current.
 
@@ -257,7 +261,7 @@ class TestGapSemantics:
 
     @given(current=safe_floats, threshold=safe_floats)
     @settings(max_examples=200)
-    def test_gap_formula_for_less_operators(self, current, threshold):
+    def test_gap_formula_for_less_operators(self, current: Any, threshold: Any) -> None:
         """
         For < or <=: gap = current - threshold.
 
@@ -285,7 +289,7 @@ class TestGapSemantics:
 class TestEvalResultConstruction:
     """Test EvalResult invariant enforcement on construction."""
 
-    def test_valid_passed_with_negative_gap(self):
+    def test_valid_passed_with_negative_gap(self) -> None:
         """Valid: passed=True with gap <= 0."""
         result = EvalResult(
             passed=True,
@@ -299,7 +303,7 @@ class TestEvalResultConstruction:
         assert result.passed is True
         assert result.gap == -10.0
 
-    def test_valid_passed_with_zero_gap(self):
+    def test_valid_passed_with_zero_gap(self) -> None:
         """Valid: passed=True with gap = 0 (at threshold for >= or <=)."""
         result = EvalResult(
             passed=True,
@@ -313,7 +317,7 @@ class TestEvalResultConstruction:
         assert result.passed is True
         assert result.gap == 0.0
 
-    def test_valid_failed_with_positive_gap(self):
+    def test_valid_failed_with_positive_gap(self) -> None:
         """Valid: passed=False with gap > 0."""
         result = EvalResult(
             passed=False,
@@ -327,7 +331,7 @@ class TestEvalResultConstruction:
         assert result.passed is False
         assert result.gap == 10.0
 
-    def test_invalid_passed_with_positive_gap_raises(self):
+    def test_invalid_passed_with_positive_gap_raises(self) -> None:
         """Invalid: passed=True with gap > 0 should raise."""
         with pytest.raises(ValueError, match="Invariant A violated"):
             EvalResult(
@@ -340,7 +344,7 @@ class TestEvalResultConstruction:
                 threshold=70.0,
             )
 
-    def test_invalid_failed_with_negative_gap_raises(self):
+    def test_invalid_failed_with_negative_gap_raises(self) -> None:
         """Invalid: passed=False with gap < 0 should raise."""
         with pytest.raises(ValueError, match="Invariant A violated"):
             EvalResult(
@@ -353,7 +357,7 @@ class TestEvalResultConstruction:
                 threshold=70.0,
             )
 
-    def test_invalid_failed_with_zero_gap_raises(self):
+    def test_invalid_failed_with_zero_gap_raises(self) -> None:
         """Invalid: passed=False with gap = 0 should raise."""
         with pytest.raises(ValueError, match="Invariant A violated"):
             EvalResult(
@@ -370,7 +374,7 @@ class TestEvalResultConstruction:
 class TestEvalResultFormatting:
     """Test EvalResult formatting methods."""
 
-    def test_format_comparison_pass(self):
+    def test_format_comparison_pass(self) -> None:
         """Test format_comparison for passing condition."""
         result = eval_condition("close", 80.0, 70.0, ">", "$")
         formatted = result.format_comparison()
@@ -380,20 +384,20 @@ class TestEvalResultFormatting:
         assert "70.00$" in formatted
         assert "PASS" in formatted
 
-    def test_format_comparison_fail(self):
+    def test_format_comparison_fail(self) -> None:
         """Test format_comparison for failing condition."""
         result = eval_condition("close", 60.0, 70.0, ">", "$")
         formatted = result.format_comparison()
         assert "FAIL" in formatted
 
-    def test_format_counterfactual_for_failed(self):
+    def test_format_counterfactual_for_failed(self) -> None:
         """Test format_counterfactual for failed condition."""
         result = eval_condition("close", 60.0, 70.0, ">", "$")
         formatted = result.format_counterfactual()
         assert "increase" in formatted
         assert "10.00$" in formatted
 
-    def test_format_counterfactual_for_passed(self):
+    def test_format_counterfactual_for_passed(self) -> None:
         """Test format_counterfactual for passed condition."""
         result = eval_condition("close", 80.0, 70.0, ">", "$")
         formatted = result.format_counterfactual()
@@ -408,7 +412,7 @@ class TestEvalResultFormatting:
 class TestThresholdInfoFromEvalResult:
     """Test ThresholdInfo.from_eval_result() conversion."""
 
-    def test_from_eval_result_preserves_fields(self):
+    def test_from_eval_result_preserves_fields(self) -> None:
         """Test that from_eval_result preserves all fields."""
         eval_result = eval_condition("atr_pct", 60.0, 80.0, ">=", "%")
         ti = ThresholdInfo.from_eval_result(eval_result)
@@ -431,7 +435,7 @@ class TestThresholdInfoFromEvalResult:
 class TestCounterfactualGeneration:
     """Test counterfactual generation functions."""
 
-    def test_generate_counterfactual_filters_by_passed(self):
+    def test_generate_counterfactual_filters_by_passed(self) -> None:
         """Test that generate_counterfactual only includes failed conditions."""
         # Create rule traces with mixed passed/failed
         passed_result = eval_condition("metric1", 80.0, 70.0, ">")
@@ -464,7 +468,7 @@ class TestCounterfactualGeneration:
         assert len(result) == 1
         assert result[0].metric_name == "metric2"
 
-    def test_generate_counterfactual_v2_returns_eval_results(self):
+    def test_generate_counterfactual_v2_returns_eval_results(self) -> None:
         """Test that generate_counterfactual_v2 returns EvalResult objects."""
         failed_result = eval_condition("metric", 60.0, 70.0, ">")
 
@@ -486,7 +490,7 @@ class TestCounterfactualGeneration:
         assert isinstance(result[0], EvalResult)
         assert result[0].metric_name == "metric"
 
-    def test_generate_counterfactual_sorts_by_gap(self):
+    def test_generate_counterfactual_sorts_by_gap(self) -> None:
         """Test that results are sorted by gap (smallest first)."""
         result1 = eval_condition("metric1", 60.0, 70.0, ">")  # gap = 10
         result2 = eval_condition("metric2", 65.0, 70.0, ">")  # gap = 5

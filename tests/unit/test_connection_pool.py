@@ -23,7 +23,7 @@ from src.infrastructure.adapters.ib.connection_pool import (
 class TestConnectionPoolConfig:
     """Configuration behavior."""
 
-    def test_default_config(self):
+    def test_default_config(self) -> None:
         """Default config has sensible values."""
         config = ConnectionPoolConfig()
 
@@ -32,7 +32,7 @@ class TestConnectionPoolConfig:
         assert config.connect_timeout == 10
         assert config.client_ids is not None
 
-    def test_custom_config(self):
+    def test_custom_config(self) -> None:
         """Custom config values are preserved."""
         client_ids = IbClientIdsConfig(
             monitoring=10,
@@ -56,7 +56,7 @@ class TestConnectionPoolConfig:
 class TestPoolInitialization:
     """Pool initialization."""
 
-    def test_pool_starts_disconnected(self):
+    def test_pool_starts_disconnected(self) -> None:
         """Pool starts in disconnected state."""
         config = ConnectionPoolConfig()
         pool = IbConnectionPool(config)
@@ -66,7 +66,7 @@ class TestPoolInitialization:
         assert pool.is_historical_connected() is False
         assert pool.is_execution_connected() is False
 
-    def test_properties_return_none_when_disconnected(self):
+    def test_properties_return_none_when_disconnected(self) -> None:
         """Connection properties return None when not connected."""
         config = ConnectionPoolConfig()
         pool = IbConnectionPool(config)
@@ -79,7 +79,7 @@ class TestPoolInitialization:
 class TestConnectionStatus:
     """Connection status tracking."""
 
-    def test_is_connected_requires_all_connections(self):
+    def test_is_connected_requires_all_connections(self) -> None:
         """is_connected() returns True only when all connections are alive."""
         config = ConnectionPoolConfig()
         pool = IbConnectionPool(config)
@@ -100,7 +100,7 @@ class TestConnectionStatus:
 
         assert pool.is_connected() is True
 
-    def test_is_connected_false_if_any_disconnected(self):
+    def test_is_connected_false_if_any_disconnected(self) -> None:
         """is_connected() returns False if any connection is down."""
         config = ConnectionPoolConfig()
         pool = IbConnectionPool(config)
@@ -120,7 +120,7 @@ class TestConnectionStatus:
 
         assert pool.is_connected() is False
 
-    def test_individual_connection_status_checks(self):
+    def test_individual_connection_status_checks(self) -> None:
         """Individual connection status methods work correctly."""
         config = ConnectionPoolConfig()
         pool = IbConnectionPool(config)
@@ -145,7 +145,7 @@ class TestConnectionStatus:
 class TestExecutionConnection:
     """A4: Execution connection tests."""
 
-    def test_execution_property_exists(self):
+    def test_execution_property_exists(self) -> None:
         """Execution property is available (A4)."""
         config = ConnectionPoolConfig()
         pool = IbConnectionPool(config)
@@ -156,7 +156,7 @@ class TestExecutionConnection:
         assert hasattr(pool, "connect_execution")
         assert hasattr(pool, "ensure_execution_connected")
 
-    def test_execution_connection_isolation(self):
+    def test_execution_connection_isolation(self) -> None:
         """Execution connection is separate from data connections."""
         config = ConnectionPoolConfig()
         pool = IbConnectionPool(config)
@@ -178,7 +178,7 @@ class TestExecutionConnection:
 class TestGetStatus:
     """Status reporting."""
 
-    def test_get_status_returns_all_connection_info(self):
+    def test_get_status_returns_all_connection_info(self) -> None:
         """get_status() includes all connection details."""
         client_ids = IbClientIdsConfig(
             monitoring=1,
@@ -204,7 +204,7 @@ class TestGetStatus:
         assert status["host"] == "localhost"
         assert status["port"] == 7497
 
-    def test_get_status_includes_client_ids(self):
+    def test_get_status_includes_client_ids(self) -> None:
         """Status includes client IDs for each connection."""
         client_ids = IbClientIdsConfig(
             monitoring=10,
@@ -220,7 +220,7 @@ class TestGetStatus:
         assert status["execution"]["client_id"] == 11
         assert status["historical"]["client_id"] == 20
 
-    def test_get_status_shows_connected_state(self):
+    def test_get_status_shows_connected_state(self) -> None:
         """Status shows connection state for each connection type."""
         config = ConnectionPoolConfig()
         pool = IbConnectionPool(config)
@@ -244,7 +244,7 @@ class TestDisconnect:
     """Disconnect behavior."""
 
     @pytest.mark.asyncio
-    async def test_disconnect_cleans_up_all_connections(self):
+    async def test_disconnect_cleans_up_all_connections(self) -> None:
         """disconnect() cleans up all IB instances."""
         config = ConnectionPoolConfig()
         pool = IbConnectionPool(config)
@@ -270,7 +270,7 @@ class TestDisconnect:
         assert pool._connected is False
 
     @pytest.mark.asyncio
-    async def test_disconnect_handles_missing_connections(self):
+    async def test_disconnect_handles_missing_connections(self) -> None:
         """disconnect() handles None connections gracefully."""
         config = ConnectionPoolConfig()
         pool = IbConnectionPool(config)
@@ -285,7 +285,7 @@ class TestConnectMethods:
     """Connect method structure (without actual IB)."""
 
     @pytest.mark.asyncio
-    async def test_connect_execution_does_nothing_when_already_connected(self):
+    async def test_connect_execution_does_nothing_when_already_connected(self) -> None:
         """connect_execution() no-ops if already connected."""
         config = ConnectionPoolConfig()
         pool = IbConnectionPool(config)
@@ -301,7 +301,7 @@ class TestConnectMethods:
         assert pool._execution is mock_exec
 
     @pytest.mark.asyncio
-    async def test_ensure_execution_connected_calls_connect_when_needed(self):
+    async def test_ensure_execution_connected_calls_connect_when_needed(self) -> None:
         """ensure_execution_connected() connects if not connected."""
         config = ConnectionPoolConfig()
         pool = IbConnectionPool(config)
@@ -314,7 +314,7 @@ class TestConnectMethods:
         pool.connect_execution.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_ensure_execution_connected_skips_when_connected(self):
+    async def test_ensure_execution_connected_skips_when_connected(self) -> None:
         """ensure_execution_connected() skips if already connected."""
         config = ConnectionPoolConfig()
         pool = IbConnectionPool(config)

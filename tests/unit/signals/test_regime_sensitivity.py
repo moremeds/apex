@@ -182,9 +182,9 @@ def load_price_data(
 ) -> Optional[pd.DataFrame]:
     """Load historical price data for symbol."""
     try:
-        from src.infrastructure.adapters.yahoo.yahoo_adapter import YahooMarketDataAdapter
+        from src.infrastructure.adapters.yahoo.adapter import YahooFinanceAdapter
 
-        adapter = YahooMarketDataAdapter()
+        adapter = YahooFinanceAdapter()
 
         # Need extra history for regime calculation
         extended_start = start_date - timedelta(days=300)

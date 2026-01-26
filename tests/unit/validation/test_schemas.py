@@ -1,5 +1,7 @@
 """Tests for Output JSON Schemas."""
 
+from typing import Any
+
 import pytest
 
 from src.domain.signals.validation.confirmation import ConfirmationResult, StrategyMetrics
@@ -20,7 +22,7 @@ from src.domain.signals.validation.statistics import StatisticalResult
 class TestHorizonConfig:
     """Tests for HorizonConfig."""
 
-    def test_to_dict(self):
+    def test_to_dict(self) -> None:
         """Test serialization."""
         cfg = HorizonConfig(
             horizon_calendar_days=20,
@@ -38,7 +40,7 @@ class TestHorizonConfig:
 class TestLabelerThreshold:
     """Tests for LabelerThreshold."""
 
-    def test_to_dict(self):
+    def test_to_dict(self) -> None:
         """Test serialization."""
         t = LabelerThreshold(
             version="v1.0",
@@ -57,7 +59,7 @@ class TestLabelerThreshold:
 class TestSplitConfig:
     """Tests for SplitConfig."""
 
-    def test_to_dict(self):
+    def test_to_dict(self) -> None:
         """Test serialization."""
         cfg = SplitConfig(
             outer_folds=5,
@@ -75,7 +77,7 @@ class TestSplitConfig:
 class TestBarValidation:
     """Tests for BarValidation."""
 
-    def test_to_dict(self):
+    def test_to_dict(self) -> None:
         """Test serialization."""
         bv = BarValidation(
             requested_bars=350,
@@ -96,7 +98,7 @@ class TestBarValidation:
 class TestGateResult:
     """Tests for GateResult."""
 
-    def test_to_dict(self):
+    def test_to_dict(self) -> None:
         """Test serialization."""
         g = GateResult(
             gate_name="trending_r0",
@@ -116,7 +118,7 @@ class TestGateResult:
 class TestValidationOutput:
     """Tests for ValidationOutput."""
 
-    def test_default_values(self):
+    def test_default_values(self) -> None:
         """Test default values."""
         vo = ValidationOutput()
 
@@ -125,7 +127,7 @@ class TestValidationOutput:
         assert vo.all_gates_passed is False
         assert len(vo.training_symbols) == 0
 
-    def test_to_dict_minimal(self):
+    def test_to_dict_minimal(self) -> None:
         """Test serialization with minimal data."""
         vo = ValidationOutput(mode="fast")
 
@@ -136,7 +138,7 @@ class TestValidationOutput:
         assert "generated_at" in d
         assert "universe" in d
 
-    def test_to_dict_with_gates(self):
+    def test_to_dict_with_gates(self) -> None:
         """Test serialization with gate results."""
         vo = ValidationOutput(
             mode="fast",
@@ -155,7 +157,7 @@ class TestValidationOutput:
 class TestCreateFastValidationOutput:
     """Tests for create_fast_validation_output."""
 
-    def test_all_gates_pass(self):
+    def test_all_gates_pass(self) -> None:
         """Test when all gates pass."""
         vo = create_fast_validation_output(
             trending_r0_rate=0.75,
@@ -169,7 +171,7 @@ class TestCreateFastValidationOutput:
         assert len(vo.gate_results) == 3
         assert vo.training_symbols == ["AAPL", "MSFT"]
 
-    def test_trending_r0_fails(self):
+    def test_trending_r0_fails(self) -> None:
         """Test when trending R0 gate fails."""
         vo = create_fast_validation_output(
             trending_r0_rate=0.40,  # Below 0.50
@@ -182,7 +184,7 @@ class TestCreateFastValidationOutput:
         trending_gate = next(g for g in vo.gate_results if g.gate_name == "trending_r0")
         assert trending_gate.passed is False
 
-    def test_choppy_r0_fails(self):
+    def test_choppy_r0_fails(self) -> None:
         """Test when choppy R0 gate fails."""
         vo = create_fast_validation_output(
             trending_r0_rate=0.75,
@@ -195,7 +197,7 @@ class TestCreateFastValidationOutput:
         choppy_gate = next(g for g in vo.gate_results if g.gate_name == "choppy_r0")
         assert choppy_gate.passed is False
 
-    def test_causality_fails(self):
+    def test_causality_fails(self) -> None:
         """Test when causality gate fails."""
         vo = create_fast_validation_output(
             trending_r0_rate=0.75,
@@ -252,7 +254,9 @@ class TestCreateFullValidationOutput:
             embargo_bars_by_tf={"1d": 10},
         )
 
-    def test_all_gates_pass(self, good_statistical_result, horizon_config, split_config):
+    def test_all_gates_pass(
+        self, good_statistical_result: Any, horizon_config: Any, split_config: Any
+    ) -> None:
         """Test when all gates pass."""
         earliness = {
             "4h_vs_1d": EarlinessResult(
@@ -315,7 +319,7 @@ class TestCreateFullValidationOutput:
         assert vo.all_gates_passed is True
         assert len(vo.gate_results) >= 6  # At least 4 statistical + 2 earliness + 2 confirmation
 
-    def test_statistical_failure(self, horizon_config, split_config):
+    def test_statistical_failure(self, horizon_config: Any, split_config: Any) -> None:
         """Test when statistical gates fail."""
         bad_stats = StatisticalResult(
             n_trending_symbols=70,

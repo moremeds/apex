@@ -2,6 +2,8 @@
 Unit tests for StrategyDetector - Multi-leg strategy detection.
 """
 
+from typing import Any
+
 import pytest
 
 from src.domain.services.strategy_detector import StrategyDetector
@@ -14,7 +16,7 @@ def detector():
     return StrategyDetector()
 
 
-def test_vertical_call_spread_detection(detector):
+def test_vertical_call_spread_detection(detector: Any) -> None:
     """Test detection of vertical call spread."""
     positions = [
         # Long 100 call
@@ -52,7 +54,7 @@ def test_vertical_call_spread_detection(detector):
     assert len(strategies[0].positions) == 2
 
 
-def test_covered_call_detection(detector):
+def test_covered_call_detection(detector: Any) -> None:
     """Test detection of covered call strategy."""
     positions = [
         # Long stock
@@ -86,7 +88,7 @@ def test_covered_call_detection(detector):
     assert strategies[0].is_credit is True
 
 
-def test_diagonal_spread_detection(detector):
+def test_diagonal_spread_detection(detector: Any) -> None:
     """Test detection of diagonal spread."""
     positions = [
         # Long far-dated call
@@ -122,7 +124,7 @@ def test_diagonal_spread_detection(detector):
     assert strategies[0].underlying == "NVDA"
 
 
-def test_calendar_spread_detection(detector):
+def test_calendar_spread_detection(detector: Any) -> None:
     """Test detection of calendar spread (same strike, different expiry)."""
     positions = [
         # Long far-dated call
@@ -159,7 +161,7 @@ def test_calendar_spread_detection(detector):
     assert strategies[0].metadata["is_calendar"] is True
 
 
-def test_iron_condor_detection(detector):
+def test_iron_condor_detection(detector: Any) -> None:
     """Test detection of iron condor."""
     positions = [
         # Put spread (lower strikes)
@@ -219,7 +221,7 @@ def test_iron_condor_detection(detector):
     assert iron_condors[0].is_credit is True
 
 
-def test_no_strategy_single_position(detector):
+def test_no_strategy_single_position(detector: Any) -> None:
     """Test no strategy detected for single position."""
     positions = [
         Position(
@@ -240,7 +242,7 @@ def test_no_strategy_single_position(detector):
     assert len(strategies) == 0
 
 
-def test_multiple_underlyings(detector):
+def test_multiple_underlyings(detector: Any) -> None:
     """Test detection across multiple underlyings."""
     positions = [
         # TSLA vertical spread

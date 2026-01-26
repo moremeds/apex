@@ -21,7 +21,88 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
+
+# =============================================================================
+# ETF Configuration - Single Source of Truth
+# =============================================================================
+# All ETF lists are derived from this config to prevent drift across modules.
+
+ETF_CONFIG: Dict[str, Dict[str, Any]] = {
+    "market_indices": {
+        "name": "Market Indices",
+        "symbols": ["SPY", "QQQ", "IWM", "DIA"],
+        "card_style": "large",  # 4 columns grid
+    },
+    "commodities": {
+        "name": "Commodities & Safe Haven",
+        "symbols": ["GLD", "SLV"],
+        "card_style": "compact",  # Inline display
+    },
+    "fixed_income": {
+        "name": "Fixed Income",
+        "symbols": ["TLT"],
+        "card_style": "compact",
+    },
+    "volatility": {
+        "name": "Volatility",
+        "symbols": ["UVXY"],
+        "card_style": "compact",
+    },
+    "sectors": {
+        "name": "Sector ETFs",
+        "symbols": [
+            "XLK",
+            "XLF",
+            "XLV",
+            "XLP",
+            "XLE",
+            "XLI",
+            "XLB",
+            "XLRE",
+            "XLU",
+            "XLC",
+            "XLY",
+            "SMH",
+        ],
+        "card_style": "mini",  # 6+ columns grid
+    },
+}
+
+# Derived sets for quick lookup (computed once at module load)
+ALL_DASHBOARD_ETFS: Set[str] = {s for cat in ETF_CONFIG.values() for s in cat["symbols"]}
+
+# Sector ETF display names (for dashboard cards)
+SECTOR_ETF_NAMES: Dict[str, str] = {
+    "XLK": "Technology",
+    "XLC": "Communication",
+    "XLY": "Cons. Disc.",
+    "XLF": "Financials",
+    "XLV": "Healthcare",
+    "XLP": "Cons. Staples",
+    "XLE": "Energy",
+    "XLI": "Industrials",
+    "XLB": "Materials",
+    "XLRE": "Real Estate",
+    "XLU": "Utilities",
+    "SMH": "Semiconductors",
+}
+
+# Market ETF display names
+MARKET_ETF_NAMES: Dict[str, str] = {
+    "SPY": "S&P 500",
+    "QQQ": "NASDAQ 100",
+    "IWM": "Russell 2000",
+    "DIA": "Dow Jones",
+}
+
+# Non-sector ETF display names
+OTHER_ETF_NAMES: Dict[str, str] = {
+    "GLD": "Gold",
+    "SLV": "Silver",
+    "TLT": "Long Treasury",
+    "UVXY": "VIX Short",
+}
 
 
 class RegimeColor(Enum):
@@ -123,6 +204,43 @@ class SectorGroup:
 
 
 @dataclass
+class ETFCardData:
+    """
+    Data for a single ETF card in the dashboard.
+
+    Used by the ETF dashboard to render cards with regime, price, and daily change.
+    """
+
+    symbol: str
+    display_name: str  # From MarketCapService.short_name or fallback
+    category: str  # Category key from ETF_CONFIG (e.g., "market_indices", "sectors")
+
+    # Regime info
+    regime: Optional[str] = None  # R0/R1/R2/R3
+    regime_name: Optional[str] = None  # "Healthy Uptrend", etc.
+
+    # Price info
+    close_price: Optional[float] = None
+    daily_change_pct: Optional[float] = None
+
+    # Navigation
+    report_url: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize for JSON/frontend."""
+        return {
+            "symbol": self.symbol,
+            "display_name": self.display_name,
+            "category": self.category,
+            "regime": self.regime,
+            "regime_name": self.regime_name,
+            "close_price": self.close_price,
+            "daily_change_pct": self.daily_change_pct,
+            "report_url": self.report_url,
+        }
+
+
+@dataclass
 class HeatmapModel:
     """
     Complete heatmap data model.
@@ -131,22 +249,21 @@ class HeatmapModel:
     the input to render_heatmap_html().
 
     Hierarchy:
-        market_etfs (SPY, QQQ, IWM, DIA)
-        sector_etfs (XLK, XLF, XLV, ...)
-        stocks_by_sector {
-            "XLK": [AAPL, MSFT, NVDA, ...],
-            "XLF": [JPM, BAC, GS, ...],
-            ...
-        }
+        etf_dashboard: Card grid showing ALL ETFs (above treemap)
+        stocks-only treemap: Only individual stocks by sector
     """
 
-    # Top-level market ETFs
+    # ETF Dashboard: Card data organized by category
+    # Keys match ETF_CONFIG categories: "market_indices", "commodities", etc.
+    etf_dashboard: Dict[str, List[ETFCardData]] = field(default_factory=dict)
+
+    # Legacy: Top-level market ETFs (kept for backward compat with treemap)
     market_etfs: List[TreemapNode] = field(default_factory=list)
 
-    # Sector ETFs (11 sectors)
+    # Legacy: Sector ETFs (kept for backward compat)
     sector_etfs: List[TreemapNode] = field(default_factory=list)
 
-    # Stocks grouped by sector
+    # Stocks grouped by sector (no ETFs in treemap)
     sectors: List[SectorGroup] = field(default_factory=list)
 
     # Metadata
@@ -162,6 +279,9 @@ class HeatmapModel:
     def to_dict(self) -> Dict[str, Any]:
         """Serialize for JSON."""
         return {
+            "etf_dashboard": {
+                cat: [c.to_dict() for c in cards] for cat, cards in self.etf_dashboard.items()
+            },
             "market_etfs": [e.to_dict() for e in self.market_etfs],
             "sector_etfs": [e.to_dict() for e in self.sector_etfs],
             "sectors": [s.to_dict() for s in self.sectors],
@@ -174,10 +294,9 @@ class HeatmapModel:
         }
 
     def get_all_nodes(self) -> List[TreemapNode]:
-        """Get all nodes for Plotly treemap rendering."""
+        """Get all nodes for Plotly treemap rendering (stocks only, no ETFs)."""
         nodes = []
-        nodes.extend(self.market_etfs)
-        nodes.extend(self.sector_etfs)
+        # NOTE: Removed market_etfs and sector_etfs - treemap is stocks-only now
         for sector in self.sectors:
             nodes.extend(sector.stocks)
         return nodes
@@ -198,8 +317,9 @@ SECTOR_MAPPING: Dict[str, tuple] = {
     "XLU": ("Utilities", "55"),
 }
 
-# Market ETF list
-MARKET_ETFS = ["SPY", "QQQ", "IWM", "DIA"]
+# Derived from ETF_CONFIG for backward compatibility
+MARKET_ETFS: List[str] = ETF_CONFIG["market_indices"]["symbols"]
+SECTOR_ETFS: Set[str] = set(ETF_CONFIG["sectors"]["symbols"])
 
 
 def get_regime_color(regime: Optional[str]) -> str:

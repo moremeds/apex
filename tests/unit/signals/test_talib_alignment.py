@@ -15,6 +15,8 @@ Tolerance Strategy:
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -64,7 +66,7 @@ class TestRSIAlignment:
         registry = get_indicator_registry()
         return registry.get("rsi")
 
-    def test_rsi_14_alignment(self, sample_ohlcv: pd.DataFrame, apex_rsi):
+    def test_rsi_14_alignment(self, sample_ohlcv: pd.DataFrame, apex_rsi: Any) -> None:
         """Test RSI(14) alignment with TA-Lib."""
         if apex_rsi is None:
             pytest.skip("RSI indicator not registered")
@@ -107,7 +109,7 @@ class TestMACDAlignment:
         registry = get_indicator_registry()
         return registry.get("macd")
 
-    def test_macd_alignment(self, sample_ohlcv: pd.DataFrame, apex_macd):
+    def test_macd_alignment(self, sample_ohlcv: pd.DataFrame, apex_macd: Any) -> None:
         """Test MACD(12, 26, 9) alignment with TA-Lib."""
         if apex_macd is None:
             pytest.skip("MACD indicator not registered")
@@ -171,7 +173,7 @@ class TestADXAlignment:
         registry = get_indicator_registry()
         return registry.get("adx")
 
-    def test_adx_14_alignment(self, sample_ohlcv: pd.DataFrame, apex_adx):
+    def test_adx_14_alignment(self, sample_ohlcv: pd.DataFrame, apex_adx: Any) -> None:
         """Test ADX(14) alignment with TA-Lib."""
         if apex_adx is None:
             pytest.skip("ADX indicator not registered")
@@ -215,7 +217,7 @@ class TestATRAlignment:
         registry = get_indicator_registry()
         return registry.get("atr")
 
-    def test_atr_14_alignment(self, sample_ohlcv: pd.DataFrame, apex_atr):
+    def test_atr_14_alignment(self, sample_ohlcv: pd.DataFrame, apex_atr: Any) -> None:
         """Test ATR(14) alignment with TA-Lib."""
         if apex_atr is None:
             pytest.skip("ATR indicator not registered")
@@ -268,7 +270,7 @@ class TestSMAAlignment:
         return registry.get("sma")
 
     @pytest.mark.parametrize("period", [10, 20, 50])
-    def test_sma_alignment(self, sample_ohlcv: pd.DataFrame, apex_sma, period: int):
+    def test_sma_alignment(self, sample_ohlcv: pd.DataFrame, apex_sma: Any, period: int) -> None:
         """Test SMA alignment with TA-Lib for various periods."""
         if apex_sma is None:
             pytest.skip("SMA indicator not registered")
@@ -316,7 +318,7 @@ class TestEMAAlignment:
         return registry.get("ema")
 
     @pytest.mark.parametrize("period", [12, 26])
-    def test_ema_alignment(self, sample_ohlcv: pd.DataFrame, apex_ema, period: int):
+    def test_ema_alignment(self, sample_ohlcv: pd.DataFrame, apex_ema: Any, period: int) -> None:
         """Test EMA alignment with TA-Lib for various periods."""
         if apex_ema is None:
             pytest.skip("EMA indicator not registered")
@@ -363,7 +365,7 @@ class TestBBandsAlignment:
         registry = get_indicator_registry()
         return registry.get("bollinger")
 
-    def test_bbands_alignment(self, sample_ohlcv: pd.DataFrame, apex_bbands):
+    def test_bbands_alignment(self, sample_ohlcv: pd.DataFrame, apex_bbands: Any) -> None:
         """Test Bollinger Bands(20, 2) alignment with TA-Lib."""
         if apex_bbands is None:
             pytest.skip("Bollinger Bands indicator not registered")
@@ -426,7 +428,7 @@ class TestCCIAlignment:
         registry = get_indicator_registry()
         return registry.get("cci")
 
-    def test_cci_20_alignment(self, sample_ohlcv: pd.DataFrame, apex_cci):
+    def test_cci_20_alignment(self, sample_ohlcv: pd.DataFrame, apex_cci: Any) -> None:
         """Test CCI(20) alignment with TA-Lib."""
         if apex_cci is None:
             pytest.skip("CCI indicator not registered")

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
+from typing import Any
 
 from src.domain.services.regime import (
     AnalysisMetrics,
@@ -43,15 +44,15 @@ from src.domain.signals.indicators.regime import (
 class TestTrendState:
     """Test TrendState enum and classification."""
 
-    def test_trend_up_values(self):
+    def test_trend_up_values(self) -> None:
         """TrendState.UP should have expected value."""
         assert TrendState.UP.value == "trend_up"
 
-    def test_trend_down_values(self):
+    def test_trend_down_values(self) -> None:
         """TrendState.DOWN should have expected value."""
         assert TrendState.DOWN.value == "trend_down"
 
-    def test_trend_neutral_values(self):
+    def test_trend_neutral_values(self) -> None:
         """TrendState.NEUTRAL should have expected value."""
         assert TrendState.NEUTRAL.value == "neutral"
 
@@ -59,15 +60,15 @@ class TestTrendState:
 class TestVolState:
     """Test VolState enum and classification."""
 
-    def test_vol_high_values(self):
+    def test_vol_high_values(self) -> None:
         """VolState.HIGH should have expected value."""
         assert VolState.HIGH.value == "vol_high"
 
-    def test_vol_normal_values(self):
+    def test_vol_normal_values(self) -> None:
         """VolState.NORMAL should have expected value."""
         assert VolState.NORMAL.value == "vol_normal"
 
-    def test_vol_low_values(self):
+    def test_vol_low_values(self) -> None:
         """VolState.LOW should have expected value."""
         assert VolState.LOW.value == "vol_low"
 
@@ -75,11 +76,11 @@ class TestVolState:
 class TestChopState:
     """Test ChopState enum and classification."""
 
-    def test_chop_choppy_values(self):
+    def test_chop_choppy_values(self) -> None:
         """ChopState.CHOPPY should have expected value."""
         assert ChopState.CHOPPY.value == "choppy"
 
-    def test_chop_trending_values(self):
+    def test_chop_trending_values(self) -> None:
         """ChopState.TRENDING should have expected value."""
         assert ChopState.TRENDING.value == "trending"
 
@@ -87,14 +88,14 @@ class TestChopState:
 class TestMarketRegime:
     """Test MarketRegime enum properties."""
 
-    def test_regime_display_names(self):
+    def test_regime_display_names(self) -> None:
         """Each regime should have a display name."""
         assert MarketRegime.R0_HEALTHY_UPTREND.display_name == "Healthy Uptrend"
         assert MarketRegime.R1_CHOPPY_EXTENDED.display_name == "Choppy/Extended"
         assert MarketRegime.R2_RISK_OFF.display_name == "Risk-Off"
         assert MarketRegime.R3_REBOUND_WINDOW.display_name == "Rebound Window"
 
-    def test_regime_severity_ordering(self):
+    def test_regime_severity_ordering(self) -> None:
         """Regime severity should be ordered R0 < R1 < R3 < R2."""
         assert MarketRegime.R0_HEALTHY_UPTREND.severity < MarketRegime.R1_CHOPPY_EXTENDED.severity
         assert MarketRegime.R1_CHOPPY_EXTENDED.severity < MarketRegime.R3_REBOUND_WINDOW.severity
@@ -109,7 +110,7 @@ class TestMarketRegime:
 class TestRuleTrace:
     """Test RuleTrace dataclass."""
 
-    def test_rule_trace_creation(self):
+    def test_rule_trace_creation(self) -> None:
         """RuleTrace should be created with expected fields."""
         trace = RuleTrace(
             rule_id="r0_trend_up",
@@ -124,7 +125,7 @@ class TestRuleTrace:
         assert trace.passed is True
         assert trace.regime_target == "R0"
 
-    def test_rule_trace_to_dict(self):
+    def test_rule_trace_to_dict(self) -> None:
         """RuleTrace.to_dict should serialize correctly."""
         trace = RuleTrace(
             rule_id="r2_vol_high",
@@ -149,7 +150,7 @@ class TestRuleTrace:
 class TestRegimeOutputSerialization:
     """Test RegimeOutput to_dict() stable serialization."""
 
-    def test_to_dict_produces_valid_json(self):
+    def test_to_dict_produces_valid_json(self) -> None:
         """to_dict should produce JSON-serializable output."""
         output = RegimeOutput(
             schema_version="regime_output@1.0",
@@ -166,7 +167,7 @@ class TestRegimeOutputSerialization:
         json_str = json.dumps(result, sort_keys=True)
         assert json_str is not None
 
-    def test_to_dict_stable_ordering(self):
+    def test_to_dict_stable_ordering(self) -> None:
         """to_dict should produce stable key ordering."""
         # Use fixed timestamp to ensure deterministic results
         fixed_ts = datetime(2026, 1, 17, 12, 0, 0)
@@ -190,7 +191,7 @@ class TestRegimeOutputSerialization:
         json2 = json.dumps(output2.to_dict(precision=4), sort_keys=True)
         assert json1 == json2
 
-    def test_to_dict_rounds_floats(self):
+    def test_to_dict_rounds_floats(self) -> None:
         """to_dict should round floats to specified precision."""
         output = RegimeOutput(
             symbol="TEST",
@@ -205,7 +206,7 @@ class TestRegimeOutputSerialization:
         assert result["component_values"]["close"] == 150.12
         assert result["component_values"]["atr20"] == 5.99
 
-    def test_to_dict_handles_enums(self):
+    def test_to_dict_handles_enums(self) -> None:
         """to_dict should convert enums to values."""
         output = RegimeOutput(
             symbol="TEST",
@@ -230,7 +231,7 @@ class TestRegimeOutputSerialization:
 class TestParamProvenance:
     """Test ParamProvenance dataclass."""
 
-    def test_compute_param_set_id_deterministic(self):
+    def test_compute_param_set_id_deterministic(self) -> None:
         """Same params should produce same ID."""
         params = {"vol_high_short_pct": 80, "chop_high_pct": 70}
 
@@ -240,7 +241,7 @@ class TestParamProvenance:
         assert id1 == id2
         assert len(id1) == 8  # 8-char hex hash
 
-    def test_compute_param_set_id_different_for_different_symbols(self):
+    def test_compute_param_set_id_different_for_different_symbols(self) -> None:
         """Different symbols should produce different IDs."""
         params = {"vol_high_short_pct": 80}
 
@@ -249,7 +250,7 @@ class TestParamProvenance:
 
         assert id1 != id2
 
-    def test_from_params_creates_provenance(self):
+    def test_from_params_creates_provenance(self) -> None:
         """from_params should create a valid provenance."""
         params = {"vol_high_short_pct": 85, "chop_high_pct": 70}
         provenance = ParamProvenance.from_params(
@@ -262,7 +263,7 @@ class TestParamProvenance:
         assert provenance.source == "symbol-specific"
         assert len(provenance.param_set_id) == 8
 
-    def test_provenance_validation_flags(self):
+    def test_provenance_validation_flags(self) -> None:
         """Validation flags should work correctly."""
         prov = ParamProvenance(
             pbo_value=0.3,  # Good (< 0.5)
@@ -285,7 +286,7 @@ class TestParamProvenance:
 class TestAnalysisMetrics:
     """Test AnalysisMetrics dataclass."""
 
-    def test_analysis_metrics_to_dict(self):
+    def test_analysis_metrics_to_dict(self) -> None:
         """to_dict should serialize metrics correctly."""
         metrics = AnalysisMetrics(
             vol_threshold=80.0,
@@ -311,7 +312,7 @@ class TestAnalysisMetrics:
 class TestRecommenderResult:
     """Test RecommenderResult dataclass."""
 
-    def test_no_recommendations_result(self):
+    def test_no_recommendations_result(self) -> None:
         """Result with no recommendations should be valid."""
         from datetime import date
 
@@ -327,7 +328,7 @@ class TestRecommenderResult:
         assert result.has_recommendations is False
         assert result.no_change_reason == "Parameters appear well-calibrated"
 
-    def test_result_to_dict(self):
+    def test_result_to_dict(self) -> None:
         """to_dict should serialize correctly."""
         from datetime import date
 
@@ -353,7 +354,7 @@ class TestRecommenderResult:
 class TestCounterfactual:
     """Test counterfactual generation."""
 
-    def test_generate_counterfactual_returns_failures(self):
+    def test_generate_counterfactual_returns_failures(self) -> None:
         """generate_counterfactual should return failed conditions."""
         from src.domain.signals.indicators.regime.rule_trace import ThresholdInfo
 
@@ -410,7 +411,7 @@ class TestCounterfactual:
 class TestHTMLReportSmoke:
     """Smoke tests for HTML report generation."""
 
-    def test_escape_html_prevents_xss(self):
+    def test_escape_html_prevents_xss(self) -> None:
         """escape_html should prevent XSS attacks."""
         from src.infrastructure.reporting.value_card import escape_html
 
@@ -420,7 +421,7 @@ class TestHTMLReportSmoke:
         assert "<script>" not in escaped
         assert "&lt;script&gt;" in escaped
 
-    def test_regime_styles_returns_css(self):
+    def test_regime_styles_returns_css(self) -> None:
         """generate_regime_styles should return CSS string."""
         from src.infrastructure.reporting.regime_report import generate_regime_styles
 
@@ -428,7 +429,7 @@ class TestHTMLReportSmoke:
         assert ".regime-dashboard" in css
         assert ".report-header-section" in css
 
-    def test_report_header_renders(self):
+    def test_report_header_renders(self) -> None:
         """generate_report_header_html should render without errors."""
         from src.infrastructure.reporting.regime_report import generate_report_header_html
 
@@ -443,7 +444,7 @@ class TestHTMLReportSmoke:
         assert "R1" in html
         assert "report-header-section" in html
 
-    def test_one_liner_renders(self):
+    def test_one_liner_renders(self) -> None:
         """generate_regime_one_liner_html should render without errors."""
         from src.infrastructure.reporting.regime_report import generate_regime_one_liner_html
 
@@ -456,7 +457,7 @@ class TestHTMLReportSmoke:
         html = generate_regime_one_liner_html(output)
         assert "R0" in html or "R1" in html
 
-    def test_decision_tree_renders(self):
+    def test_decision_tree_renders(self) -> None:
         """generate_decision_tree_html should render without errors."""
         from src.infrastructure.reporting.regime_report import generate_decision_tree_html
 
@@ -479,7 +480,7 @@ class TestHTMLReportSmoke:
         html = generate_decision_tree_html(output)
         assert "decision-tree" in html or "Decision" in html
 
-    def test_recommendations_renders_no_changes(self):
+    def test_recommendations_renders_no_changes(self) -> None:
         """generate_recommendations_html should render 'no changes' case."""
         from datetime import date
 
@@ -609,7 +610,7 @@ class TestRegimeOutputSnapshot:
             previous_regime=MarketRegime.R0_HEALTHY_UPTREND,
         )
 
-    def test_snapshot_matches_golden_file(self, tmp_path):
+    def test_snapshot_matches_golden_file(self, tmp_path: Any) -> None:
         """Verify serialized output matches expected golden file."""
         output = self._create_deterministic_output()
         result = output.to_dict(precision=4)
@@ -659,7 +660,7 @@ class TestRegimeOutputSnapshot:
         assert result["transition"]["pending_count"] == 1
         assert result["quality"]["warmup_ok"] is True
 
-    def test_serialization_is_idempotent(self):
+    def test_serialization_is_idempotent(self) -> None:
         """Multiple serializations produce identical output."""
         output = self._create_deterministic_output()
 
@@ -669,7 +670,7 @@ class TestRegimeOutputSnapshot:
 
         assert result1 == result2 == result3
 
-    def test_precision_affects_output(self):
+    def test_precision_affects_output(self) -> None:
         """Different precision values produce different outputs."""
         output = self._create_deterministic_output()
 
@@ -691,14 +692,14 @@ class TestRegimeOutputSnapshot:
 class TestGetRegimeParams:
     """Test get_regime_params function."""
 
-    def test_get_default_params(self):
+    def test_get_default_params(self) -> None:
         """get_regime_params should return default params for unknown symbol."""
         params = get_regime_params("UNKNOWN_SYMBOL")
         assert "vol_high_short_pct" in params
         assert "chop_high_pct" in params
         assert "ma50_period" in params
 
-    def test_get_known_symbol_params(self):
+    def test_get_known_symbol_params(self) -> None:
         """get_regime_params should return params for known symbol."""
         # NVDA has custom params
         params = get_regime_params("NVDA")
