@@ -99,7 +99,7 @@ jobs:
           "
 
       - name: Upload Gate Report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         if: always()
         with:
           name: signal-gates-report
@@ -110,7 +110,7 @@ jobs:
           retention-days: 7
 
       - name: Upload Signal Package (on success)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         if: success()
         with:
           name: signal-package
