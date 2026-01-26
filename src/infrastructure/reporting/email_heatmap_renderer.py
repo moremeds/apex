@@ -222,7 +222,9 @@ def _render_etf_row(tickers: Dict[str, Any], symbols: List[str]) -> str:
         change = ticker.get("daily_change_pct")
         # Use imported REGIME_COLORS dict (has bg/text/name)
         default_regime_info = {"bg": "#64748b", "text": "#ffffff", "name": "Unknown"}
-        regime_info = REGIME_COLORS.get(regime, default_regime_info) if regime else default_regime_info
+        regime_info = (
+            REGIME_COLORS.get(regime, default_regime_info) if regime else default_regime_info
+        )
         change_str = f"{change:+.1f}%" if change is not None else ""
 
         cards.append(f"""

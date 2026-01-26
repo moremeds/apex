@@ -455,7 +455,9 @@ def setup_category_logging(
     # Set global flags
     set_verbose_mode(verbose)
     set_console_enabled(console)
-    if not verbose:
+    # Only override log level if not already set via env var (LOG_LEVEL)
+    # This allows CI to control log verbosity without code changes
+    if not verbose and not _log_level_override:
         set_log_level_override(level)
 
     # Create date-specific log directory (logs/{date}/)
