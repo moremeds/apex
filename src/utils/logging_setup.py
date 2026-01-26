@@ -54,8 +54,9 @@ _verbose_mode: bool = False
 # Global console output flag (set when --no-dashboard)
 _console_enabled: bool = False
 
-# Global log level override (set via --log-level CLI flag)
-_log_level_override: Optional[str] = None
+# Global log level override (set via --log-level CLI flag or LOG_LEVEL env var)
+# Check environment variable at module load for CI/automated runs
+_log_level_override: Optional[str] = os.environ.get("LOG_LEVEL")
 
 # Configured category loggers
 _category_loggers: Dict[str, logging.Logger] = {}
@@ -454,7 +455,9 @@ def setup_category_logging(
     # Set global flags
     set_verbose_mode(verbose)
     set_console_enabled(console)
-    if not verbose:
+    # Only override log level if not already set via env var (LOG_LEVEL)
+    # This allows CI to control log verbosity without code changes
+    if not verbose and not _log_level_override:
         set_log_level_override(level)
 
     # Create date-specific log directory (logs/{date}/)

@@ -1,0 +1,177 @@
+name: "Hourly: Signal Reports"
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Hourly signal report generation during market hours.
+#
+# Schedule: Every hour 9am-4pm ET (14:00-21:00 UTC), Mon-Fri
+#
+# Pipeline matches `make signals-deploy` exactly:
+#   Step 1: Update market caps
+#   Step 2: Retrain models
+#   Step 3: Generate and deploy report
+#
+# Email: Sends inline heatmap content (not attachments)
+# ═══════════════════════════════════════════════════════════════════════════
+
+on:
+  schedule:
+    # Every hour during trading hours (9am-4pm ET = 14:00-21:00 UTC)
+    - cron: '0 14 * * 1-5'  # 9am ET
+    - cron: '0 15 * * 1-5'  # 10am ET
+    - cron: '0 16 * * 1-5'  # 11am ET
+    - cron: '0 17 * * 1-5'  # 12pm ET
+    - cron: '0 18 * * 1-5'  # 1pm ET
+    - cron: '0 19 * * 1-5'  # 2pm ET
+    - cron: '0 20 * * 1-5'  # 3pm ET
+    - cron: '0 21 * * 1-5'  # 4pm ET (market close)
+  workflow_dispatch:
+
+concurrency:
+  group: hourly-signals
+  cancel-in-progress: true  # Cancel if previous run still running
+
+env:
+  PYTHON_VERSION: '3.13'
+  UNIVERSE: config/universe.yaml
+
+jobs:
+  generate-report:
+    name: Generate Signal Report
+    runs-on: ubuntu-latest
+    timeout-minutes: 90  # Longer timeout for retraining
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Cache TA-Lib
+        id: cache-talib
+        uses: actions/cache@v4
+        with:
+          path: ~/ta-lib-install
+          key: talib-0.6.4-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Install TA-Lib
+        run: |
+          if [ -d "$HOME/ta-lib-install/lib" ]; then
+            echo "Restoring TA-Lib from cache..."
+            sudo cp -r $HOME/ta-lib-install/lib/* /usr/lib/
+            sudo cp -r $HOME/ta-lib-install/include/* /usr/include/
+            sudo ldconfig
+          else
+            echo "Building TA-Lib 0.6.4 from source..."
+            sudo apt-get update && sudo apt-get install -y wget build-essential
+            wget https://github.com/ta-lib/ta-lib/releases/download/v0.6.4/ta-lib-0.6.4-src.tar.gz
+            tar -xzf ta-lib-0.6.4-src.tar.gz
+            cd ta-lib-0.6.4 && ./configure --prefix=/usr && make -j$(nproc) && sudo make install
+            sudo ldconfig
+            mkdir -p $HOME/ta-lib-install/lib $HOME/ta-lib-install/include
+            cp -r /usr/lib/libta* $HOME/ta-lib-install/lib/ 2>/dev/null || true
+            cp -r /usr/include/ta-lib $HOME/ta-lib-install/include/ 2>/dev/null || true
+          fi
+
+      - name: Install dependencies
+        run: |
+          uv venv
+          source .venv/bin/activate
+          uv pip install -e ".[dev,observability]"
+
+      - name: Check market open
+        id: market-check
+        run: |
+          source .venv/bin/activate
+          python << 'EOF'
+          import pandas_market_calendars as mcal
+          from datetime import date
+          import os
+
+          nyse = mcal.get_calendar('NYSE')
+          today = date.today()
+          schedule = nyse.schedule(start_date=today, end_date=today)
+
+          is_open = "true" if not schedule.empty else "false"
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f'is_open={is_open}\n')
+          print(f"Market is {'OPEN' if not schedule.empty else 'CLOSED'} on {today}")
+          EOF
+
+      # === MATCH MAKE SIGNALS-DEPLOY EXACTLY ===
+
+      - name: "Step 1/3: Update market caps"
+        if: steps.market-check.outputs.is_open == 'true'
+        run: |
+          source .venv/bin/activate
+          python -m src.runners.signal_runner --update-market-caps \
+            --universe ${{ env.UNIVERSE }}
+        env:
+          LOG_LEVEL: WARNING
+
+      - name: "Step 2/3: Retrain models"
+        if: steps.market-check.outputs.is_open == 'true'
+        run: |
+          source .venv/bin/activate
+          python -m src.runners.signal_runner --retrain-models \
+            --universe ${{ env.UNIVERSE }}
+        env:
+          LOG_LEVEL: WARNING
+
+      - name: "Step 3/3: Generate and deploy report"
+        if: steps.market-check.outputs.is_open == 'true'
+        run: |
+          source .venv/bin/activate
+          python -m src.runners.signal_runner --live \
+            --universe ${{ env.UNIVERSE }} \
+            --timeframes 1d 4h 1h \
+            --format package \
+            --html-output out/signals \
+            --deploy github
+        env:
+          LOG_LEVEL: WARNING
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Render email content
+        if: steps.market-check.outputs.is_open == 'true'
+        run: |
+          source .venv/bin/activate
+          python -c "
+          from src.infrastructure.reporting.email_heatmap_renderer import render_email_html
+          html = render_email_html('out/signals/data/summary.json')
+          with open('email_body.html', 'w') as f:
+              f.write(html)
+          "
+
+      - name: Send email
+        if: steps.market-check.outputs.is_open == 'true'
+        continue-on-error: true
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.SMTP_SERVER }}
+          server_port: ${{ secrets.SMTP_PORT || 587 }}
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          subject: "APEX Signals - ${{ github.run_id }}"
+          to: ${{ secrets.SIGNAL_REPORT_RECIPIENTS }}
+          from: "APEX Signal Bot <${{ secrets.SMTP_USERNAME }}>"
+          html_body: file://email_body.html
+          convert_markdown: false
+
+      - name: Holiday notice
+        if: steps.market-check.outputs.is_open != 'true'
+        run: echo "::notice::Market is closed today. Skipping report generation."
+
+      - name: Upload report artifact
+        if: steps.market-check.outputs.is_open == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: signal-report-${{ github.run_id }}
+          path: out/signals/
+          if-no-files-found: warn
+          retention-days: 7
