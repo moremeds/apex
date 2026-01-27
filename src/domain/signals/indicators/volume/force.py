@@ -36,7 +36,7 @@ class ForceIndexIndicator(IndicatorBase):
         period: 13  # EMA smoothing period
 
     State Output:
-        force: Force Index value
+        value: Force Index value
         direction: "bullish", "bearish", or "neutral"
         cross_zero: "bullish", "bearish", or None
     """
@@ -114,7 +114,7 @@ class ForceIndexIndicator(IndicatorBase):
                     cross_zero = "bearish"
 
         return {
-            "force": float(force),
+            "value": float(force),
             "direction": direction,
             "cross_zero": cross_zero,
         }

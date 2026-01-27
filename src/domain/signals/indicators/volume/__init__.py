@@ -5,6 +5,7 @@ Volume indicators analyze trading volume to confirm price movements
 and identify accumulation/distribution patterns.
 
 Indicators:
+- Volume: Basic volume analysis with spike detection
 - OBV: On-Balance Volume
 - VWAP: Volume Weighted Average Price
 - CVD: Cumulative Volume Delta

@@ -1,8 +1,13 @@
 """
-SuperTrend Indicator.
+SuperTrend Indicator (ZLEMA-based, TradeCat spec).
 
-ATR-based trend indicator that provides clear trend direction
-with automatic trailing stop levels.
+ATR-based trend indicator using Zero-Lag EMA for smoother response.
+Provides clear trend direction with automatic trailing stop levels.
+
+TradeCat Parameters:
+    period: 70 (ATR and ZLEMA period)
+    multiplier: 1.2 (band width multiplier)
+    lag: 34 (ZLEMA lag offset)
 
 Signals:
 - SuperTrend below price: Bullish trend
@@ -30,15 +35,19 @@ from ..base import IndicatorBase
 
 class SuperTrendIndicator(IndicatorBase):
     """
-    SuperTrend indicator.
+    ZLEMA-based SuperTrend indicator (TradeCat implementation).
 
-    Default Parameters:
-        period: 10
-        multiplier: 3.0
+    Uses Zero-Lag EMA instead of simple HL2 midpoint for smoother,
+    more responsive trend detection.
+
+    Default Parameters (TradeCat):
+        period: 70 (ATR and ZLEMA lookback)
+        multiplier: 1.2 (band width multiplier)
+        lag: 34 (ZLEMA lag offset for zero-lag calculation)
 
     State Output:
         supertrend: SuperTrend value (support/resistance level)
-        trend: "bullish" or "bearish"
+        direction: "bullish" or "bearish"
         flip: True if trend just reversed, False otherwise
         distance: Percentage distance from price to supertrend
     """
@@ -46,17 +55,19 @@ class SuperTrendIndicator(IndicatorBase):
     name = "supertrend"
     category = SignalCategory.TREND
     required_fields = ["high", "low", "close"]
-    warmup_periods = 11
+    warmup_periods = 105  # period (70) + lag (34) + buffer
 
     _default_params = {
-        "period": 10,
-        "multiplier": 3.0,
+        "period": 70,  # TradeCat: ATR and ZLEMA period
+        "multiplier": 1.2,  # TradeCat: tighter bands than standard 3.0
+        "lag": 34,  # TradeCat: ZLEMA lag offset
     }
 
     def _calculate(self, data: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
-        """Calculate SuperTrend values."""
+        """Calculate ZLEMA-based SuperTrend values."""
         period = params["period"]
         multiplier = params["multiplier"]
+        lag = params["lag"]
 
         if len(data) == 0:
             return pd.DataFrame(
@@ -79,17 +90,21 @@ class SuperTrendIndicator(IndicatorBase):
         else:
             atr = self._calculate_atr(high, low, close, period)
 
-        # Calculate basic bands
-        hl2 = (high + low) / 2
-        upper_band = hl2 + multiplier * atr
-        lower_band = hl2 - multiplier * atr
+        # Calculate ZLEMA (Zero-Lag EMA)
+        # source = close + (close - close.shift(lag))
+        # zlema = source.ewm(span=period).mean()
+        zlema = self._calculate_zlema(close, period, lag)
+
+        # Calculate bands using ZLEMA as center
+        upper_band = zlema + multiplier * atr
+        lower_band = zlema - multiplier * atr
 
         # Initialize arrays
         supertrend = np.full(n, np.nan, dtype=np.float64)
         direction = np.full(n, 1.0, dtype=np.float64)
 
-        # Start from period index where ATR is valid
-        start_idx = period
+        # Start from where both ATR and ZLEMA are valid
+        start_idx = max(period, lag + period)
         if start_idx >= n:
             return pd.DataFrame(
                 {"supertrend": supertrend, "supertrend_direction": direction},
@@ -100,10 +115,10 @@ class SuperTrendIndicator(IndicatorBase):
         direction[start_idx] = 1
 
         for i in range(start_idx + 1, n):
-            if np.isnan(atr[i]):
+            if np.isnan(atr[i]) or np.isnan(zlema[i]):
                 continue
 
-            # Final upper and lower bands
+            # Final upper and lower bands (with trailing logic)
             if lower_band[i] > supertrend[i - 1] or close[i - 1] < supertrend[i - 1]:
                 final_lower = lower_band[i]
             else:
@@ -131,9 +146,44 @@ class SuperTrendIndicator(IndicatorBase):
                     direction[i] = -1
 
         return pd.DataFrame(
-            {"supertrend": supertrend, "supertrend_direction": direction},
+            {
+                "supertrend": supertrend,
+                "supertrend_direction": direction,
+                "supertrend_close": close,
+            },
             index=data.index,
         )
+
+    def _calculate_zlema(self, close: np.ndarray, period: int, lag: int) -> np.ndarray:
+        """Calculate Zero-Lag EMA.
+
+        ZLEMA reduces lag by using: source = close + (close - close[lag_periods_ago])
+        Then applying EMA to this adjusted source.
+        """
+        n = len(close)
+        zlema = np.full(n, np.nan, dtype=np.float64)
+
+        if n < lag + period:
+            return zlema
+
+        # Create lagged source: close + (close - close.shift(lag))
+        source = np.full(n, np.nan, dtype=np.float64)
+        for i in range(lag, n):
+            source[i] = close[i] + (close[i] - close[i - lag])
+
+        # Apply EMA to source
+        alpha = 2.0 / (period + 1)
+        start_idx = lag + period - 1
+
+        # Initialize EMA with SMA of first valid period
+        if start_idx < n:
+            zlema[start_idx] = np.nanmean(source[lag : start_idx + 1])
+
+            for i in range(start_idx + 1, n):
+                if not np.isnan(source[i]):
+                    zlema[i] = alpha * source[i] + (1 - alpha) * zlema[i - 1]
+
+        return zlema
 
     def _calculate_atr(
         self, high: np.ndarray, low: np.ndarray, close: np.ndarray, period: int
@@ -169,27 +219,33 @@ class SuperTrendIndicator(IndicatorBase):
     ) -> Dict[str, Any]:
         """Extract SuperTrend state for rule evaluation."""
         supertrend = current.get("supertrend", 0)
-        direction = current.get("supertrend_direction", 0)
+        dir_val = current.get("supertrend_direction", 0)
+        close = current.get("supertrend_close", np.nan)
 
-        if pd.isna(supertrend) or pd.isna(direction):
+        if pd.isna(supertrend) or pd.isna(dir_val):
             return {
                 "supertrend": 0,
-                "trend": "neutral",
+                "direction": "neutral",
                 "flip": False,
                 "distance": 0,
             }
 
-        trend = "bullish" if direction > 0 else "bearish"
+        direction = "bullish" if dir_val > 0 else "bearish"
 
         flip = False
         if previous is not None:
             prev_direction = previous.get("supertrend_direction", 0)
-            if not pd.isna(prev_direction) and prev_direction != direction:
+            if not pd.isna(prev_direction) and prev_direction != dir_val:
                 flip = True
+
+        # Calculate percentage distance from close to supertrend
+        distance = 0.0
+        if not pd.isna(close) and supertrend != 0:
+            distance = abs(close - supertrend) / supertrend * 100
 
         return {
             "supertrend": float(supertrend),
-            "trend": trend,
+            "direction": direction,
             "flip": flip,
-            "distance": 0,  # Would need close price to calculate
+            "distance": float(distance),
         }

@@ -40,8 +40,8 @@ class ADXIndicator(IndicatorBase):
 
     State Output:
         adx: ADX value (0-100)
-        plus_di: +DI value
-        minus_di: -DI value
+        di_plus: +DI value
+        di_minus: -DI value
         trend_strength: "weak", "strong", or "very_strong"
         trend_direction: "bullish" if +DI > -DI, "bearish" otherwise
     """
@@ -83,7 +83,7 @@ class ADXIndicator(IndicatorBase):
             adx, plus_di, minus_di = self._calculate_manual(high, low, close, period)
 
         return pd.DataFrame(
-            {"adx": adx, "plus_di": plus_di, "minus_di": minus_di}, index=data.index
+            {"adx": adx, "di_plus": plus_di, "di_minus": minus_di}, index=data.index
         )
 
     def _calculate_manual(
@@ -164,16 +164,16 @@ class ADXIndicator(IndicatorBase):
     ) -> Dict[str, Any]:
         """Extract ADX state for rule evaluation."""
         adx = current.get("adx", 0)
-        plus_di = current.get("plus_di", 0)
-        minus_di = current.get("minus_di", 0)
+        di_plus = current.get("di_plus", 0)
+        di_minus = current.get("di_minus", 0)
         strong = params["strong_threshold"]
         very_strong = params["very_strong_threshold"]
 
         if pd.isna(adx):
             return {
                 "adx": 0,
-                "plus_di": 0,
-                "minus_di": 0,
+                "di_plus": 0,
+                "di_minus": 0,
                 "trend_strength": "weak",
                 "trend_direction": "neutral",
             }
@@ -185,12 +185,14 @@ class ADXIndicator(IndicatorBase):
         else:
             trend_strength = "weak"
 
-        trend_direction = "bullish" if plus_di > minus_di else "bearish"
+        trend_direction = "bullish" if di_plus > di_minus else "bearish"
 
+        di_plus_val = float(di_plus) if not pd.isna(di_plus) else 0
+        di_minus_val = float(di_minus) if not pd.isna(di_minus) else 0
         return {
             "adx": float(adx),
-            "plus_di": float(plus_di) if not pd.isna(plus_di) else 0,
-            "minus_di": float(minus_di) if not pd.isna(minus_di) else 0,
+            "di_plus": di_plus_val,
+            "di_minus": di_minus_val,
             "trend_strength": trend_strength,
             "trend_direction": trend_direction,
         }

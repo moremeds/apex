@@ -39,7 +39,7 @@ class ATRIndicator(IndicatorBase):
     State Output:
         atr: ATR value in price units
         atr_percent: ATR as percentage of close
-        volatility: "high", "normal", or "low" based on historical comparison
+        trend: "expanding", "contracting", or "stable"
     """
 
     name = "atr"
@@ -67,7 +67,8 @@ class ATRIndicator(IndicatorBase):
         else:
             atr = self._calculate_manual(high, low, close, period)
 
-        return pd.DataFrame({"atr": atr}, index=data.index)
+        # Include close for atr_percent calculation
+        return pd.DataFrame({"atr": atr, "atr_close": close}, index=data.index)
 
     def _calculate_manual(
         self, high: np.ndarray, low: np.ndarray, close: np.ndarray, period: int
@@ -106,23 +107,27 @@ class ATRIndicator(IndicatorBase):
     ) -> Dict[str, Any]:
         """Extract ATR state for rule evaluation."""
         atr = current.get("atr", 0)
+        close = current.get("atr_close", np.nan)
 
         if pd.isna(atr):
-            return {"atr": 0, "atr_percent": 0, "volatility": "normal"}
+            return {"atr": 0, "atr_percent": 0, "trend": "stable"}
 
-        # Compare with previous to determine volatility level
-        volatility = "normal"
+        # Calculate ATR as percentage of close
+        atr_percent = (atr / close * 100) if not pd.isna(close) and close != 0 else 0
+
+        # Compare with previous to determine trend (expanding/contracting)
+        trend = "stable"
         if previous is not None:
             prev_atr = previous.get("atr", 0)
             if not pd.isna(prev_atr) and prev_atr != 0:
                 change = (atr - prev_atr) / prev_atr
-                if change > 0.1:
-                    volatility = "high"
-                elif change < -0.1:
-                    volatility = "low"
+                if change > 0.05:  # 5% increase = expanding
+                    trend = "expanding"
+                elif change < -0.05:  # 5% decrease = contracting
+                    trend = "contracting"
 
         return {
             "atr": float(atr),
-            "atr_percent": 0,  # Would need close to calculate
-            "volatility": volatility,
+            "atr_percent": float(atr_percent),
+            "trend": trend,
         }

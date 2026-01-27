@@ -36,8 +36,8 @@ class SMAIndicator(IndicatorBase):
         slow_period: 200
 
     State Output:
-        fast_sma: Fast SMA value
-        slow_sma: Slow SMA value
+        sma_fast: Fast SMA value
+        sma_slow: Slow SMA value
         trend: "bullish" if fast > slow, "bearish" otherwise
         cross: "golden" (bullish cross), "death" (bearish cross), or None
         spread: Percentage spread between SMAs
@@ -97,8 +97,8 @@ class SMAIndicator(IndicatorBase):
 
         if pd.isna(sma_fast) or pd.isna(sma_slow):
             return {
-                "fast_sma": 0,
-                "slow_sma": 0,
+                "sma_fast": 0,
+                "sma_slow": 0,
                 "trend": "neutral",
                 "cross": None,
                 "spread": 0,
@@ -118,8 +118,8 @@ class SMAIndicator(IndicatorBase):
                     cross = "death"
 
         return {
-            "fast_sma": float(sma_fast),
-            "slow_sma": float(sma_slow),
+            "sma_fast": float(sma_fast),
+            "sma_slow": float(sma_slow),
             "trend": trend,
             "cross": cross,
             "spread": float(spread),

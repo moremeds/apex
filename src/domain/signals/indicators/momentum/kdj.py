@@ -37,6 +37,8 @@ class KDJIndicator(IndicatorBase):
         fastk_period: 14
         slowk_period: 3
         slowd_period: 3
+        smoothing_type: "ema" (TradeCat default) or "sma" (classic stochastic)
+        ema_alpha: 1/3 (TradeCat uses α=1/3 for smoother response)
         overbought: 80
         oversold: 20
 
@@ -45,17 +47,23 @@ class KDJIndicator(IndicatorBase):
         d: %D value (0-100)
         j: J value (3*K - 2*D)
         zone: "overbought", "oversold", or "neutral"
+
+    Note:
+        TradeCat uses EMA with α=1/3 for K and D smoothing, which provides
+        smoother response than the classic SMA-based stochastic.
     """
 
     name = "kdj"
     category = SignalCategory.MOMENTUM
     required_fields = ["high", "low", "close"]
-    warmup_periods = 20
+    warmup_periods = 15  # TradeCat period 9 + smoothing periods
 
     _default_params = {
-        "fastk_period": 14,
+        "fastk_period": 9,  # TradeCat uses 9 (standard stochastic uses 14)
         "slowk_period": 3,
         "slowd_period": 3,
+        "smoothing_type": "ema",  # TradeCat uses EMA, classic uses "sma"
+        "ema_alpha": 1 / 3,  # TradeCat uses α=1/3
         "overbought": 80,
         "oversold": 20,
     }
@@ -65,6 +73,8 @@ class KDJIndicator(IndicatorBase):
         fastk = params["fastk_period"]
         slowk = params["slowk_period"]
         slowd = params["slowd_period"]
+        smoothing_type = params["smoothing_type"]
+        ema_alpha = params["ema_alpha"]
 
         if len(data) == 0:
             return pd.DataFrame(
@@ -80,7 +90,11 @@ class KDJIndicator(IndicatorBase):
         low = data["low"].values.astype(np.float64)
         close = data["close"].values.astype(np.float64)
 
-        if HAS_TALIB:
+        # Use manual calculation for EMA mode (TA-Lib doesn't support custom alpha)
+        # Also use manual for SMA to ensure consistent behavior
+        if smoothing_type == "ema":
+            k, d = self._calculate_ema(high, low, close, fastk, slowk, slowd, ema_alpha)
+        elif HAS_TALIB and smoothing_type == "sma":
             k, d = talib.STOCH(
                 high,
                 low,
@@ -92,14 +106,60 @@ class KDJIndicator(IndicatorBase):
                 slowd_matype=talib.MA_Type.SMA,
             )
         else:
-            k, d = self._calculate_manual(high, low, close, fastk, slowk, slowd)
+            k, d = self._calculate_sma(high, low, close, fastk, slowk, slowd)
 
         # J = 3*K - 2*D (more sensitive)
         j = 3 * k - 2 * d
 
         return pd.DataFrame({"k": k, "d": d, "j": j}, index=data.index)
 
-    def _calculate_manual(
+    def _calculate_rsv(
+        self, high: np.ndarray, low: np.ndarray, close: np.ndarray, fastk: int
+    ) -> np.ndarray:
+        """Calculate raw stochastic value (RSV)."""
+        n = len(close)
+        rsv = np.full(n, np.nan, dtype=np.float64)
+
+        for i in range(fastk - 1, n):
+            highest = np.max(high[i - fastk + 1 : i + 1])
+            lowest = np.min(low[i - fastk + 1 : i + 1])
+            if highest != lowest:
+                rsv[i] = 100 * (close[i] - lowest) / (highest - lowest)
+            else:
+                rsv[i] = 50  # Middle value when range is zero
+
+        return rsv
+
+    def _calculate_ema(
+        self,
+        high: np.ndarray,
+        low: np.ndarray,
+        close: np.ndarray,
+        fastk: int,
+        slowk: int,
+        slowd: int,
+        alpha: float,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Calculate KDJ using EMA smoothing (TradeCat style).
+
+        TradeCat uses EMA with α=1/3:
+        K = RSV.ewm(alpha=1/3).mean()
+        D = K.ewm(alpha=1/3).mean()
+        """
+        rsv = self._calculate_rsv(high, low, close, fastk)
+
+        # Convert to pandas for EMA calculation
+        rsv_series = pd.Series(rsv)
+
+        # K is EMA of RSV with custom alpha
+        k_series = rsv_series.ewm(alpha=alpha, adjust=False, min_periods=slowk).mean()
+
+        # D is EMA of K with custom alpha
+        d_series = k_series.ewm(alpha=alpha, adjust=False, min_periods=slowd).mean()
+
+        return k_series.values, d_series.values
+
+    def _calculate_sma(
         self,
         high: np.ndarray,
         low: np.ndarray,
@@ -108,23 +168,14 @@ class KDJIndicator(IndicatorBase):
         slowk: int,
         slowd: int,
     ) -> tuple[np.ndarray, np.ndarray]:
-        """Calculate Stochastic without TA-Lib."""
+        """Calculate Stochastic using SMA smoothing (classic style)."""
         n = len(close)
-        raw_k = np.full(n, np.nan, dtype=np.float64)
+        rsv = self._calculate_rsv(high, low, close, fastk)
 
-        # Calculate raw %K
-        for i in range(fastk - 1, n):
-            highest = np.max(high[i - fastk + 1 : i + 1])
-            lowest = np.min(low[i - fastk + 1 : i + 1])
-            if highest != lowest:
-                raw_k[i] = 100 * (close[i] - lowest) / (highest - lowest)
-            else:
-                raw_k[i] = 50  # Middle value when range is zero
-
-        # Slow %K is SMA of raw %K
+        # Slow %K is SMA of RSV
         k = np.full(n, np.nan, dtype=np.float64)
         for i in range(fastk + slowk - 2, n):
-            k[i] = np.nanmean(raw_k[i - slowk + 1 : i + 1])
+            k[i] = np.nanmean(rsv[i - slowk + 1 : i + 1])
 
         # %D is SMA of slow %K
         d = np.full(n, np.nan, dtype=np.float64)

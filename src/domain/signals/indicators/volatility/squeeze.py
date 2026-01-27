@@ -209,9 +209,16 @@ class SqueezeIndicator(IndicatorBase):
         else:
             direction = "neutral"
 
+        # signal field: when squeeze releases (squeeze_off), signal direction
+        # "bullish" if momentum > 0, "bearish" if momentum < 0
+        signal = "neutral"
+        if squeeze_off:
+            signal = direction  # Use momentum direction when squeeze fires
+
         return {
             "squeeze_on": squeeze_on,
             "squeeze_off": squeeze_off,
             "momentum": float(squeeze_mom) if not pd.isna(squeeze_mom) else 0,
             "direction": direction,
+            "signal": signal,
         }

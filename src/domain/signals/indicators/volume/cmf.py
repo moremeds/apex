@@ -31,7 +31,7 @@ class CMFIndicator(IndicatorBase):
         strong_threshold: 0.25
 
     State Output:
-        cmf: CMF value (-1 to +1)
+        value: CMF value (-1 to +1)
         pressure: "strong_buying", "buying", "selling", "strong_selling", or "neutral"
         cross_zero: "bullish", "bearish", or None
     """
@@ -128,7 +128,7 @@ class CMFIndicator(IndicatorBase):
                     cross_zero = "bearish"
 
         return {
-            "cmf": float(cmf),
+            "value": float(cmf),
             "pressure": pressure,
             "cross_zero": cross_zero,
         }

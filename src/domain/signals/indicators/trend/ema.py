@@ -37,8 +37,8 @@ class EMAIndicator(IndicatorBase):
         slow_period: 26
 
     State Output:
-        fast_ema: Fast EMA value
-        slow_ema: Slow EMA value
+        ema_fast: Fast EMA value
+        ema_slow: Slow EMA value
         trend: "bullish" if fast > slow, "bearish" otherwise
         cross: "golden" (bullish cross), "death" (bearish cross), or None
         spread: Percentage spread between EMAs
@@ -104,8 +104,8 @@ class EMAIndicator(IndicatorBase):
 
         if pd.isna(ema_fast) or pd.isna(ema_slow):
             return {
-                "fast_ema": 0,
-                "slow_ema": 0,
+                "ema_fast": 0,
+                "ema_slow": 0,
                 "trend": "neutral",
                 "cross": None,
                 "spread": 0,
@@ -125,8 +125,8 @@ class EMAIndicator(IndicatorBase):
                     cross = "death"
 
         return {
-            "fast_ema": float(ema_fast),
-            "slow_ema": float(ema_slow),
+            "ema_fast": float(ema_fast),
+            "ema_slow": float(ema_slow),
             "trend": trend,
             "cross": cross,
             "spread": float(spread),
