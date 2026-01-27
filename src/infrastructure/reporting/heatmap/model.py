@@ -129,6 +129,8 @@ class ColorMetric(Enum):
     REGIME = "regime"
     DAILY_CHANGE = "daily_change"
     ALIGNMENT_SCORE = "alignment_score"
+    RULE_FREQUENCY = "rule_frequency"  # Phase 3: Trending mode (activity)
+    RULE_FREQUENCY_DIRECTION = "rule_frequency_direction"  # Phase 3: Trending mode (direction)
 
 
 @dataclass
@@ -162,6 +164,13 @@ class TreemapNode:
     alignment_score: Optional[float] = None
     volume: Optional[float] = None
 
+    # Phase 3: Rule frequency for trending mode
+    signal_count: int = 0
+    buy_signal_count: int = 0
+    sell_signal_count: int = 0
+    rule_frequency_color: Optional[str] = None
+    rule_frequency_direction_color: Optional[str] = None
+
     # Navigation
     report_url: Optional[str] = None  # Link to individual symbol report
 
@@ -180,6 +189,11 @@ class TreemapNode:
             "close_price": self.close_price,
             "alignment_score": self.alignment_score,
             "volume": self.volume,
+            "signal_count": self.signal_count,
+            "buy_signal_count": self.buy_signal_count,
+            "sell_signal_count": self.sell_signal_count,
+            "rule_frequency_color": self.rule_frequency_color,
+            "rule_frequency_direction_color": self.rule_frequency_direction_color,
             "report_url": self.report_url,
         }
 
@@ -276,6 +290,9 @@ class HeatmapModel:
     # Summary statistics
     regime_distribution: Dict[str, int] = field(default_factory=dict)
 
+    # Phase 3: Rule frequency summary for trending mode
+    total_signals: int = 0
+
     def to_dict(self) -> Dict[str, Any]:
         """Serialize for JSON."""
         return {
@@ -291,6 +308,7 @@ class HeatmapModel:
             "symbol_count": self.symbol_count,
             "cap_missing_count": self.cap_missing_count,
             "regime_distribution": self.regime_distribution,
+            "total_signals": self.total_signals,
         }
 
     def get_all_nodes(self) -> List[TreemapNode]:
@@ -390,3 +408,86 @@ def get_alignment_color(score: Optional[float]) -> str:
         # Red gradient: interpolate toward red
         r = int(200 - (clamped / 100.0) * 44)  # 200 -> 244 (clamped is negative)
         return f"#{r:02x}4444"
+
+
+def get_rule_frequency_color(signal_count: int, max_count: int) -> str:
+    """
+    Map signal count to color intensity for trending mode (Phase 3).
+
+    Color gradient from cold (gray/green) to hot (orange/red):
+    - 0 signals: Gray (#444444)
+    - 1-2 signals: Cool green (#88cc88)
+    - 3-4 signals: Yellow (#ffcc44)
+    - 5-7 signals: Warm orange (#ff8844)
+    - 8+ signals: Hot red (#ff4444)
+
+    Args:
+        signal_count: Number of signals for this symbol
+        max_count: Maximum signal count across all symbols (for normalization)
+
+    Returns:
+        Hex color code
+    """
+    if signal_count == 0:
+        return "#444444"  # Gray - no signals
+
+    if max_count == 0:
+        return "#444444"
+
+    # Use absolute thresholds for intuitive color mapping
+    if signal_count >= 8:
+        return "#ff4444"  # Hot red
+    elif signal_count >= 5:
+        return "#ff8844"  # Warm orange
+    elif signal_count >= 3:
+        return "#ffcc44"  # Yellow
+    elif signal_count >= 1:
+        return "#88cc88"  # Cool green
+    else:
+        return "#444444"  # Gray
+
+
+def get_rule_frequency_direction_color(buy_count: int, sell_count: int) -> str:
+    """
+    Map net signal direction to color for trending direction mode (Phase 3).
+
+    Color shows direction (green=bullish, red=bearish), intensity shows magnitude.
+    - Net bullish (buy > sell): Green gradient based on net count
+    - Net bearish (sell > buy): Red gradient based on net count
+    - Neutral (buy == sell): Gray
+    - No signals: Dark gray
+
+    Args:
+        buy_count: Number of buy signals for this symbol
+        sell_count: Number of sell signals for this symbol
+
+    Returns:
+        Hex color code
+    """
+    total = buy_count + sell_count
+    if total == 0:
+        return "#444444"  # Dark gray - no signals
+
+    net = buy_count - sell_count
+
+    if net == 0:
+        return "#6b7280"  # Neutral gray - balanced
+
+    # Calculate intensity based on net magnitude (capped at 8 for consistency)
+    magnitude = min(abs(net), 8)
+    intensity = magnitude / 8.0  # 0.0 to 1.0
+
+    if net > 0:
+        # Bullish: interpolate from muted green to bright green
+        # Base: #4ade80 (green-400), Bright: #22c55e (green-500)
+        r = int(74 - intensity * 52)  # 74 -> 22
+        g = int(222 - intensity * 25)  # 222 -> 197
+        b = int(128 - intensity * 34)  # 128 -> 94
+        return f"#{r:02x}{g:02x}{b:02x}"
+    else:
+        # Bearish: interpolate from muted red to bright red
+        # Base: #f87171 (red-400), Bright: #ef4444 (red-500)
+        r = int(248 - intensity * 9)  # 248 -> 239
+        g = int(113 - intensity * 45)  # 113 -> 68
+        b = int(113 - intensity * 45)  # 113 -> 68
+        return f"#{r:02x}{g:02x}{b:02x}"

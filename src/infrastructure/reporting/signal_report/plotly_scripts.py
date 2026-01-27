@@ -415,45 +415,193 @@ function renderMainChart(data) {{
 
 function updateSignalHistoryTable() {{
     const key = getDataKey();
-    const signals = signalHistory[key] || [];
+    const allSignals = signalHistory[key] || [];
     const container = document.getElementById('signal-history-table');
+    const data = chartData[key] || {{}};
+    const priceLevels = data.price_levels || {{}};
+    const lastClose = data.close && data.close.length > 0 ? data.close[data.close.length - 1] : null;
 
-    if (signals.length === 0) {{
-        container.innerHTML = '<div class="no-signals">No signals detected for this symbol/timeframe</div>';
-        return;
-    }}
+    let html = '';
 
-    let html = `
-        <table class="signal-table">
-            <thead>
-                <tr>
-                    <th>Time</th>
-                    <th>Signal</th>
-                    <th>Direction</th>
-                    <th>Indicator</th>
-                    <th>Message</th>
-                </tr>
-            </thead>
-            <tbody>
-    `;
+    // ========== SECTION 1: Active Signals ==========
+    if (allSignals.length > 0) {{
+        // Get currently active signals: most recent signal per indicator
+        const activeByIndicator = {{}};
+        const sortedByTime = [...allSignals].sort((a, b) =>
+            new Date(a.timestamp) - new Date(b.timestamp)
+        );
 
-    const sortedSignals = [...signals].reverse();
-    for (const sig of sortedSignals) {{
-        const time = new Date(sig.timestamp).toLocaleString();
-        const direction = sig.direction || 'alert';
+        for (const sig of sortedByTime) {{
+            const indicator = sig.indicator || 'unknown';
+            activeByIndicator[indicator] = sig;
+        }}
+
+        const signals = Object.values(activeByIndicator);
+        const buySignals = signals.filter(s => s.direction === 'buy');
+        const sellSignals = signals.filter(s => s.direction === 'sell');
+        const alertSignals = signals.filter(s => s.direction !== 'buy' && s.direction !== 'sell');
+
+        const sortedActiveSignals = [...signals].sort((a, b) =>
+            (a.indicator || '').localeCompare(b.indicator || '')
+        );
+
         html += `
-            <tr>
-                <td>${{time}}</td>
-                <td>${{sig.rule}}</td>
-                <td><span class="signal-badge ${{direction}}">${{direction}}</span></td>
-                <td>${{sig.indicator}}</td>
-                <td>${{sig.message || '-'}}</td>
-            </tr>
+            <div class="rule-frequency-summary">
+                <h4 style="margin-bottom: 12px; color: ${{colors.text_muted}}; font-size: 12px; text-transform: uppercase;">
+                    📊 Active Signals - ${{currentTimeframe.toUpperCase()}} (${{signals.length}} indicators)
+                </h4>
+                <div style="display: flex; gap: 16px; margin-bottom: 12px;">
+                    <span style="color: ${{colors.candle_up}};">▲ ${{buySignals.length}} Bullish</span>
+                    <span style="color: ${{colors.candle_down}};">▼ ${{sellSignals.length}} Bearish</span>
+                    <span style="color: ${{colors.text_muted}};">● ${{alertSignals.length}} Neutral</span>
+                </div>
+                <div class="rule-freq-bars">
         `;
+
+        for (const sig of sortedActiveSignals.slice(0, 15)) {{
+            const direction = sig.direction || 'alert';
+            const barColor = direction === 'buy' ? colors.candle_up : direction === 'sell' ? colors.candle_down : colors.text_muted;
+            html += `
+                <div class="rule-freq-item">
+                    <div class="rule-freq-label">
+                        <span class="rule-name">${{sig.rule}}</span>
+                        <span class="rule-count ${{direction}}">${{sig.indicator}}</span>
+                    </div>
+                    <div class="rule-freq-bar-bg">
+                        <div class="rule-freq-bar ${{direction}}" style="width: 100%; background: ${{barColor}}40;"></div>
+                    </div>
+                </div>
+            `;
+        }}
+        if (signals.length > 15) {{
+            html += `<div style="color: ${{colors.text_muted}}; font-size: 11px; margin-top: 8px;">... and ${{signals.length - 15}} more</div>`;
+        }}
+        html += '</div></div>';
+    }} else {{
+        html += '<div class="no-signals">No active signals for this symbol/timeframe</div>';
     }}
 
-    html += '</tbody></table>';
+    // ========== SECTION 2: Indicator Values (Price Levels) ==========
+    const hasLevels = Object.keys(priceLevels).length > 0;
+    if (hasLevels && lastClose) {{
+        html += `
+            <div class="price-levels-section" style="margin-top: 24px;">
+                <h4 style="margin-bottom: 12px; color: ${{colors.text_muted}}; font-size: 12px; text-transform: uppercase;">
+                    📏 Key Price Levels (Current: $${{lastClose.toFixed(2)}})
+                </h4>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
+        `;
+
+        // Group levels by indicator
+        const levelGroups = {{}};
+        for (const [col, values] of Object.entries(priceLevels)) {{
+            if (!values || values.length === 0) continue;
+            const lastVal = values[values.length - 1];
+            if (lastVal === null || lastVal === undefined) continue;
+
+            const parts = col.split('_');
+            const ind = parts[0].toUpperCase();
+            const level = parts.slice(1).join('_').toUpperCase();
+
+            if (!levelGroups[ind]) levelGroups[ind] = [];
+            levelGroups[ind].push({{ level, value: lastVal }});
+        }}
+
+        for (const [ind, levels] of Object.entries(levelGroups)) {{
+            levels.sort((a, b) => b.value - a.value);
+
+            let indName = ind;
+            if (ind === 'FIB') indName = '📐 Fibonacci';
+            else if (ind === 'SR') indName = '📊 Support/Resistance';
+            else if (ind === 'PIVOT') indName = '🎯 Pivot Points';
+
+            html += `
+                <div style="background: ${{colors.card_bg}}; padding: 12px; border-radius: 8px; border: 1px solid ${{colors.border}};">
+                    <div style="font-weight: 600; margin-bottom: 8px; color: ${{colors.text}};">${{indName}}</div>
+            `;
+
+            for (const {{ level, value }} of levels) {{
+                const diff = ((value - lastClose) / lastClose * 100).toFixed(2);
+                const isAbove = value > lastClose;
+                const levelColor = isAbove ? colors.candle_down : colors.candle_up;
+                const arrow = isAbove ? '↑' : '↓';
+
+                html += `
+                    <div style="display: flex; justify-content: space-between; padding: 4px 0; font-size: 12px;">
+                        <span style="color: ${{colors.text_muted}};">${{level.replace(/_/g, ' ')}}</span>
+                        <span>
+                            <span style="color: ${{colors.text}}; font-weight: 500;">$${{value.toFixed(2)}}</span>
+                            <span style="color: ${{levelColor}}; margin-left: 8px;">${{arrow}}${{Math.abs(diff)}}%</span>
+                        </span>
+                    </div>
+                `;
+            }}
+            html += '</div>';
+        }}
+        html += '</div></div>';
+    }}
+
+    // ========== SECTION 3: Full Signal History (Collapsible) ==========
+    if (allSignals.length > 0) {{
+        const sortedAll = [...allSignals].sort((a, b) =>
+            new Date(b.timestamp) - new Date(a.timestamp)
+        );
+
+        html += `
+            <div style="margin-top: 24px;">
+                <h4 class="collapsible-header" onclick="toggleHistoryTable()" style="cursor: pointer; margin-bottom: 12px; color: ${{colors.text_muted}}; font-size: 12px; text-transform: uppercase;">
+                    <span id="history-toggle-icon">▶</span> Full Signal History (${{allSignals.length}} signals) - Click to expand
+                </h4>
+                <div id="full-history-table" style="display: none;">
+                    <table class="signal-table">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Signal</th>
+                                <th>Direction</th>
+                                <th>Indicator</th>
+                                <th>Message</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+        `;
+
+        for (const sig of sortedAll.slice(0, 100)) {{
+            const time = new Date(sig.timestamp).toLocaleString();
+            const direction = sig.direction || 'alert';
+            html += `
+                <tr>
+                    <td>${{time}}</td>
+                    <td>${{sig.rule}}</td>
+                    <td><span class="signal-badge ${{direction}}">${{direction}}</span></td>
+                    <td>${{sig.indicator}}</td>
+                    <td>${{sig.message || '-'}}</td>
+                </tr>
+            `;
+        }}
+        if (allSignals.length > 100) {{
+            html += `<tr><td colspan="5" style="text-align: center; color: ${{colors.text_muted}};">... and ${{allSignals.length - 100}} more signals</td></tr>`;
+        }}
+
+        html += '</tbody></table></div></div>';
+    }}
+
     container.innerHTML = html;
+}}
+
+// Toggle full history table visibility
+function toggleHistoryTable() {{
+    const table = document.getElementById('full-history-table');
+    const icon = document.getElementById('history-toggle-icon');
+    if (table && icon) {{
+        if (table.style.display === 'none') {{
+            table.style.display = 'block';
+            icon.textContent = '▼';
+        }} else {{
+            table.style.display = 'none';
+            icon.textContent = '▶';
+        }}
+    }}
 }}
 
 function updateConfluencePanel() {{

@@ -10,7 +10,8 @@ DataFrame indicator columns, including:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Dict, List
+from collections import defaultdict
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 
@@ -276,3 +277,101 @@ def detect_historical_signals(
 
     signals.sort(key=lambda x: x["timestamp"])
     return signals
+
+
+def detect_signals_with_frequency(
+    df: pd.DataFrame,
+    rules: List["SignalRule"],
+    symbol: str,
+    timeframe: str,
+    lookback_bars: Optional[int] = None,
+) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
+    """
+    Detect historical signals and compute frequency counts.
+
+    Uses existing column-based detection logic (CROSS_UP, THRESHOLD_CROSS, etc.)
+    applied to indicator columns in the DataFrame.
+
+    Args:
+        df: DataFrame with OHLCV and indicator columns
+        rules: List of signal rules to check
+        symbol: Trading symbol
+        timeframe: Timeframe string
+        lookback_bars: Optional limit to last N bars (None = all bars)
+
+    Returns:
+        Tuple of:
+            - signals: List of signal dicts (filtered to lookback window)
+            - frequency: Dict mapping rule_name -> count
+    """
+    # Use existing detection function for all signals
+    all_signals = detect_historical_signals(df, rules, symbol, timeframe)
+
+    # Filter to lookback window if specified
+    if lookback_bars and len(df) > lookback_bars:
+        cutoff_time = df.index[-lookback_bars]
+        signals = [s for s in all_signals if s["timestamp"] >= cutoff_time]
+    else:
+        signals = all_signals
+
+    # Aggregate frequency by rule
+    frequency: Dict[str, int] = defaultdict(int)
+    for sig in signals:
+        frequency[sig["rule"]] += 1
+
+    return signals, dict(frequency)
+
+
+def aggregate_rule_frequency(
+    all_signals: Dict[str, List[Dict[str, Any]]],
+) -> Dict[str, Any]:
+    """
+    Aggregate rule fire counts across all symbols/timeframes.
+
+    Args:
+        all_signals: Dict mapping "SYMBOL_TF" to list of detected signals
+
+    Returns:
+        Dict with aggregated frequency data:
+            - by_symbol: {symbol: total_count}
+            - buy_by_symbol: {symbol: buy_count}
+            - sell_by_symbol: {symbol: sell_count}
+            - by_rule: {rule_name: total_count}
+            - top_symbols: [(symbol, count), ...] sorted desc
+            - top_rules: [(rule, count), ...] sorted desc
+            - total_signals: int
+    """
+    by_symbol: Dict[str, int] = defaultdict(int)
+    buy_by_symbol: Dict[str, int] = defaultdict(int)
+    sell_by_symbol: Dict[str, int] = defaultdict(int)
+    by_rule: Dict[str, int] = defaultdict(int)
+
+    for key, signals in all_signals.items():
+        # Extract symbol from key (e.g., "AAPL_1h" -> "AAPL")
+        symbol = key.rsplit("_", 1)[0] if "_" in key else key
+
+        for signal in signals:
+            rule_name = signal.get("rule", "unknown")
+            direction = signal.get("direction", "alert")
+            by_symbol[symbol] += 1
+            by_rule[rule_name] += 1
+
+            # Track buy/sell separately for direction mode
+            if direction == "buy":
+                buy_by_symbol[symbol] += 1
+            elif direction == "sell":
+                sell_by_symbol[symbol] += 1
+
+    # Sort for top lists
+    top_symbols = sorted(by_symbol.items(), key=lambda x: x[1], reverse=True)
+    top_rules = sorted(by_rule.items(), key=lambda x: x[1], reverse=True)
+
+    return {
+        "by_symbol": dict(by_symbol),
+        "buy_by_symbol": dict(buy_by_symbol),
+        "sell_by_symbol": dict(sell_by_symbol),
+        "by_rule": dict(by_rule),
+        "top_symbols": top_symbols[:20],
+        "top_rules": top_rules[:20],
+        "total_signals": sum(by_symbol.values()),
+    }

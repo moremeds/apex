@@ -47,7 +47,12 @@ def df_to_chart_data(df: pd.DataFrame) -> Dict[str, Any]:
         "macd": {},
         "oscillators": {},
         "volume_ind": {},
+        "price_levels": {},  # Fibonacci, S/R, Pivots (price values, not signals)
     }
+
+    # Price-level indicators (these show actual price levels, not signals)
+    # Using full indicator names as they appear in column prefixes
+    price_level_indicators = {"fibonacci", "support", "pivot"}
 
     # Categorize indicator columns (same logic as SignalReportGenerator)
     ohlcv_cols = {"open", "high", "low", "close", "volume", "timestamp"}
@@ -75,6 +80,8 @@ def df_to_chart_data(df: pd.DataFrame) -> Dict[str, Any]:
             chart_data["rsi"][col] = values
         elif ind_name == "macd":
             chart_data["macd"][col] = values
+        elif ind_name in price_level_indicators:
+            chart_data["price_levels"][col] = values
         elif ind_name in oscillator_names:
             chart_data["oscillators"][col] = values
         else:
