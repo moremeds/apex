@@ -471,6 +471,7 @@ class RegimeDetectorIndicator(IndicatorBase):
                 "composite_macd_momentum": scored["macd_momentum"].values,
                 "composite_momentum": scored["momentum"].values,
                 "composite_volatility": scored["volatility"].values,
+                "composite_breadth": scored["breadth"].values,
                 # Legacy component states
                 "trend_state": [ts.value for ts in trend_states],
                 "vol_state": [vs.value for vs in vol_states],
@@ -705,6 +706,11 @@ class RegimeDetectorIndicator(IndicatorBase):
                 "composite_volatility": (
                     self._safe_float(current.get("composite_volatility"))
                     if pd.notna(current.get("composite_volatility"))
+                    else None
+                ),
+                "composite_breadth": (
+                    self._safe_float(current.get("composite_breadth"))
+                    if pd.notna(current.get("composite_breadth"))
                     else None
                 ),
             },
@@ -1485,6 +1491,7 @@ class RegimeDetectorIndicator(IndicatorBase):
                     "macd_momentum": flat_state.get("composite_macd_momentum"),
                     "momentum": flat_state.get("composite_momentum"),
                     "volatility": flat_state.get("composite_volatility"),
+                    "breadth": flat_state.get("composite_breadth"),
                 }
                 if flat_state.get("composite_score")
                 else None
