@@ -166,7 +166,8 @@ validate-fast:
 	@echo "$(BOLD)Running fast validation (PR gate)...$(RESET)"
 	$(PYTHON) -m src.runners.validation_runner fast \
 		--symbols SPY QQQ AAPL MSFT NVDA AMD MU GME AMC VIX \
-		--timeframes 1d --folds 2 --no-optuna
+		--timeframes 1d --folds 2 --no-optuna \
+		--output reports/validation/fast
 
 # Full validation suite (signal report + quality gates + turning points)
 # Uses unified config/universe.yaml

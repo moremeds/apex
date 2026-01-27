@@ -15,8 +15,8 @@ Calibration:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass
+from typing import Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -83,6 +83,31 @@ class CompositeWeights:
             breadth=d.get("breadth", 0.15),
         )
 
+    @classmethod
+    def load_from_config(
+        cls, config_path: str = "config/regime_weights.yaml"
+    ) -> "CompositeWeights":
+        """
+        Load learned weights from YAML config file.
+
+        Falls back to defaults if file doesn't exist or is invalid.
+        """
+        from pathlib import Path
+
+        import yaml
+
+        path = Path(config_path)
+        if not path.exists():
+            return cls()  # Use defaults
+
+        try:
+            with open(path) as f:
+                config = yaml.safe_load(f)
+            weights = config.get("weights", {})
+            return cls.from_dict(weights)
+        except Exception:
+            return cls()  # Fall back to defaults
+
 
 @dataclass
 class ScoreBands:
@@ -136,7 +161,8 @@ class CompositeRegimeScorer:
         weights: Optional[CompositeWeights] = None,
         bands: Optional[ScoreBands] = None,
     ) -> None:
-        self.weights = weights or CompositeWeights()
+        # Load from config if no weights provided
+        self.weights = weights or CompositeWeights.load_from_config()
         self.bands = bands or ScoreBands()
 
     def compute_score(self, factors: NormalizedFactors, idx: int = -1) -> float:
@@ -153,14 +179,10 @@ class CompositeRegimeScorer:
         # Get factor values at index
         trend = factors.trend.iloc[idx] if not np.isnan(factors.trend.iloc[idx]) else 0.5
         trend_short = (
-            factors.trend_short.iloc[idx]
-            if not np.isnan(factors.trend_short.iloc[idx])
-            else 0.5
+            factors.trend_short.iloc[idx] if not np.isnan(factors.trend_short.iloc[idx]) else 0.5
         )
         macd_trend = (
-            factors.macd_trend.iloc[idx]
-            if not np.isnan(factors.macd_trend.iloc[idx])
-            else 0.5
+            factors.macd_trend.iloc[idx] if not np.isnan(factors.macd_trend.iloc[idx]) else 0.5
         )
         macd_momentum = (
             factors.macd_momentum.iloc[idx]

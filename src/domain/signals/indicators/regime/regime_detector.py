@@ -42,7 +42,6 @@ from .components import (
 
 # Phase 5: Composite scoring system
 from .composite_scorer import CompositeRegimeScorer, CompositeWeights
-from .factor_normalizer import compute_normalized_factors
 from .models import (
     ENTRY_HYSTERESIS,
     EXIT_HYSTERESIS,
@@ -176,6 +175,52 @@ class RegimeDetectorIndicator(IndicatorBase):
         # Phase 5: Composite scoring system
         self._composite_scorer: Optional[CompositeRegimeScorer] = None
         self._composite_hysteresis: Dict[str, ScoreHysteresisStateMachine] = {}
+
+        # Phase 5: Benchmark cache for breadth factor
+        self._benchmark_cache: Dict[str, pd.DataFrame] = {}
+        self._benchmark_load_attempted: bool = False
+
+    def _load_benchmark(self, symbol: str = "SPY", days: int = 1000) -> Optional[pd.DataFrame]:
+        """
+        Load benchmark data for breadth factor calculation.
+
+        Caches benchmark data to avoid repeated fetches. Uses yfinance
+        as fallback data source.
+
+        Args:
+            symbol: Benchmark symbol (default SPY)
+            days: Days of history to fetch
+
+        Returns:
+            DataFrame with OHLCV or None if unavailable
+        """
+        if symbol in self._benchmark_cache:
+            return self._benchmark_cache[symbol]
+
+        if self._benchmark_load_attempted:
+            return None  # Already tried, failed
+
+        self._benchmark_load_attempted = True
+
+        try:
+            import yfinance as yf
+
+            ticker = yf.Ticker(symbol)
+            df = ticker.history(period=f"{days}d")
+            if df.empty:
+                logger.warning(f"No benchmark data for {symbol}")
+                return None
+
+            df.columns = [c.lower() for c in df.columns]
+            # Remove timezone for compatibility with timezone-naive input data
+            if df.index.tz is not None:
+                df.index = df.index.tz_localize(None)
+            self._benchmark_cache[symbol] = df
+            logger.debug(f"Loaded {len(df)} bars of benchmark data for {symbol}")
+            return df
+        except Exception as e:
+            logger.warning(f"Failed to load benchmark {symbol}: {e}")
+            return None
 
     def _calculate(self, data: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
         """
@@ -340,9 +385,13 @@ class RegimeDetectorIndicator(IndicatorBase):
                 self._composite_scorer = CompositeRegimeScorer()
             scorer = self._composite_scorer
 
+        # Load benchmark for breadth factor (SPY by default)
+        benchmark_symbol = params.get("benchmark_symbol", "SPY")
+        benchmark_df = self._load_benchmark(benchmark_symbol)
+
         # Compute composite scores and regimes
         try:
-            scored = scorer.score_and_classify(data)
+            scored = scorer.score_and_classify(data, benchmark_df=benchmark_df)
         except Exception as e:
             logger.error(f"Composite scoring failed: {e}, falling back to decision tree")
             return self._calculate_decision_tree(data, params)

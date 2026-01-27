@@ -8,13 +8,12 @@ learned via logistic regression or constrained optimization.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 import numpy as np
 import pandas as pd
 
 from .composite_scorer import CompositeWeights
-from .factor_normalizer import NormalizedFactors
 
 
 @dataclass
@@ -56,11 +55,9 @@ class TargetLabelGenerator:
             Binary series: 1 = risk-off period, 0 = safe
         """
         close = df["close"]
-        high = df["high"]
         low = df["low"]
 
-        # Forward max high and min low
-        forward_max = high.shift(-1).rolling(self.forward_bars).max()
+        # Forward min low (for drawdown calculation)
         forward_min = low.shift(-1).rolling(self.forward_bars).min()
 
         # Drawdown from current close to forward low
@@ -205,13 +202,21 @@ class WeightLearner:
         # Build weights dict
         weights_dict = dict(zip(X.columns, norm_weights))
 
-        # Fill missing with default
-        default_weights = {"trend": 0.30, "momentum": 0.25, "volatility": 0.25, "breadth": 0.20}
+        # Fill missing with default (all 7 Phase 5 factors)
+        default_weights = {
+            "trend": 0.10,
+            "trend_short": 0.08,
+            "macd_trend": 0.12,
+            "macd_momentum": 0.10,
+            "momentum": 0.28,
+            "volatility": 0.17,
+            "breadth": 0.15,
+        }
         for k in default_weights:
             if k not in weights_dict:
                 weights_dict[k] = default_weights[k]
 
-        # Renormalize
+        # Renormalize to ensure sum = 1.0
         total = sum(weights_dict.values())
         weights_dict = {k: v / total for k, v in weights_dict.items()}
 
@@ -265,8 +270,16 @@ class WeightLearner:
 
         weights_dict = dict(zip(X.columns, result.x))
 
-        # Fill missing
-        default_weights = {"trend": 0.30, "momentum": 0.25, "volatility": 0.25, "breadth": 0.20}
+        # Fill missing with all 7 Phase 5 factors
+        default_weights = {
+            "trend": 0.10,
+            "trend_short": 0.08,
+            "macd_trend": 0.12,
+            "macd_momentum": 0.10,
+            "momentum": 0.28,
+            "volatility": 0.17,
+            "breadth": 0.15,
+        }
         for k in default_weights:
             if k not in weights_dict:
                 weights_dict[k] = default_weights[k]

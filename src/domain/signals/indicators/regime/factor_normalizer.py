@@ -8,7 +8,7 @@ This makes factors comparable across assets and time periods.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Optional
+from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -209,7 +209,13 @@ def compute_normalized_factors(
     breadth = None
     if benchmark_df is not None and "close" in benchmark_df.columns:
         asset_ret = pd.Series(close).pct_change(20).values
-        bench_ret = benchmark_df["close"].pct_change(20).reindex(df.index, method="ffill").values
+        # Normalize benchmark index timezone to match df.index
+        bench_close = benchmark_df["close"].copy()
+        if bench_close.index.tz is not None and df.index.tz is None:
+            bench_close.index = bench_close.index.tz_localize(None)
+        elif bench_close.index.tz is None and df.index.tz is not None:
+            bench_close.index = bench_close.index.tz_localize(df.index.tz)
+        bench_ret = bench_close.pct_change(20).reindex(df.index, method="ffill").values
         breadth = normalizer.compute_breadth_factor(asset_ret, bench_ret)
         breadth = pd.Series(breadth, index=df.index, name="breadth")
 

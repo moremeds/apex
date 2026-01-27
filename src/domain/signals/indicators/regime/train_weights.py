@@ -15,7 +15,7 @@ import argparse
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 import pandas as pd
 import yaml
@@ -183,7 +183,7 @@ def train_and_validate(
     Returns:
         TrainingResult with weights and metrics
     """
-    from .composite_scorer import CompositeRegimeScorer, CompositeWeights
+    from .composite_scorer import CompositeRegimeScorer
     from .regime_validation import FailureCriteria, RegimeValidator
     from .weight_learner import WeightLearner
 
@@ -195,7 +195,16 @@ def train_and_validate(
     # Learn weights
     logger.info(f"Learning weights using {method}...")
     learner = WeightLearner(method=method)
-    factor_cols = ["trend", "momentum", "volatility", "breadth"]
+    # All 7 Phase 5 factors (must match CompositeWeights)
+    factor_cols = [
+        "trend",
+        "trend_short",
+        "macd_trend",
+        "macd_momentum",
+        "momentum",
+        "volatility",
+        "breadth",
+    ]
     available_cols = [c for c in factor_cols if c in train_factors.columns]
 
     result = learner.fit(train_factors[available_cols], train_labels, available_cols)
@@ -207,17 +216,14 @@ def train_and_validate(
 
     # Evaluate on training data
     train_regimes = []
-    train_returns = []
     for symbol, df in train_data.items():
         try:
             scored = scorer.score_and_classify(df)
             train_regimes.append(scored["regime"])
-            train_returns.append(df["close"].pct_change())
         except Exception:
             pass
 
     train_regimes_all = pd.concat(train_regimes) if train_regimes else pd.Series(dtype=str)
-    train_returns_all = pd.concat(train_returns) if train_returns else pd.Series(dtype=float)
 
     # Evaluate on test data (out-of-sample)
     logger.info(f"Validating on {len(test_data)} test symbols...")
@@ -258,11 +264,14 @@ def train_and_validate(
 
 def save_weights(weights: Dict[str, float], output_path: str) -> None:
     """Save learned weights to YAML file."""
+    # Convert numpy floats to plain Python floats for clean YAML output
+    clean_weights = {k: float(v) for k, v in weights.items()}
+
     output = {
         "version": "1.0",
         "generated_at": datetime.now().isoformat(),
         "method": "logistic_regression",
-        "weights": weights,
+        "weights": clean_weights,
     }
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)

@@ -1,0 +1,11 @@
+generated_at: '2026-01-28T00:42:14.838794'
+method: logistic_regression
+version: '1.0'
+weights:
+  breadth: 0.14264950840414745
+  macd_momentum: 0.03694472914625503
+  macd_trend: 0.10736625808312346
+  momentum: 0.3266440758464334
+  trend: 0.13292827862154674
+  trend_short: 0.07387579439294535
+  volatility: 0.17959135550554853
