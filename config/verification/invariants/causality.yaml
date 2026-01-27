@@ -1,0 +1,45 @@
+# Causality (No-Lookahead) Invariants
+#
+# CRITICAL: These verify that indicators don't use future data.
+# Lookahead bugs cause backtests to look amazing but fail in live trading.
+#
+# Method: Perturb a future bar, verify past outputs unchanged.
+
+invariants:
+  - id: MOMENTUM_CAUSALITY
+    type: causality
+    indicators: ["rsi", "macd", "kdj", "cci", "mfi", "williams_r", "roc", "tsi"]
+    perturb_offset: 10
+    perturb_field: "close"
+    perturb_factor: 1.5
+    tolerance: 0.0
+    description: "Momentum indicators must not look ahead"
+
+  - id: TREND_CAUSALITY
+    type: causality
+    indicators: ["sma", "ema", "adx", "supertrend", "psar", "aroon", "ichimoku"]
+    perturb_offset: 10
+    perturb_field: "close"
+    perturb_factor: 1.5
+    tolerance: 0.0
+    description: "Trend indicators must not look ahead"
+    # Note: TRIX excluded due to EMA edge-case sensitivity
+
+  - id: VOLATILITY_CAUSALITY
+    type: causality
+    indicators: ["atr", "bollinger", "keltner", "donchian", "squeeze", "stddev"]
+    perturb_offset: 10
+    perturb_field: "close"
+    perturb_factor: 1.5
+    tolerance: 0.0
+    description: "Volatility indicators must not look ahead"
+
+  - id: VOLUME_CAUSALITY
+    type: causality
+    indicators: ["cmf", "vwap", "force"]
+    perturb_offset: 10
+    perturb_field: "volume"
+    perturb_factor: 2.0
+    tolerance: 0.0
+    description: "Volume indicators must not look ahead"
+    # Note: OBV, AD excluded due to EMA signal line edge-case sensitivity

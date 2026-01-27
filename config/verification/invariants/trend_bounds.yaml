@@ -1,0 +1,49 @@
+# Trend Indicator Bounds Invariants
+#
+# Trend indicators with bounded output ranges.
+
+invariants:
+  - id: ADX_BOUNDS
+    type: bounds
+    indicator: adx
+    field: adx
+    min_val: 0
+    max_val: 100
+    after_warmup: true
+    description: "ADX must be in [0, 100]"
+
+  - id: ADX_DI_PLUS_BOUNDS
+    type: bounds
+    indicator: adx
+    field: di_plus
+    min_val: 0
+    max_val: 100
+    after_warmup: true
+    description: "+DI must be in [0, 100]"
+
+  - id: ADX_DI_MINUS_BOUNDS
+    type: bounds
+    indicator: adx
+    field: di_minus
+    min_val: 0
+    max_val: 100
+    after_warmup: true
+    description: "-DI must be in [0, 100]"
+
+  - id: AROON_UP_BOUNDS
+    type: bounds
+    indicator: aroon
+    field: aroon_up
+    min_val: 0
+    max_val: 100
+    after_warmup: true
+    description: "Aroon Up must be in [0, 100]"
+
+  - id: AROON_DOWN_BOUNDS
+    type: bounds
+    indicator: aroon
+    field: aroon_down
+    min_val: 0
+    max_val: 100
+    after_warmup: true
+    description: "Aroon Down must be in [0, 100]"

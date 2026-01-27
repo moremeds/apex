@@ -522,6 +522,112 @@ MOMENTUM_RULES = [
         message_template="{symbol} ROC crossed below zero (bearish momentum)",
     ),
     # =========================================================================
+    # Momentum (Price Change) Rules
+    # =========================================================================
+    SignalRule(
+        name="momentum_bullish_cross",
+        indicator="momentum",
+        category=SignalCategory.MOMENTUM,
+        direction=SignalDirection.BUY,
+        strength=55,
+        priority=SignalPriority.MEDIUM,
+        condition_type=ConditionType.THRESHOLD_CROSS_UP,
+        condition_config={
+            "field": "value",
+            "threshold": 0,
+        },
+        timeframes=("1h", "4h", "1d"),
+        cooldown_seconds=7200,
+        message_template="{symbol} Momentum crossed above zero (bullish)",
+    ),
+    SignalRule(
+        name="momentum_bearish_cross",
+        indicator="momentum",
+        category=SignalCategory.MOMENTUM,
+        direction=SignalDirection.SELL,
+        strength=55,
+        priority=SignalPriority.MEDIUM,
+        condition_type=ConditionType.THRESHOLD_CROSS_DOWN,
+        condition_config={
+            "field": "value",
+            "threshold": 0,
+        },
+        timeframes=("1h", "4h", "1d"),
+        cooldown_seconds=7200,
+        message_template="{symbol} Momentum crossed below zero (bearish)",
+    ),
+    # =========================================================================
+    # RSI Harmonics (Multi-Period RSI) Rules
+    # =========================================================================
+    SignalRule(
+        name="rsi_harmonics_bullish_confluence",
+        indicator="rsi_harmonics",
+        category=SignalCategory.MOMENTUM,
+        direction=SignalDirection.BUY,
+        strength=70,
+        priority=SignalPriority.HIGH,
+        condition_type=ConditionType.STATE_CHANGE,
+        condition_config={
+            "field": "confluence",
+            "from": ["mixed", "bearish"],
+            "to": ["bullish"],
+        },
+        timeframes=("1h", "4h", "1d"),
+        cooldown_seconds=7200,
+        message_template="{symbol} RSI Harmonics bullish confluence (all periods bullish)",
+    ),
+    SignalRule(
+        name="rsi_harmonics_bearish_confluence",
+        indicator="rsi_harmonics",
+        category=SignalCategory.MOMENTUM,
+        direction=SignalDirection.SELL,
+        strength=70,
+        priority=SignalPriority.HIGH,
+        condition_type=ConditionType.STATE_CHANGE,
+        condition_config={
+            "field": "confluence",
+            "from": ["mixed", "bullish"],
+            "to": ["bearish"],
+        },
+        timeframes=("1h", "4h", "1d"),
+        cooldown_seconds=7200,
+        message_template="{symbol} RSI Harmonics bearish confluence (all periods bearish)",
+    ),
+    SignalRule(
+        name="rsi_harmonics_oversold_exit",
+        indicator="rsi_harmonics",
+        category=SignalCategory.MOMENTUM,
+        direction=SignalDirection.BUY,
+        strength=65,
+        priority=SignalPriority.HIGH,
+        condition_type=ConditionType.STATE_CHANGE,
+        condition_config={
+            "field": "zone",
+            "from": ["oversold"],
+            "to": ["neutral"],
+        },
+        timeframes=("1h", "4h", "1d"),
+        cooldown_seconds=3600,
+        message_template="{symbol} RSI Harmonics exiting oversold zone",
+    ),
+    SignalRule(
+        name="rsi_harmonics_overbought_exit",
+        indicator="rsi_harmonics",
+        category=SignalCategory.MOMENTUM,
+        direction=SignalDirection.SELL,
+        strength=65,
+        priority=SignalPriority.HIGH,
+        condition_type=ConditionType.STATE_CHANGE,
+        condition_config={
+            "field": "zone",
+            "from": ["overbought"],
+            "to": ["neutral"],
+        },
+        timeframes=("1h", "4h", "1d"),
+        cooldown_seconds=3600,
+        message_template="{symbol} RSI Harmonics exiting overbought zone",
+    ),
+    # =========================================================================
     # Ultimate Oscillator Rules
     # =========================================================================
     SignalRule(

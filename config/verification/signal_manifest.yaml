@@ -7,8 +7,8 @@
 # D. Golden Fixtures: Regression snapshots
 #
 # Usage:
-#   python -m src.verification.signal_verifier --all --profile dev
-#   python -m src.verification.signal_verifier --phase S1 --profile dev
+#   python -m src.verification.signal_verifier --all --profile signal_dev
+#   python -m src.verification.signal_verifier --phase S1 --profile signal_dev
 
 version: "1.0"
 contract_version: "2024.1"
@@ -22,91 +22,18 @@ schemas:
   signal_service_payload: "schemas/signal_service_payload.schema.json"
 
 # ═══════════════════════════════════════════════════════════════
-# Layer B: Semantic Invariants (Typed, No Eval)
+# Layer B & C: Semantic Invariants (loaded from external files)
 # ═══════════════════════════════════════════════════════════════
-invariants:
-  # Momentum bounds
-  - id: RSI_BOUNDS
-    type: bounds
-    indicator: rsi
-    field: value
-    min_val: 0
-    max_val: 100
-    after_warmup: true
-    description: "RSI must be in [0, 100]"
-
-  - id: CCI_NO_BOUNDS
-    type: bounds
-    indicator: cci
-    field: value
-    min_val: -500
-    max_val: 500
-    after_warmup: true
-    description: "CCI typically bounded but can exceed"
-
-  # Trend bounds
-  - id: ADX_BOUNDS
-    type: bounds
-    indicator: adx
-    field: adx
-    min_val: 0
-    max_val: 100
-    after_warmup: true
-    description: "ADX must be in [0, 100]"
-
-  # Volatility non-negative
-  - id: ATR_NONNEG
-    type: bounds
-    indicator: atr
-    field: value
-    min_val: 0
-    max_val: 1000000  # Effectively unbounded
-    after_warmup: true
-    description: "ATR must be non-negative"
-
-  # Identity relationships
-  - id: MACD_IDENTITY
-    type: identity
-    indicator: macd
-    result_field: histogram
-    expression: "macd - signal"
-    tolerance: 0.000001
-    description: "MACD histogram = MACD - Signal"
-
-  # No NaN after warmup
-  - id: NO_NAN_AFTER_WARMUP
-    type: no_nan
-    fields: ["*"]
-    after_warmup: true
-    description: "No NaN/Inf values after warmup period"
-
-  # Index alignment
-  - id: INDEX_ALIGNMENT
-    type: alignment
-    timeframes: ["1d", "4h", "1w"]
-    description: "Output index must match input bars"
-
-  # CRITICAL: Causality checks (no lookahead)
-  - id: MOMENTUM_CAUSALITY
-    type: causality
-    indicators: ["rsi", "macd", "kdj", "cci"]
-    perturb_offset: 10
-    perturb_field: "close"
-    perturb_factor: 1.5
-    tolerance: 0.0
-    description: "Perturbing future bar must not change past outputs"
-
-  - id: TREND_CAUSALITY
-    type: causality
-    indicators: ["sma", "ema", "adx", "supertrend"]
-    perturb_offset: 10
-    perturb_field: "close"
-    perturb_factor: 1.5
-    tolerance: 0.0
-    description: "Trend indicators must not look ahead"
+invariant_files:
+  - "invariants/momentum_bounds.yaml"
+  - "invariants/trend_bounds.yaml"
+  - "invariants/volatility_bounds.yaml"
+  - "invariants/identity.yaml"
+  - "invariants/causality.yaml"
+  - "invariants/general.yaml"
 
 # ═══════════════════════════════════════════════════════════════
-# Layer C & D: Fixtures Configuration
+# Layer D: Fixtures Configuration
 # ═══════════════════════════════════════════════════════════════
 fixtures:
   ohlcv_dir: "tests/fixtures/signal_verification/ohlcv"
@@ -156,7 +83,7 @@ phases:
         assert: "parallel_vs_serial_equal"
         description: "Parallel execution equals serial execution"
 
-      # CRITICAL: No-lookahead verification
+      # CRITICAL: No-lookahead verification (all categories)
       - id: "S2_MOMENTUM_CAUSALITY"
         type: "invariant"
         refs: ["MOMENTUM_CAUSALITY"]
@@ -167,30 +94,90 @@ phases:
         refs: ["TREND_CAUSALITY"]
         description: "Trend indicators must not look ahead"
 
+      - id: "S2_VOLATILITY_CAUSALITY"
+        type: "invariant"
+        refs: ["VOLATILITY_CAUSALITY"]
+        description: "Volatility indicators must not look ahead"
+
+      - id: "S2_VOLUME_CAUSALITY"
+        type: "invariant"
+        refs: ["VOLUME_CAUSALITY"]
+        description: "Volume indicators must not look ahead"
+
   - id: "S3"
     name: "Semantic Invariants"
     description: "Verify indicator output contracts"
     checks:
+      # Momentum bounds
       - id: "S3_RSI_BOUNDS"
         type: "invariant"
         refs: ["RSI_BOUNDS"]
         description: "RSI in [0, 100]"
 
+      - id: "S3_KDJ_BOUNDS"
+        type: "invariant"
+        refs: ["KDJ_K_BOUNDS", "KDJ_D_BOUNDS"]
+        description: "KDJ K/D in [0, 100]"
+
+      - id: "S3_MFI_BOUNDS"
+        type: "invariant"
+        refs: ["MFI_BOUNDS"]
+        description: "MFI in [0, 100]"
+
+      - id: "S3_WILLIAMS_R_BOUNDS"
+        type: "invariant"
+        refs: ["WILLIAMS_R_BOUNDS"]
+        description: "Williams %R in [-100, 0]"
+
+      - id: "S3_ULTIMATE_BOUNDS"
+        type: "invariant"
+        refs: ["ULTIMATE_BOUNDS"]
+        description: "Ultimate Oscillator in [0, 100]"
+
+      # Trend bounds
       - id: "S3_ADX_BOUNDS"
         type: "invariant"
-        refs: ["ADX_BOUNDS"]
-        description: "ADX in [0, 100]"
+        refs: ["ADX_BOUNDS", "ADX_DI_PLUS_BOUNDS", "ADX_DI_MINUS_BOUNDS"]
+        description: "ADX and DI lines in [0, 100]"
 
+      - id: "S3_AROON_BOUNDS"
+        type: "invariant"
+        refs: ["AROON_UP_BOUNDS", "AROON_DOWN_BOUNDS"]
+        description: "Aroon Up/Down in [0, 100]"
+
+      # Volatility bounds
       - id: "S3_ATR_NONNEG"
         type: "invariant"
         refs: ["ATR_NONNEG"]
         description: "ATR non-negative"
 
+      - id: "S3_STDDEV_NONNEG"
+        type: "invariant"
+        refs: ["STDDEV_NONNEG"]
+        description: "Standard deviation non-negative"
+
+      - id: "S3_HVOL_NONNEG"
+        type: "invariant"
+        refs: ["HVOL_NONNEG"]
+        description: "Historical volatility non-negative"
+
+      # Identity checks
       - id: "S3_MACD_IDENTITY"
         type: "invariant"
         refs: ["MACD_IDENTITY"]
-        description: "MACD histogram identity"
+        description: "MACD histogram = 2*(MACD-Signal)"
 
+      - id: "S3_KDJ_J_IDENTITY"
+        type: "invariant"
+        refs: ["KDJ_J_IDENTITY"]
+        description: "KDJ J = 3*K - 2*D"
+
+      - id: "S3_AROON_OSC_IDENTITY"
+        type: "invariant"
+        refs: ["AROON_OSC_IDENTITY"]
+        description: "Aroon Oscillator = Up - Down"
+
+      # General
       - id: "S3_NO_NAN"
         type: "invariant"
         refs: ["NO_NAN_AFTER_WARMUP"]

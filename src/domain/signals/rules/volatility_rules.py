@@ -253,4 +253,115 @@ VOLATILITY_RULES = [
         cooldown_seconds=7200,
         message_template="{symbol} Donchian lower channel breakout",
     ),
+    # =========================================================================
+    # Chaikin Volatility Rules
+    # =========================================================================
+    SignalRule(
+        name="chaikin_vol_expanding",
+        indicator="chaikin_vol",
+        category=SignalCategory.VOLATILITY,
+        direction=SignalDirection.ALERT,
+        strength=60,
+        priority=SignalPriority.MEDIUM,
+        condition_type=ConditionType.STATE_CHANGE,
+        condition_config={
+            "field": "direction",
+            "from": ["contracting", "neutral"],
+            "to": ["expanding"],
+        },
+        timeframes=("1h", "4h", "1d"),
+        cooldown_seconds=7200,
+        message_template="{symbol} Chaikin Volatility expanding - range increasing",
+    ),
+    SignalRule(
+        name="chaikin_vol_contracting",
+        indicator="chaikin_vol",
+        category=SignalCategory.VOLATILITY,
+        direction=SignalDirection.ALERT,
+        strength=55,
+        priority=SignalPriority.LOW,
+        condition_type=ConditionType.STATE_CHANGE,
+        condition_config={
+            "field": "direction",
+            "from": ["expanding", "neutral"],
+            "to": ["contracting"],
+        },
+        timeframes=("1h", "4h", "1d"),
+        cooldown_seconds=7200,
+        message_template="{symbol} Chaikin Volatility contracting - range decreasing",
+    ),
+    # =========================================================================
+    # Historical Volatility Rules
+    # =========================================================================
+    SignalRule(
+        name="hvol_high_regime",
+        indicator="hvol",
+        category=SignalCategory.VOLATILITY,
+        direction=SignalDirection.ALERT,
+        strength=70,
+        priority=SignalPriority.HIGH,
+        condition_type=ConditionType.STATE_CHANGE,
+        condition_config={
+            "field": "regime",
+            "from": ["normal_vol", "low_vol"],
+            "to": ["high_vol"],
+        },
+        timeframes=("1h", "4h", "1d"),
+        cooldown_seconds=14400,
+        message_template="{symbol} Historical Volatility entered high regime (>30%)",
+    ),
+    SignalRule(
+        name="hvol_low_regime",
+        indicator="hvol",
+        category=SignalCategory.VOLATILITY,
+        direction=SignalDirection.ALERT,
+        strength=60,
+        priority=SignalPriority.MEDIUM,
+        condition_type=ConditionType.STATE_CHANGE,
+        condition_config={
+            "field": "regime",
+            "from": ["normal_vol", "high_vol"],
+            "to": ["low_vol"],
+        },
+        timeframes=("1h", "4h", "1d"),
+        cooldown_seconds=14400,
+        message_template="{symbol} Historical Volatility entered low regime (<15%) - breakout potential",
+    ),
+    # =========================================================================
+    # Standard Deviation Rules
+    # =========================================================================
+    SignalRule(
+        name="stddev_spike",
+        indicator="stddev",
+        category=SignalCategory.VOLATILITY,
+        direction=SignalDirection.ALERT,
+        strength=65,
+        priority=SignalPriority.MEDIUM,
+        condition_type=ConditionType.STATE_CHANGE,
+        condition_config={
+            "field": "volatility",
+            "from": ["normal", "low"],
+            "to": ["high"],
+        },
+        timeframes=("1h", "4h", "1d"),
+        cooldown_seconds=7200,
+        message_template="{symbol} Standard Deviation spike - volatility increasing",
+    ),
+    SignalRule(
+        name="stddev_compression",
+        indicator="stddev",
+        category=SignalCategory.VOLATILITY,
+        direction=SignalDirection.ALERT,
+        strength=55,
+        priority=SignalPriority.LOW,
+        condition_type=ConditionType.STATE_CHANGE,
+        condition_config={
+            "field": "volatility",
+            "from": ["normal", "high"],
+            "to": ["low"],
+        },
+        timeframes=("1h", "4h", "1d"),
+        cooldown_seconds=7200,
+        message_template="{symbol} Standard Deviation compression - potential breakout setup",
+    ),
 ]
