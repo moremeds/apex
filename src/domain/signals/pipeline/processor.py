@@ -598,8 +598,13 @@ class SignalPipelineProcessor:
 
                 if daily_key in data:
                     df_for_regime = data[daily_key]
-                    warmup_needed = regime_service._regime_detector.warmup_periods
-                    if len(df_for_regime) >= warmup_needed:
+                    warmup_ideal = regime_service._regime_detector.warmup_periods
+                    minimum_bars = regime_service._regime_detector.minimum_bars
+                    bar_count = len(df_for_regime)
+
+                    if bar_count >= minimum_bars:
+                        # Calculate regime - note if using reduced data
+                        is_reduced_data = bar_count < warmup_ideal
                         try:
                             regime_output = regime_service.calculate_regime(
                                 symbol=symbol,
@@ -608,16 +613,17 @@ class SignalPipelineProcessor:
                                 is_market_level=(symbol in market_benchmarks),
                             )
                             regime_outputs[symbol] = regime_output
+                            quality_note = " (reduced data)" if is_reduced_data else ""
                             logger.info(
                                 f"Calculated regime for {symbol}: {regime_output.final_regime.value} "
-                                f"({regime_output.regime_name}, confidence={regime_output.confidence})"
+                                f"({regime_output.regime_name}, confidence={regime_output.confidence}){quality_note}"
                             )
                         except Exception as e:
                             logger.warning(f"Failed to calculate regime for {symbol}: {e}")
                     else:
                         logger.warning(
-                            f"Insufficient data for {symbol} regime: {len(df_for_regime)} bars "
-                            f"(need {warmup_needed})"
+                            f"Insufficient data for {symbol} regime: {bar_count} bars "
+                            f"(need {minimum_bars} minimum, {warmup_ideal} ideal)"
                         )
 
             print(f"  Calculated regime for {len(regime_outputs)} symbols")

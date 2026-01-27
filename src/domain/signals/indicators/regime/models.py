@@ -711,6 +711,11 @@ class RegimeOutput:
     # Prediction of TOP_RISK/BOTTOM_RISK to gate regime decisions
     turning_point: Optional["TurningPointOutput"] = None
 
+    # === COMPOSITE SCORING (Phase 5) ===
+    # Calibrated 0-100 composite score replacing decision tree
+    composite_score: Optional[float] = None
+    composite_factors: Optional[Dict[str, Optional[float]]] = None  # trend, momentum, volatility
+
     # === LEGACY FIELDS (backward compatibility) ===
     # These mirror final_regime/bars_in_regime for existing code
     @property

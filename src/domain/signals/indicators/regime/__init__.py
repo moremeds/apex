@@ -39,6 +39,13 @@ from .rule_trace import (
     generate_counterfactual,
 )
 
+# Phase 5: Composite scoring system
+from .composite_scorer import CompositeRegimeScorer, CompositeWeights, ScoreBands
+from .factor_normalizer import FactorNormalizer, NormalizedFactors, compute_normalized_factors
+from .regime_validation import FailureCriteria, RegimeValidator, ValidationResult
+from .score_hysteresis import HysteresisBands, ScoreHysteresisStateMachine
+from .weight_learner import LearningResult, TargetLabelGenerator, WeightLearner
+
 __all__ = [
     # Indicator
     "RegimeDetectorIndicator",
@@ -71,4 +78,19 @@ __all__ = [
     "ENTRY_HYSTERESIS",
     "EXIT_HYSTERESIS",
     "MARKET_BENCHMARKS",
+    # Phase 5: Composite scoring system
+    "CompositeRegimeScorer",
+    "CompositeWeights",
+    "ScoreBands",
+    "FactorNormalizer",
+    "NormalizedFactors",
+    "compute_normalized_factors",
+    "WeightLearner",
+    "TargetLabelGenerator",
+    "LearningResult",
+    "ScoreHysteresisStateMachine",
+    "HysteresisBands",
+    "RegimeValidator",
+    "FailureCriteria",
+    "ValidationResult",
 ]

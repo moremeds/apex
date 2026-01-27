@@ -45,6 +45,7 @@ def df_to_chart_data(df: pd.DataFrame) -> Dict[str, Any]:
         "overlays": {},
         "rsi": {},
         "macd": {},
+        "dual_macd": {},  # DualMACD (55/89 + 13/21) overlapping histograms
         "oscillators": {},
         "volume_ind": {},
         "price_levels": {},  # Fibonacci, S/R, Pivots (price values, not signals)
@@ -78,6 +79,9 @@ def df_to_chart_data(df: pd.DataFrame) -> Dict[str, Any]:
             chart_data["overlays"][col] = values
         elif ind_name == "rsi":
             chart_data["rsi"][col] = values
+        elif ind_name == "dual" and col.startswith("dual_macd"):
+            # DualMACD indicator (dual_macd_long_histogram, dual_macd_short_histogram, etc.)
+            chart_data["dual_macd"][col] = values
         elif ind_name == "macd":
             chart_data["macd"][col] = values
         elif ind_name in price_level_indicators:

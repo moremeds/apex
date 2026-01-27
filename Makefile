@@ -195,7 +195,7 @@ validate:
 signals-test:
 	@echo "$(BOLD)Quick signal test (12 symbols)...$(RESET)"
 	$(PYTHON) -m src.runners.signal_runner --live \
-		--symbols SPY QQQ XLB GLD TLT UVXY AAPL NVDA JPM XOM UNH HD DIS TSLA AMD META \
+		--symbols SPY QQQ XLB GLD TLT UVXY AAPL NVDA JPM XOM UNH HD DIS TSLA AMD META SLV SNDK MU ORCL\
 		--timeframes 1d 1h 4h\
 		--format package \
 		--html-output /tmp/signal_test

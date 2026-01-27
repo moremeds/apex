@@ -56,6 +56,103 @@ momentum_rules:
       line_b: signal
     message_template: "{symbol} MACD bearish crossover"
 
+  # Dual MACD rules (overlapping 55/89 and 13/21)
+  dual_macd_trend_confirm_bullish:
+    indicator: dual_macd
+    direction: buy
+    strength: 75
+    priority: high
+    condition_type: state_change
+    condition_config:
+      field: signal_type
+      from: [null]
+      to: [trend_confirmation_bullish]
+    message_template: "{symbol} DualMACD: Trend confirmed bullish (both histograms positive)"
+
+  dual_macd_trend_confirm_bearish:
+    indicator: dual_macd
+    direction: sell
+    strength: 75
+    priority: high
+    condition_type: state_change
+    condition_config:
+      field: signal_type
+      from: [null]
+      to: [trend_confirmation_bearish]
+    message_template: "{symbol} DualMACD: Trend confirmed bearish (both histograms negative)"
+
+  dual_macd_momentum_entry_bullish:
+    indicator: dual_macd
+    direction: buy
+    strength: 70
+    priority: high
+    condition_type: state_change
+    condition_config:
+      field: signal_type
+      from: [null]
+      to: [bullish_momentum_entry]
+    message_template: "{symbol} DualMACD: Bullish entry (short histogram up, long trend intact)"
+
+  dual_macd_momentum_entry_bearish:
+    indicator: dual_macd
+    direction: sell
+    strength: 70
+    priority: high
+    condition_type: state_change
+    condition_config:
+      field: signal_type
+      from: [null]
+      to: [bearish_momentum_entry]
+    message_template: "{symbol} DualMACD: Bearish entry (short histogram down, long trend intact)"
+
+  dual_macd_divergence_bullish_warning:
+    indicator: dual_macd
+    direction: alert
+    strength: 65
+    priority: medium
+    condition_type: state_change
+    condition_config:
+      field: signal_type
+      from: [null]
+      to: [momentum_divergence_bullish_warning]
+    message_template: "{symbol} DualMACD: Bullish divergence warning (short positive, long negative)"
+
+  dual_macd_divergence_bearish_warning:
+    indicator: dual_macd
+    direction: alert
+    strength: 65
+    priority: medium
+    condition_type: state_change
+    condition_config:
+      field: signal_type
+      from: [null]
+      to: [momentum_divergence_bearish_warning]
+    message_template: "{symbol} DualMACD: Bearish divergence warning (short negative, long positive)"
+
+  dual_macd_overbought_in_uptrend:
+    indicator: dual_macd
+    direction: alert
+    strength: 60
+    priority: medium
+    condition_type: state_change
+    condition_config:
+      field: signal_type
+      from: [null]
+      to: [overbought_in_uptrend]
+    message_template: "{symbol} DualMACD: Overbought within uptrend (short stretched vs long)"
+
+  dual_macd_oversold_in_downtrend:
+    indicator: dual_macd
+    direction: alert
+    strength: 60
+    priority: medium
+    condition_type: state_change
+    condition_config:
+      field: signal_type
+      from: [null]
+      to: [oversold_in_downtrend]
+    message_template: "{symbol} DualMACD: Oversold within downtrend (short stretched vs long)"
+
 # Trend rules
 trend_rules:
   supertrend_bullish:

@@ -31,6 +31,7 @@ from .regime import (
     generate_alerts_html,
     generate_component_breakdown_html,
     generate_components_4block_html,
+    generate_composite_score_html,
     generate_decision_tree_html,
     generate_hysteresis_html,
     generate_methodology_html,
@@ -49,6 +50,7 @@ __all__ = [
     # Header
     "generate_report_header_html",
     "generate_regime_one_liner_html",
+    "generate_composite_score_html",
     # Methodology
     "generate_methodology_html",
     # Decision Tree

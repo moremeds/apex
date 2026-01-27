@@ -97,9 +97,11 @@ class RegimeService:
         Returns:
             RegimeOutput with classification and details
         """
-        if len(data) < self._regime_detector.warmup_periods:
+        # Use minimum_bars threshold to allow newer tickers (6+ months)
+        minimum_bars = self._regime_detector.minimum_bars
+        if len(data) < minimum_bars:
             logger.warning(
-                f"Insufficient data for {symbol}: {len(data)} bars < {self._regime_detector.warmup_periods} required"
+                f"Insufficient data for {symbol}: {len(data)} bars < {minimum_bars} minimum required"
             )
             return RegimeOutput(
                 symbol=symbol,

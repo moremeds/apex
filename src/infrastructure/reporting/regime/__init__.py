@@ -44,7 +44,11 @@ from .dashboard import (
     generate_regime_timeline_html,
 )
 from .decision_tree import generate_decision_tree_html
-from .header import generate_regime_one_liner_html, generate_report_header_html
+from .header import (
+    generate_composite_score_html,
+    generate_regime_one_liner_html,
+    generate_report_header_html,
+)
 from .methodology import generate_methodology_html
 from .optimization import generate_optimization_html, generate_recommendations_html
 from .quality import generate_hysteresis_html, generate_quality_html
@@ -56,6 +60,7 @@ __all__ = [
     # Header
     "generate_report_header_html",
     "generate_regime_one_liner_html",
+    "generate_composite_score_html",
     # Methodology
     "generate_methodology_html",
     # Decision Tree

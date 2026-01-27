@@ -129,6 +129,42 @@ def compute_regime_outputs(
                     else float(ohlc_row.get("high", 0))
                 ),
                 "is_market_level": symbol.upper() in {"QQQ", "SPY", "IWM", "DIA"},
+                # Phase 5: Composite scoring columns
+                "composite_score": (
+                    float(last_row.get("composite_score", 50))
+                    if pd.notna(last_row.get("composite_score"))
+                    else None
+                ),
+                "composite_trend": (
+                    float(last_row.get("composite_trend", 0.5))
+                    if pd.notna(last_row.get("composite_trend"))
+                    else None
+                ),
+                "composite_trend_short": (
+                    float(last_row.get("composite_trend_short", 0.5))
+                    if pd.notna(last_row.get("composite_trend_short"))
+                    else None
+                ),
+                "composite_momentum": (
+                    float(last_row.get("composite_momentum", 0.5))
+                    if pd.notna(last_row.get("composite_momentum"))
+                    else None
+                ),
+                "composite_volatility": (
+                    float(last_row.get("composite_volatility", 0.5))
+                    if pd.notna(last_row.get("composite_volatility"))
+                    else None
+                ),
+                "composite_macd_trend": (
+                    float(last_row.get("composite_macd_trend", 0.5))
+                    if pd.notna(last_row.get("composite_macd_trend"))
+                    else None
+                ),
+                "composite_macd_momentum": (
+                    float(last_row.get("composite_macd_momentum", 0.5))
+                    if pd.notna(last_row.get("composite_macd_momentum"))
+                    else None
+                ),
             }
 
             # Compute full regime output with hysteresis
@@ -271,6 +307,7 @@ def render_regime_sections(
     """
     from ..regime_report import (
         generate_components_4block_html,
+        generate_composite_score_html,
         generate_decision_tree_html,
         generate_hysteresis_html,
         generate_methodology_html,
@@ -294,6 +331,9 @@ def render_regime_sections(
     for symbol, output in sorted(regime_outputs.items()):
         # Generate one-liner for this symbol
         one_liner = generate_regime_one_liner_html(output)
+
+        # Phase 5: Generate composite score section (dedicated section)
+        composite_score = generate_composite_score_html(output, theme)
 
         # Generate decision tree
         decision_tree = generate_decision_tree_html(output, theme)
@@ -334,6 +374,7 @@ def render_regime_sections(
         <div class="regime-symbol-section" id="regime-{symbol}" data-symbol="{symbol}" style="display: none;">
             {report_header}
             {one_liner}
+            {composite_score}
             {decision_tree}
             {components}
             {hysteresis}

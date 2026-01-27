@@ -217,37 +217,92 @@ function renderMainChart(data) {{
         }}
     }}
 
-    // Row 3: MACD subplot
-    const macdHist = chartData.macd['macd_histogram'];
-    if (hasData(macdHist)) {{
-        const barColors = macdHist.map(v => v >= 0 ? colors.success : colors.danger);
-        traces.push({{
-            type: 'bar',
-            x: xValues,
-            y: macdHist,
-            name: 'MACD Hist',
-            marker: {{ color: barColors }},
-            xaxis: 'x',
-            yaxis: 'y3',
-        }});
-    }}
-    const macdLines = [
-        {{ key: 'macd_macd', name: 'MACD', color: '#3b82f6' }},
-        {{ key: 'macd_signal', name: 'Signal', color: '#f59e0b' }},
-    ];
-    for (const {{ key, name, color }} of macdLines) {{
-        const values = chartData.macd[key];
-        if (!hasData(values)) continue;
+    // Row 3: MACD subplot (DualMACD if available, else standard MACD)
+    const hasDualMACD = chartData.dual_macd && (
+        hasData(chartData.dual_macd['dual_macd_long_histogram']) ||
+        hasData(chartData.dual_macd['dual_macd_short_histogram'])
+    );
+
+    if (hasDualMACD) {{
+        // DualMACD: Overlay long (55/89) and short (13/21) histograms
+        const longHist = chartData.dual_macd['dual_macd_long_histogram'];
+        const shortHist = chartData.dual_macd['dual_macd_short_histogram'];
+
+        // Long MACD histogram (trend direction) - wider bars, more transparent
+        if (hasData(longHist)) {{
+            const longColors = longHist.map(v => v >= 0 ? 'rgba(16, 185, 129, 0.4)' : 'rgba(239, 68, 68, 0.4)');
+            traces.push({{
+                type: 'bar',
+                x: xValues,
+                y: longHist,
+                name: 'Long MACD (55/89)',
+                marker: {{ color: longColors }},
+                xaxis: 'x',
+                yaxis: 'y3',
+                width: 0.8,
+            }});
+        }}
+
+        // Short MACD histogram (momentum timing) - narrower bars, more opaque
+        if (hasData(shortHist)) {{
+            const shortColors = shortHist.map(v => v >= 0 ? 'rgba(59, 130, 246, 0.8)' : 'rgba(249, 115, 22, 0.8)');
+            traces.push({{
+                type: 'bar',
+                x: xValues,
+                y: shortHist,
+                name: 'Short MACD (13/21)',
+                marker: {{ color: shortColors }},
+                xaxis: 'x',
+                yaxis: 'y3',
+                width: 0.4,
+            }});
+        }}
+
+        // Add zero line for reference
         traces.push({{
             type: 'scatter',
             mode: 'lines',
-            x: xValues,
-            y: values,
-            name,
-            line: {{ color, width: 1.5 }},
+            x: [xValues[0], xValues[xValues.length - 1]],
+            y: [0, 0],
+            name: 'Zero',
+            line: {{ color: colors.text_muted, width: 1, dash: 'dot' }},
             xaxis: 'x',
             yaxis: 'y3',
+            showlegend: false,
         }});
+    }} else {{
+        // Standard MACD fallback
+        const macdHist = chartData.macd['macd_histogram'];
+        if (hasData(macdHist)) {{
+            const barColors = macdHist.map(v => v >= 0 ? colors.success : colors.danger);
+            traces.push({{
+                type: 'bar',
+                x: xValues,
+                y: macdHist,
+                name: 'MACD Hist',
+                marker: {{ color: barColors }},
+                xaxis: 'x',
+                yaxis: 'y3',
+            }});
+        }}
+        const macdLines = [
+            {{ key: 'macd_macd', name: 'MACD', color: '#3b82f6' }},
+            {{ key: 'macd_signal', name: 'Signal', color: '#f59e0b' }},
+        ];
+        for (const {{ key, name, color }} of macdLines) {{
+            const values = chartData.macd[key];
+            if (!hasData(values)) continue;
+            traces.push({{
+                type: 'scatter',
+                mode: 'lines',
+                x: xValues,
+                y: values,
+                name,
+                line: {{ color, width: 1.5 }},
+                xaxis: 'x',
+                yaxis: 'y3',
+            }});
+        }}
     }}
 
     // Row 4: Volume bars
@@ -380,6 +435,7 @@ function renderMainChart(data) {{
         margin: {{ t: 50, r: 50, b: 80, l: 50 }},
         hovermode: 'x unified',
         bargap: 0.1,
+        barmode: 'overlay',  // DualMACD: overlay long and short histograms
 
         xaxis: {{
             title: {{ text: 'Time (UTC)', standoff: 10, font: {{ size: 11, color: colors.text_muted }} }},
@@ -415,7 +471,7 @@ function renderMainChart(data) {{
 
         // Y3: MACD (12% with gap)
         yaxis3: {{
-            title: 'MACD',
+            title: hasDualMACD ? 'DualMACD (55/89 + 13/21)' : 'MACD',
             side: 'right',
             gridcolor: colors.border,
             showgrid: true,

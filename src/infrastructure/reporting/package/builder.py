@@ -142,7 +142,8 @@ class PackageBuilder:
         write_indicators_file(indicators, rules, data_dir)
 
         # Write pre-rendered regime HTML files for 1:1 feature parity
-        write_regime_html_files(regime_outputs, regime_dir, self.theme)
+        # Pass all_symbols to generate placeholders for symbols without regime data
+        write_regime_html_files(regime_outputs, regime_dir, self.theme, all_symbols=symbols)
 
         # Write snapshot for diffing
         write_snapshot_file(data, regime_outputs, symbols, timeframes, output_dir)
