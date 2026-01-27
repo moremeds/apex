@@ -560,7 +560,7 @@ function updateSignalHistoryTable() {{
                                 <th>Signal</th>
                                 <th>Direction</th>
                                 <th>Indicator</th>
-                                <th>Message</th>
+                                <th>Outcome</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -569,13 +569,39 @@ function updateSignalHistoryTable() {{
         for (const sig of sortedAll.slice(0, 100)) {{
             const time = new Date(sig.timestamp).toLocaleString();
             const direction = sig.direction || 'alert';
+            const outcome = sig.outcome || {{}};
+
+            // Build outcome cell based on status
+            let outcomeHtml = '';
+            if (outcome.status === 'forming') {{
+                outcomeHtml = `<span style="color: ${{colors.text_muted}}; font-style: italic;">⏳ Forming (${{outcome.bars_elapsed || 0}} bars)</span>`;
+            }} else if (outcome.status === 'completed') {{
+                const changeColor = outcome.price_change_pct >= 0 ? colors.candle_up : colors.candle_down;
+                const correctColor = outcome.correct === true ? '#22c55e' : outcome.correct === false ? '#ef4444' : colors.text_muted;
+                const arrow = outcome.price_change_pct >= 0 ? '↑' : '↓';
+                outcomeHtml = `
+                    <div style="display: flex; flex-direction: column; gap: 2px;">
+                        <span style="color: ${{correctColor}}; font-weight: 600;">${{outcome.outcome_label}}</span>
+                        <span style="color: ${{changeColor}}; font-size: 11px;">${{arrow}} ${{outcome.price_change_pct > 0 ? '+' : ''}}${{outcome.price_change_pct}}% (${{outcome.bars_forward}}b)</span>
+                    </div>
+                `;
+            }} else {{
+                outcomeHtml = '<span style="color: {{colors.text_muted}};">—</span>';
+            }}
+
+            // Show pattern name for chart_patterns
+            let indicatorDisplay = sig.indicator;
+            if (sig.pattern && sig.indicator === 'chart_patterns') {{
+                indicatorDisplay = `<span style="color: ${{colors.text}};">${{sig.pattern.replace(/_/g, ' ')}}</span>`;
+            }}
+
             html += `
                 <tr>
                     <td>${{time}}</td>
                     <td>${{sig.rule}}</td>
                     <td><span class="signal-badge ${{direction}}">${{direction}}</span></td>
-                    <td>${{sig.indicator}}</td>
-                    <td>${{sig.message || '-'}}</td>
+                    <td>${{indicatorDisplay}}</td>
+                    <td>${{outcomeHtml}}</td>
                 </tr>
             `;
         }}
