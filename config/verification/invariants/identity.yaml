@@ -1,0 +1,29 @@
+# Identity Relationship Invariants
+#
+# Mathematical identities that must hold for indicator outputs.
+# These catch formula implementation bugs.
+
+invariants:
+  - id: MACD_IDENTITY
+    type: identity
+    indicator: macd
+    result_field: histogram
+    expression: "2 * (macd - signal)"
+    tolerance: 0.000001
+    description: "MACD histogram = 2 * (MACD - Signal) per TradeCat spec"
+
+  - id: KDJ_J_IDENTITY
+    type: identity
+    indicator: kdj
+    result_field: j
+    expression: "3 * k - 2 * d"
+    tolerance: 0.001
+    description: "KDJ J = 3*K - 2*D"
+
+  - id: AROON_OSC_IDENTITY
+    type: identity
+    indicator: aroon
+    result_field: oscillator
+    expression: "aroon_up - aroon_down"
+    tolerance: 0.001
+    description: "Aroon Oscillator = Aroon Up - Aroon Down"

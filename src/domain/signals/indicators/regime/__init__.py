@@ -9,6 +9,9 @@ Provides 3-level hierarchical regime detection:
 Schema version: regime_output@1.0
 """
 
+# Phase 5: Composite scoring system
+from .composite_scorer import CompositeRegimeScorer, CompositeWeights, ScoreBands
+from .factor_normalizer import FactorNormalizer, NormalizedFactors, compute_normalized_factors
 from .models import (  # Enums; Core dataclasses; Explainability dataclasses (PR1)
     ENTRY_HYSTERESIS,
     EXIT_HYSTERESIS,
@@ -32,12 +35,15 @@ from .models import (  # Enums; Core dataclasses; Explainability dataclasses (PR
     VolState,
 )
 from .regime_detector import RegimeDetectorIndicator
+from .regime_validation import FailureCriteria, RegimeValidator, ValidationResult
 from .rule_trace import (
     RuleTrace,
     ThresholdInfo,
     format_rule_result,
     generate_counterfactual,
 )
+from .score_hysteresis import HysteresisBands, ScoreHysteresisStateMachine
+from .weight_learner import LearningResult, TargetLabelGenerator, WeightLearner
 
 __all__ = [
     # Indicator
@@ -71,4 +77,19 @@ __all__ = [
     "ENTRY_HYSTERESIS",
     "EXIT_HYSTERESIS",
     "MARKET_BENCHMARKS",
+    # Phase 5: Composite scoring system
+    "CompositeRegimeScorer",
+    "CompositeWeights",
+    "ScoreBands",
+    "FactorNormalizer",
+    "NormalizedFactors",
+    "compute_normalized_factors",
+    "WeightLearner",
+    "TargetLabelGenerator",
+    "LearningResult",
+    "ScoreHysteresisStateMachine",
+    "HysteresisBands",
+    "RegimeValidator",
+    "FailureCriteria",
+    "ValidationResult",
 ]

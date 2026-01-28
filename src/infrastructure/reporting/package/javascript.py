@@ -37,7 +37,8 @@ const CONFIG = {{
     dataCache: {{}},
     summary: null,
     currentSymbol: '{symbols[0] if symbols else ''}',
-    currentTimeframe: '{timeframes[0] if timeframes else '1d'}'
+    currentTimeframe: '1d',  // Default to daily timeframe
+    signalLookbackBars: 24   // Only show signals from last N bars
 }};
 
 const colors = {colors_json};
@@ -216,37 +217,92 @@ function renderMainChart(data) {{
         }}
     }}
 
-    // Row 3: MACD subplot
-    const macdHist = chartData.macd['macd_histogram'];
-    if (hasData(macdHist)) {{
-        const barColors = macdHist.map(v => v >= 0 ? colors.success : colors.danger);
-        traces.push({{
-            type: 'bar',
-            x: xValues,
-            y: macdHist,
-            name: 'MACD Hist',
-            marker: {{ color: barColors }},
-            xaxis: 'x',
-            yaxis: 'y3',
-        }});
-    }}
-    const macdLines = [
-        {{ key: 'macd_macd', name: 'MACD', color: '#3b82f6' }},
-        {{ key: 'macd_signal', name: 'Signal', color: '#f59e0b' }},
-    ];
-    for (const {{ key, name, color }} of macdLines) {{
-        const values = chartData.macd[key];
-        if (!hasData(values)) continue;
+    // Row 3: MACD subplot (DualMACD if available, else standard MACD)
+    const hasDualMACD = chartData.dual_macd && (
+        hasData(chartData.dual_macd['dual_macd_long_histogram']) ||
+        hasData(chartData.dual_macd['dual_macd_short_histogram'])
+    );
+
+    if (hasDualMACD) {{
+        // DualMACD: Overlay long (55/89) and short (13/21) histograms
+        const longHist = chartData.dual_macd['dual_macd_long_histogram'];
+        const shortHist = chartData.dual_macd['dual_macd_short_histogram'];
+
+        // Long MACD histogram (trend direction) - wider bars, more transparent
+        if (hasData(longHist)) {{
+            const longColors = longHist.map(v => v >= 0 ? 'rgba(16, 185, 129, 0.4)' : 'rgba(239, 68, 68, 0.4)');
+            traces.push({{
+                type: 'bar',
+                x: xValues,
+                y: longHist,
+                name: 'Long MACD (55/89)',
+                marker: {{ color: longColors }},
+                xaxis: 'x',
+                yaxis: 'y3',
+                width: 0.8,
+            }});
+        }}
+
+        // Short MACD histogram (momentum timing) - narrower bars, more opaque
+        if (hasData(shortHist)) {{
+            const shortColors = shortHist.map(v => v >= 0 ? 'rgba(59, 130, 246, 0.8)' : 'rgba(249, 115, 22, 0.8)');
+            traces.push({{
+                type: 'bar',
+                x: xValues,
+                y: shortHist,
+                name: 'Short MACD (13/21)',
+                marker: {{ color: shortColors }},
+                xaxis: 'x',
+                yaxis: 'y3',
+                width: 0.4,
+            }});
+        }}
+
+        // Add zero line for reference
         traces.push({{
             type: 'scatter',
             mode: 'lines',
-            x: xValues,
-            y: values,
-            name,
-            line: {{ color, width: 1.5 }},
+            x: [xValues[0], xValues[xValues.length - 1]],
+            y: [0, 0],
+            name: 'Zero',
+            line: {{ color: colors.text_muted, width: 1, dash: 'dot' }},
             xaxis: 'x',
             yaxis: 'y3',
+            showlegend: false,
         }});
+    }} else {{
+        // Standard MACD fallback
+        const macdHist = chartData.macd['macd_histogram'];
+        if (hasData(macdHist)) {{
+            const barColors = macdHist.map(v => v >= 0 ? colors.success : colors.danger);
+            traces.push({{
+                type: 'bar',
+                x: xValues,
+                y: macdHist,
+                name: 'MACD Hist',
+                marker: {{ color: barColors }},
+                xaxis: 'x',
+                yaxis: 'y3',
+            }});
+        }}
+        const macdLines = [
+            {{ key: 'macd_macd', name: 'MACD', color: '#3b82f6' }},
+            {{ key: 'macd_signal', name: 'Signal', color: '#f59e0b' }},
+        ];
+        for (const {{ key, name, color }} of macdLines) {{
+            const values = chartData.macd[key];
+            if (!hasData(values)) continue;
+            traces.push({{
+                type: 'scatter',
+                mode: 'lines',
+                x: xValues,
+                y: values,
+                name,
+                line: {{ color, width: 1.5 }},
+                xaxis: 'x',
+                yaxis: 'y3',
+            }});
+        }}
     }}
 
     // Row 4: Volume bars
@@ -379,6 +435,7 @@ function renderMainChart(data) {{
         margin: {{ t: 50, r: 50, b: 80, l: 50 }},
         hovermode: 'x unified',
         bargap: 0.1,
+        barmode: 'overlay',  // DualMACD: overlay long and short histograms
 
         xaxis: {{
             title: {{ text: 'Time (UTC)', standoff: 10, font: {{ size: 11, color: colors.text_muted }} }},
@@ -414,7 +471,7 @@ function renderMainChart(data) {{
 
         // Y3: MACD (12% with gap)
         yaxis3: {{
-            title: 'MACD',
+            title: hasDualMACD ? 'DualMACD (55/89 + 13/21)' : 'MACD',
             side: 'right',
             gridcolor: colors.border,
             showgrid: true,
@@ -440,52 +497,202 @@ function renderMainChart(data) {{
     Plotly.newPlot('main-chart', traces, layout, config);
 }}
 
-// Update signal history table
+// Update signal history table with currently active signals
 function updateSignalHistoryTable() {{
     const key = getDataKey();
     const cachedData = CONFIG.dataCache[key];
     const container = document.getElementById('signals-content');
     if (!container) return;
 
-    const signals = cachedData ? cachedData.signals || [] : [];
+    const allSignals = cachedData ? cachedData.signals || [] : [];
+    const chartData = cachedData ? cachedData.chart_data || {{}} : {{}};
+    const priceLevels = chartData.price_levels || {{}};
+    const lastClose = chartData.close && chartData.close.length > 0
+        ? chartData.close[chartData.close.length - 1]
+        : null;
 
-    if (signals.length === 0) {{
-        container.innerHTML = '<div class="no-signals">No signals detected for this symbol/timeframe</div>';
-        return;
-    }}
+    let html = '';
 
-    let html = `
-        <table class="signal-table">
-            <thead>
-                <tr>
-                    <th>Time</th>
-                    <th>Signal</th>
-                    <th>Direction</th>
-                    <th>Indicator</th>
-                    <th>Message</th>
-                </tr>
-            </thead>
-            <tbody>
-    `;
+    // ========== SECTION 1: Active Signals ==========
+    if (allSignals.length > 0) {{
+        // Get currently active signals: most recent signal per indicator
+        const activeByIndicator = {{}};
+        const sortedByTime = [...allSignals].sort((a, b) =>
+            new Date(a.timestamp) - new Date(b.timestamp)
+        );
 
-    // Show most recent first
-    const sortedSignals = [...signals].reverse();
-    for (const sig of sortedSignals) {{
-        const time = new Date(sig.timestamp).toLocaleString();
-        const direction = sig.direction || 'alert';
+        for (const sig of sortedByTime) {{
+            const indicator = sig.indicator || 'unknown';
+            activeByIndicator[indicator] = sig;
+        }}
+
+        const signals = Object.values(activeByIndicator);
+        const buySignals = signals.filter(s => s.direction === 'buy');
+        const sellSignals = signals.filter(s => s.direction === 'sell');
+        const alertSignals = signals.filter(s => s.direction !== 'buy' && s.direction !== 'sell');
+
+        const sortedActiveSignals = [...signals].sort((a, b) =>
+            (a.indicator || '').localeCompare(b.indicator || '')
+        );
+
         html += `
-            <tr>
-                <td>${{time}}</td>
-                <td>${{sig.rule}}</td>
-                <td><span class="signal-badge ${{direction}}">${{direction}}</span></td>
-                <td>${{sig.indicator}}</td>
-                <td>${{sig.message || '-'}}</td>
-            </tr>
+            <div class="rule-frequency-summary">
+                <h4 style="margin-bottom: 12px; color: ${{colors.text_muted}}; font-size: 12px; text-transform: uppercase;">
+                    📊 Active Signals - ${{CONFIG.currentTimeframe.toUpperCase()}} (${{signals.length}} indicators)
+                </h4>
+                <div style="display: flex; gap: 16px; margin-bottom: 12px;">
+                    <span style="color: ${{colors.success}};">▲ ${{buySignals.length}} Bullish</span>
+                    <span style="color: ${{colors.danger}};">▼ ${{sellSignals.length}} Bearish</span>
+                    <span style="color: ${{colors.text_muted}};">● ${{alertSignals.length}} Neutral</span>
+                </div>
+                <div class="rule-freq-bars">
         `;
+
+        for (const sig of sortedActiveSignals.slice(0, 15)) {{
+            const direction = sig.direction || 'alert';
+            const barColor = direction === 'buy' ? colors.success : direction === 'sell' ? colors.danger : colors.text_muted;
+            html += `
+                <div class="rule-freq-item">
+                    <div class="rule-freq-label">
+                        <span class="rule-name">${{sig.rule}}</span>
+                        <span class="rule-count ${{direction}}">${{sig.indicator}}</span>
+                    </div>
+                    <div class="rule-freq-bar-bg">
+                        <div class="rule-freq-bar ${{direction}}" style="width: 100%; background: ${{barColor}}40;"></div>
+                    </div>
+                </div>
+            `;
+        }}
+        if (signals.length > 15) {{
+            html += `<div style="color: ${{colors.text_muted}}; font-size: 11px; margin-top: 8px;">... and ${{signals.length - 15}} more</div>`;
+        }}
+        html += '</div></div>';
+    }} else {{
+        html += '<div class="no-signals">No active signals for this symbol/timeframe</div>';
     }}
 
-    html += '</tbody></table>';
+    // ========== SECTION 2: Indicator Values (Price Levels) ==========
+    const hasLevels = Object.keys(priceLevels).length > 0;
+    if (hasLevels && lastClose) {{
+        html += `
+            <div class="price-levels-section" style="margin-top: 24px;">
+                <h4 style="margin-bottom: 12px; color: ${{colors.text_muted}}; font-size: 12px; text-transform: uppercase;">
+                    📏 Key Price Levels (Current: $${{lastClose.toFixed(2)}})
+                </h4>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
+        `;
+
+        // Group levels by indicator
+        const levelGroups = {{}};
+        for (const [col, values] of Object.entries(priceLevels)) {{
+            if (!values || values.length === 0) continue;
+            const lastVal = values[values.length - 1];
+            if (lastVal === null || lastVal === undefined) continue;
+
+            const parts = col.split('_');
+            const ind = parts[0].toUpperCase();
+            const level = parts.slice(1).join('_').toUpperCase();
+
+            if (!levelGroups[ind]) levelGroups[ind] = [];
+            levelGroups[ind].push({{ level, value: lastVal }});
+        }}
+
+        for (const [ind, levels] of Object.entries(levelGroups)) {{
+            // Sort levels by value descending (resistance at top, support at bottom)
+            levels.sort((a, b) => b.value - a.value);
+
+            let indName = ind;
+            if (ind === 'FIB') indName = '📐 Fibonacci';
+            else if (ind === 'SR') indName = '📊 Support/Resistance';
+            else if (ind === 'PIVOT') indName = '🎯 Pivot Points';
+
+            html += `
+                <div style="background: ${{colors.card_bg}}; padding: 12px; border-radius: 8px; border: 1px solid ${{colors.border}};">
+                    <div style="font-weight: 600; margin-bottom: 8px; color: ${{colors.text}};">${{indName}}</div>
+            `;
+
+            for (const {{ level, value }} of levels) {{
+                const diff = ((value - lastClose) / lastClose * 100).toFixed(2);
+                const isAbove = value > lastClose;
+                const levelColor = isAbove ? colors.danger : colors.success;
+                const arrow = isAbove ? '↑' : '↓';
+
+                html += `
+                    <div style="display: flex; justify-content: space-between; padding: 4px 0; font-size: 12px;">
+                        <span style="color: ${{colors.text_muted}};">${{level.replace(/_/g, ' ')}}</span>
+                        <span>
+                            <span style="color: ${{colors.text}}; font-weight: 500;">$${{value.toFixed(2)}}</span>
+                            <span style="color: ${{levelColor}}; margin-left: 8px;">${{arrow}}${{Math.abs(diff)}}%</span>
+                        </span>
+                    </div>
+                `;
+            }}
+            html += '</div>';
+        }}
+        html += '</div></div>';
+    }}
+
+    // ========== SECTION 3: Full Signal History (Collapsible) ==========
+    if (allSignals.length > 0) {{
+        const sortedAll = [...allSignals].sort((a, b) =>
+            new Date(b.timestamp) - new Date(a.timestamp)
+        );
+
+        html += `
+            <div style="margin-top: 24px;">
+                <h4 class="collapsible-header" onclick="toggleHistoryTable()" style="cursor: pointer; margin-bottom: 12px; color: ${{colors.text_muted}}; font-size: 12px; text-transform: uppercase;">
+                    <span id="history-toggle-icon">▶</span> Full Signal History (${{allSignals.length}} signals) - Click to expand
+                </h4>
+                <div id="full-history-table" style="display: none;">
+                    <table class="signal-table">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Signal</th>
+                                <th>Direction</th>
+                                <th>Indicator</th>
+                                <th>Message</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+        `;
+
+        for (const sig of sortedAll.slice(0, 100)) {{
+            const time = new Date(sig.timestamp).toLocaleString();
+            const direction = sig.direction || 'alert';
+            html += `
+                <tr>
+                    <td>${{time}}</td>
+                    <td>${{sig.rule}}</td>
+                    <td><span class="signal-badge ${{direction}}">${{direction}}</span></td>
+                    <td>${{sig.indicator}}</td>
+                    <td>${{sig.message || '-'}}</td>
+                </tr>
+            `;
+        }}
+        if (allSignals.length > 100) {{
+            html += `<tr><td colspan="5" style="text-align: center; color: ${{colors.text_muted}};">... and ${{allSignals.length - 100}} more signals</td></tr>`;
+        }}
+
+        html += '</tbody></table></div></div>';
+    }}
+
     container.innerHTML = html;
+}}
+
+// Toggle full history table visibility
+function toggleHistoryTable() {{
+    const table = document.getElementById('full-history-table');
+    const icon = document.getElementById('history-toggle-icon');
+    if (table && icon) {{
+        if (table.style.display === 'none') {{
+            table.style.display = 'block';
+            icon.textContent = '▼';
+        }} else {{
+            table.style.display = 'none';
+            icon.textContent = '▶';
+        }}
+    }}
 }}
 
 // Update confluence panel
@@ -562,31 +769,42 @@ async function updateRegimeSection() {{
     if (!container) return;
 
     const symbol = CONFIG.currentSymbol;
+    const timeframe = CONFIG.currentTimeframe;
+    const cacheKey = `${{symbol}}_${{timeframe}}`;
 
     // Check cache first
-    if (regimeHtmlCache[symbol]) {{
-        container.innerHTML = regimeHtmlCache[symbol];
+    if (regimeHtmlCache[cacheKey]) {{
+        container.innerHTML = regimeHtmlCache[cacheKey];
         return;
     }}
 
     // Show loading state
     container.innerHTML = '<div class="no-regime">Loading regime analysis...</div>';
 
-    try {{
-        const response = await fetch(`data/regime/${{symbol}}.html`);
-        if (!response.ok) {{
-            // Fall back to summary data if no pre-rendered HTML
-            fallbackRegimeSection(container, symbol);
-            return;
+    // Try timeframe-specific file first, then fall back to symbol-only
+    const urls = [
+        `data/regime/${{symbol}}_${{timeframe}}.html`,
+        `data/regime/${{symbol}}.html`
+    ];
+
+    for (const url of urls) {{
+        try {{
+            const response = await fetch(url);
+            if (response.ok) {{
+                const html = await response.text();
+                regimeHtmlCache[cacheKey] = html;
+                container.innerHTML = html;
+                console.log(`Loaded regime HTML from ${{url}}`);
+                return;
+            }}
+        }} catch (error) {{
+            console.debug(`Failed to load ${{url}}:`, error);
         }}
-        const html = await response.text();
-        regimeHtmlCache[symbol] = html;
-        container.innerHTML = html;
-        console.log(`Loaded regime HTML for ${{symbol}}`);
-    }} catch (error) {{
-        console.error(`Failed to load regime HTML for ${{symbol}}:`, error);
-        fallbackRegimeSection(container, symbol);
     }}
+
+    // Fall back to summary data if no pre-rendered HTML
+    console.warn(`No regime HTML found for ${{cacheKey}}, using fallback`);
+    fallbackRegimeSection(container, symbol);
 }}
 
 // Fallback: render basic regime info from summary data

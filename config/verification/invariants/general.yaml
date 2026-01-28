@@ -1,0 +1,15 @@
+# General Invariants
+#
+# Universal checks that apply to all indicators.
+
+invariants:
+  - id: NO_NAN_AFTER_WARMUP
+    type: no_nan
+    fields: ["*"]
+    after_warmup: true
+    description: "No NaN/Inf values after warmup period"
+
+  - id: INDEX_ALIGNMENT
+    type: alignment
+    timeframes: ["1d", "4h", "1w"]
+    description: "Output index must match input bars"

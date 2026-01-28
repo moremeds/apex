@@ -1,0 +1,31 @@
+# Volatility Indicator Bounds Invariants
+#
+# Volatility measures must be non-negative by definition.
+
+invariants:
+  - id: ATR_NONNEG
+    type: bounds
+    indicator: atr
+    field: value
+    min_val: 0
+    max_val: 1000000
+    after_warmup: true
+    description: "ATR must be non-negative"
+
+  - id: STDDEV_NONNEG
+    type: bounds
+    indicator: stddev
+    field: stddev
+    min_val: 0
+    max_val: 1000000
+    after_warmup: true
+    description: "Standard deviation must be non-negative"
+
+  - id: HVOL_NONNEG
+    type: bounds
+    indicator: hvol
+    field: hv
+    min_val: 0
+    max_val: 1000
+    after_warmup: true
+    description: "Historical volatility must be non-negative (annualized %)"

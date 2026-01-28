@@ -58,17 +58,21 @@ class PSARIndicator(IndicatorBase):
         maximum = params["maximum"]
 
         if len(data) == 0:
-            return pd.DataFrame({"psar": pd.Series(dtype=float)}, index=data.index)
+            return pd.DataFrame(
+                {"psar": pd.Series(dtype=float), "psar_close": pd.Series(dtype=float)},
+                index=data.index,
+            )
 
         high = data["high"].values.astype(np.float64)
         low = data["low"].values.astype(np.float64)
+        close = data["close"].values.astype(np.float64)
 
         if HAS_TALIB:
             psar = talib.SAR(high, low, acceleration=acceleration, maximum=maximum)
         else:
             psar = self._calculate_manual(high, low, acceleration, maximum)
 
-        return pd.DataFrame({"psar": psar}, index=data.index)
+        return pd.DataFrame({"psar": psar, "psar_close": close}, index=data.index)
 
     def _calculate_manual(
         self,
@@ -131,22 +135,25 @@ class PSARIndicator(IndicatorBase):
     ) -> Dict[str, Any]:
         """Extract PSAR state for rule evaluation."""
         psar = current.get("psar", 0)
+        close = current.get("psar_close", np.nan)
 
-        if pd.isna(psar):
-            return {"psar": 0, "trend": "neutral", "flip": False}
+        if pd.isna(psar) or pd.isna(close):
+            return {"psar": 0, "direction": "neutral", "flip": False}
 
-        # Need close price to determine trend, but we only have PSAR value
-        # The trend is determined externally when used with price
-        # For now, return the value and let rules compare with price
+        # Direction: bullish when PSAR below price, bearish when above
+        direction = "bullish" if close > psar else "bearish"
+
+        # Detect flip by comparing current and previous direction
         flip = False
         if previous is not None:
-            prev_psar = previous.get("psar", 0)
-            if not pd.isna(prev_psar):
-                # Flip detected by large jump in PSAR (crosses price)
-                flip = abs(psar - prev_psar) / prev_psar > 0.05 if prev_psar != 0 else False
+            prev_psar = previous.get("psar", np.nan)
+            prev_close = previous.get("psar_close", np.nan)
+            if not pd.isna(prev_psar) and not pd.isna(prev_close):
+                prev_direction = "bullish" if prev_close > prev_psar else "bearish"
+                flip = prev_direction != direction
 
         return {
             "psar": float(psar),
-            "trend": "neutral",  # Determined by comparing with price in rules
-            "flip": bool(flip),  # Ensure JSON serializable
+            "direction": direction,
+            "flip": bool(flip),
         }

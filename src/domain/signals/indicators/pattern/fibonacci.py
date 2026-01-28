@@ -103,6 +103,8 @@ class FibonacciIndicator(IndicatorBase):
             fib_618[i] = sh - 0.618 * range_size
             fib_786[i] = sh - 0.786 * range_size
 
+        close = data["close"].values.astype(np.float64)
+
         return pd.DataFrame(
             {
                 "fib_swing_high": swing_high,
@@ -112,6 +114,7 @@ class FibonacciIndicator(IndicatorBase):
                 "fib_500": fib_500,
                 "fib_618": fib_618,
                 "fib_786": fib_786,
+                "fib_close": close,
             },
             index=data.index,
         )
@@ -125,14 +128,16 @@ class FibonacciIndicator(IndicatorBase):
         """Extract Fibonacci state for rule evaluation."""
         swing_high = current.get("fib_swing_high", 0)
         swing_low = current.get("fib_swing_low", 0)
+        close = current.get("fib_close", np.nan)
 
         if pd.isna(swing_high) or pd.isna(swing_low):
             return {
                 "swing_high": 0,
                 "swing_low": 0,
                 "fib_levels": {},
-                "nearest_level": None,
+                "nearest_level": "none",
                 "nearest_distance_pct": 0,
+                "position": "outside",
             }
 
         fib_levels = {
@@ -145,10 +150,34 @@ class FibonacciIndicator(IndicatorBase):
             "1.0": float(swing_high),
         }
 
+        # Find nearest level and calculate distance
+        nearest_level = "none"
+        nearest_distance_pct = 0.0
+        position = "between"
+
+        if not pd.isna(close) and close > 0:
+            min_dist = float("inf")
+            for level_name, level_price in fib_levels.items():
+                if level_price > 0:
+                    dist = abs(close - level_price) / close * 100
+                    if dist < min_dist:
+                        min_dist = dist
+                        nearest_level = level_name
+                        nearest_distance_pct = dist
+
+            # Determine position: at_level (within 1%), above, or below
+            if nearest_distance_pct <= 1.0:
+                position = f"at_{nearest_level}"
+            elif close > swing_high:
+                position = "above_range"
+            elif close < swing_low:
+                position = "below_range"
+
         return {
             "swing_high": float(swing_high),
             "swing_low": float(swing_low),
             "fib_levels": fib_levels,
-            "nearest_level": None,  # Determined with price in rules
-            "nearest_distance_pct": 0,
+            "nearest_level": nearest_level,
+            "nearest_distance_pct": float(nearest_distance_pct),
+            "position": position,
         }

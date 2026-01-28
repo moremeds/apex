@@ -19,12 +19,27 @@ checks:
   - S2_DETERMINISTIC
   - S2_MOMENTUM_CAUSALITY
   - S2_TREND_CAUSALITY
+  - S2_VOLATILITY_CAUSALITY
+  - S2_VOLUME_CAUSALITY
 
-  # S3: Semantic Invariants
+  # S3: Semantic Invariants - Momentum
   - S3_RSI_BOUNDS
+  - S3_KDJ_BOUNDS
+  - S3_MFI_BOUNDS
+  - S3_WILLIAMS_R_BOUNDS
+  - S3_ULTIMATE_BOUNDS
+  # S3: Semantic Invariants - Trend
   - S3_ADX_BOUNDS
+  - S3_AROON_BOUNDS
+  # S3: Semantic Invariants - Volatility
   - S3_ATR_NONNEG
+  - S3_STDDEV_NONNEG
+  - S3_HVOL_NONNEG
+  # S3: Semantic Invariants - Identity
   - S3_MACD_IDENTITY
+  - S3_KDJ_J_IDENTITY
+  - S3_AROON_OSC_IDENTITY
+  # S3: General
   - S3_NO_NAN
 
   # S5: Output Contract

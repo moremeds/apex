@@ -147,6 +147,7 @@ class BaseVerifier(ABC):
 
         # Load invariants from manifest
         self.invariants: Dict[str, Any] = {}
+        self.invariant_configs: Dict[str, Dict[str, Any]] = {}  # Store original configs
         self._load_invariants()
 
         # Register check handlers (base + domain-specific)
@@ -192,15 +193,36 @@ class BaseVerifier(ABC):
                 logger.warning(f"Schema not found: {full_path}")
 
     def _load_invariants(self) -> None:
-        """Load invariant definitions from manifest."""
+        """Load invariant definitions from manifest and external files."""
+        # Load inline invariants
         invariants_config = self.manifest.get("invariants", [])
         for inv_config in invariants_config:
             inv_id = inv_config.get("id")
             if inv_id:
                 try:
                     self.invariants[inv_id] = create_invariant(inv_config)
+                    self.invariant_configs[inv_id] = inv_config
                 except Exception as e:
                     logger.warning(f"Failed to load invariant {inv_id}: {e}")
+
+        # Load invariants from external files
+        invariant_files = self.manifest.get("invariant_files", [])
+        for file_path in invariant_files:
+            full_path = self.base_dir / file_path
+            if full_path.exists():
+                try:
+                    file_config = self._load_yaml(full_path)
+                    file_invariants = file_config.get("invariants", [])
+                    for inv_config in file_invariants:
+                        inv_id = inv_config.get("id")
+                        if inv_id:
+                            self.invariants[inv_id] = create_invariant(inv_config)
+                            self.invariant_configs[inv_id] = inv_config
+                            logger.debug(f"Loaded invariant {inv_id} from {file_path}")
+                except Exception as e:
+                    logger.warning(f"Failed to load invariants from {file_path}: {e}")
+            else:
+                logger.warning(f"Invariant file not found: {full_path}")
 
     def get_phases(self) -> List[Dict[str, Any]]:
         """Get all phases from manifest."""

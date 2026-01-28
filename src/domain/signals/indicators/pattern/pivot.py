@@ -132,6 +132,7 @@ class PivotPointsIndicator(IndicatorBase):
                 "pivot_s1": s1,
                 "pivot_s2": s2,
                 "pivot_s3": s3,
+                "pivot_close": close,
             },
             index=data.index,
         )
@@ -150,6 +151,7 @@ class PivotPointsIndicator(IndicatorBase):
         s1 = current.get("pivot_s1", 0)
         s2 = current.get("pivot_s2", 0)
         s3 = current.get("pivot_s3", 0)
+        close = current.get("pivot_close", np.nan)
 
         if pd.isna(pp):
             return {
@@ -163,6 +165,33 @@ class PivotPointsIndicator(IndicatorBase):
                 "position": "neutral",
             }
 
+        # Determine position relative to pivot levels
+        position = "at_pivot"
+        if not pd.isna(close) and not pd.isna(pp):
+            r1_val = float(r1) if not pd.isna(r1) else float("inf")
+            r2_val = float(r2) if not pd.isna(r2) else float("inf")
+            r3_val = float(r3) if not pd.isna(r3) else float("inf")
+            s1_val = float(s1) if not pd.isna(s1) else float("-inf")
+            s2_val = float(s2) if not pd.isna(s2) else float("-inf")
+            s3_val = float(s3) if not pd.isna(s3) else float("-inf")
+
+            if close >= r3_val:
+                position = "above_r3"
+            elif close >= r2_val:
+                position = "at_r3"
+            elif close >= r1_val:
+                position = "at_r2"
+            elif close >= pp:
+                position = "above_pivot"
+            elif close >= s1_val:
+                position = "below_pivot"
+            elif close >= s2_val:
+                position = "at_s1"
+            elif close >= s3_val:
+                position = "at_s2"
+            else:
+                position = "below_s3"
+
         return {
             "pivot": float(pp),
             "r1": float(r1) if not pd.isna(r1) else 0,
@@ -171,5 +200,5 @@ class PivotPointsIndicator(IndicatorBase):
             "s1": float(s1) if not pd.isna(s1) else 0,
             "s2": float(s2) if not pd.isna(s2) else 0,
             "s3": float(s3) if not pd.isna(s3) else 0,
-            "position": "neutral",  # Determined with price in rules
+            "position": position,
         }

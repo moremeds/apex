@@ -45,9 +45,15 @@ def df_to_chart_data(df: pd.DataFrame) -> Dict[str, Any]:
         "overlays": {},
         "rsi": {},
         "macd": {},
+        "dual_macd": {},  # DualMACD (55/89 + 13/21) overlapping histograms
         "oscillators": {},
         "volume_ind": {},
+        "price_levels": {},  # Fibonacci, S/R, Pivots (price values, not signals)
     }
+
+    # Price-level indicators (these show actual price levels, not signals)
+    # Using full indicator names as they appear in column prefixes
+    price_level_indicators = {"fibonacci", "support", "pivot"}
 
     # Categorize indicator columns (same logic as SignalReportGenerator)
     ohlcv_cols = {"open", "high", "low", "close", "volume", "timestamp"}
@@ -73,8 +79,13 @@ def df_to_chart_data(df: pd.DataFrame) -> Dict[str, Any]:
             chart_data["overlays"][col] = values
         elif ind_name == "rsi":
             chart_data["rsi"][col] = values
+        elif ind_name == "dual" and col.startswith("dual_macd"):
+            # DualMACD indicator (dual_macd_long_histogram, dual_macd_short_histogram, etc.)
+            chart_data["dual_macd"][col] = values
         elif ind_name == "macd":
             chart_data["macd"][col] = values
+        elif ind_name in price_level_indicators:
+            chart_data["price_levels"][col] = values
         elif ind_name in oscillator_names:
             chart_data["oscillators"][col] = values
         else:

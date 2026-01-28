@@ -106,3 +106,4 @@ coverage.xml
 /data/equity.csv
 /data/historical/_metadata.duckdb
 /data/coverage_report.html
+/data/historical/

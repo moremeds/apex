@@ -181,6 +181,7 @@ class SignalReportGenerator:
                 "overlays": {},
                 "rsi": {},
                 "macd": {},
+                "dual_macd": {},  # DualMACD (55/89 + 13/21) overlapping histograms
                 "oscillators": {},
                 "volume_ind": {},
             }
@@ -203,6 +204,9 @@ class SignalReportGenerator:
                     bucket = "overlays"
                 elif ind_name == "rsi":
                     bucket = "rsi"
+                elif ind_name == "dual" and col.startswith("dual_macd"):
+                    # DualMACD indicator (dual_macd_long_histogram, dual_macd_short_histogram, etc.)
+                    bucket = "dual_macd"
                 elif ind_name == "macd":
                     bucket = "macd"
                 elif ind_name in oscillator_names:

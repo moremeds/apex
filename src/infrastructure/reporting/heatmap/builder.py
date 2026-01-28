@@ -37,6 +37,8 @@ from .model import (
     get_alignment_color,
     get_daily_change_color,
     get_regime_color,
+    get_rule_frequency_color,
+    get_rule_frequency_direction_color,
 )
 from .plotly_data import build_plotly_data
 
@@ -129,6 +131,13 @@ class HeatmapBuilder:
         # Build ETF dashboard (cards for all dashboard ETFs)
         etf_dashboard = build_etf_dashboard(tickers, cap_results, report_urls)
 
+        # Phase 3: Extract rule frequency data for trending mode
+        rule_frequency = summary_data.get("rule_frequency", {})
+        signal_counts_by_symbol = rule_frequency.get("by_symbol", {})
+        buy_counts_by_symbol = rule_frequency.get("buy_by_symbol", {})
+        sell_counts_by_symbol = rule_frequency.get("sell_by_symbol", {})
+        max_signal_count = max(signal_counts_by_symbol.values(), default=1)
+
         # Stocks-only classification (exclude all dashboard ETFs from treemap)
         stocks_by_sector: Dict[str, List[TreemapNode]] = {}
         other_stocks: List[TreemapNode] = []
@@ -136,6 +145,7 @@ class HeatmapBuilder:
         # Track statistics
         regime_counts: Dict[str, int] = {}
         cap_missing_count = 0
+        total_signals = rule_frequency.get("total_signals", 0)
 
         for ticker in tickers:
             symbol = ticker.get("symbol")
@@ -167,6 +177,13 @@ class HeatmapBuilder:
             # Calculate size value
             size_value = self._get_size_value(ticker, market_cap)
 
+            # Phase 3: Get signal count for trending mode
+            signal_count = signal_counts_by_symbol.get(symbol, 0)
+            buy_signal_count = buy_counts_by_symbol.get(symbol, 0)
+            sell_signal_count = sell_counts_by_symbol.get(symbol, 0)
+            freq_color = get_rule_frequency_color(signal_count, max_signal_count)
+            freq_dir_color = get_rule_frequency_direction_color(buy_signal_count, sell_signal_count)
+
             # Build node for STOCKS ONLY (ETFs excluded above)
             node = TreemapNode(
                 symbol=symbol,
@@ -181,6 +198,11 @@ class HeatmapBuilder:
                 close_price=ticker.get("close"),
                 alignment_score=extract_alignment_score(ticker),
                 volume=ticker.get("volume"),
+                signal_count=signal_count,
+                buy_signal_count=buy_signal_count,
+                sell_signal_count=sell_signal_count,
+                rule_frequency_color=freq_color,
+                rule_frequency_direction_color=freq_dir_color,
                 report_url=report_urls.get(symbol),
             )
 
@@ -236,6 +258,7 @@ class HeatmapBuilder:
             symbol_count=len(symbols),
             cap_missing_count=cap_missing_count,
             regime_distribution=regime_counts,
+            total_signals=total_signals,
         )
 
     def _get_node_color(self, ticker: Dict[str, Any], regime: Optional[str]) -> str:

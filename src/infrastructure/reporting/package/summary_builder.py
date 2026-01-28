@@ -169,7 +169,7 @@ class SummaryBuilder:
                     df = data[(symbol, tf)]
                     break
 
-            ticker_summary = self._build_ticker_summary(symbol, data, regime)
+            ticker_summary = self._build_ticker_summary(symbol, data, regime, timeframes)
 
             # PR-B: Add per-ticker data_quality and aggregate
             ticker_quality = self._extract_ticker_data_quality(symbol, df, regime)
@@ -222,6 +222,20 @@ class SummaryBuilder:
         # Check data quality budget
         self.check_budget("data_quality", summary["run_data_quality"], DATA_QUALITY_BUDGET_KB)
 
+        # Phase 3: Rule frequency computation
+        rule_frequency_data = self._compute_rule_frequency(data, timeframes)
+        summary["rule_frequency"] = rule_frequency_data
+
+        # Add per-ticker signal_count for heatmap trending mode
+        by_symbol = rule_frequency_data.get("by_symbol", {})
+        buy_by_symbol = rule_frequency_data.get("buy_by_symbol", {})
+        sell_by_symbol = rule_frequency_data.get("sell_by_symbol", {})
+        for ticker in ticker_summaries:
+            symbol = ticker.get("symbol", "")
+            ticker["signal_count"] = by_symbol.get(symbol, 0)
+            ticker["buy_signal_count"] = buy_by_symbol.get(symbol, 0)
+            ticker["sell_signal_count"] = sell_by_symbol.get(symbol, 0)
+
         return summary
 
     def _compute_daily_change(self, df: pd.DataFrame, symbol: str) -> Optional[float]:
@@ -258,6 +272,7 @@ class SummaryBuilder:
         symbol: str,
         data: Dict[Tuple[str, str], pd.DataFrame],
         regime: Optional["RegimeOutput"],
+        timeframes: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
         Build full ticker summary with complete regime data for 1:1 feature parity.
@@ -368,6 +383,13 @@ class SummaryBuilder:
             logger.debug(f"Could not load DuckDB stats for {symbol}: {e}")
             summary["data_stats"] = None
 
+        # Phase 4.4: Add MTF confluence (alignment across 1h, 4h, 1d)
+        from ..signal_report.confluence_analyzer import calculate_mtf_confluence
+
+        tf_tuple = tuple(timeframes) if timeframes else ("1h", "4h", "1d")
+        mtf_confluence = calculate_mtf_confluence(data, symbol, tf_tuple)
+        summary["mtf_confluence"] = mtf_confluence
+
         return summary
 
     def _build_market_overview(
@@ -450,3 +472,65 @@ class SummaryBuilder:
                     quality["regime_trustworthy"] = False
 
         return quality
+
+    def _compute_rule_frequency(
+        self,
+        data: Dict[Tuple[str, str], pd.DataFrame],
+        timeframes: List[str],
+        lookback_bars: int = 24,
+    ) -> Dict[str, Any]:
+        """
+        Compute rule frequency from historical signal detection.
+
+        Phase 3: This enables the "Trending" mode in heatmap visualization.
+
+        Args:
+            data: Dict mapping (symbol, timeframe) to DataFrame
+            timeframes: List of timeframes to include
+            lookback_bars: Number of bars to look back for frequency (default: 24)
+
+        Returns:
+            Dict with rule frequency data:
+                - by_symbol: {symbol: total_count}
+                - by_rule: {rule_name: total_count}
+                - top_symbols: [(symbol, count), ...]
+                - top_rules: [(rule, count), ...]
+                - total_signals: int
+                - lookback_bars: int
+                - computed_at: ISO timestamp
+        """
+        from src.domain.signals.rules import ALL_RULES
+
+        from ..signal_report.signal_detection import (
+            aggregate_rule_frequency,
+            detect_signals_with_frequency,
+        )
+
+        # Detect signals for each symbol/timeframe combination
+        all_signals: Dict[str, List[Dict[str, Any]]] = {}
+
+        for (symbol, timeframe), df in data.items():
+            if timeframe not in timeframes:
+                continue
+
+            try:
+                signals, _ = detect_signals_with_frequency(
+                    df=df,
+                    rules=ALL_RULES,
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    lookback_bars=lookback_bars,
+                )
+                key = f"{symbol}_{timeframe}"
+                all_signals[key] = signals
+            except Exception as e:
+                logger.debug(f"Could not detect signals for {symbol}_{timeframe}: {e}")
+
+        # Aggregate frequency across all symbols/timeframes
+        frequency_data = aggregate_rule_frequency(all_signals)
+
+        # Add metadata
+        frequency_data["lookback_bars"] = lookback_bars
+        frequency_data["computed_at"] = datetime.now().isoformat()
+
+        return frequency_data

@@ -36,11 +36,12 @@ class MACDIndicator(IndicatorBase):
         fast_period: 12
         slow_period: 26
         signal_period: 9
+        histogram_multiplier: 2 (TradeCat uses 2x for amplified histogram)
 
     State Output:
-        macd: MACD line value
-        signal: Signal line value
-        histogram: MACD - Signal
+        macd: MACD line value (DIF)
+        signal: Signal line value (DEA)
+        histogram: multiplier * (MACD - Signal), default 2x per TradeCat spec
         direction: "bullish" or "bearish" based on MACD vs Signal
     """
 
@@ -53,6 +54,7 @@ class MACDIndicator(IndicatorBase):
         "fast_period": 12,
         "slow_period": 26,
         "signal_period": 9,
+        "histogram_multiplier": 2,  # TradeCat uses 2x histogram
     }
 
     def _calculate(self, data: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
@@ -60,6 +62,7 @@ class MACDIndicator(IndicatorBase):
         fast = params["fast_period"]
         slow = params["slow_period"]
         signal = params["signal_period"]
+        multiplier = params["histogram_multiplier"]
 
         if len(data) == 0:
             return pd.DataFrame(
@@ -74,11 +77,15 @@ class MACDIndicator(IndicatorBase):
         close = data["close"].values.astype(np.float64)
 
         if HAS_TALIB:
-            macd_line, signal_line, histogram = talib.MACD(
+            macd_line, signal_line, _ = talib.MACD(
                 close, fastperiod=fast, slowperiod=slow, signalperiod=signal
             )
+            # Apply histogram multiplier (TradeCat uses 2x)
+            histogram = multiplier * (macd_line - signal_line)
         else:
-            macd_line, signal_line, histogram = self._calculate_manual(close, fast, slow, signal)
+            macd_line, signal_line, histogram = self._calculate_manual(
+                close, fast, slow, signal, multiplier
+            )
 
         return pd.DataFrame(
             {"macd": macd_line, "signal": signal_line, "histogram": histogram},
@@ -86,7 +93,7 @@ class MACDIndicator(IndicatorBase):
         )
 
     def _calculate_manual(
-        self, close: np.ndarray, fast: int, slow: int, signal: int
+        self, close: np.ndarray, fast: int, slow: int, signal: int, multiplier: float
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Calculate MACD without TA-Lib."""
         n = len(close)
@@ -115,7 +122,8 @@ class MACDIndicator(IndicatorBase):
                 if not np.isnan(macd_line[i]):
                     signal_line[i] = alpha * macd_line[i] + (1 - alpha) * signal_line[i - 1]
 
-        histogram = macd_line - signal_line
+        # Apply histogram multiplier (TradeCat uses 2x)
+        histogram = multiplier * (macd_line - signal_line)
         return macd_line, signal_line, histogram
 
     def _get_state(

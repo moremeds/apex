@@ -151,20 +151,20 @@ class KeltnerChannelsIndicator(IndicatorBase):
                 "upper": 0,
                 "middle": 0,
                 "lower": 0,
-                "position": "inside",
+                "zone": "neutral",
             }
 
-        # Position relative to channels using close price
-        position = "inside"
+        # Zone values match rule expectations: above_upper, below_lower, neutral
+        zone = "neutral"
         if not pd.isna(close):
             if close > upper:
-                position = "above"
+                zone = "above_upper"
             elif close < lower:
-                position = "below"
+                zone = "below_lower"
 
         return {
             "upper": float(upper),
             "middle": float(middle),
             "lower": float(lower),
-            "position": position,
+            "zone": zone,
         }

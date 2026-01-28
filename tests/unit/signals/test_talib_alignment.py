@@ -115,6 +115,8 @@ class TestMACDAlignment:
             pytest.skip("MACD indicator not registered")
 
         # Calculate APEX MACD
+        # Use histogram_multiplier=1 for TA-Lib alignment comparison
+        # (TradeCat default is 2x, but TA-Lib uses 1x)
         result = apex_macd.calculate(
             sample_ohlcv,
             {
@@ -122,6 +124,7 @@ class TestMACDAlignment:
                 "fast_period": 12,
                 "slow_period": 26,
                 "signal_period": 9,
+                "histogram_multiplier": 1,  # Match TA-Lib standard
             },
         )
 

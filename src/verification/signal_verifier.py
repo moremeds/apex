@@ -426,14 +426,8 @@ class SignalVerifier(BaseVerifier):
 
             registry = get_indicator_registry()
 
-            # Find indicator from invariant config
-            # The invariant should be associated with an indicator
-            inv_config = None
-            for cfg in self.manifest.get("invariants", []):
-                if cfg.get("id") == ref:
-                    inv_config = cfg
-                    break
-
+            # Find indicator from invariant config (stored during load)
+            inv_config = self.invariant_configs.get(ref)
             if inv_config is None:
                 return False, "Invariant config not found"
 
@@ -483,13 +477,8 @@ class SignalVerifier(BaseVerifier):
 
             registry = get_indicator_registry()
 
-            # Find indicator
-            inv_config = None
-            for cfg in self.manifest.get("invariants", []):
-                if cfg.get("id") == ref:
-                    inv_config = cfg
-                    break
-
+            # Find indicator from invariant config (stored during load)
+            inv_config = self.invariant_configs.get(ref)
             if inv_config is None:
                 return False, "Invariant config not found"
 
@@ -578,13 +567,8 @@ class SignalVerifier(BaseVerifier):
 
             registry = get_indicator_registry()
 
-            # Find indicators to test
-            inv_config = None
-            for cfg in self.manifest.get("invariants", []):
-                if cfg.get("id") == ref:
-                    inv_config = cfg
-                    break
-
+            # Find indicators to test from invariant config (stored during load)
+            inv_config = self.invariant_configs.get(ref)
             if inv_config is None:
                 return False, "Invariant config not found"
 
@@ -615,7 +599,9 @@ class SignalVerifier(BaseVerifier):
                     continue  # Can't test if perturb is in warmup
 
                 if perturb_field in df_perturbed.columns:
-                    df_perturbed.iloc[perturb_idx][perturb_field] *= perturb_factor
+                    df_perturbed.loc[
+                        df_perturbed.index[perturb_idx], perturb_field
+                    ] *= perturb_factor
 
                 result_perturbed = indicator.calculate(df_perturbed, {"symbol": "TEST"})
 

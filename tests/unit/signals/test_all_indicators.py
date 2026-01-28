@@ -117,18 +117,19 @@ class TestIndicatorDiscovery:
     """Tests for indicator discovery."""
 
     def test_total_indicator_count(self, registry: IndicatorRegistry) -> None:
-        """Verify all 45 indicators are discovered."""
+        """Verify all 47 indicators are discovered."""
         indicators = registry.get_all()
-        assert len(indicators) == 45, f"Expected 45 indicators, found {len(indicators)}"
+        assert len(indicators) == 47, f"Expected 47 indicators, found {len(indicators)}"
 
     def test_momentum_indicators(self, registry: IndicatorRegistry) -> None:
-        """Verify all 12 momentum indicators."""
+        """Verify all 13 momentum indicators."""
         indicators = registry.get_by_category(SignalCategory.MOMENTUM)
         names = {ind.name for ind in indicators}
         expected = {
             "rsi",
             "rsi_harmonics",
             "macd",
+            "dual_macd",
             "kdj",
             "cci",
             "williams_r",
@@ -176,10 +177,11 @@ class TestIndicatorDiscovery:
         assert names == expected, f"Missing volatility indicators: {expected - names}"
 
     def test_volume_indicators(self, registry: IndicatorRegistry) -> None:
-        """Verify all 8 volume indicators."""
+        """Verify all 9 volume indicators."""
         indicators = registry.get_by_category(SignalCategory.VOLUME)
         names = {ind.name for ind in indicators}
         expected = {
+            "volume",
             "obv",
             "vwap",
             "cvd",

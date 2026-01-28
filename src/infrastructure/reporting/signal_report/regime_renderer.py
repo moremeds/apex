@@ -26,14 +26,15 @@ def compute_regime_outputs(
     indicators: List["Indicator"],
 ) -> Dict[str, "RegimeOutput"]:
     """
-    Compute regime outputs for each symbol using the regime detector indicator.
+    Compute regime outputs for each (symbol, timeframe) pair.
 
     Args:
         data: Dict mapping (symbol, timeframe) to DataFrame
         indicators: List of indicators (should include regime_detector)
 
     Returns:
-        Dict mapping symbol to RegimeOutput
+        Dict mapping "{symbol}_{timeframe}" to RegimeOutput.
+        Also includes "{symbol}" key for 1d timeframe (backward compatibility).
     """
     from src.domain.signals.indicators.regime import RegimeDetectorIndicator, RegimeOutput
 
@@ -50,12 +51,12 @@ def compute_regime_outputs(
         logger.debug("No regime detector indicator found, skipping regime sections")
         return regime_outputs
 
-    # Compute regime for each symbol (use daily timeframe preferentially)
-    symbols_processed = set()
+    # Compute regime for each (symbol, timeframe) pair
     for (symbol, timeframe), df in data.items():
-        if symbol in symbols_processed:
-            continue
-        if len(df) < regime_detector.warmup_periods:
+        if len(df) < regime_detector.minimum_bars:
+            logger.debug(
+                f"Skipping regime for {symbol}/{timeframe}: {len(df)} < {regime_detector.minimum_bars} bars"
+            )
             continue
 
         try:
@@ -129,6 +130,42 @@ def compute_regime_outputs(
                     else float(ohlc_row.get("high", 0))
                 ),
                 "is_market_level": symbol.upper() in {"QQQ", "SPY", "IWM", "DIA"},
+                # Phase 5: Composite scoring columns
+                "composite_score": (
+                    float(last_row.get("composite_score", 50))
+                    if pd.notna(last_row.get("composite_score"))
+                    else None
+                ),
+                "composite_trend": (
+                    float(last_row.get("composite_trend", 0.5))
+                    if pd.notna(last_row.get("composite_trend"))
+                    else None
+                ),
+                "composite_trend_short": (
+                    float(last_row.get("composite_trend_short", 0.5))
+                    if pd.notna(last_row.get("composite_trend_short"))
+                    else None
+                ),
+                "composite_momentum": (
+                    float(last_row.get("composite_momentum", 0.5))
+                    if pd.notna(last_row.get("composite_momentum"))
+                    else None
+                ),
+                "composite_volatility": (
+                    float(last_row.get("composite_volatility", 0.5))
+                    if pd.notna(last_row.get("composite_volatility"))
+                    else None
+                ),
+                "composite_macd_trend": (
+                    float(last_row.get("composite_macd_trend", 0.5))
+                    if pd.notna(last_row.get("composite_macd_trend"))
+                    else None
+                ),
+                "composite_macd_momentum": (
+                    float(last_row.get("composite_macd_momentum", 0.5))
+                    if pd.notna(last_row.get("composite_macd_momentum"))
+                    else None
+                ),
             }
 
             # Compute full regime output with hysteresis
@@ -136,12 +173,17 @@ def compute_regime_outputs(
                 symbol=symbol,
                 state=flat_state,
                 timestamp=timestamp,
+                timeframe=timeframe,
             )
-            regime_outputs[symbol] = output
-            symbols_processed.add(symbol)
-            logger.debug(f"Computed regime for {symbol}: {output.final_regime.value}")
+            # Store with timeframe-specific key
+            key = f"{symbol}_{timeframe}"
+            regime_outputs[key] = output
+            # Also store under symbol-only key for 1d (backward compatibility)
+            if timeframe == "1d":
+                regime_outputs[symbol] = output
+            logger.debug(f"Computed regime for {key}: {output.final_regime.value}")
         except Exception as e:
-            logger.warning(f"Failed to compute regime for {symbol}: {e}")
+            logger.warning(f"Failed to compute regime for {symbol}/{timeframe}: {e}")
 
     return regime_outputs
 
@@ -271,6 +313,7 @@ def render_regime_sections(
     """
     from ..regime_report import (
         generate_components_4block_html,
+        generate_composite_score_html,
         generate_decision_tree_html,
         generate_hysteresis_html,
         generate_methodology_html,
@@ -294,6 +337,9 @@ def render_regime_sections(
     for symbol, output in sorted(regime_outputs.items()):
         # Generate one-liner for this symbol
         one_liner = generate_regime_one_liner_html(output)
+
+        # Phase 5: Generate composite score section (dedicated section)
+        composite_score = generate_composite_score_html(output, theme)
 
         # Generate decision tree
         decision_tree = generate_decision_tree_html(output, theme)
@@ -334,6 +380,7 @@ def render_regime_sections(
         <div class="regime-symbol-section" id="regime-{symbol}" data-symbol="{symbol}" style="display: none;">
             {report_header}
             {one_liner}
+            {composite_score}
             {decision_tree}
             {components}
             {hysteresis}

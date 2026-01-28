@@ -54,6 +54,7 @@ class BollingerBandsIndicator(IndicatorBase):
     _default_params = {
         "period": 20,
         "std_dev": 2.0,
+        "squeeze_threshold": 6.0,  # Bandwidth below 6% indicates squeeze (bandwidth is 0-100 scale)
     }
 
     def _calculate(self, data: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
@@ -116,6 +117,7 @@ class BollingerBandsIndicator(IndicatorBase):
         middle = current.get("bb_middle", 0)
         lower = current.get("bb_lower", 0)
         close = current.get("bb_close", np.nan)
+        squeeze_threshold = params.get("squeeze_threshold", 6.0)
 
         if pd.isna(upper) or pd.isna(middle) or pd.isna(lower):
             return {
@@ -125,21 +127,26 @@ class BollingerBandsIndicator(IndicatorBase):
                 "bandwidth": 0,
                 "percent_b": 50,
                 "zone": "neutral",
+                "squeeze": False,
             }
 
         bandwidth = ((upper - lower) / middle * 100) if middle != 0 else 0
         band_width = upper - lower
 
-        # Calculate %B using close price (not middle band)
+        # Squeeze detection: bandwidth below threshold indicates low volatility
+        squeeze = bandwidth < squeeze_threshold
+
+        # Calculate %B and zone using close price
         if pd.isna(close):
             percent_b = 50
             zone = "neutral"
         else:
             percent_b = ((close - lower) / band_width * 100) if band_width != 0 else 50
-            if percent_b >= 100:
-                zone = "overbought"
-            elif percent_b <= 0:
-                zone = "oversold"
+            # Zone values match rule expectations: below_lower, above_upper, neutral
+            if close >= upper:
+                zone = "above_upper"
+            elif close <= lower:
+                zone = "below_lower"
             else:
                 zone = "neutral"
 
@@ -150,4 +157,5 @@ class BollingerBandsIndicator(IndicatorBase):
             "bandwidth": float(bandwidth),
             "percent_b": float(percent_b),
             "zone": zone,
+            "squeeze": squeeze,
         }

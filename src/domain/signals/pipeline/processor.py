@@ -583,44 +583,49 @@ class SignalPipelineProcessor:
             # PR-02: Package format with lazy loading
             from src.application.services.regime_service import RegimeService
 
-            # Calculate regime for each symbol
+            # Calculate regime for each (symbol, timeframe) pair
             regime_outputs = {}
             regime_service = RegimeService()
             market_benchmarks = {"QQQ", "SPY", "IWM", "DIA"}
+            warmup_ideal = regime_service._regime_detector.warmup_periods
+            minimum_bars = regime_service._regime_detector.minimum_bars
 
-            for symbol in self.config.symbols:
-                daily_key = (symbol, "1d")
-                if daily_key not in data:
-                    for tf in ["1d", "1h", "4h"]:
-                        if (symbol, tf) in data:
-                            daily_key = (symbol, tf)
-                            break
+            for (symbol, timeframe), df_for_regime in data.items():
+                bar_count = len(df_for_regime)
 
-                if daily_key in data:
-                    df_for_regime = data[daily_key]
-                    warmup_needed = regime_service._regime_detector.warmup_periods
-                    if len(df_for_regime) >= warmup_needed:
-                        try:
-                            regime_output = regime_service.calculate_regime(
-                                symbol=symbol,
-                                data=df_for_regime,
-                                params=None,
-                                is_market_level=(symbol in market_benchmarks),
-                            )
-                            regime_outputs[symbol] = regime_output
-                            logger.info(
-                                f"Calculated regime for {symbol}: {regime_output.final_regime.value} "
-                                f"({regime_output.regime_name}, confidence={regime_output.confidence})"
-                            )
-                        except Exception as e:
-                            logger.warning(f"Failed to calculate regime for {symbol}: {e}")
-                    else:
-                        logger.warning(
-                            f"Insufficient data for {symbol} regime: {len(df_for_regime)} bars "
-                            f"(need {warmup_needed})"
+                if bar_count >= minimum_bars:
+                    # Calculate regime - note if using reduced data
+                    is_reduced_data = bar_count < warmup_ideal
+                    try:
+                        regime_output = regime_service.calculate_regime(
+                            symbol=symbol,
+                            data=df_for_regime,
+                            params=None,
+                            is_market_level=(symbol in market_benchmarks),
+                            timeframe=timeframe,
                         )
+                        # Store with timeframe-specific key
+                        key = f"{symbol}_{timeframe}"
+                        regime_outputs[key] = regime_output
+                        # Also store under symbol-only key for 1d (backward compatibility)
+                        if timeframe == "1d":
+                            regime_outputs[symbol] = regime_output
+                        quality_note = " (reduced data)" if is_reduced_data else ""
+                        logger.info(
+                            f"Calculated regime for {key}: {regime_output.final_regime.value} "
+                            f"({regime_output.regime_name}, confidence={regime_output.confidence}){quality_note}"
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to calculate regime for {symbol}/{timeframe}: {e}")
+                else:
+                    logger.debug(
+                        f"Insufficient data for {symbol}/{timeframe} regime: {bar_count} bars "
+                        f"(need {minimum_bars} minimum)"
+                    )
 
-            print(f"  Calculated regime for {len(regime_outputs)} symbols")
+            # Count unique symbol/timeframe pairs (excluding backward compat keys)
+            regime_count = len([k for k in regime_outputs.keys() if "_" in k])
+            print(f"  Calculated regime for {regime_count} symbol/timeframe pairs")
 
             package_dir = output.with_suffix("")
             if package_dir.suffix == ".html":

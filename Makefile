@@ -166,7 +166,8 @@ validate-fast:
 	@echo "$(BOLD)Running fast validation (PR gate)...$(RESET)"
 	$(PYTHON) -m src.runners.validation_runner fast \
 		--symbols SPY QQQ AAPL MSFT NVDA AMD MU GME AMC VIX \
-		--timeframes 1d --folds 2 --no-optuna
+		--timeframes 1d --folds 2 --no-optuna \
+		--output reports/validation/fast
 
 # Full validation suite (signal report + quality gates + turning points)
 # Uses unified config/universe.yaml
@@ -195,8 +196,8 @@ validate:
 signals-test:
 	@echo "$(BOLD)Quick signal test (12 symbols)...$(RESET)"
 	$(PYTHON) -m src.runners.signal_runner --live \
-		--symbols SPY QQQ XLB GLD TLT UVXY AAPL NVDA JPM XOM UNH HD DIS TSLA AMD META \
-		--timeframes 1d \
+		--symbols SPY QQQ XLB GLD TLT UVXY AAPL NVDA JPM XOM UNH HD DIS TSLA AMD META SLV SNDK MU ORCL\
+		--timeframes 1d 1h 4h\
 		--format package \
 		--html-output /tmp/signal_test
 	@echo ""

@@ -889,6 +889,78 @@ HEATMAP_CSS = """
     color: var(--regime-r3);
 }
 
+/* Rule Frequency Summary (Phase 3) */
+.apex-hm .rule-frequency-summary {
+    margin-bottom: 24px;
+    padding: 16px;
+    background: var(--bg);
+    border-radius: 8px;
+}
+
+.apex-hm .rule-freq-bars {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.apex-hm .rule-freq-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.apex-hm .rule-freq-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+}
+
+.apex-hm .rule-freq-label .rule-name {
+    font-weight: 500;
+    color: var(--text);
+}
+
+.apex-hm .rule-freq-label .rule-count {
+    font-weight: 600;
+}
+
+.apex-hm .rule-freq-label .rule-count.buy {
+    color: var(--success);
+}
+
+.apex-hm .rule-freq-label .rule-count.sell {
+    color: var(--danger);
+}
+
+.apex-hm .rule-freq-label .rule-count.alert {
+    color: var(--regime-r3);
+}
+
+.apex-hm .rule-freq-bar-bg {
+    height: 6px;
+    background: var(--border);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.apex-hm .rule-freq-bar {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.3s ease;
+}
+
+.apex-hm .rule-freq-bar.buy {
+    background: var(--success);
+}
+
+.apex-hm .rule-freq-bar.sell {
+    background: var(--danger);
+}
+
+.apex-hm .rule-freq-bar.alert {
+    background: var(--regime-r3);
+}
+
 /* Indicators Section */
 .apex-hm .category-group {
     margin-bottom: 24px;

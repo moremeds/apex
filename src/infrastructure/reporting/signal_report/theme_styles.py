@@ -393,6 +393,78 @@ body {{
     font-style: italic;
 }}
 
+/* Rule Frequency Summary (Phase 3) */
+.rule-frequency-summary {{
+    margin-bottom: 24px;
+    padding: 16px;
+    background: {c['bg']};
+    border-radius: 8px;
+}}
+
+.rule-freq-bars {{
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}}
+
+.rule-freq-item {{
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}}
+
+.rule-freq-label {{
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+}}
+
+.rule-freq-label .rule-name {{
+    font-weight: 500;
+    color: {c['text']};
+}}
+
+.rule-freq-label .rule-count {{
+    font-weight: 600;
+}}
+
+.rule-freq-label .rule-count.buy {{
+    color: {c['profit']};
+}}
+
+.rule-freq-label .rule-count.sell {{
+    color: {c['loss']};
+}}
+
+.rule-freq-label .rule-count.alert {{
+    color: {c['primary']};
+}}
+
+.rule-freq-bar-bg {{
+    height: 6px;
+    background: {c['border']};
+    border-radius: 3px;
+    overflow: hidden;
+}}
+
+.rule-freq-bar {{
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.3s ease;
+}}
+
+.rule-freq-bar.buy {{
+    background: {c['profit']};
+}}
+
+.rule-freq-bar.sell {{
+    background: {c['loss']};
+}}
+
+.rule-freq-bar.alert {{
+    background: {c['primary']};
+}}
+
 .category-group {{
     margin-bottom: 24px;
 }}

@@ -1,0 +1,68 @@
+# Momentum Indicator Bounds Invariants
+#
+# All momentum oscillators are bounded by definition.
+# These checks catch calculation bugs that would produce out-of-range values.
+
+invariants:
+  - id: RSI_BOUNDS
+    type: bounds
+    indicator: rsi
+    field: value
+    min_val: 0
+    max_val: 100
+    after_warmup: true
+    description: "RSI must be in [0, 100]"
+
+  - id: KDJ_K_BOUNDS
+    type: bounds
+    indicator: kdj
+    field: k
+    min_val: 0
+    max_val: 100
+    after_warmup: true
+    description: "KDJ %K must be in [0, 100]"
+
+  - id: KDJ_D_BOUNDS
+    type: bounds
+    indicator: kdj
+    field: d
+    min_val: 0
+    max_val: 100
+    after_warmup: true
+    description: "KDJ %D must be in [0, 100]"
+
+  - id: MFI_BOUNDS
+    type: bounds
+    indicator: mfi
+    field: value
+    min_val: 0
+    max_val: 100
+    after_warmup: true
+    description: "MFI must be in [0, 100]"
+
+  - id: WILLIAMS_R_BOUNDS
+    type: bounds
+    indicator: williams_r
+    field: value
+    min_val: -100
+    max_val: 0
+    after_warmup: true
+    description: "Williams %R must be in [-100, 0]"
+
+  - id: CCI_BOUNDS
+    type: bounds
+    indicator: cci
+    field: value
+    min_val: -500
+    max_val: 500
+    after_warmup: true
+    description: "CCI typically bounded but can exceed in extreme cases"
+
+  - id: ULTIMATE_BOUNDS
+    type: bounds
+    indicator: ultimate
+    field: value
+    min_val: 0
+    max_val: 100
+    after_warmup: true
+    description: "Ultimate Oscillator must be in [0, 100]"

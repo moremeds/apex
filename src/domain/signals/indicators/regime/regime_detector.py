@@ -39,6 +39,9 @@ from .components import (
     calculate_trend_state,
     calculate_vol_state,
 )
+
+# Phase 5: Composite scoring system
+from .composite_scorer import CompositeRegimeScorer, CompositeWeights
 from .models import (
     ENTRY_HYSTERESIS,
     EXIT_HYSTERESIS,
@@ -65,6 +68,7 @@ from .rule_trace import (
     create_categorical_rule_trace,
     create_threshold_rule_trace,
 )
+from .score_hysteresis import ScoreHysteresisStateMachine
 
 # Phase 4: Turning point imports (lazy loaded to avoid circular imports)
 # TurningPointModel, TurningPointFeatures, TurningPointOutput are imported in method
@@ -118,7 +122,8 @@ class RegimeDetectorIndicator(IndicatorBase):
     name = "regime_detector"
     category = SignalCategory.REGIME
     required_fields = ["high", "low", "close"]
-    warmup_periods = 252  # Need 1 year for percentile calculations
+    warmup_periods = 252  # Ideal: 1 year for percentile calculations
+    minimum_bars = 126  # Minimum: ~6 months for newer tickers (reduced quality)
 
     _default_params = {
         # MAs
@@ -151,6 +156,9 @@ class RegimeDetectorIndicator(IndicatorBase):
         "ext_oversold": -2.0,
         "ext_slightly_high": 1.5,
         "ext_slightly_low": -1.5,
+        # Phase 5: Composite scoring (replaces decision tree when True)
+        "use_composite_scorer": True,
+        "composite_weights": None,  # Optional: Dict with trend/momentum/volatility/breadth weights
     }
 
     def __init__(self) -> None:
@@ -164,12 +172,65 @@ class RegimeDetectorIndicator(IndicatorBase):
         self._turning_point_models: Dict[str, Any] = {}
         self._tp_model_load_attempted: Dict[str, bool] = {}
 
+        # Phase 5: Composite scoring system
+        self._composite_scorer: Optional[CompositeRegimeScorer] = None
+        self._composite_hysteresis: Dict[str, ScoreHysteresisStateMachine] = {}
+
+        # Phase 5: Benchmark cache for breadth factor
+        self._benchmark_cache: Dict[str, pd.DataFrame] = {}
+        self._benchmark_load_attempted: bool = False
+
+    def _load_benchmark(self, symbol: str = "SPY", days: int = 1000) -> Optional[pd.DataFrame]:
+        """
+        Load benchmark data for breadth factor calculation.
+
+        Caches benchmark data to avoid repeated fetches. Uses yfinance
+        as fallback data source.
+
+        Args:
+            symbol: Benchmark symbol (default SPY)
+            days: Days of history to fetch
+
+        Returns:
+            DataFrame with OHLCV or None if unavailable
+        """
+        if symbol in self._benchmark_cache:
+            return self._benchmark_cache[symbol]
+
+        if self._benchmark_load_attempted:
+            return None  # Already tried, failed
+
+        self._benchmark_load_attempted = True
+
+        try:
+            import yfinance as yf
+
+            ticker = yf.Ticker(symbol)
+            df = ticker.history(period=f"{days}d")
+            if df.empty:
+                logger.warning(f"No benchmark data for {symbol}")
+                return None
+
+            df.columns = [c.lower() for c in df.columns]
+            # Remove timezone for compatibility with timezone-naive input data
+            if df.index.tz is not None:
+                df.index = df.index.tz_localize(None)
+            self._benchmark_cache[symbol] = df
+            logger.debug(f"Loaded {len(df)} bars of benchmark data for {symbol}")
+            return df
+        except Exception as e:
+            logger.warning(f"Failed to load benchmark {symbol}: {e}")
+            return None
+
     def _calculate(self, data: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
         """
         Calculate regime indicators for all bars.
 
         Returns DataFrame with columns for regime classification and all
         component values for rule evaluation and reporting.
+
+        If use_composite_scorer=True (default), uses Phase 5 composite scoring.
+        Otherwise uses legacy decision tree.
         """
         n = len(data)
         if n == 0:
@@ -184,6 +245,11 @@ class RegimeDetectorIndicator(IndicatorBase):
                 },
                 index=data.index,
             )
+
+        # Phase 5: Use composite scorer if enabled
+        use_composite = params.get("use_composite_scorer", True)
+        if use_composite:
+            return self._calculate_composite(data, params)
 
         # Extract OHLC arrays
         high = data["high"].values.astype(np.float64)
@@ -300,6 +366,246 @@ class RegimeDetectorIndicator(IndicatorBase):
 
         return result
 
+    def _calculate_composite(self, data: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
+        """
+        Calculate regime using Phase 5 composite scoring system.
+
+        Uses calibrated factor normalization and optional learned weights
+        for more balanced regime classification (fixes 'everything is R1').
+        """
+        n = len(data)
+
+        # Initialize or get composite scorer
+        weights_dict = params.get("composite_weights")
+        if weights_dict:
+            weights = CompositeWeights(**weights_dict)
+            scorer = CompositeRegimeScorer(weights=weights)
+        else:
+            if self._composite_scorer is None:
+                self._composite_scorer = CompositeRegimeScorer()
+            scorer = self._composite_scorer
+
+        # Load benchmark for breadth factor (SPY by default)
+        benchmark_symbol = params.get("benchmark_symbol", "SPY")
+        benchmark_df = self._load_benchmark(benchmark_symbol)
+
+        # Compute composite scores and regimes
+        try:
+            scored = scorer.score_and_classify(data, benchmark_df=benchmark_df)
+        except Exception as e:
+            logger.error(f"Composite scoring failed: {e}, falling back to decision tree")
+            return self._calculate_decision_tree(data, params)
+
+        # Map R0/R1/R2 to MarketRegime values
+        regime_map = {
+            "R0": MarketRegime.R0_HEALTHY_UPTREND.value,
+            "R1": MarketRegime.R1_CHOPPY_EXTENDED.value,
+            "R2": MarketRegime.R2_RISK_OFF.value,
+            None: MarketRegime.R1_CHOPPY_EXTENDED.value,
+        }
+        regimes = scored["regime"].map(lambda x: regime_map.get(x, "R1"))
+
+        # Convert score to confidence (0-100)
+        # Score already in 0-100, but confidence should reflect certainty
+        confidences = scored["score"].apply(
+            lambda s: min(100, max(0, int(abs(s - 50) * 2))) if pd.notna(s) else 50
+        )
+
+        # Also compute legacy component states for backward compatibility
+        high = data["high"].values.astype(np.float64)
+        low = data["low"].values.astype(np.float64)
+        close = data["close"].values.astype(np.float64)
+
+        try:
+            trend_states, trend_details = calculate_trend_state(close, params)
+        except Exception:
+            trend_states = np.array([TrendState.NEUTRAL] * n)
+            trend_details = {
+                "ma50": np.full(n, np.nan),
+                "ma200": np.full(n, np.nan),
+                "ma50_slope": np.full(n, np.nan),
+            }
+
+        try:
+            vol_states, vol_details = calculate_vol_state(high, low, close, params)
+        except Exception:
+            vol_states = np.array([VolState.NORMAL] * n)
+            vol_details = {
+                "atr": np.full(n, np.nan),
+                "atr_pct": np.full(n, np.nan),
+                "atr_pct_63": np.full(n, 50.0),
+                "atr_pct_252": np.full(n, 50.0),
+            }
+
+        try:
+            chop_states, chop_details = calculate_chop_state(high, low, close, params)
+        except Exception:
+            chop_states = np.array([ChopState.NEUTRAL] * n)
+            chop_details = {
+                "chop": np.full(n, 50.0),
+                "chop_pct_252": np.full(n, 50.0),
+                "ma20_crosses": np.zeros(n),
+            }
+
+        try:
+            ext_states, ext_details = calculate_ext_state(high, low, close, params)
+        except Exception:
+            ext_states = np.array([ExtState.NEUTRAL] * n)
+            ext_details = {"ext": np.zeros(n), "ma20": np.full(n, np.nan)}
+
+        ma20 = ext_details["ma20"]
+        last_5_bar_high = np.full(n, np.nan)
+        for i in range(4, n):
+            last_5_bar_high[i] = np.max(high[i - 4 : i + 1])
+
+        # Build result with both composite and legacy columns
+        result = pd.DataFrame(
+            {
+                "regime": regimes.values,
+                "regime_confidence": confidences.values,
+                # Phase 5: Composite score columns
+                "composite_score": scored["score"].values,
+                "composite_trend": scored["trend"].values,
+                "composite_trend_short": scored["trend_short"].values,
+                "composite_macd_trend": scored["macd_trend"].values,
+                "composite_macd_momentum": scored["macd_momentum"].values,
+                "composite_momentum": scored["momentum"].values,
+                "composite_volatility": scored["volatility"].values,
+                "composite_breadth": scored["breadth"].values,
+                # Legacy component states
+                "trend_state": [ts.value for ts in trend_states],
+                "vol_state": [vs.value for vs in vol_states],
+                "chop_state": [cs.value for cs in chop_states],
+                "ext_state": [es.value for es in ext_states],
+                # Legacy component values
+                "ma20": ma20,
+                "ma50": trend_details["ma50"],
+                "ma200": trend_details["ma200"],
+                "ma50_slope": trend_details["ma50_slope"],
+                "atr20": vol_details["atr"],
+                "atr_pct": vol_details["atr_pct"],
+                "atr_pct_63": vol_details["atr_pct_63"],
+                "atr_pct_252": vol_details["atr_pct_252"],
+                "chop": chop_details["chop"],
+                "chop_pct_252": chop_details["chop_pct_252"],
+                "ma20_crosses": chop_details["ma20_crosses"],
+                "ext": ext_details["ext"],
+                "last_5_bar_high": last_5_bar_high,
+            },
+            index=data.index,
+        )
+
+        return result
+
+    def _calculate_decision_tree(self, data: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
+        """Legacy decision tree calculation (fallback or when use_composite_scorer=False)."""
+        # This is the original logic, moved to separate method
+        n = len(data)
+
+        high = data["high"].values.astype(np.float64)
+        low = data["low"].values.astype(np.float64)
+        close = data["close"].values.astype(np.float64)
+
+        try:
+            trend_states, trend_details = calculate_trend_state(close, params)
+        except Exception as e:
+            logger.error(f"Trend state calculation failed: {e}", exc_info=True)
+            trend_states = np.array([TrendState.NEUTRAL] * n)
+            trend_details = {
+                "ma50": np.full(n, np.nan),
+                "ma200": np.full(n, np.nan),
+                "ma50_slope": np.full(n, np.nan),
+            }
+
+        try:
+            vol_states, vol_details = calculate_vol_state(high, low, close, params)
+        except Exception as e:
+            logger.error(f"Vol state calculation failed: {e}", exc_info=True)
+            vol_states = np.array([VolState.NORMAL] * n)
+            vol_details = {
+                "atr": np.full(n, np.nan),
+                "atr_pct": np.full(n, np.nan),
+                "atr_pct_63": np.full(n, 50.0),
+                "atr_pct_252": np.full(n, 50.0),
+            }
+
+        try:
+            chop_states, chop_details = calculate_chop_state(high, low, close, params)
+        except Exception as e:
+            logger.error(f"Chop state calculation failed: {e}", exc_info=True)
+            chop_states = np.array([ChopState.NEUTRAL] * n)
+            chop_details = {
+                "chop": np.full(n, 50.0),
+                "chop_pct_252": np.full(n, 50.0),
+                "ma20_crosses": np.zeros(n),
+            }
+
+        try:
+            ext_states, ext_details = calculate_ext_state(high, low, close, params)
+        except Exception as e:
+            logger.error(f"Ext state calculation failed: {e}", exc_info=True)
+            ext_states = np.array([ExtState.NEUTRAL] * n)
+            ext_details = {"ext": np.zeros(n), "ma20": np.full(n, np.nan)}
+
+        ma20 = ext_details["ma20"]
+        last_5_bar_high = np.full(n, np.nan)
+        for i in range(4, n):
+            last_5_bar_high[i] = np.max(high[i - 4 : i + 1])
+
+        regimes = []
+        confidences = []
+
+        for i in range(n):
+            state = {
+                "close": close[i],
+                "ma20": ma20[i] if not np.isnan(ma20[i]) else close[i],
+                "ma50": trend_details["ma50"][i],
+                "ma200": trend_details["ma200"][i],
+                "ma50_slope": trend_details["ma50_slope"][i],
+                "last_5_bar_high": (
+                    last_5_bar_high[i] if not np.isnan(last_5_bar_high[i]) else close[i]
+                ),
+                "trend_state": trend_states[i],
+                "vol_state": vol_states[i],
+                "chop_state": chop_states[i],
+                "ext_state": ext_states[i],
+                "iv_state": IVState.NA,
+                "is_market_level": False,
+            }
+
+            regime, _ = self._evaluate_decision_tree(state)
+            confidence = self._compute_confidence(state, regime)
+
+            regimes.append(regime.value)
+            confidences.append(confidence)
+
+        result = pd.DataFrame(
+            {
+                "regime": regimes,
+                "regime_confidence": confidences,
+                "trend_state": [ts.value for ts in trend_states],
+                "vol_state": [vs.value for vs in vol_states],
+                "chop_state": [cs.value for cs in chop_states],
+                "ext_state": [es.value for es in ext_states],
+                "ma20": ma20,
+                "ma50": trend_details["ma50"],
+                "ma200": trend_details["ma200"],
+                "ma50_slope": trend_details["ma50_slope"],
+                "atr20": vol_details["atr"],
+                "atr_pct": vol_details["atr_pct"],
+                "atr_pct_63": vol_details["atr_pct_63"],
+                "atr_pct_252": vol_details["atr_pct_252"],
+                "chop": chop_details["chop"],
+                "chop_pct_252": chop_details["chop_pct_252"],
+                "ma20_crosses": chop_details["ma20_crosses"],
+                "ext": ext_details["ext"],
+                "last_5_bar_high": last_5_bar_high,
+            },
+            index=data.index,
+        )
+
+        return result
+
     def _get_state(
         self,
         current: pd.Series,
@@ -366,6 +672,47 @@ class RegimeDetectorIndicator(IndicatorBase):
                 "chop_pct_252": self._safe_float(current.get("chop_pct_252")),
                 "ma20_crosses": int(current.get("ma20_crosses", 0)),
                 "ext": self._safe_float(current.get("ext")),
+                # Phase 5: Composite scoring fields
+                "composite_score": (
+                    self._safe_float(current.get("composite_score"))
+                    if pd.notna(current.get("composite_score"))
+                    else None
+                ),
+                "composite_trend": (
+                    self._safe_float(current.get("composite_trend"))
+                    if pd.notna(current.get("composite_trend"))
+                    else None
+                ),
+                "composite_trend_short": (
+                    self._safe_float(current.get("composite_trend_short"))
+                    if pd.notna(current.get("composite_trend_short"))
+                    else None
+                ),
+                "composite_macd_trend": (
+                    self._safe_float(current.get("composite_macd_trend"))
+                    if pd.notna(current.get("composite_macd_trend"))
+                    else None
+                ),
+                "composite_macd_momentum": (
+                    self._safe_float(current.get("composite_macd_momentum"))
+                    if pd.notna(current.get("composite_macd_momentum"))
+                    else None
+                ),
+                "composite_momentum": (
+                    self._safe_float(current.get("composite_momentum"))
+                    if pd.notna(current.get("composite_momentum"))
+                    else None
+                ),
+                "composite_volatility": (
+                    self._safe_float(current.get("composite_volatility"))
+                    if pd.notna(current.get("composite_volatility"))
+                    else None
+                ),
+                "composite_breadth": (
+                    self._safe_float(current.get("composite_breadth"))
+                    if pd.notna(current.get("composite_breadth"))
+                    else None
+                ),
             },
             # Transition
             "regime_changed": regime_changed,
@@ -934,6 +1281,7 @@ class RegimeDetectorIndicator(IndicatorBase):
         symbol: str,
         state: Dict[str, Any],
         timestamp: Optional[datetime] = None,
+        timeframe: str = "1d",
     ) -> RegimeOutput:
         """
         Update regime with proper pending/count hysteresis.
@@ -945,6 +1293,7 @@ class RegimeDetectorIndicator(IndicatorBase):
             symbol: Symbol being analyzed
             state: Current state dict from get_state() or flat state dict
             timestamp: Optional timestamp for the update
+            timeframe: Bar interval (e.g., "1d", "1h", "5m")
 
         Returns:
             RegimeOutput with stable regime classification and full explainability
@@ -1102,7 +1451,7 @@ class RegimeDetectorIndicator(IndicatorBase):
             schema_version="regime_output@1.0",
             symbol=symbol,
             asof_ts=effective_ts,
-            bar_interval="1d",
+            bar_interval=timeframe,
             data_window=DataWindow(
                 start_ts=effective_ts,
                 end_ts=effective_ts,
@@ -1134,6 +1483,21 @@ class RegimeDetectorIndicator(IndicatorBase):
             previous_regime=old_regime if regime_changed else None,
             # Phase 4: Turning Point Detection
             turning_point=turning_point_output,
+            # Phase 5: Composite Scoring
+            composite_score=flat_state.get("composite_score"),
+            composite_factors=(
+                {
+                    "trend": flat_state.get("composite_trend"),
+                    "trend_short": flat_state.get("composite_trend_short"),
+                    "macd_trend": flat_state.get("composite_macd_trend"),
+                    "macd_momentum": flat_state.get("composite_macd_momentum"),
+                    "momentum": flat_state.get("composite_momentum"),
+                    "volatility": flat_state.get("composite_volatility"),
+                    "breadth": flat_state.get("composite_breadth"),
+                }
+                if flat_state.get("composite_score")
+                else None
+            ),
         )
 
     def _apply_hysteresis(

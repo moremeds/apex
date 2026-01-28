@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 
@@ -101,6 +101,7 @@ def write_regime_html_files(
     regime_outputs: Dict[str, "RegimeOutput"],
     regime_dir: Path,
     theme: str = "dark",
+    all_symbols: Optional[List[str]] = None,
 ) -> List[str]:
     """
     Write pre-rendered regime HTML files for each symbol.
@@ -120,16 +121,21 @@ def write_regime_html_files(
     - Optimization section (placeholder if no provenance)
     - Recommendations section (placeholder if no results)
 
+    For symbols in all_symbols but not in regime_outputs, generates a
+    placeholder HTML explaining insufficient data.
+
     Args:
         regime_outputs: Dict mapping symbol to RegimeOutput
         regime_dir: Directory to write regime HTML files
         theme: Color theme ("dark" or "light")
+        all_symbols: Optional list of all symbols to generate HTML for
 
     Returns:
         List of symbols for which HTML was written
     """
     from ..regime import (
         generate_components_4block_html,
+        generate_composite_score_html,
         generate_decision_tree_html,
         generate_hysteresis_html,
         generate_methodology_html,
@@ -151,6 +157,7 @@ def write_regime_html_files(
             # Note: Some functions don't take theme arg, they use CSS variables
             html_sections.append(generate_report_header_html(regime_output, theme=theme))
             html_sections.append(generate_regime_one_liner_html(regime_output))
+            html_sections.append(generate_composite_score_html(regime_output, theme=theme))
             html_sections.append(generate_methodology_html(theme=theme))
             html_sections.append(generate_decision_tree_html(regime_output, theme=theme))
             html_sections.append(generate_components_4block_html(regime_output, theme=theme))
@@ -179,7 +186,65 @@ def write_regime_html_files(
             # Log warning but continue - don't fail entire build for regime HTML
             logger.warning(f"Failed to generate regime HTML for {symbol}: {e}")
 
+    # Generate placeholder HTML for symbols without regime data
+    if all_symbols:
+        missing_symbols = set(all_symbols) - set(regime_outputs.keys())
+        for symbol in missing_symbols:
+            _write_placeholder_regime_html(symbol, regime_dir, theme)
+            files_written.append(symbol)
+
     return files_written
+
+
+def _write_placeholder_regime_html(symbol: str, regime_dir: Path, theme: str) -> None:
+    """
+    Write placeholder HTML for symbols without regime data.
+
+    This prevents 404 errors when users click on symbols that don't have
+    enough data for regime calculation.
+    """
+    bg_color = "#1e293b" if theme == "dark" else "#f8fafc"
+    text_color = "#e2e8f0" if theme == "dark" else "#1e293b"
+    muted_color = "#94a3b8" if theme == "dark" else "#64748b"
+    border_color = "#334155" if theme == "dark" else "#e2e8f0"
+    warning_color = "#f59e0b"
+
+    placeholder_html = f"""
+<!-- Regime Analysis for {symbol} - Insufficient Data -->
+<div class="regime-report-container" data-symbol="{symbol}">
+    <div style="
+        background: {bg_color};
+        border: 1px solid {border_color};
+        border-radius: 12px;
+        padding: 32px;
+        margin: 16px 0;
+        text-align: center;
+    ">
+        <div style="font-size: 48px; margin-bottom: 16px;">⚠️</div>
+        <h2 style="color: {text_color}; margin: 0 0 12px 0; font-size: 20px;">
+            Ticker Too New: {symbol}
+        </h2>
+        <p style="color: {muted_color}; margin: 0 0 16px 0; font-size: 14px;">
+            Regime analysis requires at least 6 months (~126 bars) of trading history.<br>
+            This ticker may be recently listed, have limited data, or has been delisted.
+        </p>
+        <div style="
+            display: inline-block;
+            background: rgba(245, 158, 11, 0.15);
+            border: 1px solid {warning_color};
+            border-radius: 8px;
+            padding: 12px 20px;
+            color: {warning_color};
+            font-size: 13px;
+        ">
+            📅 Check back after more trading data accumulates
+        </div>
+    </div>
+</div>
+"""
+    file_path = regime_dir / f"{symbol}.html"
+    file_path.write_text(placeholder_html, encoding="utf-8")
+    logger.debug(f"Wrote placeholder regime HTML: {file_path}")
 
 
 def write_summary_file(
