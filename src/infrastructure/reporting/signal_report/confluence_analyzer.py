@@ -229,3 +229,183 @@ def calculate_confluence(data: Dict[Tuple[str, str], pd.DataFrame]) -> Dict[str,
             )
 
     return confluence_scores
+
+
+def calculate_mtf_confluence(
+    data: Dict[Tuple[str, str], pd.DataFrame],
+    symbol: str,
+    timeframes: Tuple[str, ...] = ("1h", "4h", "1d"),
+) -> Dict[str, Any]:
+    """
+    Calculate multi-timeframe confluence for a single symbol.
+
+    Determines alignment across timeframes (1h, 4h, 1d) based on indicator states.
+    Daily is the "slow truth" (primary), intraday provides early warning.
+
+    Args:
+        data: Dict mapping (symbol, timeframe) to DataFrame
+        symbol: Symbol to analyze
+        timeframes: Timeframes to check alignment across
+
+    Returns:
+        Dict with MTF confluence info:
+            - timeframes: List of timeframes with data
+            - bullish_count: Total bullish signals across timeframes
+            - bearish_count: Total bearish signals across timeframes
+            - aligned: True if all timeframes agree
+            - alignment_score: -100 to +100 (-100=all bearish, +100=all bullish)
+            - primary_direction: Direction from daily (slow truth)
+            - confidence: 0-1 based on timeframe agreement
+    """
+    from typing import List
+
+    states_by_tf: Dict[str, Dict[str, Dict[str, Any]]] = {}
+    bullish_by_tf: Dict[str, int] = {}
+    bearish_by_tf: Dict[str, int] = {}
+
+    # Derive indicator states for each timeframe
+    for tf in timeframes:
+        if (symbol, tf) in data:
+            df = data[(symbol, tf)]
+            states = derive_indicator_states(df)
+            if states:
+                states_by_tf[tf] = states
+
+                # Count bullish/bearish for this timeframe
+                bullish = 0
+                bearish = 0
+                for ind_name, state in states.items():
+                    direction = _get_indicator_direction(ind_name, state)
+                    if direction == "bullish":
+                        bullish += 1
+                    elif direction == "bearish":
+                        bearish += 1
+
+                bullish_by_tf[tf] = bullish
+                bearish_by_tf[tf] = bearish
+
+    if len(states_by_tf) < 2:
+        return {
+            "timeframes": list(states_by_tf.keys()),
+            "bullish_count": 0,
+            "bearish_count": 0,
+            "aligned": False,
+            "alignment_score": 0,
+            "primary_direction": "neutral",
+            "confidence": 0.0,
+            "message": "Insufficient timeframes for MTF analysis",
+        }
+
+    # Total counts
+    total_bullish = sum(bullish_by_tf.values())
+    total_bearish = sum(bearish_by_tf.values())
+    total = total_bullish + total_bearish
+
+    # Determine direction per timeframe
+    tf_directions: List[str] = []
+    for tf in timeframes:
+        if tf in bullish_by_tf:
+            if bullish_by_tf[tf] > bearish_by_tf[tf]:
+                tf_directions.append("bullish")
+            elif bearish_by_tf[tf] > bullish_by_tf[tf]:
+                tf_directions.append("bearish")
+            else:
+                tf_directions.append("neutral")
+
+    # Check alignment
+    unique_directions = set(d for d in tf_directions if d != "neutral")
+    aligned = len(unique_directions) <= 1 and len(unique_directions) > 0
+
+    # Confidence based on agreement
+    if len(tf_directions) == 0:
+        confidence = 0.0
+    elif len(unique_directions) == 0:
+        confidence = 0.5  # All neutral
+    elif len(unique_directions) == 1:
+        confidence = 1.0  # All agree
+    elif len(unique_directions) == 2:
+        confidence = 0.5  # Mixed
+    else:
+        confidence = 0.3
+
+    # Primary direction from daily (or longest available timeframe)
+    primary_direction = "neutral"
+    for tf in reversed(timeframes):  # Check longest TF first (1d)
+        if tf in bullish_by_tf:
+            if bullish_by_tf[tf] > bearish_by_tf[tf]:
+                primary_direction = "bullish"
+            elif bearish_by_tf[tf] > bullish_by_tf[tf]:
+                primary_direction = "bearish"
+            break
+
+    # Alignment score: -100 to +100
+    alignment_score = ((total_bullish - total_bearish) / max(total, 1)) * 100
+
+    return {
+        "timeframes": list(states_by_tf.keys()),
+        "bullish_count": total_bullish,
+        "bearish_count": total_bearish,
+        "aligned": aligned,
+        "alignment_score": round(alignment_score, 1),
+        "primary_direction": primary_direction,
+        "confidence": round(confidence, 2),
+        "by_timeframe": {
+            tf: {"bullish": bullish_by_tf.get(tf, 0), "bearish": bearish_by_tf.get(tf, 0)}
+            for tf in states_by_tf.keys()
+        },
+    }
+
+
+def _get_indicator_direction(indicator: str, state: Dict[str, Any]) -> str:
+    """
+    Determine bullish/bearish/neutral direction from indicator state.
+
+    Args:
+        indicator: Indicator name
+        state: Indicator state dict
+
+    Returns:
+        "bullish", "bearish", or "neutral"
+    """
+    # Check explicit direction/cross fields
+    if "direction" in state:
+        d = str(state["direction"]).lower()
+        if d in ("bullish", "up", "long"):
+            return "bullish"
+        elif d in ("bearish", "down", "short"):
+            return "bearish"
+
+    if "cross" in state:
+        c = str(state["cross"]).lower()
+        if c == "bullish":
+            return "bullish"
+        elif c == "bearish":
+            return "bearish"
+
+    # RSI/KDJ zone interpretation
+    if "zone" in state:
+        z = str(state["zone"]).lower()
+        if z == "oversold":
+            return "bullish"  # Oversold = potential reversal up
+        elif z == "overbought":
+            return "bearish"  # Overbought = potential reversal down
+        elif z in ("below_lower",):
+            return "bullish"  # Below lower BB = oversold
+        elif z in ("above_upper",):
+            return "bearish"  # Above upper BB = overbought
+
+    # MACD histogram
+    if indicator == "macd" and "histogram" in state:
+        if state["histogram"] > 0:
+            return "bullish"
+        elif state["histogram"] < 0:
+            return "bearish"
+
+    # ADX DI comparison
+    if indicator == "adx" and "di_plus" in state and "di_minus" in state:
+        if state["di_plus"] > state["di_minus"]:
+            return "bullish"
+        elif state["di_minus"] > state["di_plus"]:
+            return "bearish"
+
+    return "neutral"

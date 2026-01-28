@@ -169,7 +169,7 @@ class SummaryBuilder:
                     df = data[(symbol, tf)]
                     break
 
-            ticker_summary = self._build_ticker_summary(symbol, data, regime)
+            ticker_summary = self._build_ticker_summary(symbol, data, regime, timeframes)
 
             # PR-B: Add per-ticker data_quality and aggregate
             ticker_quality = self._extract_ticker_data_quality(symbol, df, regime)
@@ -272,6 +272,7 @@ class SummaryBuilder:
         symbol: str,
         data: Dict[Tuple[str, str], pd.DataFrame],
         regime: Optional["RegimeOutput"],
+        timeframes: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
         Build full ticker summary with complete regime data for 1:1 feature parity.
@@ -381,6 +382,13 @@ class SummaryBuilder:
         except Exception as e:
             logger.debug(f"Could not load DuckDB stats for {symbol}: {e}")
             summary["data_stats"] = None
+
+        # Phase 4.4: Add MTF confluence (alignment across 1h, 4h, 1d)
+        from ..signal_report.confluence_analyzer import calculate_mtf_confluence
+
+        tf_tuple = tuple(timeframes) if timeframes else ("1h", "4h", "1d")
+        mtf_confluence = calculate_mtf_confluence(data, symbol, tf_tuple)
+        summary["mtf_confluence"] = mtf_confluence
 
         return summary
 

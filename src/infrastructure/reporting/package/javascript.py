@@ -769,31 +769,42 @@ async function updateRegimeSection() {{
     if (!container) return;
 
     const symbol = CONFIG.currentSymbol;
+    const timeframe = CONFIG.currentTimeframe;
+    const cacheKey = `${{symbol}}_${{timeframe}}`;
 
     // Check cache first
-    if (regimeHtmlCache[symbol]) {{
-        container.innerHTML = regimeHtmlCache[symbol];
+    if (regimeHtmlCache[cacheKey]) {{
+        container.innerHTML = regimeHtmlCache[cacheKey];
         return;
     }}
 
     // Show loading state
     container.innerHTML = '<div class="no-regime">Loading regime analysis...</div>';
 
-    try {{
-        const response = await fetch(`data/regime/${{symbol}}.html`);
-        if (!response.ok) {{
-            // Fall back to summary data if no pre-rendered HTML
-            fallbackRegimeSection(container, symbol);
-            return;
+    // Try timeframe-specific file first, then fall back to symbol-only
+    const urls = [
+        `data/regime/${{symbol}}_${{timeframe}}.html`,
+        `data/regime/${{symbol}}.html`
+    ];
+
+    for (const url of urls) {{
+        try {{
+            const response = await fetch(url);
+            if (response.ok) {{
+                const html = await response.text();
+                regimeHtmlCache[cacheKey] = html;
+                container.innerHTML = html;
+                console.log(`Loaded regime HTML from ${{url}}`);
+                return;
+            }}
+        }} catch (error) {{
+            console.debug(`Failed to load ${{url}}:`, error);
         }}
-        const html = await response.text();
-        regimeHtmlCache[symbol] = html;
-        container.innerHTML = html;
-        console.log(`Loaded regime HTML for ${{symbol}}`);
-    }} catch (error) {{
-        console.error(`Failed to load regime HTML for ${{symbol}}:`, error);
-        fallbackRegimeSection(container, symbol);
     }}
+
+    // Fall back to summary data if no pre-rendered HTML
+    console.warn(`No regime HTML found for ${{cacheKey}}, using fallback`);
+    fallbackRegimeSection(container, symbol);
 }}
 
 // Fallback: render basic regime info from summary data

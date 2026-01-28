@@ -26,14 +26,15 @@ def compute_regime_outputs(
     indicators: List["Indicator"],
 ) -> Dict[str, "RegimeOutput"]:
     """
-    Compute regime outputs for each symbol using the regime detector indicator.
+    Compute regime outputs for each (symbol, timeframe) pair.
 
     Args:
         data: Dict mapping (symbol, timeframe) to DataFrame
         indicators: List of indicators (should include regime_detector)
 
     Returns:
-        Dict mapping symbol to RegimeOutput
+        Dict mapping "{symbol}_{timeframe}" to RegimeOutput.
+        Also includes "{symbol}" key for 1d timeframe (backward compatibility).
     """
     from src.domain.signals.indicators.regime import RegimeDetectorIndicator, RegimeOutput
 
@@ -50,12 +51,12 @@ def compute_regime_outputs(
         logger.debug("No regime detector indicator found, skipping regime sections")
         return regime_outputs
 
-    # Compute regime for each symbol (use daily timeframe preferentially)
-    symbols_processed = set()
+    # Compute regime for each (symbol, timeframe) pair
     for (symbol, timeframe), df in data.items():
-        if symbol in symbols_processed:
-            continue
-        if len(df) < regime_detector.warmup_periods:
+        if len(df) < regime_detector.minimum_bars:
+            logger.debug(
+                f"Skipping regime for {symbol}/{timeframe}: {len(df)} < {regime_detector.minimum_bars} bars"
+            )
             continue
 
         try:
@@ -172,12 +173,17 @@ def compute_regime_outputs(
                 symbol=symbol,
                 state=flat_state,
                 timestamp=timestamp,
+                timeframe=timeframe,
             )
-            regime_outputs[symbol] = output
-            symbols_processed.add(symbol)
-            logger.debug(f"Computed regime for {symbol}: {output.final_regime.value}")
+            # Store with timeframe-specific key
+            key = f"{symbol}_{timeframe}"
+            regime_outputs[key] = output
+            # Also store under symbol-only key for 1d (backward compatibility)
+            if timeframe == "1d":
+                regime_outputs[symbol] = output
+            logger.debug(f"Computed regime for {key}: {output.final_regime.value}")
         except Exception as e:
-            logger.warning(f"Failed to compute regime for {symbol}: {e}")
+            logger.warning(f"Failed to compute regime for {symbol}/{timeframe}: {e}")
 
     return regime_outputs
 

@@ -83,6 +83,7 @@ class RegimeService:
         params: Optional[Dict[str, Any]] = None,
         is_market_level: bool = False,
         iv_data: Optional[pd.Series] = None,
+        timeframe: str = "1d",
     ) -> RegimeOutput:
         """
         Calculate regime for a single symbol.
@@ -93,6 +94,7 @@ class RegimeService:
             params: Optional parameter overrides
             is_market_level: Whether this is a market benchmark
             iv_data: Optional VIX/VXN data for IV state (market level only)
+            timeframe: Bar interval (e.g., "1d", "1h", "5m")
 
         Returns:
             RegimeOutput with classification and details
@@ -148,6 +150,7 @@ class RegimeService:
             symbol=symbol,
             state=state,
             timestamp=data.index[-1] if hasattr(data.index[-1], "isoformat") else datetime.now(),
+            timeframe=timeframe,
         )
 
         # Cache the result (thread-safe)

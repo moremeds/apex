@@ -1281,6 +1281,7 @@ class RegimeDetectorIndicator(IndicatorBase):
         symbol: str,
         state: Dict[str, Any],
         timestamp: Optional[datetime] = None,
+        timeframe: str = "1d",
     ) -> RegimeOutput:
         """
         Update regime with proper pending/count hysteresis.
@@ -1292,6 +1293,7 @@ class RegimeDetectorIndicator(IndicatorBase):
             symbol: Symbol being analyzed
             state: Current state dict from get_state() or flat state dict
             timestamp: Optional timestamp for the update
+            timeframe: Bar interval (e.g., "1d", "1h", "5m")
 
         Returns:
             RegimeOutput with stable regime classification and full explainability
@@ -1449,7 +1451,7 @@ class RegimeDetectorIndicator(IndicatorBase):
             schema_version="regime_output@1.0",
             symbol=symbol,
             asof_ts=effective_ts,
-            bar_interval="1d",
+            bar_interval=timeframe,
             data_window=DataWindow(
                 start_ts=effective_ts,
                 end_ts=effective_ts,
