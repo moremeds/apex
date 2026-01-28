@@ -30,6 +30,9 @@ concurrency:
   group: hourly-signals
   cancel-in-progress: true  # Cancel if previous run still running
 
+permissions:
+  contents: write  # Required to push to gh-pages branch
+
 env:
   PYTHON_VERSION: '3.13'
   UNIVERSE: config/universe.yaml
@@ -161,6 +164,7 @@ jobs:
           to: ${{ secrets.SIGNAL_REPORT_RECIPIENTS }}
           from: "APEX Signal Bot <${{ secrets.SMTP_USERNAME }}>"
           html_body: file://${{ github.workspace }}/email_body.html
+          content_type: text/html
           convert_markdown: false
 
       - name: Holiday notice
