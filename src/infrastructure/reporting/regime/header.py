@@ -378,7 +378,6 @@ def generate_composite_score_html(regime_output: RegimeOutput, theme: str = "dar
         return ""
 
     # Theme colors
-    bg_color = "#1e293b" if theme == "dark" else "#f8fafc"
     text_color = "#e2e8f0" if theme == "dark" else "#1e293b"
     border_color = "#334155" if theme == "dark" else "#e2e8f0"
     muted_color = "#94a3b8" if theme == "dark" else "#64748b"
