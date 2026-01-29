@@ -136,13 +136,6 @@ def write_regime_html_files(
     from ..regime import (
         generate_components_4block_html,
         generate_composite_score_html,
-        generate_decision_tree_html,
-        generate_hysteresis_html,
-        generate_methodology_html,
-        generate_optimization_html,
-        generate_quality_html,
-        generate_recommendations_html,
-        generate_regime_one_liner_html,
         generate_report_header_html,
         generate_turning_point_html,
     )
@@ -153,21 +146,11 @@ def write_regime_html_files(
         try:
             html_sections = []
 
-            # Generate all regime sections using the regime package functions
-            # Note: Some functions don't take theme arg, they use CSS variables
+            # Simplified regime sections: header, composite score, components, turning point
             html_sections.append(generate_report_header_html(regime_output, theme=theme))
-            html_sections.append(generate_regime_one_liner_html(regime_output))
             html_sections.append(generate_composite_score_html(regime_output, theme=theme))
-            html_sections.append(generate_methodology_html(theme=theme))
-            html_sections.append(generate_decision_tree_html(regime_output, theme=theme))
             html_sections.append(generate_components_4block_html(regime_output, theme=theme))
-            html_sections.append(generate_quality_html(regime_output, theme=theme))
-            html_sections.append(generate_hysteresis_html(regime_output, theme=theme))
             html_sections.append(generate_turning_point_html(regime_output, theme=theme))
-
-            # Optimization sections (placeholders - actual data comes from param services)
-            html_sections.append(generate_optimization_html(provenance=None, theme=theme))
-            html_sections.append(generate_recommendations_html(result=None, theme=theme))
 
             # Combine into full regime HTML
             regime_html = f"""

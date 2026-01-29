@@ -204,7 +204,7 @@ class SignalReportGenerator:
                     bucket = "overlays"
                 elif ind_name == "rsi":
                     bucket = "rsi"
-                elif ind_name == "dual" and col.startswith("dual_macd"):
+                elif col.startswith("dual_macd_"):
                     # DualMACD indicator (dual_macd_long_histogram, dual_macd_short_histogram, etc.)
                     bucket = "dual_macd"
                 elif ind_name == "macd":

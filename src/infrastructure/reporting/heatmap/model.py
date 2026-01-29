@@ -133,6 +133,42 @@ class ColorMetric(Enum):
     RULE_FREQUENCY_DIRECTION = "rule_frequency_direction"  # Phase 3: Trending mode (direction)
 
 
+def get_score_gradient_color(score: float) -> str:
+    """
+    Map score (0-100) to a red-yellow-green gradient color.
+
+    Uses HSL color space for smooth transitions:
+    - Score 0 → Hue 0° (red)      → #d9534f
+    - Score 50 → Hue 45° (amber)  → #d9a634
+    - Score 100 → Hue 120° (green) → #5cb85c
+
+    Args:
+        score: Score value (0-100)
+
+    Returns:
+        Hex color code (e.g., "#d9a634")
+    """
+    import colorsys
+
+    # Clamp to 0-100
+    score = max(0.0, min(100.0, score))
+
+    # Piecewise hue interpolation for smooth color transitions:
+    # 0-50: red (hue=0°) to yellow/amber (hue=45°)
+    # 50-100: yellow (hue=45°) to green (hue=120°)
+    if score <= 50:
+        hue = (score / 50.0) * 45.0
+    else:
+        hue = 45.0 + ((score - 50.0) / 50.0) * 75.0
+
+    # Convert HSL to RGB
+    # Saturation=0.7 for vibrant but not overwhelming colors
+    # Lightness=0.5 for good contrast on both dark and light backgrounds
+    r, g, b = colorsys.hls_to_rgb(hue / 360.0, 0.5, 0.7)
+
+    return f"#{int(r * 255):02x}{int(g * 255):02x}{int(b * 255):02x}"
+
+
 @dataclass
 class TreemapNode:
     """
@@ -171,6 +207,9 @@ class TreemapNode:
     rule_frequency_color: Optional[str] = None
     rule_frequency_direction_color: Optional[str] = None
 
+    # Composite score (average across timeframes, 0-100)
+    composite_score: Optional[float] = None
+
     # Navigation
     report_url: Optional[str] = None  # Link to individual symbol report
 
@@ -194,6 +233,7 @@ class TreemapNode:
             "sell_signal_count": self.sell_signal_count,
             "rule_frequency_color": self.rule_frequency_color,
             "rule_frequency_direction_color": self.rule_frequency_direction_color,
+            "composite_score": self.composite_score,
             "report_url": self.report_url,
         }
 
@@ -240,6 +280,21 @@ class ETFCardData:
     # Navigation
     report_url: Optional[str] = None
 
+    # Signal counts for direction coloring
+    buy_signal_count: int = 0
+    sell_signal_count: int = 0
+
+    @property
+    def direction_class(self) -> str:
+        """CSS class based on signal direction."""
+        if self.buy_signal_count == 0 and self.sell_signal_count == 0:
+            return "hm-direction-neutral"
+        elif self.buy_signal_count > self.sell_signal_count:
+            return "hm-direction-bullish"
+        elif self.sell_signal_count > self.buy_signal_count:
+            return "hm-direction-bearish"
+        return "hm-direction-neutral"
+
     def to_dict(self) -> Dict[str, Any]:
         """Serialize for JSON/frontend."""
         return {
@@ -251,6 +306,8 @@ class ETFCardData:
             "close_price": self.close_price,
             "daily_change_pct": self.daily_change_pct,
             "report_url": self.report_url,
+            "buy_signal_count": self.buy_signal_count,
+            "sell_signal_count": self.sell_signal_count,
         }
 
 

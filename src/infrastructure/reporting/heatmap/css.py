@@ -298,6 +298,19 @@ HEATMAP_CSS = """
 .apex-hm .hm-negative { color: var(--negative); }
 .apex-hm .hm-neutral { color: var(--text-muted); }
 
+/* Direction-based coloring for ETF cards (symbol text) */
+.apex-hm .hm-direction-bullish .hm-card-symbol {
+    color: var(--regime-r0);  /* #22c55e green */
+    text-shadow: 0 0 8px rgba(34, 197, 94, 0.3);
+}
+.apex-hm .hm-direction-bearish .hm-card-symbol {
+    color: var(--regime-r2);  /* #ef4444 red */
+    text-shadow: 0 0 8px rgba(239, 68, 68, 0.3);
+}
+.apex-hm .hm-direction-neutral .hm-card-symbol {
+    color: var(--text-muted);
+}
+
 /* Controls Bar */
 .apex-hm .hm-controls {
     padding: 12px 24px;

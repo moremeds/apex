@@ -457,28 +457,7 @@ class TestHTMLReportSmoke:
         html = generate_regime_one_liner_html(output)
         assert "R0" in html or "R1" in html
 
-    def test_decision_tree_renders(self) -> None:
-        """generate_decision_tree_html should render without errors."""
-        from src.infrastructure.reporting.regime_report import generate_decision_tree_html
-
-        output = RegimeOutput(
-            symbol="TEST",
-            final_regime=MarketRegime.R1_CHOPPY_EXTENDED,
-            rules_fired_decision=[
-                RuleTrace(
-                    rule_id="r1_choppy",
-                    description="Choppy condition",
-                    passed=True,
-                    evidence={"chop_state": "choppy"},
-                    regime_target="R1",
-                    category="chop",
-                    priority=3,
-                )
-            ],
-        )
-
-        html = generate_decision_tree_html(output)
-        assert "decision-tree" in html or "Decision" in html
+    # Decision tree test removed - using composite scoring only
 
     def test_recommendations_renders_no_changes(self) -> None:
         """generate_recommendations_html should render 'no changes' case."""

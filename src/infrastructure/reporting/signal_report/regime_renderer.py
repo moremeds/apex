@@ -295,17 +295,15 @@ def render_regime_sections(
     """
     Render regime analysis sections for all symbols with regime data.
 
-    Returns HTML for methodology, decision tree, component analysis,
-    quality, hysteresis, optimization, and recommendations sections
-    (PR1 + PR2 + PR3).
+    Simplified to show only: header, composite score, components, turning point.
 
     Each symbol's section has data-symbol attribute for JavaScript filtering.
     Only the selected symbol's section is shown (controlled by updateRegimeSection).
 
     Args:
         regime_outputs: Dict mapping symbol to RegimeOutput
-        provenance_dict: Optional dict mapping symbol to ParamProvenanceSet
-        recommendations_dict: Optional dict mapping symbol to RecommenderResult
+        provenance_dict: Unused (kept for backward compatibility)
+        recommendations_dict: Unused (kept for backward compatibility)
         theme: Color theme ("dark" or "light")
 
     Returns:
@@ -314,13 +312,6 @@ def render_regime_sections(
     from ..regime_report import (
         generate_components_4block_html,
         generate_composite_score_html,
-        generate_decision_tree_html,
-        generate_hysteresis_html,
-        generate_methodology_html,
-        generate_optimization_html,
-        generate_quality_html,
-        generate_recommendations_html,
-        generate_regime_one_liner_html,
         generate_report_header_html,
         generate_turning_point_html,
     )
@@ -328,71 +319,25 @@ def render_regime_sections(
     if not regime_outputs:
         return ""
 
-    provenance_dict = provenance_dict or {}
-    recommendations_dict = recommendations_dict or {}
-
     # Build regime sections for each symbol
     sections_html = []
 
     for symbol, output in sorted(regime_outputs.items()):
-        # Generate one-liner for this symbol
-        one_liner = generate_regime_one_liner_html(output)
-
-        # Phase 5: Generate composite score section (dedicated section)
+        # Simplified regime sections: header, composite score, components, turning point
+        report_header = generate_report_header_html(regime_output=output, theme=theme)
         composite_score = generate_composite_score_html(output, theme)
-
-        # Generate decision tree
-        decision_tree = generate_decision_tree_html(output, theme)
-
-        # Generate component analysis
         components = generate_components_4block_html(output, theme)
-
-        # PR2: Generate quality and hysteresis sections
-        quality = generate_quality_html(output, theme)
-        hysteresis = generate_hysteresis_html(output, theme)
-
-        # Phase 4: Generate turning point detection section
         turning_point = generate_turning_point_html(output, theme)
-
-        # PR3: Generate optimization and recommendations sections with real data
-        provenance_set = provenance_dict.get(symbol)
-        recommendations_result = recommendations_dict.get(symbol)
-        optimization = generate_optimization_html(
-            provenance=None,
-            provenance_set=provenance_set,
-            theme=theme,
-        )
-        recommendations = generate_recommendations_html(
-            result=recommendations_result,
-            theme=theme,
-        )
-
-        # PR4: Generate report header with metadata
-        report_header = generate_report_header_html(
-            regime_output=output,
-            provenance_set=provenance_set,
-            recommendations_result=recommendations_result,
-            theme=theme,
-        )
 
         # Add data-symbol attribute for JavaScript filtering
         sections_html.append(f"""
         <div class="regime-symbol-section" id="regime-{symbol}" data-symbol="{symbol}" style="display: none;">
             {report_header}
-            {one_liner}
             {composite_score}
-            {decision_tree}
             {components}
-            {hysteresis}
             {turning_point}
-            {quality}
-            {optimization}
-            {recommendations}
         </div>
         """)
-
-    # Wrap with methodology at the top
-    methodology = generate_methodology_html(theme)
 
     return f"""
     <div class="regime-analysis-section">
@@ -400,7 +345,6 @@ def render_regime_sections(
             <span class="toggle-icon">▼</span> Regime Analysis
         </h2>
         <div id="regime-content" class="section-content">
-            {methodology}
             <div class="regime-symbols-container" id="regime-symbols-container">
                 {''.join(sections_html)}
             </div>
