@@ -171,6 +171,18 @@ class SummaryBuilder:
 
             ticker_summary = self._build_ticker_summary(symbol, data, regime, timeframes)
 
+            # Calculate average composite_score across all timeframes for heatmap trending
+            composite_scores = []
+            for tf in timeframes:
+                regime_key = f"{symbol}_{tf}"
+                tf_regime = regime_outputs.get(regime_key)
+                if tf_regime and tf_regime.composite_score is not None:
+                    composite_scores.append(tf_regime.composite_score)
+            if composite_scores:
+                ticker_summary["composite_score_avg"] = round(
+                    sum(composite_scores) / len(composite_scores), 1
+                )
+
             # PR-B: Add per-ticker data_quality and aggregate
             ticker_quality = self._extract_ticker_data_quality(symbol, df, regime)
             ticker_summary["data_quality"] = ticker_quality

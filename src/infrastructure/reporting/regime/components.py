@@ -1,313 +1,360 @@
 """
-Regime Components - Component 4-block analysis rendering.
+Regime Components - Composite score breakdown with summary table and detail tiles.
 
-Provides the detailed component breakdown with formula, values, thresholds,
-and classification result for each regime component.
+Shows:
+1. Summary table with all factors at a glance
+2. Four horizontal tiles with calculation details
 """
 
 from __future__ import annotations
 
-from src.domain.signals.indicators.regime import (
-    ComponentStates,
-    ComponentValues,
-    DerivedMetrics,
-    RegimeOutput,
-)
+from typing import Dict, Optional
 
-from ..value_card import escape_html, format_currency, format_percentage, render_section
-from .utils import get_state_color
+from src.domain.signals.indicators.regime import RegimeOutput
+
+from ..value_card import render_section
+from .utils import get_score_gradient_color
+
+# Factor weights (must match composite_scorer.py)
+FACTOR_WEIGHTS = {
+    "trend": 0.10,
+    "trend_short": 0.08,
+    "macd_trend": 0.12,
+    "macd_momentum": 0.10,
+    "momentum": 0.28,
+    "volatility": 0.17,
+    "breadth": 0.15,
+}
+
+FACTOR_INFO = [
+    ("trend", "📈", "Trend (Long)"),
+    ("trend_short", "🔥", "Trend (Short)"),
+    ("macd_trend", "📊", "MACD Trend"),
+    ("macd_momentum", "⚡", "MACD Momentum"),
+    ("momentum", "🚀", "Momentum"),
+    ("volatility", "📉", "Volatility"),
+    ("breadth", "🌐", "Breadth"),
+]
 
 
 def generate_components_4block_html(regime_output: RegimeOutput, theme: str = "dark") -> str:
-    """
-    Generate component breakdown with consistent 4-block structure.
+    """Generate component breakdown with summary table and 4 detail tiles."""
+    composite_score = regime_output.composite_score or 0
+    factors = regime_output.composite_factors or {}
 
-    Each component shows:
-    1. Formula/Definition
-    2. Current Values
-    3. Thresholds
-    4. Classification Result
+    # Theme colors
+    bg_color = "#1e293b" if theme == "dark" else "#f8fafc"
+    card_bg = "#0f172a" if theme == "dark" else "#ffffff"
+    text_color = "#e2e8f0" if theme == "dark" else "#1e293b"
+    muted_color = "#94a3b8" if theme == "dark" else "#64748b"
+    border_color = "#334155" if theme == "dark" else "#e2e8f0"
+    bar_bg = "#334155" if theme == "dark" else "#e2e8f0"
+
+    # Build summary table
+    summary_table = _render_summary_table(factors, composite_score, theme)
+
+    # Build 4 horizontal tiles
+    tiles_html = f"""
+    <div class="component-tiles" style="
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 12px;
+        margin-top: 20px;
+    ">
+        {_render_trend_tile(factors, theme)}
+        {_render_momentum_tile(factors, theme)}
+        {_render_volatility_tile(factors, theme)}
+        {_render_breadth_tile(factors, theme)}
+    </div>
     """
-    components = regime_output.component_values
-    states = regime_output.component_states
-    derived = regime_output.derived_metrics
 
     body = f"""
-    <div class="components-4block">
-        {_render_trend_block(components, states, derived)}
-        {_render_volatility_block(components, states, derived)}
-        {_render_choppiness_block(components, states, derived)}
-        {_render_extension_block(components, states, derived)}
-        {_render_iv_block(components, states, derived) if states.iv_state.value != "na" else ""}
+    <div class="composite-breakdown" style="
+        background: {bg_color};
+        border: 1px solid {border_color};
+        border-radius: 12px;
+        padding: 20px;
+    ">
+        {summary_table}
+        {tiles_html}
     </div>
     """
 
     return render_section(
         title="Component Analysis",
         body=body,
-        collapsed=False,  # Start expanded - users want to see the values
+        collapsed=False,
         icon="🔬",
         section_id="components-section",
     )
 
 
-def _render_trend_block(
-    components: ComponentValues, states: ComponentStates, derived: DerivedMetrics
+def _render_summary_table(
+    factors: Dict[str, Optional[float]], composite_score: float, theme: str
 ) -> str:
-    """Render the Trend component 4-block."""
-    state_color = get_state_color(states.trend_state.value)
+    """Render the summary table with all factors."""
+    bg = "#0f172a" if theme == "dark" else "#ffffff"
+    text = "#e2e8f0" if theme == "dark" else "#1e293b"
+    muted = "#94a3b8" if theme == "dark" else "#64748b"
+    border = "#334155" if theme == "dark" else "#e2e8f0"
+    bar_bg = "#334155" if theme == "dark" else "#e2e8f0"
+
+    rows_html = []
+    for key, icon, label in FACTOR_INFO:
+        raw = factors.get(key, 0) or 0
+        weight = FACTOR_WEIGHTS[key]
+
+        # Volatility is inverted
+        if key == "volatility":
+            score = (1 - raw) * 100
+        else:
+            score = raw * 100
+
+        contrib = score * weight
+        color = get_score_gradient_color(score)
+
+        rows_html.append(f"""
+        <div class="factor-row" style="
+            display: grid;
+            grid-template-columns: 160px 70px 70px 70px 1fr;
+            gap: 12px;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid {border};
+        ">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span>{icon}</span>
+                <span style="font-weight: 500; font-size: 13px; color: {text};">{label}</span>
+            </div>
+            <div style="text-align: center; color: {color}; font-weight: 600; font-size: 14px;">
+                {score:.0f}
+            </div>
+            <div style="text-align: center; color: {muted}; font-size: 12px;">
+                ×{weight:.0%}
+            </div>
+            <div style="text-align: center; font-weight: 500; font-size: 13px; color: {text};">
+                +{contrib:.1f}
+            </div>
+            <div style="position: relative; height: 8px; background: {bar_bg}; border-radius: 4px; overflow: hidden;">
+                <div style="
+                    position: absolute;
+                    left: 0;
+                    top: 0;
+                    height: 100%;
+                    width: {score}%;
+                    background: {color};
+                    border-radius: 4px;
+                "></div>
+            </div>
+        </div>
+        """)
+
+    # Composite score row
+    composite_color = get_score_gradient_color(composite_score)
 
     return f"""
-    <div class="component-4block">
-        <div class="block-header">
-            <span class="block-title">TREND</span>
-            <span class="block-state" style="background: {state_color}20; color: {state_color}">
-                {escape_html(states.trend_state.value.replace('_', ' ').upper())}
-            </span>
+    <div class="summary-table" style="
+        background: {bg};
+        border: 1px solid {border};
+        border-radius: 8px;
+        padding: 16px;
+    ">
+        <div class="table-header" style="
+            display: grid;
+            grid-template-columns: 160px 70px 70px 70px 1fr;
+            gap: 12px;
+            font-size: 11px;
+            color: {muted};
+            padding-bottom: 8px;
+            border-bottom: 2px solid {border};
+            text-transform: uppercase;
+        ">
+            <div>Factor</div>
+            <div style="text-align: center;">Score</div>
+            <div style="text-align: center;">Weight</div>
+            <div style="text-align: center;">Contrib</div>
+            <div>Distribution</div>
         </div>
-
-        <div class="block-section">
-            <div class="section-label">Formula</div>
-            <div class="section-content">
-                <code>UP: close > MA200 AND MA50_slope > 0 AND close > MA50</code><br>
-                <code>DOWN: close < MA200 AND MA50_slope < 0</code>
+        {''.join(rows_html)}
+        <div class="composite-row" style="
+            display: grid;
+            grid-template-columns: 160px 70px 70px 70px 1fr;
+            gap: 12px;
+            align-items: center;
+            padding: 12px 0 4px 0;
+            margin-top: 4px;
+            border-top: 2px solid {border};
+        ">
+            <div style="font-weight: 600; font-size: 14px; color: {text};">
+                Composite Score
             </div>
-        </div>
-
-        <div class="block-section">
-            <div class="section-label">Current Values</div>
-            <div class="section-content values-grid">
-                <div class="value-item">
-                    <span class="value-label">Close</span>
-                    <span class="value-num">{format_currency(components.close)}</span>
-                </div>
-                <div class="value-item">
-                    <span class="value-label">MA50</span>
-                    <span class="value-num">{format_currency(components.ma50)}</span>
-                </div>
-                <div class="value-item">
-                    <span class="value-label">MA200</span>
-                    <span class="value-num">{format_currency(components.ma200)}</span>
-                </div>
-                <div class="value-item">
-                    <span class="value-label">MA50 Slope</span>
-                    <span class="value-num">{format_percentage(components.ma50_slope, multiply=True)}</span>
-                </div>
+            <div style="text-align: center; color: {composite_color}; font-weight: 700; font-size: 16px;">
+                {composite_score:.0f}
             </div>
-        </div>
-
-        <div class="block-section">
-            <div class="section-label">Thresholds</div>
-            <div class="section-content">
-                close > MA200: <strong>{"✓" if components.close > components.ma200 else "✗"}</strong> |
-                MA50_slope > 0: <strong>{"✓" if components.ma50_slope > 0 else "✗"}</strong> |
-                close > MA50: <strong>{"✓" if components.close > components.ma50 else "✗"}</strong>
+            <div style="text-align: center; color: {muted}; font-size: 12px;">
+                =
+            </div>
+            <div style="text-align: center; font-weight: 600; font-size: 14px; color: {text};">
+                Σ
+            </div>
+            <div style="position: relative; height: 10px; background: {bar_bg}; border-radius: 5px; overflow: hidden;">
+                <div style="
+                    position: absolute;
+                    left: 0;
+                    top: 0;
+                    height: 100%;
+                    width: {composite_score}%;
+                    background: {composite_color};
+                    border-radius: 5px;
+                "></div>
             </div>
         </div>
     </div>
     """
 
 
-def _render_volatility_block(
-    components: ComponentValues, states: ComponentStates, derived: DerivedMetrics
-) -> str:
-    """Render the Volatility component 4-block."""
-    state_color = get_state_color(states.vol_state.value)
+def _render_trend_tile(factors: Dict[str, Optional[float]], theme: str) -> str:
+    """Render TREND tile."""
+    bg = "#0f172a" if theme == "dark" else "#ffffff"
+    text = "#e2e8f0" if theme == "dark" else "#1e293b"
+    muted = "#94a3b8" if theme == "dark" else "#64748b"
+    border = "#334155" if theme == "dark" else "#e2e8f0"
+
+    trend_long = (factors.get("trend", 0) or 0) * 100
+    trend_short = (factors.get("trend_short", 0) or 0) * 100
 
     return f"""
-    <div class="component-4block">
-        <div class="block-header">
-            <span class="block-title">VOLATILITY</span>
-            <span class="block-state" style="background: {state_color}20; color: {state_color}">
-                {escape_html(states.vol_state.value.replace('_', ' ').upper())}
-            </span>
+    <div class="tile" style="
+        background: {bg};
+        border: 1px solid {border};
+        border-radius: 8px;
+        padding: 12px;
+    ">
+        <div style="font-weight: 600; font-size: 12px; color: {text}; margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid {border};">
+            📈 TREND
         </div>
-
-        <div class="block-section">
-            <div class="section-label">Formula</div>
-            <div class="section-content">
-                <code>HIGH: ATR_pct_63 > 80 OR ATR_pct_252 > 85</code><br>
-                <code>LOW: ATR_pct_63 < 20 AND ATR_pct_252 < 25</code>
+        <div style="font-size: 11px; color: {muted}; margin-bottom: 8px;">
+            <div style="margin-bottom: 6px;">
+                <strong style="color: {text};">Long ({trend_long:.0f})</strong><br>
+                <code style="font-size: 10px;">(EMA20-EMA50)/EMA50</code><br>
+                → percentile rank (252d)
             </div>
-        </div>
-
-        <div class="block-section">
-            <div class="section-label">Current Values</div>
-            <div class="section-content values-grid">
-                <div class="value-item">
-                    <span class="value-label">ATR20</span>
-                    <span class="value-num">{format_currency(components.atr20)}</span>
-                </div>
-                <div class="value-item">
-                    <span class="value-label">ATR % of Price</span>
-                    <span class="value-num">{format_percentage(components.atr_pct, multiply=True)}</span>
-                </div>
-                <div class="value-item">
-                    <span class="value-label">ATR Pctile (63d)</span>
-                    <span class="value-num">{derived.atr_pctile_short_window:.1f}</span>
-                </div>
-                <div class="value-item">
-                    <span class="value-label">ATR Pctile (252d)</span>
-                    <span class="value-num">{derived.atr_pctile_long_window:.1f}</span>
-                </div>
-            </div>
-        </div>
-
-        <div class="block-section">
-            <div class="section-label">Thresholds</div>
-            <div class="section-content">
-                ATR_pct_63 > 80: <strong>{"✓" if derived.atr_pctile_short_window > 80 else "✗"}</strong> |
-                ATR_pct_252 > 85: <strong>{"✓" if derived.atr_pctile_long_window > 85 else "✗"}</strong>
+            <div>
+                <strong style="color: {text};">Short ({trend_short:.0f})</strong><br>
+                <code style="font-size: 10px;">(EMA10-EMA20)/EMA20</code><br>
+                → percentile rank (252d)
             </div>
         </div>
     </div>
     """
 
 
-def _render_choppiness_block(
-    components: ComponentValues, states: ComponentStates, derived: DerivedMetrics
-) -> str:
-    """Render the Choppiness component 4-block."""
-    state_color = get_state_color(states.chop_state.value)
+def _render_momentum_tile(factors: Dict[str, Optional[float]], theme: str) -> str:
+    """Render MOMENTUM tile."""
+    bg = "#0f172a" if theme == "dark" else "#ffffff"
+    text = "#e2e8f0" if theme == "dark" else "#1e293b"
+    muted = "#94a3b8" if theme == "dark" else "#64748b"
+    border = "#334155" if theme == "dark" else "#e2e8f0"
+
+    macd_t = (factors.get("macd_trend", 0) or 0) * 100
+    macd_m = (factors.get("macd_momentum", 0) or 0) * 100
+    rsi = (factors.get("momentum", 0) or 0) * 100
 
     return f"""
-    <div class="component-4block">
-        <div class="block-header">
-            <span class="block-title">CHOPPINESS</span>
-            <span class="block-state" style="background: {state_color}20; color: {state_color}">
-                {escape_html(states.chop_state.value.upper())}
-            </span>
+    <div class="tile" style="
+        background: {bg};
+        border: 1px solid {border};
+        border-radius: 8px;
+        padding: 12px;
+    ">
+        <div style="font-weight: 600; font-size: 12px; color: {text}; margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid {border};">
+            🚀 MOMENTUM
         </div>
-
-        <div class="block-section">
-            <div class="section-label">Formula</div>
-            <div class="section-content">
-                <code>CHOPPY: CHOP_pct_252 > 70 OR MA20_crosses >= 4</code><br>
-                <code>TRENDING: CHOP_pct_252 < 30 AND MA20_crosses <= 1</code>
+        <div style="font-size: 11px; color: {muted};">
+            <div style="margin-bottom: 6px;">
+                <strong style="color: {text};">MACD Trend ({macd_t:.0f})</strong><br>
+                <code style="font-size: 10px;">EMA55-EMA89 hist</code> → pctl
             </div>
-        </div>
-
-        <div class="block-section">
-            <div class="section-label">Current Values</div>
-            <div class="section-content values-grid">
-                <div class="value-item">
-                    <span class="value-label">CHOP Index</span>
-                    <span class="value-num">{derived.chop_value:.1f}</span>
-                </div>
-                <div class="value-item">
-                    <span class="value-label">CHOP Pctile (252d)</span>
-                    <span class="value-num">{derived.chop_pctile:.1f}</span>
-                </div>
-                <div class="value-item">
-                    <span class="value-label">MA20 Crosses (10 bars)</span>
-                    <span class="value-num">{derived.ma20_crosses}</span>
-                </div>
+            <div style="margin-bottom: 6px;">
+                <strong style="color: {text};">MACD Mom ({macd_m:.0f})</strong><br>
+                <code style="font-size: 10px;">EMA13-EMA21 hist</code> → pctl
             </div>
-        </div>
-
-        <div class="block-section">
-            <div class="section-label">Thresholds</div>
-            <div class="section-content">
-                CHOP_pct > 70: <strong>{"✓" if derived.chop_pctile > 70 else "✗"}</strong> |
-                MA20_crosses >= 4: <strong>{"✓" if derived.ma20_crosses >= 4 else "✗"}</strong>
+            <div>
+                <strong style="color: {text};">RSI ({rsi:.0f})</strong><br>
+                <code style="font-size: 10px;">RSI(14)</code> → pctl (63d)
             </div>
         </div>
     </div>
     """
 
 
-def _render_extension_block(
-    components: ComponentValues, states: ComponentStates, derived: DerivedMetrics
-) -> str:
-    """Render the Extension component 4-block."""
-    state_color = get_state_color(states.ext_state.value)
+def _render_volatility_tile(factors: Dict[str, Optional[float]], theme: str) -> str:
+    """Render VOLATILITY tile."""
+    bg = "#0f172a" if theme == "dark" else "#ffffff"
+    text = "#e2e8f0" if theme == "dark" else "#1e293b"
+    muted = "#94a3b8" if theme == "dark" else "#64748b"
+    border = "#334155" if theme == "dark" else "#e2e8f0"
+
+    vol_raw = (factors.get("volatility", 0) or 0) * 100
+    vol_inv = 100 - vol_raw
 
     return f"""
-    <div class="component-4block">
-        <div class="block-header">
-            <span class="block-title">EXTENSION</span>
-            <span class="block-state" style="background: {state_color}20; color: {state_color}">
-                {escape_html(states.ext_state.value.replace('_', ' ').upper())}
-            </span>
+    <div class="tile" style="
+        background: {bg};
+        border: 1px solid {border};
+        border-radius: 8px;
+        padding: 12px;
+    ">
+        <div style="font-weight: 600; font-size: 12px; color: {text}; margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid {border};">
+            📉 VOLATILITY
         </div>
-
-        <div class="block-section">
-            <div class="section-label">Formula</div>
-            <div class="section-content">
-                <code>ext = (close - MA20) / ATR20</code><br>
-                <code>OVERBOUGHT: ext > 2.0 | OVERSOLD: ext < -2.0</code>
+        <div style="font-size: 11px; color: {muted};">
+            <div style="margin-bottom: 6px;">
+                <strong style="color: {text};">Score: {vol_inv:.0f}</strong><br>
+                <code style="font-size: 10px;">1 - pctl(ATR14/price)</code>
             </div>
-        </div>
-
-        <div class="block-section">
-            <div class="section-label">Current Values</div>
-            <div class="section-content values-grid">
-                <div class="value-item">
-                    <span class="value-label">Extension (ATR units)</span>
-                    <span class="value-num">{derived.ext_atr_units:.2f}</span>
-                </div>
-                <div class="value-item">
-                    <span class="value-label">Distance from MA20</span>
-                    <span class="value-num">{format_currency(components.close - components.ma20)}</span>
-                </div>
+            <div style="margin-bottom: 6px;">
+                Raw ATR pctl: {vol_raw:.0f}<br>
+                Inverted: {vol_inv:.0f}
             </div>
-        </div>
-
-        <div class="block-section">
-            <div class="section-label">Thresholds</div>
-            <div class="section-content">
-                ext > 2.0 (OB): <strong>{"✓" if derived.ext_atr_units > 2.0 else "✗"}</strong> |
-                ext < -2.0 (OS): <strong>{"✓" if derived.ext_atr_units < -2.0 else "✗"}</strong>
+            <div style="font-size: 10px; font-style: italic;">
+                High vol → lower score
             </div>
         </div>
     </div>
     """
 
 
-def _render_iv_block(
-    components: ComponentValues, states: ComponentStates, derived: DerivedMetrics
-) -> str:
-    """Render the IV component 4-block (market level only)."""
-    state_color = get_state_color(states.iv_state.value)
+def _render_breadth_tile(factors: Dict[str, Optional[float]], theme: str) -> str:
+    """Render BREADTH tile."""
+    bg = "#0f172a" if theme == "dark" else "#ffffff"
+    text = "#e2e8f0" if theme == "dark" else "#1e293b"
+    muted = "#94a3b8" if theme == "dark" else "#64748b"
+    border = "#334155" if theme == "dark" else "#e2e8f0"
 
-    iv_value = derived.iv_value if derived.iv_value is not None else 0
-    iv_pctile = derived.iv_pctile if derived.iv_pctile is not None else 0
+    breadth = (factors.get("breadth", 0) or 0) * 100
 
     return f"""
-    <div class="component-4block">
-        <div class="block-header">
-            <span class="block-title">IMPLIED VOLATILITY</span>
-            <span class="block-state" style="background: {state_color}20; color: {state_color}">
-                {escape_html(states.iv_state.value.replace('_', ' ').upper())}
-            </span>
+    <div class="tile" style="
+        background: {bg};
+        border: 1px solid {border};
+        border-radius: 8px;
+        padding: 12px;
+    ">
+        <div style="font-weight: 600; font-size: 12px; color: {text}; margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid {border};">
+            🌐 BREADTH
         </div>
-
-        <div class="block-section">
-            <div class="section-label">Formula</div>
-            <div class="section-content">
-                <code>HIGH: VIX_pct_63 > 75 | ELEVATED: 50-75 | NORMAL: 25-50 | LOW: < 25</code>
+        <div style="font-size: 11px; color: {muted};">
+            <div style="margin-bottom: 6px;">
+                <strong style="color: {text};">Score: {breadth:.0f}</strong><br>
+                <code style="font-size: 10px;">pctl(ret20d - SPY)</code>
             </div>
-        </div>
-
-        <div class="block-section">
-            <div class="section-label">Current Values</div>
-            <div class="section-content values-grid">
-                <div class="value-item">
-                    <span class="value-label">VIX/VXN Value</span>
-                    <span class="value-num">{iv_value:.2f}</span>
-                </div>
-                <div class="value-item">
-                    <span class="value-label">IV Pctile (63d)</span>
-                    <span class="value-num">{iv_pctile:.1f}</span>
-                </div>
+            <div style="margin-bottom: 6px;">
+                20-day relative return<br>
+                vs SPY benchmark
             </div>
-        </div>
-
-        <div class="block-section">
-            <div class="section-label">Thresholds</div>
-            <div class="section-content">
-                VIX_pct > 75 (HIGH): <strong>{"✓" if iv_pctile > 75 else "✗"}</strong> |
-                VIX_pct > 50 (ELEVATED): <strong>{"✓" if iv_pctile > 50 else "✗"}</strong>
+            <div style="font-size: 10px; font-style: italic;">
+                Outperform → higher score
             </div>
         </div>
     </div>

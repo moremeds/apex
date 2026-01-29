@@ -64,11 +64,9 @@ def generate_report_header_html(
     regime_code = regime_output.final_regime.value
     regime_color = REGIME_COLORS.get(regime_code, REGIME_COLORS["R1"])
 
-    # Phase 5: Composite score display with component breakdown
+    # Phase 5: Composite score display
     composite_score = regime_output.composite_score
-    composite_factors = regime_output.composite_factors
     composite_html = ""
-    component_breakdown_html = ""
 
     if composite_score is not None:
         # Color based on score: green for high, yellow for mid, red for low
@@ -83,23 +81,6 @@ def generate_report_header_html(
                 Score: {composite_score:.0f}/100
             </div>
         """
-
-        # Component breakdown with weights and contributions
-        if composite_factors:
-            # Learned weights from training (with dual MACD factors)
-            weights = {
-                "trend": 0.10,
-                "trend_short": 0.08,
-                "macd_trend": 0.12,
-                "macd_momentum": 0.10,
-                "momentum": 0.28,
-                "volatility": 0.17,
-                "breadth": 0.15,
-            }
-
-            component_breakdown_html = _render_component_breakdown(
-                composite_factors, weights, composite_score, theme
-            )
 
     body = f"""
     <div class="report-header-content">
@@ -143,7 +124,6 @@ def generate_report_header_html(
     return f"""
     <div class="report-header-section">
         {body}
-        {component_breakdown_html}
     </div>
     """
 

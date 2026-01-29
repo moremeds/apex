@@ -62,6 +62,8 @@ def build_etf_dashboard(
     tickers: List[Dict[str, Any]],
     cap_results: Dict[str, Any],
     report_urls: Dict[str, str],
+    buy_counts_by_symbol: Optional[Dict[str, int]] = None,
+    sell_counts_by_symbol: Optional[Dict[str, int]] = None,
 ) -> Dict[str, List[ETFCardData]]:
     """
     Build ETF dashboard card data organized by category.
@@ -70,12 +72,18 @@ def build_etf_dashboard(
         tickers: List of ticker summary dicts from summary.json
         cap_results: Market cap results from MarketCapService
         report_urls: Symbol -> report URL mapping
+        buy_counts_by_symbol: Optional map of symbol -> buy signal count
+        sell_counts_by_symbol: Optional map of symbol -> sell signal count
 
     Returns:
         Dict mapping category key to list of ETFCardData
     """
     # Build ticker lookup for quick access
     ticker_lookup = {t["symbol"]: t for t in tickers if t.get("symbol")}
+
+    # Default to empty dicts if not provided
+    buy_counts = buy_counts_by_symbol or {}
+    sell_counts = sell_counts_by_symbol or {}
 
     dashboard: Dict[str, List[ETFCardData]] = {}
 
@@ -102,6 +110,8 @@ def build_etf_dashboard(
                 close_price=ticker.get("close"),
                 daily_change_pct=ticker.get("daily_change_pct"),
                 report_url=report_urls.get(symbol, f"report.html?symbol={symbol}"),
+                buy_signal_count=buy_counts.get(symbol, 0),
+                sell_signal_count=sell_counts.get(symbol, 0),
             )
             cards.append(card)
 
@@ -190,6 +200,9 @@ def render_etf_card_html(card: ETFCardData, style: str) -> str:
     regime_class = f"hm-regime-{card.regime.lower()}" if card.regime else "hm-regime-unknown"
     regime_text = card.regime if card.regime else "—"
 
+    # Direction class for symbol coloring (based on buy/sell signals)
+    direction_class = card.direction_class
+
     # Price formatting
     price_str = f"${card.close_price:.2f}" if card.close_price else "—"
 
@@ -206,7 +219,7 @@ def render_etf_card_html(card: ETFCardData, style: str) -> str:
 
     if style == "large":
         return f"""
-        <a href="{url}" class="hm-card hm-card-large">
+        <a href="{url}" class="hm-card hm-card-large {direction_class}">
             <div class="hm-card-header">
                 <span class="hm-card-symbol">{card.symbol}</span>
                 <span class="hm-card-name">{card.display_name}</span>
@@ -217,14 +230,14 @@ def render_etf_card_html(card: ETFCardData, style: str) -> str:
         </a>"""
     elif style == "mini":
         return f"""
-        <a href="{url}" class="hm-card hm-card-mini">
+        <a href="{url}" class="hm-card hm-card-mini {direction_class}">
             <div class="hm-card-symbol">{card.symbol}</div>
             <span class="hm-regime {regime_class}">{regime_text}</span>
             <div class="hm-card-name">{card.display_name}</div>
         </a>"""
     else:  # compact
         return f"""
-        <a href="{url}" class="hm-card hm-card-compact">
+        <a href="{url}" class="hm-card hm-card-compact {direction_class}">
             <span class="hm-regime {regime_class}">{regime_text}</span>
             <span class="hm-card-symbol">{card.symbol}</span>
             <span class="hm-card-price">{price_str}</span>

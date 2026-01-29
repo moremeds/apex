@@ -497,7 +497,8 @@ function renderMainChart(data) {{
     Plotly.newPlot('main-chart', traces, layout, config);
 }}
 
-// Update signal history table with currently active signals
+// Update signal history table - simplified to show only full history
+// Active signals and price levels now shown in Confluence Analysis
 function updateSignalHistoryTable() {{
     const key = getDataKey();
     const cachedData = CONFIG.dataCache[key];
@@ -505,140 +506,18 @@ function updateSignalHistoryTable() {{
     if (!container) return;
 
     const allSignals = cachedData ? cachedData.signals || [] : [];
-    const chartData = cachedData ? cachedData.chart_data || {{}} : {{}};
-    const priceLevels = chartData.price_levels || {{}};
-    const lastClose = chartData.close && chartData.close.length > 0
-        ? chartData.close[chartData.close.length - 1]
-        : null;
 
-    let html = '';
-
-    // ========== SECTION 1: Active Signals ==========
-    if (allSignals.length > 0) {{
-        // Get currently active signals: most recent signal per indicator
-        const activeByIndicator = {{}};
-        const sortedByTime = [...allSignals].sort((a, b) =>
-            new Date(a.timestamp) - new Date(b.timestamp)
-        );
-
-        for (const sig of sortedByTime) {{
-            const indicator = sig.indicator || 'unknown';
-            activeByIndicator[indicator] = sig;
-        }}
-
-        const signals = Object.values(activeByIndicator);
-        const buySignals = signals.filter(s => s.direction === 'buy');
-        const sellSignals = signals.filter(s => s.direction === 'sell');
-        const alertSignals = signals.filter(s => s.direction !== 'buy' && s.direction !== 'sell');
-
-        const sortedActiveSignals = [...signals].sort((a, b) =>
-            (a.indicator || '').localeCompare(b.indicator || '')
-        );
-
-        html += `
-            <div class="rule-frequency-summary">
-                <h4 style="margin-bottom: 12px; color: ${{colors.text_muted}}; font-size: 12px; text-transform: uppercase;">
-                    📊 Active Signals - ${{CONFIG.currentTimeframe.toUpperCase()}} (${{signals.length}} indicators)
-                </h4>
-                <div style="display: flex; gap: 16px; margin-bottom: 12px;">
-                    <span style="color: ${{colors.success}};">▲ ${{buySignals.length}} Bullish</span>
-                    <span style="color: ${{colors.danger}};">▼ ${{sellSignals.length}} Bearish</span>
-                    <span style="color: ${{colors.text_muted}};">● ${{alertSignals.length}} Neutral</span>
-                </div>
-                <div class="rule-freq-bars">
-        `;
-
-        for (const sig of sortedActiveSignals.slice(0, 15)) {{
-            const direction = sig.direction || 'alert';
-            const barColor = direction === 'buy' ? colors.success : direction === 'sell' ? colors.danger : colors.text_muted;
-            html += `
-                <div class="rule-freq-item">
-                    <div class="rule-freq-label">
-                        <span class="rule-name">${{sig.rule}}</span>
-                        <span class="rule-count ${{direction}}">${{sig.indicator}}</span>
-                    </div>
-                    <div class="rule-freq-bar-bg">
-                        <div class="rule-freq-bar ${{direction}}" style="width: 100%; background: ${{barColor}}40;"></div>
-                    </div>
-                </div>
-            `;
-        }}
-        if (signals.length > 15) {{
-            html += `<div style="color: ${{colors.text_muted}}; font-size: 11px; margin-top: 8px;">... and ${{signals.length - 15}} more</div>`;
-        }}
-        html += '</div></div>';
-    }} else {{
-        html += '<div class="no-signals">No active signals for this symbol/timeframe</div>';
+    if (allSignals.length === 0) {{
+        container.innerHTML = '<div class="no-signals">No signals for this symbol/timeframe</div>';
+        return;
     }}
 
-    // ========== SECTION 2: Indicator Values (Price Levels) ==========
-    const hasLevels = Object.keys(priceLevels).length > 0;
-    if (hasLevels && lastClose) {{
-        html += `
-            <div class="price-levels-section" style="margin-top: 24px;">
-                <h4 style="margin-bottom: 12px; color: ${{colors.text_muted}}; font-size: 12px; text-transform: uppercase;">
-                    📏 Key Price Levels (Current: $${{lastClose.toFixed(2)}})
-                </h4>
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
-        `;
+    // ========== Full Signal History (Collapsible) ==========
+    const sortedAll = [...allSignals].sort((a, b) =>
+        new Date(b.timestamp) - new Date(a.timestamp)
+    );
 
-        // Group levels by indicator
-        const levelGroups = {{}};
-        for (const [col, values] of Object.entries(priceLevels)) {{
-            if (!values || values.length === 0) continue;
-            const lastVal = values[values.length - 1];
-            if (lastVal === null || lastVal === undefined) continue;
-
-            const parts = col.split('_');
-            const ind = parts[0].toUpperCase();
-            const level = parts.slice(1).join('_').toUpperCase();
-
-            if (!levelGroups[ind]) levelGroups[ind] = [];
-            levelGroups[ind].push({{ level, value: lastVal }});
-        }}
-
-        for (const [ind, levels] of Object.entries(levelGroups)) {{
-            // Sort levels by value descending (resistance at top, support at bottom)
-            levels.sort((a, b) => b.value - a.value);
-
-            let indName = ind;
-            if (ind === 'FIB') indName = '📐 Fibonacci';
-            else if (ind === 'SR') indName = '📊 Support/Resistance';
-            else if (ind === 'PIVOT') indName = '🎯 Pivot Points';
-
-            html += `
-                <div style="background: ${{colors.card_bg}}; padding: 12px; border-radius: 8px; border: 1px solid ${{colors.border}};">
-                    <div style="font-weight: 600; margin-bottom: 8px; color: ${{colors.text}};">${{indName}}</div>
-            `;
-
-            for (const {{ level, value }} of levels) {{
-                const diff = ((value - lastClose) / lastClose * 100).toFixed(2);
-                const isAbove = value > lastClose;
-                const levelColor = isAbove ? colors.danger : colors.success;
-                const arrow = isAbove ? '↑' : '↓';
-
-                html += `
-                    <div style="display: flex; justify-content: space-between; padding: 4px 0; font-size: 12px;">
-                        <span style="color: ${{colors.text_muted}};">${{level.replace(/_/g, ' ')}}</span>
-                        <span>
-                            <span style="color: ${{colors.text}}; font-weight: 500;">$${{value.toFixed(2)}}</span>
-                            <span style="color: ${{levelColor}}; margin-left: 8px;">${{arrow}}${{Math.abs(diff)}}%</span>
-                        </span>
-                    </div>
-                `;
-            }}
-            html += '</div>';
-        }}
-        html += '</div></div>';
-    }}
-
-    // ========== SECTION 3: Full Signal History (Collapsible) ==========
-    if (allSignals.length > 0) {{
-        const sortedAll = [...allSignals].sort((a, b) =>
-            new Date(b.timestamp) - new Date(a.timestamp)
-        );
-
-        html += `
+    let html = `
             <div style="margin-top: 24px;">
                 <h4 class="collapsible-header" onclick="toggleHistoryTable()" style="cursor: pointer; margin-bottom: 12px; color: ${{colors.text_muted}}; font-size: 12px; text-transform: uppercase;">
                     <span id="history-toggle-icon">▶</span> Full Signal History (${{allSignals.length}} signals) - Click to expand
@@ -674,8 +553,7 @@ function updateSignalHistoryTable() {{
             html += `<tr><td colspan="5" style="text-align: center; color: ${{colors.text_muted}};">... and ${{allSignals.length - 100}} more signals</td></tr>`;
         }}
 
-        html += '</tbody></table></div></div>';
-    }}
+    html += '</tbody></table></div></div>';
 
     container.innerHTML = html;
 }}
@@ -695,13 +573,22 @@ function toggleHistoryTable() {{
     }}
 }}
 
-// Update confluence panel
+// Update confluence panel - enhanced with active signals and price levels
 function updateConfluencePanel() {{
     const key = getDataKey();
     const container = document.getElementById('confluence-content');
     if (!container || !CONFIG.summary) return;
 
     const confluence = CONFIG.summary.confluence ? CONFIG.summary.confluence[key] : null;
+
+    // Get active signals and price levels data (moved from Signal History)
+    const cachedData = CONFIG.dataCache[key];
+    const allSignals = cachedData ? cachedData.signals || [] : [];
+    const chartData = cachedData ? cachedData.chart_data || {{}} : {{}};
+    const priceLevels = chartData.price_levels || {{}};
+    const lastClose = chartData.close && chartData.close.length > 0
+        ? chartData.close[chartData.close.length - 1]
+        : null;
 
     if (!confluence) {{
         container.innerHTML = '<div class="no-confluence">No confluence data available for this symbol/timeframe</div>';
@@ -710,8 +597,119 @@ function updateConfluencePanel() {{
 
     const alignmentPct = (confluence.alignment_score + 100) / 2;
     const alignmentClass = confluence.alignment_score > 20 ? 'bullish' : confluence.alignment_score < -20 ? 'bearish' : 'neutral';
-    const strongestClass = confluence.strongest_signal === 'bullish' ? 'bullish' : confluence.strongest_signal === 'bearish' ? 'bearish' : 'neutral';
 
+    // ========== Build Active Signals HTML ==========
+    let activeSignalsHtml = '';
+    if (allSignals.length > 0) {{
+        const activeByIndicator = {{}};
+        const sortedByTime = [...allSignals].sort((a, b) =>
+            new Date(a.timestamp) - new Date(b.timestamp)
+        );
+        for (const sig of sortedByTime) {{
+            activeByIndicator[sig.indicator || 'unknown'] = sig;
+        }}
+        const signals = Object.values(activeByIndicator);
+        const buyCount = signals.filter(s => s.direction === 'buy').length;
+        const sellCount = signals.filter(s => s.direction === 'sell').length;
+        const neutralCount = signals.length - buyCount - sellCount;
+
+        const sortedActiveSignals = [...signals].sort((a, b) =>
+            (a.indicator || '').localeCompare(b.indicator || '')
+        );
+
+        let signalBarsHtml = sortedActiveSignals.slice(0, 8).map(sig => {{
+            const direction = sig.direction || 'alert';
+            const barColor = direction === 'buy' ? colors.success : direction === 'sell' ? colors.danger : colors.text_muted;
+            return `
+                <div style="display: flex; justify-content: space-between; padding: 3px 0; font-size: 11px;">
+                    <span style="color: ${{colors.text_muted}};">${{sig.indicator}}</span>
+                    <span style="color: ${{barColor}};">${{sig.rule}}</span>
+                </div>
+            `;
+        }}).join('');
+
+        if (signals.length > 8) {{
+            signalBarsHtml += `<div style="color: ${{colors.text_muted}}; font-size: 10px; text-align: center; margin-top: 4px;">+${{signals.length - 8}} more</div>`;
+        }}
+
+        activeSignalsHtml = `
+            <div style="background: ${{colors.card_bg}}; padding: 12px; border-radius: 8px; border: 1px solid ${{colors.border}};">
+                <h4 style="margin: 0 0 8px 0; color: ${{colors.text}}; font-size: 12px; font-weight: 600;">
+                    Active Signals - ${{CONFIG.currentTimeframe.toUpperCase()}}
+                </h4>
+                <div style="display: flex; gap: 12px; margin-bottom: 8px; font-size: 12px;">
+                    <span style="color: ${{colors.success}};">▲ ${{buyCount}} Bullish</span>
+                    <span style="color: ${{colors.danger}};">▼ ${{sellCount}} Bearish</span>
+                    <span style="color: ${{colors.text_muted}};">● ${{neutralCount}} Neutral</span>
+                </div>
+                <div class="signal-bars">
+                    ${{signalBarsHtml}}
+                </div>
+            </div>
+        `;
+    }}
+
+    // ========== Build Price Levels HTML ==========
+    let priceLevelsHtml = '';
+    const hasLevels = Object.keys(priceLevels).length > 0;
+    if (hasLevels && lastClose) {{
+        const levelGroups = {{}};
+        for (const [col, values] of Object.entries(priceLevels)) {{
+            if (!values || values.length === 0) continue;
+            const lastVal = values[values.length - 1];
+            if (lastVal === null || lastVal === undefined) continue;
+
+            const parts = col.split('_');
+            const ind = parts[0].toUpperCase();
+            const level = parts.slice(1).join('_').toUpperCase();
+
+            if (!levelGroups[ind]) levelGroups[ind] = [];
+            levelGroups[ind].push({{ level, value: lastVal }});
+        }}
+
+        let levelCardsHtml = '';
+        for (const [ind, levels] of Object.entries(levelGroups)) {{
+            levels.sort((a, b) => b.value - a.value);
+
+            let indName = ind;
+            if (ind === 'FIB') indName = 'Fibonacci';
+            else if (ind === 'SR') indName = 'Support/Res';
+            else if (ind === 'PIVOT') indName = 'Pivot Points';
+
+            let levelRowsHtml = levels.slice(0, 3).map(({{ level, value }}) => {{
+                const diff = ((value - lastClose) / lastClose * 100).toFixed(2);
+                const isAbove = value > lastClose;
+                const levelColor = isAbove ? colors.danger : colors.success;
+                const arrow = isAbove ? '↑' : '↓';
+                return `
+                    <div style="display: flex; justify-content: space-between; font-size: 11px; padding: 2px 0;">
+                        <span style="color: ${{colors.text_muted}};">${{level.replace(/_/g, ' ')}}</span>
+                        <span>$${{value.toFixed(2)}} <span style="color: ${{levelColor}};">${{arrow}}${{Math.abs(diff)}}%</span></span>
+                    </div>
+                `;
+            }}).join('');
+
+            levelCardsHtml += `
+                <div style="background: ${{colors.card_bg}}; padding: 10px; border-radius: 6px; border: 1px solid ${{colors.border}}; min-width: 140px;">
+                    <div style="font-weight: 600; margin-bottom: 6px; font-size: 11px; color: ${{colors.text}};">${{indName}}</div>
+                    ${{levelRowsHtml}}
+                </div>
+            `;
+        }}
+
+        priceLevelsHtml = `
+            <div style="margin-top: 16px;">
+                <h4 style="margin: 0 0 10px 0; color: ${{colors.text_muted}}; font-size: 11px; text-transform: uppercase;">
+                    Key Price Levels ($${{lastClose.toFixed(2)}})
+                </h4>
+                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                    ${{levelCardsHtml}}
+                </div>
+            </div>
+        `;
+    }}
+
+    // ========== Build Divergence HTML ==========
     let divergenceHtml = '';
     if (confluence.diverging_pairs && confluence.diverging_pairs.length > 0) {{
         divergenceHtml = confluence.diverging_pairs.slice(0, 5).map(p => `
@@ -724,36 +722,41 @@ function updateConfluencePanel() {{
         divergenceHtml = '<div class="no-divergences">No divergences detected - indicators are aligned</div>';
     }}
 
+    // ========== Render Enhanced 2-Column Layout ==========
     container.innerHTML = `
-        <div class="confluence-panel">
-            <div class="confluence-score">
-                <div class="alignment-meter">
-                    <div class="alignment-bar">
-                        <div class="alignment-indicator" style="left: ${{alignmentPct}}%"></div>
+        <div class="confluence-panel-enhanced">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 16px;">
+                <div class="alignment-column">
+                    <div class="alignment-meter">
+                        <div class="alignment-bar">
+                            <div class="alignment-indicator" style="left: ${{alignmentPct}}%"></div>
+                        </div>
+                    </div>
+                    <div class="alignment-value ${{alignmentClass}}" style="text-align: center; font-size: 24px; font-weight: bold; margin: 8px 0;">
+                        ${{confluence.alignment_score > 0 ? '+' : ''}}${{Math.round(confluence.alignment_score)}}
+                    </div>
+                    <div class="signal-counts" style="display: flex; justify-content: center; gap: 16px;">
+                        <div style="text-align: center;">
+                            <div class="count-value bullish" style="font-size: 16px;">&#9650; ${{confluence.bullish_count}}</div>
+                            <div style="font-size: 10px; color: ${{colors.text_muted}};">Bullish</div>
+                        </div>
+                        <div style="text-align: center;">
+                            <div class="count-value neutral" style="font-size: 16px;">&#9679; ${{confluence.neutral_count}}</div>
+                            <div style="font-size: 10px; color: ${{colors.text_muted}};">Neutral</div>
+                        </div>
+                        <div style="text-align: center;">
+                            <div class="count-value bearish" style="font-size: 16px;">&#9660; ${{confluence.bearish_count}}</div>
+                            <div style="font-size: 10px; color: ${{colors.text_muted}};">Bearish</div>
+                        </div>
                     </div>
                 </div>
-                <div class="alignment-value ${{alignmentClass}}">${{confluence.alignment_score > 0 ? '+' : ''}}${{Math.round(confluence.alignment_score)}}</div>
-                <div class="signal-counts">
-                    <div class="count-item">
-                        <div class="count-value bullish">&#9650; ${{confluence.bullish_count}}</div>
-                        <div class="count-label">Bullish</div>
-                    </div>
-                    <div class="count-item">
-                        <div class="count-value neutral">&#9679; ${{confluence.neutral_count}}</div>
-                        <div class="count-label">Neutral</div>
-                    </div>
-                    <div class="count-item">
-                        <div class="count-value bearish">&#9660; ${{confluence.bearish_count}}</div>
-                        <div class="count-label">Bearish</div>
-                    </div>
-                </div>
-                <div class="strongest-signal">
-                    <div class="label">Strongest Signal</div>
-                    <div class="value ${{strongestClass}}">${{confluence.strongest_signal ? confluence.strongest_signal.toUpperCase() : 'NONE'}}</div>
+                <div class="active-signals-column">
+                    ${{activeSignalsHtml}}
                 </div>
             </div>
-            <div class="divergence-section">
-                <h4>Diverging Indicators</h4>
+            ${{priceLevelsHtml}}
+            <div style="margin-top: 16px;">
+                <h4 style="margin: 0 0 12px 0; color: ${{colors.text_muted}}; font-size: 11px; text-transform: uppercase;">Diverging Indicators</h4>
                 ${{divergenceHtml}}
             </div>
         </div>

@@ -74,6 +74,34 @@ def get_theme_colors(theme: str) -> Dict[str, str]:
     }
 
 
+def get_score_gradient_color(score: float) -> str:
+    """
+    Map score (0-100) to a red-yellow-green gradient color.
+
+    Uses HSL color space for smooth transitions:
+    - Score 0 → red (#d9534f)
+    - Score 50 → amber (#d9a634)
+    - Score 100 → green (#5cb85c)
+    """
+    import colorsys
+
+    # Clamp to 0-100
+    score = max(0.0, min(100.0, score))
+
+    # Piecewise hue interpolation:
+    # 0-50: red (hue=0°) to yellow/amber (hue=45°)
+    # 50-100: yellow (hue=45°) to green (hue=120°)
+    if score <= 50:
+        hue = (score / 50.0) * 45.0
+    else:
+        hue = 45.0 + ((score - 50.0) / 50.0) * 75.0
+
+    # HSL to RGB (saturation=0.7, lightness=0.5)
+    r, g, b = colorsys.hls_to_rgb(hue / 360.0, 0.5, 0.7)
+
+    return f"#{int(r*255):02x}{int(g*255):02x}{int(b*255):02x}"
+
+
 def render_regime_level(
     level_name: str,
     symbols: List[tuple],

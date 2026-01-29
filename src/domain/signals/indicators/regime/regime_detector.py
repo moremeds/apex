@@ -229,8 +229,7 @@ class RegimeDetectorIndicator(IndicatorBase):
         Returns DataFrame with columns for regime classification and all
         component values for rule evaluation and reporting.
 
-        If use_composite_scorer=True (default), uses Phase 5 composite scoring.
-        Otherwise uses legacy decision tree.
+        Always uses Phase 5 composite scoring (decision tree removed).
         """
         n = len(data)
         if n == 0:
@@ -246,125 +245,8 @@ class RegimeDetectorIndicator(IndicatorBase):
                 index=data.index,
             )
 
-        # Phase 5: Use composite scorer if enabled
-        use_composite = params.get("use_composite_scorer", True)
-        if use_composite:
-            return self._calculate_composite(data, params)
-
-        # Extract OHLC arrays
-        high = data["high"].values.astype(np.float64)
-        low = data["low"].values.astype(np.float64)
-        close = data["close"].values.astype(np.float64)
-
-        # Calculate all components with error handling
-        try:
-            trend_states, trend_details = calculate_trend_state(close, params)
-        except Exception as e:
-            logger.error(f"Trend state calculation failed: {e}", exc_info=True)
-            trend_states = np.array([TrendState.NEUTRAL] * n)
-            trend_details = {
-                "ma50": np.full(n, np.nan),
-                "ma200": np.full(n, np.nan),
-                "ma50_slope": np.full(n, np.nan),
-            }
-
-        try:
-            vol_states, vol_details = calculate_vol_state(high, low, close, params)
-        except Exception as e:
-            logger.error(f"Vol state calculation failed: {e}", exc_info=True)
-            vol_states = np.array([VolState.NORMAL] * n)
-            vol_details = {
-                "atr": np.full(n, np.nan),
-                "atr_pct": np.full(n, np.nan),
-                "atr_pct_63": np.full(n, 50.0),
-                "atr_pct_252": np.full(n, 50.0),
-            }
-
-        try:
-            chop_states, chop_details = calculate_chop_state(high, low, close, params)
-        except Exception as e:
-            logger.error(f"Chop state calculation failed: {e}", exc_info=True)
-            chop_states = np.array([ChopState.NEUTRAL] * n)
-            chop_details = {
-                "chop": np.full(n, 50.0),
-                "chop_pct_252": np.full(n, 50.0),
-                "ma20_crosses": np.zeros(n),
-            }
-
-        try:
-            ext_states, ext_details = calculate_ext_state(high, low, close, params)
-        except Exception as e:
-            logger.error(f"Ext state calculation failed: {e}", exc_info=True)
-            ext_states = np.array([ExtState.NEUTRAL] * n)
-            ext_details = {"ext": np.zeros(n), "ma20": np.full(n, np.nan)}
-
-        # Get MA20 from ext_details (already calculated)
-        ma20 = ext_details["ma20"]
-
-        # Calculate 5-bar high for R3 structural confirmation
-        last_5_bar_high = np.full(n, np.nan)
-        for i in range(4, n):
-            last_5_bar_high[i] = np.max(high[i - 4 : i + 1])
-
-        # Classify regime for each bar
-        regimes = []
-        confidences = []
-
-        for i in range(n):
-            # Build state dict for classification
-            state = {
-                "close": close[i],
-                "ma20": ma20[i] if not np.isnan(ma20[i]) else close[i],
-                "ma50": trend_details["ma50"][i],
-                "ma200": trend_details["ma200"][i],
-                "ma50_slope": trend_details["ma50_slope"][i],
-                "last_5_bar_high": (
-                    last_5_bar_high[i] if not np.isnan(last_5_bar_high[i]) else close[i]
-                ),
-                "trend_state": trend_states[i],
-                "vol_state": vol_states[i],
-                "chop_state": chop_states[i],
-                "ext_state": ext_states[i],
-                "iv_state": IVState.NA,  # IV calculated separately at service level
-                "is_market_level": False,
-            }
-
-            # Compute regime (without hysteresis for batch calculation)
-            regime, _ = self._evaluate_decision_tree(state)
-            confidence = self._compute_confidence(state, regime)
-
-            regimes.append(regime.value)
-            confidences.append(confidence)
-
-        # Build result DataFrame
-        result = pd.DataFrame(
-            {
-                "regime": regimes,
-                "regime_confidence": confidences,
-                # Component states
-                "trend_state": [ts.value for ts in trend_states],
-                "vol_state": [vs.value for vs in vol_states],
-                "chop_state": [cs.value for cs in chop_states],
-                "ext_state": [es.value for es in ext_states],
-                # Component values
-                "ma20": ma20,
-                "ma50": trend_details["ma50"],
-                "ma200": trend_details["ma200"],
-                "ma50_slope": trend_details["ma50_slope"],
-                "atr20": vol_details["atr"],
-                "atr_pct": vol_details["atr_pct"],
-                "atr_pct_63": vol_details["atr_pct_63"],
-                "atr_pct_252": vol_details["atr_pct_252"],
-                "chop": chop_details["chop"],
-                "chop_pct_252": chop_details["chop_pct_252"],
-                "ma20_crosses": chop_details["ma20_crosses"],
-                "ext": ext_details["ext"],
-                "last_5_bar_high": last_5_bar_high,
-            },
-            index=data.index,
-        )
-
-        return result
+        # Always use composite scoring (decision tree removed)
+        return self._calculate_composite(data, params)
 
     def _calculate_composite(self, data: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
         """
@@ -393,8 +275,19 @@ class RegimeDetectorIndicator(IndicatorBase):
         try:
             scored = scorer.score_and_classify(data, benchmark_df=benchmark_df)
         except Exception as e:
-            logger.error(f"Composite scoring failed: {e}, falling back to decision tree")
-            return self._calculate_decision_tree(data, params)
+            logger.error(f"Composite scoring failed: {e}, returning R1 default")
+            # Return R1 (Choppy/Extended) as safe default instead of falling back
+            return pd.DataFrame(
+                {
+                    "regime": ["R1"] * n,
+                    "regime_confidence": [50] * n,
+                    "trend_state": [TrendState.NEUTRAL.value] * n,
+                    "vol_state": [VolState.NORMAL.value] * n,
+                    "chop_state": [ChopState.NEUTRAL.value] * n,
+                    "ext_state": [ExtState.NEUTRAL.value] * n,
+                },
+                index=data.index,
+            )
 
         # Map R0/R1/R2 to MarketRegime values
         regime_map = {

@@ -65,3 +65,21 @@ def extract_alignment_score(ticker: Dict[str, Any]) -> Optional[float]:
             return float(score)
 
     return None
+
+
+def extract_composite_score(ticker: Dict[str, Any]) -> Optional[float]:
+    """
+    Extract average composite score from ticker data.
+
+    The composite_score_avg is the average across all timeframes (0-100).
+
+    Args:
+        ticker: Ticker summary dictionary
+
+    Returns:
+        Composite score as float (0-100) or None
+    """
+    score = ticker.get("composite_score_avg")
+    if score is not None:
+        return float(score)
+    return None

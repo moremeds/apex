@@ -24,7 +24,7 @@ from src.utils.logging_setup import get_logger
 
 from .css import HEATMAP_CSS
 from .etf_dashboard import build_etf_dashboard, render_etf_dashboard_html
-from .extractors import extract_alignment_score, extract_regime
+from .extractors import extract_alignment_score, extract_composite_score, extract_regime
 from .html_template import render_heatmap_template
 from .model import (
     ALL_DASHBOARD_ETFS,
@@ -128,15 +128,21 @@ class HeatmapBuilder:
         if manifest and "symbol_reports" in manifest:
             report_urls = manifest["symbol_reports"]
 
-        # Build ETF dashboard (cards for all dashboard ETFs)
-        etf_dashboard = build_etf_dashboard(tickers, cap_results, report_urls)
-
         # Phase 3: Extract rule frequency data for trending mode
         rule_frequency = summary_data.get("rule_frequency", {})
         signal_counts_by_symbol = rule_frequency.get("by_symbol", {})
         buy_counts_by_symbol = rule_frequency.get("buy_by_symbol", {})
         sell_counts_by_symbol = rule_frequency.get("sell_by_symbol", {})
         max_signal_count = max(signal_counts_by_symbol.values(), default=1)
+
+        # Build ETF dashboard (cards for all dashboard ETFs) with signal counts
+        etf_dashboard = build_etf_dashboard(
+            tickers,
+            cap_results,
+            report_urls,
+            buy_counts_by_symbol,
+            sell_counts_by_symbol,
+        )
 
         # Stocks-only classification (exclude all dashboard ETFs from treemap)
         stocks_by_sector: Dict[str, List[TreemapNode]] = {}
@@ -203,6 +209,7 @@ class HeatmapBuilder:
                 sell_signal_count=sell_signal_count,
                 rule_frequency_color=freq_color,
                 rule_frequency_direction_color=freq_dir_color,
+                composite_score=extract_composite_score(ticker),
                 report_url=report_urls.get(symbol),
             )
 
