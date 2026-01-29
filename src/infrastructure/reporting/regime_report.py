@@ -42,4 +42,6 @@ __all__ = [
     # Utils
     "build_regime_data_json",
     "REGIME_COLORS",
+    "generate_regime_one_liner_html",
+    "generate_recommendations_html",
 ]
