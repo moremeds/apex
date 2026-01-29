@@ -20,8 +20,10 @@ Usage:
 from .components import generate_components_4block_html
 from .header import (
     generate_composite_score_html,
+    generate_regime_one_liner_html,
     generate_report_header_html,
 )
+from .optimization import generate_recommendations_html
 from .styles import generate_regime_styles
 from .turning_point import generate_turning_point_html
 from .utils import REGIME_COLORS, build_regime_data_json
@@ -39,4 +41,8 @@ __all__ = [
     # Utils
     "build_regime_data_json",
     "REGIME_COLORS",
+    # One-liner
+    "generate_regime_one_liner_html",
+    # Recommendations
+    "generate_recommendations_html",
 ]

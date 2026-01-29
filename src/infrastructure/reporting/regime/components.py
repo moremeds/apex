@@ -44,11 +44,7 @@ def generate_components_4block_html(regime_output: RegimeOutput, theme: str = "d
 
     # Theme colors
     bg_color = "#1e293b" if theme == "dark" else "#f8fafc"
-    card_bg = "#0f172a" if theme == "dark" else "#ffffff"
-    text_color = "#e2e8f0" if theme == "dark" else "#1e293b"
-    muted_color = "#94a3b8" if theme == "dark" else "#64748b"
     border_color = "#334155" if theme == "dark" else "#e2e8f0"
-    bar_bg = "#334155" if theme == "dark" else "#e2e8f0"
 
     # Build summary table
     summary_table = _render_summary_table(factors, composite_score, theme)
