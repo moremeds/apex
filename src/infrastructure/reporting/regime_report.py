@@ -23,7 +23,6 @@ from .regime import (
     generate_components_4block_html,
     generate_composite_score_html,
     generate_recommendations_html,
-    generate_regime_one_liner_html,
     generate_regime_styles,
     generate_report_header_html,
     generate_turning_point_html,
@@ -42,6 +41,5 @@ __all__ = [
     # Utils
     "build_regime_data_json",
     "REGIME_COLORS",
-    "generate_regime_one_liner_html",
     "generate_recommendations_html",
 ]

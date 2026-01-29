@@ -97,6 +97,7 @@ class HeatmapBuilder:
         self,
         summary_data: Dict[str, Any],
         manifest: Optional[Dict[str, Any]] = None,
+        score_sparklines: Optional[Dict[str, List[float]]] = None,
     ) -> HeatmapModel:
         """
         Build HeatmapModel from summary.json data.
@@ -142,6 +143,7 @@ class HeatmapBuilder:
             report_urls,
             buy_counts_by_symbol,
             sell_counts_by_symbol,
+            score_sparklines,
         )
 
         # Stocks-only classification (exclude all dashboard ETFs from treemap)

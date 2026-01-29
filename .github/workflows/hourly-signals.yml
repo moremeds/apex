@@ -126,6 +126,14 @@ jobs:
         env:
           LOG_LEVEL: WARNING
 
+      - name: Fetch existing score history from gh-pages
+        if: steps.market-check.outputs.is_open == 'true'
+        continue-on-error: true
+        run: |
+          mkdir -p out/signals/data
+          git fetch origin gh-pages --depth=1 2>/dev/null || true
+          git show origin/gh-pages:data/score_history.json > out/signals/data/score_history.json 2>/dev/null || echo '{"snapshots":[]}' > out/signals/data/score_history.json
+
       - name: "Step 3/3: Generate and deploy report"
         if: steps.market-check.outputs.is_open == 'true'
         run: |

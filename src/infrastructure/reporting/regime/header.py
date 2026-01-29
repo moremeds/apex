@@ -1,129 +1,152 @@
 """
-Regime Report Header - Report header and one-liner functions.
+Regime Report Header - Score card and sparkline display.
 
-Provides the top-level metadata display for regime reports.
+Provides the top-level regime header for per-symbol reports.
 """
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import List, Optional
 
-from src.domain.services.regime import (
-    ParamProvenanceSet,
-    RecommenderResult,
-)
 from src.domain.signals.indicators.regime import RegimeOutput
 
-from ..value_card import escape_html, render_one_liner_box
+from ..value_card import escape_html
 from .utils import REGIME_COLORS
+
+
+def _render_header_sparkline(points: List[float], width: int = 120, height: int = 32) -> str:
+    """Render an inline SVG sparkline for the regime header."""
+    if len(points) < 2:
+        return ""
+
+    delta = points[-1] - points[0]
+    if delta > 3:
+        color = "#10b981"
+    elif delta < -3:
+        color = "#ef4444"
+    else:
+        color = "#94a3b8"
+
+    min_val = max(0.0, min(points) - 5)
+    max_val = min(100.0, max(points) + 5)
+    val_range = max_val - min_val or 1.0
+
+    n = len(points)
+    coords = []
+    for i, v in enumerate(points):
+        x = round(i / (n - 1) * width, 1)
+        y = round(height - ((v - min_val) / val_range) * height, 1)
+        coords.append(f"{x},{y}")
+
+    polyline = " ".join(coords)
+    last_x = coords[-1].split(",")[0]
+    last_y = coords[-1].split(",")[1]
+
+    return (
+        f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" '
+        f'style="display:block;" xmlns="http://www.w3.org/2000/svg">'
+        f'<polyline points="{polyline}" fill="none" stroke="{color}" '
+        f'stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>'
+        f'<circle cx="{last_x}" cy="{last_y}" r="3" fill="{color}"/>'
+        f"</svg>"
+    )
 
 
 def generate_report_header_html(
     regime_output: RegimeOutput,
-    provenance_set: Optional[ParamProvenanceSet] = None,
-    recommendations_result: Optional[RecommenderResult] = None,
     theme: str = "dark",
+    score_sparkline: Optional[List[float]] = None,
+    **kwargs: object,
 ) -> str:
     """
-    Generate the Report Header / Change Log section.
+    Generate the Report Header as a score card with sparkline.
 
-    Shows key metadata:
-    - Schema version
-    - Param set ID and source
-    - Last training/verification dates
-    - Recommendations status
+    Shows:
+    - Symbol name, regime badge, score, and timestamp
+    - Score history sparkline (if data available)
     """
     symbol = regime_output.symbol
     asof_ts = regime_output.asof_ts
     asof_str = asof_ts.strftime("%Y-%m-%d %H:%M") if asof_ts else "N/A"
-    schema_version = regime_output.schema_version
 
-    # Provenance info
-    param_set_id = "N/A"
-    params_source = "default"
-    last_training = "N/A"
-    if provenance_set:
-        param_set_id = provenance_set.provenance.param_set_id or "N/A"
-        params_source = provenance_set.provenance.source
-        if provenance_set.provenance.trained_data_end:
-            last_training = provenance_set.provenance.trained_data_end.isoformat()
-
-    # Recommendations status
-    rec_status = "Not analyzed"
-    rec_date = "N/A"
-    if recommendations_result:
-        rec_date = recommendations_result.analysis_date.isoformat()
-        if recommendations_result.has_recommendations:
-            rec_count = len(recommendations_result.recommendations)
-            param_names = ", ".join(r.param_name for r in recommendations_result.recommendations)
-            rec_status = f"{rec_count} pending ({param_names})"
+    # Derive regime label from composite score for consistency
+    composite_score = regime_output.composite_score
+    if composite_score is not None:
+        if composite_score >= 70:
+            regime_code = "R0"
+            regime_label = "Healthy Uptrend"
+            score_color = "#10b981"
+        elif composite_score >= 30:
+            regime_code = "R1"
+            regime_label = "Choppy/Extended"
+            score_color = "#f59e0b"
         else:
-            rec_status = "No changes suggested"
+            regime_code = "R2"
+            regime_label = "Risk-Off"
+            score_color = "#ef4444"
+    else:
+        regime_code = regime_output.final_regime.value
+        regime_label = regime_output.final_regime.display_name
+        score_color = "#94a3b8"
 
-    # Regime color
-    regime_code = regime_output.final_regime.value
     regime_color = REGIME_COLORS.get(regime_code, REGIME_COLORS["R1"])
 
-    # Phase 5: Composite score display
-    composite_score = regime_output.composite_score
-    composite_html = ""
+    # Theme colors
+    bg_color = "#0f172a" if theme == "dark" else "#ffffff"
+    text_color = "#e2e8f0" if theme == "dark" else "#1e293b"
+    border_color = "#334155" if theme == "dark" else "#e2e8f0"
+    muted_color = "#94a3b8" if theme == "dark" else "#64748b"
 
-    if composite_score is not None:
-        # Color based on score: green for high, yellow for mid, red for low
-        if composite_score >= 70:
-            score_color = "#10b981"  # green
-        elif composite_score >= 30:
-            score_color = "#f59e0b"  # yellow
-        else:
-            score_color = "#ef4444"  # red
-        composite_html = f"""
-            <div class="header-composite-score" style="color: {score_color}; font-weight: 600;">
-                Score: {composite_score:.0f}/100
+    # Score number display
+    score_display = f"{composite_score:.0f}" if composite_score is not None else "—"
+
+    # Sparkline SVG
+    sparkline_html = ""
+    sparkline_points = score_sparkline or []
+    if len(sparkline_points) >= 2:
+        svg = _render_header_sparkline(sparkline_points)
+        sparkline_html = f"""
+            <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 2px;">
+                {svg}
+                <div style="font-size: 10px; color: {muted_color};">last {len(sparkline_points)} reports</div>
             </div>
         """
 
-    body = f"""
-    <div class="report-header-content">
-        <div class="header-title-row">
-            <div class="header-symbol">{escape_html(symbol)}</div>
-            <div class="header-regime" style="background: {regime_color['bg']}; color: {regime_color['text']};">
-                {regime_code}: {regime_output.final_regime.display_name}
-            </div>
-            {composite_html}
-            <div class="header-timestamp">{asof_str}</div>
-        </div>
-        <div class="header-details">
-            <div class="header-row">
-                <span class="header-label">Schema Version</span>
-                <span class="header-value"><code>{escape_html(schema_version)}</code></span>
-            </div>
-            <div class="header-row">
-                <span class="header-label">Param Set ID</span>
-                <span class="header-value"><code>{escape_html(param_set_id)}</code></span>
-            </div>
-            <div class="header-row">
-                <span class="header-label">Params Source</span>
-                <span class="header-value">{escape_html(params_source)}</span>
-            </div>
-            <div class="header-row">
-                <span class="header-label">Last Training</span>
-                <span class="header-value">{escape_html(last_training)}</span>
-            </div>
-            <div class="header-row">
-                <span class="header-label">Last Recommender Run</span>
-                <span class="header-value">{escape_html(rec_date)}</span>
-            </div>
-            <div class="header-row">
-                <span class="header-label">Recommendations</span>
-                <span class="header-value">{escape_html(rec_status)}</span>
-            </div>
-        </div>
-    </div>
-    """
-
     return f"""
-    <div class="report-header-section">
-        {body}
+    <div class="report-header-section" style="
+        background: {bg_color};
+        border: 1px solid {border_color};
+        border-radius: 12px;
+        padding: 16px 20px;
+        margin-bottom: 16px;
+    ">
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <div style="font-size: 22px; font-weight: 700; color: {text_color};">
+                    {escape_html(symbol)}
+                </div>
+                <div style="
+                    background: {regime_color['bg']};
+                    color: {regime_color['text']};
+                    padding: 4px 10px;
+                    border-radius: 6px;
+                    font-size: 13px;
+                    font-weight: 600;
+                ">{regime_code}: {regime_label}</div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 20px;">
+                <div style="text-align: center;">
+                    <div style="font-size: 32px; font-weight: 700; color: {score_color}; line-height: 1;">
+                        {score_display}
+                    </div>
+                    <div style="font-size: 11px; color: {muted_color};">score</div>
+                </div>
+                {sparkline_html}
+                <div style="font-size: 12px; color: {muted_color}; text-align: right;">
+                    {asof_str}
+                </div>
+            </div>
+        </div>
     </div>
     """
 
@@ -474,18 +497,3 @@ def generate_composite_score_html(regime_output: RegimeOutput, theme: str = "dar
         {component_html}
     </div>
     """
-
-
-def generate_regime_one_liner_html(regime_output: RegimeOutput) -> str:
-    """
-    Generate the UX one-liner showing decision vs final regime.
-
-    This single element reduces 80% of user confusion by clearly showing
-    when hysteresis is blocking a regime transition.
-    """
-    decision = regime_output.decision_regime.value
-    final = regime_output.final_regime.value
-    pending_count = regime_output.transition.pending_count
-    entry_threshold = regime_output.transition.entry_threshold
-
-    return render_one_liner_box(decision, final, pending_count, entry_threshold)
