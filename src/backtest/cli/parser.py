@@ -160,6 +160,30 @@ Examples:
     parser.add_argument("--historical-dir", type=str, help="Historical data directory")
     parser.add_argument("--source-priority", type=str, help="Source priority (e.g., ib,yahoo)")
 
+    # Behavioral gate validation
+    parser.add_argument(
+        "--behavioral",
+        action="store_true",
+        help="Run DualMACD behavioral gate validation (spec required or defaults used)",
+    )
+    parser.add_argument(
+        "--behavioral-cases",
+        action="store_true",
+        help="Run predefined behavioral case studies",
+    )
+    parser.add_argument(
+        "--slope-lookback",
+        type=int,
+        default=3,
+        help="DualMACD slope lookback (default: 3)",
+    )
+    parser.add_argument(
+        "--hist-norm-window",
+        type=int,
+        default=252,
+        help="DualMACD histogram normalization window (default: 252)",
+    )
+
     # Utility options
     parser.add_argument("--list-strategies", action="store_true", help="List strategies and exit")
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose logging")

@@ -1,0 +1,131 @@
+# DualMACD Behavioral Gate Validation
+#
+# Validates DualMACD as a behavioral gate (not alpha source).
+# Success = blocks bad trades, reduces tail risk, doesn't over-restrict.
+#
+# Usage:
+#   python -m src.backtest.runner --spec config/backtest/dual_macd_behavioral.yaml
+#   make behavioral
+
+name: "DualMACD_Behavioral_Gate"
+mode: behavioral
+
+strategy: ma_cross
+base_params:
+  short_window: 10
+  long_window: 50
+
+# DualMACD gate parameters (Optuna search space)
+gate_params:
+  slope_lookback: [2, 3, 5]
+  hist_norm_window: [126, 252, 504]
+
+# Gate configuration
+gate:
+  direction: LONG
+  regime: R0
+
+# Use canonical universe config
+universe:
+  source: config/universe.yaml
+  subset: all   # Full universe (~60+ symbols)
+
+# Per-sector gate policies (BLOCK / SIZE_DOWN / BYPASS)
+gate_policies:
+  default:
+    action_on_block: BLOCK
+  semiconductors:
+    action_on_block: SIZE_DOWN
+    size_factor: 0.5
+  consumer_discretionary:
+    action_on_block: SIZE_DOWN
+    size_factor: 0.5
+  energy:
+    action_on_block: BYPASS
+
+# Regime-block walk-forward schedule (expanded range: 2018-2025)
+temporal:
+  method: regime_block
+  blocks:
+    # Round 1: optimize (2018 vol spike + 2019 recovery)
+    - name: "2018_vol_spike_2019_recovery"
+      start: "2018-01-01"
+      end: "2019-12-31"
+      role: train
+
+    # Round 2: verify (COVID crash + recovery + 2021 bull)
+    - name: "2020_covid_to_2021_bull"
+      start: "2020-01-01"
+      end: "2021-12-31"
+      role: verify
+
+    # Round 3: verify (2022 bear market + 2023 recovery)
+    - name: "2022_bear_to_2023_recovery"
+      start: "2022-01-01"
+      end: "2023-12-31"
+      role: verify
+
+    # Round 4: verify (2024 AI rally + recent)
+    - name: "2024_ai_rally_to_present"
+      start: "2024-01-01"
+      end: "2025-12-31"
+      role: verify
+
+  purge_days: 5
+
+# Optimization settings
+optimization:
+  method: optuna
+  direction: maximize
+  n_trials: 27  # 3 x 3 x 3 (full grid for small space)
+
+# Hard constraints (prune if violated)
+constraints:
+  blocked_trade_loss_ratio_min: 0.6
+  allowed_trade_ratio_min: 0.7
+  max_dd_ratio_max: 0.85
+  sharpe_cap_multiplier: 1.25  # G3: anti-conservative ceiling
+
+# Case studies for visual inspection
+case_studies:
+  - name: "SPY Trend Top"
+    symbol: SPY
+    start: "2021-10-01"
+    end: "2022-01-31"
+
+  - name: "SPY V-Rebound"
+    symbol: SPY
+    start: "2020-03-01"
+    end: "2020-07-31"
+
+  - name: "SPY False Breakout"
+    symbol: SPY
+    start: "2023-07-01"
+    end: "2023-11-30"
+
+  - name: "NVDA AI Breakout"
+    symbol: NVDA
+    start: "2023-01-01"
+    end: "2023-12-31"
+
+  - name: "2018 Vol Spike"
+    symbol: SPY
+    start: "2018-01-01"
+    end: "2018-06-30"
+
+# Output settings
+reporting:
+  output_dir: out/behavioral
+  format: html
+  include_jsonl: true
+  include_notebook: true
+
+data:
+  source: historical
+  bar_size: 1d
+  coverage_mode: download
+
+execution:
+  initial_capital: 100000
+  slippage_bps: 5.0
+  commission_per_share: 0.005
