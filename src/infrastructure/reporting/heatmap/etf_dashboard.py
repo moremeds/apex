@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from .extractors import extract_regime
+from .extractors import extract_composite_score, extract_regime
 from .model import (
     ETF_CONFIG,
     MARKET_ETF_NAMES,
@@ -58,12 +58,63 @@ def get_etf_display_name(symbol: str, cap_result: Optional[Any]) -> str:
     return symbol
 
 
+def _render_sparkline_svg(points: List[float], width: int = 60, height: int = 20) -> str:
+    """
+    Render an inline SVG sparkline from score history points.
+
+    Args:
+        points: Score values (0-100), oldest first
+        width: SVG width in pixels
+        height: SVG height in pixels
+
+    Returns:
+        Inline SVG string, or empty string if insufficient data
+    """
+    if len(points) < 2:
+        return ""
+
+    # Determine trend color from first to last point
+    delta = points[-1] - points[0]
+    if delta > 3:
+        color = "#10b981"  # green
+    elif delta < -3:
+        color = "#ef4444"  # red
+    else:
+        color = "#94a3b8"  # gray
+
+    # Scale points to SVG coordinates (y-axis: 0=top, height=bottom)
+    min_val = max(0.0, min(points) - 5)
+    max_val = min(100.0, max(points) + 5)
+    val_range = max_val - min_val or 1.0
+
+    n = len(points)
+    coords = []
+    for i, v in enumerate(points):
+        x = round(i / (n - 1) * width, 1)
+        y = round(height - ((v - min_val) / val_range) * height, 1)
+        coords.append(f"{x},{y}")
+
+    polyline = " ".join(coords)
+
+    return (
+        f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" '
+        f'style="display:inline-block;vertical-align:middle;margin-left:4px;" '
+        f'xmlns="http://www.w3.org/2000/svg">'
+        f'<polyline points="{polyline}" fill="none" stroke="{color}" '
+        f'stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>'
+        f'<circle cx="{coords[-1].split(",")[0]}" cy="{coords[-1].split(",")[1]}" '
+        f'r="2" fill="{color}"/>'
+        f"</svg>"
+    )
+
+
 def build_etf_dashboard(
     tickers: List[Dict[str, Any]],
     cap_results: Dict[str, Any],
     report_urls: Dict[str, str],
     buy_counts_by_symbol: Optional[Dict[str, int]] = None,
     sell_counts_by_symbol: Optional[Dict[str, int]] = None,
+    score_sparklines: Optional[Dict[str, List[float]]] = None,
 ) -> Dict[str, List[ETFCardData]]:
     """
     Build ETF dashboard card data organized by category.
@@ -84,6 +135,7 @@ def build_etf_dashboard(
     # Default to empty dicts if not provided
     buy_counts = buy_counts_by_symbol or {}
     sell_counts = sell_counts_by_symbol or {}
+    sparklines = score_sparklines or {}
 
     dashboard: Dict[str, List[ETFCardData]] = {}
 
@@ -97,9 +149,23 @@ def build_etf_dashboard(
             # Get display name
             display_name = get_etf_display_name(symbol, cap_result)
 
-            # Extract regime info
-            regime = extract_regime(ticker)
-            regime_name = REGIME_NAMES.get(regime, None) if regime else None
+            # Extract composite score (preferred) or fall back to old regime
+            composite_score = extract_composite_score(ticker)
+            regime: Optional[str] = None
+            regime_name: Optional[str] = None
+            if composite_score is not None:
+                if composite_score >= 70:
+                    regime = "R0"
+                    regime_name = "Healthy Uptrend"
+                elif composite_score >= 30:
+                    regime = "R1"
+                    regime_name = "Choppy/Extended"
+                else:
+                    regime = "R2"
+                    regime_name = "Risk-Off"
+            else:
+                regime = extract_regime(ticker)
+                regime_name = REGIME_NAMES.get(regime, None) if regime else None
 
             card = ETFCardData(
                 symbol=symbol,
@@ -107,6 +173,8 @@ def build_etf_dashboard(
                 category=category_key,
                 regime=regime,
                 regime_name=regime_name,
+                composite_score=composite_score,
+                score_sparkline=sparklines.get(symbol, []),
                 close_price=ticker.get("close"),
                 daily_change_pct=ticker.get("daily_change_pct"),
                 report_url=report_urls.get(symbol, f"report.html?symbol={symbol}"),
@@ -196,9 +264,15 @@ def render_etf_card_html(card: ETFCardData, style: str) -> str:
     Returns:
         HTML string for the card
     """
-    # Regime class
+    # Regime class and text - prefer composite score display
     regime_class = f"hm-regime-{card.regime.lower()}" if card.regime else "hm-regime-unknown"
-    regime_text = card.regime if card.regime else "—"
+    if card.composite_score is not None:
+        regime_text = f"{card.composite_score:.0f}"
+    else:
+        regime_text = card.regime if card.regime else "—"
+
+    # Sparkline SVG from score history
+    sparkline_svg = _render_sparkline_svg(card.score_sparkline)
 
     # Direction class for symbol coloring (based on buy/sell signals)
     direction_class = card.direction_class
@@ -223,7 +297,7 @@ def render_etf_card_html(card: ETFCardData, style: str) -> str:
             <div class="hm-card-header">
                 <span class="hm-card-symbol">{card.symbol}</span>
                 <span class="hm-card-name">{card.display_name}</span>
-                <span class="hm-regime {regime_class}">{regime_text}</span>
+                <span class="hm-regime {regime_class}">{regime_text}</span>{sparkline_svg}
             </div>
             <div class="hm-card-price">{price_str}</div>
             <div class="hm-card-change {change_class}">{change_str}</div>
@@ -232,13 +306,13 @@ def render_etf_card_html(card: ETFCardData, style: str) -> str:
         return f"""
         <a href="{url}" class="hm-card hm-card-mini {direction_class}">
             <div class="hm-card-symbol">{card.symbol}</div>
-            <span class="hm-regime {regime_class}">{regime_text}</span>
+            <span class="hm-regime {regime_class}">{regime_text}</span>{sparkline_svg}
             <div class="hm-card-name">{card.display_name}</div>
         </a>"""
     else:  # compact
         return f"""
         <a href="{url}" class="hm-card hm-card-compact {direction_class}">
-            <span class="hm-regime {regime_class}">{regime_text}</span>
+            <span class="hm-regime {regime_class}">{regime_text}</span>{sparkline_svg}
             <span class="hm-card-symbol">{card.symbol}</span>
             <span class="hm-card-price">{price_str}</span>
             <span class="hm-card-change {change_class}">{change_str}</span>

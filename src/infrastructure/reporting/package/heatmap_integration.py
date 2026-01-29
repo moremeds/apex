@@ -17,6 +17,7 @@ logger = get_logger(__name__)
 def build_heatmap(
     summary: Dict[str, Any],
     output_dir: Path,
+    score_sparklines: Optional[Dict[str, list]] = None,
 ) -> Optional[Path]:
     """
     Build heatmap landing page from summary data.
@@ -51,7 +52,7 @@ def build_heatmap(
             }
         }
 
-        model = builder.build_heatmap_model(summary, manifest)
+        model = builder.build_heatmap_model(summary, manifest, score_sparklines)
 
         # Render and save as index.html (heatmap is the landing page)
         heatmap_path = builder.save_heatmap(model, output_dir, "index.html")

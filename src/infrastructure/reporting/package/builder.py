@@ -32,6 +32,7 @@ from .html_assets import (
     timeframe_seconds,
 )
 from .javascript import build_javascript
+from .score_history import ScoreHistoryManager
 from .summary_builder import PackageManifest, SummaryBuilder
 
 if TYPE_CHECKING:
@@ -91,6 +92,7 @@ class PackageBuilder:
         output_dir: Path,
         regime_outputs: Optional[Dict[str, "RegimeOutput"]] = None,
         validation_url: Optional[str] = None,
+        score_history_path: Optional[Path] = None,
     ) -> PackageManifest:
         """
         Build the complete signal package.
@@ -132,8 +134,21 @@ class PackageBuilder:
         summary = self._summary_builder.build_summary(data, symbols, timeframes, regime_outputs)
         summary_size_kb = write_summary_file(summary, output_dir)
 
-        # Build heatmap landing page (index.html)
-        build_heatmap(summary, output_dir)
+        # Update score history (append current scores, save alongside package)
+        history_file = output_dir / "data" / "score_history.json"
+        score_mgr = ScoreHistoryManager()
+        if score_history_path and score_history_path.exists():
+            score_mgr.load(score_history_path)
+        elif history_file.exists():
+            score_mgr.load(history_file)
+        score_mgr.append_from_summary(summary)
+        score_mgr.save(history_file)
+
+        # Extract sparklines once for reuse
+        sparklines = score_mgr.get_all_sparklines()
+
+        # Build heatmap landing page (index.html) with sparklines
+        build_heatmap(summary, output_dir, sparklines)
 
         # Write per-symbol data files
         data_files = write_data_files(data, indicators, rules, data_dir)
@@ -141,9 +156,14 @@ class PackageBuilder:
         # Write indicators.json
         write_indicators_file(indicators, rules, data_dir)
 
-        # Write pre-rendered regime HTML files for 1:1 feature parity
-        # Pass all_symbols to generate placeholders for symbols without regime data
-        write_regime_html_files(regime_outputs, regime_dir, self.theme, all_symbols=symbols)
+        # Write pre-rendered regime HTML files with sparklines
+        write_regime_html_files(
+            regime_outputs,
+            regime_dir,
+            self.theme,
+            all_symbols=symbols,
+            score_sparklines=sparklines,
+        )
 
         # Write snapshot for diffing
         write_snapshot_file(data, regime_outputs, symbols, timeframes, output_dir)

@@ -632,13 +632,17 @@ class SignalPipelineProcessor:
                 package_dir = package_dir.with_suffix("")
 
             builder = PackageBuilder(theme="dark", with_heatmap=self.config.with_heatmap)
+
+            # Check for existing score_history.json (pre-fetched from gh-pages in CI)
+            existing_history = package_dir / "data" / "score_history.json"
             manifest = builder.build(
                 data=data,
                 indicators=indicators,
                 rules=ALL_RULES,
                 output_dir=package_dir,
                 regime_outputs=regime_outputs,
-                validation_url="validation.html",  # Link to validation summary
+                validation_url="validation.html",
+                score_history_path=existing_history if existing_history.exists() else None,
             )
             print(f"  Package saved: {package_dir} (v{manifest.version})")
             print(f"  To view: cd {package_dir} && python -m http.server 8080")

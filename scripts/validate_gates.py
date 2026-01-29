@@ -461,9 +461,11 @@ def check_g5_metric_drift(
             value=len(significant_drifts),
             threshold=0,
             severity="WARN" if not passed else "PASS",
-            message=f"Significant drifts: {significant_drifts[:5]}"
-            if significant_drifts
-            else "No significant metric drift",
+            message=(
+                f"Significant drifts: {significant_drifts[:5]}"
+                if significant_drifts
+                else "No significant metric drift"
+            ),
             details={"drifts": significant_drifts[:10]},
         )
     except ImportError as e:
@@ -506,7 +508,7 @@ def check_g6_bar_validation(package_path: Path) -> GateResult:
     invalid_files = []
 
     for data_file in data_dir.glob("*.json"):
-        if data_file.name in ["summary.json", "indicators.json"]:
+        if data_file.name in ["summary.json", "indicators.json", "score_history.json"]:
             continue
 
         with open(data_file) as f:
@@ -828,7 +830,7 @@ def check_g12_no_sentinels(package_path: Path) -> GateResult:
     total_sentinels = 0
 
     for data_file in data_dir.glob("*.json"):
-        if data_file.name in ["summary.json", "indicators.json"]:
+        if data_file.name in ["summary.json", "indicators.json", "score_history.json"]:
             continue
 
         with open(data_file) as f:
@@ -842,9 +844,7 @@ def check_g12_no_sentinels(package_path: Path) -> GateResult:
                     sentinel_count = sum(1 for v in values if v == sentinel)
                     if sentinel_count > 0:
                         total_sentinels += sentinel_count
-                        files_with_sentinels.append(
-                            f"{data_file.name}:{col}={sentinel_count}"
-                        )
+                        files_with_sentinels.append(f"{data_file.name}:{col}={sentinel_count}")
             except json.JSONDecodeError:
                 continue
 
@@ -856,9 +856,11 @@ def check_g12_no_sentinels(package_path: Path) -> GateResult:
         value=total_sentinels,
         threshold=0,
         severity="FAIL" if total_sentinels > 0 else "PASS",
-        message=f"Sentinel values: {total_sentinels} in {len(files_with_sentinels)} files"
-        if total_sentinels > 0
-        else "No sentinel values found",
+        message=(
+            f"Sentinel values: {total_sentinels} in {len(files_with_sentinels)} files"
+            if total_sentinels > 0
+            else "No sentinel values found"
+        ),
         details={"files_with_sentinels": files_with_sentinels[:10]},
     )
 
@@ -908,9 +910,11 @@ def check_g13_atr_valid_samples(package_path: Path) -> GateResult:
         value=len(insufficient_symbols),
         threshold=0,
         severity="WARN" if insufficient_symbols else "PASS",
-        message=f"Insufficient ATR samples: {insufficient_symbols[:5]}"
-        if insufficient_symbols
-        else "All ATR percentiles have sufficient samples",
+        message=(
+            f"Insufficient ATR samples: {insufficient_symbols[:5]}"
+            if insufficient_symbols
+            else "All ATR percentiles have sufficient samples"
+        ),
         details={"insufficient_symbols": insufficient_symbols[:10]},
     )
 
@@ -965,19 +969,13 @@ def check_g14_timestamp_match(package_path: Path) -> GateResult:
 
                             # Handle ISO format
                             if isinstance(asof_ts_str, str):
-                                asof_ts = dt.fromisoformat(
-                                    asof_ts_str.replace("Z", "+00:00")
-                                )
+                                asof_ts = dt.fromisoformat(asof_ts_str.replace("Z", "+00:00"))
                             if isinstance(last_chart_ts, str):
-                                chart_ts = dt.fromisoformat(
-                                    last_chart_ts.replace("Z", "+00:00")
-                                )
+                                chart_ts = dt.fromisoformat(last_chart_ts.replace("Z", "+00:00"))
 
                             delta = abs((asof_ts - chart_ts).total_seconds())
                             if delta > tolerance_sec:
-                                mismatched_symbols.append(
-                                    f"{symbol}: delta={delta}s"
-                                )
+                                mismatched_symbols.append(f"{symbol}: delta={delta}s")
                         except (ValueError, TypeError):
                             # Can't parse timestamps - skip
                             pass
@@ -991,9 +989,11 @@ def check_g14_timestamp_match(package_path: Path) -> GateResult:
         value=len(mismatched_symbols),
         threshold=0,
         severity="FAIL" if mismatched_symbols else "PASS",
-        message=f"Timestamp mismatches: {mismatched_symbols[:5]}"
-        if mismatched_symbols
-        else "All timestamps match",
+        message=(
+            f"Timestamp mismatches: {mismatched_symbols[:5]}"
+            if mismatched_symbols
+            else "All timestamps match"
+        ),
         details={"mismatched_symbols": mismatched_symbols[:10]},
     )
 
@@ -1021,7 +1021,7 @@ def check_g15_bar_continuity(package_path: Path) -> GateResult:
     files_with_gaps = []
 
     for data_file in data_dir.glob("*.json"):
-        if data_file.name in ["summary.json", "indicators.json"]:
+        if data_file.name in ["summary.json", "indicators.json", "score_history.json"]:
             continue
 
         with open(data_file) as f:
@@ -1051,9 +1051,7 @@ def check_g15_bar_continuity(package_path: Path) -> GateResult:
 
                 for i in range(1, len(timestamps)):
                     try:
-                        ts1 = dt.fromisoformat(
-                            timestamps[i - 1].replace("Z", "+00:00")
-                        )
+                        ts1 = dt.fromisoformat(timestamps[i - 1].replace("Z", "+00:00"))
                         ts2 = dt.fromisoformat(timestamps[i].replace("Z", "+00:00"))
                         delta = (ts2 - ts1).total_seconds()
                         gap_bars = int(delta / tf_seconds) - 1
@@ -1075,9 +1073,11 @@ def check_g15_bar_continuity(package_path: Path) -> GateResult:
         value=len(files_with_gaps),
         threshold=0,
         severity="WARN" if files_with_gaps else "PASS",
-        message=f"Files with gaps: {files_with_gaps[:5]}"
-        if files_with_gaps
-        else "No excessive gaps found",
+        message=(
+            f"Files with gaps: {files_with_gaps[:5]}"
+            if files_with_gaps
+            else "No excessive gaps found"
+        ),
         details={"files_with_gaps": files_with_gaps[:10]},
     )
 

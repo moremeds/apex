@@ -102,6 +102,7 @@ def write_regime_html_files(
     regime_dir: Path,
     theme: str = "dark",
     all_symbols: Optional[List[str]] = None,
+    score_sparklines: Optional[Dict[str, List[float]]] = None,
 ) -> List[str]:
     """
     Write pre-rendered regime HTML files for each symbol.
@@ -147,7 +148,10 @@ def write_regime_html_files(
             html_sections = []
 
             # Simplified regime sections: header, composite score, components, turning point
-            html_sections.append(generate_report_header_html(regime_output, theme=theme))
+            sparkline = (score_sparklines or {}).get(symbol, [])
+            html_sections.append(
+                generate_report_header_html(regime_output, theme=theme, score_sparkline=sparkline)
+            )
             html_sections.append(generate_composite_score_html(regime_output, theme=theme))
             html_sections.append(generate_components_4block_html(regime_output, theme=theme))
             html_sections.append(generate_turning_point_html(regime_output, theme=theme))

@@ -273,6 +273,12 @@ class ETFCardData:
     regime: Optional[str] = None  # R0/R1/R2/R3
     regime_name: Optional[str] = None  # "Healthy Uptrend", etc.
 
+    # Composite score (average across timeframes, 0-100)
+    composite_score: Optional[float] = None
+
+    # Score history for sparkline (list of floats, oldest first)
+    score_sparkline: List[float] = field(default_factory=list)
+
     # Price info
     close_price: Optional[float] = None
     daily_change_pct: Optional[float] = None
@@ -303,6 +309,8 @@ class ETFCardData:
             "category": self.category,
             "regime": self.regime,
             "regime_name": self.regime_name,
+            "composite_score": self.composite_score,
+            "score_sparkline": self.score_sparkline,
             "close_price": self.close_price,
             "daily_change_pct": self.daily_change_pct,
             "report_url": self.report_url,

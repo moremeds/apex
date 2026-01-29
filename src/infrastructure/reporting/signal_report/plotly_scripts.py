@@ -194,7 +194,7 @@ function renderMainChart(data) {{
                 marker: {{ color: longColors }},
                 xaxis: 'x',
                 yaxis: 'y3',
-                width: 0.8,
+                width: isIntraday ? 0.8 : 86400000 * 0.8,
             }});
         }}
 
@@ -209,7 +209,7 @@ function renderMainChart(data) {{
                 marker: {{ color: shortColors }},
                 xaxis: 'x',
                 yaxis: 'y3',
-                width: 0.4,
+                width: isIntraday ? 0.4 : 86400000 * 0.4,
             }});
         }}
 
