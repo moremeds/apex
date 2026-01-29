@@ -24,7 +24,7 @@ jobs:
 
       - name: Cache TA-Lib
         id: cache-talib
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/ta-lib-install
           key: talib-0.6.4-${{ runner.os }}-${{ runner.arch }}
@@ -100,7 +100,7 @@ jobs:
           "
 
       - name: Upload Holdout Validation Report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         if: always()
         with:
           name: holdout-validation-report
