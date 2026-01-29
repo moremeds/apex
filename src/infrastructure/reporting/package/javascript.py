@@ -111,6 +111,7 @@ async function updateChart(symbolOverride = null) {{
     updateSignalHistoryTable();
     updateConfluencePanel();
     updateRegimeSection();
+    updateDualMACDHistory(data);
 }}
 
 // Render full multi-subplot chart using Plotly (matches SignalReportGenerator)
@@ -219,39 +220,39 @@ function renderMainChart(data) {{
 
     // Row 3: MACD subplot (DualMACD if available, else standard MACD)
     const hasDualMACD = chartData.dual_macd && (
-        hasData(chartData.dual_macd['dual_macd_long_histogram']) ||
-        hasData(chartData.dual_macd['dual_macd_short_histogram'])
+        hasData(chartData.dual_macd['dual_macd_slow_histogram']) ||
+        hasData(chartData.dual_macd['dual_macd_fast_histogram'])
     );
 
     if (hasDualMACD) {{
-        // DualMACD: Overlay long (55/89) and short (13/21) histograms
-        const longHist = chartData.dual_macd['dual_macd_long_histogram'];
-        const shortHist = chartData.dual_macd['dual_macd_short_histogram'];
+        // DualMACD: Overlay slow (55/89) and fast (13/21) histograms
+        const slowHist = chartData.dual_macd['dual_macd_slow_histogram'];
+        const fastHist = chartData.dual_macd['dual_macd_fast_histogram'];
 
-        // Long MACD histogram (trend direction) - wider bars, more transparent
-        if (hasData(longHist)) {{
-            const longColors = longHist.map(v => v >= 0 ? 'rgba(16, 185, 129, 0.4)' : 'rgba(239, 68, 68, 0.4)');
+        // Slow MACD histogram (structural trend) - wider bars, more transparent
+        if (hasData(slowHist)) {{
+            const slowColors = slowHist.map(v => v >= 0 ? 'rgba(16, 185, 129, 0.4)' : 'rgba(239, 68, 68, 0.4)');
             traces.push({{
                 type: 'bar',
                 x: xValues,
-                y: longHist,
-                name: 'Long MACD (55/89)',
-                marker: {{ color: longColors }},
+                y: slowHist,
+                name: 'Slow MACD (55/89)',
+                marker: {{ color: slowColors }},
                 xaxis: 'x',
                 yaxis: 'y3',
                 width: isIntraday ? 0.8 : 86400000 * 0.8,
             }});
         }}
 
-        // Short MACD histogram (momentum timing) - narrower bars, more opaque
-        if (hasData(shortHist)) {{
-            const shortColors = shortHist.map(v => v >= 0 ? 'rgba(59, 130, 246, 0.8)' : 'rgba(249, 115, 22, 0.8)');
+        // Fast MACD histogram (tactical timing) - narrower bars, more opaque
+        if (hasData(fastHist)) {{
+            const fastColors = fastHist.map(v => v >= 0 ? 'rgba(59, 130, 246, 0.8)' : 'rgba(249, 115, 22, 0.8)');
             traces.push({{
                 type: 'bar',
                 x: xValues,
-                y: shortHist,
-                name: 'Short MACD (13/21)',
-                marker: {{ color: shortColors }},
+                y: fastHist,
+                name: 'Fast MACD (13/21)',
+                marker: {{ color: fastColors }},
                 xaxis: 'x',
                 yaxis: 'y3',
                 width: isIntraday ? 0.4 : 86400000 * 0.4,
@@ -904,6 +905,186 @@ function fallbackRegimeSection(container, symbol) {{
             </p>
         </div>
     `;
+}}
+
+// Update DualMACD Historical State — current summary card + collapsible history table
+function updateDualMACDHistory(data) {{
+    const container = document.getElementById('dual-macd-history-table');
+    if (!container) return;
+
+    const rows = data.dual_macd_history || [];
+    if (rows.length === 0) {{
+        container.innerHTML = '<div style="color: ' + colors.text_muted + '; padding: 16px;">No DualMACD history available for this symbol/timeframe.</div>';
+        return;
+    }}
+
+    const border = colors.border || '#334155';
+    const muted = colors.text_muted || '#94a3b8';
+    const headerBg = colors.bg || '#1e293b';
+    const cardBg = colors.card_bg || '#1e293b';
+
+    const trendColors = {{
+        'BULLISH': '#10b981',
+        'BEARISH': '#ef4444',
+        'DETERIORATING': '#f59e0b',
+        'IMPROVING': '#06b6d4',
+    }};
+
+    const trendIcons = {{
+        'BULLISH': '\\u25b2',
+        'BEARISH': '\\u25bc',
+        'DETERIORATING': '\\u25b6',
+        'IMPROVING': '\\u25c0',
+    }};
+
+    const rowColors = {{
+        'DIP_BUY': 'rgba(16, 185, 129, 0.10)',
+        'RALLY_SELL': 'rgba(239, 68, 68, 0.10)',
+        'NONE': 'transparent',
+    }};
+
+    // ========== Current State Summary Card (always visible) ==========
+    const cur = rows[0]; // newest bar (rows are newest-first)
+    const curTrend = cur.trend_state || 'BEARISH';
+    const curTactical = cur.tactical_signal || 'NONE';
+    const curBalance = cur.momentum_balance || 'BALANCED';
+    const curConf = Math.round((cur.confidence || 0) * 100);
+    const curTrendColor = trendColors[curTrend] || muted;
+    const curTrendIcon = trendIcons[curTrend] || '';
+    const curConfColor = curConf >= 50 ? '#10b981' : curConf >= 25 ? '#f59e0b' : muted;
+
+    let tacticalBadge;
+    if (curTactical === 'DIP_BUY') {{
+        tacticalBadge = `<span style="background:rgba(16,185,129,0.15);color:#10b981;border:1px solid #10b981;padding:4px 12px;border-radius:6px;font-weight:700;font-size:14px;">DIP BUY</span>`;
+    }} else if (curTactical === 'RALLY_SELL') {{
+        tacticalBadge = `<span style="background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid #ef4444;padding:4px 12px;border-radius:6px;font-weight:700;font-size:14px;">RALLY SELL</span>`;
+    }} else {{
+        tacticalBadge = `<span style="background:rgba(148,163,184,0.1);color:${{muted}};border:1px solid ${{border}};padding:4px 12px;border-radius:6px;font-size:14px;">No Signal</span>`;
+    }}
+
+    const summaryCard = `
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:16px;margin-bottom:20px;">
+            <div style="background:${{cardBg}};border:1px solid ${{border}};border-radius:10px;padding:16px;text-align:center;">
+                <div style="font-size:10px;text-transform:uppercase;color:${{muted}};margin-bottom:6px;letter-spacing:0.5px;">Trend State</div>
+                <div style="font-size:18px;font-weight:700;color:${{curTrendColor}};">
+                    ${{curTrendIcon}} ${{curTrend}}
+                </div>
+                <div style="font-size:11px;color:${{muted}};margin-top:4px;">
+                    H_slow ${{cur.slow_histogram >= 0 ? '+' : ''}}${{cur.slow_histogram.toFixed(2)}}
+                    &middot; \\u0394 ${{cur.slow_hist_delta >= 0 ? '+' : ''}}${{cur.slow_hist_delta.toFixed(3)}}
+                </div>
+            </div>
+            <div style="background:${{cardBg}};border:1px solid ${{border}};border-radius:10px;padding:16px;text-align:center;">
+                <div style="font-size:10px;text-transform:uppercase;color:${{muted}};margin-bottom:6px;letter-spacing:0.5px;">Tactical Signal</div>
+                <div style="margin-top:4px;">
+                    ${{tacticalBadge}}
+                </div>
+                <div style="font-size:11px;color:${{muted}};margin-top:8px;">
+                    H_fast ${{cur.fast_histogram >= 0 ? '+' : ''}}${{cur.fast_histogram.toFixed(2)}}
+                    &middot; \\u0394 ${{cur.fast_hist_delta >= 0 ? '+' : ''}}${{cur.fast_hist_delta.toFixed(3)}}
+                </div>
+            </div>
+            <div style="background:${{cardBg}};border:1px solid ${{border}};border-radius:10px;padding:16px;text-align:center;">
+                <div style="font-size:10px;text-transform:uppercase;color:${{muted}};margin-bottom:6px;letter-spacing:0.5px;">Momentum Balance</div>
+                <div style="font-size:16px;font-weight:600;color:${{colors.text}};margin-top:4px;">
+                    ${{curBalance.replace('_', ' ')}}
+                </div>
+                <div style="font-size:11px;color:${{muted}};margin-top:4px;">
+                    Slow norm ${{(cur.slow_histogram >= 0 ? Math.abs(cur.slow_histogram) : Math.abs(cur.slow_histogram)).toFixed(2)}}
+                </div>
+            </div>
+            <div style="background:${{cardBg}};border:1px solid ${{border}};border-radius:10px;padding:16px;text-align:center;">
+                <div style="font-size:10px;text-transform:uppercase;color:${{muted}};margin-bottom:6px;letter-spacing:0.5px;">Confidence</div>
+                <div style="font-size:24px;font-weight:700;color:${{curConfColor}};">
+                    ${{curConf}}%
+                </div>
+                <div style="width:80%;height:6px;background:${{border}};border-radius:3px;overflow:hidden;margin:6px auto 0;">
+                    <div style="width:${{curConf}}%;height:100%;background:${{curConfColor}};border-radius:3px;"></div>
+                </div>
+            </div>
+        </div>
+        <div style="font-size:11px;color:${{muted}};margin-bottom:4px;">
+            As of ${{cur.date}} ET · ${{data.symbol}} · ${{data.timeframe}}
+        </div>
+    `;
+
+    // ========== History Table (collapsible) ==========
+    let bodyHtml = '';
+    for (const row of rows) {{
+        const tactical = row.tactical_signal || 'NONE';
+        const trend = row.trend_state || 'BEARISH';
+        const rowBg = rowColors[tactical] || 'transparent';
+        const trendColor = trendColors[trend] || muted;
+        const conf = Math.round((row.confidence || 0) * 100);
+        const confColor = conf >= 50 ? '#10b981' : conf >= 25 ? '#f59e0b' : muted;
+
+        let tacticalCell;
+        if (tactical === 'DIP_BUY') {{
+            tacticalCell = '<span style="color: #10b981; font-weight: 600;">DIP_BUY</span>';
+        }} else if (tactical === 'RALLY_SELL') {{
+            tacticalCell = '<span style="color: #ef4444; font-weight: 600;">RALLY_SELL</span>';
+        }} else {{
+            tacticalCell = '<span style="color: ' + muted + ';">\\u2014</span>';
+        }}
+
+        const confBar = `<div style="display:flex;align-items:center;gap:4px;">` +
+            `<div style="width:40px;height:6px;background:${{border}};border-radius:3px;overflow:hidden;">` +
+            `<div style="width:${{conf}}%;height:100%;background:${{confColor}};"></div>` +
+            `</div><span style="font-size:10px;">${{conf}}</span></div>`;
+
+        bodyHtml += `<tr style="background:${{rowBg}};border-bottom:1px solid ${{border}};">
+            <td style="padding:4px 8px;font-size:11px;white-space:nowrap;">${{row.date}}</td>
+            <td style="padding:4px 6px;text-align:right;font-family:monospace;font-size:11px;">${{(row.slow_histogram >= 0 ? '+' : '') + row.slow_histogram.toFixed(3)}}</td>
+            <td style="padding:4px 6px;text-align:right;font-family:monospace;font-size:11px;">${{(row.fast_histogram >= 0 ? '+' : '') + row.fast_histogram.toFixed(3)}}</td>
+            <td style="padding:4px 6px;text-align:right;font-family:monospace;font-size:11px;">${{(row.slow_hist_delta >= 0 ? '+' : '') + row.slow_hist_delta.toFixed(3)}}</td>
+            <td style="padding:4px 6px;text-align:right;font-family:monospace;font-size:11px;">${{(row.fast_hist_delta >= 0 ? '+' : '') + row.fast_hist_delta.toFixed(3)}}</td>
+            <td style="padding:4px 6px;color:${{trendColor}};font-weight:500;font-size:11px;">${{trend}}</td>
+            <td style="padding:4px 6px;font-size:11px;">${{tacticalCell}}</td>
+            <td style="padding:4px 6px;font-size:11px;color:${{muted}};">${{row.momentum_balance || '\\u2014'}}</td>
+            <td style="padding:4px 6px;font-size:11px;">${{confBar}}</td>
+        </tr>`;
+    }}
+
+    const historyTable = `
+        <div style="margin-top:16px;">
+            <h4 style="cursor:pointer;margin:0 0 8px 0;color:${{muted}};font-size:12px;text-transform:uppercase;"
+                onclick="(function(el){{
+                    const t=el.nextElementSibling;
+                    const show=t.style.display==='none';
+                    t.style.display=show?'block':'none';
+                    el.querySelector('span').textContent=show?'\\u25bc':'\\u25b6';
+                }})(this)">
+                <span>\\u25b6</span> Bar-by-Bar History (${{rows.length}} bars) — Click to expand
+            </h4>
+            <div style="display:none;">
+                <div style="font-size:11px;color:${{muted}};margin-bottom:8px;">
+                    Newest first · ET ·
+                    <span style="display:inline-block;width:10px;height:10px;background:rgba(16,185,129,0.10);border:1px solid #10b981;border-radius:2px;vertical-align:middle;"></span> DIP_BUY
+                    <span style="display:inline-block;width:10px;height:10px;background:rgba(239,68,68,0.10);border:1px solid #ef4444;border-radius:2px;vertical-align:middle;margin-left:8px;"></span> RALLY_SELL
+                </div>
+                <div style="overflow-x:auto;">
+                    <table style="width:100%;border-collapse:collapse;color:${{colors.text}};font-size:12px;">
+                        <thead>
+                            <tr style="background:${{headerBg}};border-bottom:2px solid ${{border}};">
+                                <th style="padding:6px 8px;text-align:left;font-size:11px;color:${{muted}};">Date</th>
+                                <th style="padding:6px 6px;text-align:right;font-size:11px;color:${{muted}};">H_slow</th>
+                                <th style="padding:6px 6px;text-align:right;font-size:11px;color:${{muted}};">H_fast</th>
+                                <th style="padding:6px 6px;text-align:right;font-size:11px;color:${{muted}};">\\u0394H_slow</th>
+                                <th style="padding:6px 6px;text-align:right;font-size:11px;color:${{muted}};">\\u0394H_fast</th>
+                                <th style="padding:6px 6px;text-align:left;font-size:11px;color:${{muted}};">Trend</th>
+                                <th style="padding:6px 6px;text-align:left;font-size:11px;color:${{muted}};">Tactical</th>
+                                <th style="padding:6px 6px;text-align:left;font-size:11px;color:${{muted}};">Mom.Bal</th>
+                                <th style="padding:6px 6px;text-align:left;font-size:11px;color:${{muted}};">Conf</th>
+                            </tr>
+                        </thead>
+                        <tbody>${{bodyHtml}}</tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    `;
+
+    container.innerHTML = `<div style="padding:16px;">${{summaryCard}}${{historyTable}}</div>`;
 }}
 
 // Set timeframe

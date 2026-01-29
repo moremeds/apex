@@ -75,6 +75,20 @@ function updateChart() {{
     updateSignalHistoryTable();
     updateConfluencePanel();
     updateRegimeSection();
+    updateDualMACDHistory();
+}}
+
+function updateDualMACDHistory() {{
+    // Hide all DualMACD tables
+    const tables = document.querySelectorAll('.dual-macd-table');
+    tables.forEach(t => {{ t.style.display = 'none'; }});
+
+    // Show matching symbol + timeframe
+    tables.forEach(t => {{
+        if (t.dataset.symbol === currentSymbol && t.dataset.timeframe === currentTimeframe) {{
+            t.style.display = 'block';
+        }}
+    }});
 }}
 
 function updateRegimeSection() {{
@@ -174,39 +188,39 @@ function renderMainChart(data) {{
 
     // Row 3: MACD subplot (DualMACD if available, else standard MACD)
     const hasDualMACD = data.dual_macd && (
-        hasData(data.dual_macd['dual_macd_long_histogram']) ||
-        hasData(data.dual_macd['dual_macd_short_histogram'])
+        hasData(data.dual_macd['dual_macd_slow_histogram']) ||
+        hasData(data.dual_macd['dual_macd_fast_histogram'])
     );
 
     if (hasDualMACD) {{
-        // DualMACD: Overlay long (55/89) and short (13/21) histograms
-        const longHist = data.dual_macd['dual_macd_long_histogram'];
-        const shortHist = data.dual_macd['dual_macd_short_histogram'];
+        // DualMACD: Overlay slow (55/89) and fast (13/21) histograms
+        const slowHist = data.dual_macd['dual_macd_slow_histogram'];
+        const fastHist = data.dual_macd['dual_macd_fast_histogram'];
 
-        // Long MACD histogram (trend direction) - wider bars, more transparent
-        if (hasData(longHist)) {{
-            const longColors = longHist.map(v => v >= 0 ? 'rgba(16, 185, 129, 0.4)' : 'rgba(239, 68, 68, 0.4)');
+        // Slow MACD histogram (structural trend) - wider bars, more transparent
+        if (hasData(slowHist)) {{
+            const slowColors = slowHist.map(v => v >= 0 ? 'rgba(16, 185, 129, 0.4)' : 'rgba(239, 68, 68, 0.4)');
             traces.push({{
                 type: 'bar',
                 x: xValues,
-                y: longHist,
-                name: 'Long MACD (55/89)',
-                marker: {{ color: longColors }},
+                y: slowHist,
+                name: 'Slow MACD (55/89)',
+                marker: {{ color: slowColors }},
                 xaxis: 'x',
                 yaxis: 'y3',
                 width: isIntraday ? 0.8 : 86400000 * 0.8,
             }});
         }}
 
-        // Short MACD histogram (momentum timing) - narrower bars, more opaque
-        if (hasData(shortHist)) {{
-            const shortColors = shortHist.map(v => v >= 0 ? 'rgba(59, 130, 246, 0.8)' : 'rgba(249, 115, 22, 0.8)');
+        // Fast MACD histogram (tactical timing) - narrower bars, more opaque
+        if (hasData(fastHist)) {{
+            const fastColors = fastHist.map(v => v >= 0 ? 'rgba(59, 130, 246, 0.8)' : 'rgba(249, 115, 22, 0.8)');
             traces.push({{
                 type: 'bar',
                 x: xValues,
-                y: shortHist,
-                name: 'Short MACD (13/21)',
-                marker: {{ color: shortColors }},
+                y: fastHist,
+                name: 'Fast MACD (13/21)',
+                marker: {{ color: fastColors }},
                 xaxis: 'x',
                 yaxis: 'y3',
                 width: isIntraday ? 0.4 : 86400000 * 0.4,
@@ -788,5 +802,6 @@ document.addEventListener('DOMContentLoaded', () => {{
     updateSignalHistoryTable();
     updateConfluencePanel();
     updateRegimeSection();
+    updateDualMACDHistory();
 }});
 """

@@ -29,6 +29,7 @@ from .constants import (
     UNBOUNDED_OSCILLATORS,
     VOLUME_INDICATORS,
 )
+from .dual_macd_section import compute_dual_macd_history, render_dual_macd_history_html
 from .html_renderer import (
     render_indicator_cards,
     render_symbol_options,
@@ -133,6 +134,9 @@ class SignalReportGenerator:
         # Compute parameter provenance and recommendations
         provenance_dict, recommendations_dict = compute_param_analysis(data, indicators)
 
+        # Compute DualMACD historical state for verification table
+        dual_macd_history = compute_dual_macd_history(data)
+
         # Render HTML
         html = self._render_html(
             symbols=symbols,
@@ -144,6 +148,7 @@ class SignalReportGenerator:
             regime_outputs=regime_outputs,
             provenance_dict=provenance_dict,
             recommendations_dict=recommendations_dict,
+            dual_macd_history=dual_macd_history,
         )
 
         output_path = Path(output_path)
@@ -205,7 +210,7 @@ class SignalReportGenerator:
                 elif ind_name == "rsi":
                     bucket = "rsi"
                 elif col.startswith("dual_macd_"):
-                    # DualMACD indicator (dual_macd_long_histogram, dual_macd_short_histogram, etc.)
+                    # DualMACD indicator (dual_macd_slow_histogram, dual_macd_fast_histogram, etc.)
                     bucket = "dual_macd"
                 elif ind_name == "macd":
                     bucket = "macd"
@@ -265,11 +270,13 @@ class SignalReportGenerator:
         regime_outputs: Optional[Dict[str, "RegimeOutput"]] = None,
         provenance_dict: Optional[Dict[str, Any]] = None,
         recommendations_dict: Optional[Dict[str, Any]] = None,
+        dual_macd_history: Optional[Dict[str, List[Dict[str, Any]]]] = None,
     ) -> str:
         generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
         regime_outputs = regime_outputs or {}
         provenance_dict = provenance_dict or {}
         recommendations_dict = recommendations_dict or {}
+        dual_macd_history = dual_macd_history or {}
 
         return f"""<!DOCTYPE html>
 <html lang="en">
@@ -331,6 +338,8 @@ class SignalReportGenerator:
                 <div id="signal-history-table"></div>
             </div>
         </div>
+
+        {render_dual_macd_history_html(dual_macd_history, self.theme)}
 
         <div class="indicators-section">
             <h2 class="section-header" onclick="toggleSection('indicators-content')">

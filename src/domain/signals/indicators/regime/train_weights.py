@@ -195,12 +195,10 @@ def train_and_validate(
     # Learn weights
     logger.info(f"Learning weights using {method}...")
     learner = WeightLearner(method=method)
-    # All 7 Phase 5 factors (must match CompositeWeights)
+    # All 5 Phase 5 factors (must match CompositeWeights)
     factor_cols = [
         "trend",
         "trend_short",
-        "macd_trend",
-        "macd_momentum",
         "momentum",
         "volatility",
         "breadth",

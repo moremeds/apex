@@ -24,9 +24,6 @@ class NormalizedFactors:
     trend_short: pd.Series  # Higher = recent momentum (EMA10/20 - shorter term)
     momentum: pd.Series  # Higher = more overbought
     volatility: pd.Series  # Higher = more stress (inverted for composite)
-    # Dual MACD factors
-    macd_trend: pd.Series  # Long MACD histogram (55/89) - trend direction
-    macd_momentum: pd.Series  # Short MACD histogram (13/21) - momentum vs trend
     breadth: Optional[pd.Series] = None  # Higher = outperforming benchmark
 
     def to_dataframe(self) -> pd.DataFrame:
@@ -36,8 +33,6 @@ class NormalizedFactors:
             "trend_short": self.trend_short,
             "momentum": self.momentum,
             "volatility": self.volatility,
-            "macd_trend": self.macd_trend,
-            "macd_momentum": self.macd_momentum,
         }
         if self.breadth is not None:
             data["breadth"] = self.breadth
@@ -135,15 +130,6 @@ class FactorNormalizer:
         relative = asset_returns - benchmark_returns
         return self.normalize(relative, self.lookback_short)
 
-    def compute_macd_factor(self, macd_hist: np.ndarray) -> np.ndarray:
-        """
-        Compute MACD histogram factor.
-
-        Normalizes MACD histogram to [0, 1] using percentile rank.
-        Higher score = more bullish momentum.
-        """
-        return self.normalize(macd_hist, self.lookback_short)
-
 
 def compute_normalized_factors(
     df: pd.DataFrame,
@@ -188,23 +174,6 @@ def compute_normalized_factors(
     atr_pct = np.where(close != 0, atr / close, 0)
     volatility = normalizer.compute_volatility_factor(atr_pct)
 
-    # Dual MACD: Long (55/89) for trend, Short (13/21) for momentum vs trend
-    # Long MACD - trend direction
-    ema_55 = talib.EMA(close, timeperiod=55)
-    ema_89 = talib.EMA(close, timeperiod=89)
-    macd_long = ema_55 - ema_89
-    macd_long_signal = talib.EMA(macd_long, timeperiod=9)
-    macd_long_hist = macd_long - macd_long_signal
-    macd_trend = normalizer.compute_macd_factor(macd_long_hist)
-
-    # Short MACD - momentum relative to trend
-    ema_13 = talib.EMA(close, timeperiod=13)
-    ema_21 = talib.EMA(close, timeperiod=21)
-    macd_short = ema_13 - ema_21
-    macd_short_signal = talib.EMA(macd_short, timeperiod=9)
-    macd_short_hist = macd_short - macd_short_signal
-    macd_momentum = normalizer.compute_macd_factor(macd_short_hist)
-
     # Breadth: relative return vs benchmark (if provided)
     breadth = None
     if benchmark_df is not None and "close" in benchmark_df.columns:
@@ -224,7 +193,5 @@ def compute_normalized_factors(
         trend_short=pd.Series(trend_short, index=df.index, name="trend_short"),
         momentum=pd.Series(momentum, index=df.index, name="momentum"),
         volatility=pd.Series(volatility, index=df.index, name="volatility"),
-        macd_trend=pd.Series(macd_trend, index=df.index, name="macd_trend"),
-        macd_momentum=pd.Series(macd_momentum, index=df.index, name="macd_momentum"),
         breadth=breadth,
     )

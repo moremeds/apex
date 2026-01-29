@@ -187,20 +187,6 @@ def _render_component_breakdown(
             "formula": "(EMA₁₀ - EMA₂₀) / EMA₂₀ → percentile rank",
             "interpretation": "Higher = recent momentum acceleration",
         },
-        "macd_trend": {
-            "label": "MACD Trend",
-            "icon": "📉",
-            "description": "Long MACD (55/89) histogram, percentile ranked",
-            "formula": "(EMA₅₅ - EMA₈₉) - Signal₉ → percentile rank",
-            "interpretation": "Higher = stronger trend direction",
-        },
-        "macd_momentum": {
-            "label": "MACD Momentum",
-            "icon": "⚡",
-            "description": "Short MACD (13/21) histogram, percentile ranked",
-            "formula": "(EMA₁₃ - EMA₂₁) - Signal₉ → percentile rank",
-            "interpretation": "Higher = momentum timing within trend",
-        },
         "momentum": {
             "label": "RSI Momentum",
             "icon": "💪",
@@ -228,8 +214,6 @@ def _render_component_breakdown(
     for factor_key in [
         "trend",
         "trend_short",
-        "macd_trend",
-        "macd_momentum",
         "momentum",
         "volatility",
         "breadth",
@@ -318,7 +302,7 @@ def _render_component_breakdown(
     <div style="margin-top: 12px; padding: 10px; background: {border_color}; border-radius: 6px;">
         <div style="font-size: 11px; color: {muted_color}; margin-bottom: 4px;">COMPOSITE FORMULA</div>
         <code style="font-size: 10px; color: {text_color};">
-            Score = 0.10×Trend + 0.08×TrendShort + 0.12×MACDTrend + 0.10×MACDMom + 0.28×RSI + 0.17×(1-Vol) + 0.15×Breadth
+            Score = 0.13×Trend + 0.10×TrendShort + 0.35×RSI + 0.22×(1-Vol) + 0.20×Breadth
         </code>
         <div style="font-size: 11px; color: {muted_color}; margin-top: 8px;">
             • Score ≥70 → R0 (Healthy) | Score 30-70 → R1 (Choppy) | Score ≤30 → R2 (Risk-Off)
@@ -404,13 +388,11 @@ def generate_composite_score_html(regime_output: RegimeOutput, theme: str = "dar
     component_html = ""
     if composite_factors:
         weights = {
-            "trend": 0.10,
-            "trend_short": 0.08,
-            "macd_trend": 0.12,
-            "macd_momentum": 0.10,
-            "momentum": 0.28,
-            "volatility": 0.17,
-            "breadth": 0.15,
+            "trend": 0.13,
+            "trend_short": 0.10,
+            "momentum": 0.35,
+            "volatility": 0.22,
+            "breadth": 0.20,
         }
         component_html = _render_component_breakdown(
             composite_factors, weights, composite_score, theme
@@ -478,7 +460,7 @@ def generate_composite_score_html(regime_output: RegimeOutput, theme: str = "dar
                     {score_label}
                 </div>
                 <div style="font-size: 12px; color: {muted_color}; margin-top: 4px;">
-                    Based on 7 calibrated factors
+                    Based on 5 calibrated factors
                 </div>
             </div>
         </div>

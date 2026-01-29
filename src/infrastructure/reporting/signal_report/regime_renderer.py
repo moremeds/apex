@@ -156,16 +156,6 @@ def compute_regime_outputs(
                     if pd.notna(last_row.get("composite_volatility"))
                     else None
                 ),
-                "composite_macd_trend": (
-                    float(last_row.get("composite_macd_trend", 0.5))
-                    if pd.notna(last_row.get("composite_macd_trend"))
-                    else None
-                ),
-                "composite_macd_momentum": (
-                    float(last_row.get("composite_macd_momentum", 0.5))
-                    if pd.notna(last_row.get("composite_macd_momentum"))
-                    else None
-                ),
             }
 
             # Compute full regime output with hysteresis
