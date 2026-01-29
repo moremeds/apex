@@ -56,102 +56,54 @@ momentum_rules:
       line_b: signal
     message_template: "{symbol} MACD bearish crossover"
 
-  # Dual MACD rules (overlapping 55/89 and 13/21)
-  dual_macd_trend_confirm_bullish:
+  # Dual MACD v1.0 rules (tactical dip/rally detection)
+  dual_macd_dip_buy:
     indicator: dual_macd
     direction: buy
-    strength: 75
+    strength: 80
     priority: high
     condition_type: state_change
     condition_config:
-      field: signal_type
-      from: [null]
-      to: [trend_confirmation_bullish]
-    message_template: "{symbol} DualMACD: Trend confirmed bullish (both histograms positive)"
+      field: tactical_signal
+      from: [NONE]
+      to: [DIP_BUY]
+    message_template: "{symbol} DualMACD: Dip buy (slow bullish, fast pulling back and turning)"
 
-  dual_macd_trend_confirm_bearish:
+  dual_macd_rally_sell:
     indicator: dual_macd
     direction: sell
-    strength: 75
+    strength: 80
     priority: high
     condition_type: state_change
     condition_config:
-      field: signal_type
-      from: [null]
-      to: [trend_confirmation_bearish]
-    message_template: "{symbol} DualMACD: Trend confirmed bearish (both histograms negative)"
+      field: tactical_signal
+      from: [NONE]
+      to: [RALLY_SELL]
+    message_template: "{symbol} DualMACD: Rally sell (slow bearish, fast bouncing and fading)"
 
-  dual_macd_momentum_entry_bullish:
+  dual_macd_trend_deteriorating:
     indicator: dual_macd
-    direction: buy
+    direction: alert
     strength: 70
     priority: high
     condition_type: state_change
     condition_config:
-      field: signal_type
-      from: [null]
-      to: [bullish_momentum_entry]
-    message_template: "{symbol} DualMACD: Bullish entry (short histogram up, long trend intact)"
+      field: trend_state
+      from: [BULLISH]
+      to: [DETERIORATING]
+    message_template: "{symbol} DualMACD: Trend deteriorating (slow histogram positive but falling)"
 
-  dual_macd_momentum_entry_bearish:
+  dual_macd_trend_improving:
     indicator: dual_macd
-    direction: sell
+    direction: alert
     strength: 70
     priority: high
     condition_type: state_change
     condition_config:
-      field: signal_type
-      from: [null]
-      to: [bearish_momentum_entry]
-    message_template: "{symbol} DualMACD: Bearish entry (short histogram down, long trend intact)"
-
-  dual_macd_divergence_bullish_warning:
-    indicator: dual_macd
-    direction: alert
-    strength: 65
-    priority: medium
-    condition_type: state_change
-    condition_config:
-      field: signal_type
-      from: [null]
-      to: [momentum_divergence_bullish_warning]
-    message_template: "{symbol} DualMACD: Bullish divergence warning (short positive, long negative)"
-
-  dual_macd_divergence_bearish_warning:
-    indicator: dual_macd
-    direction: alert
-    strength: 65
-    priority: medium
-    condition_type: state_change
-    condition_config:
-      field: signal_type
-      from: [null]
-      to: [momentum_divergence_bearish_warning]
-    message_template: "{symbol} DualMACD: Bearish divergence warning (short negative, long positive)"
-
-  dual_macd_overbought_in_uptrend:
-    indicator: dual_macd
-    direction: alert
-    strength: 60
-    priority: medium
-    condition_type: state_change
-    condition_config:
-      field: signal_type
-      from: [null]
-      to: [overbought_in_uptrend]
-    message_template: "{symbol} DualMACD: Overbought within uptrend (short stretched vs long)"
-
-  dual_macd_oversold_in_downtrend:
-    indicator: dual_macd
-    direction: alert
-    strength: 60
-    priority: medium
-    condition_type: state_change
-    condition_config:
-      field: signal_type
-      from: [null]
-      to: [oversold_in_downtrend]
-    message_template: "{symbol} DualMACD: Oversold within downtrend (short stretched vs long)"
+      field: trend_state
+      from: [BEARISH]
+      to: [IMPROVING]
+    message_template: "{symbol} DualMACD: Trend improving (slow histogram negative but rising)"
 
 # Trend rules
 trend_rules:

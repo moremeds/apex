@@ -33,30 +33,19 @@ class CompositeWeights:
 
     Factor groups:
     - EMA Trend: trend (EMA20/50) + trend_short (EMA10/20)
-    - Dual MACD: macd_trend (55/89) + macd_momentum (13/21)
     - RSI Momentum: momentum (RSI 14)
     - Volatility: volatility (ATR 14)
     - Breadth: breadth (relative performance)
     """
 
-    trend: float = 0.10  # Long-term EMA trend (EMA20/50)
-    trend_short: float = 0.08  # Short-term EMA trend (EMA10/20)
-    macd_trend: float = 0.12  # Long MACD (55/89) - trend confirmation
-    macd_momentum: float = 0.10  # Short MACD (13/21) - momentum timing
-    momentum: float = 0.28  # RSI momentum
-    volatility: float = 0.17  # Inverted in score (high vol = lower score)
-    breadth: float = 0.15
+    trend: float = 0.13  # Long-term EMA trend (EMA20/50)
+    trend_short: float = 0.10  # Short-term EMA trend (EMA10/20)
+    momentum: float = 0.35  # RSI momentum
+    volatility: float = 0.22  # Inverted in score (high vol = lower score)
+    breadth: float = 0.20
 
     def __post_init__(self) -> None:
-        total = (
-            self.trend
-            + self.trend_short
-            + self.macd_trend
-            + self.macd_momentum
-            + self.momentum
-            + self.volatility
-            + self.breadth
-        )
+        total = self.trend + self.trend_short + self.momentum + self.volatility + self.breadth
         if abs(total - 1.0) > 0.01:
             raise ValueError(f"Weights must sum to 1.0, got {total}")
 
@@ -64,8 +53,6 @@ class CompositeWeights:
         return {
             "trend": self.trend,
             "trend_short": self.trend_short,
-            "macd_trend": self.macd_trend,
-            "macd_momentum": self.macd_momentum,
             "momentum": self.momentum,
             "volatility": self.volatility,
             "breadth": self.breadth,
@@ -74,13 +61,11 @@ class CompositeWeights:
     @classmethod
     def from_dict(cls, d: Dict[str, float]) -> "CompositeWeights":
         return cls(
-            trend=d.get("trend", 0.10),
-            trend_short=d.get("trend_short", 0.08),
-            macd_trend=d.get("macd_trend", 0.12),
-            macd_momentum=d.get("macd_momentum", 0.10),
-            momentum=d.get("momentum", 0.28),
-            volatility=d.get("volatility", 0.17),
-            breadth=d.get("breadth", 0.15),
+            trend=d.get("trend", 0.13),
+            trend_short=d.get("trend_short", 0.10),
+            momentum=d.get("momentum", 0.35),
+            volatility=d.get("volatility", 0.22),
+            breadth=d.get("breadth", 0.20),
         )
 
     @classmethod
@@ -149,7 +134,6 @@ class CompositeRegimeScorer:
 
     The composite score formula:
         score = w_trend * trend + w_trend_short * trend_short +
-                w_macd_trend * macd_trend + w_macd_momentum * macd_momentum +
                 w_momentum * momentum + w_volatility * (1 - volatility) +
                 w_breadth * breadth
 
@@ -181,14 +165,6 @@ class CompositeRegimeScorer:
         trend_short = (
             factors.trend_short.iloc[idx] if not np.isnan(factors.trend_short.iloc[idx]) else 0.5
         )
-        macd_trend = (
-            factors.macd_trend.iloc[idx] if not np.isnan(factors.macd_trend.iloc[idx]) else 0.5
-        )
-        macd_momentum = (
-            factors.macd_momentum.iloc[idx]
-            if not np.isnan(factors.macd_momentum.iloc[idx])
-            else 0.5
-        )
         momentum = factors.momentum.iloc[idx] if not np.isnan(factors.momentum.iloc[idx]) else 0.5
         volatility = (
             factors.volatility.iloc[idx] if not np.isnan(factors.volatility.iloc[idx]) else 0.5
@@ -202,8 +178,6 @@ class CompositeRegimeScorer:
         score = (
             self.weights.trend * trend
             + self.weights.trend_short * trend_short
-            + self.weights.macd_trend * macd_trend
-            + self.weights.macd_momentum * macd_momentum
             + self.weights.momentum * momentum
             + self.weights.volatility * (1.0 - volatility)  # High vol = lower score
             + self.weights.breadth * breadth
@@ -215,8 +189,6 @@ class CompositeRegimeScorer:
         """Compute composite score for entire series."""
         trend = factors.trend.fillna(0.5)
         trend_short = factors.trend_short.fillna(0.5)
-        macd_trend = factors.macd_trend.fillna(0.5)
-        macd_momentum = factors.macd_momentum.fillna(0.5)
         momentum = factors.momentum.fillna(0.5)
         volatility = factors.volatility.fillna(0.5)
 
@@ -227,8 +199,6 @@ class CompositeRegimeScorer:
         score = (
             self.weights.trend * trend
             + self.weights.trend_short * trend_short
-            + self.weights.macd_trend * macd_trend
-            + self.weights.macd_momentum * macd_momentum
             + self.weights.momentum * momentum
             + self.weights.volatility * (1.0 - volatility)
             + self.weights.breadth * breadth
@@ -313,8 +283,6 @@ class CompositeRegimeScorer:
                 "regime": regimes,
                 "trend": factors.trend,
                 "trend_short": factors.trend_short,
-                "macd_trend": factors.macd_trend,
-                "macd_momentum": factors.macd_momentum,
                 "momentum": factors.momentum,
                 "volatility": factors.volatility,
                 "breadth": factors.breadth if factors.breadth is not None else np.nan,
@@ -351,16 +319,6 @@ class CompositeRegimeScorer:
             "trend_short": (
                 float(factors.trend_short.iloc[idx])
                 if not np.isnan(factors.trend_short.iloc[idx])
-                else 0
-            ),
-            "macd_trend": (
-                float(factors.macd_trend.iloc[idx])
-                if not np.isnan(factors.macd_trend.iloc[idx])
-                else 0
-            ),
-            "macd_momentum": (
-                float(factors.macd_momentum.iloc[idx])
-                if not np.isnan(factors.macd_momentum.iloc[idx])
                 else 0
             ),
             "momentum": (

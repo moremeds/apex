@@ -202,15 +202,13 @@ class WeightLearner:
         # Build weights dict
         weights_dict = dict(zip(X.columns, norm_weights))
 
-        # Fill missing with default (all 7 Phase 5 factors)
+        # Fill missing with default (all 5 Phase 5 factors)
         default_weights = {
-            "trend": 0.10,
-            "trend_short": 0.08,
-            "macd_trend": 0.12,
-            "macd_momentum": 0.10,
-            "momentum": 0.28,
-            "volatility": 0.17,
-            "breadth": 0.15,
+            "trend": 0.13,
+            "trend_short": 0.10,
+            "momentum": 0.35,
+            "volatility": 0.22,
+            "breadth": 0.20,
         }
         for k in default_weights:
             if k not in weights_dict:
@@ -270,15 +268,13 @@ class WeightLearner:
 
         weights_dict = dict(zip(X.columns, result.x))
 
-        # Fill missing with all 7 Phase 5 factors
+        # Fill missing with all 5 Phase 5 factors
         default_weights = {
-            "trend": 0.10,
-            "trend_short": 0.08,
-            "macd_trend": 0.12,
-            "macd_momentum": 0.10,
-            "momentum": 0.28,
-            "volatility": 0.17,
-            "breadth": 0.15,
+            "trend": 0.13,
+            "trend_short": 0.10,
+            "momentum": 0.35,
+            "volatility": 0.22,
+            "breadth": 0.20,
         }
         for k in default_weights:
             if k not in weights_dict:

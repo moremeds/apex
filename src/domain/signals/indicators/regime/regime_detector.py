@@ -360,8 +360,6 @@ class RegimeDetectorIndicator(IndicatorBase):
                 "composite_score": scored["score"].values,
                 "composite_trend": scored["trend"].values,
                 "composite_trend_short": scored["trend_short"].values,
-                "composite_macd_trend": scored["macd_trend"].values,
-                "composite_macd_momentum": scored["macd_momentum"].values,
                 "composite_momentum": scored["momentum"].values,
                 "composite_volatility": scored["volatility"].values,
                 "composite_breadth": scored["breadth"].values,
@@ -579,16 +577,6 @@ class RegimeDetectorIndicator(IndicatorBase):
                 "composite_trend_short": (
                     self._safe_float(current.get("composite_trend_short"))
                     if pd.notna(current.get("composite_trend_short"))
-                    else None
-                ),
-                "composite_macd_trend": (
-                    self._safe_float(current.get("composite_macd_trend"))
-                    if pd.notna(current.get("composite_macd_trend"))
-                    else None
-                ),
-                "composite_macd_momentum": (
-                    self._safe_float(current.get("composite_macd_momentum"))
-                    if pd.notna(current.get("composite_macd_momentum"))
                     else None
                 ),
                 "composite_momentum": (
@@ -1382,8 +1370,6 @@ class RegimeDetectorIndicator(IndicatorBase):
                 {
                     "trend": flat_state.get("composite_trend"),
                     "trend_short": flat_state.get("composite_trend_short"),
-                    "macd_trend": flat_state.get("composite_macd_trend"),
-                    "macd_momentum": flat_state.get("composite_macd_momentum"),
                     "momentum": flat_state.get("composite_momentum"),
                     "volatility": flat_state.get("composite_volatility"),
                     "breadth": flat_state.get("composite_breadth"),

@@ -138,6 +138,17 @@ def build_index_html(
         </div>
 
         <div class="section">
+            <h2 class="section-header" onclick="toggleSection('dual-macd-history-content')">
+                <span class="toggle-icon">&#9660;</span> DualMACD
+            </h2>
+            <div id="dual-macd-history-content" class="section-content">
+                <div id="dual-macd-history-table">
+                    <div style="color: #94a3b8; padding: 16px;">Loading DualMACD state...</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
             <h2 class="section-header" onclick="toggleSection('regime-content')">
                 <span class="toggle-icon">&#9660;</span> Regime Analysis
             </h2>

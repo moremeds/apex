@@ -1,20 +1,24 @@
 """
-DualMACD Indicator - Overlapping Long and Short MACD Histograms.
+DualMACD Indicator v1.0 - Tactical Dip/Rally Detection via Dual-Timeframe MACD.
 
 Philosophy:
-- Long MACD (55/89 EMA): Shows trend direction, strength, and divergence rhythm
-- Short MACD (13/21 EMA): Shows overbought/oversold within trend, micro entry signals
-- Overlaying both reveals relative strength and avoids misjudging trend strength
+- Slow MACD (55/89, signal 34): Structural trend direction and slope
+- Fast MACD (13/21, signal 9): Tactical timing within trend
+- Overlaying both reveals dip-buy / rally-sell opportunities with confidence
 
-Signals:
-- Trend Confirmation: Both histograms positive/negative
-- Momentum Divergence: Short histogram diverges from long (early reversal warning)
-- Overbought in Trend: Long positive, short stretched relative to long
-- Entry Timing: Short histogram crossing zero while long maintains direction
+State Output (every bar, no NaN in classified fields):
+- slow_histogram, fast_histogram: Raw histogram values (×multiplier)
+- slow_hist_delta, fast_hist_delta: Slope of histograms (ΔH over slope_lookback)
+- trend_state: BULLISH | BEARISH | IMPROVING | DETERIORATING
+- tactical_signal: DIP_BUY | RALLY_SELL | NONE
+- momentum_balance: FAST_DOMINANT | SLOW_DOMINANT | BALANCED
+- confidence: 0.0-1.0 (curvature-based, for tactical signals only)
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from enum import Enum
 from typing import Any, Dict, Optional
 
 import numpy as np
@@ -31,125 +35,165 @@ from ...models import SignalCategory
 from ..base import IndicatorBase
 
 
+class TrendState(str, Enum):
+    BULLISH = "BULLISH"
+    BEARISH = "BEARISH"
+    IMPROVING = "IMPROVING"
+    DETERIORATING = "DETERIORATING"
+
+
+class TacticalSignal(str, Enum):
+    DIP_BUY = "DIP_BUY"
+    RALLY_SELL = "RALLY_SELL"
+    NONE = "NONE"
+
+
+class MomentumBalance(str, Enum):
+    FAST_DOMINANT = "FAST_DOMINANT"
+    SLOW_DOMINANT = "SLOW_DOMINANT"
+    BALANCED = "BALANCED"
+
+
+@dataclass(frozen=True)
+class DualMACDConfig:
+    slow_fast: int = 55
+    slow_slow: int = 89
+    slow_signal: int = 34
+    fast_fast: int = 13
+    fast_slow: int = 21
+    fast_signal: int = 9
+    slope_lookback: int = 3
+    hist_norm_window: int = 252
+    histogram_multiplier: float = 2.0
+    eps: float = 1e-3
+
+
 class DualMACDIndicator(IndicatorBase):
     """
-    Dual MACD indicator with overlapping long and short timeframe histograms.
+    Dual MACD indicator v1.0 with tactical dip/rally detection.
 
-    Long MACD (55/89/9): Trend direction indicator
-    Short MACD (13/21/9): Momentum timing indicator
+    Slow MACD (55/89/34): Structural trend direction
+    Fast MACD (13/21/9): Tactical timing within trend
 
     Default Parameters:
-        long_fast: 55 (Fibonacci)
-        long_slow: 89 (Fibonacci)
-        short_fast: 13 (Fibonacci)
-        short_slow: 21 (Fibonacci)
-        signal_period: 9
-
-    State Output:
-        long_macd: Long MACD line (EMA55 - EMA89)
-        long_signal: Long signal line
-        long_histogram: Long MACD histogram (trend direction)
-        short_macd: Short MACD line (EMA13 - EMA21)
-        short_signal: Short signal line
-        short_histogram: Short MACD histogram (momentum timing)
-        relative_strength: short_histogram / max(abs(long_histogram), 0.001)
-        trend_direction: "bullish", "bearish", or "neutral"
-        momentum_state: "aligned", "diverging", or "neutral"
-        signal_type: Specific signal type if conditions met
+        slow_fast: 55, slow_slow: 89, slow_signal: 34
+        fast_fast: 13, fast_slow: 21, fast_signal: 9
+        slope_lookback: 3
+        hist_norm_window: 252
+        histogram_multiplier: 2.0
     """
 
     name = "dual_macd"
     category = SignalCategory.MOMENTUM
     required_fields = ["close"]
-    warmup_periods = 98  # long_slow + signal_period
+    warmup_periods = 255  # max(slow_slow=89, hist_norm_window=252) + slope_lookback=3
 
     _default_params = {
-        "long_fast": 55,
-        "long_slow": 89,
-        "short_fast": 13,
-        "short_slow": 21,
-        "signal_period": 9,
-        "histogram_multiplier": 2,  # For visualization scaling
+        "slow_fast": 55,
+        "slow_slow": 89,
+        "slow_signal": 34,
+        "fast_fast": 13,
+        "fast_slow": 21,
+        "fast_signal": 9,
+        "slope_lookback": 3,
+        "hist_norm_window": 252,
+        "histogram_multiplier": 2.0,
+        "eps": 1e-3,
     }
 
     def _calculate(self, data: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
-        """Calculate dual MACD lines, signals, and histograms."""
-        long_fast = params["long_fast"]
-        long_slow = params["long_slow"]
-        short_fast = params["short_fast"]
-        short_slow = params["short_slow"]
-        signal_period = params["signal_period"]
-        multiplier = params["histogram_multiplier"]
-
+        """Calculate dual MACD histograms and deltas."""
         n = len(data)
         if n == 0:
             return pd.DataFrame(
                 {
-                    "long_macd": pd.Series(dtype=float),
-                    "long_signal": pd.Series(dtype=float),
-                    "long_histogram": pd.Series(dtype=float),
-                    "short_macd": pd.Series(dtype=float),
-                    "short_signal": pd.Series(dtype=float),
-                    "short_histogram": pd.Series(dtype=float),
-                    "relative_strength": pd.Series(dtype=float),
+                    "slow_histogram": pd.Series(dtype=float),
+                    "fast_histogram": pd.Series(dtype=float),
+                    "slow_hist_delta": pd.Series(dtype=float),
+                    "fast_hist_delta": pd.Series(dtype=float),
+                    "fast_hist_delta2": pd.Series(dtype=float),
+                    "slow_hist_norm": pd.Series(dtype=float),
+                    "fast_hist_norm": pd.Series(dtype=float),
                 },
                 index=data.index,
             )
 
         close = data["close"].values.astype(np.float64)
+        multiplier = params["histogram_multiplier"]
+        slope_lb = params["slope_lookback"]
+        norm_window = params["hist_norm_window"]
 
         if HAS_TALIB:
-            # Long MACD (55/89)
-            ema_long_fast = talib.EMA(close, timeperiod=long_fast)
-            ema_long_slow = talib.EMA(close, timeperiod=long_slow)
-            long_macd = ema_long_fast - ema_long_slow
-            long_signal = talib.EMA(long_macd, timeperiod=signal_period)
-            long_histogram = multiplier * (long_macd - long_signal)
-
-            # Short MACD (13/21)
-            ema_short_fast = talib.EMA(close, timeperiod=short_fast)
-            ema_short_slow = talib.EMA(close, timeperiod=short_slow)
-            short_macd = ema_short_fast - ema_short_slow
-            short_signal = talib.EMA(short_macd, timeperiod=signal_period)
-            short_histogram = multiplier * (short_macd - short_signal)
+            slow_hist = self._calc_macd_talib(
+                close, params["slow_fast"], params["slow_slow"], params["slow_signal"], multiplier
+            )
+            fast_hist = self._calc_macd_talib(
+                close, params["fast_fast"], params["fast_slow"], params["fast_signal"], multiplier
+            )
         else:
-            long_macd, long_signal, long_histogram = self._calculate_macd_manual(
-                close, long_fast, long_slow, signal_period, multiplier
+            slow_hist = self._calc_macd_manual(
+                close, params["slow_fast"], params["slow_slow"], params["slow_signal"], multiplier
             )
-            short_macd, short_signal, short_histogram = self._calculate_macd_manual(
-                close, short_fast, short_slow, signal_period, multiplier
+            fast_hist = self._calc_macd_manual(
+                close, params["fast_fast"], params["fast_slow"], params["fast_signal"], multiplier
             )
 
-        # Relative strength: shows how extended short histogram is vs long
-        with np.errstate(divide="ignore", invalid="ignore"):
-            relative_strength = np.where(
-                np.abs(long_histogram) > 0.001,
-                short_histogram / np.abs(long_histogram),
-                np.where(short_histogram > 0, 100, np.where(short_histogram < 0, -100, 0)),
-            )
+        # Deltas (slope)
+        slow_hist_delta = np.full(n, np.nan, dtype=np.float64)
+        fast_hist_delta = np.full(n, np.nan, dtype=np.float64)
+        for i in range(slope_lb, n):
+            if not np.isnan(slow_hist[i]) and not np.isnan(slow_hist[i - slope_lb]):
+                slow_hist_delta[i] = slow_hist[i] - slow_hist[i - slope_lb]
+            if not np.isnan(fast_hist[i]) and not np.isnan(fast_hist[i - slope_lb]):
+                fast_hist_delta[i] = fast_hist[i] - fast_hist[i - slope_lb]
+
+        # Second derivative of fast histogram
+        fast_hist_delta2 = np.full(n, np.nan, dtype=np.float64)
+        for i in range(slope_lb + 1, n):
+            if not np.isnan(fast_hist_delta[i]) and not np.isnan(fast_hist_delta[i - 1]):
+                fast_hist_delta2[i] = fast_hist_delta[i] - fast_hist_delta[i - 1]
+
+        # Rolling percentile rank of |histogram| (causal, 0-1)
+        slow_hist_norm = self._rolling_pctile_rank(np.abs(slow_hist), norm_window)
+        fast_hist_norm = self._rolling_pctile_rank(np.abs(fast_hist), norm_window)
 
         return pd.DataFrame(
             {
-                "long_macd": long_macd,
-                "long_signal": long_signal,
-                "long_histogram": long_histogram,
-                "short_macd": short_macd,
-                "short_signal": short_signal,
-                "short_histogram": short_histogram,
-                "relative_strength": relative_strength,
+                "slow_histogram": slow_hist,
+                "fast_histogram": fast_hist,
+                "slow_hist_delta": slow_hist_delta,
+                "fast_hist_delta": fast_hist_delta,
+                "fast_hist_delta2": fast_hist_delta2,
+                "slow_hist_norm": slow_hist_norm,
+                "fast_hist_norm": fast_hist_norm,
             },
             index=data.index,
         )
 
-    def _calculate_macd_manual(
+    def _calc_macd_talib(
         self,
         close: np.ndarray,
         fast: int,
         slow: int,
         signal: int,
         multiplier: float,
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Calculate MACD without TA-Lib."""
+    ) -> np.ndarray:
+        """Calculate MACD histogram using TA-Lib."""
+        ema_fast = talib.EMA(close, timeperiod=fast)
+        ema_slow = talib.EMA(close, timeperiod=slow)
+        macd_line = ema_fast - ema_slow
+        signal_line = talib.EMA(macd_line, timeperiod=signal)
+        return multiplier * (macd_line - signal_line)
+
+    def _calc_macd_manual(
+        self,
+        close: np.ndarray,
+        fast: int,
+        slow: int,
+        signal: int,
+        multiplier: float,
+    ) -> np.ndarray:
+        """Calculate MACD histogram without TA-Lib."""
         n = len(close)
 
         def ema(arr: np.ndarray, period: int) -> np.ndarray:
@@ -166,7 +210,6 @@ class DualMACDIndicator(IndicatorBase):
         slow_ema = ema(close, slow)
         macd_line = fast_ema - slow_ema
 
-        # Signal line is EMA of MACD
         signal_line = np.full(n, np.nan, dtype=np.float64)
         valid_start = slow - 1 + signal - 1
         if n > valid_start:
@@ -176,8 +219,21 @@ class DualMACDIndicator(IndicatorBase):
                 if not np.isnan(macd_line[i]):
                     signal_line[i] = alpha * macd_line[i] + (1 - alpha) * signal_line[i - 1]
 
-        histogram = multiplier * (macd_line - signal_line)
-        return macd_line, signal_line, histogram
+        histogram: np.ndarray = multiplier * (macd_line - signal_line)
+        return histogram
+
+    @staticmethod
+    def _rolling_pctile_rank(arr: np.ndarray, window: int) -> np.ndarray:
+        """Causal rolling percentile rank (0-1)."""
+        n = len(arr)
+        result = np.full(n, np.nan, dtype=np.float64)
+        for i in range(window - 1, n):
+            w = arr[max(0, i - window + 1) : i + 1]
+            valid = w[~np.isnan(w)]
+            if len(valid) < 2:
+                continue
+            result[i] = np.sum(valid <= arr[i]) / len(valid)
+        return result
 
     def _get_state(
         self,
@@ -186,112 +242,72 @@ class DualMACDIndicator(IndicatorBase):
         params: Dict[str, Any],
     ) -> Dict[str, Any]:
         """Extract DualMACD state for rule evaluation."""
-        long_hist = current.get("long_histogram", 0)
-        short_hist = current.get("short_histogram", 0)
-        relative_strength = current.get("relative_strength", 0)
+        eps = params.get("eps", 1e-3)
 
-        if pd.isna(long_hist) or pd.isna(short_hist):
-            return {
-                "long_macd": 0,
-                "long_signal": 0,
-                "long_histogram": 0,
-                "short_macd": 0,
-                "short_signal": 0,
-                "short_histogram": 0,
-                "relative_strength": 0,
-                "trend_direction": "neutral",
-                "momentum_state": "neutral",
-                "signal_type": None,
-            }
+        h_slow = self._safe_float(current.get("slow_histogram", 0))
+        h_fast = self._safe_float(current.get("fast_histogram", 0))
+        dh_slow = self._safe_float(current.get("slow_hist_delta", 0))
+        dh_fast = self._safe_float(current.get("fast_hist_delta", 0))
+        ddh_fast = self._safe_float(current.get("fast_hist_delta2", 0))
+        slow_norm = self._safe_float(current.get("slow_hist_norm", 0))
+        fast_norm = self._safe_float(current.get("fast_hist_norm", 0))
 
-        # Determine trend direction from long MACD
-        if long_hist > 0:
-            trend_direction = "bullish"
-        elif long_hist < 0:
-            trend_direction = "bearish"
+        # --- Trend state (override-first priority) ---
+        if h_slow > 0 and dh_slow < 0:
+            trend_state = TrendState.DETERIORATING
+        elif h_slow < 0 and dh_slow > 0:
+            trend_state = TrendState.IMPROVING
+        elif h_slow > 0:
+            trend_state = TrendState.BULLISH
         else:
-            trend_direction = "neutral"
+            trend_state = TrendState.BEARISH
 
-        # Determine momentum state (aligned or diverging)
-        if (long_hist > 0 and short_hist > 0) or (long_hist < 0 and short_hist < 0):
-            momentum_state = "aligned"
-        elif (long_hist > 0 and short_hist < 0) or (long_hist < 0 and short_hist > 0):
-            momentum_state = "diverging"
+        # --- Tactical signal ---
+        tactical_signal = TacticalSignal.NONE
+        if h_slow > 0 and h_fast < 0 and abs(dh_fast) > abs(dh_slow) and dh_fast >= 0:
+            tactical_signal = TacticalSignal.DIP_BUY
+        elif h_slow < 0 and h_fast > 0 and abs(dh_fast) > abs(dh_slow) and dh_fast <= 0:
+            tactical_signal = TacticalSignal.RALLY_SELL
+
+        # --- Momentum balance (with freeze zone) ---
+        if slow_norm < 0.15 and fast_norm < 0.15:
+            momentum_balance = MomentumBalance.BALANCED
+        elif fast_norm > slow_norm * 1.5:
+            momentum_balance = MomentumBalance.FAST_DOMINANT
+        elif slow_norm > fast_norm * 1.5:
+            momentum_balance = MomentumBalance.SLOW_DOMINANT
         else:
-            momentum_state = "neutral"
+            momentum_balance = MomentumBalance.BALANCED
 
-        # Detect specific signal types
-        signal_type = self._detect_signal_type(
-            current, previous, trend_direction, momentum_state, relative_strength
-        )
+        # --- Confidence (curvature-based) ---
+        confidence = 0.0
+        if tactical_signal == TacticalSignal.DIP_BUY:
+            # h_fast < 0, positive ΔΔH = pullback decelerating
+            denom = max(abs(h_fast), eps)
+            confidence = float(np.clip(ddh_fast / denom, 0.0, 1.0))
+        elif tactical_signal == TacticalSignal.RALLY_SELL:
+            # h_fast > 0, negative ΔΔH = bounce decelerating
+            denom = max(abs(h_fast), eps)
+            confidence = float(np.clip(-ddh_fast / denom, 0.0, 1.0))
 
         return {
-            "long_macd": float(current.get("long_macd", 0)),
-            "long_signal": float(current.get("long_signal", 0)),
-            "long_histogram": float(long_hist),
-            "short_macd": float(current.get("short_macd", 0)),
-            "short_signal": float(current.get("short_signal", 0)),
-            "short_histogram": float(short_hist),
-            "relative_strength": float(relative_strength),
-            "trend_direction": trend_direction,
-            "momentum_state": momentum_state,
-            "signal_type": signal_type,
+            "slow_histogram": h_slow,
+            "fast_histogram": h_fast,
+            "slow_hist_delta": dh_slow,
+            "fast_hist_delta": dh_fast,
+            "trend_state": trend_state.value,
+            "tactical_signal": tactical_signal.value,
+            "momentum_balance": momentum_balance.value,
+            "confidence": confidence,
         }
 
-    def _detect_signal_type(
-        self,
-        current: pd.Series,
-        previous: Optional[pd.Series],
-        trend_direction: str,
-        momentum_state: str,
-        relative_strength: float,
-    ) -> Optional[str]:
-        """
-        Detect specific dual MACD signal types.
-
-        Signal Types:
-        - trend_confirmation: Both histograms confirm same direction
-        - momentum_divergence: Short diverges from long (early warning)
-        - overbought_in_uptrend: Long bullish, short extremely stretched
-        - oversold_in_downtrend: Long bearish, short extremely stretched
-        - bullish_momentum_entry: Short crosses up while long positive
-        - bearish_momentum_entry: Short crosses down while long negative
-        """
-        if previous is None:
-            return None
-
-        long_hist = float(current.get("long_histogram", 0))
-        short_hist = float(current.get("short_histogram", 0))
-        prev_short_hist = float(previous.get("short_histogram", 0)) if previous is not None else 0
-
-        # Trend confirmation with both aligned
-        if momentum_state == "aligned":
-            if long_hist > 0 and short_hist > 0:
-                return "trend_confirmation_bullish"
-            elif long_hist < 0 and short_hist < 0:
-                return "trend_confirmation_bearish"
-
-        # Early warning: momentum diverging from trend
-        if momentum_state == "diverging":
-            if long_hist > 0 and short_hist < 0:
-                return "momentum_divergence_bearish_warning"
-            elif long_hist < 0 and short_hist > 0:
-                return "momentum_divergence_bullish_warning"
-
-        # Overbought/oversold within trend (relative strength extreme)
-        if abs(relative_strength) > 2.0:
-            if long_hist > 0 and relative_strength > 2.0:
-                return "overbought_in_uptrend"
-            elif long_hist < 0 and relative_strength < -2.0:
-                return "oversold_in_downtrend"
-
-        # Entry signals: short histogram zero cross while long maintains direction
-        if not pd.isna(prev_short_hist):
-            # Short crosses up from negative
-            if prev_short_hist < 0 and short_hist >= 0 and long_hist > 0:
-                return "bullish_momentum_entry"
-            # Short crosses down from positive
-            if prev_short_hist > 0 and short_hist <= 0 and long_hist < 0:
-                return "bearish_momentum_entry"
-
-        return None
+    @staticmethod
+    def _safe_float(val: Any) -> float:
+        """Convert value to float, defaulting to 0.0 for NaN/None."""
+        if val is None or (isinstance(val, float) and np.isnan(val)):
+            return 0.0
+        try:
+            f = float(val)
+            return 0.0 if np.isnan(f) else f
+        except (TypeError, ValueError):
+            return 0.0

@@ -56,6 +56,9 @@ def write_data_files(
         # Detect signals for this symbol/timeframe
         signals = detect_historical_signals(df, rules, symbol, timeframe)
 
+        # Compute DualMACD history for verification table
+        dual_macd_history = _compute_dual_macd_history_for_key(df, timeframe)
+
         file_data = {
             "symbol": symbol,
             "timeframe": timeframe,
@@ -63,6 +66,7 @@ def write_data_files(
             "bar_count": len(df),
             "chart_data": chart_data,
             "signals": signals,
+            "dual_macd_history": dual_macd_history,
         }
 
         file_path = data_dir / f"{key}.json"
@@ -303,3 +307,54 @@ def write_snapshot_file(
         json.dumps(snapshot, indent=2, default=str),
         encoding="utf-8",
     )
+
+
+def _compute_dual_macd_history_for_key(
+    df: pd.DataFrame, timeframe: str = "1d"
+) -> List[Dict[str, Any]]:
+    """Compute DualMACD state history for a single DataFrame (last 60 bars)."""
+    try:
+        from src.domain.signals.indicators.momentum.dual_macd import DualMACDIndicator
+
+        indicator = DualMACDIndicator()
+        if len(df) < indicator.warmup_periods:
+            return []
+
+        close_df = df[["close"]].copy()
+        result = indicator.calculate(close_df, indicator.default_params)
+        if result.empty:
+            return []
+
+        last_n = 60
+        start_idx = max(0, len(result) - last_n)
+        rows: List[Dict[str, Any]] = []
+
+        for i in range(start_idx, len(result)):
+            current = result.iloc[i]
+            previous = result.iloc[i - 1] if i > 0 else None
+            state = indicator._get_state(current, previous, indicator.default_params)
+
+            ts = result.index[i]
+            # Convert to US/Eastern for intraday display
+            is_daily = timeframe in ("1d", "1w", "1D", "1W")
+            if is_daily:
+                # Daily bars: just show date, no time conversion needed
+                date_str = ts.strftime("%Y-%m-%d") if hasattr(ts, "strftime") else str(ts)
+            else:
+                # Intraday: convert to ET
+                if hasattr(ts, "tz") and ts.tz is not None:
+                    ts_et = ts.tz_convert("US/Eastern")
+                elif hasattr(ts, "tz_localize"):
+                    ts_et = ts.tz_localize("UTC").tz_convert("US/Eastern")
+                else:
+                    ts_et = ts
+                date_str = (
+                    ts_et.strftime("%Y-%m-%d %H:%M") if hasattr(ts_et, "strftime") else str(ts_et)
+                )
+            rows.append({"date": date_str, **state})
+
+        rows.reverse()
+        return rows
+    except Exception as e:
+        logger.warning(f"Failed to compute DualMACD history: {e}")
+        return []

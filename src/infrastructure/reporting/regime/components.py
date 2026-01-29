@@ -17,20 +17,16 @@ from .utils import get_score_gradient_color
 
 # Factor weights (must match composite_scorer.py)
 FACTOR_WEIGHTS = {
-    "trend": 0.10,
-    "trend_short": 0.08,
-    "macd_trend": 0.12,
-    "macd_momentum": 0.10,
-    "momentum": 0.28,
-    "volatility": 0.17,
-    "breadth": 0.15,
+    "trend": 0.13,
+    "trend_short": 0.10,
+    "momentum": 0.35,
+    "volatility": 0.22,
+    "breadth": 0.20,
 }
 
 FACTOR_INFO = [
     ("trend", "📈", "Trend (Long)"),
     ("trend_short", "🔥", "Trend (Short)"),
-    ("macd_trend", "📊", "MACD Trend"),
-    ("macd_momentum", "⚡", "MACD Momentum"),
     ("momentum", "🚀", "Momentum"),
     ("volatility", "📉", "Volatility"),
     ("breadth", "🌐", "Breadth"),
@@ -252,8 +248,6 @@ def _render_momentum_tile(factors: Dict[str, Optional[float]], theme: str) -> st
     muted = "#94a3b8" if theme == "dark" else "#64748b"
     border = "#334155" if theme == "dark" else "#e2e8f0"
 
-    macd_t = (factors.get("macd_trend", 0) or 0) * 100
-    macd_m = (factors.get("macd_momentum", 0) or 0) * 100
     rsi = (factors.get("momentum", 0) or 0) * 100
 
     return f"""
@@ -267,14 +261,6 @@ def _render_momentum_tile(factors: Dict[str, Optional[float]], theme: str) -> st
             🚀 MOMENTUM
         </div>
         <div style="font-size: 11px; color: {muted};">
-            <div style="margin-bottom: 6px;">
-                <strong style="color: {text};">MACD Trend ({macd_t:.0f})</strong><br>
-                <code style="font-size: 10px;">EMA55-EMA89 hist</code> → pctl
-            </div>
-            <div style="margin-bottom: 6px;">
-                <strong style="color: {text};">MACD Mom ({macd_m:.0f})</strong><br>
-                <code style="font-size: 10px;">EMA13-EMA21 hist</code> → pctl
-            </div>
             <div>
                 <strong style="color: {text};">RSI ({rsi:.0f})</strong><br>
                 <code style="font-size: 10px;">RSI(14)</code> → pctl (63d)
