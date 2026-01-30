@@ -5,25 +5,34 @@ name: "Hourly: Signal Reports"
 #
 # Schedule: Every hour 9am-4pm ET (14:00-21:00 UTC), Mon-Fri
 #
-# Pipeline matches `make signals-deploy` exactly:
+# Bar timing (market opens 9:30 ET):
+#   1H bars finish at: 10:30, 11:30, 12:30, 1:30, 2:30, 3:30, 4:00
+#   4H bars finish at: 1:30pm (9:30+4h), 4:00pm (close)
+#   1D bar finishes at: 4:00pm (close)
+#
+# Daily email breakdown (10 emails per day):
+#   10:30am-12:30pm, 2:30-3:30pm ET: 1H only      (5 emails)
+#   1:30pm ET:                        1H + 4H      (first 4h bar)
+#   4:00pm ET:                        1H + 4H + 1D (close, three emails)
+#
+# Pipeline:
 #   Step 1: Update market caps
-#   Step 2: Retrain models
+#   Step 2: Retrain models (not at close)
 #   Step 3: Generate and deploy report
 #
-# Email: Sends inline heatmap content (not attachments)
+# Email: Plain-text TUI-formatted report (monospace, mobile-friendly)
 # ═══════════════════════════════════════════════════════════════════════════
 
 on:
   schedule:
-    # Every hour during trading hours (9am-4pm ET = 14:00-21:00 UTC)
-    - cron: '0 14 * * 1-5'  # 9am ET
-    - cron: '0 15 * * 1-5'  # 10am ET
-    - cron: '0 16 * * 1-5'  # 11am ET
-    - cron: '0 17 * * 1-5'  # 12pm ET
-    - cron: '0 18 * * 1-5'  # 1pm ET
-    - cron: '0 19 * * 1-5'  # 2pm ET
-    - cron: '0 20 * * 1-5'  # 3pm ET
-    - cron: '0 21 * * 1-5'  # 4pm ET (market close)
+    # Aligned to bar close times (market opens 9:30 ET)
+    - cron: '30 15 * * 1-5'  # 10:30am ET — 1H bar 1
+    - cron: '30 16 * * 1-5'  # 11:30am ET — 1H bar 2
+    - cron: '30 17 * * 1-5'  # 12:30pm ET — 1H bar 3
+    - cron: '30 18 * * 1-5'  # 1:30pm ET  — 1H bar 4 + 4H bar 1
+    - cron: '30 19 * * 1-5'  # 2:30pm ET  — 1H bar 5
+    - cron: '30 20 * * 1-5'  # 3:30pm ET  — 1H bar 6
+    - cron: '0 21 * * 1-5'   # 4:00pm ET  — 1H bar 7 + 4H bar 2 + 1D (close)
   workflow_dispatch:
 
 concurrency:
@@ -93,23 +102,62 @@ jobs:
           source .venv/bin/activate
           python << 'EOF'
           import pandas_market_calendars as mcal
-          from datetime import date
+          from datetime import date, datetime, timezone
+          from zoneinfo import ZoneInfo
           import os
 
           nyse = mcal.get_calendar('NYSE')
           today = date.today()
           schedule = nyse.schedule(start_date=today, end_date=today)
 
-          is_open = "true" if not schedule.empty else "false"
+          is_trading_day = not schedule.empty
+          now_utc = datetime.now(timezone.utc)
+          utc_hour = now_utc.hour
+          utc_min = now_utc.minute
+
+          # Cron slots (UTC):
+          #   15:30, 16:30, 17:30, 18:30, 19:30, 20:30 → 1H bars
+          #   18:30 → also 4H bar 1  (9:30+4h = 1:30pm ET)
+          #   21:00 → 1H bar 7 + 4H bar 2 + 1D (market close)
+          is_close = utc_hour == 21 and utc_min < 30
+          is_intraday = utc_min >= 25 and utc_hour in range(15, 21)  # :30 slots
+
+          send_1h = "true" if (is_trading_day and (is_intraday or is_close)) else "false"
+          send_4h = "true" if (is_trading_day and (is_close or (utc_hour == 18 and is_intraday))) else "false"
+          send_1d = "true" if (is_trading_day and is_close) else "false"
+
+          # Pipeline timeframes: superset of all needed for this slot
+          if is_close:
+              timeframes = "1d 4h 1h"
+          elif utc_hour == 18 and is_intraday:
+              timeframes = "4h 1h"
+          else:
+              timeframes = "1h"
+
+          should_run = is_trading_day and (is_intraday or is_close)
+          should_retrain = should_run and not is_close
+
+          # ET timestamp for subject line
+          et_now = datetime.now(ZoneInfo("America/New_York"))
+          et_time = et_now.strftime("%-I:%M %p ET")
+          et_date = et_now.strftime("%b %d")
+
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-              f.write(f'is_open={is_open}\n')
-          print(f"Market is {'OPEN' if not schedule.empty else 'CLOSED'} on {today}")
+              f.write(f'should_run={str(should_run).lower()}\n')
+              f.write(f'should_retrain={str(should_retrain).lower()}\n')
+              f.write(f'send_1h={send_1h}\n')
+              f.write(f'send_4h={send_4h}\n')
+              f.write(f'send_1d={send_1d}\n')
+              f.write(f'timeframes={timeframes}\n')
+              f.write(f'et_time={et_time}\n')
+              f.write(f'et_date={et_date}\n')
+          print(f"Market {'OPEN' if is_trading_day else 'CLOSED'} | 1H={send_1h} 4H={send_4h} 1D={send_1d} | tf={timeframes}")
           EOF
 
-      # === MATCH MAKE SIGNALS-DEPLOY EXACTLY ===
+      # === PIPELINE ===
 
       - name: "Step 1/3: Update market caps"
-        if: steps.market-check.outputs.is_open == 'true'
+        if: steps.market-check.outputs.should_run == 'true'
         run: |
           source .venv/bin/activate
           python -m src.runners.signal_runner --update-market-caps \
@@ -118,7 +166,7 @@ jobs:
           LOG_LEVEL: WARNING
 
       - name: "Step 2/3: Retrain models"
-        if: steps.market-check.outputs.is_open == 'true'
+        if: steps.market-check.outputs.should_retrain == 'true'
         run: |
           source .venv/bin/activate
           python -m src.runners.signal_runner --retrain-models \
@@ -127,7 +175,7 @@ jobs:
           LOG_LEVEL: WARNING
 
       - name: Fetch existing score history from gh-pages
-        if: steps.market-check.outputs.is_open == 'true'
+        if: steps.market-check.outputs.should_run == 'true'
         continue-on-error: true
         run: |
           mkdir -p out/signals/data
@@ -135,12 +183,12 @@ jobs:
           git show origin/gh-pages:data/score_history.json > out/signals/data/score_history.json 2>/dev/null || echo '{"snapshots":[]}' > out/signals/data/score_history.json
 
       - name: "Step 3/3: Generate and deploy report"
-        if: steps.market-check.outputs.is_open == 'true'
+        if: steps.market-check.outputs.should_run == 'true'
         run: |
           source .venv/bin/activate
           python -m src.runners.signal_runner --live \
             --universe ${{ env.UNIVERSE }} \
-            --timeframes 1d 4h 1h \
+            --timeframes ${{ steps.market-check.outputs.timeframes }} \
             --format package \
             --html-output out/signals \
             --deploy github
@@ -148,19 +196,43 @@ jobs:
           LOG_LEVEL: WARNING
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # === RENDER EMAILS ===
+
       - name: Render email content
-        if: steps.market-check.outputs.is_open == 'true'
+        if: steps.market-check.outputs.should_run == 'true'
         run: |
           source .venv/bin/activate
-          python -c "
-          from src.infrastructure.reporting.email_heatmap_renderer import render_email_html
-          html = render_email_html('out/signals/data/summary.json')
-          with open('email_body.html', 'w') as f:
-              f.write(html)
-          "
+          python << 'PYEOF'
+          from src.infrastructure.reporting.email_heatmap_renderer import render_email_text
+          import os
 
-      - name: Send email
-        if: steps.market-check.outputs.is_open == 'true'
+          reports = []
+          if os.environ.get("SEND_1H") == "true":
+              reports.append(("1h", "Intraday 1H"))
+          if os.environ.get("SEND_4H") == "true":
+              reports.append(("4h", "Intraday 4H"))
+          if os.environ.get("SEND_1D") == "true":
+              reports.append(("1d", "End of Day"))
+
+          for tag, label in reports:
+              text = render_email_text(
+                  "out/signals/data/summary.json",
+                  history_path="out/signals/data/score_history.json",
+                  report_label=label,
+              )
+              with open(f"email_body_{tag}.txt", "w") as f:
+                  f.write(text)
+              print(f"Rendered {tag} email ({len(text)} chars)")
+          PYEOF
+        env:
+          SEND_1H: ${{ steps.market-check.outputs.send_1h }}
+          SEND_4H: ${{ steps.market-check.outputs.send_4h }}
+          SEND_1D: ${{ steps.market-check.outputs.send_1d }}
+
+      # === SEND EMAILS ===
+
+      - name: "Send email: 1H"
+        if: steps.market-check.outputs.send_1h == 'true'
         continue-on-error: true
         uses: dawidd6/action-send-mail@v3
         with:
@@ -168,19 +240,51 @@ jobs:
           server_port: ${{ secrets.SMTP_PORT || 587 }}
           username: ${{ secrets.SMTP_USERNAME }}
           password: ${{ secrets.SMTP_PASSWORD }}
-          subject: "APEX Signals - ${{ github.run_id }}"
+          subject: "APEX Intraday 1H — ${{ steps.market-check.outputs.et_date }} ${{ steps.market-check.outputs.et_time }}"
           to: ${{ secrets.SIGNAL_REPORT_RECIPIENTS }}
           from: "APEX Signal Bot <${{ secrets.SMTP_USERNAME }}>"
-          body: file://${{ github.workspace }}/email_body.html
-          content_type: text/html
+          body: file://${{ github.workspace }}/email_body_1h.txt
+          content_type: text/plain
+          convert_markdown: false
+
+      - name: "Send email: 4H"
+        if: steps.market-check.outputs.send_4h == 'true'
+        continue-on-error: true
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.SMTP_SERVER }}
+          server_port: ${{ secrets.SMTP_PORT || 587 }}
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          subject: "APEX Intraday 4H — ${{ steps.market-check.outputs.et_date }} ${{ steps.market-check.outputs.et_time }}"
+          to: ${{ secrets.SIGNAL_REPORT_RECIPIENTS }}
+          from: "APEX Signal Bot <${{ secrets.SMTP_USERNAME }}>"
+          body: file://${{ github.workspace }}/email_body_4h.txt
+          content_type: text/plain
+          convert_markdown: false
+
+      - name: "Send email: 1D"
+        if: steps.market-check.outputs.send_1d == 'true'
+        continue-on-error: true
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.SMTP_SERVER }}
+          server_port: ${{ secrets.SMTP_PORT || 587 }}
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          subject: "APEX End of Day — ${{ steps.market-check.outputs.et_date }} ${{ steps.market-check.outputs.et_time }}"
+          to: ${{ secrets.SIGNAL_REPORT_RECIPIENTS }}
+          from: "APEX Signal Bot <${{ secrets.SMTP_USERNAME }}>"
+          body: file://${{ github.workspace }}/email_body_1d.txt
+          content_type: text/plain
           convert_markdown: false
 
       - name: Holiday notice
-        if: steps.market-check.outputs.is_open != 'true'
+        if: steps.market-check.outputs.should_run != 'true'
         run: echo "::notice::Market is closed today. Skipping report generation."
 
       - name: Upload report artifact
-        if: steps.market-check.outputs.is_open == 'true'
+        if: steps.market-check.outputs.should_run == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: signal-report-${{ github.run_id }}

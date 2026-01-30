@@ -1,7 +1,7 @@
 # APEX Development Makefile
 # Quick commands for common development tasks
 
-.PHONY: install run run-dev run-prod run-demo run-headless lint format type-check dead-code complexity quality test test-all coverage clean help diagrams diagrams-classes diagrams-deps diagrams-flows validate-fast validate signals-test signals signals-deploy
+.PHONY: install run run-dev run-prod run-demo run-headless lint format type-check dead-code complexity quality test test-all coverage clean help diagrams diagrams-classes diagrams-deps diagrams-flows validate-fast validate signals-test signals signals-deploy behavioral behavioral-full behavioral-cases
 
 # Virtual environment - use .venv/bin executables directly
 VENV := .venv/bin
@@ -45,6 +45,11 @@ help:
 	@echo "  make signals-test   Quick test (12 symbols) + HTTP server"
 	@echo "  make signals        Full production run (all features)"
 	@echo "  make signals-deploy Deploy to GitHub Pages"
+	@echo ""
+	@echo "$(GREEN)Behavioral Gate:$(RESET)"
+	@echo "  make behavioral       Quick test (default params) + serve"
+	@echo "  make behavioral-full  Optuna optimization + walk-forward + serve"
+	@echo "  make behavioral-cases Predefined case studies + serve"
 	@echo ""
 	@echo "$(GREEN)Other:$(RESET)"
 	@echo "  make diagrams       Generate architecture diagrams"
@@ -279,6 +284,40 @@ signals-deploy-quick:
 		--html-output out/signals \
 		--deploy github
 	@echo "$(GREEN)✓ Report deployed to GitHub Pages$(RESET)"
+
+# ═══════════════════════════════════════════════════════════════
+# Behavioral Gate Validation
+# ═══════════════════════════════════════════════════════════════
+
+# Quick test: default params, universe quick_test, 2018-2025, then serve
+behavioral:
+	@echo "$(BOLD)Behavioral gate test (quick_test subset, 2018-2025)...$(RESET)"
+	$(PYTHON) -m src.backtest.runner --behavioral \
+		--start 2018-01-01 --end 2025-12-31
+	@echo "$(GREEN)✓ Report: out/behavioral/$(RESET)"
+	@echo "$(BOLD)Serving at http://localhost:8081$(RESET)"
+	@echo "$(YELLOW)Press Ctrl+C to stop$(RESET)"
+	@cd out/behavioral && python3 -m http.server 8081
+
+# Predefined case studies (market episodes)
+behavioral-cases:
+	@echo "$(BOLD)Running predefined behavioral case studies...$(RESET)"
+	$(PYTHON) -m src.backtest.runner --behavioral-cases
+	@echo "$(GREEN)✓ Reports: out/behavioral/$(RESET)"
+	@echo "$(BOLD)Serving at http://localhost:8081$(RESET)"
+	@echo "$(YELLOW)Press Ctrl+C to stop$(RESET)"
+	@cd out/behavioral && python3 -m http.server 8081
+
+# Full pipeline: Optuna optimization + walk-forward + auto-clustering
+behavioral-full:
+	@echo "$(BOLD)Full behavioral gate optimization pipeline...$(RESET)"
+	$(PYTHON) -m src.backtest.runner --behavioral --cluster \
+		--spec config/backtest/dual_macd_behavioral.yaml
+	@echo "$(GREEN)✓ Reports: out/behavioral/$(RESET)"
+	@echo "$(GREEN)✓ Cluster candidate: config/gate_policy_clusters.yaml$(RESET)"
+	@echo "$(BOLD)Serving at http://localhost:8081$(RESET)"
+	@echo "$(YELLOW)Press Ctrl+C to stop$(RESET)"
+	@cd out/behavioral && python3 -m http.server 8081
 
 # ═══════════════════════════════════════════════════════════════
 # Diagrams

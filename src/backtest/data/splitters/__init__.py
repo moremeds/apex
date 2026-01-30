@@ -8,6 +8,7 @@ Splitters divide data into train/test windows while respecting:
 """
 
 from .cpcv import CPCVConfig, CPCVSplitter
+from .regime_block import RegimeBlock, RegimeBlockConfig, RegimeBlockSplitter
 from .walk_forward import SplitConfig, WalkForwardSplitter
 
 __all__ = [
@@ -15,4 +16,7 @@ __all__ = [
     "SplitConfig",
     "CPCVSplitter",
     "CPCVConfig",
+    "RegimeBlockSplitter",
+    "RegimeBlockConfig",
+    "RegimeBlock",
 ]

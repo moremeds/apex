@@ -44,6 +44,13 @@ async def main_async() -> None:
             print(f"  {name:20s} - {desc}")
         return
 
+    # Behavioral gate validation mode
+    if getattr(args, "behavioral", False) or getattr(args, "behavioral_cases", False):
+        from ..behavioral_runner import run_behavioral_validation
+
+        await run_behavioral_validation(args)
+        return
+
     # Systematic experiment mode
     if args.spec and not args.strategy:
         from ..runner import run_systematic_experiment
