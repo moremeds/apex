@@ -111,6 +111,7 @@ jobs:
           schedule = nyse.schedule(start_date=today, end_date=today)
 
           is_trading_day = not schedule.empty
+          is_manual = os.environ.get('GITHUB_EVENT_NAME') == 'workflow_dispatch'
           now_utc = datetime.now(timezone.utc)
           utc_hour = now_utc.hour
           utc_min = now_utc.minute
@@ -122,20 +123,28 @@ jobs:
           is_close = utc_hour == 21 and utc_min < 30
           is_intraday = utc_min >= 25 and utc_hour in range(15, 21)  # :30 slots
 
-          send_1h = "true" if (is_trading_day and (is_intraday or is_close)) else "false"
-          send_4h = "true" if (is_trading_day and (is_close or (utc_hour == 18 and is_intraday))) else "false"
-          send_1d = "true" if (is_trading_day and is_close) else "false"
-
-          # Pipeline timeframes: superset of all needed for this slot
-          if is_close:
+          if is_manual:
+              # Manual dispatch: always run with all timeframes and emails
+              should_run = True
+              should_retrain = True
+              send_1h = "true"
+              send_4h = "true"
+              send_1d = "true"
               timeframes = "1d 4h 1h"
-          elif utc_hour == 18 and is_intraday:
-              timeframes = "4h 1h"
           else:
-              timeframes = "1h"
+              send_1h = "true" if (is_trading_day and (is_intraday or is_close)) else "false"
+              send_4h = "true" if (is_trading_day and (is_close or (utc_hour == 18 and is_intraday))) else "false"
+              send_1d = "true" if (is_trading_day and is_close) else "false"
 
-          should_run = is_trading_day and (is_intraday or is_close)
-          should_retrain = should_run and not is_close
+              if is_close:
+                  timeframes = "1d 4h 1h"
+              elif utc_hour == 18 and is_intraday:
+                  timeframes = "4h 1h"
+              else:
+                  timeframes = "1h"
+
+              should_run = is_trading_day and (is_intraday or is_close)
+              should_retrain = should_run and not is_close
 
           # ET timestamp for subject line
           et_now = datetime.now(ZoneInfo("America/New_York"))
@@ -151,7 +160,10 @@ jobs:
               f.write(f'timeframes={timeframes}\n')
               f.write(f'et_time={et_time}\n')
               f.write(f'et_date={et_date}\n')
-          print(f"Market {'OPEN' if is_trading_day else 'CLOSED'} | 1H={send_1h} 4H={send_4h} 1D={send_1d} | tf={timeframes}")
+          if is_manual:
+              print(f"Manual dispatch — forcing run (market {'open' if is_trading_day else 'closed'} on {today})")
+          else:
+              print(f"Market {'OPEN' if is_trading_day else 'CLOSED'} | 1H={send_1h} 4H={send_4h} 1D={send_1d} | tf={timeframes}")
           EOF
 
       # === PIPELINE ===
