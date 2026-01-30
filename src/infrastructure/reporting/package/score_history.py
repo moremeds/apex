@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from src.utils.logging_setup import get_logger
+from src.utils.timezone import now_utc
 
 logger = get_logger(__name__)
 
@@ -28,6 +29,7 @@ class ScoreSnapshot:
     scores: Dict[str, float] = field(default_factory=dict)  # symbol -> composite_score_avg
     trend_states: Dict[str, str] = field(default_factory=dict)  # symbol -> trend_state
     momentum_values: Dict[str, float] = field(default_factory=dict)  # symbol -> ma50_slope
+    tactical_signals: Dict[str, str] = field(default_factory=dict)  # symbol -> tactical_signal
 
 
 @dataclass
@@ -60,6 +62,7 @@ class ScoreHistoryManager:
                         scores=snap.get("scores", {}),
                         trend_states=snap.get("trend_states", {}),
                         momentum_values=snap.get("momentum_values", {}),
+                        tactical_signals=snap.get("tactical_signals", {}),
                     )
                 )
             self.history = ScoreHistory(snapshots=snapshots)
@@ -78,10 +81,11 @@ class ScoreHistoryManager:
             summary: The summary dict (with "tickers" list containing "composite_score_avg")
             timestamp: Override timestamp (defaults to now)
         """
-        ts = (timestamp or datetime.now()).isoformat()
+        ts = (timestamp or now_utc()).isoformat()
         scores: Dict[str, float] = {}
         trend_states: Dict[str, str] = {}
         momentum_values: Dict[str, float] = {}
+        tactical_signals: Dict[str, str] = {}
 
         for ticker in summary.get("tickers", []):
             symbol = ticker.get("symbol")
@@ -102,6 +106,17 @@ class ScoreHistoryManager:
                 if ma50_slope is not None:
                     momentum_values[symbol] = round(float(ma50_slope), 4)
 
+        # Extract tactical signals from dual_macd summary (all timeframes merged)
+        dual_macd = summary.get("dual_macd", {})
+        for tf_data in dual_macd.values():
+            if not isinstance(tf_data, dict):
+                continue
+            for trend in tf_data.get("trends", []):
+                sym = trend.get("symbol")
+                sig = trend.get("tactical_signal")
+                if sym and sig and sig != "NONE":
+                    tactical_signals[sym] = sig
+
         if not scores:
             logger.warning("No composite scores found in summary, skipping snapshot")
             return
@@ -112,6 +127,7 @@ class ScoreHistoryManager:
                 scores=scores,
                 trend_states=trend_states,
                 momentum_values=momentum_values,
+                tactical_signals=tactical_signals,
             )
         )
         self._trim()
@@ -229,6 +245,22 @@ class ScoreHistoryManager:
                         {"symbol": symbol, "prev": prev_val, "curr": curr_val, "delta": delta}
                     )
         changes.sort(key=lambda x: abs(x["delta"]), reverse=True)
+        return changes
+
+    def get_tactical_signal_changes(self) -> List[Dict[str, str]]:
+        """Get symbols where tactical_signal changed vs previous snapshot."""
+        if len(self.history.snapshots) < 2:
+            return []
+        prev = self.history.snapshots[-2]
+        curr = self.history.snapshots[-1]
+        changes: List[Dict[str, str]] = []
+        # Check symbols in either snapshot
+        all_symbols = set(curr.tactical_signals.keys()) | set(prev.tactical_signals.keys())
+        for symbol in all_symbols:
+            curr_sig = curr.tactical_signals.get(symbol, "NONE")
+            prev_sig = prev.tactical_signals.get(symbol, "NONE")
+            if curr_sig != prev_sig:
+                changes.append({"symbol": symbol, "prev": prev_sig, "curr": curr_sig})
         return changes
 
     def to_json_data(self) -> Dict[str, Any]:

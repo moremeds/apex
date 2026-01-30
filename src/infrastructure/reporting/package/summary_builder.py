@@ -18,6 +18,7 @@ from src.domain.signals.data.quality_validator import (
     validate_close_for_regime,
 )
 from src.utils.logging_setup import get_logger
+from src.utils.timezone import now_utc
 
 from .constants import (
     CONFLUENCE_BUDGET_KB,
@@ -148,7 +149,7 @@ class SummaryBuilder:
 
         summary: Dict[str, Any] = {
             "version": PACKAGE_FORMAT_VERSION,
-            "generated_at": datetime.now().isoformat(),
+            "generated_at": now_utc().isoformat(),
             "symbols": symbols,
             "timeframes": timeframes,
             "symbol_count": len(symbols),
@@ -247,6 +248,9 @@ class SummaryBuilder:
             ticker["signal_count"] = by_symbol.get(symbol, 0)
             ticker["buy_signal_count"] = buy_by_symbol.get(symbol, 0)
             ticker["sell_signal_count"] = sell_by_symbol.get(symbol, 0)
+
+        # Dual MACD summary keyed by timeframe
+        summary["dual_macd"] = self._build_dual_macd_summary(data, timeframes)
 
         return summary
 
@@ -543,6 +547,66 @@ class SummaryBuilder:
 
         # Add metadata
         frequency_data["lookback_bars"] = lookback_bars
-        frequency_data["computed_at"] = datetime.now().isoformat()
+        frequency_data["computed_at"] = now_utc().isoformat()
 
         return frequency_data
+
+    def _build_dual_macd_summary(
+        self,
+        data: Dict[Tuple[str, str], pd.DataFrame],
+        timeframes: List[str],
+    ) -> Dict[str, Any]:
+        """
+        Build dual MACD summary keyed by timeframe.
+
+        For each timeframe, compute the last DualMACD state for every symbol,
+        extract alerts (DIP_BUY/RALLY_SELL) and top movers by |slow_hist_delta|.
+
+        Returns:
+            Dict keyed by timeframe, each containing alerts and trends.
+        """
+        from .file_writers import _compute_dual_macd_history_for_key
+
+        result: Dict[str, Any] = {}
+
+        for tf in timeframes:
+            dip_buy: List[str] = []
+            rally_sell: List[str] = []
+            trends: List[Dict[str, Any]] = []
+
+            for (symbol, timeframe), df in data.items():
+                if timeframe != tf:
+                    continue
+                try:
+                    history = _compute_dual_macd_history_for_key(df, timeframe)
+                    if not history:
+                        continue
+                    # history is reversed (newest first), take first row
+                    latest = history[0]
+                    tactical = latest.get("tactical_signal", "NONE")
+                    if tactical == "DIP_BUY":
+                        dip_buy.append(symbol)
+                    elif tactical == "RALLY_SELL":
+                        rally_sell.append(symbol)
+
+                    trends.append(
+                        {
+                            "symbol": symbol,
+                            "slow_hist_delta": latest.get("slow_hist_delta", 0),
+                            "fast_hist_delta": latest.get("fast_hist_delta", 0),
+                            "trend_state": latest.get("trend_state", ""),
+                            "tactical_signal": tactical,
+                            "confidence": latest.get("confidence", 0),
+                        }
+                    )
+                except Exception as e:
+                    logger.debug(f"DualMACD summary failed for {symbol}_{tf}: {e}")
+
+            # Sort by |slow_hist_delta| desc, keep top 10
+            trends.sort(key=lambda t: abs(t.get("slow_hist_delta", 0)), reverse=True)
+            result[tf] = {
+                "alerts": {"dip_buy": sorted(dip_buy), "rally_sell": sorted(rally_sell)},
+                "trends": trends[:10],
+            }
+
+        return result

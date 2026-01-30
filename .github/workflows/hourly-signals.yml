@@ -231,6 +231,7 @@ jobs:
                   "out/signals/data/summary.json",
                   history_path="out/signals/data/score_history.json",
                   report_label=label,
+                  display_timezone="Asia/Hong_Kong",
               )
               with open(f"email_body_{tag}.txt", "w") as f:
                   f.write(text)
