@@ -100,10 +100,14 @@ jobs:
           today = date.today()
           schedule = nyse.schedule(start_date=today, end_date=today)
 
-          is_open = "true" if not schedule.empty else "false"
+          is_manual = os.environ.get('GITHUB_EVENT_NAME') == 'workflow_dispatch'
+          is_open = "true" if (is_manual or not schedule.empty) else "false"
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               f.write(f'is_open={is_open}\n')
-          print(f"Market is {'OPEN' if not schedule.empty else 'CLOSED'} on {today}")
+          if is_manual:
+              print(f"Manual dispatch — forcing run (market {'open' if not schedule.empty else 'closed'} on {today})")
+          else:
+              print(f"Market is {'OPEN' if not schedule.empty else 'CLOSED'} on {today}")
           EOF
 
       # === MATCH MAKE SIGNALS-DEPLOY EXACTLY ===
