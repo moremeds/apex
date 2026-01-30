@@ -66,7 +66,7 @@ jobs:
 
       - name: Cache TA-Lib
         id: cache-talib
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/ta-lib-install
           key: talib-0.6.4-${{ runner.os }}-${{ runner.arch }}
@@ -247,7 +247,7 @@ jobs:
       - name: "Send email: 1H"
         if: steps.market-check.outputs.send_1h == 'true'
         continue-on-error: true
-        uses: dawidd6/action-send-mail@v3
+        uses: dawidd6/action-send-mail@v8
         with:
           server_address: ${{ secrets.SMTP_SERVER }}
           server_port: ${{ secrets.SMTP_PORT || 587 }}
@@ -263,7 +263,7 @@ jobs:
       - name: "Send email: 4H"
         if: steps.market-check.outputs.send_4h == 'true'
         continue-on-error: true
-        uses: dawidd6/action-send-mail@v3
+        uses: dawidd6/action-send-mail@v8
         with:
           server_address: ${{ secrets.SMTP_SERVER }}
           server_port: ${{ secrets.SMTP_PORT || 587 }}
@@ -279,7 +279,7 @@ jobs:
       - name: "Send email: 1D"
         if: steps.market-check.outputs.send_1d == 'true'
         continue-on-error: true
-        uses: dawidd6/action-send-mail@v3
+        uses: dawidd6/action-send-mail@v8
         with:
           server_address: ${{ secrets.SMTP_SERVER }}
           server_port: ${{ secrets.SMTP_PORT || 587 }}
@@ -298,7 +298,7 @@ jobs:
 
       - name: Upload report artifact
         if: steps.market-check.outputs.should_run == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: signal-report-${{ github.run_id }}
           path: out/signals/
