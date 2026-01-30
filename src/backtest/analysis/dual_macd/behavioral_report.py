@@ -594,7 +594,7 @@ def generate_summary_report(
     sections = [
         _summary_header(start_date, end_date, params, len(results)),
         _summary_aggregate_cards(agg),
-        _summary_symbol_table(results, symbol_to_sector, gate_policies),
+        _summary_symbol_table(results, start_date, end_date, symbol_to_sector, gate_policies),
         _summary_policy_breakdown(results),
         _summary_loss_ratio_chart(results),
         _summary_blocked_pnl_scatter(results),
@@ -753,11 +753,14 @@ def _summary_aggregate_cards(a: _AggMetrics) -> str:
 
 def _summary_symbol_table(
     results: List[SymbolResult],
+    start_date: date,
+    end_date: date,
     symbol_to_sector: Optional[Dict[str, str]] = None,
     gate_policies: Optional[Dict[str, Any]] = None,
 ) -> str:
     s2s = symbol_to_sector or {}
     gp = gate_policies or {}
+    link_stub = f"{start_date}_{end_date}"
 
     rows = []
     for r in results:
@@ -792,7 +795,7 @@ def _summary_symbol_table(
 
         rows.append(f"""
             <tr>
-                <td><a class="symbol-link" href="{r.symbol}_{{link_stub}}.html">{r.symbol}</a></td>
+                <td><a class="symbol-link" href="{r.symbol}_{link_stub}.html">{r.symbol}</a></td>
                 <td>{sector}</td>
                 <td><span class="badge {policy_badge_class}">{policy_str}</span></td>
                 <td>{m.baseline_trade_count}</td>

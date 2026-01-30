@@ -299,6 +299,15 @@ behavioral:
 	@echo "$(YELLOW)Press Ctrl+C to stop$(RESET)"
 	@cd out/behavioral && python3 -m http.server 8081
 
+# Predefined case studies (market episodes)
+behavioral-cases:
+	@echo "$(BOLD)Running predefined behavioral case studies...$(RESET)"
+	$(PYTHON) -m src.backtest.runner --behavioral-cases
+	@echo "$(GREEN)✓ Reports: out/behavioral/$(RESET)"
+	@echo "$(BOLD)Serving at http://localhost:8081$(RESET)"
+	@echo "$(YELLOW)Press Ctrl+C to stop$(RESET)"
+	@cd out/behavioral && python3 -m http.server 8081
+
 # Full pipeline: Optuna optimization + walk-forward + auto-clustering
 behavioral-full:
 	@echo "$(BOLD)Full behavioral gate optimization pipeline...$(RESET)"

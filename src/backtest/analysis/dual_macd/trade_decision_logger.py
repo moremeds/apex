@@ -108,6 +108,7 @@ class TradeDecisionLogger:
             virtual_entry_price=old.virtual_entry_price,
             virtual_exit_price=exit_price,
             virtual_pnl_pct=pnl_pct,
+            size_factor=old.size_factor,
         )
 
     def resolve_all_counterfactuals(
