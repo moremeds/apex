@@ -1,10 +1,44 @@
 """
 Behavioral gate validation runner.
 
-Orchestrates DualMACD behavioral gate validation:
+Answers: "Does the DualMACD gate block more losers than winners?"
+
+Pipeline:
+1. Load daily OHLCV bars per symbol (2018-2025).
+2. Generate baseline entries via the base strategy (MA Cross 10/50)
+   as if the gate didn't exist.
+3. Apply the gate: for every baseline entry bar, evaluate DualMACD trend state.
+   - BULLISH / IMPROVING → ENTER (always allowed)
+   - DETERIORATING / BEARISH → look up GatePolicy for the symbol:
+       BLOCK     → entry prevented (allowed=False)
+       SIZE_DOWN → entry at reduced size (allowed=True, size_factor < 1)
+       BYPASS    → entry at full size (allowed=True, gate has no edge)
+   Every decision is logged as a TradeDecision.
+4. Resolve counterfactual PnL for every non-ENTER decision:
+   - Find the next base strategy exit bar after entry.
+   - Compute PnL = (exit_price - entry_price) / entry_price.
+   - BLOCK:     full virtual PnL (trade didn't happen, hypothetical).
+   - SIZE_DOWN: PnL × size_factor (trade happened at reduced size).
+   - BYPASS:    full PnL (trade happened normally).
+5. Compute metrics from all resolved decisions:
+   - Blocked Loss Ratio: % of blocked trades that would have lost (≥60%).
+   - Blocked Avg PnL:    average virtual PnL of blocked trades (want negative).
+   - Trade Freedom:       % of baseline entries still allowed (≥70%).
+   - SIZE_DOWN Avg PnL:   how size-reduced trades actually performed.
+   - BYPASS Avg PnL:      how bypassed trades actually performed.
+6. Output:
+   - Per-symbol HTML report (price chart, MACD timeline, blocked trade table).
+   - Summary HTML across all symbols.
+   - JSONL decision log per symbol.
+   - (with --cluster) candidate gate policy YAML via auto-clustering.
+
+NOTE: This does NOT simulate portfolio equity or position management.
+It evaluates whether the gate's block/allow decisions correlate with
+trade outcomes. It is a gate quality test, not a strategy backtest.
+
+Modes:
 - Single run (make behavioral): default params, all symbols, HTML report
-- Full optimization (make behavioral-full): Optuna grid search across
-  slope_lookback × hist_norm_window, per-symbol reports + optimization summary
+- Full optimization (make behavioral-full): Optuna grid + auto-clustering
 - Case studies (make behavioral-cases): predefined market episodes
 """
 
@@ -14,18 +48,19 @@ import argparse
 import logging
 from datetime import date
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import pandas as pd
 import yaml
 
-from src.backtest.analysis.behavioral_models import GatePolicy
+from src.backtest.analysis.dual_macd.behavioral_models import GatePolicy
 
 logger = logging.getLogger(__name__)
 
 OUTPUT_DIR = Path("out/behavioral")
 UNIVERSE_PATH = Path("config/universe.yaml")
 BEHAVIORAL_SPEC_PATH = Path("config/backtest/dual_macd_behavioral.yaml")
+GATE_POLICY_CLUSTERS_PATH = Path("config/gate_policy_clusters.yaml")
 
 
 def _resolve_symbols(args: argparse.Namespace, subset: str = "quick_test") -> list[str]:
@@ -57,7 +92,10 @@ def _load_spec_config() -> Dict[str, Any]:
 
 
 def _load_gate_policies(spec: Dict[str, Any]) -> Dict[str, GatePolicy]:
-    """Parse gate_policies from YAML spec into GatePolicy objects."""
+    """Parse gate_policies from YAML spec into GatePolicy objects.
+
+    Also loads from gate_policy_clusters.yaml if status is 'active'.
+    """
     raw = spec.get("gate_policies", {})
     policies: Dict[str, GatePolicy] = {}
     for key, value in raw.items():
@@ -68,6 +106,35 @@ def _load_gate_policies(spec: Dict[str, Any]) -> Dict[str, GatePolicy]:
             )
         else:
             policies[key] = GatePolicy(action_on_block="BLOCK")
+
+    # Merge cluster-based policies if active
+    cluster_policies = _load_cluster_policies()
+    if cluster_policies:
+        policies.update(cluster_policies)
+
+    return policies
+
+
+def _load_cluster_policies() -> Dict[str, GatePolicy]:
+    """Load per-symbol gate policies from gate_policy_clusters.yaml if status=active."""
+    if not GATE_POLICY_CLUSTERS_PATH.exists():
+        return {}
+
+    data = yaml.safe_load(GATE_POLICY_CLUSTERS_PATH.read_text()) or {}
+    if data.get("status") != "active":
+        logger.info(f"gate_policy_clusters.yaml status={data.get('status', 'unknown')}, skipping")
+        return {}
+
+    policies: Dict[str, GatePolicy] = {}
+    clusters = data.get("clusters", {})
+    for cluster_name, cluster_cfg in clusters.items():
+        action = cluster_cfg.get("action_on_block", "BLOCK")
+        size_factor = cluster_cfg.get("size_factor", 0.5 if action == "SIZE_DOWN" else 1.0)
+        policy = GatePolicy(action_on_block=action, size_factor=size_factor)
+        for sym in cluster_cfg.get("symbols", []):
+            policies[sym.upper()] = policy
+
+    logger.info(f"Loaded {len(policies)} symbol policies from gate_policy_clusters.yaml")
     return policies
 
 
@@ -111,13 +178,23 @@ async def run_behavioral_validation(args: argparse.Namespace) -> None:
     spec_path = getattr(args, "spec", None)
     if spec_path:
         logger.info(f"Running full optimization from {spec_path}...")
-        await _run_optimization(args)
-        return
+        symbol_results, best_params = await _run_optimization(args)
+    else:
+        # Single run mode (default params)
+        slope_lookback = getattr(args, "slope_lookback", 3)
+        hist_norm_window = getattr(args, "hist_norm_window", 252)
+        symbol_results = await _run_single(args, slope_lookback, hist_norm_window)
+        best_params = {"slope_lookback": slope_lookback, "hist_norm_window": hist_norm_window}
 
-    # Single run mode (default params)
-    slope_lookback = getattr(args, "slope_lookback", 3)
-    hist_norm_window = getattr(args, "hist_norm_window", 252)
-    await _run_single(args, slope_lookback, hist_norm_window)
+    # Auto-clustering (--cluster flag): dry-run only, prints diff
+    if getattr(args, "cluster", False) and symbol_results:
+        from src.backtest.analysis.dual_macd.gate_policy_clustering import generate_cluster_policies
+
+        generate_cluster_policies(
+            results=symbol_results,
+            source_params=best_params,
+            output_path=GATE_POLICY_CLUSTERS_PATH,
+        )
 
 
 # ── Single run (default params) ──────────────────────────────
@@ -127,15 +204,13 @@ async def _run_single(
     args: argparse.Namespace,
     slope_lookback: int,
     hist_norm_window: int,
-) -> None:
+) -> list:
     """Run behavioral gate with fixed params across all symbols."""
-    from src.domain.strategy.signals.dual_macd_gate import DualMACDGateSignalGenerator
     from src.domain.strategy.signals.ma_cross import MACrossSignalGenerator
 
-    from .analysis.behavioral_metrics import BehavioralMetricsCalculator
-    from .analysis.behavioral_report import (
+    from src.backtest.analysis.dual_macd.behavioral_metrics import BehavioralMetricsCalculator
+    from src.backtest.analysis.dual_macd.behavioral_report import (
         SymbolResult,
-        generate_behavioral_report,
         generate_summary_report,
     )
     from .runner import prefetch_data
@@ -227,22 +302,25 @@ async def _run_single(
         )
         print(f"\nSummary report: {summary_path}")
 
+    return symbol_results
+
 
 # ── Full optimization (Optuna) ───────────────────────────────
 
 
-async def _run_optimization(args: argparse.Namespace) -> None:
+async def _run_optimization(
+    args: argparse.Namespace,
+) -> tuple[list, Dict[str, Any]]:
     """Run Optuna grid search over slope_lookback × hist_norm_window."""
     import optuna
 
     from src.domain.strategy.signals.dual_macd_gate import DualMACDGateSignalGenerator
     from src.domain.strategy.signals.ma_cross import MACrossSignalGenerator
 
-    from .analysis.behavioral_metrics import BehavioralMetricsCalculator
-    from .analysis.behavioral_models import BehavioralMetrics
-    from .analysis.behavioral_report import (
+    from src.backtest.analysis.dual_macd.behavioral_metrics import BehavioralMetricsCalculator
+    from src.backtest.analysis.dual_macd.behavioral_models import BehavioralMetrics
+    from src.backtest.analysis.dual_macd.behavioral_report import (
         SymbolResult,
-        generate_behavioral_report,
         generate_summary_report,
     )
     from .optimization.behavioral_objective import BehavioralObjective
@@ -421,6 +499,8 @@ async def _run_optimization(args: argparse.Namespace) -> None:
         )
         print(f"\nSummary report: {summary_path}")
 
+    return symbol_results, {"slope_lookback": best_sl, "hist_norm_window": best_hnw}
+
 
 def _build_heatmap(study: Any) -> Dict[str, Any]:
     """Build heatmap data from Optuna study for the HTML report."""
@@ -464,8 +544,8 @@ async def _run_case_studies(
     """Run predefined case studies."""
     from src.domain.strategy.signals.ma_cross import MACrossSignalGenerator
 
-    from .analysis.behavioral_report import generate_behavioral_report
-    from .analysis.case_study import PREDEFINED_CASES, CaseStudyRunner
+    from src.backtest.analysis.dual_macd.behavioral_report import generate_behavioral_report
+    from src.backtest.analysis.dual_macd.case_study import PREDEFINED_CASES, CaseStudyRunner
     from .runner import prefetch_data
 
     base_generator = MACrossSignalGenerator()
@@ -549,8 +629,6 @@ def _run_gate_for_symbol(
     """Run gate on a single symbol, return (metrics, decision_logger, macd_states)."""
     from src.domain.signals.indicators.momentum.dual_macd import DualMACDIndicator
 
-    from .analysis.trade_decision_logger import TradeDecisionLogger
-
     gate = _make_gate(
         base_generator,
         slope_lookback,
@@ -627,7 +705,7 @@ def _write_symbol_report(
     symbol_to_sector: Optional[Dict[str, str]] = None,
 ) -> None:
     """Write HTML report + JSONL for a single symbol."""
-    from .analysis.behavioral_report import generate_behavioral_report
+    from src.backtest.analysis.dual_macd.behavioral_report import generate_behavioral_report
 
     params_with_symbol = {**base_params, "symbol": symbol}
     baseline_entries, _ = base_generator.generate(data, params_with_symbol)
@@ -675,4 +753,6 @@ def _print_symbol_summary(symbol: str, metrics: Any) -> None:
     print(f"Blocked avg PnL:         {metrics.blocked_trade_avg_pnl:+.2%}")
     print(f"Trade freedom:           {metrics.allowed_trade_ratio:.2%}")
     print(f"Size-down actions:       {metrics.size_down_count}")
+    print(f"Size-down avg PnL:       {metrics.size_down_avg_pnl:+.2%}")
     print(f"Bypass actions:          {metrics.bypass_count}")
+    print(f"Bypass avg PnL:          {metrics.bypass_avg_pnl:+.2%}")

@@ -839,7 +839,7 @@ def _summary_symbol_table(
 
 
 def _summary_policy_breakdown(results: List[SymbolResult]) -> str:
-    """Show BLOCK vs SIZE_DOWN vs BYPASS behavior comparison."""
+    """Show BLOCK vs SIZE_DOWN vs BYPASS behavior comparison with resolved PnL."""
     # Aggregate by action type
     action_stats: Dict[str, Dict[str, float]] = {}
     for r in results:
@@ -848,11 +848,17 @@ def _summary_policy_breakdown(results: List[SymbolResult]) -> str:
             if action not in ("BLOCK", "SIZE_DOWN", "BYPASS"):
                 continue
             if action not in action_stats:
-                action_stats[action] = {"count": 0, "pnl_sum": 0.0, "pnl_count": 0}
+                action_stats[action] = {
+                    "count": 0,
+                    "pnl_sum": 0.0,
+                    "pnl_count": 0,
+                    "resolved": 0,
+                }
             action_stats[action]["count"] += 1
             if d.virtual_pnl_pct is not None:
                 action_stats[action]["pnl_sum"] += d.virtual_pnl_pct
                 action_stats[action]["pnl_count"] += 1
+                action_stats[action]["resolved"] += 1
 
     if not action_stats:
         return ""
@@ -863,16 +869,18 @@ def _summary_policy_breakdown(results: List[SymbolResult]) -> str:
         if not stats:
             continue
         avg_pnl = stats["pnl_sum"] / stats["pnl_count"] if stats["pnl_count"] > 0 else 0.0
+        resolved = int(stats["resolved"])
+        total = int(stats["count"])
         pnl_class = "pass" if avg_pnl <= 0 else "fail"
         note = {
             "BLOCK": "Entry fully prevented",
-            "SIZE_DOWN": "Entry allowed at reduced size",
-            "BYPASS": "Gate not applicable — no information advantage",
+            "SIZE_DOWN": f"Entry at reduced size ({resolved}/{total} resolved)",
+            "BYPASS": f"Gate bypassed ({resolved}/{total} resolved)",
         }.get(action, "")
         rows.append(f"""
             <tr>
                 <td><strong>{action}</strong></td>
-                <td>{int(stats['count'])}</td>
+                <td>{total}</td>
                 <td class="{pnl_class}">{avg_pnl:+.2%}</td>
                 <td style="color:#94a3b8;">{note}</td>
             </tr>

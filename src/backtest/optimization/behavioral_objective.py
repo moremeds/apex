@@ -8,13 +8,13 @@ NOT alpha or PnL. Hard constraints prune bad trials early.
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Dict, Optional
+from typing import Callable
 
 from optuna import Trial
 from optuna.exceptions import TrialPruned
 
-from ..analysis.behavioral_metrics import BehavioralMetricsCalculator
-from ..analysis.behavioral_models import BehavioralMetrics
+from src.backtest.analysis.dual_macd.behavioral_metrics import BehavioralMetricsCalculator
+from src.backtest.analysis.dual_macd.behavioral_models import BehavioralMetrics
 
 logger = logging.getLogger(__name__)
 

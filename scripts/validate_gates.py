@@ -437,7 +437,7 @@ def check_g5_metric_drift(
 
     # Use SnapshotBuilder.diff() if available
     try:
-        from src.domain.signals.reporting.snapshot_builder import SnapshotBuilder
+        from src.infrastructure.reporting.snapshot_builder import SnapshotBuilder
 
         builder = SnapshotBuilder()
         diff = builder.diff(old, new)

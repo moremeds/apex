@@ -89,6 +89,10 @@ class BehavioralMetrics:
     size_down_count: int = 0
     bypass_count: int = 0
 
+    # Per-action average virtual PnL (resolved counterfactuals)
+    size_down_avg_pnl: float = 0.0
+    bypass_avg_pnl: float = 0.0
+
     # Derived ratios
     @property
     def allowed_trade_ratio(self) -> float:

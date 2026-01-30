@@ -17,9 +17,13 @@ import pandas as pd
 
 from src.domain.strategy.signals.dual_macd_gate import DualMACDGateSignalGenerator
 
-from .behavioral_metrics import BehavioralMetricsCalculator
-from .behavioral_models import BehavioralMetrics, BehavioralRunConfig, GatePolicy
-from .trade_decision_logger import TradeDecisionLogger
+from src.backtest.analysis.dual_macd.behavioral_metrics import BehavioralMetricsCalculator
+from src.backtest.analysis.dual_macd.behavioral_models import (
+    BehavioralMetrics,
+    BehavioralRunConfig,
+    GatePolicy,
+)
+from src.backtest.analysis.dual_macd.trade_decision_logger import TradeDecisionLogger
 
 logger = logging.getLogger(__name__)
 

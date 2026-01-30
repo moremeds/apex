@@ -42,8 +42,15 @@ class TradeDecisionLogger:
         idx = len(self._decisions)
         self._decisions.append(decision)
 
-        # Track blocked trades that need counterfactual exit resolution
-        if not decision.allowed and decision.virtual_exit_price is None:
+        # Track trades that need counterfactual exit resolution:
+        # - Blocked trades (allowed=False): full counterfactual PnL
+        # - SIZE_DOWN trades: PnL scaled by size_factor
+        # - BYPASS trades: full PnL (gate has no information advantage)
+        needs_resolution = (not decision.allowed) or decision.action in (
+            "SIZE_DOWN",
+            "BYPASS",
+        )
+        if needs_resolution and decision.virtual_exit_price is None:
             key = (decision.symbol, decision.timestamp)
             self._pending_exits[key] = idx
 
@@ -78,6 +85,10 @@ class TradeDecisionLogger:
             pnl_pct = (exit_price - entry_price) / entry_price
         else:
             pnl_pct = (entry_price - exit_price) / entry_price
+
+        # SIZE_DOWN: scale PnL by size_factor to reflect reduced position
+        if old.action == "SIZE_DOWN":
+            pnl_pct = pnl_pct * old.size_factor
 
         # Replace with resolved version (frozen dataclass → reconstruct)
         self._decisions[idx] = TradeDecision(
@@ -171,6 +182,7 @@ class TradeDecisionLogger:
                     "virtual_entry_price": d.virtual_entry_price,
                     "virtual_exit_price": d.virtual_exit_price,
                     "virtual_pnl_pct": d.virtual_pnl_pct,
+                    "size_factor": d.size_factor,
                 }
             )
         return pd.DataFrame(records)
@@ -197,6 +209,7 @@ class TradeDecisionLogger:
                     "virtual_entry_price": d.virtual_entry_price,
                     "virtual_exit_price": d.virtual_exit_price,
                     "virtual_pnl_pct": d.virtual_pnl_pct,
+                    "size_factor": d.size_factor,
                 }
                 f.write(json.dumps(record) + "\n")
 

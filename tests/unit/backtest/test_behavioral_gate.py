@@ -16,11 +16,14 @@ from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 import pandas as pd
-import pytest
 
-from src.backtest.analysis.behavioral_metrics import BehavioralMetricsCalculator
-from src.backtest.analysis.behavioral_models import BehavioralMetrics, GatePolicy, TradeDecision
-from src.backtest.analysis.trade_decision_logger import TradeDecisionLogger
+from src.backtest.analysis.dual_macd.behavioral_metrics import BehavioralMetricsCalculator
+from src.backtest.analysis.dual_macd.behavioral_models import (
+    BehavioralMetrics,
+    GatePolicy,
+    TradeDecision,
+)
+from src.backtest.analysis.dual_macd.trade_decision_logger import TradeDecisionLogger
 from src.domain.strategy.signals.dual_macd_gate import DualMACDGateSignalGenerator
 
 # ── Fixtures ──────────────────────────────────────────────────

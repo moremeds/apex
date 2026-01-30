@@ -72,6 +72,25 @@ class BehavioralMetricsCalculator:
         size_down_count = sum(1 for d in decisions if d.action == "SIZE_DOWN")
         bypass_count = sum(1 for d in decisions if d.action == "BYPASS")
 
+        # Per-action average PnL from resolved counterfactuals
+        size_down_with_pnl = [
+            d for d in decisions if d.action == "SIZE_DOWN" and d.virtual_pnl_pct is not None
+        ]
+        size_down_avg_pnl = (
+            float(np.mean([d.virtual_pnl_pct for d in size_down_with_pnl]))  # type: ignore[misc]
+            if size_down_with_pnl
+            else 0.0
+        )
+
+        bypass_with_pnl = [
+            d for d in decisions if d.action == "BYPASS" and d.virtual_pnl_pct is not None
+        ]
+        bypass_avg_pnl = (
+            float(np.mean([d.virtual_pnl_pct for d in bypass_with_pnl]))  # type: ignore[misc]
+            if bypass_with_pnl
+            else 0.0
+        )
+
         return BehavioralMetrics(
             blocked_trade_loss_ratio=blocked_trade_loss_ratio,
             blocked_trade_avg_pnl=blocked_trade_avg_pnl,
@@ -83,6 +102,8 @@ class BehavioralMetricsCalculator:
             baseline_trade_count=len(decisions),
             size_down_count=size_down_count,
             bypass_count=bypass_count,
+            size_down_avg_pnl=size_down_avg_pnl,
+            bypass_avg_pnl=bypass_avg_pnl,
         )
 
     def passes_hard_constraints(self, metrics: BehavioralMetrics) -> bool:

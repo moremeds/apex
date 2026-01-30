@@ -299,12 +299,13 @@ behavioral:
 	@echo "$(YELLOW)Press Ctrl+C to stop$(RESET)"
 	@cd out/behavioral && python3 -m http.server 8081
 
-# Full pipeline: Optuna optimization + regime walk-forward + case studies
+# Full pipeline: Optuna optimization + walk-forward + auto-clustering
 behavioral-full:
 	@echo "$(BOLD)Full behavioral gate optimization pipeline...$(RESET)"
-	$(PYTHON) -m src.backtest.runner --behavioral \
+	$(PYTHON) -m src.backtest.runner --behavioral --cluster \
 		--spec config/backtest/dual_macd_behavioral.yaml
 	@echo "$(GREEN)✓ Reports: out/behavioral/$(RESET)"
+	@echo "$(GREEN)✓ Cluster candidate: config/gate_policy_clusters.yaml$(RESET)"
 	@echo "$(BOLD)Serving at http://localhost:8081$(RESET)"
 	@echo "$(YELLOW)Press Ctrl+C to stop$(RESET)"
 	@cd out/behavioral && python3 -m http.server 8081

@@ -172,6 +172,11 @@ Examples:
         help="Run predefined behavioral case studies",
     )
     parser.add_argument(
+        "--cluster",
+        action="store_true",
+        help="After behavioral run, auto-cluster symbols into gate policy buckets (dry-run)",
+    )
+    parser.add_argument(
         "--slope-lookback",
         type=int,
         default=3,

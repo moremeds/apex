@@ -19,8 +19,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 
-from src.backtest.analysis.behavioral_models import GatePolicy, TradeDecision
-from src.backtest.analysis.trade_decision_logger import TradeDecisionLogger
+from src.backtest.analysis.dual_macd.behavioral_models import GatePolicy, TradeDecision
+from src.backtest.analysis.dual_macd.trade_decision_logger import TradeDecisionLogger
 from src.domain.signals.indicators.momentum.dual_macd import (
     DualMACDConfig,
     DualMACDIndicator,
@@ -188,13 +188,21 @@ class DualMACDGateSignalGenerator:
         return mask
 
     def _get_policy_for_symbol(self, symbol: str) -> GatePolicy:
-        """Resolve gate policy for a symbol via sector lookup."""
+        """Resolve gate policy: symbol-level first, then sector, then default."""
         if not self._gate_policies:
             return GatePolicy(action_on_block="BLOCK")
 
-        sector = self._symbol_to_sector.get(symbol.upper(), "")
+        sym = symbol.upper()
+
+        # 1. Direct symbol lookup (from cluster policies)
+        if sym in self._gate_policies:
+            return self._gate_policies[sym]
+
+        # 2. Sector lookup
+        sector = self._symbol_to_sector.get(sym, "")
         if sector in self._gate_policies:
             return self._gate_policies[sector]
+
         return self._gate_policies.get("default", GatePolicy(action_on_block="BLOCK"))
 
     def _evaluate_gate(
