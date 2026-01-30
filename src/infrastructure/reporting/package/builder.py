@@ -7,7 +7,6 @@ Generates a complete package with heatmap landing page, data files, and assets.
 
 from __future__ import annotations
 
-
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
