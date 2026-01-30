@@ -12,19 +12,26 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from src.infrastructure.reporting.heatmap.etf_dashboard import REGIME_NAMES
-from src.infrastructure.reporting.heatmap.extractors import extract_regime
 from src.infrastructure.reporting.heatmap.model import (
     ETF_CONFIG,
     MARKET_ETFS,
 )
 from src.infrastructure.reporting.package.score_history import ScoreHistoryManager
+from src.utils.timezone import DisplayTimezone
+
+# Report label → timeframe mapping for Dual MACD
+_LABEL_TO_TF: Dict[str, str] = {
+    "Intraday 1H": "1h",
+    "Intraday 4H": "4h",
+    "End of Day": "1d",
+}
 
 
 def render_email_text(
     summary_path: str | Path,
     history_path: Optional[str | Path] = None,
     report_label: Optional[str] = None,
+    display_timezone: str = "Asia/Hong_Kong",
 ) -> str:
     """
     Render summary.json as plain-text email body.
@@ -33,6 +40,7 @@ def render_email_text(
         summary_path: Path to summary.json from signal pipeline.
         history_path: Path to score_history.json for delta computation.
         report_label: Time-of-day label (e.g. "Intraday 1H", "End of Day").
+        display_timezone: IANA timezone for timestamp display.
 
     Returns:
         Plain-text string (≤40 chars wide) suitable for email body.
@@ -46,26 +54,29 @@ def render_email_text(
         history_mgr.load(Path(history_path))
 
     # Timestamp
-    timestamp_str = _format_timestamp(summary_data.get("generated_at"))
+    timestamp_str = _format_timestamp(summary_data.get("generated_at"), display_timezone)
 
     sector_symbols = list(ETF_CONFIG["sectors"]["symbols"])
 
     lines: List[str] = []
-    title = f"APEX {report_label}" if report_label else "APEX Signal Report"
+    title = f"📊 APEX {report_label}" if report_label else "📊 APEX Signal Report"
     lines.append(title)
     lines.append(timestamp_str)
     lines.append("═" * 36)
     lines.append("")
 
+    # Dual MACD alerts section (at TOP, before market)
+    _append_dual_macd_alerts(lines, summary_data, report_label)
+
     # Market section
-    lines.append("MARKET")
+    lines.append("📈 MARKET (Δ Price | Score)")
     lines.append("─" * 36)
     for symbol in MARKET_ETFS:
         lines.append(_format_market_line(tickers.get(symbol, {}), symbol))
     lines.append("")
 
     # Sectors — two columns
-    lines.append("SECTORS")
+    lines.append("🏢 SECTORS (Δ Price)")
     lines.append("─" * 36)
     for i in range(0, len(sector_symbols), 2):
         left = _format_sector_cell(tickers.get(sector_symbols[i], {}), sector_symbols[i])
@@ -78,21 +89,26 @@ def render_email_text(
             lines.append(left)
     lines.append("")
 
-    # Regime distribution
-    lines.append("REGIME DISTRIBUTION")
+    # Score distribution (replaces regime distribution)
+    lines.append("📊 SCORE DISTRIBUTION")
     lines.append("─" * 36)
-    regime_counts = _count_regimes(summary_data)
-    total = sum(regime_counts.values()) or 1
-    for regime, count in regime_counts.items():
-        name = REGIME_NAMES.get(regime, regime)
+    bands = _count_score_bands(summary_data)
+    total = sum(bands.values()) or 1
+    for emoji, label, count in [
+        ("🟢", "Strong (70-100)", bands["strong"]),
+        ("🟡", "Neutral (30-70)", bands["neutral"]),
+        ("🔴", "Weak (0-30)", bands["weak"]),
+        ("⚪", "No Data", bands["no_data"]),
+    ]:
         pct = (count / total) * 100
-        # Truncate name to fit
-        short_name = name[:15].ljust(15)
-        lines.append(f"■ {regime} {short_name} {count:>3} stocks ({pct:.0f}%)")
+        lines.append(f"{emoji} {label:<18} {count:>3} ({pct:.0f}%)")
     lines.append("")
 
     # Changes section
     _append_changes_section(lines, history_mgr)
+
+    # Dual MACD signal changes
+    _append_dual_macd_signal_changes(lines, history_mgr)
 
     # Footer
     lines.append("─" * 36)
@@ -101,44 +117,97 @@ def render_email_text(
     return "\n".join(lines)
 
 
-def _format_timestamp(generated_at: Optional[str]) -> str:
+def _format_timestamp(generated_at: Optional[str], display_timezone: str = "Asia/Hong_Kong") -> str:
     if generated_at:
         try:
+            # Parse ISO string, handle Z suffix
             dt = datetime.fromisoformat(generated_at.replace("Z", "+00:00"))
-            return dt.strftime("%b %d, %Y %I:%M %p ET")
+            # If naive, assume UTC
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            # Convert to display timezone
+            disp = DisplayTimezone(display_timezone)
+            return disp.format_with_tz(dt, fmt="%b %d, %Y %I:%M %p %Z")
         except (ValueError, AttributeError):
             return generated_at
-    return datetime.now(tz=timezone.utc).strftime("%b %d, %Y %I:%M %p")
+    return datetime.now(tz=timezone.utc).strftime("%b %d, %Y %I:%M %p UTC")
 
 
 def _format_market_line(ticker: Dict[str, Any], symbol: str) -> str:
-    """Format: SPY  R0 Healthy    +0.8%  Score: 72"""
-    regime = extract_regime(ticker) or "—"
-    name = REGIME_NAMES.get(regime, "")
-    # Truncate regime name to 10 chars
-    short_name = name[:10].ljust(10) if name else "          "
+    """Format: 🟢 SPY  +0.3%  Score: 46"""
     change = ticker.get("daily_change_pct")
     change_str = f"{change:+.1f}%" if change is not None else "     "
+    emoji = "🟢" if change is not None and change >= 0 else "🔴"
     score = ticker.get("composite_score_avg")
     score_str = f"Score: {score:.0f}" if score is not None else ""
-    return f"{symbol:<4} {regime:<2} {short_name} {change_str:>6}  {score_str}"
+    return f"{emoji} {symbol:<4} {change_str:>6}  {score_str}"
 
 
 def _format_sector_cell(ticker: Dict[str, Any], symbol: str) -> str:
-    """Format: XLK  R0  +1.1%"""
-    regime = extract_regime(ticker) or "—"
+    """Format: XLK  +1.1%"""
     change = ticker.get("daily_change_pct")
     change_str = f"{change:+.1f}%" if change is not None else "     "
-    return f"{symbol:<4} {regime:<2} {change_str:>6}"
+    return f"{symbol:<4} {change_str:>6}"
 
 
-def _count_regimes(summary: Dict[str, Any]) -> Dict[str, int]:
-    counts: Dict[str, int] = {"R0": 0, "R1": 0, "R2": 0, "R3": 0}
+def _count_score_bands(summary: Dict[str, Any]) -> Dict[str, int]:
+    """Count tickers by composite score band."""
+    bands = {"strong": 0, "neutral": 0, "weak": 0, "no_data": 0}
     for ticker in summary.get("tickers", []):
-        regime = extract_regime(ticker)
-        if regime in counts:
-            counts[regime] += 1
-    return counts
+        score = ticker.get("composite_score_avg")
+        if score is None:
+            bands["no_data"] += 1
+        elif score >= 70:
+            bands["strong"] += 1
+        elif score >= 30:
+            bands["neutral"] += 1
+        else:
+            bands["weak"] += 1
+    return bands
+
+
+def _append_dual_macd_alerts(
+    lines: List[str],
+    summary_data: Dict[str, Any],
+    report_label: Optional[str],
+) -> None:
+    """Append ALERTS section from dual MACD data, at top of email."""
+    dual_macd = summary_data.get("dual_macd")
+    if not dual_macd:
+        return
+
+    # Pick timeframe based on report label
+    tf = _LABEL_TO_TF.get(report_label or "", "1d")
+    tf_data = dual_macd.get(tf) or dual_macd.get("1d") or {}
+    alerts = tf_data.get("alerts", {})
+    trends = tf_data.get("trends", [])
+
+    dip_buy = alerts.get("dip_buy", [])
+    rally_sell = alerts.get("rally_sell", [])
+
+    if not dip_buy and not rally_sell and not trends:
+        return
+
+    lines.append("🚨 ALERTS")
+    lines.append("═" * 36)
+
+    if dip_buy:
+        lines.append(f"💚 DIP BUY:   {', '.join(dip_buy)}")
+    if rally_sell:
+        lines.append(f"❤️ RALLY SELL: {', '.join(rally_sell)}")
+
+    if trends:
+        lines.append("")
+        lines.append("📉 TREND DELTAS (top movers)")
+        lines.append("─" * 36)
+        for t in trends[:8]:
+            sym = t.get("symbol", "")
+            sd = t.get("slow_hist_delta", 0)
+            fd = t.get("fast_hist_delta", 0)
+            state = t.get("trend_state", "")
+            lines.append(f"{sym:<5} ΔSlow:{sd:+.2f} ΔFast:{fd:+.2f} {state}")
+
+    lines.append("")
 
 
 def _append_changes_section(lines: List[str], history_mgr: ScoreHistoryManager) -> None:
@@ -150,7 +219,7 @@ def _append_changes_section(lines: List[str], history_mgr: ScoreHistoryManager) 
     if not score_changes and not trend_changes and not momentum_changes:
         return
 
-    lines.append("▼ CHANGES SINCE LAST REPORT ▼")
+    lines.append("🔄 CHANGES SINCE LAST REPORT")
     lines.append("═" * 36)
     lines.append("")
 
@@ -158,8 +227,8 @@ def _append_changes_section(lines: List[str], history_mgr: ScoreHistoryManager) 
         lines.append("COMPOSITE SCORE CHANGES (|Δ| ≥ 5)")
         lines.append("─" * 36)
         for c in score_changes[:10]:
-            arrow = "▲" if c["delta"] > 0 else "▼"
-            warn = "  ⚠" if abs(c["delta"]) >= 7 else ""
+            arrow = "🔺" if c["delta"] > 0 else "🔻"
+            warn = "  🚨" if abs(c["delta"]) >= 7 else ""
             lines.append(
                 f"{c['symbol']:<5} {c['prev']:.0f} → {c['curr']:.0f}  "
                 f"{arrow} {c['delta']:+.0f}{warn}"
@@ -167,13 +236,12 @@ def _append_changes_section(lines: List[str], history_mgr: ScoreHistoryManager) 
         lines.append("")
 
     if trend_changes:
-        lines.append("TREND STATE SHIFTS")
+        lines.append("🔀 TREND STATE SHIFTS")
         lines.append("─" * 36)
-        # States that warrant warning
-        warn_states = {"bearish", "deteriorating", "risk_off"}
+        warn_states = {"trend_down", "deteriorating"}
         for c in trend_changes[:10]:
             warn = (
-                "  ⚠"
+                "  🚨"
                 if c["curr"].lower() in warn_states or c["prev"].lower() in warn_states
                 else ""
             )
@@ -181,9 +249,28 @@ def _append_changes_section(lines: List[str], history_mgr: ScoreHistoryManager) 
         lines.append("")
 
     if momentum_changes:
-        lines.append("MOMENTUM CHANGES")
+        lines.append("⚡ MOMENTUM CHANGES")
         lines.append("─" * 36)
         for c in momentum_changes[:10]:
-            arrow = "▲" if c["delta"] > 0 else "▼"
+            arrow = "🔺" if c["delta"] > 0 else "🔻"
             lines.append(f"{c['symbol']:<5} slope: {c['prev']:.4f} → {c['curr']:.4f}  {arrow}")
         lines.append("")
+
+
+def _append_dual_macd_signal_changes(lines: List[str], history_mgr: ScoreHistoryManager) -> None:
+    """Append DUAL MACD SIGNAL CHANGES if tactical signals changed."""
+    changes = history_mgr.get_tactical_signal_changes()
+    if not changes:
+        return
+
+    lines.append("⚡ DUAL MACD SIGNAL CHANGES")
+    lines.append("─" * 36)
+    for c in changes[:10]:
+        prev_emoji = (
+            "💚" if c["prev"] == "DIP_BUY" else ("❤️" if c["prev"] == "RALLY_SELL" else "⬜")
+        )
+        curr_emoji = (
+            "💚" if c["curr"] == "DIP_BUY" else ("❤️" if c["curr"] == "RALLY_SELL" else "⬜")
+        )
+        lines.append(f"{c['symbol']:<5} {prev_emoji} {c['prev']} → {curr_emoji} {c['curr']}")
+    lines.append("")

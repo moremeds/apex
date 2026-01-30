@@ -7,13 +7,13 @@ Handles writing data files, indicators, regime HTML, and snapshots.
 from __future__ import annotations
 
 import json
-from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 
 from src.utils.logging_setup import get_logger
+from src.utils.timezone import now_utc
 
 from .data_aggregator import build_indicators_data, df_to_chart_data
 
@@ -62,7 +62,7 @@ def write_data_files(
         file_data = {
             "symbol": symbol,
             "timeframe": timeframe,
-            "generated_at": datetime.now().isoformat(),
+            "generated_at": now_utc().isoformat(),
             "bar_count": len(df),
             "chart_data": chart_data,
             "signals": signals,
