@@ -26,6 +26,8 @@ class ScoreSnapshot:
 
     timestamp: str  # ISO 8601
     scores: Dict[str, float] = field(default_factory=dict)  # symbol -> composite_score_avg
+    trend_states: Dict[str, str] = field(default_factory=dict)  # symbol -> trend_state
+    momentum_values: Dict[str, float] = field(default_factory=dict)  # symbol -> ma50_slope
 
 
 @dataclass
@@ -56,6 +58,8 @@ class ScoreHistoryManager:
                     ScoreSnapshot(
                         timestamp=snap.get("timestamp", ""),
                         scores=snap.get("scores", {}),
+                        trend_states=snap.get("trend_states", {}),
+                        momentum_values=snap.get("momentum_values", {}),
                     )
                 )
             self.history = ScoreHistory(snapshots=snapshots)
@@ -76,6 +80,8 @@ class ScoreHistoryManager:
         """
         ts = (timestamp or datetime.now()).isoformat()
         scores: Dict[str, float] = {}
+        trend_states: Dict[str, str] = {}
+        momentum_values: Dict[str, float] = {}
 
         for ticker in summary.get("tickers", []):
             symbol = ticker.get("symbol")
@@ -83,11 +89,31 @@ class ScoreHistoryManager:
             if symbol and score is not None:
                 scores[symbol] = round(float(score), 1)
 
+            if symbol:
+                # Extract trend_state from component_states
+                comp_states = ticker.get("component_states", {})
+                trend_st = comp_states.get("trend_state")
+                if trend_st:
+                    trend_states[symbol] = trend_st
+
+                # Extract ma50_slope as momentum proxy
+                comp_vals = ticker.get("component_values", {})
+                ma50_slope = comp_vals.get("ma50_slope")
+                if ma50_slope is not None:
+                    momentum_values[symbol] = round(float(ma50_slope), 4)
+
         if not scores:
             logger.warning("No composite scores found in summary, skipping snapshot")
             return
 
-        self.history.snapshots.append(ScoreSnapshot(timestamp=ts, scores=scores))
+        self.history.snapshots.append(
+            ScoreSnapshot(
+                timestamp=ts,
+                scores=scores,
+                trend_states=trend_states,
+                momentum_values=momentum_values,
+            )
+        )
         self._trim()
         logger.info(
             "Appended score snapshot with %d symbols (total: %d)",
@@ -155,6 +181,55 @@ class ScoreHistoryManager:
             return {}
         latest = self.history.snapshots[-1]
         return {symbol: self.get_sparkline_points(symbol) for symbol in latest.scores}
+
+    def get_score_changes(self, min_delta: float = 5.0) -> List[Dict[str, Any]]:
+        """Get symbols with composite score change >= min_delta vs previous snapshot."""
+        if len(self.history.snapshots) < 2:
+            return []
+        prev = self.history.snapshots[-2]
+        curr = self.history.snapshots[-1]
+        changes: List[Dict[str, Any]] = []
+        for symbol, curr_score in curr.scores.items():
+            prev_score = prev.scores.get(symbol)
+            if prev_score is not None:
+                delta = curr_score - prev_score
+                if abs(delta) >= min_delta:
+                    changes.append(
+                        {"symbol": symbol, "prev": prev_score, "curr": curr_score, "delta": delta}
+                    )
+        changes.sort(key=lambda x: abs(x["delta"]), reverse=True)
+        return changes
+
+    def get_trend_state_changes(self) -> List[Dict[str, str]]:
+        """Get symbols where trend_state changed vs previous snapshot."""
+        if len(self.history.snapshots) < 2:
+            return []
+        prev = self.history.snapshots[-2]
+        curr = self.history.snapshots[-1]
+        changes: List[Dict[str, str]] = []
+        for symbol, curr_state in curr.trend_states.items():
+            prev_state = prev.trend_states.get(symbol)
+            if prev_state and prev_state != curr_state:
+                changes.append({"symbol": symbol, "prev": prev_state, "curr": curr_state})
+        return changes
+
+    def get_momentum_changes(self, min_delta: float = 0.005) -> List[Dict[str, Any]]:
+        """Get symbols with momentum (ma50_slope) change >= min_delta."""
+        if len(self.history.snapshots) < 2:
+            return []
+        prev = self.history.snapshots[-2]
+        curr = self.history.snapshots[-1]
+        changes: List[Dict[str, Any]] = []
+        for symbol, curr_val in curr.momentum_values.items():
+            prev_val = prev.momentum_values.get(symbol)
+            if prev_val is not None:
+                delta = curr_val - prev_val
+                if abs(delta) >= min_delta:
+                    changes.append(
+                        {"symbol": symbol, "prev": prev_val, "curr": curr_val, "delta": delta}
+                    )
+        changes.sort(key=lambda x: abs(x["delta"]), reverse=True)
+        return changes
 
     def to_json_data(self) -> Dict[str, Any]:
         """Return serializable data for embedding in JS."""

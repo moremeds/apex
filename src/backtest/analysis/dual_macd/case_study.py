@@ -15,8 +15,6 @@ from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
-from src.domain.strategy.signals.dual_macd_gate import DualMACDGateSignalGenerator
-
 from src.backtest.analysis.dual_macd.behavioral_metrics import BehavioralMetricsCalculator
 from src.backtest.analysis.dual_macd.behavioral_models import (
     BehavioralMetrics,
@@ -24,6 +22,7 @@ from src.backtest.analysis.dual_macd.behavioral_models import (
     GatePolicy,
 )
 from src.backtest.analysis.dual_macd.trade_decision_logger import TradeDecisionLogger
+from src.domain.strategy.signals.dual_macd_gate import DualMACDGateSignalGenerator
 
 logger = logging.getLogger(__name__)
 

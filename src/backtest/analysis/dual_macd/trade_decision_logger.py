@@ -126,7 +126,6 @@ class TradeDecisionLogger:
 
         for key, idx in list(self._pending_exits.items()):
             symbol, entry_date = key
-            decision = self._decisions[idx]
 
             # Find next base exit after entry
             exit_price = None

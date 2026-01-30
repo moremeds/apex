@@ -263,9 +263,6 @@ def _render_macd_timeline(
     trend_map = {"BULLISH": 3, "IMPROVING": 2, "DETERIORATING": 1, "BEARISH": 0}
     trend_vals = [trend_map.get(s.get("trend_state", "BEARISH"), 0) for s in states[:n]]
 
-    # Color mapping for trend
-    trend_colors = ["#ef4444", "#f59e0b", "#06b6d4", "#10b981"]
-
     return f"""
     <h2>DualMACD State Timeline</h2>
     <div class="chart" id="macd-chart"></div>
@@ -326,10 +323,6 @@ def _render_equity_overlay(
     dates = [str(d) for d in baseline.index]
     bl_vals = baseline.tolist()
     ga_vals = gated.tolist()
-
-    # Max DD shading for gated
-    running_max = gated.cummax()
-    dd = (gated - running_max).tolist()
 
     return f"""
     <h2>Equity Curve Overlay</h2>

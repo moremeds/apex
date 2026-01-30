@@ -206,13 +206,13 @@ async def _run_single(
     hist_norm_window: int,
 ) -> list:
     """Run behavioral gate with fixed params across all symbols."""
-    from src.domain.strategy.signals.ma_cross import MACrossSignalGenerator
-
     from src.backtest.analysis.dual_macd.behavioral_metrics import BehavioralMetricsCalculator
     from src.backtest.analysis.dual_macd.behavioral_report import (
         SymbolResult,
         generate_summary_report,
     )
+    from src.domain.strategy.signals.ma_cross import MACrossSignalGenerator
+
     from .runner import prefetch_data
 
     spec = _load_spec_config()
@@ -314,15 +314,15 @@ async def _run_optimization(
     """Run Optuna grid search over slope_lookback × hist_norm_window."""
     import optuna
 
-    from src.domain.strategy.signals.dual_macd_gate import DualMACDGateSignalGenerator
-    from src.domain.strategy.signals.ma_cross import MACrossSignalGenerator
-
     from src.backtest.analysis.dual_macd.behavioral_metrics import BehavioralMetricsCalculator
     from src.backtest.analysis.dual_macd.behavioral_models import BehavioralMetrics
     from src.backtest.analysis.dual_macd.behavioral_report import (
         SymbolResult,
         generate_summary_report,
     )
+    from src.domain.strategy.signals.dual_macd_gate import DualMACDGateSignalGenerator
+    from src.domain.strategy.signals.ma_cross import MACrossSignalGenerator
+
     from .optimization.behavioral_objective import BehavioralObjective
     from .runner import prefetch_data
 
@@ -542,10 +542,10 @@ async def _run_case_studies(
     symbol_to_sector: Optional[Dict[str, str]] = None,
 ) -> None:
     """Run predefined case studies."""
-    from src.domain.strategy.signals.ma_cross import MACrossSignalGenerator
-
     from src.backtest.analysis.dual_macd.behavioral_report import generate_behavioral_report
     from src.backtest.analysis.dual_macd.case_study import PREDEFINED_CASES, CaseStudyRunner
+    from src.domain.strategy.signals.ma_cross import MACrossSignalGenerator
+
     from .runner import prefetch_data
 
     base_generator = MACrossSignalGenerator()
