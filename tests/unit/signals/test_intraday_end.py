@@ -10,15 +10,17 @@ Verifies:
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
-from typing import List
+from datetime import date, datetime, timezone
+from typing import TYPE_CHECKING, List
 from unittest.mock import MagicMock, patch
 from zoneinfo import ZoneInfo
 
 import pandas as pd
-import pytest
 
-from src.domain.services.bar_count_calculator import BarCountCalculator, TradingSession
+from src.domain.services.bar_count_calculator import TradingSession
+
+if TYPE_CHECKING:
+    from src.domain.signals.pipeline.processor import SignalPipelineProcessor
 
 US_EASTERN = ZoneInfo("America/New_York")
 UTC = timezone.utc
@@ -47,7 +49,9 @@ def _make_session(
     )
 
 
-def _make_processor(config: MagicMock | None = None) -> "SignalPipelineProcessor":
+def _make_processor(
+    config: MagicMock | None = None,
+) -> SignalPipelineProcessor:
     """Create a SignalPipelineProcessor with a minimal mock config."""
     from src.domain.signals.pipeline.processor import SignalPipelineProcessor
 
@@ -163,7 +167,7 @@ class TestGetIntradayEnd:
             # 8:00 AM ET = 13:00 UTC (before open at 14:30 UTC in winter)
             mock_dt.now.return_value = datetime(2026, 1, 29, 13, 0, tzinfo=UTC)
             mock_ltd.return_value = pd.Timestamp("2026-01-28 21:00:00+00:00")
-            result = proc._get_intraday_end()
+            proc._get_intraday_end()
             mock_ltd.assert_called_once()
 
     def test_after_close_returns_today_close(self) -> None:
