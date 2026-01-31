@@ -23,6 +23,7 @@ from src.domain.signals.indicators.momentum.dual_macd import DualMACDIndicator
 def compute_dual_macd_history(
     data: Dict[Tuple[str, str], pd.DataFrame],
     last_n_bars: int = 60,
+    display_timezone: str = "US/Eastern",
 ) -> Dict[str, List[Dict[str, Any]]]:
     """
     Compute DualMACD state for each (symbol, timeframe) pair.
@@ -58,9 +59,23 @@ def compute_dual_macd_history(
             previous = result.iloc[i - 1] if i > 0 else None
             state = indicator._get_state(current, previous, params)
 
-            # Add timestamp
+            # Add timestamp with timezone conversion for intraday
             ts = result.index[i]
-            date_str = ts.strftime("%Y-%m-%d %H:%M") if hasattr(ts, "strftime") else str(ts)
+            is_daily = timeframe in ("1d", "1w", "1D", "1W")
+            if is_daily:
+                date_str = ts.strftime("%Y-%m-%d") if hasattr(ts, "strftime") else str(ts)
+            else:
+                if hasattr(ts, "tz") and ts.tz is not None:
+                    ts_local = ts.tz_convert(display_timezone)
+                elif hasattr(ts, "tz_localize"):
+                    ts_local = ts.tz_localize("UTC").tz_convert(display_timezone)
+                else:
+                    ts_local = ts
+                date_str = (
+                    ts_local.strftime("%Y-%m-%d %H:%M")
+                    if hasattr(ts_local, "strftime")
+                    else str(ts_local)
+                )
 
             rows.append(
                 {

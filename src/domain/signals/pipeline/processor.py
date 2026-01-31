@@ -13,7 +13,7 @@ import shutil
 import signal
 import subprocess
 import tempfile
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, cast
 
@@ -160,24 +160,54 @@ class SignalPipelineProcessor:
 
     def _get_last_trading_day(self) -> pd.Timestamp:
         """
-        Get the last complete trading day.
+        Get the last complete trading day's close time.
 
-        Uses BarCountCalculator with NYSE calendar.
+        Uses BarCountCalculator with NYSE calendar to get the actual
+        market close time (handles DST correctly).
 
         Returns:
-            pd.Timestamp: Last complete trading day as UTC-aware datetime.
+            pd.Timestamp: UTC-aware market close of the previous trading day.
         """
         calculator = BarCountCalculator("NYSE")
-        last_trading_date = calculator.get_previous_trading_day()
-        return pd.Timestamp(
-            year=last_trading_date.year,
-            month=last_trading_date.month,
-            day=last_trading_date.day,
-            hour=21,
-            minute=0,
-            second=0,
-            tz="UTC",
-        )
+        prev_date = calculator.get_previous_trading_day()
+        sessions = calculator.get_trading_sessions(prev_date, prev_date)
+        if sessions:
+            return pd.Timestamp(sessions[0].market_close)
+        # Fallback: assume 21:00 UTC (EST close)
+        return pd.Timestamp(prev_date) + pd.Timedelta(hours=21)
+
+    def _get_intraday_end(self) -> pd.Timestamp:
+        """
+        Get the end timestamp for data fetching, including today's bars when available.
+
+        Logic:
+        - Not a trading day → previous trading day close
+        - Before market open → previous trading day close
+        - After market close → today's close
+        - During session → current time (floor to last completed bar)
+
+        Returns:
+            pd.Timestamp: UTC-aware end timestamp.
+        """
+        calculator = BarCountCalculator("NYSE")
+        today = date.today()
+
+        if not calculator.is_trading_day(today):
+            return self._get_last_trading_day()
+
+        sessions = calculator.get_trading_sessions(today, today)
+        if not sessions:
+            return self._get_last_trading_day()
+
+        session = sessions[0]
+        now = datetime.now(timezone.utc)
+
+        if now < session.market_open:
+            return self._get_last_trading_day()
+        elif now >= session.market_close:
+            return pd.Timestamp(session.market_close)
+        else:
+            return pd.Timestamp(now)
 
     # -------------------------------------------------------------------------
     # Live Mode
@@ -431,7 +461,7 @@ class SignalPipelineProcessor:
         """
         from src.services.historical_data_manager import HistoricalDataManager
 
-        end_date = self._get_last_trading_day()
+        end_date = self._get_intraday_end()
         start_date = end_date - timedelta(days=days)
 
         manager = HistoricalDataManager(
@@ -465,8 +495,8 @@ class SignalPipelineProcessor:
         bars = await manager.ensure_data(
             symbol=symbol,
             timeframe=timeframe,
-            start=start_date.replace(tzinfo=None),
-            end=end_date.replace(tzinfo=None),
+            start=start_date,
+            end=end_date,
         )
 
         if not bars:
@@ -501,7 +531,7 @@ class SignalPipelineProcessor:
 
         # Load historical data into DataFrames
         data: Dict[Tuple[str, str], pd.DataFrame] = {}
-        end = self._get_last_trading_day()
+        end = self._get_intraday_end()
 
         # PR-A: Data quality validator for sentinel/holiday filtering
         validator = DataQualityValidator()

@@ -1005,7 +1005,7 @@ function updateDualMACDHistory(data) {{
             </div>
         </div>
         <div style="font-size:11px;color:${{muted}};margin-bottom:4px;">
-            As of ${{cur.date}} ET · ${{data.symbol}} · ${{data.timeframe}}
+            As of ${{cur.date}} · ${{data.symbol}} · ${{data.timeframe}}
         </div>
     `;
 
