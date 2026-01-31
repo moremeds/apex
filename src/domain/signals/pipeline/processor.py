@@ -165,7 +165,7 @@ class SignalPipelineProcessor:
         Uses BarCountCalculator with NYSE calendar.
 
         Returns:
-            pd.Timestamp: Last complete trading day as naive datetime (UTC).
+            pd.Timestamp: Last complete trading day as UTC-aware datetime.
         """
         calculator = BarCountCalculator("NYSE")
         last_trading_date = calculator.get_previous_trading_day()
@@ -176,6 +176,7 @@ class SignalPipelineProcessor:
             hour=21,
             minute=0,
             second=0,
+            tz="UTC",
         )
 
     # -------------------------------------------------------------------------
