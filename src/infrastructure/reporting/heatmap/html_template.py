@@ -56,7 +56,7 @@ def render_heatmap_template(
     <div class="hm-header">
         <h1>Signal Heatmap</h1>
         <div class="meta">
-            Generated: {model.generated_at.strftime('%Y-%m-%d %H:%M') if model.generated_at else 'N/A'}
+            Generated: {model.generated_at_str or (model.generated_at.strftime('%Y-%m-%d %H:%M') if model.generated_at else 'N/A')}
         </div>
     </div>
 

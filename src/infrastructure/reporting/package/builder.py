@@ -71,6 +71,7 @@ class PackageBuilder:
         theme: str = "dark",
         enforce_budget: bool = False,
         with_heatmap: bool = True,  # Kept for API compatibility, heatmap always generated
+        display_timezone: str = "US/Eastern",
     ) -> None:
         """
         Initialize package builder.
@@ -78,11 +79,13 @@ class PackageBuilder:
         Args:
             theme: Color theme ("dark" or "light")
             enforce_budget: If True, raise SizeBudgetExceeded for over-budget sections
+            display_timezone: IANA timezone for display timestamps
             with_heatmap: Ignored - heatmap landing page is always generated
         """
         self.theme = theme
         self._colors = get_theme_colors(theme)
         self._summary_builder = SummaryBuilder(enforce_budget=enforce_budget)
+        self._display_timezone = display_timezone
 
     def build(
         self,
@@ -148,10 +151,12 @@ class PackageBuilder:
         sparklines = score_mgr.get_all_sparklines()
 
         # Build heatmap landing page (index.html) with sparklines
-        build_heatmap(summary, output_dir, sparklines)
+        build_heatmap(summary, output_dir, sparklines, display_timezone=self._display_timezone)
 
         # Write per-symbol data files
-        data_files = write_data_files(data, indicators, rules, data_dir)
+        data_files = write_data_files(
+            data, indicators, rules, data_dir, display_timezone=self._display_timezone
+        )
 
         # Write indicators.json
         write_indicators_file(indicators, rules, data_dir)

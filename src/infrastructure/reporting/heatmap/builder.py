@@ -15,12 +15,12 @@ ETF Dashboard + Stocks-Only Treemap Architecture:
 
 from __future__ import annotations
 
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from src.services.market_cap_service import MarketCapService
 from src.utils.logging_setup import get_logger
+from src.utils.timezone import now_utc
 
 from .css import HEATMAP_CSS
 from .etf_dashboard import build_etf_dashboard, render_etf_dashboard_html
@@ -80,6 +80,7 @@ class HeatmapBuilder:
         market_cap_service: Optional[MarketCapService] = None,
         size_metric: SizeMetric = SizeMetric.MARKET_CAP,
         color_metric: ColorMetric = ColorMetric.REGIME,
+        display_timezone: str = "US/Eastern",
     ) -> None:
         """
         Initialize heatmap builder.
@@ -88,10 +89,12 @@ class HeatmapBuilder:
             market_cap_service: Service for market cap lookups (creates default if None)
             size_metric: How to size rectangles (market_cap, volume, or equal)
             color_metric: How to color rectangles (regime, daily_change, alignment_score)
+            display_timezone: IANA timezone for display timestamps
         """
         self._cap_service = market_cap_service or MarketCapService()
         self._size_metric = size_metric
         self._color_metric = color_metric
+        self._display_timezone = display_timezone
 
     def build_heatmap_model(
         self,
@@ -116,7 +119,7 @@ class HeatmapBuilder:
         tickers = summary_data.get("tickers", [])
         if not tickers:
             logger.warning("No tickers in summary data")
-            return HeatmapModel(generated_at=datetime.now())
+            return HeatmapModel(generated_at=now_utc())
 
         # Extract all symbols
         symbols = [t.get("symbol") for t in tickers if t.get("symbol")]
@@ -256,12 +259,19 @@ class HeatmapBuilder:
                 )
             )
 
+        from src.utils.timezone import DisplayTimezone
+
+        gen_time = now_utc()
+        _tz = DisplayTimezone(self._display_timezone)
+        gen_str = _tz.format_with_tz(gen_time, "%Y-%m-%d %H:%M %Z")
+
         return HeatmapModel(
             etf_dashboard=etf_dashboard,
             market_etfs=[],  # Legacy - kept for backward compat
             sector_etfs=[],  # Legacy - kept for backward compat
             sectors=sectors,
-            generated_at=datetime.now(),
+            generated_at=gen_time,
+            generated_at_str=gen_str,
             size_metric=self._size_metric,
             color_metric=self._color_metric,
             symbol_count=len(symbols),

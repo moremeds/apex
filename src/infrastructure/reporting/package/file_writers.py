@@ -30,6 +30,7 @@ def write_data_files(
     indicators: List["Indicator"],
     rules: List["SignalRule"],
     data_dir: Path,
+    display_timezone: str = "US/Eastern",
 ) -> List[str]:
     """
     Write individual JSON data files for each symbol/timeframe.
@@ -57,7 +58,7 @@ def write_data_files(
         signals = detect_historical_signals(df, rules, symbol, timeframe)
 
         # Compute DualMACD history for verification table
-        dual_macd_history = _compute_dual_macd_history_for_key(df, timeframe)
+        dual_macd_history = _compute_dual_macd_history_for_key(df, timeframe, display_timezone)
 
         file_data = {
             "symbol": symbol,
@@ -310,7 +311,7 @@ def write_snapshot_file(
 
 
 def _compute_dual_macd_history_for_key(
-    df: pd.DataFrame, timeframe: str = "1d"
+    df: pd.DataFrame, timeframe: str = "1d", display_timezone: str = "US/Eastern"
 ) -> List[Dict[str, Any]]:
     """Compute DualMACD state history for a single DataFrame (last 60 bars)."""
     try:
@@ -335,21 +336,23 @@ def _compute_dual_macd_history_for_key(
             state = indicator._get_state(current, previous, indicator.default_params)
 
             ts = result.index[i]
-            # Convert to US/Eastern for intraday display
+            # Convert to display timezone for intraday display
             is_daily = timeframe in ("1d", "1w", "1D", "1W")
             if is_daily:
                 # Daily bars: just show date, no time conversion needed
                 date_str = ts.strftime("%Y-%m-%d") if hasattr(ts, "strftime") else str(ts)
             else:
-                # Intraday: convert to ET
+                # Intraday: convert to display timezone
                 if hasattr(ts, "tz") and ts.tz is not None:
-                    ts_et = ts.tz_convert("US/Eastern")
+                    ts_local = ts.tz_convert(display_timezone)
                 elif hasattr(ts, "tz_localize"):
-                    ts_et = ts.tz_localize("UTC").tz_convert("US/Eastern")
+                    ts_local = ts.tz_localize("UTC").tz_convert(display_timezone)
                 else:
-                    ts_et = ts
+                    ts_local = ts
                 date_str = (
-                    ts_et.strftime("%Y-%m-%d %H:%M") if hasattr(ts_et, "strftime") else str(ts_et)
+                    ts_local.strftime("%Y-%m-%d %H:%M")
+                    if hasattr(ts_local, "strftime")
+                    else str(ts_local)
                 )
             rows.append({"date": date_str, **state})
 

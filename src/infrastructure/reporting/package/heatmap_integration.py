@@ -18,6 +18,7 @@ def build_heatmap(
     summary: Dict[str, Any],
     output_dir: Path,
     score_sparklines: Optional[Dict[str, list]] = None,
+    display_timezone: str = "US/Eastern",
 ) -> Optional[Path]:
     """
     Build heatmap landing page from summary data.
@@ -40,7 +41,7 @@ def build_heatmap(
         cap_service = MarketCapService()
 
         # Build heatmap model
-        builder = HeatmapBuilder(market_cap_service=cap_service)
+        builder = HeatmapBuilder(market_cap_service=cap_service, display_timezone=display_timezone)
 
         # Build manifest for report URL mapping
         # Link to report.html with symbol parameter (heatmap is now index.html)

@@ -200,10 +200,17 @@ class YahooHistoricalAdapter:
         try:
             ticker = yf.Ticker(symbol)
 
+            # yfinance end is exclusive for daily bars; intraday uses datetime directly
+            intraday_intervals = {"1m", "2m", "5m", "15m", "30m", "60m", "90m", "1h"}
+            if yf_interval in intraday_intervals:
+                yf_end = end
+            else:
+                yf_end = end + timedelta(days=1)
+
             # Fetch historical data with adjusted prices
             df = ticker.history(
                 start=start,
-                end=end + timedelta(days=1),  # yfinance end is exclusive
+                end=yf_end,
                 interval=yf_interval,
                 auto_adjust=True,  # Adjust for splits/dividends
                 prepost=False,  # Regular market hours only

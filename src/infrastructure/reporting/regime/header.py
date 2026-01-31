@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import List, Optional
 
 from src.domain.signals.indicators.regime import RegimeOutput
+from src.utils.timezone import DisplayTimezone
 
 from ..value_card import escape_html
 from .utils import REGIME_COLORS
@@ -67,7 +68,17 @@ def generate_report_header_html(
     """
     symbol = regime_output.symbol
     asof_ts = regime_output.asof_ts
-    asof_str = asof_ts.strftime("%Y-%m-%d %H:%M") if asof_ts else "N/A"
+    display_tz_name = kwargs.get("display_timezone", "US/Eastern")
+    if asof_ts:
+        _tz = DisplayTimezone(str(display_tz_name))
+        # Ensure asof_ts is tz-aware for conversion
+        if asof_ts.tzinfo is None:
+            from datetime import timezone as _tz_mod
+
+            asof_ts = asof_ts.replace(tzinfo=_tz_mod.utc)
+        asof_str = _tz.format_with_tz(asof_ts, "%Y-%m-%d %H:%M %Z")
+    else:
+        asof_str = "N/A"
 
     # Derive regime label from composite score for consistency
     composite_score = regime_output.composite_score
