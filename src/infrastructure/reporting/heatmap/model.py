@@ -347,6 +347,7 @@ class HeatmapModel:
 
     # Metadata
     generated_at: Optional[datetime] = None
+    generated_at_str: str = ""  # Pre-formatted with timezone for display
     size_metric: SizeMetric = SizeMetric.MARKET_CAP
     color_metric: ColorMetric = ColorMetric.REGIME
     symbol_count: int = 0

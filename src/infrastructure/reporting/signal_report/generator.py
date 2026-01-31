@@ -13,13 +13,13 @@ Generates self-contained HTML reports with:
 
 from __future__ import annotations
 
-from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 
 from src.utils.logging_setup import get_logger
+from src.utils.timezone import DisplayTimezone, now_utc
 
 from .confluence_analyzer import calculate_confluence
 from .constants import (
@@ -74,6 +74,7 @@ class SignalReportGenerator:
         rules: List["SignalRule"],
         output_path: Path,
         regime_outputs: Optional[Dict[str, "RegimeOutput"]] = None,
+        display_timezone: str = "US/Eastern",
     ) -> Path:
         """
         Generate combined HTML report with symbol selector.
@@ -135,7 +136,7 @@ class SignalReportGenerator:
         provenance_dict, recommendations_dict = compute_param_analysis(data, indicators)
 
         # Compute DualMACD historical state for verification table
-        dual_macd_history = compute_dual_macd_history(data)
+        dual_macd_history = compute_dual_macd_history(data, display_timezone=display_timezone)
 
         # Render HTML
         html = self._render_html(
@@ -149,6 +150,7 @@ class SignalReportGenerator:
             provenance_dict=provenance_dict,
             recommendations_dict=recommendations_dict,
             dual_macd_history=dual_macd_history,
+            display_timezone=display_timezone,
         )
 
         output_path = Path(output_path)
@@ -271,8 +273,10 @@ class SignalReportGenerator:
         provenance_dict: Optional[Dict[str, Any]] = None,
         recommendations_dict: Optional[Dict[str, Any]] = None,
         dual_macd_history: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+        display_timezone: str = "US/Eastern",
     ) -> str:
-        generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
+        _tz = DisplayTimezone(display_timezone)
+        generated_at = _tz.format_with_tz(now_utc(), "%Y-%m-%d %H:%M %Z")
         regime_outputs = regime_outputs or {}
         provenance_dict = provenance_dict or {}
         recommendations_dict = recommendations_dict or {}
