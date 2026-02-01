@@ -615,7 +615,6 @@ class TrendPulseIndicator(IndicatorBase):
         params: Dict[str, Any],
     ) -> Dict[str, Any]:
         """Extract TrendPulse state — fixed 8-key schema, always present."""
-        close = _sf(current.get("trend_pulse_close", np.nan))
         adx = _sf(current.get("trend_pulse_adx", 0))
 
         norm_max = params.get("norm_max_adx", 50.0)

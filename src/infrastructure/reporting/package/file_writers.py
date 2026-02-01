@@ -61,9 +61,7 @@ def write_data_files(
         dual_macd_history = _compute_dual_macd_history_for_key(df, timeframe, display_timezone)
 
         # Compute TrendPulse history for verification table
-        trend_pulse_history = _compute_trend_pulse_history_for_key(
-            df, timeframe, display_timezone
-        )
+        trend_pulse_history = _compute_trend_pulse_history_for_key(df, timeframe, display_timezone)
 
         file_data = {
             "symbol": symbol,
