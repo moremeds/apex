@@ -76,6 +76,7 @@ function updateChart() {{
     updateConfluencePanel();
     updateRegimeSection();
     updateDualMACDHistory();
+    updateTrendPulseHistory();
 }}
 
 function updateDualMACDHistory() {{
@@ -84,6 +85,16 @@ function updateDualMACDHistory() {{
     tables.forEach(t => {{ t.style.display = 'none'; }});
 
     // Show matching symbol + timeframe
+    tables.forEach(t => {{
+        if (t.dataset.symbol === currentSymbol && t.dataset.timeframe === currentTimeframe) {{
+            t.style.display = 'block';
+        }}
+    }});
+}}
+
+function updateTrendPulseHistory() {{
+    const tables = document.querySelectorAll('.trend-pulse-table');
+    tables.forEach(t => {{ t.style.display = 'none'; }});
     tables.forEach(t => {{
         if (t.dataset.symbol === currentSymbol && t.dataset.timeframe === currentTimeframe) {{
             t.style.display = 'block';
@@ -803,5 +814,6 @@ document.addEventListener('DOMContentLoaded', () => {{
     updateConfluencePanel();
     updateRegimeSection();
     updateDualMACDHistory();
+    updateTrendPulseHistory();
 }});
 """

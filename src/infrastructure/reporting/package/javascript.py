@@ -112,6 +112,7 @@ async function updateChart(symbolOverride = null) {{
     updateConfluencePanel();
     updateRegimeSection();
     updateDualMACDHistory(data);
+    updateTrendPulseHistory(data);
 }}
 
 // Render full multi-subplot chart using Plotly (matches SignalReportGenerator)
@@ -1074,6 +1075,195 @@ function updateDualMACDHistory(data) {{
                                 <th style="padding:6px 6px;text-align:left;font-size:11px;color:${{muted}};">Trend</th>
                                 <th style="padding:6px 6px;text-align:left;font-size:11px;color:${{muted}};">Tactical</th>
                                 <th style="padding:6px 6px;text-align:left;font-size:11px;color:${{muted}};">Mom.Bal</th>
+                                <th style="padding:6px 6px;text-align:left;font-size:11px;color:${{muted}};">Conf</th>
+                            </tr>
+                        </thead>
+                        <tbody>${{bodyHtml}}</tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    `;
+
+    container.innerHTML = `<div style="padding:16px;">${{summaryCard}}${{historyTable}}</div>`;
+}}
+
+// Update TrendPulse Historical State — summary card + collapsible history table
+function updateTrendPulseHistory(data) {{
+    const container = document.getElementById('trend-pulse-history-table');
+    if (!container) return;
+
+    const rows = data.trend_pulse_history || [];
+    if (rows.length === 0) {{
+        container.innerHTML = '<div style="color: ' + colors.text_muted + '; padding: 16px;">No TrendPulse history available for this symbol/timeframe.</div>';
+        return;
+    }}
+
+    const border = colors.border || '#334155';
+    const muted = colors.text_muted || '#94a3b8';
+    const headerBg = colors.bg || '#1e293b';
+    const cardBg = colors.card_bg || '#1e293b';
+
+    const signalColors = {{ 'BUY': '#10b981', 'SELL': '#ef4444', 'NONE': muted }};
+    const trendColors = {{ 'BULLISH': '#10b981', 'BEARISH': '#ef4444', 'NEUTRAL': muted }};
+    const topColors = {{ 'TOP_DETECTED': '#a855f7', 'TOP_ZONE': '#f59e0b', 'TOP_PENDING': '#facc15', 'NONE': muted }};
+    const rowBgColors = {{
+        'BUY': 'rgba(16, 185, 129, 0.10)',
+        'SELL': 'rgba(239, 68, 68, 0.10)',
+        'TOP_DETECTED': 'rgba(168, 85, 247, 0.10)',
+        'TOP_ZONE': 'rgba(245, 158, 11, 0.10)',
+    }};
+
+    // ========== Current State Summary Card ==========
+    const cur = rows[0];
+    const curSwing = cur.swing_signal || 'NONE';
+    const curTrend = cur.trend_filter || 'NEUTRAL';
+    const curTop = cur.top_warning || 'NONE';
+    const curConf = Math.round((cur.confidence || 0) * 100);
+    const curScore = Math.round(cur.score || 0);
+    const curStrength = (cur.trend_strength || 0).toFixed(2);
+    const curLabel = cur.trend_strength_label || 'WEAK';
+    const curAlign = cur.ema_alignment || 'MIXED';
+
+    const curTrendColor = trendColors[curTrend] || muted;
+    const curConfColor = curConf >= 50 ? '#10b981' : curConf >= 25 ? '#f59e0b' : muted;
+    const curScoreColor = curScore >= 80 ? '#10b981' : curScore >= 50 ? '#f59e0b' : muted;
+
+    let swingBadge;
+    if (curSwing === 'BUY') {{
+        swingBadge = `<span style="background:rgba(16,185,129,0.15);color:#10b981;border:1px solid #10b981;padding:4px 12px;border-radius:6px;font-weight:700;font-size:14px;">BUY</span>`;
+    }} else if (curSwing === 'SELL') {{
+        swingBadge = `<span style="background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid #ef4444;padding:4px 12px;border-radius:6px;font-weight:700;font-size:14px;">SELL</span>`;
+    }} else {{
+        swingBadge = `<span style="background:rgba(148,163,184,0.1);color:${{muted}};border:1px solid ${{border}};padding:4px 12px;border-radius:6px;font-size:14px;">No Signal</span>`;
+    }}
+
+    let topBadge;
+    if (curTop === 'TOP_DETECTED') {{
+        topBadge = `<span style="color:#a855f7;font-weight:700;">TOP_DETECTED</span>`;
+    }} else if (curTop === 'TOP_ZONE') {{
+        topBadge = `<span style="color:#f59e0b;font-weight:700;">TOP_ZONE</span>`;
+    }} else if (curTop === 'TOP_PENDING') {{
+        topBadge = `<span style="color:#facc15;">TOP_PENDING</span>`;
+    }} else {{
+        topBadge = `<span style="color:${{muted}};">\\u2014</span>`;
+    }}
+
+    const summaryCard = `
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:16px;margin-bottom:20px;">
+            <div style="background:${{cardBg}};border:1px solid ${{border}};border-radius:10px;padding:16px;text-align:center;">
+                <div style="font-size:10px;text-transform:uppercase;color:${{muted}};margin-bottom:6px;letter-spacing:0.5px;">Swing Signal</div>
+                <div style="margin-top:4px;">${{swingBadge}}</div>
+                <div style="font-size:11px;color:${{muted}};margin-top:6px;">EMA: ${{curAlign.replace('ALIGNED_', '')}}</div>
+            </div>
+            <div style="background:${{cardBg}};border:1px solid ${{border}};border-radius:10px;padding:16px;text-align:center;">
+                <div style="font-size:10px;text-transform:uppercase;color:${{muted}};margin-bottom:6px;letter-spacing:0.5px;">Trend</div>
+                <div style="font-size:18px;font-weight:700;color:${{curTrendColor}};">
+                    ${{curTrend === 'BULLISH' ? '\\u25b2' : curTrend === 'BEARISH' ? '\\u25bc' : '\\u25c6'}} ${{curTrend}}
+                </div>
+                <div style="font-size:11px;color:${{muted}};margin-top:4px;">Strength ${{curStrength}} (${{curLabel}})</div>
+            </div>
+            <div style="background:${{cardBg}};border:1px solid ${{border}};border-radius:10px;padding:16px;text-align:center;">
+                <div style="font-size:10px;text-transform:uppercase;color:${{muted}};margin-bottom:6px;letter-spacing:0.5px;">Top Warning</div>
+                <div style="font-size:16px;margin-top:4px;">${{topBadge}}</div>
+            </div>
+            <div style="background:${{cardBg}};border:1px solid ${{border}};border-radius:10px;padding:16px;text-align:center;">
+                <div style="font-size:10px;text-transform:uppercase;color:${{muted}};margin-bottom:6px;letter-spacing:0.5px;">Score / Confidence</div>
+                <div style="font-size:24px;font-weight:700;color:${{curScoreColor}};">
+                    ${{curScore}}
+                </div>
+                <div style="width:80%;height:6px;background:${{border}};border-radius:3px;overflow:hidden;margin:6px auto 0;">
+                    <div style="width:${{curConf}}%;height:100%;background:${{curConfColor}};border-radius:3px;"></div>
+                </div>
+                <div style="font-size:10px;color:${{muted}};margin-top:4px;">Conf ${{curConf}}%</div>
+            </div>
+        </div>
+        <div style="font-size:11px;color:${{muted}};margin-bottom:4px;">
+            As of ${{cur.date}} · ${{data.symbol}} · ${{data.timeframe}}
+        </div>
+    `;
+
+    // ========== History Table ==========
+    let bodyHtml = '';
+    for (const row of rows) {{
+        const swing = row.swing_signal || 'NONE';
+        const trend = row.trend_filter || 'NEUTRAL';
+        const top = row.top_warning || 'NONE';
+        const strength = (row.trend_strength || 0).toFixed(2);
+        const label = row.trend_strength_label || 'WEAK';
+        const align = row.ema_alignment || 'MIXED';
+        const score = Math.round(row.score || 0);
+        const conf = Math.round((row.confidence || 0) * 100);
+
+        let rowBg = 'transparent';
+        if (swing !== 'NONE') rowBg = rowBgColors[swing] || 'transparent';
+        else if (top === 'TOP_DETECTED' || top === 'TOP_ZONE') rowBg = rowBgColors[top] || 'transparent';
+
+        const trendColor = trendColors[trend] || muted;
+        const scoreColor = score >= 80 ? '#10b981' : score >= 50 ? '#f59e0b' : muted;
+        const confColor = conf >= 50 ? '#10b981' : conf >= 25 ? '#f59e0b' : muted;
+
+        let swingCell;
+        if (swing === 'BUY') swingCell = '<span style="color:#10b981;font-weight:600;">BUY</span>';
+        else if (swing === 'SELL') swingCell = '<span style="color:#ef4444;font-weight:600;">SELL</span>';
+        else swingCell = '<span style="color:' + muted + ';">\\u2014</span>';
+
+        let topCell;
+        if (top !== 'NONE') {{
+            const tc = topColors[top] || muted;
+            topCell = `<span style="color:${{tc}};font-weight:600;">${{top}}</span>`;
+        }} else {{
+            topCell = '<span style="color:' + muted + ';">\\u2014</span>';
+        }}
+
+        const confBar = `<div style="display:flex;align-items:center;gap:4px;">` +
+            `<div style="width:40px;height:6px;background:${{border}};border-radius:3px;overflow:hidden;">` +
+            `<div style="width:${{conf}}%;height:100%;background:${{confColor}};"></div>` +
+            `</div><span style="font-size:10px;">${{conf}}</span></div>`;
+
+        bodyHtml += `<tr style="background:${{rowBg}};border-bottom:1px solid ${{border}};">
+            <td style="padding:4px 8px;font-size:11px;white-space:nowrap;">${{row.date}}</td>
+            <td style="padding:4px 6px;font-size:11px;">${{swingCell}}</td>
+            <td style="padding:4px 6px;color:${{trendColor}};font-weight:500;font-size:11px;">${{trend}}</td>
+            <td style="padding:4px 6px;text-align:right;font-family:monospace;font-size:11px;">${{strength}}</td>
+            <td style="padding:4px 6px;font-size:11px;color:${{muted}};">${{label}}</td>
+            <td style="padding:4px 6px;font-size:11px;">${{topCell}}</td>
+            <td style="padding:4px 6px;font-size:11px;color:${{muted}};">${{align}}</td>
+            <td style="padding:4px 6px;text-align:right;font-family:monospace;font-size:11px;color:${{scoreColor}};font-weight:600;">${{score}}</td>
+            <td style="padding:4px 6px;font-size:11px;">${{confBar}}</td>
+        </tr>`;
+    }}
+
+    const historyTable = `
+        <div style="margin-top:16px;">
+            <h4 style="cursor:pointer;margin:0 0 8px 0;color:${{muted}};font-size:12px;text-transform:uppercase;"
+                onclick="(function(el){{
+                    const t=el.nextElementSibling;
+                    const show=t.style.display==='none';
+                    t.style.display=show?'block':'none';
+                    el.querySelector('span').textContent=show?'\\u25bc':'\\u25b6';
+                }})(this)">
+                <span>\\u25b6</span> Bar-by-Bar History (${{rows.length}} bars) — Click to expand
+            </h4>
+            <div style="display:none;">
+                <div style="font-size:11px;color:${{muted}};margin-bottom:8px;">
+                    Newest first ·
+                    <span style="display:inline-block;width:10px;height:10px;background:rgba(16,185,129,0.10);border:1px solid #10b981;border-radius:2px;vertical-align:middle;"></span> BUY
+                    <span style="display:inline-block;width:10px;height:10px;background:rgba(239,68,68,0.10);border:1px solid #ef4444;border-radius:2px;vertical-align:middle;margin-left:8px;"></span> SELL
+                    <span style="display:inline-block;width:10px;height:10px;background:rgba(168,85,247,0.10);border:1px solid #a855f7;border-radius:2px;vertical-align:middle;margin-left:8px;"></span> TOP
+                </div>
+                <div style="overflow-x:auto;">
+                    <table style="width:100%;border-collapse:collapse;color:${{colors.text}};font-size:12px;">
+                        <thead>
+                            <tr style="background:${{headerBg}};border-bottom:2px solid ${{border}};">
+                                <th style="padding:6px 8px;text-align:left;font-size:11px;color:${{muted}};">Date</th>
+                                <th style="padding:6px 6px;text-align:left;font-size:11px;color:${{muted}};">Swing</th>
+                                <th style="padding:6px 6px;text-align:left;font-size:11px;color:${{muted}};">Trend</th>
+                                <th style="padding:6px 6px;text-align:right;font-size:11px;color:${{muted}};">Strength</th>
+                                <th style="padding:6px 6px;text-align:left;font-size:11px;color:${{muted}};">Label</th>
+                                <th style="padding:6px 6px;text-align:left;font-size:11px;color:${{muted}};">Top</th>
+                                <th style="padding:6px 6px;text-align:left;font-size:11px;color:${{muted}};">EMA Align</th>
+                                <th style="padding:6px 6px;text-align:right;font-size:11px;color:${{muted}};">Score</th>
                                 <th style="padding:6px 6px;text-align:left;font-size:11px;color:${{muted}};">Conf</th>
                             </tr>
                         </thead>

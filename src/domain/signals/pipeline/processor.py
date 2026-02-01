@@ -539,7 +539,7 @@ class SignalPipelineProcessor:
 
         for symbol in self.config.symbols:
             for tf in self.config.timeframes:
-                start = end - timedelta(days=550)
+                start = end - timedelta(days=900)
                 try:
                     bars = await historical_manager.ensure_data(symbol, tf, start, end)
                     if bars:
@@ -575,8 +575,9 @@ class SignalPipelineProcessor:
                             quality_issues[f"{symbol}/{tf}"] = issues
                             logger.warning(f"[{symbol}/{tf}] Data quality: {', '.join(issues)}")
 
-                        # Use cleaned data, limited to last 350 bars
-                        df_clean = df_clean.tail(350)
+                        # Use cleaned data, limited to last 600 bars
+                        # (TrendPulse EMA-453 needs ~503 bars to converge)
+                        df_clean = df_clean.tail(600)
                         data[(symbol, tf)] = df_clean
                 except Exception as e:
                     logger.warning(f"Failed to load {symbol}/{tf} for report: {e}")

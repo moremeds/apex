@@ -149,6 +149,17 @@ def build_index_html(
         </div>
 
         <div class="section">
+            <h2 class="section-header" onclick="toggleSection('trend-pulse-history-content')">
+                <span class="toggle-icon">&#9660;</span> TrendPulse
+            </h2>
+            <div id="trend-pulse-history-content" class="section-content">
+                <div id="trend-pulse-history-table">
+                    <div style="color: #94a3b8; padding: 16px;">Loading TrendPulse state...</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
             <h2 class="section-header" onclick="toggleSection('regime-content')">
                 <span class="toggle-icon">&#9660;</span> Regime Analysis
             </h2>
