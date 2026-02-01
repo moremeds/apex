@@ -17,7 +17,7 @@ invariants:
 
   - id: TREND_CAUSALITY
     type: causality
-    indicators: ["sma", "ema", "adx", "supertrend", "psar", "aroon", "ichimoku"]
+    indicators: ["sma", "ema", "adx", "supertrend", "psar", "aroon", "ichimoku", "trend_pulse"]
     perturb_offset: 10
     perturb_field: "close"
     perturb_factor: 1.5

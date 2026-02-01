@@ -153,6 +153,42 @@ trend_rules:
       line_b: ema_slow
     message_template: "{symbol} EMA death cross (fast < slow)"
 
+  trend_pulse_buy:
+    indicator: trend_pulse
+    direction: buy
+    strength: 80
+    priority: high
+    condition_type: state_change
+    condition_config:
+      field: swing_signal
+      from: [NONE, SELL]
+      to: [BUY]
+    message_template: "{symbol} TrendPulse: Swing buy (causal ZIG upturn)"
+
+  trend_pulse_sell:
+    indicator: trend_pulse
+    direction: sell
+    strength: 80
+    priority: high
+    condition_type: state_change
+    condition_config:
+      field: swing_signal
+      from: [NONE, BUY]
+      to: [SELL]
+    message_template: "{symbol} TrendPulse: Escape signal (ZIG downturn)"
+
+  trend_pulse_top_warning:
+    indicator: trend_pulse
+    direction: alert
+    strength: 75
+    priority: high
+    condition_type: state_change
+    condition_config:
+      field: top_warning
+      from: [NONE, TOP_PENDING]
+      to: [TOP_ZONE, TOP_DETECTED]
+    message_template: "{symbol} TrendPulse: Top warning (overbought + trend weakening)"
+
 # Volatility rules
 volatility_rules:
   bollinger_oversold:

@@ -43,6 +43,7 @@ from .regime_renderer import (
 )
 from .signal_detection import detect_historical_signals
 from .theme_styles import get_styles, get_theme_colors
+from .trend_pulse_section import compute_trend_pulse_history, render_trend_pulse_history_html
 
 if TYPE_CHECKING:
     from src.domain.signals.indicators.base import Indicator
@@ -137,6 +138,13 @@ class SignalReportGenerator:
         # Compute DualMACD historical state for verification table
         dual_macd_history = compute_dual_macd_history(data)
 
+        # Compute TrendPulse historical state for verification table
+        trend_pulse_history = compute_trend_pulse_history(data)
+        logger.info(
+            f"TrendPulse history: {len(trend_pulse_history)} symbol/tf pairs, "
+            f"input bar counts: {{{', '.join(f'{k}: {len(v)}' for k, v in data.items())}}}"
+        )
+
         # Render HTML
         html = self._render_html(
             symbols=symbols,
@@ -149,6 +157,7 @@ class SignalReportGenerator:
             provenance_dict=provenance_dict,
             recommendations_dict=recommendations_dict,
             dual_macd_history=dual_macd_history,
+            trend_pulse_history=trend_pulse_history,
         )
 
         output_path = Path(output_path)
@@ -209,6 +218,9 @@ class SignalReportGenerator:
                     bucket = "overlays"
                 elif ind_name == "rsi":
                     bucket = "rsi"
+                elif col.startswith("trend_pulse_"):
+                    # TrendPulse columns: used for history table only, not charted
+                    continue
                 elif col.startswith("dual_macd_"):
                     # DualMACD indicator (dual_macd_slow_histogram, dual_macd_fast_histogram, etc.)
                     bucket = "dual_macd"
@@ -271,12 +283,14 @@ class SignalReportGenerator:
         provenance_dict: Optional[Dict[str, Any]] = None,
         recommendations_dict: Optional[Dict[str, Any]] = None,
         dual_macd_history: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+        trend_pulse_history: Optional[Dict[str, List[Dict[str, Any]]]] = None,
     ) -> str:
         generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
         regime_outputs = regime_outputs or {}
         provenance_dict = provenance_dict or {}
         recommendations_dict = recommendations_dict or {}
         dual_macd_history = dual_macd_history or {}
+        trend_pulse_history = trend_pulse_history or {}
 
         return f"""<!DOCTYPE html>
 <html lang="en">
@@ -340,6 +354,8 @@ class SignalReportGenerator:
         </div>
 
         {render_dual_macd_history_html(dual_macd_history, self.theme)}
+
+        {render_trend_pulse_history_html(trend_pulse_history, self.theme)}
 
         <div class="indicators-section">
             <h2 class="section-header" onclick="toggleSection('indicators-content')">

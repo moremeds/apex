@@ -59,6 +59,9 @@ def write_data_files(
         # Compute DualMACD history for verification table
         dual_macd_history = _compute_dual_macd_history_for_key(df, timeframe)
 
+        # Compute TrendPulse history for verification table
+        trend_pulse_history = _compute_trend_pulse_history_for_key(df, timeframe)
+
         file_data = {
             "symbol": symbol,
             "timeframe": timeframe,
@@ -67,6 +70,7 @@ def write_data_files(
             "chart_data": chart_data,
             "signals": signals,
             "dual_macd_history": dual_macd_history,
+            "trend_pulse_history": trend_pulse_history,
         }
 
         file_path = data_dir / f"{key}.json"
@@ -357,4 +361,59 @@ def _compute_dual_macd_history_for_key(
         return rows
     except Exception as e:
         logger.warning(f"Failed to compute DualMACD history: {e}")
+        return []
+
+
+def _compute_trend_pulse_history_for_key(
+    df: pd.DataFrame, timeframe: str = "1d"
+) -> List[Dict[str, Any]]:
+    """Compute TrendPulse state history for a single DataFrame (last 60 bars)."""
+    try:
+        from src.domain.signals.indicators.trend.trend_pulse import TrendPulseIndicator
+
+        indicator = TrendPulseIndicator()
+        params = indicator.default_params
+        ema_periods = params.get("ema_periods", (14, 25, 99, 144, 453))
+        min_bars = max(ema_periods[-1] + 50, 200)
+        if len(df) < min_bars:
+            return []
+
+        required = ["high", "low", "close"]
+        if not all(c in df.columns for c in required):
+            return []
+
+        hlc_df = df[required].copy()
+        result = indicator.calculate(hlc_df, params)
+        if result.empty:
+            return []
+
+        last_n = 60
+        start_idx = max(0, len(result) - last_n)
+        rows: List[Dict[str, Any]] = []
+
+        for i in range(start_idx, len(result)):
+            current = result.iloc[i]
+            previous = result.iloc[i - 1] if i > 0 else None
+            state = indicator._get_state(current, previous, params)
+
+            ts = result.index[i]
+            is_daily = timeframe in ("1d", "1w", "1D", "1W")
+            if is_daily:
+                date_str = ts.strftime("%Y-%m-%d") if hasattr(ts, "strftime") else str(ts)
+            else:
+                if hasattr(ts, "tz") and ts.tz is not None:
+                    ts_et = ts.tz_convert("US/Eastern")
+                elif hasattr(ts, "tz_localize"):
+                    ts_et = ts.tz_localize("UTC").tz_convert("US/Eastern")
+                else:
+                    ts_et = ts
+                date_str = (
+                    ts_et.strftime("%Y-%m-%d %H:%M") if hasattr(ts_et, "strftime") else str(ts_et)
+                )
+            rows.append({"date": date_str, **state})
+
+        rows.reverse()
+        return rows
+    except Exception as e:
+        logger.warning(f"Failed to compute TrendPulse history: {e}")
         return []
