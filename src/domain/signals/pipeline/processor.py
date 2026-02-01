@@ -174,7 +174,7 @@ class SignalPipelineProcessor:
         if sessions:
             return pd.Timestamp(sessions[0].market_close)
         # Fallback: assume 21:00 UTC (EST close)
-        return pd.Timestamp(prev_date) + pd.Timedelta(hours=21)
+        return pd.Timestamp(prev_date, tz="UTC") + pd.Timedelta(hours=21)
 
     def _get_intraday_end(self) -> pd.Timestamp:
         """

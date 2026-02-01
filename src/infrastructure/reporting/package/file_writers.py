@@ -61,7 +61,9 @@ def write_data_files(
         dual_macd_history = _compute_dual_macd_history_for_key(df, timeframe, display_timezone)
 
         # Compute TrendPulse history for verification table
-        trend_pulse_history = _compute_trend_pulse_history_for_key(df, timeframe)
+        trend_pulse_history = _compute_trend_pulse_history_for_key(
+            df, timeframe, display_timezone
+        )
 
         file_data = {
             "symbol": symbol,
@@ -368,7 +370,7 @@ def _compute_dual_macd_history_for_key(
 
 
 def _compute_trend_pulse_history_for_key(
-    df: pd.DataFrame, timeframe: str = "1d"
+    df: pd.DataFrame, timeframe: str = "1d", display_timezone: str = "US/Eastern"
 ) -> List[Dict[str, Any]]:
     """Compute TrendPulse state history for a single DataFrame (last 60 bars)."""
     try:
@@ -405,13 +407,15 @@ def _compute_trend_pulse_history_for_key(
                 date_str = ts.strftime("%Y-%m-%d") if hasattr(ts, "strftime") else str(ts)
             else:
                 if hasattr(ts, "tz") and ts.tz is not None:
-                    ts_et = ts.tz_convert("US/Eastern")
+                    ts_local = ts.tz_convert(display_timezone)
                 elif hasattr(ts, "tz_localize"):
-                    ts_et = ts.tz_localize("UTC").tz_convert("US/Eastern")
+                    ts_local = ts.tz_localize("UTC").tz_convert(display_timezone)
                 else:
-                    ts_et = ts
+                    ts_local = ts
                 date_str = (
-                    ts_et.strftime("%Y-%m-%d %H:%M") if hasattr(ts_et, "strftime") else str(ts_et)
+                    ts_local.strftime("%Y-%m-%d %H:%M")
+                    if hasattr(ts_local, "strftime")
+                    else str(ts_local)
                 )
             rows.append({"date": date_str, **state})
 
