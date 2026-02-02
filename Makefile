@@ -53,6 +53,8 @@ help:
 	@echo "  make tp-validate      Full 3-stage validation (36 symbols)"
 	@echo "  make tp-holdout       Holdout only (faster)"
 	@echo "  make tp-optimize      Phase 1 Optuna optimization"
+	@echo "  make tp-universe      Full universe backtest + HTML report"
+	@echo "  make tp-universe-quick  Quick test (12 symbols)"
 	@echo "  make behavioral-full  Optuna optimization + walk-forward + serve"
 	@echo "  make behavioral-cases Predefined case studies + serve"
 	@echo ""
@@ -341,7 +343,18 @@ tp-optimize:
 	$(PYTHON) -m src.backtest.runner \
 		--spec config/backtest/examples/trend_pulse_phase1.yaml
 
-.PHONY: tp-validate tp-holdout tp-optimize
+tp-universe:
+	@echo "$(BOLD)TrendPulse v2.2 — Full universe backtest + HTML report$(RESET)"
+	$(PYTHON) scripts/trend_pulse_universe.py
+	@echo "$(GREEN)✓ Report: out/trend_pulse/universe_report.html$(RESET)"
+
+tp-universe-quick:
+	@echo "$(BOLD)TrendPulse v2.2 — Quick test (12 symbols)$(RESET)"
+	$(PYTHON) scripts/trend_pulse_universe.py --subset quick_test \
+		--output out/trend_pulse/quick_report.html
+	@echo "$(GREEN)✓ Report: out/trend_pulse/quick_report.html$(RESET)"
+
+.PHONY: tp-validate tp-holdout tp-optimize tp-universe tp-universe-quick
 
 # ═══════════════════════════════════════════════════════════════
 # Diagrams
