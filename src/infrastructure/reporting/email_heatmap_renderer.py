@@ -65,6 +65,9 @@ def render_email_text(
     lines.append("═" * 36)
     lines.append("")
 
+    # TrendPulse signals (at TOP, before alerts)
+    _append_trend_pulse_section(lines, summary_data, report_label)
+
     # Dual MACD alerts section (at TOP, before market)
     _append_dual_macd_alerts(lines, summary_data, report_label)
 
@@ -164,6 +167,74 @@ def _count_score_bands(summary: Dict[str, Any]) -> Dict[str, int]:
         else:
             bands["weak"] += 1
     return bands
+
+
+def _append_trend_pulse_section(
+    lines: List[str],
+    summary_data: Dict[str, Any],
+    report_label: Optional[str],
+) -> None:
+    """Append TrendPulse entry/exit signals section at top of email."""
+    trend_pulse = summary_data.get("trend_pulse")
+    if not trend_pulse:
+        return
+
+    tf = _LABEL_TO_TF.get(report_label or "", "1d")
+    tf_data = trend_pulse.get(tf) or trend_pulse.get("1d") or {}
+    entries = tf_data.get("entries", [])
+    exits = tf_data.get("exits", [])
+
+    if not entries and not exits:
+        return
+
+    lines.append("⚡ TRENDPULSE SIGNALS")
+    lines.append("═" * 36)
+
+    if entries:
+        lines.append("🟢 ENTRY")
+        for e in entries:
+            sym = e.get("symbol", "")
+            dm = e.get("dm_state", "")[:4]
+            conf = int(e.get("confidence_4f", 0) * 100)
+            stop = e.get("atr_stop_level", 0)
+            lines.append(f"  {sym:<5} {dm:<4}  Conf:{conf:>2}  Stop:${stop:.0f}")
+        lines.append("")
+
+    if exits:
+        lines.append("🔴 EXIT")
+        for x in exits:
+            sym = x.get("symbol", "")
+            reason = x.get("exit_reason", "")
+            conf = int(x.get("confidence_4f", 0) * 100)
+            lines.append(f"  {sym:<5} {reason:<10} Conf:{conf:>2}")
+        lines.append("")
+
+    if not exits and entries:
+        # entries already appended blank line
+        pass
+
+    # Show potential daily signals in intraday emails
+    if tf != "1d":
+        daily_data = trend_pulse.get("1d", {})
+        daily_entries = daily_data.get("entries", [])
+        daily_exits = daily_data.get("exits", [])
+        if daily_entries or daily_exits:
+            lines.append("📅 POTENTIAL DAILY (spot price)")
+            lines.append("─" * 36)
+            for e in daily_entries:
+                sym = e.get("symbol", "")
+                dm = e.get("dm_state", "")[:4]
+                conf = int(e.get("confidence_4f", 0) * 100)
+                stop = e.get("atr_stop_level", 0)
+                lines.append(f"  🟢 {sym:<5} {dm:<4}  Conf:{conf:>2}  Stop:${stop:.0f}")
+            for x in daily_exits:
+                sym = x.get("symbol", "")
+                reason = x.get("exit_reason", "")
+                conf = int(x.get("confidence_4f", 0) * 100)
+                lines.append(f"  🔴 {sym:<5} {reason:<10} Conf:{conf:>2}")
+            lines.append("")
+
+    lines.append("")
 
 
 def _append_dual_macd_alerts(

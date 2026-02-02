@@ -95,6 +95,28 @@ class ReportData:
     # Parameter definitions
     param_definitions: Dict[str, Any] = field(default_factory=dict)
 
+    # Per-symbol timeseries for TrendPulse charts
+    # Keys: symbol → {dates, equity, open, high, low, close, entries, exits,
+    #                  trend_strength, dual_macd_hist, confidence, score, benchmark_equity,
+    #                  exit_reasons}
+    per_symbol_timeseries: Dict[str, Dict[str, List]] = field(default_factory=dict)
+
+    # v2.1 evaluation data
+    # Exit reason counts per symbol: {symbol: {atr_stop: N, dm_regime: N, zig_sell: N, top_detected: N}}
+    exit_reason_counts: Dict[str, Dict[str, int]] = field(default_factory=dict)
+
+    # Regime split metrics: {symbol: [{regime, start, end, return, max_dd, trades, pf, avg_hold}]}
+    regime_splits: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
+
+    # Walk-forward fold results: [{fold, train_sharpe, test_sharpe, train_return, test_return, ...}]
+    wf_fold_results: List[Dict[str, Any]] = field(default_factory=list)
+
+    # Holdout results: {sharpe, return, max_dd, pf, trades}
+    holdout_results: Dict[str, float] = field(default_factory=dict)
+
+    # Red flags detected: [{flag, description, severity}]
+    red_flags: List[Dict[str, str]] = field(default_factory=list)
+
 
 class HTMLReportGenerator:
     """
@@ -156,6 +178,7 @@ class HTMLReportGenerator:
         {self._build_validation_tab(data)}
         {self._build_trades_tab(data)}
         {self._build_raw_data_tab(data)}
+        {self._build_trend_pulse_tab(data)}
     </div>
     {self._get_scripts(data)}
 </body>
@@ -374,6 +397,7 @@ body {{
             <button class="tab-btn" onclick="showTab('validation')">Validation</button>
             <button class="tab-btn" onclick="showTab('trades')">Trades</button>
             <button class="tab-btn" onclick="showTab('raw-data')">Raw Data</button>
+            <button class="tab-btn" onclick="showTab('trend-pulse')">TrendPulse</button>
         </div>
 """
 
@@ -795,6 +819,109 @@ body {{
         </div>
 """
 
+    def _build_trend_pulse_tab(self, data: ReportData) -> str:
+        """Build TrendPulse per-symbol charts tab with lazy rendering."""
+        if not data.per_symbol_timeseries:
+            return '<div id="trend-pulse" class="tab-content"><div class="card">No TrendPulse data.</div></div>'
+
+        symbol_buttons = ""
+        for i, sym in enumerate(data.per_symbol_timeseries):
+            active = " active" if i == 0 else ""
+            symbol_buttons += (
+                f'<button class="asset-btn tp-sym-btn{active}" '
+                f"onclick=\"selectTPSymbol('{sym}')\">{sym}</button>"
+            )
+
+        # Red flags section
+        red_flags_html = ""
+        for flag in data.red_flags:
+            severity = flag.get("severity", "warn")
+            badge_class = "badge-fail" if severity == "critical" else "badge-warn"
+            red_flags_html += (
+                f'<div style="margin-bottom:8px;">'
+                f'<span class="badge {badge_class}">{flag.get("flag", "")}</span> '
+                f'{flag.get("description", "")}</div>'
+            )
+
+        # Walk-forward fold rows
+        wf_rows = ""
+        for fold in data.wf_fold_results:
+            train_sharpe = fold.get("train_sharpe", 0)
+            test_sharpe = fold.get("test_sharpe", 0)
+            deg = (1 - test_sharpe / train_sharpe) * 100 if train_sharpe != 0 else 0
+            deg_class = "positive" if abs(deg) < 30 else "negative"
+            wf_rows += f"""<tr>
+                <td>Fold {fold.get('fold', '?')}</td>
+                <td>{fold.get('train_period', '')}</td>
+                <td>{fold.get('test_period', '')}</td>
+                <td>{train_sharpe:.2f}</td>
+                <td>{test_sharpe:.2f}</td>
+                <td class="{deg_class}">{deg:.0f}%</td>
+            </tr>"""
+
+        # Holdout summary
+        ho = data.holdout_results
+        holdout_html = ""
+        if ho:
+            holdout_html = f"""
+            <div class="card">
+                <div class="card-title">Holdout Results (Untouched by Optimizer)</div>
+                <div class="metrics-grid">
+                    <div class="metric-card">
+                        <div class="metric-value">{ho.get('sharpe', 0):.2f}</div>
+                        <div class="metric-label">Sharpe</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value {'positive' if ho.get('total_return', 0) > 0 else 'negative'}">{ho.get('total_return', 0)*100:.1f}%</div>
+                        <div class="metric-label">Return</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value">{ho.get('max_dd', 0)*100:.1f}%</div>
+                        <div class="metric-label">Max DD</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value">{ho.get('profit_factor', 0):.2f}</div>
+                        <div class="metric-label">Profit Factor</div>
+                    </div>
+                </div>
+            </div>"""
+
+        return f"""
+        <div id="trend-pulse" class="tab-content">
+            {f'<div class="card"><div class="card-title">Red Flags</div>{red_flags_html}</div>' if red_flags_html else ''}
+
+            <div class="card">
+                <div class="card-title">TrendPulse Per-Symbol Analysis</div>
+                <div class="asset-tabs">{symbol_buttons}</div>
+            </div>
+            <div id="tp-charts">
+                <div class="card"><div id="tp-equity-chart" style="height:400px;"></div></div>
+                <div class="card"><div id="tp-drawdown-chart" style="height:250px;"></div></div>
+                <div class="card"><div id="tp-candle-chart" style="height:400px;"></div></div>
+                <div class="card"><div id="tp-exit-reason-chart" style="height:300px;"></div></div>
+                <div class="card"><div id="tp-strength-chart" style="height:250px;"></div></div>
+                <div class="card"><div id="tp-macd-chart" style="height:250px;"></div></div>
+                <div class="card"><div id="tp-pnl-chart" style="height:250px;"></div></div>
+                <div class="card"><div id="tp-confidence-chart" style="height:250px;"></div></div>
+                <div class="card"><div id="tp-regime-table"></div></div>
+                <div class="card"><div id="tp-summary-table"></div></div>
+            </div>
+
+            <div class="card">
+                <div class="card-title">Walk-Forward Fold Results</div>
+                <table class="data-table">
+                    <thead><tr>
+                        <th>Fold</th><th>Train Period</th><th>Test Period</th>
+                        <th>IS Sharpe</th><th>OOS Sharpe</th><th>Degradation</th>
+                    </tr></thead>
+                    <tbody>{wf_rows}</tbody>
+                </table>
+            </div>
+
+            {holdout_html}
+        </div>
+"""
+
     def _get_scripts(self, data: ReportData) -> str:
         """Return JavaScript for interactivity."""
         # Serialize data for JavaScript
@@ -806,6 +933,9 @@ body {{
                 "trades": data.trades,
                 "per_window": data.per_window,
                 "experiment_id": data.experiment_id,
+                "per_symbol_timeseries": data.per_symbol_timeseries,
+                "exit_reason_counts": data.exit_reason_counts,
+                "regime_splits": data.regime_splits,
             },
             default=str,
         )
@@ -991,5 +1121,144 @@ function copyDuckDBQuery() {{
     navigator.clipboard.writeText(query);
     alert('DuckDB query copied to clipboard!');
 }}
+
+// TrendPulse per-symbol charts (lazy rendering)
+let currentTPSymbol = null;
+let tpRendered = {{}};
+
+function selectTPSymbol(sym) {{
+    currentTPSymbol = sym;
+    document.querySelectorAll('.tp-sym-btn').forEach(b => b.classList.remove('active'));
+    if (event && event.target) event.target.classList.add('active');
+    renderTPCharts(sym);
+}}
+
+function renderTPCharts(sym) {{
+    const ts = (reportData.per_symbol_timeseries || {{}})[sym];
+    if (!ts || !ts.dates) return;
+    const dates = ts.dates;
+    const layout = {{ margin: {{ t: 20, r: 20, b: 40, l: 60 }}, hovermode: 'x unified' }};
+
+    // 1. Equity + benchmark + entry/exit markers
+    const traces1 = [
+        {{ x: dates, y: ts.equity, type: 'scatter', mode: 'lines', name: 'Strategy', line: {{ color: '#3b82f6', width: 2 }} }},
+    ];
+    if (ts.benchmark_equity) {{
+        traces1.push({{ x: dates, y: ts.benchmark_equity, type: 'scatter', mode: 'lines', name: 'SPY Benchmark', line: {{ color: '#9ca3af', width: 1, dash: 'dash' }} }});
+    }}
+    if (ts.entries) {{
+        const eDates = dates.filter((_, i) => ts.entries[i]);
+        const eVals = ts.equity.filter((_, i) => ts.entries[i]);
+        traces1.push({{ x: eDates, y: eVals, type: 'scatter', mode: 'markers', name: 'BUY', marker: {{ color: '#22c55e', symbol: 'triangle-up', size: 10 }} }});
+    }}
+    if (ts.exits) {{
+        const xDates = dates.filter((_, i) => ts.exits[i]);
+        const xVals = ts.equity.filter((_, i) => ts.exits[i]);
+        traces1.push({{ x: xDates, y: xVals, type: 'scatter', mode: 'markers', name: 'SELL', marker: {{ color: '#ef4444', symbol: 'triangle-down', size: 10 }} }});
+    }}
+    Plotly.newPlot('tp-equity-chart', traces1, {{ ...layout, yaxis: {{ title: 'Equity ($)' }} }}, {{ responsive: true }});
+
+    // 2. Candlestick with entry/exit overlays
+    if (ts.open && ts.high && ts.low && ts.close) {{
+        const candle = [{{ x: dates, open: ts.open, high: ts.high, low: ts.low, close: ts.close, type: 'candlestick', name: sym }}];
+        Plotly.newPlot('tp-candle-chart', candle, {{ ...layout, yaxis: {{ title: 'Price' }} }}, {{ responsive: true }});
+    }}
+
+    // 3. TrendStrength area chart
+    if (ts.trend_strength) {{
+        Plotly.newPlot('tp-strength-chart', [
+            {{ x: dates, y: ts.trend_strength, type: 'scatter', fill: 'tozeroy', name: 'Trend Strength', line: {{ color: '#8b5cf6' }} }},
+            {{ x: [dates[0], dates[dates.length-1]], y: [0.3, 0.3], type: 'scatter', mode: 'lines', name: 'Moderate', line: {{ color: '#fbbf24', dash: 'dot' }} }},
+            {{ x: [dates[0], dates[dates.length-1]], y: [0.6, 0.6], type: 'scatter', mode: 'lines', name: 'Strong', line: {{ color: '#22c55e', dash: 'dot' }} }},
+        ], {{ ...layout, yaxis: {{ title: 'Strength', range: [0, 1] }} }}, {{ responsive: true }});
+    }}
+
+    // 4. DualMACD histogram
+    if (ts.dual_macd_hist) {{
+        const colors = ts.dual_macd_hist.map(v => v >= 0 ? '#22c55e' : '#ef4444');
+        Plotly.newPlot('tp-macd-chart', [
+            {{ x: dates, y: ts.dual_macd_hist, type: 'bar', name: 'DualMACD', marker: {{ color: colors }} }},
+        ], {{ ...layout, yaxis: {{ title: 'Histogram' }} }}, {{ responsive: true }});
+    }}
+
+    // 5. Daily PnL bar chart
+    if (ts.equity && ts.equity.length > 1) {{
+        const pnl = ts.equity.map((v, i) => i === 0 ? 0 : v - ts.equity[i-1]);
+        const pnlColors = pnl.map(v => v >= 0 ? '#22c55e' : '#ef4444');
+        Plotly.newPlot('tp-pnl-chart', [
+            {{ x: dates, y: pnl, type: 'bar', name: 'Daily PnL', marker: {{ color: pnlColors }} }},
+        ], {{ ...layout, yaxis: {{ title: 'PnL ($)' }} }}, {{ responsive: true }});
+    }}
+
+    // 6. Score/Confidence heatmap
+    if (ts.confidence && ts.score) {{
+        Plotly.newPlot('tp-confidence-chart', [
+            {{ x: dates, y: ts.confidence, type: 'scatter', mode: 'lines', name: 'Confidence', line: {{ color: '#3b82f6' }} }},
+            {{ x: dates, y: ts.score.map(v => v / 100), type: 'scatter', mode: 'lines', name: 'Score/100', line: {{ color: '#f59e0b' }} }},
+        ], {{ ...layout, yaxis: {{ title: 'Value', range: [0, 1] }} }}, {{ responsive: true }});
+    }}
+
+    // 7. Drawdown curve
+    if (ts.equity && ts.equity.length > 1) {{
+        const peak = [];
+        let maxVal = ts.equity[0];
+        for (let i = 0; i < ts.equity.length; i++) {{
+            maxVal = Math.max(maxVal, ts.equity[i]);
+            peak.push(maxVal);
+        }}
+        const dd = ts.equity.map((v, i) => peak[i] > 0 ? (v - peak[i]) / peak[i] * 100 : 0);
+        Plotly.newPlot('tp-drawdown-chart', [
+            {{ x: dates, y: dd, type: 'scatter', fill: 'tozeroy', name: 'Drawdown %', line: {{ color: '#ef4444' }} }},
+        ], {{ ...layout, yaxis: {{ title: 'Drawdown (%)' }} }}, {{ responsive: true }});
+    }}
+
+    // 8. Exit reason attribution (stacked bar)
+    const exitReasonCounts = (reportData.exit_reason_counts || {{}})[sym] || {{}};
+    if (Object.keys(exitReasonCounts).length > 0) {{
+        const reasons = Object.keys(exitReasonCounts);
+        const counts = Object.values(exitReasonCounts);
+        const colors = reasons.map(r => ({{
+            'atr_stop': '#ef4444', 'dm_regime': '#f59e0b', 'zig_sell': '#22c55e', 'top_detected': '#8b5cf6'
+        }})[r] || '#6b7280');
+        Plotly.newPlot('tp-exit-reason-chart', [{{
+            x: reasons, y: counts, type: 'bar', marker: {{ color: colors }}, name: 'Exit Reasons'
+        }}], {{ ...layout, yaxis: {{ title: 'Count' }} }}, {{ responsive: true }});
+    }}
+
+    // 9. Regime split table
+    const regimes = (reportData.regime_splits || {{}})[sym] || [];
+    if (regimes.length > 0) {{
+        let rows = regimes.map(r => `<tr>
+            <td>${{r.regime}}</td><td>${{r.start}} - ${{r.end}}</td>
+            <td class="${{r.total_return >= 0 ? 'positive' : 'negative'}}">${{(r.total_return * 100).toFixed(1)}}%</td>
+            <td>${{(r.max_dd * 100).toFixed(1)}}%</td><td>${{r.trades}}</td>
+            <td>${{r.pf.toFixed(2)}}</td><td>${{r.avg_hold.toFixed(0)}}</td>
+        </tr>`).join('');
+        document.getElementById('tp-regime-table').innerHTML = `
+            <div class="card-title">Regime Performance</div>
+            <table class="data-table">
+                <thead><tr><th>Regime</th><th>Period</th><th>Return</th><th>Max DD</th><th>Trades</th><th>PF</th><th>Avg Hold</th></tr></thead>
+                <tbody>${{rows}}</tbody>
+            </table>`;
+    }}
+
+    // 10. Summary metrics table
+    const symMetrics = (reportData.per_symbol || {{}})[sym] || {{}};
+    document.getElementById('tp-summary-table').innerHTML = `
+        <table class="data-table">
+            <tr><th>Metric</th><th>Value</th></tr>
+            <tr><td>Sharpe</td><td>${{(symMetrics.sharpe || 0).toFixed(2)}}</td></tr>
+            <tr><td>Max Drawdown</td><td>${{((symMetrics.max_drawdown || 0) * 100).toFixed(1)}}%</td></tr>
+            <tr><td>Total Return</td><td>${{((symMetrics.total_return || 0) * 100).toFixed(1)}}%</td></tr>
+            <tr><td>Win Rate</td><td>${{((symMetrics.win_rate || 0) * 100).toFixed(0)}}%</td></tr>
+            <tr><td>Total Trades</td><td>${{symMetrics.total_trades || 0}}</td></tr>
+        </table>
+    `;
+}}
+
+document.addEventListener('DOMContentLoaded', () => {{
+    const tpSyms = Object.keys(reportData.per_symbol_timeseries || {{}});
+    if (tpSyms.length > 0) selectTPSymbol(tpSyms[0]);
+}});
 </script>
 """

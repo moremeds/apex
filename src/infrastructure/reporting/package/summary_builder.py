@@ -171,17 +171,20 @@ class SummaryBuilder:
 
             ticker_summary = self._build_ticker_summary(symbol, data, regime, timeframes)
 
-            # Calculate average composite_score across all timeframes for heatmap trending
-            composite_scores = []
+            # Weighted average composite_score across timeframes for heatmap trending
+            # Weights: 1h=25%, 4h=35%, 1d=40%. Unrecognized timeframes get equal share.
+            tf_weights = {"1h": 0.25, "4h": 0.35, "1d": 0.40}
+            weighted_sum = 0.0
+            weight_total = 0.0
             for tf in timeframes:
                 regime_key = f"{symbol}_{tf}"
                 tf_regime = regime_outputs.get(regime_key)
                 if tf_regime and tf_regime.composite_score is not None:
-                    composite_scores.append(tf_regime.composite_score)
-            if composite_scores:
-                ticker_summary["composite_score_avg"] = round(
-                    sum(composite_scores) / len(composite_scores), 1
-                )
+                    w = tf_weights.get(tf, 1.0)
+                    weighted_sum += w * tf_regime.composite_score
+                    weight_total += w
+            if weight_total > 0:
+                ticker_summary["composite_score_avg"] = round(weighted_sum / weight_total, 1)
 
             # PR-B: Add per-ticker data_quality and aggregate
             ticker_quality = self._extract_ticker_data_quality(symbol, df, regime)
@@ -250,6 +253,9 @@ class SummaryBuilder:
 
         # Dual MACD summary keyed by timeframe
         summary["dual_macd"] = self._build_dual_macd_summary(data, timeframes)
+
+        # TrendPulse entry/exit summary keyed by timeframe
+        summary["trend_pulse"] = self._build_trend_pulse_summary(data, timeframes)
 
         return summary
 
@@ -607,5 +613,66 @@ class SummaryBuilder:
                 "alerts": {"dip_buy": sorted(dip_buy), "rally_sell": sorted(rally_sell)},
                 "trends": trends[:10],
             }
+
+        return result
+
+    def _build_trend_pulse_summary(
+        self,
+        data: Dict[Tuple[str, str], pd.DataFrame],
+        timeframes: List[str],
+    ) -> Dict[str, Any]:
+        """
+        Build TrendPulse entry/exit summary keyed by timeframe.
+
+        For each (symbol, timeframe) DataFrame, compute TrendPulse indicator
+        and extract the last row's state to identify entry/exit signals.
+
+        Returns:
+            Dict keyed by timeframe, each with ``entries`` and ``exits`` lists.
+        """
+        from src.domain.signals.indicators.trend.trend_pulse import TrendPulseIndicator
+
+        indicator = TrendPulseIndicator()
+        result: Dict[str, Any] = {}
+
+        for tf in timeframes:
+            entries: List[Dict[str, Any]] = []
+            exits: List[Dict[str, Any]] = []
+
+            for (symbol, timeframe), df in data.items():
+                if timeframe != tf or len(df) < 2:
+                    continue
+                try:
+                    computed = indicator._calculate(df, indicator.default_params)
+                    if computed.empty:
+                        continue
+                    current = computed.iloc[-1]
+                    previous = computed.iloc[-2] if len(computed) >= 2 else None
+                    state = indicator.get_state(current, previous)
+
+                    if state.get("entry_signal"):
+                        entries.append(
+                            {
+                                "symbol": symbol,
+                                "dm_state": state.get("dm_state", ""),
+                                "confidence_4f": state.get("confidence_4f", 0),
+                                "atr_stop_level": state.get("atr_stop_level", 0),
+                            }
+                        )
+                    elif state.get("exit_signal", "none") != "none":
+                        exits.append(
+                            {
+                                "symbol": symbol,
+                                "exit_reason": state.get("exit_signal", ""),
+                                "confidence_4f": state.get("confidence_4f", 0),
+                            }
+                        )
+                except Exception as e:
+                    logger.debug(f"TrendPulse summary failed for {symbol}_{tf}: {e}")
+
+            entries.sort(key=lambda x: x.get("confidence_4f", 0), reverse=True)
+            exits.sort(key=lambda x: x.get("confidence_4f", 0))
+
+            result[tf] = {"entries": entries, "exits": exits}
 
         return result

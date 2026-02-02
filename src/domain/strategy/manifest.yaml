@@ -57,6 +57,11 @@ strategies:
     validation:
       validated_by_apex: false
 
+  trend_pulse:
+    signals: src.domain.strategy.signals.trend_pulse:TrendPulseSignalGenerator
+    validation:
+      validated_by_apex: false
+
   mtf_rsi_trend:
     strategy: src.domain.strategy.examples.mtf_rsi_trend:MTFRsiTrendStrategy
     signals: src.domain.strategy.signals.mtf_rsi_trend:MTFRsiTrendSignalGenerator
