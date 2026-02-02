@@ -29,7 +29,9 @@ from src.domain.strategy.signals.trend_pulse import TrendPulseSignalGenerator
 FIXTURES_DIR = Path(__file__).parents[3] / "fixtures"
 
 _FIXTURE_MISSING = not (FIXTURES_DIR / "aapl_2024_daily.parquet").exists()
-pytestmark = pytest.mark.skipif(_FIXTURE_MISSING, reason="Fixture parquet files not available in CI")
+pytestmark = pytest.mark.skipif(
+    _FIXTURE_MISSING, reason="Fixture parquet files not available in CI"
+)
 
 
 def _load_fixture(symbol: str = "AAPL") -> pd.DataFrame:
