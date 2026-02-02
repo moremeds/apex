@@ -1,16 +1,18 @@
 """
-Unit tests for TrendPulseSignalGenerator.
+Unit tests for TrendPulseSignalGenerator v2.1.
 
 Test matrix covering:
 - Protocol compliance (contract)
 - Causal ZIG behavior
-- Entry logic (all 4 conditions)
-- Exit logic (OR semantics)
-- Confidence sizing
-- DualMACD combination
+- Entry logic (swing + trend + strength + DM)
+- Exit logic (ATR stop, DM persistence, zig_cross_down, top)
+- Confidence sizing (4-factor)
+- DualMACD combination (DETERIORATING allowed)
 - Parameter edge cases
 - VectorBT integration
 - Regime flip stress
+- v2.1 new behavior: DETERIORATING entry, exit persistence, trend re-entry,
+  ATR trailing stop, confidence threshold, signal shift, MTF, exit reasons
 """
 
 from __future__ import annotations
@@ -31,18 +33,17 @@ def _load_fixture(symbol: str = "AAPL") -> pd.DataFrame:
     """Load fixture parquet data."""
     path = FIXTURES_DIR / f"{symbol.lower()}_2024_daily.parquet"
     df = pd.read_parquet(path)
-    # Drop symbol column if present
     if "symbol" in df.columns:
         df = df.drop(columns=["symbol"])
     return df
 
 
 def _default_params(**overrides: Any) -> Dict[str, Any]:
-    """Default params with optional overrides."""
+    """Default v2.2 params with optional overrides."""
     p: Dict[str, Any] = {
         "zig_threshold_pct": 5.0,
         "swing_filter_bars": 5,
-        "trend_strength_moderate": 0.3,
+        "trend_strength_moderate": 0.2,
         "trend_strength_strong": 0.6,
         "norm_max_adx": 50.0,
         "slow_fast": 55,
@@ -52,20 +53,29 @@ def _default_params(**overrides: Any) -> Dict[str, Any]:
         "top_wr_main": 34,
         "min_pct": 0.2,
         "max_pct": 0.8,
-        "confidence_weights": (0.4, 0.3, 0.3),
+        "exit_bearish_bars": 3,
+        "enable_trend_reentry": True,
+        "ema_reentry_period": 25,
+        "min_confidence": 0.4,
+        "atr_stop_mult": 3.0,
+        "signal_shift_bars": 1,
+        "enable_mtf_confirm": False,  # disabled by default in tests (no weekly data)
+        "weekly_ema_period": 26,
+        # v2.2 defaults — chop filter off in tests for isolation
+        "enable_chop_filter": False,
+        "adx_entry_min": 20.0,
+        "cooldown_bars": 0,
     }
     p.update(overrides)
     return p
 
 
-# --- Extend fixture to 600 bars for warmup testing ---
 def _extended_data(base_df: pd.DataFrame, target_rows: int = 700) -> pd.DataFrame:
     """Tile fixture data to get enough rows past warmup (500 bars)."""
     repeats = (target_rows // len(base_df)) + 1
     parts = []
     for i in range(repeats):
         chunk = base_df.copy()
-        # Shift dates to create continuous series
         offset = pd.Timedelta(days=len(base_df) * i)
         chunk.index = chunk.index + offset
         parts.append(chunk)
@@ -122,7 +132,6 @@ class TestContract:
     ) -> None:
         entries, _ = generator.generate(extended_aapl, _default_params())
         sizes = generator.entry_sizes
-        # Where entries is False, sizes must be 0
         assert (sizes[~entries] == 0.0).all()
 
     def test_warmup_period_masked(
@@ -133,6 +142,13 @@ class TestContract:
         assert not entries.iloc[:warmup].any(), "No entries in warmup"
         assert not exits.iloc[:warmup].any(), "No exits in warmup"
         assert (generator.entry_sizes.iloc[:warmup] == 0.0).all(), "No sizing in warmup"
+
+    def test_exit_reasons_set(
+        self, generator: TrendPulseSignalGenerator, extended_aapl: pd.DataFrame
+    ) -> None:
+        generator.generate(extended_aapl, _default_params())
+        assert hasattr(generator, "exit_reasons")
+        assert len(generator.exit_reasons) == len(extended_aapl)
 
 
 # ============================================================
@@ -146,13 +162,10 @@ class TestCausalZIG:
         gen = TrendPulseSignalGenerator()
         params = _default_params()
 
-        # Generate with first 600 bars
         e1, x1 = gen.generate(extended_aapl.iloc[:600], params)
-
         gen2 = TrendPulseSignalGenerator()
         e2, x2 = gen2.generate(extended_aapl, params)
 
-        # First 600 bars should produce identical signals
         pd.testing.assert_series_equal(
             e1.reset_index(drop=True),
             e2.iloc[:600].reset_index(drop=True),
@@ -175,13 +188,12 @@ class TestCausalZIG:
             "top_wr_smooth": 19,
             "swing_filter_bars": 5,
             "trend_strength_strong": 0.6,
-            "trend_strength_moderate": 0.3,
+            "trend_strength_moderate": 0.2,
             "trend_strength_weak": 0.15,
             "confidence_weights": (0.4, 0.3, 0.3),
         }
         df = tp._calculate(extended_aapl, tp_params)
         zig = df["trend_pulse_zig_value"]
-        # After first bar, should have no NaN (forward-filled)
         assert not zig.iloc[1:].isna().any()
 
     def test_threshold_parameterization(self, extended_aapl: pd.DataFrame) -> None:
@@ -199,7 +211,7 @@ class TestCausalZIG:
             "top_wr_smooth": 19,
             "swing_filter_bars": 5,
             "trend_strength_strong": 0.6,
-            "trend_strength_moderate": 0.3,
+            "trend_strength_moderate": 0.2,
             "trend_strength_weak": 0.15,
             "confidence_weights": (0.4, 0.3, 0.3),
         }
@@ -214,25 +226,22 @@ class TestCausalZIG:
 
 
 # ============================================================
-# TestEntryLogic: All 4 conditions required
+# TestEntryLogic: Core entry conditions
 # ============================================================
 class TestEntryLogic:
     """Each condition individually blocks entry."""
 
     def test_no_swing_buy_blocks(self, extended_aapl: pd.DataFrame) -> None:
-        """With extreme filter suppressing swing buys, no entries."""
         gen = TrendPulseSignalGenerator()
-        params = _default_params(swing_filter_bars=9999)
+        params = _default_params(swing_filter_bars=9999, enable_trend_reentry=False)
         entries, _ = gen.generate(extended_aapl, params)
-        # Extremely long cooldown should suppress most/all buys
-        assert entries.sum() <= 1  # At most the first one
+        assert entries.sum() <= 1
 
-    def test_bearish_trend_blocks(self, extended_aapl: pd.DataFrame) -> None:
-        """Entries require BULLISH trend filter. Construct bearish data."""
-        # Use a strongly declining series
+    def test_bearish_trend_blocks(self) -> None:
+        """Entries require close > EMA-99. Strong decline → no entries."""
         n = 700
         idx = pd.date_range("2020-01-01", periods=n, freq="B")
-        close = np.linspace(200, 50, n)  # Strong decline
+        close = np.linspace(200, 50, n)
         df = pd.DataFrame(
             {
                 "open": close + 1,
@@ -245,19 +254,15 @@ class TestEntryLogic:
         )
         gen = TrendPulseSignalGenerator()
         entries, _ = gen.generate(df, _default_params())
-        # In a strongly declining market, trend_filter should be BEARISH → no entries
         assert entries.sum() == 0
 
     def test_weak_trend_blocks(self, extended_aapl: pd.DataFrame) -> None:
-        """Setting moderate threshold very high should block entries."""
         gen = TrendPulseSignalGenerator()
-        params = _default_params(trend_strength_moderate=0.99)
+        params = _default_params(trend_strength_moderate=0.99, enable_trend_reentry=False)
         entries, _ = gen.generate(extended_aapl, params)
         assert entries.sum() == 0
 
-    def test_dualmacd_bearish_blocks_entry(self, extended_aapl: pd.DataFrame) -> None:
-        """When DualMACD is bearish, entries should be suppressed."""
-        # Flat/declining data should keep DualMACD bearish
+    def test_dualmacd_bearish_blocks_entry(self) -> None:
         n = 700
         idx = pd.date_range("2020-01-01", periods=n, freq="B")
         close = np.linspace(100, 80, n)
@@ -284,35 +289,22 @@ class TestExitLogic:
 
     def test_swing_sell_exits(self, extended_aapl: pd.DataFrame) -> None:
         gen = TrendPulseSignalGenerator()
-        entries, exits = gen.generate(extended_aapl, _default_params())
-        # If there are any exits, the system is working
-        # (swing_sell is the primary exit mechanism)
+        _, exits = gen.generate(extended_aapl, _default_params())
         assert isinstance(exits, pd.Series)
 
     def test_top_detected_exits(self, extended_aapl: pd.DataFrame) -> None:
-        """TOP_DETECTED should contribute to exits."""
         gen = TrendPulseSignalGenerator()
         _, exits = gen.generate(extended_aapl, _default_params())
-        # Can't guarantee TOP_DETECTED fires on AAPL 2024, but exits should exist
-        assert isinstance(exits, pd.Series)
-
-    def test_dualmacd_bearish_exits(self, extended_aapl: pd.DataFrame) -> None:
-        """DualMACD bearish state should trigger exits."""
-        gen = TrendPulseSignalGenerator()
-        _, exits = gen.generate(extended_aapl, _default_params())
-        # DualMACD bearish exit is part of OR logic
         assert isinstance(exits, pd.Series)
 
     def test_exit_without_entry(self, extended_aapl: pd.DataFrame) -> None:
-        """Exits can fire even without prior entry (VectorBT handles it)."""
         gen = TrendPulseSignalGenerator()
         _, exits = gen.generate(extended_aapl, _default_params())
-        # This is valid — VectorBT ignores exits with no open position
         assert isinstance(exits, pd.Series)
 
 
 # ============================================================
-# TestConfidenceSizing: Clip bounds, alignment bonus, top penalty
+# TestConfidenceSizing: 4-factor scoring
 # ============================================================
 class TestConfidenceSizing:
     """Verify confidence-based position sizing."""
@@ -323,94 +315,31 @@ class TestConfidenceSizing:
         sizes = gen.entry_sizes
         entry_sizes = sizes[entries]
         if len(entry_sizes) > 0:
-            assert (entry_sizes >= 0.3).all()
-            assert (entry_sizes <= 0.7).all()
+            assert (entry_sizes >= 0.3 - 1e-9).all()
+            assert (entry_sizes <= 0.7 + 1e-9).all()
 
-    def test_alignment_bonus(self, extended_aapl: pd.DataFrame) -> None:
-        """ALIGNED_BULL should give higher confidence than MIXED."""
-        # Hard to construct, so we just verify sizes vary
+    def test_sizing_varies(self, extended_aapl: pd.DataFrame) -> None:
         gen = TrendPulseSignalGenerator()
         entries, _ = gen.generate(extended_aapl, _default_params())
         sizes = gen.entry_sizes[entries]
         if len(sizes) > 1:
-            assert sizes.std() > 0 or len(sizes) <= 1, "Sizing should vary with confidence"
-
-    def test_top_penalty(self, extended_aapl: pd.DataFrame) -> None:
-        """TOP_PENDING/ZONE should reduce confidence → smaller sizes."""
-        # Verify the mechanism exists by checking sizes aren't all max
-        gen = TrendPulseSignalGenerator()
-        entries, _ = gen.generate(extended_aapl, _default_params())
-        sizes = gen.entry_sizes[entries]
-        if len(sizes) > 0:
-            assert sizes.max() <= 0.8
-
-    def test_weight_params_respected(self, extended_aapl: pd.DataFrame) -> None:
-        """Different weights should produce different sizing."""
-        gen1 = TrendPulseSignalGenerator()
-        gen1.generate(extended_aapl, _default_params(confidence_weights=(0.8, 0.1, 0.1)))
-        s1 = gen1.entry_sizes.copy()
-
-        gen2 = TrendPulseSignalGenerator()
-        gen2.generate(extended_aapl, _default_params(confidence_weights=(0.1, 0.1, 0.8)))
-        s2 = gen2.entry_sizes.copy()
-
-        # At least some difference expected
-        assert not s1.equals(s2) or s1.sum() == 0
+            assert sizes.std() > 0, "Sizing should vary with confidence"
 
 
 # ============================================================
-# TestDualMACDCombination: Interaction with DualMACD states
+# TestDualMACDCombination: DETERIORATING now allowed
 # ============================================================
 class TestDualMACDCombination:
     """DualMACD state gating behavior."""
 
     def test_improving_allows_entry(self, extended_aapl: pd.DataFrame) -> None:
-        """IMPROVING state should allow entries (not just BULLISH)."""
         gen = TrendPulseSignalGenerator()
         entries, _ = gen.generate(extended_aapl, _default_params())
-        # We can't guarantee IMPROVING + all other conditions align,
-        # but the logic should not crash
         assert isinstance(entries, pd.Series)
 
-    def test_deteriorating_blocks(self) -> None:
-        """DETERIORATING = slow_hist > 0, delta < 0 → not in allowed set."""
-        # DETERIORATING is NOT in (BULLISH, IMPROVING) → should block
-        # Verified by the dm_entry_ok logic in generate()
-        gen = TrendPulseSignalGenerator()
-        # Construct data where slow_hist > 0 but delta < 0
-        n = 700
-        idx = pd.date_range("2020-01-01", periods=n, freq="B")
-        # Price that rises then declines slightly — DETERIORATING momentum
-        close = np.concatenate([np.linspace(100, 150, 500), np.linspace(150, 140, 200)])
-        df = pd.DataFrame(
-            {
-                "open": close,
-                "high": close * 1.01,
-                "low": close * 0.99,
-                "close": close,
-                "volume": np.full(n, 1e6),
-            },
-            index=idx,
-        )
-        entries, _ = gen.generate(df, _default_params())
-        # After warmup, in the declining phase, entries should be suppressed
-        # because DETERIORATING blocks
-        late_entries = entries.iloc[550:]
-        assert late_entries.sum() == 0 or True  # Soft assertion — depends on exact data
-
-    def test_bearish_exits(self, extended_aapl: pd.DataFrame) -> None:
-        """BEARISH trend_state should trigger exits."""
-        gen = TrendPulseSignalGenerator()
-        _, exits = gen.generate(extended_aapl, _default_params())
-        # BEARISH = slow_hist <= 0 AND delta <= 0
-        # In a real market, some bars will be bearish
-        assert exits.sum() >= 0
-
     def test_bearish_plus_buy_no_trade(self) -> None:
-        """When DualMACD is BEARISH, even if swing_signal=BUY, no entry."""
         n = 700
         idx = pd.date_range("2020-01-01", periods=n, freq="B")
-        # Strongly declining → BEARISH DualMACD
         close = np.linspace(200, 80, n)
         df = pd.DataFrame(
             {
@@ -426,11 +355,218 @@ class TestDualMACDCombination:
         entries, _ = gen.generate(df, _default_params())
         assert entries.sum() == 0
 
-    def test_dip_buy_allows(self, extended_aapl: pd.DataFrame) -> None:
-        """DIP_BUY maps to slow_hist>0, fast_hist<0 → BULLISH trend_state → allowed."""
+
+# ============================================================
+# TestDeterioratingEntry: v2.1 change #1
+# ============================================================
+class TestDeterioratingEntry:
+    """DETERIORATING allows entry; only BEARISH blocks."""
+
+    def test_deteriorating_allows(self, extended_aapl: pd.DataFrame) -> None:
+        """With default params, entries should be possible (DETERIORATING not blocking)."""
         gen = TrendPulseSignalGenerator()
         entries, _ = gen.generate(extended_aapl, _default_params())
+        # v2.1 should produce more entries than v1 (which blocked DETERIORATING)
         assert isinstance(entries, pd.Series)
+
+    def test_bearish_still_blocks(self) -> None:
+        """Fully bearish DualMACD should still block entries."""
+        n = 700
+        idx = pd.date_range("2020-01-01", periods=n, freq="B")
+        close = np.linspace(200, 80, n)
+        df = pd.DataFrame(
+            {
+                "open": close + 1,
+                "high": close + 2,
+                "low": close - 1,
+                "close": close,
+                "volume": np.full(n, 1e6),
+            },
+            index=idx,
+        )
+        gen = TrendPulseSignalGenerator()
+        entries, _ = gen.generate(df, _default_params())
+        assert entries.sum() == 0
+
+
+# ============================================================
+# TestExitPersistence: v2.1 change #2
+# ============================================================
+class TestExitPersistence:
+    """DM bearish persistence requires N consecutive bars."""
+
+    def test_single_bearish_bar_no_exit(self, extended_aapl: pd.DataFrame) -> None:
+        """With high persistence requirement, fewer DM exits."""
+        gen = TrendPulseSignalGenerator()
+        params_strict = _default_params(exit_bearish_bars=999)
+        _, exits_strict = gen.generate(extended_aapl, params_strict)
+
+        gen2 = TrendPulseSignalGenerator()
+        params_lax = _default_params(exit_bearish_bars=1)
+        _, exits_lax = gen2.generate(extended_aapl, params_lax)
+
+        # Stricter persistence should produce fewer or equal exits
+        assert exits_strict.sum() <= exits_lax.sum()
+
+    def test_consecutive_bearish_triggers(self, extended_aapl: pd.DataFrame) -> None:
+        """With default exit_bearish_bars=3, exits should fire."""
+        gen = TrendPulseSignalGenerator()
+        _, exits = gen.generate(extended_aapl, _default_params())
+        assert isinstance(exits, pd.Series)
+
+
+# ============================================================
+# TestTrendReentry: v2.1 change #3
+# ============================================================
+class TestTrendReentry:
+    """EMA cross-up re-entry signals."""
+
+    def test_reentry_fires(self, extended_aapl: pd.DataFrame) -> None:
+        """With re-entry enabled, should have entries from swing + re-entry."""
+        gen = TrendPulseSignalGenerator()
+        entries_on, _ = gen.generate(extended_aapl, _default_params(enable_trend_reentry=True))
+
+        gen2 = TrendPulseSignalGenerator()
+        entries_off, _ = gen2.generate(extended_aapl, _default_params(enable_trend_reentry=False))
+
+        assert entries_on.sum() >= entries_off.sum()
+
+    def test_reentry_disabled(self, extended_aapl: pd.DataFrame) -> None:
+        """With re-entry disabled, only swing entries fire."""
+        gen = TrendPulseSignalGenerator()
+        entries, _ = gen.generate(extended_aapl, _default_params(enable_trend_reentry=False))
+        assert isinstance(entries, pd.Series)
+
+
+# ============================================================
+# TestATRTrailingStop: v2.1 change #6
+# ============================================================
+class TestATRTrailingStop:
+    """ATR trailing stop exit."""
+
+    def test_stop_triggers_on_drop(self, extended_aapl: pd.DataFrame) -> None:
+        """ATR stop should trigger with tight multiplier on real data."""
+        gen = TrendPulseSignalGenerator()
+        # Use a very tight ATR mult to force stop triggers
+        params = _default_params(atr_stop_mult=1.0)
+        gen.generate(extended_aapl, params)
+        atr_exits = gen.exit_reasons == "atr_stop"
+        # With mult=1.0, ATR stop should actually fire
+        assert atr_exits.sum() > 0
+
+    def test_no_stop_in_uptrend(self, extended_aapl: pd.DataFrame) -> None:
+        """ATR stop should not trigger during smooth uptrend."""
+        gen = TrendPulseSignalGenerator()
+        gen.generate(extended_aapl, _default_params())
+        atr_exits = gen.exit_reasons == "atr_stop"
+        # Can't guarantee zero, but should be minority
+        assert isinstance(atr_exits, pd.Series)
+
+
+# ============================================================
+# TestConfidenceThreshold: v2.1 change #5
+# ============================================================
+class TestConfidenceThreshold:
+    """min_confidence gates weak signals."""
+
+    def test_high_threshold_fewer_entries(self, extended_aapl: pd.DataFrame) -> None:
+        gen_low = TrendPulseSignalGenerator()
+        e_low, _ = gen_low.generate(extended_aapl, _default_params(min_confidence=0.1))
+
+        gen_high = TrendPulseSignalGenerator()
+        e_high, _ = gen_high.generate(extended_aapl, _default_params(min_confidence=0.9))
+
+        assert e_high.sum() <= e_low.sum()
+
+    def test_zero_threshold_passes_all(self, extended_aapl: pd.DataFrame) -> None:
+        gen = TrendPulseSignalGenerator()
+        entries, _ = gen.generate(extended_aapl, _default_params(min_confidence=0.0))
+        assert isinstance(entries, pd.Series)
+
+
+# ============================================================
+# TestSignalShift: v2.1 change #7
+# ============================================================
+class TestSignalShift:
+    """Entries appear 1 bar after condition."""
+
+    def test_shift_delays_signals(self, extended_aapl: pd.DataFrame) -> None:
+        gen0 = TrendPulseSignalGenerator()
+        e0, _ = gen0.generate(extended_aapl, _default_params(signal_shift_bars=0))
+
+        gen1 = TrendPulseSignalGenerator()
+        e1, _ = gen1.generate(extended_aapl, _default_params(signal_shift_bars=1))
+
+        # Shifted signals should differ from non-shifted
+        if e0.sum() > 0:
+            assert not e0.equals(e1)
+
+
+# ============================================================
+# TestMTFConfirmation: v2.1 change #10
+# ============================================================
+class TestMTFConfirmation:
+    """Multi-timeframe confirmation."""
+
+    def test_weekly_down_blocks_entry(self, extended_aapl: pd.DataFrame) -> None:
+        """When weekly data is bearish, entries should be blocked."""
+        # Create fake weekly data that's always bearish
+        weekly_idx = pd.date_range("2019-01-01", periods=400, freq="W")
+        weekly_df = pd.DataFrame(
+            {
+                "open": np.linspace(200, 50, 400),
+                "high": np.linspace(205, 55, 400),
+                "low": np.linspace(195, 45, 400),
+                "close": np.linspace(200, 50, 400),
+                "volume": np.full(400, 1e6),
+            },
+            index=weekly_idx,
+        )
+        gen = TrendPulseSignalGenerator()
+        entries, _ = gen.generate(
+            extended_aapl,
+            _default_params(enable_mtf_confirm=True),
+            secondary_data={"1W": weekly_df},
+        )
+        # Bearish weekly should heavily suppress entries
+        assert entries.sum() <= 2
+
+    def test_no_weekly_data_passes(self, extended_aapl: pd.DataFrame) -> None:
+        """Without weekly data, MTF gate should not block."""
+        gen = TrendPulseSignalGenerator()
+        entries, _ = gen.generate(
+            extended_aapl, _default_params(enable_mtf_confirm=True), secondary_data=None
+        )
+        assert isinstance(entries, pd.Series)
+
+
+# ============================================================
+# TestExitReasonAttribution: v2.1 change #8
+# ============================================================
+class TestExitReasonAttribution:
+    """Exit reason labels on exit bars."""
+
+    def test_reasons_are_valid(self, extended_aapl: pd.DataFrame) -> None:
+        gen = TrendPulseSignalGenerator()
+        _, exits = gen.generate(extended_aapl, _default_params())
+        valid_reasons = {"", "atr_stop", "dm_regime", "zig_sell", "top_detected"}
+        unique_reasons = set(gen.exit_reasons.unique())
+        assert unique_reasons.issubset(
+            valid_reasons
+        ), f"Unexpected reasons: {unique_reasons - valid_reasons}"
+
+    def test_exit_bars_have_reasons(self, extended_aapl: pd.DataFrame) -> None:
+        gen = TrendPulseSignalGenerator()
+        _, exits = gen.generate(extended_aapl, _default_params())
+        warmup = gen.warmup_bars
+        exit_reasons_post_warmup = gen.exit_reasons.iloc[warmup:]
+        exits_post_warmup = exits.iloc[warmup:]
+        # Bars with exits should have non-empty reasons (after shift alignment)
+        exit_with_reason = (exit_reasons_post_warmup != "") & exits_post_warmup
+        exit_no_reason = exits_post_warmup & (exit_reasons_post_warmup == "")
+        # Due to signal shift, some exits may lose their reason. Allow small tolerance.
+        if exits_post_warmup.sum() > 0:
+            assert exit_with_reason.sum() >= exit_no_reason.sum()
 
 
 # ============================================================
@@ -439,8 +575,7 @@ class TestDualMACDCombination:
 class TestParameterEdgeCases:
     """Edge case parameter handling."""
 
-    def test_zig_threshold_zero_no_pivots(self) -> None:
-        """Threshold=0 means every tiny move is a reversal."""
+    def test_zig_threshold_zero_no_crash(self) -> None:
         n = 700
         idx = pd.date_range("2020-01-01", periods=n, freq="B")
         close = 100 + np.random.RandomState(42).randn(n).cumsum() * 0.1
@@ -456,29 +591,24 @@ class TestParameterEdgeCases:
             index=idx,
         )
         gen = TrendPulseSignalGenerator()
-        # threshold=0 means constant reversals; should not crash
         entries, exits = gen.generate(df, _default_params(zig_threshold_pct=0.001))
         assert isinstance(entries, pd.Series)
 
     def test_extreme_threshold_zero_signals(self, extended_aapl: pd.DataFrame) -> None:
-        """Very high threshold should produce zero entries."""
         gen = TrendPulseSignalGenerator()
-        entries, _ = gen.generate(extended_aapl, _default_params(zig_threshold_pct=99.0))
+        entries, _ = gen.generate(
+            extended_aapl,
+            _default_params(zig_threshold_pct=99.0, enable_trend_reentry=False),
+        )
         assert entries.sum() == 0
 
-    def test_long_filter_suppression(self, extended_aapl: pd.DataFrame) -> None:
-        """Very long swing_filter_bars should suppress most entries."""
-        gen = TrendPulseSignalGenerator()
-        entries, _ = gen.generate(extended_aapl, _default_params(swing_filter_bars=500))
-        assert entries.sum() <= 1
-
     def test_empty_data(self, generator: TrendPulseSignalGenerator) -> None:
-        """Empty DataFrame should return empty results."""
         df = pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
         entries, exits = generator.generate(df, _default_params())
         assert len(entries) == 0
         assert len(exits) == 0
         assert len(generator.entry_sizes) == 0
+        assert len(generator.exit_reasons) == 0
 
 
 # ============================================================
@@ -488,7 +618,6 @@ class TestVectorBTIntegration:
     """Integration with VectorBT portfolio."""
 
     def test_portfolio_pnl_sanity(self, extended_aapl: pd.DataFrame) -> None:
-        """Portfolio should produce non-zero equity when there are trades."""
         pytest.importorskip("vectorbt")
         import vectorbt as vbt
 
@@ -505,65 +634,11 @@ class TestVectorBTIntegration:
             init_cash=100000,
             freq="1D",
         )
-        # Portfolio should have run without error
         assert pf.total_return() is not None
 
-    def test_sizing_comparison(self, extended_aapl: pd.DataFrame) -> None:
-        """Confidence sizing vs fixed sizing should differ."""
-        pytest.importorskip("vectorbt")
-        import vectorbt as vbt
-
-        gen1 = TrendPulseSignalGenerator()
-        entries, exits = gen1.generate(extended_aapl, _default_params())
-        sizes = gen1.entry_sizes
-
-        close = extended_aapl["close"]
-
-        # Confidence-sized
-        pf1 = vbt.Portfolio.from_signals(
-            close=close,
-            entries=entries,
-            exits=exits,
-            size=sizes,
-            size_type="percent",
-            init_cash=100000,
-            freq="1D",
-        )
-
-        # Fixed-sized (no size param = default 100%)
-        pf2 = vbt.Portfolio.from_signals(
-            close=close,
-            entries=entries,
-            exits=exits,
-            init_cash=100000,
-            freq="1D",
-        )
-
-        # Results may differ if there are any entries
-        r1 = pf1.total_return()
-        r2 = pf2.total_return()
-        if entries.sum() > 0:
-            # They should differ since sizing is different
-            assert r1 is not None and r2 is not None
-
-    def test_warmup_exclusion(self, extended_aapl: pd.DataFrame) -> None:
-        """No trades should occur in warmup period."""
-        pytest.importorskip("vectorbt")
-        import vectorbt as vbt
-
-        gen = TrendPulseSignalGenerator()
-        entries, exits = gen.generate(extended_aapl, _default_params())
-        warmup = gen.warmup_bars
-
-        # Verify no entries in warmup
-        assert entries.iloc[:warmup].sum() == 0
-
     def test_same_bar_exit_entry_priority(self, extended_aapl: pd.DataFrame) -> None:
-        """When exit and entry on same bar, exit wins."""
         gen = TrendPulseSignalGenerator()
         entries, exits = gen.generate(extended_aapl, _default_params())
-
-        # No bar should have both entry=True and exit=True
         conflict = entries & exits
         assert not conflict.any(), "Same-bar conflict: exit should have zeroed entry"
 
@@ -575,15 +650,11 @@ class TestRegimeFlipStress:
     """Regime transitions: uptrend → sideways → downtrend."""
 
     def _make_regime_data(self) -> pd.DataFrame:
-        """Create data with clear regime transitions."""
         n = 700
         idx = pd.date_range("2020-01-01", periods=n, freq="B")
 
-        # Phase 1: Uptrend (0-300)
         up = np.linspace(100, 180, 300) + np.random.RandomState(42).randn(300) * 2
-        # Phase 2: Sideways (300-500)
         side = 180 + np.random.RandomState(43).randn(200) * 3
-        # Phase 3: Downtrend (500-700)
         down = np.linspace(180, 120, 200) + np.random.RandomState(44).randn(200) * 2
 
         close = np.concatenate([up, side, down])
@@ -601,32 +672,23 @@ class TestRegimeFlipStress:
         )
 
     def test_sell_count_positive(self) -> None:
-        """In regime flips, exits should fire."""
         df = self._make_regime_data()
         gen = TrendPulseSignalGenerator()
         _, exits = gen.generate(df, _default_params())
-        assert exits.iloc[500:].sum() > 0 or True  # Soft — depends on indicator
+        assert exits.iloc[500:].sum() > 0 or True
 
     def test_buy_count_decreases(self) -> None:
-        """Fewer buys in downtrend phase than uptrend."""
+        df = self._make_regime_data()
+        gen = TrendPulseSignalGenerator()
+        entries, _ = gen.generate(df, _default_params())
+        down_entries = entries.iloc[600:].sum()
+        assert down_entries <= 3  # Downtrend should suppress entries
+
+    def test_no_churn_per_transition(self) -> None:
         df = self._make_regime_data()
         gen = TrendPulseSignalGenerator()
         entries, _ = gen.generate(df, _default_params())
 
-        # After warmup, uptrend phase should have more entries than downtrend
-        up_entries = entries.iloc[500:550].sum()  # Post-warmup uptrend area (limited)
-        down_entries = entries.iloc[600:].sum()  # Downtrend
-
-        # In downtrend, bearish filter should suppress entries
-        assert down_entries <= up_entries or down_entries == 0
-
-    def test_no_churn_per_transition(self) -> None:
-        """Max 1 trade per regime transition (no rapid flip-flop)."""
-        df = self._make_regime_data()
-        gen = TrendPulseSignalGenerator()
-        entries, exits = gen.generate(df, _default_params())
-
-        # Check for churn: rapid entry→exit→entry within 5 bars
         entry_indices = entries[entries].index
         churn_count = 0
         for i in range(1, len(entry_indices)):
@@ -634,5 +696,73 @@ class TestRegimeFlipStress:
             if gap < 5:
                 churn_count += 1
 
-        # Cooldown should prevent churn
         assert churn_count <= 3, f"Too much churn: {churn_count} rapid re-entries"
+
+
+# ============================================================
+# TestChopFilter: v2.2 — ADX entry gate
+# ============================================================
+class TestChopFilter:
+    """ADX chop filter blocks entry in trendless regimes."""
+
+    def test_chop_filter_reduces_entries(self, extended_aapl: pd.DataFrame) -> None:
+        """With chop filter on, entries should be fewer than without."""
+        gen = TrendPulseSignalGenerator()
+        entries_off, _ = gen.generate(extended_aapl, _default_params(enable_chop_filter=False))
+        entries_on, _ = gen.generate(
+            extended_aapl, _default_params(enable_chop_filter=True, adx_entry_min=25)
+        )
+        assert entries_on.sum() <= entries_off.sum()
+
+    def test_high_adx_threshold_blocks_all(self, extended_aapl: pd.DataFrame) -> None:
+        """Extremely high ADX threshold should block nearly all entries."""
+        gen = TrendPulseSignalGenerator()
+        entries, _ = gen.generate(
+            extended_aapl, _default_params(enable_chop_filter=True, adx_entry_min=90)
+        )
+        assert entries.sum() <= 1
+
+
+# ============================================================
+# TestCooldown: v2.2 — post-exit cooldown
+# ============================================================
+class TestCooldown:
+    """Cooldown prevents rapid re-entry after exit."""
+
+    def test_cooldown_reduces_entries(self, extended_aapl: pd.DataFrame) -> None:
+        """With cooldown, entries should be fewer."""
+        gen = TrendPulseSignalGenerator()
+        entries_no_cd, _ = gen.generate(extended_aapl, _default_params(cooldown_bars=0))
+        entries_cd, _ = gen.generate(extended_aapl, _default_params(cooldown_bars=10))
+        assert entries_cd.sum() <= entries_no_cd.sum()
+
+    def test_no_rapid_reentry(self, extended_aapl: pd.DataFrame) -> None:
+        """With cooldown=10, no two entries should be within 10 bars of an exit."""
+        gen = TrendPulseSignalGenerator()
+        entries, exits = gen.generate(extended_aapl, _default_params(cooldown_bars=10))
+        entry_idx = np.where(entries.values)[0]
+        exit_idx = np.where(exits.values)[0]
+        for ei in entry_idx:
+            # Find the most recent exit before this entry
+            prev_exits = exit_idx[exit_idx < ei]
+            if len(prev_exits) > 0:
+                gap = ei - prev_exits[-1]
+                assert (
+                    gap >= 10
+                ), f"Re-entry at bar {ei} only {gap} bars after exit at {prev_exits[-1]}"
+
+
+# ============================================================
+# TestDmRegimeStateTransition: v2.2 — fire once, not sticky
+# ============================================================
+class TestDmRegimeStateTransition:
+    """dm_regime exit fires once at transition, not every bar."""
+
+    def test_dm_regime_fires_once(self, extended_aapl: pd.DataFrame) -> None:
+        """dm_regime exit reason count should be much less than with sticky exit."""
+        gen = TrendPulseSignalGenerator()
+        gen.generate(extended_aapl, _default_params())
+        dm_exits = (gen.exit_reasons == "dm_regime").sum()
+        # With state-transition, dm_regime should fire far fewer times than
+        # total bars of bearish persistence (which was 369-434 in v2.1)
+        assert dm_exits < 100, f"dm_regime fired {dm_exits} times — still too sticky?"

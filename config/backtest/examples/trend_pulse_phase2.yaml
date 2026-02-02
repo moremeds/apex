@@ -1,22 +1,27 @@
-name: "TrendPulse_Phase2_Momentum"
+name: "TrendPulse_Phase2_Momentum_v2.2"
 strategy: "trend_pulse"
 
 parameters:
-  # Phase 2: Optimized momentum params
+  # Phase 2: DualMACD momentum rhythm params
   slow_fast:
     type: range
-    min: 50
-    max: 60
+    min: 45
+    max: 65
     step: 2
   slow_slow:
     type: range
-    min: 80
-    max: 100
+    min: 75
+    max: 110
+    step: 5
+  slow_signal:
+    type: range
+    min: 20
+    max: 45
     step: 5
   slope_lookback:
     type: range
     min: 2
-    max: 5
+    max: 6
     step: 1
   trend_strength_strong:
     type: range
@@ -24,16 +29,40 @@ parameters:
     max: 0.70
     step: 0.05
 
-  # Frozen from Phase 1 best (placeholder — update after Phase 1 run)
+  # Frozen from Phase 1 v2.2 best
   zig_threshold_pct:
     type: fixed
-    value: 5.0
+    value: 3.5
   swing_filter_bars:
     type: fixed
     value: 5
   trend_strength_moderate:
     type: fixed
-    value: 0.3
+    value: 0.15
+  exit_bearish_bars:
+    type: fixed
+    value: 3
+  enable_trend_reentry:
+    type: fixed
+    value: false
+  min_confidence:
+    type: fixed
+    value: 0.5
+  atr_stop_mult:
+    type: fixed
+    value: 3.5
+  enable_mtf_confirm:
+    type: fixed
+    value: true
+  enable_chop_filter:
+    type: fixed
+    value: true
+  adx_entry_min:
+    type: fixed
+    value: 15.0
+  cooldown_bars:
+    type: fixed
+    value: 5
   top_wr_main:
     type: fixed
     value: 34
@@ -43,33 +72,66 @@ parameters:
   max_pct:
     type: fixed
     value: 0.8
+  signal_shift_bars:
+    type: fixed
+    value: 1
+  weekly_ema_period:
+    type: fixed
+    value: 26
+  ema_reentry_period:
+    type: fixed
+    value: 25
+
+secondary_timeframes: [1W]
 
 universe:
   type: static
-  symbols: [SPY, QQQ, AAPL, NVDA, TSLA, MSFT, IWM, XLP]
+  symbols:
+    # Hi-Mom Tech (primary edge)
+    - NVDA
+    - META
+    - AMZN
+    - AVGO
+    - AMD
+    - TSLA
+    # Steady Tech (secondary edge)
+    - AAPL
+    - MSFT
+    - GOOGL
+    - CRM
+    - PANW
 
 temporal:
   primary_method: walk_forward
-  train_days: 252
-  test_days: 63
-  folds: 4
+  train_days: 756
+  test_days: 252
+  folds: 3
   purge_days: 5
   embargo_days: 2
-  start_date: "2022-01-01"
+  start_date: "2020-01-01"
   end_date: "2025-12-30"
+
+walk_forward:
+  train_days: 756
+  test_days: 252
+  n_folds: 3
+  holdout_pct: 0.15
 
 optimization:
   method: bayesian
-  metric: sharpe
+  metric: custom_score
   direction: maximize
-  n_trials: 80
+  n_trials: 100
   constraints:
+    - metric: total_trades
+      operator: ">="
+      value: 5
     - metric: median_max_dd
       operator: "<="
       value: 0.30
-    - metric: median_win_rate
+    - metric: profit_factor
       operator: ">="
-      value: 0.40
+      value: 1.2
 
 profiles:
   default:

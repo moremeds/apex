@@ -157,42 +157,80 @@ class VectorBTEngine(BaseEngine):
                     spec, RunStatus.FAIL_DATA, "No data available", started_at
                 )
 
-            # Filter to date range
-            data = self._filter_date_range(data, spec.start_date, spec.end_date)
-            if data.empty:
+            # Filter to date range, including lookback buffer for warmup
+            # Signal generators need warmup bars before the scoring window
+            # to compute indicators (EMA, ATR, etc.). Without this buffer,
+            # OOS windows shorter than warmup produce zero signals.
+            signal_generator_cls = self._get_signal_generator(
+                spec.params.get("strategy_type", self._vbt_config.strategy_type)
+            )
+            warmup_bars_attr = getattr(signal_generator_cls, "warmup_bars", 0)
+            _prebuilt_generator = None
+            if isinstance(warmup_bars_attr, property):
+                _prebuilt_generator = signal_generator_cls()
+                warmup_bars = int(getattr(_prebuilt_generator, "warmup_bars", 0))
+            else:
+                warmup_bars = int(warmup_bars_attr)
+
+            # Include warmup buffer before start_date for indicator computation
+            if warmup_bars > 0:
+                data_with_buffer = self._filter_with_lookback(
+                    data, spec.start_date, spec.end_date, warmup_bars
+                )
+            else:
+                data_with_buffer = self._filter_date_range(data, spec.start_date, spec.end_date)
+
+            if data_with_buffer.empty:
                 return self._create_error_result(
                     spec, RunStatus.FAIL_DATA, "No data in date range", started_at
                 )
+
+            # Also get the scoring-only slice for metrics
+            scoring_data = self._filter_date_range(data, spec.start_date, spec.end_date)
+            # Number of buffer bars prepended
+            n_buffer = len(data_with_buffer) - len(scoring_data)
+
+            data = data_with_buffer
 
             # Filter secondary data to date range if provided
             filtered_secondary = None
             if secondary_data:
                 filtered_secondary = {}
                 for tf, tf_data in secondary_data.items():
-                    filtered_tf = self._filter_date_range(tf_data, spec.start_date, spec.end_date)
+                    if warmup_bars > 0:
+                        filtered_tf = self._filter_with_lookback(
+                            tf_data, spec.start_date, spec.end_date, warmup_bars
+                        )
+                    else:
+                        filtered_tf = self._filter_date_range(
+                            tf_data, spec.start_date, spec.end_date
+                        )
                     if not filtered_tf.empty:
                         filtered_secondary[tf] = filtered_tf
 
-            # Get strategy signal generator from manifest
-            strategy_type = spec.params.get("strategy_type", self._vbt_config.strategy_type)
-
+            # Reuse generator if already instantiated for warmup detection
             try:
-                signal_generator_cls = self._get_signal_generator(strategy_type)
-                signal_generator = signal_generator_cls()
+                signal_generator = _prebuilt_generator or signal_generator_cls()
             except (KeyError, ValueError) as e:
                 return self._create_error_result(spec, RunStatus.FAIL_STRATEGY, str(e), started_at)
 
-            # Generate signals (pass secondary data for MTF strategies)
-            # Check if generator supports directional signals (long + short)
-            close = data["close"]
-
+            # Generate signals on full data (including warmup buffer)
+            # then slice to scoring window for portfolio construction
             if hasattr(signal_generator, "generate_directional"):
-                # Directional strategy: separate long/short signals
                 long_entries, long_exits, short_entries, short_exits = (
                     signal_generator.generate_directional(
                         data, spec.params, secondary_data=filtered_secondary
                     )
                 )
+                # Slice to scoring window
+                if n_buffer > 0:
+                    long_entries = long_entries.iloc[n_buffer:]
+                    long_exits = long_exits.iloc[n_buffer:]
+                    short_entries = short_entries.iloc[n_buffer:]
+                    short_exits = short_exits.iloc[n_buffer:]
+                    close = scoring_data["close"]
+                else:
+                    close = data["close"]
 
                 pf = vbt.Portfolio.from_signals(
                     close=close,
@@ -206,7 +244,6 @@ class VectorBTEngine(BaseEngine):
                     freq=self._vbt_config.freq,
                 )
             else:
-                # Long-only strategy
                 entries, exits = signal_generator.generate(
                     data, spec.params, secondary_data=filtered_secondary
                 )
@@ -219,8 +256,18 @@ class VectorBTEngine(BaseEngine):
                         sizes <= 1
                     ).all(), "entry_sizes must be in [0, 1]"
                     assert len(sizes) == len(data), "entry_sizes must align to data.index"
+                    if n_buffer > 0:
+                        sizes = sizes.iloc[n_buffer:]
                     size_kwargs["size"] = sizes
                     size_kwargs["size_type"] = "percent"
+
+                # Slice signals to scoring window
+                if n_buffer > 0:
+                    entries = entries.iloc[n_buffer:]
+                    exits = exits.iloc[n_buffer:]
+                    close = scoring_data["close"]
+                else:
+                    close = data["close"]
 
                 pf = vbt.Portfolio.from_signals(
                     close=close,
@@ -719,6 +766,31 @@ class VectorBTEngine(BaseEngine):
         end_ts = pd.Timestamp(end)
 
         return data[(data.index >= start_ts) & (data.index <= end_ts)]
+
+    def _filter_with_lookback(
+        self, data: pd.DataFrame, start: date, end: date, lookback_bars: int
+    ) -> pd.DataFrame:
+        """Filter DataFrame to date range with lookback buffer for indicator warmup.
+
+        Includes `lookback_bars` bars before `start` so signal generators can
+        compute indicators (EMA, ATR, etc.) before the scoring window begins.
+        """
+        if data.index.tz is not None:
+            data = data.copy()
+            data.index = data.index.tz_localize(None)
+
+        end_ts = pd.Timestamp(end)
+        start_ts = pd.Timestamp(start)
+
+        # Find the index position of the first bar >= start
+        mask_after_start = data.index >= start_ts
+        if not mask_after_start.any():
+            return data.iloc[0:0]  # empty
+
+        first_scoring_pos = mask_after_start.argmax()
+        buffer_start_pos = max(0, first_scoring_pos - lookback_bars)
+
+        return data.iloc[buffer_start_pos:][(data.iloc[buffer_start_pos:].index <= end_ts)]
 
     def _create_error_result(
         self, spec: RunSpec, status: RunStatus, error: str, started_at: datetime

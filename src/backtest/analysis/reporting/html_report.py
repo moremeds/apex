@@ -97,8 +97,25 @@ class ReportData:
 
     # Per-symbol timeseries for TrendPulse charts
     # Keys: symbol → {dates, equity, open, high, low, close, entries, exits,
-    #                  trend_strength, dual_macd_hist, confidence, score, benchmark_equity}
+    #                  trend_strength, dual_macd_hist, confidence, score, benchmark_equity,
+    #                  exit_reasons}
     per_symbol_timeseries: Dict[str, Dict[str, List]] = field(default_factory=dict)
+
+    # v2.1 evaluation data
+    # Exit reason counts per symbol: {symbol: {atr_stop: N, dm_regime: N, zig_sell: N, top_detected: N}}
+    exit_reason_counts: Dict[str, Dict[str, int]] = field(default_factory=dict)
+
+    # Regime split metrics: {symbol: [{regime, start, end, return, max_dd, trades, pf, avg_hold}]}
+    regime_splits: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
+
+    # Walk-forward fold results: [{fold, train_sharpe, test_sharpe, train_return, test_return, ...}]
+    wf_fold_results: List[Dict[str, Any]] = field(default_factory=list)
+
+    # Holdout results: {sharpe, return, max_dd, pf, trades}
+    holdout_results: Dict[str, float] = field(default_factory=dict)
+
+    # Red flags detected: [{flag, description, severity}]
+    red_flags: List[Dict[str, str]] = field(default_factory=list)
 
 
 class HTMLReportGenerator:
@@ -815,21 +832,93 @@ body {{
                 f"onclick=\"selectTPSymbol('{sym}')\">{sym}</button>"
             )
 
+        # Red flags section
+        red_flags_html = ""
+        for flag in data.red_flags:
+            severity = flag.get("severity", "warn")
+            badge_class = "badge-fail" if severity == "critical" else "badge-warn"
+            red_flags_html += (
+                f'<div style="margin-bottom:8px;">'
+                f'<span class="badge {badge_class}">{flag.get("flag", "")}</span> '
+                f'{flag.get("description", "")}</div>'
+            )
+
+        # Walk-forward fold rows
+        wf_rows = ""
+        for fold in data.wf_fold_results:
+            train_sharpe = fold.get("train_sharpe", 0)
+            test_sharpe = fold.get("test_sharpe", 0)
+            deg = (1 - test_sharpe / train_sharpe) * 100 if train_sharpe != 0 else 0
+            deg_class = "positive" if abs(deg) < 30 else "negative"
+            wf_rows += f"""<tr>
+                <td>Fold {fold.get('fold', '?')}</td>
+                <td>{fold.get('train_period', '')}</td>
+                <td>{fold.get('test_period', '')}</td>
+                <td>{train_sharpe:.2f}</td>
+                <td>{test_sharpe:.2f}</td>
+                <td class="{deg_class}">{deg:.0f}%</td>
+            </tr>"""
+
+        # Holdout summary
+        ho = data.holdout_results
+        holdout_html = ""
+        if ho:
+            holdout_html = f"""
+            <div class="card">
+                <div class="card-title">Holdout Results (Untouched by Optimizer)</div>
+                <div class="metrics-grid">
+                    <div class="metric-card">
+                        <div class="metric-value">{ho.get('sharpe', 0):.2f}</div>
+                        <div class="metric-label">Sharpe</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value {'positive' if ho.get('total_return', 0) > 0 else 'negative'}">{ho.get('total_return', 0)*100:.1f}%</div>
+                        <div class="metric-label">Return</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value">{ho.get('max_dd', 0)*100:.1f}%</div>
+                        <div class="metric-label">Max DD</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value">{ho.get('profit_factor', 0):.2f}</div>
+                        <div class="metric-label">Profit Factor</div>
+                    </div>
+                </div>
+            </div>"""
+
         return f"""
         <div id="trend-pulse" class="tab-content">
+            {f'<div class="card"><div class="card-title">Red Flags</div>{red_flags_html}</div>' if red_flags_html else ''}
+
             <div class="card">
                 <div class="card-title">TrendPulse Per-Symbol Analysis</div>
                 <div class="asset-tabs">{symbol_buttons}</div>
             </div>
             <div id="tp-charts">
                 <div class="card"><div id="tp-equity-chart" style="height:400px;"></div></div>
+                <div class="card"><div id="tp-drawdown-chart" style="height:250px;"></div></div>
                 <div class="card"><div id="tp-candle-chart" style="height:400px;"></div></div>
+                <div class="card"><div id="tp-exit-reason-chart" style="height:300px;"></div></div>
                 <div class="card"><div id="tp-strength-chart" style="height:250px;"></div></div>
                 <div class="card"><div id="tp-macd-chart" style="height:250px;"></div></div>
                 <div class="card"><div id="tp-pnl-chart" style="height:250px;"></div></div>
                 <div class="card"><div id="tp-confidence-chart" style="height:250px;"></div></div>
+                <div class="card"><div id="tp-regime-table"></div></div>
                 <div class="card"><div id="tp-summary-table"></div></div>
             </div>
+
+            <div class="card">
+                <div class="card-title">Walk-Forward Fold Results</div>
+                <table class="data-table">
+                    <thead><tr>
+                        <th>Fold</th><th>Train Period</th><th>Test Period</th>
+                        <th>IS Sharpe</th><th>OOS Sharpe</th><th>Degradation</th>
+                    </tr></thead>
+                    <tbody>{wf_rows}</tbody>
+                </table>
+            </div>
+
+            {holdout_html}
         </div>
 """
 
@@ -845,6 +934,8 @@ body {{
                 "per_window": data.per_window,
                 "experiment_id": data.experiment_id,
                 "per_symbol_timeseries": data.per_symbol_timeseries,
+                "exit_reason_counts": data.exit_reason_counts,
+                "regime_splits": data.regime_splits,
             },
             default=str,
         )
@@ -1107,7 +1198,51 @@ function renderTPCharts(sym) {{
         ], {{ ...layout, yaxis: {{ title: 'Value', range: [0, 1] }} }}, {{ responsive: true }});
     }}
 
-    // 7. Summary metrics table
+    // 7. Drawdown curve
+    if (ts.equity && ts.equity.length > 1) {{
+        const peak = [];
+        let maxVal = ts.equity[0];
+        for (let i = 0; i < ts.equity.length; i++) {{
+            maxVal = Math.max(maxVal, ts.equity[i]);
+            peak.push(maxVal);
+        }}
+        const dd = ts.equity.map((v, i) => peak[i] > 0 ? (v - peak[i]) / peak[i] * 100 : 0);
+        Plotly.newPlot('tp-drawdown-chart', [
+            {{ x: dates, y: dd, type: 'scatter', fill: 'tozeroy', name: 'Drawdown %', line: {{ color: '#ef4444' }} }},
+        ], {{ ...layout, yaxis: {{ title: 'Drawdown (%)' }} }}, {{ responsive: true }});
+    }}
+
+    // 8. Exit reason attribution (stacked bar)
+    const exitReasonCounts = (reportData.exit_reason_counts || {{}})[sym] || {{}};
+    if (Object.keys(exitReasonCounts).length > 0) {{
+        const reasons = Object.keys(exitReasonCounts);
+        const counts = Object.values(exitReasonCounts);
+        const colors = reasons.map(r => ({{
+            'atr_stop': '#ef4444', 'dm_regime': '#f59e0b', 'zig_sell': '#22c55e', 'top_detected': '#8b5cf6'
+        }})[r] || '#6b7280');
+        Plotly.newPlot('tp-exit-reason-chart', [{{
+            x: reasons, y: counts, type: 'bar', marker: {{ color: colors }}, name: 'Exit Reasons'
+        }}], {{ ...layout, yaxis: {{ title: 'Count' }} }}, {{ responsive: true }});
+    }}
+
+    // 9. Regime split table
+    const regimes = (reportData.regime_splits || {{}})[sym] || [];
+    if (regimes.length > 0) {{
+        let rows = regimes.map(r => `<tr>
+            <td>${{r.regime}}</td><td>${{r.start}} - ${{r.end}}</td>
+            <td class="${{r.total_return >= 0 ? 'positive' : 'negative'}}">${{(r.total_return * 100).toFixed(1)}}%</td>
+            <td>${{(r.max_dd * 100).toFixed(1)}}%</td><td>${{r.trades}}</td>
+            <td>${{r.pf.toFixed(2)}}</td><td>${{r.avg_hold.toFixed(0)}}</td>
+        </tr>`).join('');
+        document.getElementById('tp-regime-table').innerHTML = `
+            <div class="card-title">Regime Performance</div>
+            <table class="data-table">
+                <thead><tr><th>Regime</th><th>Period</th><th>Return</th><th>Max DD</th><th>Trades</th><th>PF</th><th>Avg Hold</th></tr></thead>
+                <tbody>${{rows}}</tbody>
+            </table>`;
+    }}
+
+    // 10. Summary metrics table
     const symMetrics = (reportData.per_symbol || {{}})[sym] || {{}};
     document.getElementById('tp-summary-table').innerHTML = `
         <table class="data-table">

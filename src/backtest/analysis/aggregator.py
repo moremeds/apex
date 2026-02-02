@@ -183,18 +183,25 @@ class Aggregator:
         self,
         aggregates: TrialAggregates,
         weights: Optional[dict] = None,
+        runs: Optional[List[RunResult]] = None,
     ) -> float:
         """
         Compute composite trial score for ranking.
 
-        Default scoring emphasizes:
-        1. OOS performance (50%)
-        2. Stability across windows (25%)
-        3. Downside protection (25%)
+        If `runs` is provided, uses symbol-equal-weight + fold-equal-weight
+        scoring with concentration penalty to prevent single-symbol dominance.
+        Otherwise falls back to aggregate-based scoring.
+
+        Scoring approach (when runs provided):
+        1. Group OOS runs by symbol → compute per-symbol median Sharpe
+        2. Equal-weight across symbols (each symbol counts the same)
+        3. Penalize if top-1 symbol contributes >50% of total positive Sharpe
+        4. Penalize high drawdown and reward stability
 
         Args:
             aggregates: Aggregated statistics
             weights: Optional custom weights
+            runs: Optional list of run results for per-symbol scoring
 
         Returns:
             Composite score (higher = better)
@@ -206,22 +213,94 @@ class Aggregator:
                 "drawdown_protection": 0.25,
             }
 
-        # OOS Sharpe component
-        oos_sharpe = aggregates.oos_median_sharpe or aggregates.median_sharpe
-        sharpe_score = max(0, oos_sharpe)  # Clip at 0
+        # If runs provided, use symbol-equal-weight scoring
+        if runs:
+            score = self._compute_robust_score(runs, aggregates, weights)
+            return float(score)
 
-        # Stability component (higher stability = better)
+        # Fallback: aggregate-based scoring
+        oos_sharpe = aggregates.oos_median_sharpe or aggregates.median_sharpe
+        sharpe_score = max(0, oos_sharpe)
+
         stability_score = aggregates.stability_score
 
-        # Drawdown protection (lower max_dd = better)
-        # Normalize: 10% dd → 0.9, 20% dd → 0.8, etc.
         dd_score = max(0, 1 - aggregates.median_max_dd)
 
-        # Composite
         score = (
             weights["oos_sharpe"] * sharpe_score
             + weights["stability"] * stability_score
             + weights["drawdown_protection"] * dd_score
+        )
+
+        return float(score)
+
+    def _compute_robust_score(
+        self,
+        runs: List[RunResult],
+        aggregates: TrialAggregates,
+        weights: dict,
+    ) -> float:
+        """
+        Symbol-equal-weight, fold-equal-weight scoring with concentration penalty.
+
+        Steps:
+        1. Group OOS runs by (symbol, fold) → per-cell Sharpe
+        2. Per-symbol: median across folds
+        3. Equal-weight mean across symbols
+        4. Concentration penalty if top symbol dominates
+        5. Combine with stability + DD protection
+        """
+        from collections import defaultdict
+
+        # Group OOS runs by symbol
+        oos_runs = [r for r in runs if r.is_oos]
+        if not oos_runs:
+            oos_runs = [r for r in runs if not r.is_train]
+        if not oos_runs:
+            oos_runs = runs  # fallback
+
+        symbol_sharpes: dict[str, list[float]] = defaultdict(list)
+        for r in oos_runs:
+            if r.status == RunStatus.SUCCESS:
+                symbol_sharpes[r.symbol].append(r.metrics.sharpe)
+
+        if not symbol_sharpes:
+            return 0.0
+
+        # Per-symbol median Sharpe (fold-equal-weight within symbol)
+        per_symbol_sharpe = {sym: self.median(sharpes) for sym, sharpes in symbol_sharpes.items()}
+
+        # Equal-weight mean across symbols
+        sym_values = list(per_symbol_sharpe.values())
+        n_symbols = len(sym_values)
+        mean_sharpe = sum(sym_values) / n_symbols if n_symbols > 0 else 0.0
+
+        # Concentration penalty: if top symbol contributes >50% of positive Sharpe sum
+        positive_sharpes = [s for s in sym_values if s > 0]
+        total_positive = sum(positive_sharpes) if positive_sharpes else 0.0
+        concentration_penalty = 0.0
+        if total_positive > 0 and positive_sharpes:
+            max_contrib = max(positive_sharpes) / total_positive
+            if max_contrib > 0.5:
+                # Penalty scales with dominance: 50% → 0, 100% → 0.5
+                concentration_penalty = (max_contrib - 0.5) * 1.0
+
+        # Breadth bonus: fraction of symbols with positive Sharpe
+        breadth = len(positive_sharpes) / n_symbols if n_symbols > 0 else 0.0
+
+        # Sharpe component (can be negative, but we clip at -0.5)
+        sharpe_score = max(-0.5, mean_sharpe) - concentration_penalty
+
+        # Stability and DD from aggregates
+        stability_score = aggregates.stability_score
+        dd_score = max(0, 1 - aggregates.median_max_dd)
+
+        # Composite with breadth bonus
+        score = (
+            weights["oos_sharpe"] * sharpe_score
+            + weights["stability"] * stability_score
+            + weights["drawdown_protection"] * dd_score
+            + 0.10 * breadth  # bonus for broad edge
         )
 
         return float(score)
@@ -246,7 +325,7 @@ class Aggregator:
             Complete TrialResult
         """
         aggregates = self.aggregate(runs)
-        trial_score = self.compute_trial_score(aggregates)
+        trial_score = self.compute_trial_score(aggregates, runs=runs)
 
         return TrialResult(
             trial_id=trial_id,
