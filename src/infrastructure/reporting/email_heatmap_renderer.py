@@ -212,6 +212,28 @@ def _append_trend_pulse_section(
     if not exits and entries:
         # entries already appended blank line
         pass
+
+    # Show potential daily signals in intraday emails
+    if tf != "1d":
+        daily_data = trend_pulse.get("1d", {})
+        daily_entries = daily_data.get("entries", [])
+        daily_exits = daily_data.get("exits", [])
+        if daily_entries or daily_exits:
+            lines.append("📅 POTENTIAL DAILY (spot price)")
+            lines.append("─" * 36)
+            for e in daily_entries:
+                sym = e.get("symbol", "")
+                dm = e.get("dm_state", "")[:4]
+                conf = int(e.get("confidence_4f", 0) * 100)
+                stop = e.get("atr_stop_level", 0)
+                lines.append(f"  🟢 {sym:<5} {dm:<4}  Conf:{conf:>2}  Stop:${stop:.0f}")
+            for x in daily_exits:
+                sym = x.get("symbol", "")
+                reason = x.get("exit_reason", "")
+                conf = int(x.get("confidence_4f", 0) * 100)
+                lines.append(f"  🔴 {sym:<5} {reason:<10} Conf:{conf:>2}")
+            lines.append("")
+
     lines.append("")
 
 

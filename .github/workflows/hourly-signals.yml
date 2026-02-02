@@ -1,19 +1,21 @@
-name: "Hourly: Signal Reports"
+name: "Intraday: Signal Reports"
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Hourly signal report generation during market hours.
+# Signal report generation every 30 minutes during market hours.
 #
-# Schedule: Every hour 9am-4pm ET (14:00-21:00 UTC), Mon-Fri
+# Schedule: Every 30 min 8:30am–4:15pm ET (13:30–21:15 UTC), Mon-Fri
 #
-# Bar timing (market opens 9:30 ET):
-#   1H bars finish at: 10:30, 11:30, 12:30, 1:30, 2:30, 3:30, 4:00
-#   4H bars finish at: 1:30pm (9:30+4h), 4:00pm (close)
-#   1D bar finishes at: 4:00pm (close)
+# All timeframes (1h, 4h, 1d) are always generated. Unfinished bars use
+# the current spot price as close (partial/potential signals).
 #
-# Daily email breakdown (10 emails per day):
-#   10:30am-12:30pm, 2:30-3:30pm ET: 1H only      (5 emails)
-#   1:30pm ET:                        1H + 4H      (first 4h bar)
-#   4:00pm ET:                        1H + 4H + 1D (close, three emails)
+# Intraday emails show the primary 1H TrendPulse plus "Potential Daily"
+# signals derived from the partial 1D bar.
+#
+# Daily email breakdown:
+#   8:30am ET:        1H + 4H + 1D (first report, catches overnight changes)
+#   9:00am–3:30pm ET: Intraday 1H email (every 30 min)
+#   1:30pm ET:        also Intraday 4H (first 4H bar close)
+#   4:15pm ET:        1H + 4H + 1D (post-close, final report)
 #
 # Pipeline:
 #   Step 1: Update market caps
@@ -25,14 +27,10 @@ name: "Hourly: Signal Reports"
 
 on:
   schedule:
-    # Aligned to bar close times (market opens 9:30 ET)
-    - cron: '30 15 * * 1-5'  # 10:30am ET — 1H bar 1
-    - cron: '30 16 * * 1-5'  # 11:30am ET — 1H bar 2
-    - cron: '30 17 * * 1-5'  # 12:30pm ET — 1H bar 3
-    - cron: '30 18 * * 1-5'  # 1:30pm ET  — 1H bar 4 + 4H bar 1
-    - cron: '30 19 * * 1-5'  # 2:30pm ET  — 1H bar 5
-    - cron: '30 20 * * 1-5'  # 3:30pm ET  — 1H bar 6
-    - cron: '0 21 * * 1-5'   # 4:00pm ET  — 1H bar 7 + 4H bar 2 + 1D (close)
+    # Every 30 min from 8:30am to 4:15pm ET (UTC = ET + 5 in EST)
+    - cron: '30 13 * * 1-5'     # 8:30am ET — first report (1H+4H+1D, catches overnight)
+    - cron: '0,30 14-20 * * 1-5' # 9:00am–3:30pm ET — every 30 min
+    - cron: '15 21 * * 1-5'     # 4:15pm ET — close (1H + 4H + 1D, last report)
   workflow_dispatch:
 
 concurrency:
@@ -116,35 +114,27 @@ jobs:
           utc_hour = now_utc.hour
           utc_min = now_utc.minute
 
-          # Cron slots (UTC):
-          #   15:30, 16:30, 17:30, 18:30, 19:30, 20:30 → 1H bars
-          #   18:30 → also 4H bar 1  (9:30+4h = 1:30pm ET)
-          #   21:00 → 1H bar 7 + 4H bar 2 + 1D (market close)
-          is_close = utc_hour == 21 and utc_min < 30
-          is_intraday = utc_min >= 25 and utc_hour in range(15, 21)  # :30 slots
+          # Runs every 30 min from 13:30–21:15 UTC (8:30am–4:15pm ET)
+          # All timeframes always generated (partial bars use spot price)
+          is_close = utc_hour == 21 and utc_min >= 10  # 4:15pm ET (post-close)
+          is_first = utc_hour == 13  # 8:30am ET (first report)
+          is_4h_bar = (utc_hour == 18 and utc_min >= 25) or is_close or is_first
 
           if is_manual:
-              # Manual dispatch: always run with all timeframes and emails
               should_run = True
               should_retrain = True
               send_1h = "true"
               send_4h = "true"
               send_1d = "true"
-              timeframes = "1d 4h 1h"
           else:
-              send_1h = "true" if (is_trading_day and (is_intraday or is_close)) else "false"
-              send_4h = "true" if (is_trading_day and (is_close or (utc_hour == 18 and is_intraday))) else "false"
-              send_1d = "true" if (is_trading_day and is_close) else "false"
-
-              if is_close:
-                  timeframes = "1d 4h 1h"
-              elif utc_hour == 18 and is_intraday:
-                  timeframes = "4h 1h"
-              else:
-                  timeframes = "1h"
-
-              should_run = is_trading_day and (is_intraday or is_close)
+              should_run = is_trading_day
               should_retrain = should_run and not is_close
+              send_1h = "true" if is_trading_day else "false"
+              send_4h = "true" if is_trading_day and is_4h_bar else "false"
+              send_1d = "true" if is_trading_day and (is_close or is_first) else "false"
+
+          # Always generate all timeframes (partial bars are useful)
+          timeframes = "1d 4h 1h"
 
           # ET timestamp for subject line
           et_now = datetime.now(ZoneInfo("America/New_York"))
