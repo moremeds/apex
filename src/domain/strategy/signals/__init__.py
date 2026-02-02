@@ -17,6 +17,7 @@ from .pairs_trading import PairsTradingSignalGenerator
 from .protocol import DirectionalSignalGenerator, SignalGenerator
 from .rsi_mean_reversion import RSIMeanReversionSignalGenerator
 from .ta_metrics import TAMetricsSignalGenerator
+from .trend_pulse import TrendPulseSignalGenerator
 
 __all__ = [
     # Protocols
@@ -31,6 +32,7 @@ __all__ = [
     "PairsTradingSignalGenerator",
     "RSIMeanReversionSignalGenerator",
     "TAMetricsSignalGenerator",
+    "TrendPulseSignalGenerator",
     # TA-Lib wrappers
     "adx",
     "atr",

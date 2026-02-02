@@ -1,0 +1,82 @@
+name: "TrendPulse_Phase1_Structure"
+strategy: "trend_pulse"
+
+parameters:
+  # Phase 1: Optimized structure params
+  zig_threshold_pct:
+    type: range
+    min: 3.0
+    max: 8.0
+    step: 0.5
+  swing_filter_bars:
+    type: range
+    min: 3
+    max: 10
+    step: 1
+  trend_strength_moderate:
+    type: range
+    min: 0.25
+    max: 0.45
+    step: 0.05
+
+  # Frozen params
+  top_wr_main:
+    type: fixed
+    value: 34
+  slow_fast:
+    type: fixed
+    value: 55
+  slow_slow:
+    type: fixed
+    value: 89
+  slope_lookback:
+    type: fixed
+    value: 3
+  trend_strength_strong:
+    type: fixed
+    value: 0.6
+  min_pct:
+    type: fixed
+    value: 0.2
+  max_pct:
+    type: fixed
+    value: 0.8
+
+universe:
+  type: static
+  symbols: [SPY, QQQ, AAPL, NVDA, TSLA, MSFT, IWM, XLP]
+
+temporal:
+  primary_method: walk_forward
+  train_days: 252
+  test_days: 63
+  folds: 4
+  purge_days: 5
+  embargo_days: 2
+  start_date: "2022-01-01"
+  end_date: "2025-12-30"
+
+optimization:
+  method: bayesian
+  metric: sharpe
+  direction: maximize
+  n_trials: 80
+  constraints:
+    - metric: median_max_dd
+      operator: "<="
+      value: 0.30
+    - metric: median_win_rate
+      operator: ">="
+      value: 0.40
+
+profiles:
+  default:
+    name: standard
+    version: v1
+    slippage_bps: 5.0
+    commission_per_share: 0.005
+    fill_model: close
+
+reproducibility:
+  random_seed: 42
+  data_version: "apex_2026.01"

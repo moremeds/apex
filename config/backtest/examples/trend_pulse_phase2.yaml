@@ -1,0 +1,84 @@
+name: "TrendPulse_Phase2_Momentum"
+strategy: "trend_pulse"
+
+parameters:
+  # Phase 2: Optimized momentum params
+  slow_fast:
+    type: range
+    min: 50
+    max: 60
+    step: 2
+  slow_slow:
+    type: range
+    min: 80
+    max: 100
+    step: 5
+  slope_lookback:
+    type: range
+    min: 2
+    max: 5
+    step: 1
+  trend_strength_strong:
+    type: range
+    min: 0.50
+    max: 0.70
+    step: 0.05
+
+  # Frozen from Phase 1 best (placeholder — update after Phase 1 run)
+  zig_threshold_pct:
+    type: fixed
+    value: 5.0
+  swing_filter_bars:
+    type: fixed
+    value: 5
+  trend_strength_moderate:
+    type: fixed
+    value: 0.3
+  top_wr_main:
+    type: fixed
+    value: 34
+  min_pct:
+    type: fixed
+    value: 0.2
+  max_pct:
+    type: fixed
+    value: 0.8
+
+universe:
+  type: static
+  symbols: [SPY, QQQ, AAPL, NVDA, TSLA, MSFT, IWM, XLP]
+
+temporal:
+  primary_method: walk_forward
+  train_days: 252
+  test_days: 63
+  folds: 4
+  purge_days: 5
+  embargo_days: 2
+  start_date: "2022-01-01"
+  end_date: "2025-12-30"
+
+optimization:
+  method: bayesian
+  metric: sharpe
+  direction: maximize
+  n_trials: 80
+  constraints:
+    - metric: median_max_dd
+      operator: "<="
+      value: 0.30
+    - metric: median_win_rate
+      operator: ">="
+      value: 0.40
+
+profiles:
+  default:
+    name: standard
+    version: v1
+    slippage_bps: 5.0
+    commission_per_share: 0.005
+    fill_model: close
+
+reproducibility:
+  random_seed: 42
+  data_version: "apex_2026.01"

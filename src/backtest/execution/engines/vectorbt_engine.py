@@ -211,6 +211,17 @@ class VectorBTEngine(BaseEngine):
                     data, spec.params, secondary_data=filtered_secondary
                 )
 
+                # Support confidence-based sizing via entry_sizes attribute
+                size_kwargs: Dict[str, Any] = {}
+                if hasattr(signal_generator, "entry_sizes"):
+                    sizes = signal_generator.entry_sizes
+                    assert (sizes >= 0).all() and (
+                        sizes <= 1
+                    ).all(), "entry_sizes must be in [0, 1]"
+                    assert len(sizes) == len(data), "entry_sizes must align to data.index"
+                    size_kwargs["size"] = sizes
+                    size_kwargs["size_type"] = "percent"
+
                 pf = vbt.Portfolio.from_signals(
                     close=close,
                     entries=entries,
@@ -219,6 +230,7 @@ class VectorBTEngine(BaseEngine):
                     fees=spec.commission_per_share / close.mean(),
                     slippage=spec.slippage_bps / 10000,
                     freq=self._vbt_config.freq,
+                    **size_kwargs,
                 )
 
             # Extract metrics

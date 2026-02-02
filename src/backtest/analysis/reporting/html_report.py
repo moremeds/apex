@@ -95,6 +95,11 @@ class ReportData:
     # Parameter definitions
     param_definitions: Dict[str, Any] = field(default_factory=dict)
 
+    # Per-symbol timeseries for TrendPulse charts
+    # Keys: symbol → {dates, equity, open, high, low, close, entries, exits,
+    #                  trend_strength, dual_macd_hist, confidence, score, benchmark_equity}
+    per_symbol_timeseries: Dict[str, Dict[str, List]] = field(default_factory=dict)
+
 
 class HTMLReportGenerator:
     """
@@ -156,6 +161,7 @@ class HTMLReportGenerator:
         {self._build_validation_tab(data)}
         {self._build_trades_tab(data)}
         {self._build_raw_data_tab(data)}
+        {self._build_trend_pulse_tab(data)}
     </div>
     {self._get_scripts(data)}
 </body>
@@ -374,6 +380,7 @@ body {{
             <button class="tab-btn" onclick="showTab('validation')">Validation</button>
             <button class="tab-btn" onclick="showTab('trades')">Trades</button>
             <button class="tab-btn" onclick="showTab('raw-data')">Raw Data</button>
+            <button class="tab-btn" onclick="showTab('trend-pulse')">TrendPulse</button>
         </div>
 """
 
@@ -795,6 +802,37 @@ body {{
         </div>
 """
 
+    def _build_trend_pulse_tab(self, data: ReportData) -> str:
+        """Build TrendPulse per-symbol charts tab with lazy rendering."""
+        if not data.per_symbol_timeseries:
+            return '<div id="trend-pulse" class="tab-content"><div class="card">No TrendPulse data.</div></div>'
+
+        symbol_buttons = ""
+        for i, sym in enumerate(data.per_symbol_timeseries):
+            active = " active" if i == 0 else ""
+            symbol_buttons += (
+                f'<button class="asset-btn tp-sym-btn{active}" '
+                f"onclick=\"selectTPSymbol('{sym}')\">{sym}</button>"
+            )
+
+        return f"""
+        <div id="trend-pulse" class="tab-content">
+            <div class="card">
+                <div class="card-title">TrendPulse Per-Symbol Analysis</div>
+                <div class="asset-tabs">{symbol_buttons}</div>
+            </div>
+            <div id="tp-charts">
+                <div class="card"><div id="tp-equity-chart" style="height:400px;"></div></div>
+                <div class="card"><div id="tp-candle-chart" style="height:400px;"></div></div>
+                <div class="card"><div id="tp-strength-chart" style="height:250px;"></div></div>
+                <div class="card"><div id="tp-macd-chart" style="height:250px;"></div></div>
+                <div class="card"><div id="tp-pnl-chart" style="height:250px;"></div></div>
+                <div class="card"><div id="tp-confidence-chart" style="height:250px;"></div></div>
+                <div class="card"><div id="tp-summary-table"></div></div>
+            </div>
+        </div>
+"""
+
     def _get_scripts(self, data: ReportData) -> str:
         """Return JavaScript for interactivity."""
         # Serialize data for JavaScript
@@ -806,6 +844,7 @@ body {{
                 "trades": data.trades,
                 "per_window": data.per_window,
                 "experiment_id": data.experiment_id,
+                "per_symbol_timeseries": data.per_symbol_timeseries,
             },
             default=str,
         )
@@ -991,5 +1030,100 @@ function copyDuckDBQuery() {{
     navigator.clipboard.writeText(query);
     alert('DuckDB query copied to clipboard!');
 }}
+
+// TrendPulse per-symbol charts (lazy rendering)
+let currentTPSymbol = null;
+let tpRendered = {{}};
+
+function selectTPSymbol(sym) {{
+    currentTPSymbol = sym;
+    document.querySelectorAll('.tp-sym-btn').forEach(b => b.classList.remove('active'));
+    if (event && event.target) event.target.classList.add('active');
+    renderTPCharts(sym);
+}}
+
+function renderTPCharts(sym) {{
+    const ts = (reportData.per_symbol_timeseries || {{}})[sym];
+    if (!ts || !ts.dates) return;
+    const dates = ts.dates;
+    const layout = {{ margin: {{ t: 20, r: 20, b: 40, l: 60 }}, hovermode: 'x unified' }};
+
+    // 1. Equity + benchmark + entry/exit markers
+    const traces1 = [
+        {{ x: dates, y: ts.equity, type: 'scatter', mode: 'lines', name: 'Strategy', line: {{ color: '#3b82f6', width: 2 }} }},
+    ];
+    if (ts.benchmark_equity) {{
+        traces1.push({{ x: dates, y: ts.benchmark_equity, type: 'scatter', mode: 'lines', name: 'SPY Benchmark', line: {{ color: '#9ca3af', width: 1, dash: 'dash' }} }});
+    }}
+    if (ts.entries) {{
+        const eDates = dates.filter((_, i) => ts.entries[i]);
+        const eVals = ts.equity.filter((_, i) => ts.entries[i]);
+        traces1.push({{ x: eDates, y: eVals, type: 'scatter', mode: 'markers', name: 'BUY', marker: {{ color: '#22c55e', symbol: 'triangle-up', size: 10 }} }});
+    }}
+    if (ts.exits) {{
+        const xDates = dates.filter((_, i) => ts.exits[i]);
+        const xVals = ts.equity.filter((_, i) => ts.exits[i]);
+        traces1.push({{ x: xDates, y: xVals, type: 'scatter', mode: 'markers', name: 'SELL', marker: {{ color: '#ef4444', symbol: 'triangle-down', size: 10 }} }});
+    }}
+    Plotly.newPlot('tp-equity-chart', traces1, {{ ...layout, yaxis: {{ title: 'Equity ($)' }} }}, {{ responsive: true }});
+
+    // 2. Candlestick with entry/exit overlays
+    if (ts.open && ts.high && ts.low && ts.close) {{
+        const candle = [{{ x: dates, open: ts.open, high: ts.high, low: ts.low, close: ts.close, type: 'candlestick', name: sym }}];
+        Plotly.newPlot('tp-candle-chart', candle, {{ ...layout, yaxis: {{ title: 'Price' }} }}, {{ responsive: true }});
+    }}
+
+    // 3. TrendStrength area chart
+    if (ts.trend_strength) {{
+        Plotly.newPlot('tp-strength-chart', [
+            {{ x: dates, y: ts.trend_strength, type: 'scatter', fill: 'tozeroy', name: 'Trend Strength', line: {{ color: '#8b5cf6' }} }},
+            {{ x: [dates[0], dates[dates.length-1]], y: [0.3, 0.3], type: 'scatter', mode: 'lines', name: 'Moderate', line: {{ color: '#fbbf24', dash: 'dot' }} }},
+            {{ x: [dates[0], dates[dates.length-1]], y: [0.6, 0.6], type: 'scatter', mode: 'lines', name: 'Strong', line: {{ color: '#22c55e', dash: 'dot' }} }},
+        ], {{ ...layout, yaxis: {{ title: 'Strength', range: [0, 1] }} }}, {{ responsive: true }});
+    }}
+
+    // 4. DualMACD histogram
+    if (ts.dual_macd_hist) {{
+        const colors = ts.dual_macd_hist.map(v => v >= 0 ? '#22c55e' : '#ef4444');
+        Plotly.newPlot('tp-macd-chart', [
+            {{ x: dates, y: ts.dual_macd_hist, type: 'bar', name: 'DualMACD', marker: {{ color: colors }} }},
+        ], {{ ...layout, yaxis: {{ title: 'Histogram' }} }}, {{ responsive: true }});
+    }}
+
+    // 5. Daily PnL bar chart
+    if (ts.equity && ts.equity.length > 1) {{
+        const pnl = ts.equity.map((v, i) => i === 0 ? 0 : v - ts.equity[i-1]);
+        const pnlColors = pnl.map(v => v >= 0 ? '#22c55e' : '#ef4444');
+        Plotly.newPlot('tp-pnl-chart', [
+            {{ x: dates, y: pnl, type: 'bar', name: 'Daily PnL', marker: {{ color: pnlColors }} }},
+        ], {{ ...layout, yaxis: {{ title: 'PnL ($)' }} }}, {{ responsive: true }});
+    }}
+
+    // 6. Score/Confidence heatmap
+    if (ts.confidence && ts.score) {{
+        Plotly.newPlot('tp-confidence-chart', [
+            {{ x: dates, y: ts.confidence, type: 'scatter', mode: 'lines', name: 'Confidence', line: {{ color: '#3b82f6' }} }},
+            {{ x: dates, y: ts.score.map(v => v / 100), type: 'scatter', mode: 'lines', name: 'Score/100', line: {{ color: '#f59e0b' }} }},
+        ], {{ ...layout, yaxis: {{ title: 'Value', range: [0, 1] }} }}, {{ responsive: true }});
+    }}
+
+    // 7. Summary metrics table
+    const symMetrics = (reportData.per_symbol || {{}})[sym] || {{}};
+    document.getElementById('tp-summary-table').innerHTML = `
+        <table class="data-table">
+            <tr><th>Metric</th><th>Value</th></tr>
+            <tr><td>Sharpe</td><td>${{(symMetrics.sharpe || 0).toFixed(2)}}</td></tr>
+            <tr><td>Max Drawdown</td><td>${{((symMetrics.max_drawdown || 0) * 100).toFixed(1)}}%</td></tr>
+            <tr><td>Total Return</td><td>${{((symMetrics.total_return || 0) * 100).toFixed(1)}}%</td></tr>
+            <tr><td>Win Rate</td><td>${{((symMetrics.win_rate || 0) * 100).toFixed(0)}}%</td></tr>
+            <tr><td>Total Trades</td><td>${{symMetrics.total_trades || 0}}</td></tr>
+        </table>
+    `;
+}}
+
+document.addEventListener('DOMContentLoaded', () => {{
+    const tpSyms = Object.keys(reportData.per_symbol_timeseries || {{}});
+    if (tpSyms.length > 0) selectTPSymbol(tpSyms[0]);
+}});
 </script>
 """
