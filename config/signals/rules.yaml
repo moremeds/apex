@@ -189,6 +189,43 @@ trend_rules:
       to: [TOP_ZONE, TOP_DETECTED]
     message_template: "{symbol} TrendPulse: Top warning (overbought + trend weakening)"
 
+  trend_pulse_entry:
+    indicator: trend_pulse
+    direction: buy
+    strength: 85
+    priority: high
+    cooldown_bars: 5
+    condition_type: state_change
+    condition_config:
+      field: entry_signal
+      from: ["false"]
+      to: ["true"]
+    message_template: "{symbol} TrendPulse: Composite entry (swing+DM+ADX+strength)"
+
+  trend_pulse_exit_atr:
+    indicator: trend_pulse
+    direction: sell
+    strength: 90
+    priority: high
+    condition_type: state_change
+    condition_config:
+      field: exit_signal
+      from: [none]
+      to: [atr_stop]
+    message_template: "{symbol} TrendPulse: ATR stop triggered"
+
+  trend_pulse_exit_dm:
+    indicator: trend_pulse
+    direction: sell
+    strength: 70
+    priority: medium
+    condition_type: state_change
+    condition_config:
+      field: exit_signal
+      from: [none]
+      to: [dm_regime]
+    message_template: "{symbol} TrendPulse: DualMACD regime exit (bearish consecutive)"
+
 # Volatility rules
 volatility_rules:
   bollinger_oversold:
