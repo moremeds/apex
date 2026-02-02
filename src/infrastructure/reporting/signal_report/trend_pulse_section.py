@@ -103,12 +103,6 @@ def render_trend_pulse_history_html(
         "NONE": muted,
     }
 
-    trend_colors = {
-        "BULLISH": "#10b981",
-        "BEARISH": "#ef4444",
-        "NEUTRAL": muted,
-    }
-
     top_colors = {
         "TOP_DETECTED": "#a855f7",
         "TOP_ZONE": "#f59e0b",
@@ -188,7 +182,6 @@ def render_trend_pulse_history_html(
                 f'font-family:monospace;">{adx_val:.0f}</span>'
             )
 
-            trend_color = trend_colors.get(row.get("trend_filter", "NEUTRAL"), muted)
             top_color = top_colors.get(top, muted)
             top_html = (
                 f'<span style="color:{top_color};font-weight:600;">{top}</span>'

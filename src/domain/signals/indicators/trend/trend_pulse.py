@@ -286,233 +286,57 @@ class TrendPulseIndicator(IndicatorBase):
             dtype=object,
         )
 
-        # --- DualMACD slow histogram (55/89/34) for trend confirmation ---
-        dm_slow_fast_p: int = params.get("dm_slow_fast", 55)
-        dm_slow_slow_p: int = params.get("dm_slow_slow", 89)
-        dm_slow_signal_p: int = params.get("dm_slow_signal", 34)
-        dm_slope_lb: int = params.get("dm_slope_lookback", 3)
-        dm_mult: float = params.get("dm_hist_multiplier", 2.0)
+        # --- DualMACD, ADX filter, ATR stop, entry/exit, confidence ---
+        dm_histogram, dm_hist_delta, dm_state_arr = self._compute_dual_macd(close, n, params)
+        dm_state_str = _encode_dm_state_str(dm_state_arr)
 
-        if HAS_TALIB:
-            dm_ema_fast = talib.EMA(close, timeperiod=dm_slow_fast_p)
-            dm_ema_slow = talib.EMA(close, timeperiod=dm_slow_slow_p)
-            dm_macd_line = dm_ema_fast - dm_ema_slow
-            dm_signal_line = talib.EMA(dm_macd_line, timeperiod=dm_slow_signal_p)
-        else:
-            dm_ema_fast = self._ema_manual(close, dm_slow_fast_p)
-            dm_ema_slow = self._ema_manual(close, dm_slow_slow_p)
-            dm_macd_line = dm_ema_fast - dm_ema_slow
-            dm_signal_line = self._ema_arr(dm_macd_line, dm_slow_signal_p)
-
-        dm_histogram = dm_mult * (dm_macd_line - dm_signal_line)
-
-        # DualMACD slope
-        dm_hist_delta = np.full(n, np.nan, dtype=np.float64)
-        for i in range(dm_slope_lb, n):
-            if not np.isnan(dm_histogram[i]) and not np.isnan(dm_histogram[i - dm_slope_lb]):
-                dm_hist_delta[i] = dm_histogram[i] - dm_histogram[i - dm_slope_lb]
-
-        # DM state per bar: BULLISH/IMPROVING/DETERIORATING/BEARISH
-        # Encoding: 2=BULLISH, 1=IMPROVING, -1=DETERIORATING, -2=BEARISH
-        dm_state_arr = np.zeros(n, dtype=np.float64)
-        for i in range(n):
-            h = 0.0 if np.isnan(dm_histogram[i]) else dm_histogram[i]
-            dh = 0.0 if np.isnan(dm_hist_delta[i]) else dm_hist_delta[i]
-            if h > 0 and dh < 0:
-                dm_state_arr[i] = -1.0  # DETERIORATING
-            elif h < 0 and dh > 0:
-                dm_state_arr[i] = 1.0  # IMPROVING
-            elif h > 0:
-                dm_state_arr[i] = 2.0  # BULLISH
-            else:
-                dm_state_arr[i] = -2.0  # BEARISH
-
-        dm_state_str = np.array(
-            [
-                (
-                    "BULLISH"
-                    if v > 1.5
-                    else ("IMPROVING" if v > 0.5 else ("DETERIORATING" if v > -1.5 else "BEARISH"))
-                )
-                for v in dm_state_arr
-            ],
-            dtype=object,
-        )
-
-        # --- ADX chop filter ---
         adx_entry_min: float = params.get("adx_entry_min", 15.0)
-        adx_ok_arr = np.zeros(n, dtype=np.float64)
-        for i in range(n):
-            a = 0.0 if np.isnan(adx[i]) else adx[i]
-            adx_ok_arr[i] = 1.0 if a >= adx_entry_min else 0.0
+        adx_ok_arr = _compute_adx_ok(adx, n, adx_entry_min)
 
-        # --- ATR stop level (informational) ---
-        atr_stop_mult: float = params.get("atr_stop_mult", 3.5)
-        atr_period: int = params.get("atr_stop_period", 20)
-        if HAS_TALIB:
-            atr_vals = talib.ATR(high, low, close, timeperiod=atr_period)
-        else:
-            # Simple ATR fallback
-            atr_vals = np.full(n, np.nan, dtype=np.float64)
-            tr = np.zeros(n, dtype=np.float64)
-            for i in range(1, n):
-                tr[i] = max(
-                    high[i] - low[i],
-                    abs(high[i] - close[i - 1]),
-                    abs(low[i] - close[i - 1]),
-                )
-            if n >= atr_period:
-                atr_vals[atr_period - 1] = np.mean(tr[1 : atr_period + 1])
-                for i in range(atr_period, n):
-                    atr_vals[i] = (atr_vals[i - 1] * (atr_period - 1) + tr[i]) / atr_period
+        atr_stop_level = self._compute_atr_stop(high, low, close, n, params)
 
-        # Rolling max(close, atr_period) - mult * ATR
-        atr_stop_level = np.full(n, np.nan, dtype=np.float64)
-        for i in range(atr_period - 1, n):
-            window_start = max(0, i - atr_period + 1)
-            rolling_high = np.max(close[window_start : i + 1])
-            if not np.isnan(atr_vals[i]):
-                atr_stop_level[i] = rolling_high - atr_stop_mult * atr_vals[i]
-
-        # --- Entry signal (composite) ---
-        # swing_buy & ema99_bull & trend_strength >= moderate & dm_ok & adx_ok
-        trend_strength_moderate_th: float = params.get("trend_strength_moderate", 0.3)
         norm_max_adx: float = params.get("norm_max_adx", 50.0)
-        entry_signal_arr = np.zeros(n, dtype=np.float64)
-        for i in range(n):
-            swing_buy = swing_signal_arr[i] > 0.5
-            ema99_bull = trend_filter_arr[i] > 0.5
-            a = 0.0 if np.isnan(adx[i]) else adx[i]
-            strength = min(a / norm_max_adx, 1.0) if norm_max_adx > 0 else 0.0
-            strength_ok = strength >= trend_strength_moderate_th
-            dm_ok = dm_state_arr[i] > 0.5  # BULLISH or IMPROVING
-            adx_filter = adx_ok_arr[i] > 0.5
-            if swing_buy and ema99_bull and strength_ok and dm_ok and adx_filter:
-                entry_signal_arr[i] = 1.0
-
-        # --- Exit signal & cooldown ---
-        cooldown_bars_param: int = params.get("cooldown_bars", 5)
-        exit_bearish_bars: int = params.get("exit_bearish_bars", 3)
-
-        # Exit reasons: 0=none, 1=atr_stop, 2=dm_regime, 3=zig_sell, 4=top_detected
-        exit_signal_arr = np.zeros(n, dtype=np.float64)
-        cooldown_left_arr = np.zeros(n, dtype=np.float64)
-        dm_bearish_consec_arr = np.zeros(n, dtype=np.float64)
-
-        bearish_consec = 0
-        bars_since_exit = cooldown_bars_param  # start with no cooldown
-
-        for i in range(n):
-            bars_since_exit += 1
-            exit_reason = 0.0
-
-            # Track consecutive bearish bars
-            if dm_state_arr[i] < -1.5:  # BEARISH
-                bearish_consec += 1
-            else:
-                bearish_consec = 0
-            dm_bearish_consec_arr[i] = float(bearish_consec)
-
-            # ATR stop: close < atr_stop_level
-            if not np.isnan(atr_stop_level[i]) and close[i] < atr_stop_level[i]:
-                exit_reason = 1.0  # atr_stop
-
-            # DM regime exit: exactly exit_bearish_bars consecutive bearish (fire once)
-            if bearish_consec == exit_bearish_bars:
-                exit_reason = 2.0  # dm_regime
-
-            # ZIG sell
-            if zig_cross_down[i] > 0.5:
-                exit_reason = 3.0  # zig_sell
-
-            # Top detected
-            if top_warning_arr[i] >= 2.5:  # TOP_DETECTED
-                exit_reason = 4.0  # top_detected
-
-            exit_signal_arr[i] = exit_reason
-
-            if exit_reason > 0:
-                bars_since_exit = 0
-
-            cooldown_left_arr[i] = float(max(0, cooldown_bars_param - bars_since_exit))
-
-        # Apply cooldown to entry signal (suppress entries during cooldown)
-        for i in range(n):
-            if cooldown_left_arr[i] > 0:
-                entry_signal_arr[i] = 0.0
-
-        exit_signal_str = np.array(
-            [
-                (
-                    "atr_stop"
-                    if v > 0.5 and v < 1.5
-                    else (
-                        "dm_regime"
-                        if v > 1.5 and v < 2.5
-                        else (
-                            "zig_sell"
-                            if v > 2.5 and v < 3.5
-                            else ("top_detected" if v > 3.5 else "none")
-                        )
-                    )
-                )
-                for v in exit_signal_arr
-            ],
-            dtype=object,
+        entry_signal_arr = _compute_entry_signal(
+            swing_signal_arr,
+            trend_filter_arr,
+            adx,
+            adx_ok_arr,
+            dm_state_arr,
+            n,
+            params.get("trend_strength_moderate", 0.3),
+            norm_max_adx,
         )
 
+        exit_signal_arr, cooldown_left_arr, dm_bearish_consec_arr = _compute_exit_and_cooldown(
+            dm_state_arr,
+            atr_stop_level,
+            close,
+            zig_cross_down,
+            top_warning_arr,
+            n,
+            params.get("cooldown_bars", 5),
+            params.get("exit_bearish_bars", 3),
+        )
+
+        # Suppress entries during cooldown
+        entry_signal_arr[cooldown_left_arr > 0] = 0.0
+
+        exit_signal_str = _encode_exit_str(exit_signal_arr)
         entry_signal_str = np.array(
             ["true" if v > 0.5 else "false" for v in entry_signal_arr],
             dtype=object,
         )
 
-        # --- 4-factor confidence per bar ---
-        # Factors: zig_strength + dm_health + trend_alignment + vol_quality
-        conf_4f_arr = np.zeros(n, dtype=np.float64)
-        for i in range(n):
-            a = 0.0 if np.isnan(adx[i]) else adx[i]
-            # Factor 1: ZIG strength (trend_strength from ADX)
-            f_zig = min(a / norm_max_adx, 1.0) if norm_max_adx > 0 else 0.0
-
-            # Factor 2: DM health (bullish=1.0, improving=0.7, deteriorating=0.3, bearish=0.0)
-            dm = dm_state_arr[i]
-            if dm > 1.5:
-                f_dm = 1.0
-            elif dm > 0.5:
-                f_dm = 0.7
-            elif dm > -1.5:
-                f_dm = 0.3
-            else:
-                f_dm = 0.0
-
-            # Factor 3: Trend alignment (EMA stack ordering)
-            ema_vals_i = []
-            for p in ema_periods:
-                key = f"ema_{p}"
-                if key in emas and i < len(emas[key]):
-                    v = emas[key][i]
-                    ema_vals_i.append(0.0 if np.isnan(v) else v)
-                else:
-                    ema_vals_i.append(0.0)
-
-            any_zero = any(v == 0.0 for v in ema_vals_i)
-            if any_zero:
-                f_align = 0.5
-            elif all(ema_vals_i[j] >= ema_vals_i[j + 1] for j in range(len(ema_vals_i) - 1)):
-                f_align = 1.0  # Perfectly aligned bullish
-            elif all(ema_vals_i[j] <= ema_vals_i[j + 1] for j in range(len(ema_vals_i) - 1)):
-                f_align = 0.3  # Aligned bearish
-            else:
-                f_align = 0.6  # Mixed
-
-            # Factor 4: Volatility quality (ADX not in chop + no top warning)
-            f_vol = 1.0 if adx_ok_arr[i] > 0.5 else 0.4
-            if top_warning_arr[i] >= 2.5:
-                f_vol *= 0.3  # Heavy penalty for TOP_DETECTED
-            elif top_warning_arr[i] >= 1.5:
-                f_vol *= 0.6  # Moderate for TOP_ZONE
-
-            conf_4f_arr[i] = 0.3 * f_zig + 0.25 * f_dm + 0.25 * f_align + 0.2 * f_vol
+        conf_4f_arr = _compute_confidence_4f(
+            adx,
+            dm_state_arr,
+            adx_ok_arr,
+            top_warning_arr,
+            emas,
+            ema_periods,
+            n,
+            norm_max_adx,
+        )
 
         # Build result DataFrame
         result: Dict[str, Any] = {
@@ -857,6 +681,90 @@ class TrendPulseIndicator(IndicatorBase):
                 result[i] = (m * arr[i] + (n_period - m) * result[i - 1]) / n_period
         return result
 
+    def _compute_dual_macd(
+        self, close: np.ndarray, n: int, params: Dict[str, Any]
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Compute DualMACD slow histogram, slope delta, and state array.
+
+        Returns (dm_histogram, dm_hist_delta, dm_state_arr).
+        State encoding: 2=BULLISH, 1=IMPROVING, -1=DETERIORATING, -2=BEARISH.
+        """
+        dm_slow_fast_p: int = params.get("dm_slow_fast", 55)
+        dm_slow_slow_p: int = params.get("dm_slow_slow", 89)
+        dm_slow_signal_p: int = params.get("dm_slow_signal", 34)
+        dm_slope_lb: int = params.get("dm_slope_lookback", 3)
+        dm_mult: float = params.get("dm_hist_multiplier", 2.0)
+
+        if HAS_TALIB:
+            dm_ema_fast = talib.EMA(close, timeperiod=dm_slow_fast_p)
+            dm_ema_slow = talib.EMA(close, timeperiod=dm_slow_slow_p)
+            dm_macd_line = dm_ema_fast - dm_ema_slow
+            dm_signal_line = talib.EMA(dm_macd_line, timeperiod=dm_slow_signal_p)
+        else:
+            dm_ema_fast = self._ema_manual(close, dm_slow_fast_p)
+            dm_ema_slow = self._ema_manual(close, dm_slow_slow_p)
+            dm_macd_line = dm_ema_fast - dm_ema_slow
+            dm_signal_line = self._ema_arr(dm_macd_line, dm_slow_signal_p)
+
+        dm_histogram = dm_mult * (dm_macd_line - dm_signal_line)
+
+        dm_hist_delta = np.full(n, np.nan, dtype=np.float64)
+        for i in range(dm_slope_lb, n):
+            if not np.isnan(dm_histogram[i]) and not np.isnan(dm_histogram[i - dm_slope_lb]):
+                dm_hist_delta[i] = dm_histogram[i] - dm_histogram[i - dm_slope_lb]
+
+        dm_state_arr = np.zeros(n, dtype=np.float64)
+        for i in range(n):
+            h = 0.0 if np.isnan(dm_histogram[i]) else dm_histogram[i]
+            dh = 0.0 if np.isnan(dm_hist_delta[i]) else dm_hist_delta[i]
+            if h > 0 and dh < 0:
+                dm_state_arr[i] = -1.0  # DETERIORATING
+            elif h < 0 and dh > 0:
+                dm_state_arr[i] = 1.0  # IMPROVING
+            elif h > 0:
+                dm_state_arr[i] = 2.0  # BULLISH
+            else:
+                dm_state_arr[i] = -2.0  # BEARISH
+
+        return dm_histogram, dm_hist_delta, dm_state_arr
+
+    def _compute_atr_stop(
+        self,
+        high: np.ndarray,
+        low: np.ndarray,
+        close: np.ndarray,
+        n: int,
+        params: Dict[str, Any],
+    ) -> np.ndarray:
+        """Compute ATR trailing stop: rolling max(close, period) - mult * ATR."""
+        atr_stop_mult: float = params.get("atr_stop_mult", 3.5)
+        atr_period: int = params.get("atr_stop_period", 20)
+
+        if HAS_TALIB:
+            atr_vals = talib.ATR(high, low, close, timeperiod=atr_period)
+        else:
+            atr_vals = np.full(n, np.nan, dtype=np.float64)
+            tr = np.zeros(n, dtype=np.float64)
+            for i in range(1, n):
+                tr[i] = max(
+                    high[i] - low[i],
+                    abs(high[i] - close[i - 1]),
+                    abs(low[i] - close[i - 1]),
+                )
+            if n >= atr_period:
+                atr_vals[atr_period - 1] = np.mean(tr[1 : atr_period + 1])
+                for i in range(atr_period, n):
+                    atr_vals[i] = (atr_vals[i - 1] * (atr_period - 1) + tr[i]) / atr_period
+
+        atr_stop_level = np.full(n, np.nan, dtype=np.float64)
+        for i in range(atr_period - 1, n):
+            window_start = max(0, i - atr_period + 1)
+            rolling_high = np.max(close[window_start : i + 1])
+            if not np.isnan(atr_vals[i]):
+                atr_stop_level[i] = rolling_high - atr_stop_mult * atr_vals[i]
+
+        return atr_stop_level
+
     def _empty_frame(self, index: pd.Index) -> pd.DataFrame:
         """Return empty DataFrame with correct columns."""
         cols = [
@@ -1019,6 +927,188 @@ class TrendPulseIndicator(IndicatorBase):
             "atr_stop_level": round(atr_stop_level, 2),
             "cooldown_left": cooldown_left,
         }
+
+
+def _encode_dm_state_str(dm_state_arr: np.ndarray) -> np.ndarray:
+    """Encode numeric DM state array to string labels."""
+    return np.array(
+        [
+            (
+                "BULLISH"
+                if v > 1.5
+                else ("IMPROVING" if v > 0.5 else ("DETERIORATING" if v > -1.5 else "BEARISH"))
+            )
+            for v in dm_state_arr
+        ],
+        dtype=object,
+    )
+
+
+def _compute_adx_ok(adx: np.ndarray, n: int, adx_entry_min: float) -> np.ndarray:
+    """Return boolean array where ADX >= threshold (chop filter)."""
+    adx_ok = np.zeros(n, dtype=np.float64)
+    for i in range(n):
+        a = 0.0 if np.isnan(adx[i]) else adx[i]
+        adx_ok[i] = 1.0 if a >= adx_entry_min else 0.0
+    return adx_ok
+
+
+def _compute_entry_signal(
+    swing_signal_arr: np.ndarray,
+    trend_filter_arr: np.ndarray,
+    adx: np.ndarray,
+    adx_ok_arr: np.ndarray,
+    dm_state_arr: np.ndarray,
+    n: int,
+    trend_strength_moderate_th: float,
+    norm_max_adx: float,
+) -> np.ndarray:
+    """Composite entry: swing_buy & ema99_bull & strength_ok & dm_ok & adx_ok."""
+    entry = np.zeros(n, dtype=np.float64)
+    for i in range(n):
+        swing_buy = swing_signal_arr[i] > 0.5
+        ema99_bull = trend_filter_arr[i] > 0.5
+        a = 0.0 if np.isnan(adx[i]) else adx[i]
+        strength = min(a / norm_max_adx, 1.0) if norm_max_adx > 0 else 0.0
+        strength_ok = strength >= trend_strength_moderate_th
+        dm_ok = dm_state_arr[i] > 0.5  # BULLISH or IMPROVING
+        adx_filter = adx_ok_arr[i] > 0.5
+        if swing_buy and ema99_bull and strength_ok and dm_ok and adx_filter:
+            entry[i] = 1.0
+    return entry
+
+
+def _compute_exit_and_cooldown(
+    dm_state_arr: np.ndarray,
+    atr_stop_level: np.ndarray,
+    close: np.ndarray,
+    zig_cross_down: np.ndarray,
+    top_warning_arr: np.ndarray,
+    n: int,
+    cooldown_bars_param: int,
+    exit_bearish_bars: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Compute exit signals, cooldown, and bearish consecutive count.
+
+    Exit reasons: 0=none, 1=atr_stop, 2=dm_regime, 3=zig_sell, 4=top_detected.
+    """
+    exit_signal_arr = np.zeros(n, dtype=np.float64)
+    cooldown_left_arr = np.zeros(n, dtype=np.float64)
+    dm_bearish_consec_arr = np.zeros(n, dtype=np.float64)
+
+    bearish_consec = 0
+    bars_since_exit = cooldown_bars_param  # start with no cooldown
+
+    for i in range(n):
+        bars_since_exit += 1
+        exit_reason = 0.0
+
+        # Track consecutive bearish bars
+        if dm_state_arr[i] < -1.5:  # BEARISH
+            bearish_consec += 1
+        else:
+            bearish_consec = 0
+        dm_bearish_consec_arr[i] = float(bearish_consec)
+
+        # ATR stop: close < atr_stop_level
+        if not np.isnan(atr_stop_level[i]) and close[i] < atr_stop_level[i]:
+            exit_reason = 1.0  # atr_stop
+
+        # DM regime exit: exactly exit_bearish_bars consecutive bearish (fire once)
+        if bearish_consec == exit_bearish_bars:
+            exit_reason = 2.0  # dm_regime
+
+        # ZIG sell
+        if zig_cross_down[i] > 0.5:
+            exit_reason = 3.0  # zig_sell
+
+        # Top detected
+        if top_warning_arr[i] >= 2.5:  # TOP_DETECTED
+            exit_reason = 4.0  # top_detected
+
+        exit_signal_arr[i] = exit_reason
+
+        if exit_reason > 0:
+            bars_since_exit = 0
+
+        cooldown_left_arr[i] = float(max(0, cooldown_bars_param - bars_since_exit))
+
+    return exit_signal_arr, cooldown_left_arr, dm_bearish_consec_arr
+
+
+def _encode_exit_str(exit_signal_arr: np.ndarray) -> np.ndarray:
+    """Encode numeric exit signal to string labels."""
+    return np.array(
+        [
+            (
+                "atr_stop"
+                if 0.5 < v < 1.5
+                else (
+                    "dm_regime"
+                    if 1.5 < v < 2.5
+                    else ("zig_sell" if 2.5 < v < 3.5 else ("top_detected" if v > 3.5 else "none"))
+                )
+            )
+            for v in exit_signal_arr
+        ],
+        dtype=object,
+    )
+
+
+def _compute_confidence_4f(
+    adx: np.ndarray,
+    dm_state_arr: np.ndarray,
+    adx_ok_arr: np.ndarray,
+    top_warning_arr: np.ndarray,
+    emas: Dict[str, np.ndarray],
+    ema_periods: tuple[int, ...],
+    n: int,
+    norm_max_adx: float,
+) -> np.ndarray:
+    """4-factor confidence: zig_strength + dm_health + trend_alignment + vol_quality."""
+    conf = np.zeros(n, dtype=np.float64)
+    for i in range(n):
+        a = 0.0 if np.isnan(adx[i]) else adx[i]
+        f_zig = min(a / norm_max_adx, 1.0) if norm_max_adx > 0 else 0.0
+
+        dm = dm_state_arr[i]
+        if dm > 1.5:
+            f_dm = 1.0
+        elif dm > 0.5:
+            f_dm = 0.7
+        elif dm > -1.5:
+            f_dm = 0.3
+        else:
+            f_dm = 0.0
+
+        ema_vals_i = []
+        for p in ema_periods:
+            key = f"ema_{p}"
+            if key in emas and i < len(emas[key]):
+                v = emas[key][i]
+                ema_vals_i.append(0.0 if np.isnan(v) else v)
+            else:
+                ema_vals_i.append(0.0)
+
+        any_zero = any(v == 0.0 for v in ema_vals_i)
+        if any_zero:
+            f_align = 0.5
+        elif all(ema_vals_i[j] >= ema_vals_i[j + 1] for j in range(len(ema_vals_i) - 1)):
+            f_align = 1.0
+        elif all(ema_vals_i[j] <= ema_vals_i[j + 1] for j in range(len(ema_vals_i) - 1)):
+            f_align = 0.3
+        else:
+            f_align = 0.6
+
+        f_vol = 1.0 if adx_ok_arr[i] > 0.5 else 0.4
+        if top_warning_arr[i] >= 2.5:
+            f_vol *= 0.3
+        elif top_warning_arr[i] >= 1.5:
+            f_vol *= 0.6
+
+        conf[i] = 0.3 * f_zig + 0.25 * f_dm + 0.25 * f_align + 0.2 * f_vol
+
+    return conf
 
 
 def _sf(val: Any) -> float:

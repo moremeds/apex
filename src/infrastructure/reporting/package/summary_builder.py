@@ -184,9 +184,7 @@ class SummaryBuilder:
                     weighted_sum += w * tf_regime.composite_score
                     weight_total += w
             if weight_total > 0:
-                ticker_summary["composite_score_avg"] = round(
-                    weighted_sum / weight_total, 1
-                )
+                ticker_summary["composite_score_avg"] = round(weighted_sum / weight_total, 1)
 
             # PR-B: Add per-ticker data_quality and aggregate
             ticker_quality = self._extract_ticker_data_quality(symbol, df, regime)
