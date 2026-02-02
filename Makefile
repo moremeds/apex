@@ -48,6 +48,11 @@ help:
 	@echo ""
 	@echo "$(GREEN)Behavioral Gate:$(RESET)"
 	@echo "  make behavioral       Quick test (default params) + serve"
+	@echo ""
+	@echo "$(GREEN)TrendPulse:$(RESET)"
+	@echo "  make tp-validate      Full 3-stage validation (36 symbols)"
+	@echo "  make tp-holdout       Holdout only (faster)"
+	@echo "  make tp-optimize      Phase 1 Optuna optimization"
 	@echo "  make behavioral-full  Optuna optimization + walk-forward + serve"
 	@echo "  make behavioral-cases Predefined case studies + serve"
 	@echo ""
@@ -318,6 +323,25 @@ behavioral-full:
 	@echo "$(BOLD)Serving at http://localhost:8081$(RESET)"
 	@echo "$(YELLOW)Press Ctrl+C to stop$(RESET)"
 	@cd out/behavioral && python3 -m http.server 8081
+
+# ═══════════════════════════════════════════════════════════════
+# TrendPulse v2.2 Validation
+# ═══════════════════════════════════════════════════════════════
+
+tp-validate:
+	@echo "$(BOLD)TrendPulse v2.2 — Full 3-stage validation (36 symbols)$(RESET)"
+	$(PYTHON) scripts/trend_pulse_validate.py
+
+tp-holdout:
+	@echo "$(BOLD)TrendPulse v2.2 — Holdout only$(RESET)"
+	$(PYTHON) scripts/trend_pulse_validate.py --skip-full
+
+tp-optimize:
+	@echo "$(BOLD)TrendPulse v2.2 — Phase 1 Optuna optimization$(RESET)"
+	$(PYTHON) -m src.backtest.runner \
+		--spec config/backtest/examples/trend_pulse_phase1.yaml
+
+.PHONY: tp-validate tp-holdout tp-optimize
 
 # ═══════════════════════════════════════════════════════════════
 # Diagrams
