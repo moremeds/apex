@@ -66,3 +66,12 @@ invariants:
     max_val: 100
     after_warmup: true
     description: "Ultimate Oscillator must be in [0, 100]"
+
+  - id: DUAL_MACD_CONFIDENCE_BOUNDS
+    type: bounds
+    indicator: dual_macd
+    field: confidence
+    min_val: 0.0
+    max_val: 1.0
+    after_warmup: true
+    description: "DualMACD confidence must be in [0, 1]"

@@ -16,3 +16,6 @@
 {"indicator": "sma", "scenario": "trend_uptrend", "bar_index": 50, "timestamp": "2024-03-13", "outputs": {"sma_20": 122.8, "sma_50": 115.2}, "warmup_complete": true}
 {"indicator": "ema", "scenario": "trend_uptrend", "bar_index": 20, "timestamp": "2024-01-31", "outputs": {"ema_12": 110.2, "ema_26": 108.5}, "warmup_complete": true}
 {"indicator": "ema", "scenario": "trend_crash", "bar_index": 50, "timestamp": "2024-03-13", "outputs": {"ema_12": 88.5, "ema_26": 102.3}, "warmup_complete": true}
+{"indicator": "trend_pulse", "scenario": "trend_uptrend", "bar_index": 95, "timestamp": "2024-05-17", "outputs": {"swing_signal": "NONE", "trend_filter": "NEUTRAL", "top_warning": "TOP_PENDING"}, "warmup_complete": false}
+{"indicator": "trend_pulse", "scenario": "trend_choppy", "bar_index": 95, "timestamp": "2024-05-17", "outputs": {"swing_signal": "NONE", "trend_filter": "NEUTRAL", "top_warning": "NONE"}, "warmup_complete": false}
+{"indicator": "trend_pulse", "scenario": "trend_crash", "bar_index": 95, "timestamp": "2024-05-17", "outputs": {"swing_signal": "NONE", "trend_filter": "NEUTRAL", "top_warning": "TOP_PENDING"}, "warmup_complete": false}

@@ -18,3 +18,6 @@
 {"indicator": "kdj", "scenario": "trend_crash", "bar_index": 40, "timestamp": "2024-02-29", "outputs": {"k": 12.5, "d": 18.2, "j": 0.0}, "warmup_complete": true}
 {"indicator": "cci", "scenario": "trend_uptrend", "bar_index": 20, "timestamp": "2024-01-31", "outputs": {"value": 85.5}, "warmup_complete": true}
 {"indicator": "cci", "scenario": "trend_crash", "bar_index": 40, "timestamp": "2024-02-29", "outputs": {"value": -185.2}, "warmup_complete": true}
+{"indicator": "dual_macd", "scenario": "trend_uptrend", "bar_index": 95, "timestamp": "2024-05-17", "outputs": {"trend_state": "BEARISH", "tactical_signal": "NONE", "confidence": 0.0}, "warmup_complete": false}
+{"indicator": "dual_macd", "scenario": "trend_choppy", "bar_index": 95, "timestamp": "2024-05-17", "outputs": {"trend_state": "BEARISH", "tactical_signal": "NONE", "confidence": 0.0}, "warmup_complete": false}
+{"indicator": "dual_macd", "scenario": "trend_crash", "bar_index": 95, "timestamp": "2024-05-17", "outputs": {"trend_state": "BEARISH", "tactical_signal": "NONE", "confidence": 0.0}, "warmup_complete": false}

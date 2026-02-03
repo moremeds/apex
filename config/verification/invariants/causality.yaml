@@ -8,7 +8,7 @@
 invariants:
   - id: MOMENTUM_CAUSALITY
     type: causality
-    indicators: ["rsi", "macd", "kdj", "cci", "mfi", "williams_r", "roc", "tsi"]
+    indicators: ["rsi", "macd", "kdj", "cci", "mfi", "williams_r", "roc", "tsi", "dual_macd"]
     perturb_offset: 10
     perturb_field: "close"
     perturb_factor: 1.5

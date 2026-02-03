@@ -28,9 +28,12 @@ checks:
   - S3_MFI_BOUNDS
   - S3_WILLIAMS_R_BOUNDS
   - S3_ULTIMATE_BOUNDS
+  # S3: Semantic Invariants - Momentum (new indicators)
+  - S3_DUAL_MACD_BOUNDS
   # S3: Semantic Invariants - Trend
   - S3_ADX_BOUNDS
   - S3_AROON_BOUNDS
+  - S3_TREND_PULSE_BOUNDS
   # S3: Semantic Invariants - Volatility
   - S3_ATR_NONNEG
   - S3_STDDEV_NONNEG
