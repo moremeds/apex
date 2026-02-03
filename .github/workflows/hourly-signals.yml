@@ -1,9 +1,9 @@
 name: "Intraday: Signal Reports"
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Signal report generation every 30 minutes during market hours.
+# Signal report generation every hour during market hours.
 #
-# Schedule: Every 30 min 8:30am–4:15pm ET (13:30–21:15 UTC), Mon-Fri
+# Schedule: Hourly 8:30am–4:15pm ET (13:30–21:15 UTC), Mon-Fri
 #
 # All timeframes (1h, 4h, 1d) are always generated. Unfinished bars use
 # the current spot price as close (partial/potential signals).
@@ -13,8 +13,8 @@ name: "Intraday: Signal Reports"
 #
 # Daily email breakdown:
 #   8:30am ET:        1H + 4H + 1D (first report, catches overnight changes)
-#   9:00am–3:30pm ET: Intraday 1H email (every 30 min)
-#   1:30pm ET:        also Intraday 4H (first 4H bar close)
+#   9am–3pm ET:       Intraday 1H email (every hour on the hour)
+#   1pm ET:           also Intraday 4H (first 4H bar close)
 #   4:15pm ET:        1H + 4H + 1D (post-close, final report)
 #
 # Pipeline:
@@ -27,9 +27,9 @@ name: "Intraday: Signal Reports"
 
 on:
   schedule:
-    # Every 30 min from 8:30am to 4:15pm ET (UTC = ET + 5 in EST)
+    # Hourly from 8:30am to 4:15pm ET (UTC = ET + 5 in EST)
     - cron: '30 13 * * 1-5'     # 8:30am ET — first report (1H+4H+1D, catches overnight)
-    - cron: '0,30 14-20 * * 1-5' # 9:00am–3:30pm ET — every 30 min
+    - cron: '0 14-20 * * 1-5'   # 9am–3pm ET — every hour on the hour
     - cron: '15 21 * * 1-5'     # 4:15pm ET — close (1H + 4H + 1D, last report)
   workflow_dispatch:
 
@@ -114,7 +114,7 @@ jobs:
           utc_hour = now_utc.hour
           utc_min = now_utc.minute
 
-          # Runs every 30 min from 13:30–21:15 UTC (8:30am–4:15pm ET)
+          # Runs hourly from 13:30–21:15 UTC (8:30am–4:15pm ET)
           # All timeframes always generated (partial bars use spot price)
           is_close = utc_hour == 21 and utc_min >= 10  # 4:15pm ET (post-close)
           is_first = utc_hour == 13  # 8:30am ET (first report)
