@@ -24,6 +24,8 @@ checks:
   # S3: Semantic Invariants
   - S3_RSI_BOUNDS
   - S3_ADX_BOUNDS
+  - S3_DUAL_MACD_BOUNDS
+  - S3_TREND_PULSE_BOUNDS
   - S3_ATR_NONNEG
   - S3_MACD_IDENTITY
   - S3_NO_NAN

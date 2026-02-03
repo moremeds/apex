@@ -145,6 +145,16 @@ phases:
         refs: ["AROON_UP_BOUNDS", "AROON_DOWN_BOUNDS"]
         description: "Aroon Up/Down in [0, 100]"
 
+      - id: "S3_DUAL_MACD_BOUNDS"
+        type: "invariant"
+        refs: ["DUAL_MACD_CONFIDENCE_BOUNDS"]
+        description: "DualMACD confidence in [0, 1]"
+
+      - id: "S3_TREND_PULSE_BOUNDS"
+        type: "invariant"
+        refs: ["TREND_PULSE_STRENGTH_BOUNDS", "TREND_PULSE_SCORE_BOUNDS", "TREND_PULSE_CONFIDENCE_BOUNDS"]
+        description: "TrendPulse bounds validation"
+
       # Volatility bounds
       - id: "S3_ATR_NONNEG"
         type: "invariant"

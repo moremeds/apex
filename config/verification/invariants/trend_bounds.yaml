@@ -47,3 +47,30 @@ invariants:
     max_val: 100
     after_warmup: true
     description: "Aroon Down must be in [0, 100]"
+
+  - id: TREND_PULSE_STRENGTH_BOUNDS
+    type: bounds
+    indicator: trend_pulse
+    field: trend_strength
+    min_val: 0.0
+    max_val: 1.0
+    after_warmup: true
+    description: "TrendPulse trend_strength must be in [0, 1]"
+
+  - id: TREND_PULSE_SCORE_BOUNDS
+    type: bounds
+    indicator: trend_pulse
+    field: score
+    min_val: 0
+    max_val: 100
+    after_warmup: true
+    description: "TrendPulse score must be in [0, 100]"
+
+  - id: TREND_PULSE_CONFIDENCE_BOUNDS
+    type: bounds
+    indicator: trend_pulse
+    field: confidence
+    min_val: 0.0
+    max_val: 1.0
+    after_warmup: true
+    description: "TrendPulse confidence must be in [0, 1]"

@@ -668,8 +668,9 @@ class SignalVerifier(BaseVerifier):
                 )
 
             tolerance_config = config.get("tolerance", {})
-            abs_err = tolerance_config.get("abs_err", 1e-6)
-            rel_err = tolerance_config.get("rel_err", 1e-4)
+            # Explicit float conversion: YAML safe_load may interpret scientific notation as strings
+            abs_err = float(tolerance_config.get("abs_err", 1e-6))
+            rel_err = float(tolerance_config.get("rel_err", 1e-4))
 
             failures = []
             passed = 0
