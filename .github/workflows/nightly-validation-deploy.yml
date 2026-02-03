@@ -88,8 +88,10 @@ jobs:
 
       # ═══════════════════════════════════════════════════════════════
       # Step 1/6: Parameter Optimization
+      # Note: continue-on-error prevents optimization failures from blocking reports.
       # ═══════════════════════════════════════════════════════════════
       - name: "Step 1/6: Parameter Optimization"
+        continue-on-error: true
         run: |
           source .venv/bin/activate
           mkdir -p ${{ env.REPORTS_DIR }} config/validation
@@ -102,8 +104,11 @@ jobs:
 
       # ═══════════════════════════════════════════════════════════════
       # Step 2/6: Full Validation
+      # Note: continue-on-error allows workflow to proceed even if statistical
+      # gates fail. Gate results are still reported in "Validate Gates" step.
       # ═══════════════════════════════════════════════════════════════
       - name: "Step 2/6: Full Validation"
+        continue-on-error: true
         run: |
           source .venv/bin/activate
           python -m src.runners.validation_runner full \
@@ -116,8 +121,10 @@ jobs:
 
       # ═══════════════════════════════════════════════════════════════
       # Step 3/6: Holdout Validation
+      # Note: continue-on-error allows workflow to proceed even if gates fail.
       # ═══════════════════════════════════════════════════════════════
       - name: "Step 3/6: Holdout Validation"
+        continue-on-error: true
         run: |
           source .venv/bin/activate
           python -m src.runners.validation_runner holdout \

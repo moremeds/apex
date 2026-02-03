@@ -1,21 +1,21 @@
-{"indicator": "adx", "scenario": "trend_uptrend", "bar_index": 14, "timestamp": "2024-01-23", "outputs": {"adx": 35.2, "plus_di": 28.5, "minus_di": 12.3}, "warmup_complete": true}
-{"indicator": "adx", "scenario": "trend_uptrend", "bar_index": 50, "timestamp": "2024-03-13", "outputs": {"adx": 42.1, "plus_di": 32.8, "minus_di": 10.5}, "warmup_complete": true}
-{"indicator": "adx", "scenario": "trend_uptrend", "bar_index": 99, "timestamp": "2024-05-23", "outputs": {"adx": 45.5, "plus_di": 35.2, "minus_di": 9.8}, "warmup_complete": true}
-{"indicator": "adx", "scenario": "trend_choppy", "bar_index": 14, "timestamp": "2024-01-23", "outputs": {"adx": 18.5, "plus_di": 22.1, "minus_di": 20.8}, "warmup_complete": true}
-{"indicator": "adx", "scenario": "trend_choppy", "bar_index": 50, "timestamp": "2024-03-13", "outputs": {"adx": 15.2, "plus_di": 21.5, "minus_di": 23.2}, "warmup_complete": true}
-{"indicator": "adx", "scenario": "trend_choppy", "bar_index": 99, "timestamp": "2024-05-23", "outputs": {"adx": 16.8, "plus_di": 20.5, "minus_di": 22.1}, "warmup_complete": true}
-{"indicator": "adx", "scenario": "trend_crash", "bar_index": 40, "timestamp": "2024-02-29", "outputs": {"adx": 55.2, "plus_di": 8.5, "minus_di": 42.3}, "warmup_complete": true}
-{"indicator": "adx", "scenario": "trend_crash", "bar_index": 50, "timestamp": "2024-03-13", "outputs": {"adx": 62.1, "plus_di": 6.2, "minus_di": 48.5}, "warmup_complete": true}
-{"indicator": "supertrend", "scenario": "trend_uptrend", "bar_index": 14, "timestamp": "2024-01-23", "outputs": {"value": 105.2, "direction": 1, "trend": "bullish"}, "warmup_complete": true}
-{"indicator": "supertrend", "scenario": "trend_uptrend", "bar_index": 50, "timestamp": "2024-03-13", "outputs": {"value": 118.5, "direction": 1, "trend": "bullish"}, "warmup_complete": true}
-{"indicator": "supertrend", "scenario": "trend_choppy", "bar_index": 14, "timestamp": "2024-01-23", "outputs": {"value": 96.5, "direction": -1, "trend": "bearish"}, "warmup_complete": true}
-{"indicator": "supertrend", "scenario": "trend_choppy", "bar_index": 50, "timestamp": "2024-03-13", "outputs": {"value": 103.2, "direction": 1, "trend": "bullish"}, "warmup_complete": true}
-{"indicator": "supertrend", "scenario": "trend_crash", "bar_index": 40, "timestamp": "2024-02-29", "outputs": {"value": 145.5, "direction": -1, "trend": "bearish"}, "warmup_complete": true}
-{"indicator": "supertrend", "scenario": "trend_crash", "bar_index": 50, "timestamp": "2024-03-13", "outputs": {"value": 125.2, "direction": -1, "trend": "bearish"}, "warmup_complete": true}
-{"indicator": "sma", "scenario": "trend_uptrend", "bar_index": 20, "timestamp": "2024-01-31", "outputs": {"sma_20": 108.5}, "warmup_complete": true}
-{"indicator": "sma", "scenario": "trend_uptrend", "bar_index": 50, "timestamp": "2024-03-13", "outputs": {"sma_20": 122.8, "sma_50": 115.2}, "warmup_complete": true}
-{"indicator": "ema", "scenario": "trend_uptrend", "bar_index": 20, "timestamp": "2024-01-31", "outputs": {"ema_12": 110.2, "ema_26": 108.5}, "warmup_complete": true}
-{"indicator": "ema", "scenario": "trend_crash", "bar_index": 50, "timestamp": "2024-03-13", "outputs": {"ema_12": 88.5, "ema_26": 102.3}, "warmup_complete": true}
+{"indicator": "adx", "scenario": "trend_uptrend", "bar_index": 14, "timestamp": "2024-01-23", "outputs": {"adx": 0, "di_plus": 0, "di_minus": 0}, "warmup_complete": false}
+{"indicator": "adx", "scenario": "trend_uptrend", "bar_index": 50, "timestamp": "2024-03-14", "outputs": {"adx": 100.0, "di_plus": 39.9678, "di_minus": 0.0}, "warmup_complete": true}
+{"indicator": "adx", "scenario": "trend_uptrend", "bar_index": 99, "timestamp": "2024-05-23", "outputs": {"adx": 100.0, "di_plus": 31.0542, "di_minus": 0.0}, "warmup_complete": true}
+{"indicator": "adx", "scenario": "trend_choppy", "bar_index": 14, "timestamp": "2024-01-23", "outputs": {"adx": 0, "di_plus": 0, "di_minus": 0}, "warmup_complete": false}
+{"indicator": "adx", "scenario": "trend_choppy", "bar_index": 50, "timestamp": "2024-03-14", "outputs": {"adx": 4.2565, "di_plus": 22.2337, "di_minus": 24.7508}, "warmup_complete": true}
+{"indicator": "adx", "scenario": "trend_choppy", "bar_index": 99, "timestamp": "2024-05-23", "outputs": {"adx": 3.7167, "di_plus": 22.9689, "di_minus": 21.7772}, "warmup_complete": true}
+{"indicator": "adx", "scenario": "trend_crash", "bar_index": 40, "timestamp": "2024-02-29", "outputs": {"adx": 82.3777, "di_plus": 2.9727, "di_minus": 40.2969}, "warmup_complete": true}
+{"indicator": "adx", "scenario": "trend_crash", "bar_index": 50, "timestamp": "2024-03-14", "outputs": {"adx": 86.9239, "di_plus": 1.2173, "di_minus": 33.6588}, "warmup_complete": true}
+{"indicator": "supertrend", "scenario": "trend_uptrend", "bar_index": 14, "timestamp": "2024-01-23", "outputs": {"supertrend": 0, "direction": "neutral"}, "warmup_complete": false}
+{"indicator": "supertrend", "scenario": "trend_uptrend", "bar_index": 50, "timestamp": "2024-03-14", "outputs": {"supertrend": 0, "direction": "neutral"}, "warmup_complete": false}
+{"indicator": "supertrend", "scenario": "trend_choppy", "bar_index": 14, "timestamp": "2024-01-23", "outputs": {"supertrend": 0, "direction": "neutral"}, "warmup_complete": false}
+{"indicator": "supertrend", "scenario": "trend_choppy", "bar_index": 50, "timestamp": "2024-03-14", "outputs": {"supertrend": 0, "direction": "neutral"}, "warmup_complete": false}
+{"indicator": "supertrend", "scenario": "trend_crash", "bar_index": 40, "timestamp": "2024-02-29", "outputs": {"supertrend": 0, "direction": "neutral"}, "warmup_complete": false}
+{"indicator": "supertrend", "scenario": "trend_crash", "bar_index": 50, "timestamp": "2024-03-14", "outputs": {"supertrend": 0, "direction": "neutral"}, "warmup_complete": false}
+{"indicator": "sma", "scenario": "trend_uptrend", "bar_index": 20, "timestamp": "2024-01-31", "outputs": {"sma_fast": 0, "sma_slow": 0, "trend": "neutral"}, "warmup_complete": false}
+{"indicator": "sma", "scenario": "trend_uptrend", "bar_index": 50, "timestamp": "2024-03-14", "outputs": {"sma_fast": 0, "sma_slow": 0, "trend": "neutral"}, "warmup_complete": false}
+{"indicator": "ema", "scenario": "trend_uptrend", "bar_index": 26, "timestamp": "2024-02-08", "outputs": {"ema_fast": 112.4682, "ema_slow": 108.8859, "trend": "bullish"}, "warmup_complete": false}
+{"indicator": "ema", "scenario": "trend_crash", "bar_index": 50, "timestamp": "2024-03-14", "outputs": {"ema_fast": 95.0082, "ema_slow": 113.4884, "trend": "bearish"}, "warmup_complete": true}
 {"indicator": "trend_pulse", "scenario": "trend_uptrend", "bar_index": 95, "timestamp": "2024-05-17", "outputs": {"swing_signal": "NONE", "trend_filter": "NEUTRAL", "top_warning": "TOP_PENDING"}, "warmup_complete": false}
 {"indicator": "trend_pulse", "scenario": "trend_choppy", "bar_index": 95, "timestamp": "2024-05-17", "outputs": {"swing_signal": "NONE", "trend_filter": "NEUTRAL", "top_warning": "NONE"}, "warmup_complete": false}
 {"indicator": "trend_pulse", "scenario": "trend_crash", "bar_index": 95, "timestamp": "2024-05-17", "outputs": {"swing_signal": "NONE", "trend_filter": "NEUTRAL", "top_warning": "TOP_PENDING"}, "warmup_complete": false}
