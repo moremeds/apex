@@ -30,6 +30,14 @@ Example:
 
 from .apex_engine import ApexEngine, ApexEngineConfig
 
+# Worker functions for multiprocessing
+from .apex_worker import (
+    create_apex_backtest_fn,
+    init_apex_worker,
+    is_apex_required,
+    run_apex_backtest,
+)
+
 # Event-driven engine (bar-by-bar, async) - renamed to avoid Protocol conflict
 from .backtest_engine import BacktestConfig
 from .backtest_engine import BacktestEngine as EventDrivenEngine
@@ -40,14 +48,6 @@ from .interface import (
     EngineType,
 )
 from .vectorbt_engine import VectorBTConfig, VectorBTEngine
-
-# Worker functions for multiprocessing
-from .apex_worker import (
-    create_apex_backtest_fn,
-    init_apex_worker,
-    is_apex_required,
-    run_apex_backtest,
-)
 from .vectorbt_worker import (
     create_vectorbt_backtest_fn,
     init_vectorbt_worker,

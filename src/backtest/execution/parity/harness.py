@@ -19,7 +19,6 @@ import pandas as pd
 
 from ...core import RunResult, RunSpec
 from ..engines import BacktestEngine
-
 from .models import DriftDetail, DriftType, ParityConfig, ParityResult
 
 

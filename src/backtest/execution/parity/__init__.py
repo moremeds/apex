@@ -14,6 +14,12 @@ Exports:
 - SignalParityResult: Signal comparison results
 """
 
+# Signal capture classes
+from .capture import DirectionalSignalCapture, SignalCapture
+
+# Harness
+from .harness import StrategyParityHarness
+
 # Models
 from .models import (
     DriftDetail,
@@ -23,14 +29,8 @@ from .models import (
     SignalParityResult,
 )
 
-# Harness
-from .harness import StrategyParityHarness
-
 # Signal comparison functions
 from .signals import compare_directional_signal_parity, compare_signal_parity
-
-# Signal capture classes
-from .capture import DirectionalSignalCapture, SignalCapture
 
 __all__ = [
     # Models
