@@ -41,6 +41,19 @@ from .interface import (
 )
 from .vectorbt_engine import VectorBTConfig, VectorBTEngine
 
+# Worker functions for multiprocessing
+from .apex_worker import (
+    create_apex_backtest_fn,
+    init_apex_worker,
+    is_apex_required,
+    run_apex_backtest,
+)
+from .vectorbt_worker import (
+    create_vectorbt_backtest_fn,
+    init_vectorbt_worker,
+    run_vectorbt_backtest,
+)
+
 __all__ = [
     # Interface (Protocol)
     "BacktestEngine",
@@ -55,4 +68,12 @@ __all__ = [
     # Event-Driven Engine (BacktestConfig-based)
     "EventDrivenEngine",
     "BacktestConfig",
+    # Worker functions
+    "init_vectorbt_worker",
+    "run_vectorbt_backtest",
+    "create_vectorbt_backtest_fn",
+    "init_apex_worker",
+    "run_apex_backtest",
+    "create_apex_backtest_fn",
+    "is_apex_required",
 ]

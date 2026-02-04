@@ -7,6 +7,8 @@ from typing import Any
 
 import pytest
 
+# Import to register example strategies (decorator runs on import)
+import src.domain.strategy.examples  # noqa: F401
 from src.backtest.data.feeds import InMemoryDataFeed
 from src.backtest.execution.engines.backtest_engine import BacktestConfig, BacktestEngine
 from src.backtest.execution.simulated import FillModel, SimulatedExecution

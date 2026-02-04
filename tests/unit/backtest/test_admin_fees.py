@@ -6,6 +6,8 @@ from datetime import date, datetime
 
 import pytest
 
+# Import to register strategies (decorator runs on import)
+import src.domain.strategy.examples  # noqa: F401
 from src.backtest.data.feeds import InMemoryDataFeed
 from src.backtest.execution.engines.backtest_engine import BacktestConfig, BacktestEngine
 from src.domain.reality import ConstantAdminFeeModel, create_zero_cost_pack

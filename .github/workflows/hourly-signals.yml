@@ -27,11 +27,12 @@ name: "Intraday: Signal Reports"
 
 on:
   schedule:
-    # Market hours schedule (UTC = ET + 5 in EST, ET + 4 in EDT)
-    - cron: '30 13 * * 1-5'     # 8:30am ET — first report (1H+4H+1D, catches overnight)
-    - cron: '0 15-20 * * 1-5'   # 10am–3pm ET — every hour on the hour (1H)
-    - cron: '30 18 * * 1-5'     # 1:30pm ET — 4H bar close report
-    - cron: '15 21 * * 1-5'     # 4:15pm ET — end of day report (1H+4H+1D)
+    # Market hours schedule — EDT times (Mar-Nov: UTC = ET + 4)
+    # TODO: Switch to EST times (Nov-Mar: UTC = ET + 5) after DST ends
+    - cron: '30 12 * * 1-5'     # 8:30am ET — first report (1H+4H+1D, catches overnight)
+    - cron: '0 14-19 * * 1-5'   # 10am–3pm ET — every hour on the hour (1H)
+    - cron: '30 17 * * 1-5'     # 1:30pm ET — 4H bar close report
+    - cron: '15 20 * * 1-5'     # 4:15pm ET — end of day report (1H+4H+1D)
   workflow_dispatch:
 
 concurrency:
