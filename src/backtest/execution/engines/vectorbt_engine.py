@@ -161,9 +161,12 @@ class VectorBTEngine(BaseEngine):
             # Signal generators need warmup bars before the scoring window
             # to compute indicators (EMA, ATR, etc.). Without this buffer,
             # OOS windows shorter than warmup produce zero signals.
-            signal_generator_cls = self._get_signal_generator(
-                spec.params.get("strategy_type", self._vbt_config.strategy_type)
-            )
+            try:
+                signal_generator_cls = self._get_signal_generator(
+                    spec.params.get("strategy_type", self._vbt_config.strategy_type)
+                )
+            except (KeyError, ValueError) as e:
+                return self._create_error_result(spec, RunStatus.FAIL_STRATEGY, str(e), started_at)
             warmup_bars_attr = getattr(signal_generator_cls, "warmup_bars", 0)
             _prebuilt_generator = None
             if isinstance(warmup_bars_attr, property):

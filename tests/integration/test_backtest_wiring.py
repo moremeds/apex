@@ -125,12 +125,25 @@ class TestStrategyRegistryConsistency:
         assert not missing, f"Missing strategies: {missing}"
 
     def test_example_specs_reference_registered_strategies(self) -> None:
-        """Verify all example specs reference strategies that exist."""
+        """Verify all example specs reference strategies that exist.
+
+        Strategies can be defined in either:
+        - StrategyRegistry: Full Strategy classes for ApexEngine/live trading
+        - manifest.yaml: SignalGenerator-only strategies for VectorBT screening
+        """
         from src.domain.strategy import examples  # noqa: F401
         from src.domain.strategy.registry import StrategyRegistry
 
         registry = StrategyRegistry()
         registered = set(registry._strategies.keys())
+
+        # Also check manifest.yaml for signal-only strategies (used by VectorBT)
+        manifest_path = Path("src/domain/strategy/manifest.yaml")
+        if manifest_path.exists():
+            with open(manifest_path) as f:
+                manifest = yaml.safe_load(f)
+            manifest_strategies = set(manifest.get("strategies", {}).keys())
+            registered = registered | manifest_strategies
 
         spec_dir = Path("config/backtest/examples")
         if not spec_dir.exists():

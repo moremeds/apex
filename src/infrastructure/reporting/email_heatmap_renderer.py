@@ -147,10 +147,13 @@ def _format_market_line(ticker: Dict[str, Any], symbol: str) -> str:
 
 
 def _format_sector_cell(ticker: Dict[str, Any], symbol: str) -> str:
-    """Format: XLK  +1.1%"""
+    """Format: XLK $185.2 +1.1%"""
     change = ticker.get("daily_change_pct")
+    price = ticker.get("last_price") or ticker.get("close")
     change_str = f"{change:+.1f}%" if change is not None else "     "
-    return f"{symbol:<4} {change_str:>6}"
+    # Show price with 1 decimal for precision
+    price_str = f"${price:.1f}" if price is not None else "     "
+    return f"{symbol:<4} {price_str:>6} {change_str:>6}"
 
 
 def _count_score_bands(summary: Dict[str, Any]) -> Dict[str, int]:
@@ -271,12 +274,39 @@ def _append_dual_macd_alerts(
         lines.append("")
         lines.append("📉 TREND DELTAS (top movers)")
         lines.append("─" * 36)
-        for t in trends[:8]:
-            sym = t.get("symbol", "")
-            sd = t.get("slow_hist_delta", 0)
-            fd = t.get("fast_hist_delta", 0)
-            state = t.get("trend_state", "")
-            lines.append(f"{sym:<5} ΔSlow:{sd:+.2f} ΔFast:{fd:+.2f} {state}")
+        # Group by bullish/bearish, order by combined delta magnitude
+        bullish_trends = sorted(
+            [
+                t
+                for t in trends
+                if t.get("trend_state", "").lower() in ("bullish", "strong_bullish")
+            ],
+            key=lambda x: -(x.get("slow_hist_delta", 0) + x.get("fast_hist_delta", 0)),
+        )
+        bearish_trends = sorted(
+            [
+                t
+                for t in trends
+                if t.get("trend_state", "").lower() in ("bearish", "strong_bearish")
+            ],
+            key=lambda x: (x.get("slow_hist_delta", 0) + x.get("fast_hist_delta", 0)),
+        )
+        if bullish_trends:
+            lines.append("🟢 BULLISH")
+            for t in bullish_trends[:4]:
+                sym = t.get("symbol", "")
+                sd = t.get("slow_hist_delta", 0)
+                fd = t.get("fast_hist_delta", 0)
+                state = t.get("trend_state", "bullish")
+                lines.append(f"  {sym:<5} ΔSlow:{sd:+.2f} ΔFast:{fd:+.2f} {state}")
+        if bearish_trends:
+            lines.append("🔴 BEARISH")
+            for t in bearish_trends[:4]:
+                sym = t.get("symbol", "")
+                sd = t.get("slow_hist_delta", 0)
+                fd = t.get("fast_hist_delta", 0)
+                state = t.get("trend_state", "bearish")
+                lines.append(f"  {sym:<5} ΔSlow:{sd:+.2f} ΔFast:{fd:+.2f} {state}")
 
     lines.append("")
 
@@ -297,13 +327,25 @@ def _append_changes_section(lines: List[str], history_mgr: ScoreHistoryManager) 
     if score_changes:
         lines.append("COMPOSITE SCORE CHANGES (|Δ| ≥ 5)")
         lines.append("─" * 36)
-        for c in score_changes[:10]:
-            arrow = "🔺" if c["delta"] > 0 else "🔻"
-            warn = "  🚨" if abs(c["delta"]) >= 7 else ""
-            lines.append(
-                f"{c['symbol']:<5} {c['prev']:.0f} → {c['curr']:.0f}  "
-                f"{arrow} {c['delta']:+.0f}{warn}"
-            )
+        # Group by direction: bullish (up) first, then bearish (down)
+        bullish = sorted([c for c in score_changes if c["delta"] > 0], key=lambda x: -x["delta"])
+        bearish = sorted([c for c in score_changes if c["delta"] < 0], key=lambda x: x["delta"])
+        if bullish:
+            lines.append("🟢 BULLISH")
+            for c in bullish[:5]:
+                warn = " 🚨" if abs(c["delta"]) >= 7 else ""
+                lines.append(
+                    f"  {c['symbol']:<5} {c['prev']:.0f} → {c['curr']:.0f}  "
+                    f"📈 +{c['delta']:.0f}{warn}"
+                )
+        if bearish:
+            lines.append("🔴 BEARISH")
+            for c in bearish[:5]:
+                warn = " 🚨" if abs(c["delta"]) >= 7 else ""
+                lines.append(
+                    f"  {c['symbol']:<5} {c['prev']:.0f} → {c['curr']:.0f}  "
+                    f"📉 {c['delta']:.0f}{warn}"
+                )
         lines.append("")
 
     if trend_changes:
@@ -322,9 +364,23 @@ def _append_changes_section(lines: List[str], history_mgr: ScoreHistoryManager) 
     if momentum_changes:
         lines.append("⚡ MOMENTUM CHANGES")
         lines.append("─" * 36)
-        for c in momentum_changes[:10]:
-            arrow = "🔺" if c["delta"] > 0 else "🔻"
-            lines.append(f"{c['symbol']:<5} slope: {c['prev']:.4f} → {c['curr']:.4f}  {arrow}")
+        # Group by direction: bullish (up) first, then bearish (down), order by |delta|
+        bullish_mom = sorted(
+            [c for c in momentum_changes if c["delta"] > 0],
+            key=lambda x: -x["delta"],
+        )
+        bearish_mom = sorted(
+            [c for c in momentum_changes if c["delta"] < 0],
+            key=lambda x: x["delta"],
+        )
+        if bullish_mom:
+            lines.append("🟢 BULLISH")
+            for c in bullish_mom[:5]:
+                lines.append(f"  {c['symbol']:<5} slope: {c['prev']:.4f} → {c['curr']:.4f}  📈")
+        if bearish_mom:
+            lines.append("🔴 BEARISH")
+            for c in bearish_mom[:5]:
+                lines.append(f"  {c['symbol']:<5} slope: {c['prev']:.4f} → {c['curr']:.4f}  📉")
         lines.append("")
 
 
