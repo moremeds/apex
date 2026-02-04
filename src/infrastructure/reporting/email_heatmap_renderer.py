@@ -336,7 +336,7 @@ def _append_changes_section(lines: List[str], history_mgr: ScoreHistoryManager) 
                 warn = " 🚨" if abs(c["delta"]) >= 7 else ""
                 lines.append(
                     f"  {c['symbol']:<5} {c['prev']:.0f} → {c['curr']:.0f}  "
-                    f"🔺 +{c['delta']:.0f}{warn}"
+                    f"📈 +{c['delta']:.0f}{warn}"
                 )
         if bearish:
             lines.append("🔴 BEARISH")
@@ -344,7 +344,7 @@ def _append_changes_section(lines: List[str], history_mgr: ScoreHistoryManager) 
                 warn = " 🚨" if abs(c["delta"]) >= 7 else ""
                 lines.append(
                     f"  {c['symbol']:<5} {c['prev']:.0f} → {c['curr']:.0f}  "
-                    f"🔻 {c['delta']:.0f}{warn}"
+                    f"📉 {c['delta']:.0f}{warn}"
                 )
         lines.append("")
 
@@ -376,11 +376,11 @@ def _append_changes_section(lines: List[str], history_mgr: ScoreHistoryManager) 
         if bullish_mom:
             lines.append("🟢 BULLISH")
             for c in bullish_mom[:5]:
-                lines.append(f"  {c['symbol']:<5} slope: {c['prev']:.4f} → {c['curr']:.4f}  🔺")
+                lines.append(f"  {c['symbol']:<5} slope: {c['prev']:.4f} → {c['curr']:.4f}  📈")
         if bearish_mom:
             lines.append("🔴 BEARISH")
             for c in bearish_mom[:5]:
-                lines.append(f"  {c['symbol']:<5} slope: {c['prev']:.4f} → {c['curr']:.4f}  🔻")
+                lines.append(f"  {c['symbol']:<5} slope: {c['prev']:.4f} → {c['curr']:.4f}  📉")
         lines.append("")
 
 

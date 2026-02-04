@@ -117,9 +117,9 @@ class TestIndicatorDiscovery:
     """Tests for indicator discovery."""
 
     def test_total_indicator_count(self, registry: IndicatorRegistry) -> None:
-        """Verify all 47 indicators are discovered."""
+        """Verify all 48 indicators are discovered."""
         indicators = registry.get_all()
-        assert len(indicators) == 47, f"Expected 47 indicators, found {len(indicators)}"
+        assert len(indicators) == 48, f"Expected 48 indicators, found {len(indicators)}"
 
     def test_momentum_indicators(self, registry: IndicatorRegistry) -> None:
         """Verify all 13 momentum indicators."""
@@ -143,7 +143,7 @@ class TestIndicatorDiscovery:
         assert names == expected, f"Missing momentum indicators: {expected - names}"
 
     def test_trend_indicators(self, registry: IndicatorRegistry) -> None:
-        """Verify all 10 trend indicators."""
+        """Verify all 11 trend indicators."""
         indicators = registry.get_by_category(SignalCategory.TREND)
         names = {ind.name for ind in indicators}
         expected = {
@@ -157,6 +157,7 @@ class TestIndicatorDiscovery:
             "zerolag",
             "trix",
             "vortex",
+            "trend_pulse",
         }
         assert names == expected, f"Missing trend indicators: {expected - names}"
 
