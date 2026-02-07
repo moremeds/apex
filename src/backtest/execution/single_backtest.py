@@ -164,7 +164,7 @@ class SingleBacktestRunner:
     async def run(self) -> BacktestResult:
         """Run the backtest."""
         # Import to register strategies
-        from ...domain.strategy.examples import (  # noqa
+        from ...domain.strategy.playbook import (  # noqa
             BuyAndHoldStrategy,
             MovingAverageCrossStrategy,
         )

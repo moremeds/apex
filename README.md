@@ -332,7 +332,7 @@ python -m src.backtest.runner --strategy ma_cross --symbols AAPL \
     --start 2024-01-01 --end 2024-06-30 --engine backtrader
 
 # Systematic experiment with YAML spec
-python -m src.backtest.runner --spec config/backtest/examples/ta_metrics.yaml
+python -m src.backtest.runner --spec config/backtest/playbook/ta_metrics.yaml
 
 # Behavioral gate validation
 python -m src.backtest.runner --behavioral \

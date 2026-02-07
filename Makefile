@@ -1,7 +1,7 @@
 # APEX Development Makefile
 # Quick commands for common development tasks
 
-.PHONY: install run run-dev run-prod run-demo run-headless lint format type-check dead-code complexity quality test test-all coverage clean help diagrams diagrams-classes diagrams-deps diagrams-flows validate-fast validate signals-test signals signals-deploy behavioral behavioral-full behavioral-cases
+.PHONY: install run run-dev run-prod run-demo run-headless lint format type-check dead-code complexity quality test test-all coverage clean help diagrams diagrams-classes diagrams-deps diagrams-flows validate-fast validate signals-test signals signals-deploy strategy-compare behavioral behavioral-full behavioral-cases
 
 # Virtual environment - use .venv/bin executables directly
 VENV := .venv/bin
@@ -42,9 +42,10 @@ help:
 	@echo "  make validate       Full validation suite"
 	@echo ""
 	@echo "$(GREEN)Signal Pipeline:$(RESET)"
-	@echo "  make signals-test   Quick test (12 symbols) + HTTP server"
-	@echo "  make signals        Full production run (all features)"
-	@echo "  make signals-deploy Deploy to GitHub Pages"
+	@echo "  make signals-test      Quick test (20 symbols) + strategy comparison + HTTP server"
+	@echo "  make signals           Full production run (all features)"
+	@echo "  make signals-deploy    Deploy to GitHub Pages"
+	@echo "  make strategy-compare  Run strategy backtests + comparison dashboard"
 	@echo ""
 	@echo "$(GREEN)Behavioral Gate:$(RESET)"
 	@echo "  make behavioral       Quick test (default params) + serve"
@@ -204,14 +205,29 @@ validate:
 # Signal Pipeline
 # ═══════════════════════════════════════════════════════════════
 
+# Standalone strategy comparison (all strategies x specified symbols)
+strategy-compare:
+	@echo "$(BOLD)Running strategy comparison backtests...$(RESET)"
+	$(PYTHON) -m src.runners.strategy_compare_runner \
+		--symbols SPY QQQ AAPL NVDA MSFT AMZN JPM XOM UNH HD \
+		--years 3 \
+		--output out/signals/strategies.html
+	@echo "$(GREEN)✓ Dashboard: out/signals/strategies.html$(RESET)"
+
 # Quick test with 12 diverse symbols + HTTP server
 signals-test:
-	@echo "$(BOLD)Quick signal test (12 symbols)...$(RESET)"
+	@echo "$(BOLD)Quick signal test (20 symbols)...$(RESET)"
 	$(PYTHON) -m src.runners.signal_runner --live \
 		--symbols SPY QQQ XLB GLD TLT UVXY AAPL NVDA JPM XOM UNH HD DIS TSLA AMD META SLV SNDK MU ORCL\
 		--timeframes 1d 1h 4h\
 		--format package \
 		--html-output /tmp/signal_test
+	@echo ""
+	@echo "$(BOLD)Running strategy comparison backtests...$(RESET)"
+	$(PYTHON) -m src.runners.strategy_compare_runner \
+		--symbols SPY QQQ AAPL NVDA JPM XOM UNH HD DIS TSLA \
+		--years 3 \
+		--output /tmp/signal_test/strategies.html
 	@echo ""
 	@echo "$(GREEN)Starting HTTP server at http://localhost:8800$(RESET)"
 	@echo "$(YELLOW)Press Ctrl+C to stop$(RESET)"
@@ -221,31 +237,48 @@ signals-test:
 # Uses unified config/universe.yaml for all operations
 signals:
 	@echo "$(BOLD)Full signal pipeline...$(RESET)"
-	@echo "Step 1/3: Updating market caps..."
+	@echo "Step 1/4: Updating market caps..."
 	$(PYTHON) -m src.runners.signal_runner --update-market-caps \
 		--universe config/universe.yaml
-	@echo "Step 2/3: Retraining models (full universe)..."
+	@echo "Step 2/4: Retraining models (full universe)..."
 	$(PYTHON) -m src.runners.signal_runner --retrain-models \
 		--universe config/universe.yaml
-	@echo "Step 3/3: Generating report..."
+	@echo "Step 3/4: Generating report..."
 	$(PYTHON) -m src.runners.signal_runner --live \
 		--universe config/universe.yaml \
 		--timeframes 1d 4h 1h \
 		--format package \
 		--html-output out/signals
+	@echo "Step 4/4: Running strategy comparison backtests..."
+	$(PYTHON) -m src.runners.strategy_compare_runner \
+		--symbols SPY QQQ AAPL NVDA MSFT AMZN JPM XOM UNH HD \
+		--years 3 \
+		--output out/signals/strategies.html
 	@echo "$(GREEN)✓ Report: out/signals/index.html$(RESET)"
 	@echo "$(GREEN)✓ Heatmap: out/signals/heatmap.html$(RESET)"
+	@echo "$(GREEN)✓ Strategies: out/signals/strategies.html$(RESET)"
 
 # Deploy to GitHub Pages (full pipeline + deploy in one command)
 signals-deploy:
 	@echo "$(BOLD)Generating and deploying signal report to GitHub Pages...$(RESET)"
-	@echo "Step 1/3: Updating market caps..."
+	@echo "Step 1/4: Updating market caps..."
 	$(PYTHON) -m src.runners.signal_runner --update-market-caps \
 		--universe config/universe.yaml
-	@echo "Step 2/3: Retraining models (full universe)..."
+	@echo "Step 2/4: Retraining models (full universe)..."
 	$(PYTHON) -m src.runners.signal_runner --retrain-models \
 		--universe config/universe.yaml
-	@echo "Step 3/3: Generating report and deploying to GitHub Pages..."
+	@echo "Step 3/4: Generating report..."
+	$(PYTHON) -m src.runners.signal_runner --live \
+		--universe config/universe.yaml \
+		--timeframes 1d 4h 1h \
+		--format package \
+		--html-output out/signals
+	@echo "Step 4/4: Running strategy comparison backtests..."
+	$(PYTHON) -m src.runners.strategy_compare_runner \
+		--symbols SPY QQQ AAPL NVDA MSFT AMZN JPM XOM UNH HD \
+		--years 3 \
+		--output out/signals/strategies.html
+	@echo "$(BOLD)Deploying to GitHub Pages...$(RESET)"
 	$(PYTHON) -m src.runners.signal_runner --live \
 		--universe config/universe.yaml \
 		--timeframes 1d 4h 1h \

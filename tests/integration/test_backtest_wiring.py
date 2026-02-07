@@ -145,7 +145,7 @@ class TestStrategyRegistryConsistency:
             manifest_strategies = set(manifest.get("strategies", {}).keys())
             registered = registered | manifest_strategies
 
-        spec_dir = Path("config/backtest/examples")
+        spec_dir = Path("config/backtest/playbook")
         if not spec_dir.exists():
             pytest.skip("Example specs directory not found")
 

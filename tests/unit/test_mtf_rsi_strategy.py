@@ -13,7 +13,7 @@ import pytest
 
 from src.domain.events.domain_events import BarData
 from src.domain.strategy.base import StrategyContext
-from src.domain.strategy.examples.mtf_rsi_trend import MTFRsiTrendStrategy
+from src.domain.strategy.playbook.mtf_rsi_trend import MTFRsiTrendStrategy
 
 
 @pytest.fixture

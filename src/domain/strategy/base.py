@@ -61,7 +61,10 @@ from ..interfaces.execution_provider import OrderRequest
 
 if TYPE_CHECKING:
     from ..clock import Clock
+    from ..signals.indicators.regime.models import MarketRegime, RegimeOutput
+    from ..signals.models import ConfluenceScore
     from .cost_estimator import CostEstimator
+    from .providers import ConfluenceProvider, RegimeProvider
     from .risk_gate import RiskGate
     from .scheduler import Scheduler
 
@@ -137,6 +140,8 @@ class StrategyContext:
     market_data: Dict[str, QuoteTick] = field(default_factory=dict)
     cost_estimator: Optional["CostEstimator"] = None
     risk_gate: Optional["RiskGate"] = None
+    regime_provider: Optional["RegimeProvider"] = None
+    confluence_provider: Optional["ConfluenceProvider"] = None
 
     def now(self) -> datetime:
         """Get current time (live or simulated)."""
@@ -173,6 +178,36 @@ class StrategyContext:
     def is_short(self, symbol: str) -> bool:
         """Check if we are short in symbol."""
         return self.get_position_quantity(symbol) < 0
+
+    def get_regime(self, symbol: str) -> Optional["RegimeOutput"]:
+        """
+        Get current regime output for a symbol.
+
+        Returns None if no regime provider is configured or data unavailable.
+        """
+        if self.regime_provider is None:
+            return None
+        return self.regime_provider.get_regime(symbol)
+
+    def get_market_regime(self) -> Optional["MarketRegime"]:
+        """
+        Get the current market-level regime (SPY/QQQ).
+
+        Returns None if no regime provider is configured.
+        """
+        if self.regime_provider is None:
+            return None
+        return self.regime_provider.get_market_regime()
+
+    def get_confluence(self, symbol: str, timeframe: str = "1d") -> Optional["ConfluenceScore"]:
+        """
+        Get current confluence score for a symbol/timeframe.
+
+        Returns None if no confluence provider is configured or data unavailable.
+        """
+        if self.confluence_provider is None:
+            return None
+        return self.confluence_provider.get_confluence(symbol, timeframe)
 
 
 # =============================================================================

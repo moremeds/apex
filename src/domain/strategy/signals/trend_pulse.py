@@ -59,8 +59,8 @@ class TrendPulseSignalGenerator:
 
     @property
     def warmup_bars(self) -> int:
-        """Max warmup across both indicators."""
-        return 500
+        """Signal generator warmup: DualMACD hist_norm_window(252) + slope(3) + buffer."""
+        return 260
 
     def generate(
         self,

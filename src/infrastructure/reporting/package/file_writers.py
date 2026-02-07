@@ -63,6 +63,10 @@ def write_data_files(
         # Compute TrendPulse history for verification table
         trend_pulse_history = _compute_trend_pulse_history_for_key(df, timeframe, display_timezone)
 
+        # Compute strategy signal histories
+        pulse_dip_history = _compute_pulse_dip_history(df, timeframe, display_timezone)
+        squeeze_play_history = _compute_squeeze_play_history(df, timeframe, display_timezone)
+
         file_data = {
             "symbol": symbol,
             "timeframe": timeframe,
@@ -72,6 +76,8 @@ def write_data_files(
             "signals": signals,
             "dual_macd_history": dual_macd_history,
             "trend_pulse_history": trend_pulse_history,
+            "pulse_dip_history": pulse_dip_history,
+            "squeeze_play_history": squeeze_play_history,
         }
 
         file_path = data_dir / f"{key}.json"
@@ -421,4 +427,297 @@ def _compute_trend_pulse_history_for_key(
         return rows
     except Exception as e:
         logger.warning(f"Failed to compute TrendPulse history: {e}")
+        return []
+
+
+def _format_timestamp(ts: Any, timeframe: str, display_timezone: str) -> str:
+    """Format a pandas Timestamp for display."""
+    is_daily = timeframe in ("1d", "1w", "1D", "1W")
+    if is_daily:
+        return ts.strftime("%Y-%m-%d") if hasattr(ts, "strftime") else str(ts)
+    if hasattr(ts, "tz") and ts.tz is not None:
+        ts_local = ts.tz_convert(display_timezone)
+    elif hasattr(ts, "tz_localize"):
+        ts_local = ts.tz_localize("UTC").tz_convert(display_timezone)
+    else:
+        ts_local = ts
+    return ts_local.strftime("%Y-%m-%d %H:%M") if hasattr(ts_local, "strftime") else str(ts_local)
+
+
+def _compute_pulse_dip_history(
+    df: pd.DataFrame, timeframe: str = "1d", display_timezone: str = "US/Eastern"
+) -> List[Dict[str, Any]]:
+    """Compute PulseDip strategy signal history for a single DataFrame (last 60 bars).
+
+    DRIFT RISK: This re-implements PulseDip entry/exit logic for display-only
+    per-bar annotations (ENTRY/EXIT/WATCH + stop levels, PnL, bars held).
+    The vectorized SignalGenerator only produces boolean series and cannot
+    provide these annotations. Keep in sync with:
+    - src/domain/strategy/signals/pulse_dip.py (entry/exit conditions)
+    - src/domain/strategy/playbook/pulse_dip.py (full event-driven logic)
+    """
+    try:
+        from src.domain.strategy.signals.indicators import atr, ema, rsi
+
+        if len(df) < 120:
+            return []
+
+        close = df["close"].values
+        high = df["high"].values
+        low = df["low"].values
+
+        # Default PulseDip parameters
+        ema_trend_period = 99
+        rsi_period = 14
+        rsi_entry_threshold = 35.0
+        atr_stop_mult = 3.0
+        hard_stop_pct = 0.08
+
+        ema_vals = ema(pd.Series(close, index=df.index), ema_trend_period)
+        rsi_vals = rsi(pd.Series(close, index=df.index), rsi_period)
+        atr_vals = atr(
+            pd.Series(high, index=df.index),
+            pd.Series(low, index=df.index),
+            pd.Series(close, index=df.index),
+            14,
+        )
+
+        last_n = 60
+        start_idx = max(0, len(df) - last_n)
+        rows: List[Dict[str, Any]] = []
+
+        # Simple signal simulation for display (no position tracking)
+        in_position = False
+        entry_price = 0.0
+        peak_price = 0.0
+        bars_held = 0
+
+        # Pre-scan from warmup for position context
+        for i in range(max(ema_trend_period, start_idx - 60), start_idx):
+            if i < 0 or i >= len(df):
+                continue
+            c = close[i]
+            r = rsi_vals.iloc[i] if i < len(rsi_vals) and not pd.isna(rsi_vals.iloc[i]) else 50.0
+            e = ema_vals.iloc[i] if i < len(ema_vals) and not pd.isna(ema_vals.iloc[i]) else c
+            a = atr_vals.iloc[i] if i < len(atr_vals) and not pd.isna(atr_vals.iloc[i]) else 0.0
+
+            if not in_position:
+                if c > e and r < rsi_entry_threshold:
+                    in_position = True
+                    entry_price = c
+                    peak_price = c
+                    bars_held = 0
+            else:
+                bars_held += 1
+                peak_price = max(peak_price, c)
+                trail_stop = peak_price - atr_stop_mult * a
+                hard_stop = entry_price * (1 - hard_stop_pct)
+                if c < hard_stop or c < trail_stop or r > 65 or bars_held >= 40:
+                    in_position = False
+
+        for i in range(start_idx, len(df)):
+            c = close[i]
+            r_val = (
+                rsi_vals.iloc[i] if i < len(rsi_vals) and not pd.isna(rsi_vals.iloc[i]) else 50.0
+            )
+            e_val = ema_vals.iloc[i] if i < len(ema_vals) and not pd.isna(ema_vals.iloc[i]) else c
+            a_val = atr_vals.iloc[i] if i < len(atr_vals) and not pd.isna(atr_vals.iloc[i]) else 0.0
+
+            ema_ok = c > e_val
+            rsi_below = r_val < rsi_entry_threshold
+
+            signal = ""
+            exit_reason: Optional[str] = None
+            pnl_pct: Optional[float] = None
+
+            if not in_position:
+                if ema_ok and rsi_below:
+                    signal = "ENTRY"
+                    in_position = True
+                    entry_price = c
+                    peak_price = c
+                    bars_held = 0
+                elif rsi_below:
+                    signal = "WATCH"
+            else:
+                bars_held += 1
+                peak_price = max(peak_price, c)
+                trail_stop = peak_price - atr_stop_mult * a_val
+                hard_stop = entry_price * (1 - hard_stop_pct)
+
+                if c < hard_stop:
+                    exit_reason = "HARD_STOP"
+                elif c < trail_stop:
+                    exit_reason = "ATR_TRAIL"
+                elif r_val > 65:
+                    exit_reason = "RSI_EXIT"
+                elif bars_held >= 40:
+                    exit_reason = "TIME_STOP"
+
+                if exit_reason:
+                    signal = "EXIT"
+                    pnl_pct = round((c / entry_price - 1) * 100, 2)
+                    in_position = False
+                else:
+                    signal = "LONG"
+
+            ts = df.index[i]
+            date_str = _format_timestamp(ts, timeframe, display_timezone)
+
+            row: Dict[str, Any] = {
+                "date": date_str,
+                "rsi": round(float(r_val), 1),
+                "ema_ok": ema_ok,
+                "signal": signal,
+                "exit_reason": exit_reason,
+                "pnl_pct": pnl_pct,
+                "bars_held": bars_held if in_position or signal == "EXIT" else None,
+                "stop_level": (
+                    round(float(peak_price - atr_stop_mult * a_val), 2) if in_position else None
+                ),
+            }
+            rows.append(row)
+
+        rows.reverse()
+        return rows
+    except Exception as e:
+        logger.warning(f"Failed to compute PulseDip history: {e}")
+        return []
+
+
+def _compute_squeeze_play_history(
+    df: pd.DataFrame, timeframe: str = "1d", display_timezone: str = "US/Eastern"
+) -> List[Dict[str, Any]]:
+    """Compute SqueezePlay strategy signal history for a single DataFrame (last 60 bars).
+
+    DRIFT RISK: This re-implements SqueezePlay signal logic for display-only
+    per-bar annotations (SQUEEZE/BREAK/HOLD + direction, ADX, stop levels).
+    Keep in sync with:
+    - src/domain/strategy/signals/squeeze_play.py (entry/exit conditions)
+    - src/domain/strategy/playbook/squeeze_play.py (full event-driven logic)
+    """
+    try:
+        from src.domain.strategy.signals.indicators import adx, atr, bbands, ema
+
+        if len(df) < 50:
+            return []
+
+        close = df["close"].values
+        high = df["high"].values
+        low = df["low"].values
+
+        close_s = pd.Series(close, index=df.index)
+        high_s = pd.Series(high, index=df.index)
+        low_s = pd.Series(low, index=df.index)
+
+        # Default SqueezePlay parameters
+        bb_period = 20
+        bb_std = 2.0
+        kc_multiplier = 1.5
+        release_persist_bars = 2
+        close_outside_bars = 2
+        adx_min = 20.0
+
+        bb_result = bbands(close_s, bb_period, bb_std)
+        bb_upper, bb_middle, bb_lower = bb_result
+        atr_vals = atr(high_s, low_s, close_s, bb_period)
+        kc_upper = bb_middle + kc_multiplier * atr_vals
+        kc_lower = bb_middle - kc_multiplier * atr_vals
+        adx_vals = adx(high_s, low_s, close_s, 14)
+
+        # Squeeze detection
+        squeeze_on = (bb_upper < kc_upper) & (bb_lower > kc_lower)
+
+        last_n = 60
+        start_idx = max(0, len(df) - last_n)
+        rows: List[Dict[str, Any]] = []
+
+        release_count = 0
+        outside_count = 0
+        in_position = False
+
+        # Pre-scan for state
+        for i in range(max(bb_period, start_idx - 60), start_idx):
+            if i < 0 or i >= len(df):
+                continue
+            sq = (
+                bool(squeeze_on.iloc[i])
+                if i < len(squeeze_on) and not pd.isna(squeeze_on.iloc[i])
+                else True
+            )
+            if sq:
+                release_count = 0
+                outside_count = 0
+            else:
+                release_count += 1
+                bbu = bb_upper.iloc[i] if not pd.isna(bb_upper.iloc[i]) else float("inf")
+                bbl = bb_lower.iloc[i] if not pd.isna(bb_lower.iloc[i]) else float("-inf")
+                if close[i] > bbu or close[i] < bbl:
+                    outside_count += 1
+                else:
+                    outside_count = 0
+
+        for i in range(start_idx, len(df)):
+            c = close[i]
+            sq = (
+                bool(squeeze_on.iloc[i])
+                if i < len(squeeze_on) and not pd.isna(squeeze_on.iloc[i])
+                else True
+            )
+            adx_v = (
+                float(adx_vals.iloc[i])
+                if i < len(adx_vals) and not pd.isna(adx_vals.iloc[i])
+                else 0.0
+            )
+            bbu = float(bb_upper.iloc[i]) if not pd.isna(bb_upper.iloc[i]) else c + 1
+            bbl = float(bb_lower.iloc[i]) if not pd.isna(bb_lower.iloc[i]) else c - 1
+
+            if sq:
+                release_count = 0
+                outside_count = 0
+            else:
+                release_count += 1
+                if c > bbu or c < bbl:
+                    outside_count += 1
+                else:
+                    outside_count = 0
+
+            # Direction bias
+            bbm = float(bb_middle.iloc[i]) if not pd.isna(bb_middle.iloc[i]) else c
+            direction = "BULL" if c > bbm else "BEAR" if c < bbm else "NEUT"
+
+            signal = ""
+            if sq:
+                signal = "SQUEEZE"
+            elif (
+                release_count >= release_persist_bars
+                and outside_count >= close_outside_bars
+                and adx_v >= adx_min
+            ):
+                if not in_position:
+                    signal = "BREAK"
+                    in_position = True
+                else:
+                    signal = "HOLD"
+            elif in_position:
+                signal = "HOLD"
+
+            ts = df.index[i]
+            date_str = _format_timestamp(ts, timeframe, display_timezone)
+
+            row: Dict[str, Any] = {
+                "date": date_str,
+                "squeeze_on": sq,
+                "release_count": release_count,
+                "outside_bb": outside_count,
+                "adx": round(adx_v, 1),
+                "direction": direction,
+                "signal": signal,
+            }
+            rows.append(row)
+
+        rows.reverse()
+        return rows
+    except Exception as e:
+        logger.warning(f"Failed to compute SqueezePlay history: {e}")
         return []

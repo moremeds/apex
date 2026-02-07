@@ -55,8 +55,11 @@ def render_heatmap_template(
 <body class="apex-hm">
     <div class="hm-header">
         <h1>Signal Heatmap</h1>
-        <div class="meta">
-            Generated: {model.generated_at_str or (model.generated_at.strftime('%Y-%m-%d %H:%M') if model.generated_at else 'N/A')}
+        <div style="display:flex;gap:16px;align-items:center;">
+            <a href="strategies.html" style="color:#58a6ff;font-size:13px;text-decoration:none;">Strategy Comparison</a>
+            <div class="meta">
+                Generated: {model.generated_at_str or (model.generated_at.strftime('%Y-%m-%d %H:%M') if model.generated_at else 'N/A')}
+            </div>
         </div>
     </div>
 
