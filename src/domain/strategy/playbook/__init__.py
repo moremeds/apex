@@ -16,6 +16,7 @@ Available strategies:
 - SqueezePlayStrategy: Bollinger/Keltner squeeze breakout (Tier 1)
 - RegimeFlexStrategy: Regime-switched gross exposure scaling (Tier 2)
 - SectorPulseStrategy: Regime-aware sector rotation (Tier 2)
+- TrendPulseStrategy: Zig-zag swing + DualMACD momentum (Tier 1)
 """
 
 from .buy_and_hold import BuyAndHoldStrategy
@@ -30,6 +31,7 @@ from .scheduled_rebalance import ScheduledRebalanceStrategy
 from .sector_pulse import SectorPulseStrategy
 from .squeeze_play import SqueezePlayStrategy
 from .ta_metrics_strategy import TAMetricsStrategy
+from .trend_pulse import TrendPulseStrategy
 
 __all__ = [
     # Basic strategies
@@ -47,6 +49,7 @@ __all__ = [
     # Regime-aware strategies (Tier 1)
     "PulseDipStrategy",
     "SqueezePlayStrategy",
+    "TrendPulseStrategy",
     # Regime-aware strategies (Tier 2)
     "RegimeFlexStrategy",
     "SectorPulseStrategy",

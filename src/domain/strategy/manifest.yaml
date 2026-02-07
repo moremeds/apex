@@ -58,6 +58,7 @@ strategies:
       validated_by_apex: false
 
   trend_pulse:
+    strategy: src.domain.strategy.playbook.trend_pulse:TrendPulseStrategy
     signals: src.domain.strategy.signals.trend_pulse:TrendPulseSignalGenerator
     validation:
       validated_by_apex: false
