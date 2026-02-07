@@ -16,6 +16,7 @@ from .backtrader_adapter import (
     BacktraderScheduler,
     run_backtest_with_backtrader,
 )
+from .backtrader_runner import BacktraderRunner
 from .engines import (
     ApexEngine,
     ApexEngineConfig,
@@ -50,7 +51,9 @@ from .parity import (  # Signal parity testing
     compare_signal_parity,
 )
 from .simulated import FillModel, SimulatedExecution, SimulatedOrder, SimulatedPosition
+from .single_backtest import SingleBacktestRunner
 from .systematic import RunnerConfig, SystematicRunner
+from .systematic_experiment import prefetch_data, run_systematic_experiment
 from .trade_tracker import MatchingMethod, OpenPosition, TradeTracker
 
 __all__ = [
@@ -102,4 +105,9 @@ __all__ = [
     "TradeTracker",
     "MatchingMethod",
     "OpenPosition",
+    # Runners
+    "SingleBacktestRunner",
+    "BacktraderRunner",
+    "run_systematic_experiment",
+    "prefetch_data",
 ]

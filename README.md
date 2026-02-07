@@ -32,14 +32,24 @@ make test-all             # All tests
 make coverage             # Tests with HTML coverage
 
 # Signal Pipeline
-make signals-test         # Quick test (12 symbols) + HTTP server
+make signals-test         # Quick test (20 symbols) + HTTP server
 make signals              # Full pipeline (caps, retrain, report)
 make signals-deploy       # Deploy to GitHub Pages
+
+# Backtesting
+make behavioral           # Behavioral gate test + serve
+make behavioral-full      # Optuna optimization + walk-forward + serve
+make behavioral-cases     # Predefined case studies
+
+# TrendPulse Validation
+make tp-validate          # Full 3-stage validation (36 symbols)
+make tp-holdout           # Holdout only (faster)
+make tp-optimize          # Phase 1 Optuna optimization
+make tp-universe          # Full universe backtest + HTML report
 
 # Validation
 make validate-fast        # PR gate validation
 make validate             # Full validation suite
-make validate-smart       # Conditional param update
 
 # Help
 make help                 # Show all available commands
@@ -57,45 +67,52 @@ APEX is a comprehensive risk management and backtesting platform designed for ac
 |---------|-------------|
 | **Real-time Risk Monitoring** | P&L (unrealized/daily), Greeks aggregation, concentration limits |
 | **Multi-Broker Support** | Interactive Brokers, Futu OpenD with auto-reconnect |
-| **Dual-Engine Backtesting** | ApexEngine (event-driven) + VectorBT (vectorized, 100x faster) |
-| **44+ Technical Indicators** | Full TA-Lib integration with custom rule engine |
+| **Triple-Engine Backtesting** | ApexEngine (event-driven) + VectorBT (vectorized, 100x faster) + Backtrader |
+| **47+ Technical Indicators** | Full TA-Lib integration with custom rule engine across 5 categories |
+| **TrendPulse Indicator** | Hybrid multi-factor trend scoring with validation pipeline |
+| **Behavioral Gate Validation** | Regime-aware strategy validation with case studies |
 | **Terminal Dashboard** | Textual TUI with 6 views, keyboard navigation |
+| **Signal Report Pipeline** | Automated HTML reports with heatmaps, deployed to GitHub Pages |
+| **Email Summaries** | Automated email summary generation with market highlights |
 | **Event-Driven Architecture** | Priority event bus with fast/slow lanes |
 | **Persistence Layer** | DuckDB/PostgreSQL with TimescaleDB support |
-| **Observability** | Prometheus metrics, Grafana dashboards |
+| **Observability** | OpenTelemetry, Prometheus metrics, Grafana dashboards |
 
 ### Technical Highlights
 
-- **95,000+ lines** of production Python code across 374 modules
+- **~148,000 lines** of production Python code across **537 modules**
 - **Async-first** design using `asyncio` and `ib_async`
 - **Thread-safe** RCU (Read-Copy-Update) stores for lock-free reads
 - **Hexagonal architecture** with clear domain/infrastructure separation
-- **65 test files** with 85% coverage requirement enforced
+- **118 test files** across unit, integration, and partial test suites
+- **8 registered strategies** with live/backtest parity via clock abstraction
+- **4-Regime market classification** (R0-R3) with ML turning point detection
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                     PRESENTATION LAYER                          │
-│  Terminal Dashboard (Textual)  │  CLI Runners  │ Metrics Endpoint│
-└─────────────────────────────────────────────────────────────────┘
-                              │
-┌─────────────────────────────────────────────────────────────────┐
-│                    APPLICATION LAYER                            │
-│  Orchestrator  │  ReadinessManager  │  PriorityEventBus        │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-┌─────────────────────────────────────────────────────────────────┐
-│                      DOMAIN LAYER                               │
-│  RiskEngine  │  IndicatorEngine  │  Strategy Framework  │  MDQC │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-┌─────────────────────────────────────────────────────────────────┐
-│                  INFRASTRUCTURE LAYER                           │
-│  IB/Futu Adapters  │  Backtest Engines  │  Stores  │  Reporting │
-└─────────────────────────────────────────────────────────────────┘
++-------------------------------------------------------------------+
+|                      PRESENTATION LAYER                            |
+|  Terminal Dashboard (Textual)  |  CLI Runners  |  Metrics Endpoint |
++-------------------------------------------------------------------+
+                              |
++-------------------------------------------------------------------+
+|                     APPLICATION LAYER                              |
+|  Orchestrator  |  Coordinators  |  Services  |  PriorityEventBus  |
++-------------------------------------------------------------------+
+                              |
++-------------------------------------------------------------------+
+|                       DOMAIN LAYER                                 |
+|  RiskEngine  |  IndicatorEngine  |  Strategy Framework  |  MDQC   |
+|  RegimeDetector  |  RuleEngine  |  TrendPulse  |  DualMACD        |
++-------------------------------------------------------------------+
+                              |
++-------------------------------------------------------------------+
+|                   INFRASTRUCTURE LAYER                             |
+|  IB/Futu/Yahoo Adapters  |  Backtest Engines  |  Stores  |  Reports|
++-------------------------------------------------------------------+
 ```
 
 ### Architecture Diagrams
@@ -110,48 +127,52 @@ Auto-generated diagrams are available in [`docs/diagrams/`](docs/diagrams/README
 
 Generate locally with `make diagrams` (requires Graphviz).
 
-**Quick Links:**
-- [Domain Services Classes](https://www.plantuml.com/plantuml/proxy?cache=no&src=https://raw.githubusercontent.com/moremeds/apex/master/docs/diagrams/classes/classes_domain_services.puml)
-- [Full Project Dependencies](docs/diagrams/dependencies/full_project_deps.svg)
-- [Orchestrator Flow](docs/diagrams/flows/orchestrator_flow.svg)
-
 ### Directory Structure
 
 ```
 apex/
-├── config/               # Configuration files (YAML)
-│   ├── base.yaml         # Main configuration
-│   ├── risk_config.yaml  # Risk limits and signals
-│   ├── signals/          # Signal rule definitions
-│   └── backtest/         # Backtest YAML specs (9 examples)
+├── config/                 # Configuration files (YAML)
+│   ├── base.yaml           # Main configuration (brokers, ports, risk limits)
+│   ├── universe.yaml       # Primary symbol universe (sectors, subsets)
+│   ├── risk_config.yaml    # Risk limits and signal thresholds
+│   ├── demo.yaml           # Demo mode configuration
+│   ├── regime_weights.yaml # Regime detector factor weights
+│   ├── signals/            # Signal rule definitions
+│   ├── backtest/           # Backtest YAML specs (15+ examples)
+│   └── validation/         # Validation universe and optimized params
 ├── data/
-│   ├── historical/       # Cached bar data (Parquet)
-│   ├── positions/        # Manual position files
-│   └── logs/             # Structured log output
-├── docs/                 # Documentation
-├── migrations/           # Database migrations
-├── scripts/              # CLI utilities
+│   ├── historical/         # Cached bar data (Parquet)
+│   ├── positions/          # Manual position files
+│   └── logs/               # Structured log output
+├── docs/                   # Documentation
+├── migrations/             # Database migrations
+├── scripts/                # CLI utilities (16 scripts)
 ├── src/
-│   ├── application/      # Orchestrator, coordinators (17 files)
-│   ├── backtest/         # Backtest engines (51 files)
-│   ├── domain/           # Business logic (168 files)
-│   │   ├── events/       # PriorityEventBus
-│   │   ├── services/     # RiskEngine, MDQC
-│   │   ├── signals/      # 44+ indicators, rule engine
-│   │   ├── strategy/     # Strategy framework
-│   │   └── interfaces/   # Port definitions (DI)
-│   ├── infrastructure/   # External integrations (70+ files)
-│   │   ├── adapters/     # IB, Futu, Yahoo
-│   │   ├── stores/       # RCU stores
-│   │   ├── persistence/  # Database repositories
-│   │   └── reporting/    # HTML reports, package builder
-│   ├── models/           # Data models (9 files)
-│   ├── runners/          # CLI runners (3 files)
-│   ├── services/         # Application services (13 files)
-│   └── tui/              # Terminal dashboard (42 files)
-├── tests/                # Test suites (65 files)
-├── main.py               # Primary entry point
-└── pyproject.toml        # Package config
+│   ├── application/        # Orchestrator, coordinators, services (21 files)
+│   ├── backtest/           # Backtest engines, feeds, optimization (84 files)
+│   ├── domain/             # Business logic (231 files)
+│   │   ├── events/         # PriorityEventBus (dual-lane)
+│   │   ├── services/       # Risk, MDQC, Regime, Correlation, Sizing
+│   │   ├── signals/        # 47+ indicators, rule engine, bar aggregation
+│   │   ├── strategy/       # Strategy framework (8 strategies)
+│   │   └── interfaces/     # Port definitions (DI)
+│   ├── infrastructure/     # External integrations (117 files)
+│   │   ├── adapters/       # IB, Futu, Yahoo
+│   │   ├── stores/         # RCU stores (6 store types)
+│   │   ├── persistence/    # Database repositories
+│   │   └── reporting/      # HTML reports, heatmaps, email, packages
+│   ├── models/             # Data models (9 files)
+│   ├── runners/            # CLI runners (5 files)
+│   ├── services/           # Application services (14 files)
+│   ├── tui/                # Terminal dashboard (42 files)
+│   ├── utils/              # Utility functions (8 files)
+│   └── verification/       # Contract verification (5 files)
+├── tests/                  # Test suites (118 files)
+│   ├── unit/               # 81 unit test files across 12 subdirectories
+│   ├── integration/        # 7 integration tests
+│   └── partial/            # 12 partial/experimental tests
+├── main.py                 # Primary entry point
+└── pyproject.toml          # Package config
 ```
 
 ---
@@ -161,7 +182,7 @@ apex/
 | Requirement | Version | Notes |
 |-------------|---------|-------|
 | Python | 3.13+ | Required (uses latest features) |
-| TA-Lib | 0.6.4+ | Required for indicators |
+| TA-Lib | 0.6.8+ | Required for indicators |
 | IBKR TWS/Gateway | Latest | Required for live market data |
 | PostgreSQL | 14+ | Optional, for persistence |
 | TimescaleDB | 2.x | Optional, for time-series |
@@ -243,17 +264,17 @@ python main.py --env dev --no-dashboard
 The TUI displays real-time risk metrics across 6 views:
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│ APEX Risk Monitor │ dev │ 2024-03-15 10:30:45 HKT │ IB:● FU:○  │
-├─────────────────────────────────────────────────────────────────┤
-│ Portfolio Summary                                               │
-│   NAV: $1,234,567    Unrealized P&L: +$12,345   Daily: +$5,678 │
-│   Delta: 25,000      Gamma: 1,234    Vega: 8,765  Theta: -567  │
-├─────────────────────────────────────────────────────────────────┤
-│ Risk Signals                                                    │
-│   ⚠ SOFT: Portfolio delta at 82% of limit                      │
-│   ● HARD: TSLA notional exceeds limit                          │
-└─────────────────────────────────────────────────────────────────┘
++-------------------------------------------------------------------+
+| APEX Risk Monitor | dev | 2025-03-15 10:30:45 HKT | IB:* FU:o    |
++-------------------------------------------------------------------+
+| Portfolio Summary                                                  |
+|   NAV: $1,234,567    Unrealized P&L: +$12,345   Daily: +$5,678   |
+|   Delta: 25,000      Gamma: 1,234    Vega: 8,765  Theta: -567    |
++-------------------------------------------------------------------+
+| Risk Signals                                                       |
+|   ! SOFT: Portfolio delta at 82% of limit                         |
+|   * HARD: TSLA notional exceeds limit                             |
++-------------------------------------------------------------------+
 ```
 
 **TUI Views:**
@@ -313,6 +334,13 @@ python -m src.backtest.runner --strategy ma_cross --symbols AAPL \
 # Systematic experiment with YAML spec
 python -m src.backtest.runner --spec config/backtest/examples/ta_metrics.yaml
 
+# Behavioral gate validation
+python -m src.backtest.runner --behavioral \
+    --start 2018-01-01 --end 2025-12-31
+
+# Behavioral predefined case studies
+python -m src.backtest.runner --behavioral-cases
+
 # List all registered strategies
 python -m src.backtest.runner --list-strategies
 
@@ -329,9 +357,9 @@ python -m src.backtest.runner --strategy ma_cross --symbols AAPL \
 
 ```bash
 # Makefile shortcuts (preferred)
-make signals-test         # Quick test (12 symbols) + HTTP server
-make signals              # Full pipeline (update caps, retrain, generate)
-make signals-deploy       # Full pipeline + deploy to GitHub Pages
+make signals-test         # Quick test (20 symbols) + HTTP server
+make signals              # Full pipeline (update caps, retrain, report)
+make signals-deploy       # Deploy to GitHub Pages
 make signals-deploy-quick # Deploy without retraining
 make signals-serve        # Serve existing report at localhost:8080
 make signals-push         # Push existing out/signals to gh-pages
@@ -342,6 +370,9 @@ python -m src.runners.signal_runner --live --symbols AAPL --timeframes 1m 5m 1h 
 python -m src.runners.signal_runner --live --symbols AAPL --html-output report.html
 python -m src.runners.signal_runner --backfill --symbols AAPL --days 365
 python -m src.runners.signal_runner --live --symbols AAPL --with-persistence
+python -m src.runners.signal_runner --live --universe config/universe.yaml
+python -m src.runners.signal_runner --retrain-models --universe config/universe.yaml
+python -m src.runners.signal_runner --update-market-caps --universe config/universe.yaml
 ```
 
 ### History Loader
@@ -354,21 +385,29 @@ python scripts/history_loader.py --broker all --dry-run
 python scripts/history_loader.py --broker ib --from-date 2024-01-01 --to-date 2024-06-30
 ```
 
-### Validation Runner (M2 Regime Detector)
+### TrendPulse Validation
+
+```bash
+# Makefile shortcuts
+make tp-validate          # Full 3-stage validation (36 symbols)
+make tp-holdout           # Holdout only (faster)
+make tp-optimize          # Phase 1 Optuna optimization
+make tp-universe          # Full universe backtest + HTML report
+make tp-universe-quick    # Quick test (12 symbols)
+
+# Direct runner commands
+python scripts/trend_pulse_validate.py
+python scripts/trend_pulse_validate.py --skip-full
+python scripts/trend_pulse_universe.py
+python scripts/trend_pulse_universe.py --subset quick_test
+```
+
+### Validation Runner (Regime Detector)
 
 ```bash
 # Makefile shortcuts (preferred)
 make validate-fast          # PR gate (10 symbols, fast)
 make validate               # Full validation suite (3 steps)
-make validate-test          # Quick test (~5 min)
-make validate-full-publish  # Full workflow + publish (~30-60 min)
-make validate-smart         # Conditional param update (only if gates pass)
-
-# Individual validation steps
-make validate-optimize      # Optuna parameter optimization
-make validate-full          # Full nested CV validation
-make validate-holdout       # Holdout validation (release gate)
-make validate-publish       # Publish reports to GitHub Pages
 
 # Direct runner commands
 python -m src.runners.validation_runner fast --symbols SPY QQQ AAPL --timeframes 1d
@@ -381,7 +420,7 @@ python -m src.runners.validation_runner optimize --universe config/universe.yaml
 
 ## Strategy Backtesting
 
-APEX includes a production-ready strategy framework with **live/backtest parity** and **dual-engine** support.
+APEX includes a production-ready strategy framework with **live/backtest parity** and **triple-engine** support.
 
 ### Backtesting Engines
 
@@ -424,21 +463,84 @@ class MyStrategy(Strategy):
 
 See [docs/STRATEGY_GUIDE.md](docs/STRATEGY_GUIDE.md) for complete documentation.
 
+### Behavioral Gate Validation
+
+The behavioral gate system validates strategies against historical market episodes (crashes, rallies, choppy periods):
+
+```bash
+# Quick behavioral test with default parameters
+make behavioral
+
+# Full pipeline: Optuna optimization + walk-forward + clustering
+make behavioral-full
+
+# Predefined case studies (market episodes)
+make behavioral-cases
+```
+
+### Backtest Module Structure
+
+```
+src/backtest/
+├── runner.py                    # Thin CLI facade (python -m src.backtest.runner)
+├── cli/                         # CLI parser and commands
+├── core/                        # Experiment, run, trial data models + verification
+├── _internal/                   # Internal structured utilities
+├── data/feeds/                  # 9 feed types
+│   ├── csv_feeds.py             # CSV loading (streaming + buffered)
+│   ├── parquet_feeds.py         # Parquet with predicate pushdown
+│   ├── ib_feeds.py              # IB Historical + BarCache
+│   ├── memory_feeds.py          # InMemory, Cached, Fixture
+│   ├── historical_feeds.py      # Historical store adapter
+│   └── multi_timeframe.py       # Multi-timeframe aggregation
+├── execution/
+│   ├── engines/                 # VectorBT, Apex, Backtrader adapters
+│   ├── parity/                  # Live/backtest drift detection
+│   ├── single_backtest.py       # SingleBacktestRunner
+│   └── systematic_experiment.py # Data prefetch + systematic runs
+├── optimization/                # Bayesian, grid, behavioral objectives
+├── config/loaders.py            # Config loaders
+└── analysis/reporting/          # HTML report generation
+```
+
 ---
 
-## Technical Indicators (44+)
+## Technical Indicators (47+)
 
-APEX includes a comprehensive signal pipeline with 44+ indicators powered by TA-Lib.
+APEX includes a comprehensive signal pipeline with 47+ indicators powered by TA-Lib, organized across 5 categories plus the Regime Detector system.
 
 ### Indicator Categories
 
 | Category | Count | Indicators |
 |----------|-------|------------|
-| **Trend** | 10 | SMA, EMA, MACD, ADX, SuperTrend, Ichimoku, PSAR, Aroon, TRIX, Vortex, ZeroLag |
-| **Momentum** | 12 | RSI, KDJ, CCI, MFI, ROC, Williams %R, TSI, Awesome, Ultimate, Momentum, RSI Harmonics |
+| **Trend** | 11 | SMA, EMA, MACD, ADX, SuperTrend, Ichimoku, PSAR, Aroon, TRIX, Vortex, ZeroLag, TrendPulse |
+| **Momentum** | 13 | RSI, KDJ, CCI, MFI, ROC, Stochastic, Williams %R, TSI, Awesome, Ultimate, Momentum, RSI Harmonics, Dual MACD |
 | **Volatility** | 8 | ATR, Bollinger Bands, Keltner, Donchian, StdDev, Historical Vol, Squeeze, Chaikin Vol |
-| **Volume** | 8 | OBV, CMF, A/D Line, VWAP, Force Index, CVD, VPVR, Volume Ratio |
+| **Volume** | 9 | OBV, CMF, A/D Line, VWAP, Force Index, CVD, VPVR, Volume, Volume Ratio |
 | **Pattern** | 6 | Candlestick, Chart Patterns, Fibonacci, Support/Resistance, Pivot Points, Trendlines |
+
+### TrendPulse Indicator
+
+A hybrid multi-factor trend scoring indicator that combines multiple trend signals:
+
+```bash
+# Validate TrendPulse parameters
+make tp-validate          # Full 3-stage validation
+make tp-universe          # Full universe backtest + HTML report
+```
+
+### Regime Detector (4-Regime Market Classification)
+
+Hierarchical classification system that drives position sizing and signal filtering:
+
+| Regime | Name | Trading Implication |
+|--------|------|---------------------|
+| **R0** | Healthy Uptrend | Full trading allowed |
+| **R1** | Choppy/Extended | Reduced frequency, wider spreads |
+| **R2** | Risk-Off | No new positions, reduce size |
+| **R3** | Rebound Window | Small defined-risk positions only |
+
+**Pipeline:** Component states (Trend/Vol/Chop/Extension/IV) -> Decision tree (priority-based) -> Hysteresis (stable transitions) -> Optional turning point ML -> Composite score (0-100)
 
 ### Signal Rules
 
@@ -511,6 +613,37 @@ risk_limits:
 
 ---
 
+## Reporting
+
+APEX generates comprehensive HTML reports deployed to GitHub Pages:
+
+### Signal Reports
+
+Multi-page HTML report package with:
+- Per-symbol indicator analysis with interactive Plotly charts
+- Signal heatmaps across the entire universe
+- Regime analysis overlays
+- Dual MACD section
+- TrendPulse trend scoring
+- Confluence analysis
+
+### Email Summaries
+
+Automated email summary generation with:
+- Market highlights and key movers
+- Heatmap renderings
+- Configurable scheduling
+
+### Regime Validation Reports
+
+HTML dashboards showing:
+- Regime classification accuracy
+- Turning point detection quality
+- Parameter optimization results
+- Cross-validation metrics
+
+---
+
 ## Persistence Layer
 
 PostgreSQL/DuckDB storage for historical data and warm-start.
@@ -521,6 +654,8 @@ PostgreSQL/DuckDB storage for historical data and warm-start.
 - **Incremental Sync:** Track sync state per broker/account
 - **Warm-Start:** Restore state from database on startup
 - **Periodic Snapshots:** Configurable interval capture
+- **Parquet Historical Store:** Local Parquet files for bar data caching
+- **DuckDB Coverage Store:** Embedded analytics for data coverage tracking
 
 See [docs/PERSISTENCE_LAYER.md](docs/PERSISTENCE_LAYER.md) for database setup.
 
@@ -528,7 +663,7 @@ See [docs/PERSISTENCE_LAYER.md](docs/PERSISTENCE_LAYER.md) for database setup.
 
 ## Observability
 
-### Prometheus Metrics
+### OpenTelemetry + Prometheus Metrics
 
 Exposed at `http://localhost:8000/metrics`:
 - Risk metrics (P&L, Greeks, breaches)
@@ -537,7 +672,7 @@ Exposed at `http://localhost:8000/metrics`:
 
 ### Grafana Dashboards
 
-Pre-configured dashboards in `config/prometheus/`.
+Pre-configured dashboards in `config/grafana/`.
 
 See [docs/OBSERVABILITY_SETUP.md](docs/OBSERVABILITY_SETUP.md) for setup.
 
@@ -554,7 +689,7 @@ make test-all           # Run all tests (unit + integration)
 make coverage           # Run tests with HTML coverage report
 
 # Direct pytest commands
-pytest                                    # All tests (85% coverage enforced)
+pytest                                    # All tests
 pytest tests/unit/test_risk_engine.py    # Specific test file
 pytest tests/unit/ -k "test_rule"        # Pattern matching
 pytest tests/integration/                 # Integration tests
@@ -598,10 +733,13 @@ flake8 src/ tests/      # Linting
 | `config/universe.yaml` | **Primary universe** (symbols, sectors, subsets) |
 | `config/risk_config.yaml` | Risk limits and signal thresholds |
 | `config/demo.yaml` | Demo mode offline configuration |
+| `config/regime_weights.yaml` | Regime detector factor weights |
+| `config/gate_policy_clusters.yaml` | Behavioral gate policy clusters |
 | `config/signals/rules.yaml` | Signal rule definitions |
+| `config/signals/dev.yaml` | Development signal configuration |
 | `config/validation/regime_universe.yaml` | Validation universe for regime detector |
 | `config/validation/optimized_params.yaml` | Optuna-tuned parameters |
-| `config/backtest/*.yaml` | Backtest specification examples |
+| `config/backtest/*.yaml` | Backtest specification examples (15+ files) |
 
 ---
 
@@ -610,11 +748,15 @@ flake8 src/ tests/      # Linting
 | Document | Description |
 |----------|-------------|
 | [CLAUDE.md](CLAUDE.md) | Development guidelines for AI assistants |
-| [docs/diagrams/](docs/diagrams/README.md) | Auto-generated architecture diagrams |
+| [docs/USER_MANUAL.md](docs/USER_MANUAL.md) | User manual |
+| [docs/STRATEGY_GUIDE.md](docs/STRATEGY_GUIDE.md) | Strategy development guide |
 | [docs/PERSISTENCE_LAYER.md](docs/PERSISTENCE_LAYER.md) | Database setup and API reference |
+| [docs/OBSERVABILITY_SETUP.md](docs/OBSERVABILITY_SETUP.md) | Observability setup guide |
+| [docs/diagrams/](docs/diagrams/README.md) | Auto-generated architecture diagrams |
 | [docs/indicators/](docs/indicators/) | Indicator documentation by category |
 | [docs/rules/](docs/rules/) | Signal rule documentation |
 | [docs/designs/](docs/designs/) | Architecture design documents |
+| [docs/backtest/](docs/backtest/) | Backtest system documentation |
 | [docs/reviews/](docs/reviews/) | Code reviews |
 
 ---
@@ -647,7 +789,7 @@ flake8 src/ tests/      # Linting
 1. Fork the repository
 2. Create a feature branch
 3. Make changes with tests
-4. Run test suite and quality checks
+4. Run quality checks: `make format && make type-check && make test`
 5. Submit pull request
 
 ---
@@ -670,5 +812,9 @@ Built with:
 - [optuna](https://github.com/optuna/optuna) - Hyperparameter optimization
 - [DuckDB](https://duckdb.org/) - Embedded analytics database
 - [asyncpg](https://github.com/MagicStack/asyncpg) - PostgreSQL async client
+- [scikit-learn](https://scikit-learn.org/) - Machine learning
+- [OpenTelemetry](https://opentelemetry.io/) - Observability framework
+- [pydantic](https://docs.pydantic.dev/) - Data validation
+- [pandas-market-calendars](https://github.com/rsheftel/pandas_market_calendars) - Trading calendars
 - [pytest](https://pytest.org/) - Testing framework
 - [uv](https://github.com/astral-sh/uv) - Fast Python package manager
