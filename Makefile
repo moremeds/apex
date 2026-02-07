@@ -205,11 +205,11 @@ validate:
 # Signal Pipeline
 # ═══════════════════════════════════════════════════════════════
 
-# Standalone strategy comparison (all strategies x specified symbols)
+# Standalone strategy comparison (all strategies x universe symbols)
 strategy-compare:
 	@echo "$(BOLD)Running strategy comparison backtests...$(RESET)"
 	$(PYTHON) -m src.runners.strategy_compare_runner \
-		--symbols SPY QQQ AAPL NVDA MSFT AMZN JPM XOM UNH HD \
+		--universe config/universe.yaml \
 		--years 3 \
 		--output out/signals/strategies.html
 	@echo "$(GREEN)✓ Dashboard: out/signals/strategies.html$(RESET)"
@@ -237,48 +237,31 @@ signals-test:
 # Uses unified config/universe.yaml for all operations
 signals:
 	@echo "$(BOLD)Full signal pipeline...$(RESET)"
-	@echo "Step 1/4: Updating market caps..."
+	@echo "Step 1/3: Updating market caps..."
 	$(PYTHON) -m src.runners.signal_runner --update-market-caps \
 		--universe config/universe.yaml
-	@echo "Step 2/4: Retraining models (full universe)..."
+	@echo "Step 2/3: Retraining models (full universe)..."
 	$(PYTHON) -m src.runners.signal_runner --retrain-models \
 		--universe config/universe.yaml
-	@echo "Step 3/4: Generating report..."
+	@echo "Step 3/3: Generating report..."
 	$(PYTHON) -m src.runners.signal_runner --live \
 		--universe config/universe.yaml \
 		--timeframes 1d 4h 1h \
 		--format package \
 		--html-output out/signals
-	@echo "Step 4/4: Running strategy comparison backtests..."
-	$(PYTHON) -m src.runners.strategy_compare_runner \
-		--symbols SPY QQQ AAPL NVDA MSFT AMZN JPM XOM UNH HD \
-		--years 3 \
-		--output out/signals/strategies.html
 	@echo "$(GREEN)✓ Report: out/signals/index.html$(RESET)"
 	@echo "$(GREEN)✓ Heatmap: out/signals/heatmap.html$(RESET)"
-	@echo "$(GREEN)✓ Strategies: out/signals/strategies.html$(RESET)"
 
 # Deploy to GitHub Pages (full pipeline + deploy in one command)
 signals-deploy:
 	@echo "$(BOLD)Generating and deploying signal report to GitHub Pages...$(RESET)"
-	@echo "Step 1/4: Updating market caps..."
+	@echo "Step 1/3: Updating market caps..."
 	$(PYTHON) -m src.runners.signal_runner --update-market-caps \
 		--universe config/universe.yaml
-	@echo "Step 2/4: Retraining models (full universe)..."
+	@echo "Step 2/3: Retraining models (full universe)..."
 	$(PYTHON) -m src.runners.signal_runner --retrain-models \
 		--universe config/universe.yaml
-	@echo "Step 3/4: Generating report..."
-	$(PYTHON) -m src.runners.signal_runner --live \
-		--universe config/universe.yaml \
-		--timeframes 1d 4h 1h \
-		--format package \
-		--html-output out/signals
-	@echo "Step 4/4: Running strategy comparison backtests..."
-	$(PYTHON) -m src.runners.strategy_compare_runner \
-		--symbols SPY QQQ AAPL NVDA MSFT AMZN JPM XOM UNH HD \
-		--years 3 \
-		--output out/signals/strategies.html
-	@echo "$(BOLD)Deploying to GitHub Pages...$(RESET)"
+	@echo "Step 3/3: Generating report and deploying..."
 	$(PYTHON) -m src.runners.signal_runner --live \
 		--universe config/universe.yaml \
 		--timeframes 1d 4h 1h \

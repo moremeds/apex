@@ -5,8 +5,13 @@ Downloads daily OHLCV data and runs multiple strategy signal generators
 via VectorBT, then generates a comparison dashboard (strategies.html).
 
 Usage:
+    # With explicit symbols
     python -m src.runners.strategy_compare_runner \
         --symbols SPY QQQ AAPL NVDA --output out/signals/strategies.html
+
+    # With universe config (loads all symbols from YAML)
+    python -m src.runners.strategy_compare_runner \
+        --universe config/universe.yaml --output out/signals/strategies.html
 
     # With custom lookback period
     python -m src.runners.strategy_compare_runner \
@@ -524,8 +529,12 @@ def main() -> None:
     parser.add_argument(
         "--symbols",
         nargs="+",
-        default=["SPY", "QQQ", "AAPL", "NVDA", "MSFT", "AMZN", "JPM", "XOM", "UNH", "HD"],
-        help="Symbols to test (default: 10 diverse stocks)",
+        default=None,
+        help="Symbols to test (default: 10 diverse stocks if --universe not given)",
+    )
+    parser.add_argument(
+        "--universe",
+        help="Path to universe YAML config (mutually exclusive with --symbols)",
     )
     parser.add_argument(
         "--output",
@@ -547,14 +556,30 @@ def main() -> None:
 
     args = parser.parse_args()
 
+    if args.symbols and args.universe:
+        parser.error("--symbols and --universe are mutually exclusive")
+
     level = logging.DEBUG if args.verbose else logging.INFO
     logging.basicConfig(
         level=level,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
 
+    # Resolve symbols: --universe > --symbols > default fallback
+    if args.universe:
+        from pathlib import Path
+
+        from src.services.market_cap_service import load_universe_symbols
+
+        symbols = load_universe_symbols(Path(args.universe))
+        print(f"Loaded {len(symbols)} symbols from {args.universe}")
+    elif args.symbols:
+        symbols = args.symbols
+    else:
+        symbols = ["SPY", "QQQ", "AAPL", "NVDA", "MSFT", "AMZN", "JPM", "XOM", "UNH", "HD"]
+
     run_comparison(
-        symbols=args.symbols,
+        symbols=symbols,
         output_path=args.output,
         years=args.years,
         strategies=args.strategies,
