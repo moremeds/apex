@@ -45,8 +45,12 @@ import pandas as pd
 
 from ....domain.signals.indicators.momentum.dual_macd import DualMACDIndicator
 from ....domain.signals.indicators.trend.trend_pulse import TrendPulseIndicator
+from ..param_loader import get_strategy_params
 from ..signals.indicators import atr as calc_atr
 from ..signals.indicators import ema as calc_ema
+
+# Canonical defaults loaded from config/strategy/trend_pulse.yaml
+_DEFAULTS = get_strategy_params("trend_pulse")
 
 
 class TrendPulseSignalGenerator:
@@ -90,40 +94,41 @@ class TrendPulseSignalGenerator:
             self.exit_reasons = pd.Series("", index=idx, dtype=object)
             return empty, empty.copy()
 
-        # --- Extract params with defaults ---
-        zig_threshold_pct = float(params.get("zig_threshold_pct", 5.0))
-        swing_filter_bars = int(params.get("swing_filter_bars", 5))
-        trend_strength_moderate = float(params.get("trend_strength_moderate", 0.2))
-        trend_strength_strong = float(params.get("trend_strength_strong", 0.6))
-        norm_max_adx = float(params.get("norm_max_adx", 50.0))
+        # --- Extract params: YAML defaults merged with caller overrides ---
+        effective = {**_DEFAULTS, **params}
+        zig_threshold_pct = float(effective.get("zig_threshold_pct", 3.5))
+        swing_filter_bars = int(effective.get("swing_filter_bars", 5))
+        trend_strength_moderate = float(effective.get("trend_strength_moderate", 0.15))
+        trend_strength_strong = float(effective.get("trend_strength_strong", 0.6))
+        norm_max_adx = float(effective.get("norm_max_adx", 50.0))
 
         # DualMACD params
-        slow_fast = int(params.get("slow_fast", 55))
-        slow_slow = int(params.get("slow_slow", 89))
-        slow_signal = int(params.get("slow_signal", 34))
-        slope_lookback = int(params.get("slope_lookback", 3))
+        slow_fast = int(effective.get("slow_fast", 55))
+        slow_slow = int(effective.get("slow_slow", 89))
+        slow_signal = int(effective.get("slow_signal", 34))
+        slope_lookback = int(effective.get("slope_lookback", 3))
 
         # Sizing params
-        min_pct = float(params.get("min_pct", 0.2))
-        max_pct = float(params.get("max_pct", 0.8))
+        min_pct = float(effective.get("min_pct", 0.2))
+        max_pct = float(effective.get("max_pct", 0.8))
 
         # Top detection params
-        top_wr_main = int(params.get("top_wr_main", 34))
+        top_wr_main = int(effective.get("top_wr_main", 34))
 
         # v2.1 params
-        exit_bearish_bars = int(params.get("exit_bearish_bars", 3))
-        enable_trend_reentry = bool(params.get("enable_trend_reentry", True))
-        ema_reentry_period = int(params.get("ema_reentry_period", 25))
-        min_confidence = float(params.get("min_confidence", 0.4))
-        atr_stop_mult = float(params.get("atr_stop_mult", 3.0))
-        signal_shift_bars = int(params.get("signal_shift_bars", 1))
-        enable_mtf_confirm = bool(params.get("enable_mtf_confirm", True))
-        weekly_ema_period = int(params.get("weekly_ema_period", 26))
+        exit_bearish_bars = int(effective.get("exit_bearish_bars", 3))
+        enable_trend_reentry = bool(effective.get("enable_trend_reentry", False))
+        ema_reentry_period = int(effective.get("ema_reentry_period", 25))
+        min_confidence = float(effective.get("min_confidence", 0.5))
+        atr_stop_mult = float(effective.get("atr_stop_mult", 3.5))
+        signal_shift_bars = int(effective.get("signal_shift_bars", 1))
+        enable_mtf_confirm = bool(effective.get("enable_mtf_confirm", True))
+        weekly_ema_period = int(effective.get("weekly_ema_period", 26))
 
         # v2.2 params
-        enable_chop_filter = bool(params.get("enable_chop_filter", True))
-        adx_entry_min = float(params.get("adx_entry_min", 20.0))
-        cooldown_bars = int(params.get("cooldown_bars", 5))
+        enable_chop_filter = bool(effective.get("enable_chop_filter", True))
+        adx_entry_min = float(effective.get("adx_entry_min", 15.0))
+        cooldown_bars = int(effective.get("cooldown_bars", 5))
 
         warmup = self.warmup_bars
 

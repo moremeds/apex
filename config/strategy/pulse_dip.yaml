@@ -1,0 +1,27 @@
+name: pulse_dip
+tier: "TIER 1"
+module_path: "src.domain.strategy.signals.pulse_dip"
+class_name: "PulseDipSignalGenerator"
+
+# Current best parameters — used by all runners, playbooks, signal generators
+params:
+  ema_trend_period: 99
+  rsi_period: 14
+  rsi_entry_threshold: 35.0
+  atr_stop_mult: 3.0
+  max_hold_bars: 40
+  hard_stop_pct: 0.08
+
+# Parameter iteration history (most recent first)
+history:
+  - version: "v1.0-manual"
+    date: "2025-12-01"
+    source: "Hand-tuned initial params"
+    params:
+      ema_trend_period: 99
+      rsi_period: 14
+      rsi_entry_threshold: 35.0
+      atr_stop_mult: 3.0
+      max_hold_bars: 40
+      hard_stop_pct: 0.08
+    reason: "Initial hand-tuned params"

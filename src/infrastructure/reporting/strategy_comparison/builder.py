@@ -51,6 +51,7 @@ class StrategyMetrics:
     per_regime_return: Dict[str, float] = field(default_factory=dict)
     stress_results: Dict[str, Dict[str, float]] = field(default_factory=dict)
     rolling_sharpe: List[List[float]] = field(default_factory=list)
+    per_symbol_metrics: Dict[str, Dict[str, float]] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -73,6 +74,7 @@ class StrategyMetrics:
             "per_regime_return": self.per_regime_return,
             "stress_results": self.stress_results,
             "rolling_sharpe": self.rolling_sharpe,
+            "per_symbol_metrics": self.per_symbol_metrics,
         }
 
 
@@ -81,7 +83,7 @@ class StrategyComparisonBuilder:
     Builds a multi-strategy comparison HTML dashboard.
 
     Collects metrics from multiple strategy backtest runs and generates
-    an interactive HTML report with 5 tabs.
+    an interactive HTML report with 7 tabs.
     """
 
     def __init__(
@@ -95,6 +97,7 @@ class StrategyComparisonBuilder:
         self._period = period
         self._strategies: Dict[str, StrategyMetrics] = {}
         self._symbols: List[str] = []
+        self._sector_map: Dict[str, List[str]] = {}
         self._generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     def add_strategy(self, name: str, metrics: StrategyMetrics) -> None:
@@ -105,6 +108,10 @@ class StrategyComparisonBuilder:
     def set_symbols(self, symbols: List[str]) -> None:
         """Set the symbol universe."""
         self._symbols = symbols
+
+    def set_sector_map(self, sector_map: Dict[str, List[str]]) -> None:
+        """Set the sector mapping for sector-level aggregation."""
+        self._sector_map = sector_map
 
     def build(self, output_path: str) -> str:
         """
@@ -129,6 +136,7 @@ class StrategyComparisonBuilder:
             "strategy_count": len(self._strategies),
             "symbols": self._symbols,
             "strategies": {name: m.to_dict() for name, m in self._strategies.items()},
+            "sector_map": self._sector_map,
         }
 
         # Render HTML

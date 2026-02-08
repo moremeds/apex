@@ -28,64 +28,16 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
+from src.domain.strategy.param_loader import get_strategy_metadata, list_strategies
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Signal generators to compare (name -> (module_path, class_name, default_params, tier))
+# Signal generators to compare — loaded from config/strategy/*.yaml
+# Each entry: name -> (module_path, class_name, default_params, tier)
 # ---------------------------------------------------------------------------
 STRATEGY_REGISTRY: Dict[str, Tuple[str, str, Dict[str, Any], str]] = {
-    "pulse_dip": (
-        "src.domain.strategy.signals.pulse_dip",
-        "PulseDipSignalGenerator",
-        {
-            "ema_trend_period": 99,
-            "rsi_period": 14,
-            "rsi_entry_threshold": 45.0,
-            "atr_stop_mult": 3.0,
-            "max_hold_bars": 40,
-            "hard_stop_pct": 0.08,
-        },
-        "TIER 1",
-    ),
-    "squeeze_play": (
-        "src.domain.strategy.signals.squeeze_play",
-        "SqueezePlaySignalGenerator",
-        {
-            "bb_period": 20,
-            "bb_std": 2.0,
-            "kc_multiplier": 1.5,
-            "release_persist_bars": 2,
-            "close_outside_bars": 2,
-            "atr_stop_mult": 2.5,
-            "adx_min": 20.0,
-            "hard_stop_pct": 0.08,
-        },
-        "TIER 1",
-    ),
-    "trend_pulse": (
-        "src.domain.strategy.signals.trend_pulse",
-        "TrendPulseSignalGenerator",
-        {
-            "zig_threshold_pct": 3.5,
-            "trend_strength_moderate": 0.2,
-            "trend_strength_strong": 0.6,
-            "min_confidence": 0.3,
-            "atr_stop_mult": 3.0,
-            "exit_bearish_bars": 3,
-            "enable_trend_reentry": True,
-            "enable_chop_filter": True,
-            "adx_entry_min": 18.0,
-            "cooldown_bars": 3,
-            "signal_shift_bars": 1,
-        },
-        "TIER 1",
-    ),
-    "buy_and_hold": (
-        "src.domain.strategy.signals.buy_and_hold",
-        "BuyAndHoldSignalGenerator",
-        {},
-        "BASELINE",
-    ),
+    name: get_strategy_metadata(name) for name in list_strategies()
 }
 
 # Stress windows for survivability testing
@@ -300,6 +252,21 @@ def _aggregate_results(
 
     per_symbol_sharpe = {s: round(m["sharpe"], 3) for s, m in valid.items()}
 
+    # Slim per-symbol metrics for Per-Stock tab (no equity curves)
+    per_symbol_metrics: Dict[str, Dict[str, float]] = {
+        s: {
+            "sharpe": round(m["sharpe"], 3),
+            "total_return": round(m["total_return"], 4),
+            "max_drawdown": round(m["max_drawdown"], 4),
+            "win_rate": round(m["win_rate"], 3),
+            "total_trades": m["total_trades"],
+            "sortino": round(m["sortino"], 3),
+            "calmar": round(m["calmar"], 3),
+            "profit_factor": round(m["profit_factor"], 3),
+        }
+        for s, m in valid.items()
+    }
+
     # -- Aggregate per-regime metrics (average across symbols) --
     per_regime_sharpe: Dict[str, float] = {}
     per_regime_return: Dict[str, float] = {}
@@ -377,6 +344,7 @@ def _aggregate_results(
         "equity_curve": eq_curve,
         "drawdown_curve": dd_curve,
         "per_symbol_sharpe": per_symbol_sharpe,
+        "per_symbol_metrics": per_symbol_metrics,
         "per_regime_sharpe": per_regime_sharpe,
         "per_regime_return": per_regime_return,
         "stress_results": stress_results,
@@ -385,11 +353,34 @@ def _aggregate_results(
     }
 
 
+def _load_sector_map(universe_path: str) -> Dict[str, List[str]]:
+    """Parse sector mapping from universe YAML.
+
+    Returns {sector_name: [etf, stock1, stock2, ...]}.
+    """
+    from pathlib import Path
+
+    import yaml
+
+    data = yaml.safe_load(Path(universe_path).read_text())
+    sectors = data.get("sectors", {})
+    result: Dict[str, List[str]] = {}
+    for sector_name, sector_data in sectors.items():
+        symbols: List[str] = []
+        etf = sector_data.get("etf")
+        if etf:
+            symbols.append(etf)
+        symbols.extend(sector_data.get("stocks", []))
+        result[sector_name] = symbols
+    return result
+
+
 def run_comparison(
     symbols: List[str],
     output_path: str,
     years: int = 3,
     strategies: List[str] | None = None,
+    universe_path: str | None = None,
 ) -> str:
     """
     Run strategy comparison and generate HTML dashboard.
@@ -451,6 +442,13 @@ def run_comparison(
     )
     builder.set_symbols(list(all_data.keys()))
 
+    # Load sector map for sector-level aggregation
+    if universe_path:
+        sector_map = _load_sector_map(universe_path)
+    else:
+        sector_map = {"all": list(all_data.keys())}
+    builder.set_sector_map(sector_map)
+
     for strat_name in strategy_names:
         if strat_name not in STRATEGY_REGISTRY:
             print(f"  Unknown strategy: {strat_name} (skipped)")
@@ -507,6 +505,7 @@ def run_comparison(
             stress_results=agg["stress_results"],
             monthly_returns=agg["monthly_returns"],
             rolling_sharpe=agg["rolling_sharpe"],
+            per_symbol_metrics=agg["per_symbol_metrics"],
         )
         builder.add_strategy(strat_name, metrics)
         print(
@@ -583,6 +582,7 @@ def main() -> None:
         output_path=args.output,
         years=args.years,
         strategies=args.strategies,
+        universe_path=args.universe,
     )
 
 

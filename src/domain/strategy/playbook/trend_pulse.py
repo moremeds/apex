@@ -14,12 +14,12 @@ DualMACD bullish + ADX trending), exit via ExitManager priority chain.
 
 Parameters (8, at <=8 budget):
     zig_threshold_pct: Zig-zag reversal threshold (default 3.5)
-    trend_strength_moderate: Min ADX/50 normalized strength (default 0.2)
-    min_confidence: Min 4-factor confidence score (default 0.3)
-    atr_stop_mult: ATR multiplier for trailing stop (default 3.0)
+    trend_strength_moderate: Min ADX/50 normalized strength (default 0.15)
+    min_confidence: Min 4-factor confidence score (default 0.5)
+    atr_stop_mult: ATR multiplier for trailing stop (default 3.5)
     exit_bearish_bars: Consecutive bearish bars for DM exit (default 3)
-    adx_entry_min: Min ADX for chop filter (default 18.0)
-    cooldown_bars: Post-exit cooldown bars (default 3)
+    adx_entry_min: Min ADX for chop filter (default 15.0)
+    cooldown_bars: Post-exit cooldown bars (default 5)
     risk_per_trade_pct: Per-trade risk fraction (default 0.02)
 
 Entry (all must be true at bar close):
@@ -149,12 +149,12 @@ class TrendPulseStrategy(Strategy):
         symbols: List[str],
         context: StrategyContext,
         zig_threshold_pct: float = 3.5,
-        trend_strength_moderate: float = 0.2,
-        min_confidence: float = 0.3,
-        atr_stop_mult: float = 3.0,
+        trend_strength_moderate: float = 0.15,
+        min_confidence: float = 0.5,
+        atr_stop_mult: float = 3.5,
         exit_bearish_bars: int = 3,
-        adx_entry_min: float = 18.0,
-        cooldown_bars: int = 3,
+        adx_entry_min: float = 15.0,
+        cooldown_bars: int = 5,
         risk_per_trade_pct: float = 0.02,
     ):
         super().__init__(strategy_id, symbols, context)

@@ -16,7 +16,11 @@ from typing import Any, Dict, Optional, Tuple
 import numpy as np
 import pandas as pd
 
+from ..param_loader import get_strategy_params
 from .indicators import atr, ema, rsi
+
+# Canonical defaults loaded from config/strategy/pulse_dip.yaml
+_DEFAULTS = get_strategy_params("pulse_dip")
 
 
 class PulseDipSignalGenerator:
@@ -51,13 +55,14 @@ class PulseDipSignalGenerator:
         high = data["high"]
         low = data["low"]
 
-        # Parameters with defaults
-        ema_period = int(params.get("ema_trend_period", 99))
-        rsi_period = int(params.get("rsi_period", 14))
-        rsi_thresh = float(params.get("rsi_entry_threshold", 35.0))
-        atr_mult = float(params.get("atr_stop_mult", 3.0))
-        max_hold = int(params.get("max_hold_bars", 40))
-        hard_stop_pct = float(params.get("hard_stop_pct", 0.08))
+        # Parameters: YAML defaults merged with caller overrides
+        effective = {**_DEFAULTS, **params}
+        ema_period = int(effective.get("ema_trend_period", 99))
+        rsi_period = int(effective.get("rsi_period", 14))
+        rsi_thresh = float(effective.get("rsi_entry_threshold", 35.0))
+        atr_mult = float(effective.get("atr_stop_mult", 3.0))
+        max_hold = int(effective.get("max_hold_bars", 40))
+        hard_stop_pct = float(effective.get("hard_stop_pct", 0.08))
 
         # Calculate indicators
         ema_trend = ema(close, ema_period)
@@ -72,7 +77,7 @@ class PulseDipSignalGenerator:
         raw_entries = cond_ema & cond_rsi
 
         # Signal shift +1 bar (entry at next bar open)
-        entries = raw_entries.shift(1).fillna(False).astype(bool)
+        entries = raw_entries.shift(1, fill_value=False)
 
         # Exit conditions (any triggers exit)
         # RSI overbought exit

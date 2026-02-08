@@ -1,0 +1,58 @@
+name: trend_pulse
+tier: "TIER 1"
+module_path: "src.domain.strategy.signals.trend_pulse"
+class_name: "TrendPulseSignalGenerator"
+
+# Current best parameters — used by all runners, playbooks, signal generators
+params:
+  zig_threshold_pct: 3.5
+  trend_strength_moderate: 0.15
+  trend_strength_strong: 0.6
+  min_confidence: 0.5
+  atr_stop_mult: 3.5
+  exit_bearish_bars: 3
+  enable_trend_reentry: false
+  enable_chop_filter: true
+  enable_mtf_confirm: true
+  adx_entry_min: 15.0
+  cooldown_bars: 5
+  swing_filter_bars: 5
+  signal_shift_bars: 1
+  top_wr_main: 34
+  slow_fast: 55
+  slow_slow: 89
+  slow_signal: 34
+  slope_lookback: 3
+  weekly_ema_period: 26
+  ema_reentry_period: 25
+
+# Parameter iteration history (most recent first)
+history:
+  - version: "v2.2-optuna"
+    date: "2026-02-08"
+    source: "Optuna nested CV + walk-forward (trend_pulse_validate.yaml)"
+    results:
+      universe: "36 symbols (tech + semis + industrial)"
+      period: "2020-01-01 to 2025-12-30"
+      avg_sharpe: 0.19
+      avg_return: 0.028
+      avg_max_drawdown: 0.103
+    changes:
+      min_confidence: "0.3 -> 0.5 (stricter entry filter)"
+      atr_stop_mult: "3.0 -> 3.5 (wider stop, let winners run)"
+      enable_trend_reentry: "true -> false (avoid whipsaw re-entries)"
+      cooldown_bars: "3 -> 5 (longer cooldown after exits)"
+      adx_entry_min: "18.0 -> 15.0 (more permissive when confidence high)"
+      trend_strength_moderate: "0.2 -> 0.15 (allow weaker trends with strong confluence)"
+
+  - version: "v2.1-manual"
+    date: "2025-12-01"
+    source: "Hand-tuned initial params"
+    params:
+      min_confidence: 0.3
+      atr_stop_mult: 3.0
+      enable_trend_reentry: true
+      cooldown_bars: 3
+      adx_entry_min: 18.0
+      trend_strength_moderate: 0.2
+    reason: "Initial hand-tuned params before Optuna optimization"

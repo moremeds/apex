@@ -16,7 +16,11 @@ from typing import Any, Dict, Optional, Tuple
 import numpy as np
 import pandas as pd
 
+from ..param_loader import get_strategy_params
 from .indicators import adx, atr, bbands, ema
+
+# Canonical defaults loaded from config/strategy/squeeze_play.yaml
+_DEFAULTS = get_strategy_params("squeeze_play")
 
 
 class SqueezePlaySignalGenerator:
@@ -51,15 +55,16 @@ class SqueezePlaySignalGenerator:
         high = data["high"]
         low = data["low"]
 
-        # Parameters
-        bb_period = int(params.get("bb_period", 20))
-        bb_std_val = float(params.get("bb_std", 2.0))
-        kc_mult = float(params.get("kc_multiplier", 1.5))
-        release_persist = int(params.get("release_persist_bars", 2))
-        outside_persist = int(params.get("close_outside_bars", 2))
-        atr_mult = float(params.get("atr_stop_mult", 2.5))
-        adx_min = float(params.get("adx_min", 20.0))
-        hard_stop_pct = float(params.get("hard_stop_pct", 0.08))
+        # Parameters: YAML defaults merged with caller overrides
+        effective = {**_DEFAULTS, **params}
+        bb_period = int(effective.get("bb_period", 20))
+        bb_std_val = float(effective.get("bb_std", 2.0))
+        kc_mult = float(effective.get("kc_multiplier", 1.5))
+        release_persist = int(effective.get("release_persist_bars", 2))
+        outside_persist = int(effective.get("close_outside_bars", 2))
+        atr_mult = float(effective.get("atr_stop_mult", 2.5))
+        adx_min = float(effective.get("adx_min", 20.0))
+        hard_stop_pct = float(effective.get("hard_stop_pct", 0.08))
 
         # Bollinger Bands
         bb_upper, bb_mid, bb_lower = bbands(close, bb_period, bb_std_val, bb_std_val)
@@ -96,7 +101,7 @@ class SqueezePlaySignalGenerator:
         long_entry = close_above_bb & release_ok & outside_ok & adx_ok
 
         # Shift +1 for execution realism
-        entries = long_entry.shift(1).fillna(False).astype(bool)
+        entries = long_entry.shift(1, fill_value=False)
 
         # Exits: ATR trail or hard stop
         rolling_peak = close.expanding().max()
@@ -108,7 +113,7 @@ class SqueezePlaySignalGenerator:
         hard_exit = close < hard_stop_level
 
         # Squeeze re-engages (volatility contracts again)
-        squeeze_re_enter = squeeze_on & squeeze_off.shift(1).fillna(False)
+        squeeze_re_enter = squeeze_on & squeeze_off.shift(1, fill_value=False)
 
         exits = (trail_exit | hard_exit | squeeze_re_enter).fillna(False).astype(bool)
 

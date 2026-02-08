@@ -1,0 +1,31 @@
+name: squeeze_play
+tier: "TIER 1"
+module_path: "src.domain.strategy.signals.squeeze_play"
+class_name: "SqueezePlaySignalGenerator"
+
+# Current best parameters — used by all runners, playbooks, signal generators
+params:
+  bb_period: 20
+  bb_std: 2.0
+  kc_multiplier: 1.5
+  release_persist_bars: 2
+  close_outside_bars: 2
+  atr_stop_mult: 2.5
+  adx_min: 20.0
+  hard_stop_pct: 0.08
+
+# Parameter iteration history (most recent first)
+history:
+  - version: "v1.0-manual"
+    date: "2025-12-01"
+    source: "Hand-tuned initial params"
+    params:
+      bb_period: 20
+      bb_std: 2.0
+      kc_multiplier: 1.5
+      release_persist_bars: 2
+      close_outside_bars: 2
+      atr_stop_mult: 2.5
+      adx_min: 20.0
+      hard_stop_pct: 0.08
+    reason: "Initial hand-tuned params"

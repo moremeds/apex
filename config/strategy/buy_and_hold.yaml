@@ -1,0 +1,9 @@
+name: buy_and_hold
+tier: "BASELINE"
+module_path: "src.domain.strategy.signals.buy_and_hold"
+class_name: "BuyAndHoldSignalGenerator"
+
+# No tunable parameters — baseline benchmark
+params: {}
+
+history: []

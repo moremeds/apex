@@ -23,6 +23,7 @@ def render_comparison_html(data: Dict[str, Any]) -> str:
     """
     strategies_json = json.dumps(data["strategies"], indent=2)
     strategy_names = list(data["strategies"].keys())
+    sector_map_json = json.dumps(data.get("sector_map", {}), indent=2)
 
     # Build scorecard HTML
     scorecards = ""
@@ -141,6 +142,7 @@ body {{
     padding: 8px 24px;
     background: var(--bg-secondary);
     border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
 }}
 .tab {{
     padding: 8px 16px;
@@ -240,6 +242,34 @@ td.negative {{ color: var(--negative); }}
     padding: 40px;
     font-size: 14px;
 }}
+
+.filter-bar {{
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    margin-bottom: 16px;
+    padding: 12px 16px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+}}
+.filter-bar label {{ color: var(--text-secondary); font-size: 13px; font-weight: 600; }}
+.filter-bar select {{
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+}}
+.filter-bar .count {{ color: var(--text-secondary); font-size: 12px; margin-left: auto; }}
+
+#stock-table th {{ cursor: pointer; user-select: none; white-space: nowrap; }}
+#stock-table th:hover {{ color: var(--text-primary); }}
+#stock-table th.sorted-asc::after {{ content: ' \\25B2'; font-size: 10px; }}
+#stock-table th.sorted-desc::after {{ content: ' \\25BC'; font-size: 10px; }}
+td.symbol {{ font-weight: 600; color: var(--text-primary); }}
+.section-title {{ font-size: 15px; font-weight: 600; margin: 0 0 12px; }}
 </style>
 </head>
 <body>
@@ -256,6 +286,8 @@ td.negative {{ color: var(--negative); }}
 <div class="tabs">
     <div class="tab active" onclick="switchTab('overview', this)">Overview</div>
     <div class="tab" onclick="switchTab('metrics', this)">Metrics</div>
+    <div class="tab" onclick="switchTab('perstock', this)">Per-Stock</div>
+    <div class="tab" onclick="switchTab('sector', this)">Sector</div>
     <div class="tab" onclick="switchTab('regime', this)">Regime Performance</div>
     <div class="tab" onclick="switchTab('heatmap', this)">Per-Symbol Heatmap</div>
     <div class="tab" onclick="switchTab('trades', this)">Trade Analysis</div>
@@ -291,7 +323,60 @@ td.negative {{ color: var(--negative); }}
     </table>
 </div>
 
-<!-- TAB 3: REGIME PERFORMANCE -->
+<!-- TAB 3: PER-STOCK -->
+<div id="perstock" class="tab-content">
+    <div class="filter-bar">
+        <label>Strategy:</label>
+        <select id="stock-strategy-filter" onchange="filterStockTable()">
+            <option value="all">All Strategies</option>
+        </select>
+        <label style="margin-left:16px">Sort by:</label>
+        <select id="stock-sort-select" onchange="sortStockTableBySelect()">
+            <option value="sharpe-desc">Sharpe (High to Low)</option>
+            <option value="sharpe-asc">Sharpe (Low to High)</option>
+            <option value="return-desc">Return (High to Low)</option>
+            <option value="return-asc">Return (Low to High)</option>
+            <option value="trades-desc">Trades (Most)</option>
+            <option value="drawdown-asc">MaxDD (Smallest)</option>
+        </select>
+        <span class="count" id="stock-count"></span>
+    </div>
+    <table id="stock-table">
+        <thead>
+            <tr>
+                <th onclick="sortStockTable('symbol')">Symbol</th>
+                <th onclick="sortStockTable('strategy')">Strategy</th>
+                <th onclick="sortStockTable('sharpe')">Sharpe</th>
+                <th onclick="sortStockTable('total_return')">Return</th>
+                <th onclick="sortStockTable('max_drawdown')">MaxDD</th>
+                <th onclick="sortStockTable('win_rate')">WinRate</th>
+                <th onclick="sortStockTable('total_trades')">Trades</th>
+                <th onclick="sortStockTable('sortino')">Sortino</th>
+                <th onclick="sortStockTable('profit_factor')">PF</th>
+            </tr>
+        </thead>
+        <tbody id="stock-table-body"></tbody>
+    </table>
+</div>
+
+<!-- TAB 4: SECTOR -->
+<div id="sector" class="tab-content">
+    <div class="charts-row">
+        <div class="chart-container">
+            <div id="sector-sharpe-heatmap" style="height: 400px;"></div>
+        </div>
+        <div class="chart-container">
+            <div id="sector-return-heatmap" style="height: 400px;"></div>
+        </div>
+    </div>
+    <h3 class="section-title">Sector Detail</h3>
+    <table id="sector-table">
+        <thead id="sector-table-head"></thead>
+        <tbody id="sector-table-body"></tbody>
+    </table>
+</div>
+
+<!-- TAB 5: REGIME PERFORMANCE -->
 <div id="regime" class="tab-content">
     <div class="charts-row">
         <div class="chart-container">
@@ -313,14 +398,14 @@ td.negative {{ color: var(--negative); }}
     </table>
 </div>
 
-<!-- TAB 4: PER-SYMBOL HEATMAP -->
+<!-- TAB 6: PER-SYMBOL HEATMAP -->
 <div id="heatmap" class="tab-content">
     <div class="chart-container">
         <div id="symbol-heatmap" style="height: 500px;"></div>
     </div>
 </div>
 
-<!-- TAB 5: TRADE ANALYSIS -->
+<!-- TAB 7: TRADE ANALYSIS -->
 <div id="trades" class="tab-content">
     <div class="chart-container">
         <div id="rolling-sharpe-chart" style="height: 350px;"></div>
@@ -333,6 +418,7 @@ td.negative {{ color: var(--negative); }}
 <script>
 const STRATEGIES = {strategies_json};
 const STRATEGY_NAMES = {json.dumps(strategy_names)};
+const SECTOR_MAP = {sector_map_json};
 
 function switchTab(tabId, el) {{
     document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
@@ -342,7 +428,7 @@ function switchTab(tabId, el) {{
     // Resize Plotly charts when tab becomes visible
     setTimeout(() => {{
         const container = document.getElementById(tabId);
-        container.querySelectorAll('[id$="-chart"]').forEach(chartDiv => {{
+        container.querySelectorAll('[id$="-chart"], [id$="-heatmap"]').forEach(chartDiv => {{
             if (chartDiv.data) Plotly.Plots.resize(chartDiv);
         }});
     }}, 50);
@@ -415,7 +501,249 @@ function renderDrawdowns() {{
     }}
 }}
 
-// --- TAB 3: Regime Sharpe Chart ---
+// --- TAB 3: Per-Stock Table ---
+let stockRows = [];
+let currentSort = {{ col: 'sharpe', asc: false }};
+
+function buildStockRows() {{
+    stockRows = [];
+    STRATEGY_NAMES.forEach(name => {{
+        const psm = STRATEGIES[name].per_symbol_metrics || {{}};
+        Object.keys(psm).forEach(sym => {{
+            const m = psm[sym];
+            stockRows.push({{
+                symbol: sym,
+                strategy: name,
+                sharpe: m.sharpe || 0,
+                total_return: m.total_return || 0,
+                max_drawdown: m.max_drawdown || 0,
+                win_rate: m.win_rate || 0,
+                total_trades: m.total_trades || 0,
+                sortino: m.sortino || 0,
+                calmar: m.calmar || 0,
+                profit_factor: m.profit_factor || 0,
+            }});
+        }});
+    }});
+}}
+
+function renderStockTable() {{
+    const filter = document.getElementById('stock-strategy-filter').value;
+    let rows = filter === 'all' ? stockRows.slice() : stockRows.filter(r => r.strategy === filter);
+
+    rows.sort((a, b) => {{
+        let va = a[currentSort.col], vb = b[currentSort.col];
+        if (typeof va === 'string') {{ va = va.toLowerCase(); vb = vb.toLowerCase(); }}
+        if (va < vb) return currentSort.asc ? -1 : 1;
+        if (va > vb) return currentSort.asc ? 1 : -1;
+        return 0;
+    }});
+
+    const tbody = document.getElementById('stock-table-body');
+    let html = '';
+    rows.forEach(r => {{
+        const sc = r.sharpe > 0 ? 'positive' : 'negative';
+        const rc = r.total_return > 0 ? 'positive' : 'negative';
+        const soc = r.sortino > 0 ? 'positive' : 'negative';
+        html += '<tr>';
+        html += '<td class="symbol">' + r.symbol + '</td>';
+        html += '<td class="strategy-name">' + r.strategy + '</td>';
+        html += '<td class="' + sc + '">' + r.sharpe.toFixed(2) + '</td>';
+        html += '<td class="' + rc + '">' + (r.total_return * 100).toFixed(1) + '%</td>';
+        html += '<td class="negative">' + (r.max_drawdown * 100).toFixed(1) + '%</td>';
+        html += '<td>' + (r.win_rate * 100).toFixed(0) + '%</td>';
+        html += '<td>' + r.total_trades + '</td>';
+        html += '<td class="' + soc + '">' + r.sortino.toFixed(2) + '</td>';
+        html += '<td>' + r.profit_factor.toFixed(2) + '</td>';
+        html += '</tr>';
+    }});
+    tbody.innerHTML = html;
+
+    document.getElementById('stock-count').textContent = rows.length + ' rows';
+
+    // Update header sort indicators
+    document.querySelectorAll('#stock-table th').forEach(th => {{
+        th.classList.remove('sorted-asc', 'sorted-desc');
+    }});
+}}
+
+function sortStockTable(col) {{
+    if (currentSort.col === col) {{
+        currentSort.asc = !currentSort.asc;
+    }} else {{
+        currentSort = {{ col: col, asc: col === 'symbol' || col === 'strategy' }};
+    }}
+    renderStockTable();
+}}
+
+function sortStockTableBySelect() {{
+    const val = document.getElementById('stock-sort-select').value;
+    const parts = val.split('-');
+    const col = parts[0];
+    const dir = parts[1];
+    const colMap = {{ sharpe: 'sharpe', return: 'total_return', trades: 'total_trades', drawdown: 'max_drawdown' }};
+    currentSort = {{ col: colMap[col] || col, asc: dir === 'asc' }};
+    renderStockTable();
+}}
+
+function filterStockTable() {{
+    renderStockTable();
+}}
+
+function initStockFilter() {{
+    const select = document.getElementById('stock-strategy-filter');
+    STRATEGY_NAMES.forEach(name => {{
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        select.appendChild(opt);
+    }});
+}}
+
+// --- TAB 4: Sector ---
+function computeSectorMetrics() {{
+    const result = {{}};
+    STRATEGY_NAMES.forEach(name => {{
+        result[name] = {{}};
+        const psm = STRATEGIES[name].per_symbol_metrics || {{}};
+        Object.keys(SECTOR_MAP).forEach(sector => {{
+            const symbols = SECTOR_MAP[sector];
+            const valid = symbols.filter(s => psm[s]).map(s => psm[s]);
+            if (valid.length > 0) {{
+                const avg = (arr, key) => arr.reduce((s, v) => s + v[key], 0) / arr.length;
+                const sum = (arr, key) => arr.reduce((s, v) => s + v[key], 0);
+                result[name][sector] = {{
+                    sharpe: avg(valid, 'sharpe'),
+                    total_return: avg(valid, 'total_return'),
+                    max_drawdown: avg(valid, 'max_drawdown'),
+                    win_rate: avg(valid, 'win_rate'),
+                    total_trades: sum(valid, 'total_trades'),
+                    count: valid.length,
+                }};
+            }}
+        }});
+    }});
+    return result;
+}}
+
+function renderSectorSharpe() {{
+    const sectorMetrics = computeSectorMetrics();
+    const sectors = Object.keys(SECTOR_MAP);
+    if (sectors.length === 0) {{
+        document.getElementById('sector-sharpe-heatmap').innerHTML = '<div class="no-data">No sector data available</div>';
+        return;
+    }}
+
+    const z = [];
+    const text = [];
+    STRATEGY_NAMES.forEach(name => {{
+        const row = [];
+        const textRow = [];
+        sectors.forEach(sector => {{
+            const sm = sectorMetrics[name] && sectorMetrics[name][sector];
+            const val = sm ? sm.sharpe : 0;
+            row.push(val);
+            textRow.push(val.toFixed(2));
+        }});
+        z.push(row);
+        text.push(textRow);
+    }});
+
+    Plotly.newPlot('sector-sharpe-heatmap', [{{
+        z: z,
+        x: sectors.map(s => s.replace(/_/g, ' ')),
+        y: STRATEGY_NAMES,
+        type: 'heatmap',
+        colorscale: [[0, '#f85149'], [0.5, '#d29922'], [1, '#3fb950']],
+        text: text,
+        texttemplate: '%{{text}}',
+        hovertemplate: '%{{y}}<br>%{{x}}: Sharpe %{{z:.2f}}<extra></extra>',
+    }}], {{
+        ...PLOTLY_LAYOUT_BASE,
+        title: {{ text: 'Avg Sharpe by Sector', font: {{ color: '#e6edf3' }} }},
+        margin: {{ t: 40, r: 20, b: 100, l: 120 }},
+        xaxis: {{ tickangle: -30 }},
+    }});
+}}
+
+function renderSectorReturn() {{
+    const sectorMetrics = computeSectorMetrics();
+    const sectors = Object.keys(SECTOR_MAP);
+    if (sectors.length === 0) {{
+        document.getElementById('sector-return-heatmap').innerHTML = '<div class="no-data">No sector data available</div>';
+        return;
+    }}
+
+    const z = [];
+    const text = [];
+    STRATEGY_NAMES.forEach(name => {{
+        const row = [];
+        const textRow = [];
+        sectors.forEach(sector => {{
+            const sm = sectorMetrics[name] && sectorMetrics[name][sector];
+            const val = (sm ? sm.total_return : 0) * 100;
+            row.push(val);
+            textRow.push(val.toFixed(1) + '%');
+        }});
+        z.push(row);
+        text.push(textRow);
+    }});
+
+    const maxAbs = Math.max(...z.flat().map(Math.abs), 1);
+    Plotly.newPlot('sector-return-heatmap', [{{
+        z: z,
+        x: sectors.map(s => s.replace(/_/g, ' ')),
+        y: STRATEGY_NAMES,
+        type: 'heatmap',
+        colorscale: [[0, '#f85149'], [0.5, '#1c2128'], [1, '#3fb950']],
+        zmin: -maxAbs,
+        zmax: maxAbs,
+        text: text,
+        texttemplate: '%{{text}}',
+        hovertemplate: '%{{y}}<br>%{{x}}: %{{z:.1f}}%<extra></extra>',
+    }}], {{
+        ...PLOTLY_LAYOUT_BASE,
+        title: {{ text: 'Avg Return by Sector (%)', font: {{ color: '#e6edf3' }} }},
+        margin: {{ t: 40, r: 20, b: 100, l: 120 }},
+        xaxis: {{ tickangle: -30 }},
+    }});
+}}
+
+function renderSectorTable() {{
+    const sectorMetrics = computeSectorMetrics();
+    const sectors = Object.keys(SECTOR_MAP);
+    if (sectors.length === 0) return;
+
+    const thead = document.getElementById('sector-table-head');
+    let headHtml = '<tr><th>Strategy</th>';
+    sectors.forEach(s => {{
+        headHtml += '<th style="text-align:center" colspan="2">' + s.replace(/_/g, ' ') + '</th>';
+    }});
+    headHtml += '</tr><tr><th></th>';
+    sectors.forEach(() => {{
+        headHtml += '<th>Sharpe</th><th>Return</th>';
+    }});
+    headHtml += '</tr>';
+    thead.innerHTML = headHtml;
+
+    const tbody = document.getElementById('sector-table-body');
+    let bodyHtml = '';
+    STRATEGY_NAMES.forEach(name => {{
+        let cells = '';
+        sectors.forEach(sector => {{
+            const m = sectorMetrics[name] && sectorMetrics[name][sector];
+            if (!m) {{ cells += '<td>-</td><td>-</td>'; return; }}
+            const sc = m.sharpe > 0 ? 'positive' : 'negative';
+            const rc = m.total_return > 0 ? 'positive' : 'negative';
+            cells += '<td class="' + sc + '">' + m.sharpe.toFixed(2) + '</td>';
+            cells += '<td class="' + rc + '">' + (m.total_return * 100).toFixed(1) + '%</td>';
+        }});
+        bodyHtml += '<tr><td class="strategy-name">' + name + '</td>' + cells + '</tr>';
+    }});
+    tbody.innerHTML = bodyHtml;
+}}
+
+// --- TAB 5: Regime Sharpe Chart ---
 function renderRegimeSharpe() {{
     const regimes = ['R0', 'R1', 'R2', 'R3'];
     const traces = [];
@@ -446,7 +774,7 @@ function renderRegimeSharpe() {{
     }}
 }}
 
-// --- TAB 3: Regime Return Chart ---
+// --- TAB 5: Regime Return Chart ---
 function renderRegimeReturn() {{
     const regimes = ['R0', 'R1', 'R2', 'R3'];
     const traces = [];
@@ -477,7 +805,7 @@ function renderRegimeReturn() {{
     }}
 }}
 
-// --- TAB 4: Per-symbol Heatmap ---
+// --- TAB 6: Per-symbol Heatmap ---
 function renderSymbolHeatmap() {{
     const symbols = {json.dumps(data.get('symbols', []))};
     if (symbols.length === 0) return;
@@ -512,7 +840,7 @@ function renderSymbolHeatmap() {{
     }});
 }}
 
-// --- TAB 5: Rolling Sharpe ---
+// --- TAB 7: Rolling Sharpe ---
 function renderRollingSharpe() {{
     const traces = [];
     let hasData = false;
@@ -553,7 +881,7 @@ function renderRollingSharpe() {{
     }}
 }}
 
-// --- TAB 5: Monthly Returns Heatmap ---
+// --- TAB 7: Monthly Returns Heatmap ---
 function renderMonthlyReturns() {{
     // Collect all months across strategies
     const allMonths = new Set();
@@ -606,6 +934,12 @@ function renderMonthlyReturns() {{
 // Initialize all charts
 renderEquityCurves();
 renderDrawdowns();
+buildStockRows();
+initStockFilter();
+renderStockTable();
+renderSectorSharpe();
+renderSectorReturn();
+renderSectorTable();
 renderRegimeSharpe();
 renderRegimeReturn();
 renderSymbolHeatmap();
