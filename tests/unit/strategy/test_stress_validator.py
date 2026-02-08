@@ -12,7 +12,6 @@ from datetime import date
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from src.backtest.optimization.stress_validator import (
     STRESS_WINDOWS,
@@ -60,7 +59,6 @@ def _make_equity_curve(
                     # Stay at bottom
                     equity[idx] = pre_crash_val * (1 + crash_dd)
             # After crash, continue from bottom
-            bottom = equity[crash_indices[-1]]
             for i in range(crash_indices[-1] + 1, len(dates)):
                 equity[i] = equity[i - 1] * (1 + daily_return)
 

@@ -13,7 +13,6 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional, Tuple
 
-import numpy as np
 import pandas as pd
 
 from ..param_loader import get_strategy_params
@@ -96,8 +95,9 @@ class SqueezePlaySignalGenerator:
         adx_vals = adx(high, low, close, 14)
         adx_ok = adx_vals >= adx_min
 
-        # Direction: above upper BB = long, below lower BB = short
-        # For simple SignalGenerator, use long-only
+        # Design decision: Long-only. Short path (close < lower BB) is
+        # intentionally excluded — SqueezePlay targets breakout continuation
+        # which historically has positive expectancy only on the long side.
         long_entry = close_above_bb & release_ok & outside_ok & adx_ok
 
         # Shift +1 for execution realism

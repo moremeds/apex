@@ -44,7 +44,7 @@ Exit priority (via ExitManager):
 
 import logging
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from typing import Deque, Dict, List, Optional
 

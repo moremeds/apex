@@ -4,16 +4,60 @@ module_path: "src.domain.strategy.signals.pulse_dip"
 class_name: "PulseDipSignalGenerator"
 
 # Current best parameters — used by all runners, playbooks, signal generators
+# v2: Upgraded to use TrendPulse + DualMACD indicators for parity with
+# the event-driven PulseDipStrategy.
 params:
-  ema_trend_period: 99
+  # PulseDip-specific (dip buying)
   rsi_period: 14
   rsi_entry_threshold: 35.0
+
+  # Trend filter (shared with TrendPulse)
+  ema_trend_period: 99
+  trend_strength_moderate: 0.15
+  norm_max_adx: 50.0
+
+  # Chop filter
+  adx_entry_min: 15.0
+
+  # DualMACD params (shared with TrendPulse)
+  slow_fast: 55
+  slow_slow: 89
+  slow_signal: 34
+  slope_lookback: 3
+  exit_bearish_bars: 3
+
+  # TrendPulse indicator params
+  zig_threshold_pct: 3.5
+  swing_filter_bars: 5
+  trend_strength_strong: 0.6
+  top_wr_main: 34
+
+  # Risk management
   atr_stop_mult: 3.0
-  max_hold_bars: 40
   hard_stop_pct: 0.08
 
 # Parameter iteration history (most recent first)
 history:
+  - version: "v2.0-parity"
+    date: "2026-02-08"
+    source: "Upgraded signal generator to TrendPulse+DualMACD for VBT/event-driven parity"
+    changes:
+      - "Added TrendPulse EMA-99 trend filter + trend_strength"
+      - "Added ADX chop filter (adx_entry_min)"
+      - "Added DualMACD confluence (bullish/improving/deteriorating)"
+      - "Added DualMACD bearish exit + TrendPulse top_detected exit"
+      - "Warmup increased from 120 to 260 bars"
+    params:
+      rsi_period: 14
+      rsi_entry_threshold: 35.0
+      ema_trend_period: 99
+      trend_strength_moderate: 0.15
+      adx_entry_min: 15.0
+      atr_stop_mult: 3.0
+      hard_stop_pct: 0.08
+      exit_bearish_bars: 3
+    reason: "Match event-driven PulseDipStrategy core signal logic"
+
   - version: "v1.0-manual"
     date: "2025-12-01"
     source: "Hand-tuned initial params"
@@ -24,4 +68,4 @@ history:
       atr_stop_mult: 3.0
       max_hold_bars: 40
       hard_stop_pct: 0.08
-    reason: "Initial hand-tuned params"
+    reason: "Initial hand-tuned params (simple EMA+RSI only)"

@@ -187,7 +187,6 @@ class SqueezePlayStrategy(Strategy):
 
         # Detect squeeze state
         is_squeeze = bb_upper < kc_upper and bb_lower > kc_lower
-        was_squeeze = self._squeeze_on[symbol]
         self._squeeze_on[symbol] = is_squeeze
 
         # Track release persistence

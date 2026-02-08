@@ -1,8 +1,11 @@
 """
 Strategy Comparison Runner.
 
-Downloads daily OHLCV data and runs multiple strategy signal generators
-via VectorBT, then generates a comparison dashboard (strategies.html).
+Downloads daily OHLCV data and runs ALL strategies through BacktestEngine
+(event-driven), then generates a comparison dashboard (strategies.html).
+
+All 6 strategies (Tier 1 + Tier 2) use the same engine for apples-to-apples
+comparison. VectorBT is NOT used here — it stays for Optuna optimization only.
 
 Usage:
     # With explicit symbols
@@ -21,14 +24,17 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import asyncio
 import logging
-from datetime import date, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from datetime import date, datetime, timedelta
+from typing import Any, Dict, List, Optional, Tuple, Type
 
 import numpy as np
 import pandas as pd
 
+from src.domain.signals.indicators.regime.models import MarketRegime, RegimeOutput
 from src.domain.strategy.param_loader import get_strategy_metadata, list_strategies
+from src.domain.strategy.providers import RegimeProvider
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +54,62 @@ STRESS_WINDOWS: Dict[str, Tuple[str, str]] = {
     "regional_bank_2023": ("2023-03-08", "2023-03-24"),
     "aug_2024_unwind": ("2024-07-10", "2024-08-15"),
 }
+
+# Map regime string labels to MarketRegime enum
+_REGIME_MAP: Dict[str, MarketRegime] = {
+    "R0": MarketRegime.R0_HEALTHY_UPTREND,
+    "R1": MarketRegime.R1_CHOPPY_EXTENDED,
+    "R2": MarketRegime.R2_RISK_OFF,
+    "R3": MarketRegime.R3_REBOUND_WINDOW,
+}
+
+
+class SeriesRegimeProvider:
+    """
+    Regime provider backed by a pre-computed pd.Series of regime labels.
+
+    Used by the comparison runner to provide regime context to strategies
+    running in BacktestEngine without needing the full regime detector.
+
+    The provider maintains a current timestamp that the compare runner
+    advances as bars are processed. get_market_regime() looks up the
+    regime label at the current timestamp.
+    """
+
+    def __init__(self, regime_series: pd.Series) -> None:
+        """
+        Args:
+            regime_series: pd.Series indexed by datetime with values "R0"-"R3".
+        """
+        self._regime_series = regime_series
+        self._current_regime: Optional[MarketRegime] = None
+
+    def advance_to(self, timestamp: datetime) -> None:
+        """Advance the provider to a given timestamp (look up regime label)."""
+        # Find the regime at or before this timestamp via forward-fill
+        ts = pd.Timestamp(timestamp)
+        if ts.tzinfo is None and self._regime_series.index.tz is not None:
+            ts = ts.tz_localize(self._regime_series.index.tz)
+        elif ts.tzinfo is not None and self._regime_series.index.tz is None:
+            ts = ts.tz_localize(None)
+
+        # Use searchsorted to find the nearest prior index
+        idx = self._regime_series.index.searchsorted(ts, side="right") - 1
+        if idx >= 0:
+            label = str(self._regime_series.iloc[idx])
+            self._current_regime = _REGIME_MAP.get(label)
+        else:
+            self._current_regime = None
+
+    def get_regime(self, symbol: str) -> Optional[RegimeOutput]:
+        """Get regime output for a symbol (uses market-level regime)."""
+        if self._current_regime is None:
+            return None
+        return RegimeOutput(final_regime=self._current_regime)
+
+    def get_market_regime(self) -> Optional[MarketRegime]:
+        """Get current market-level regime."""
+        return self._current_regime
 
 
 def _download_data(symbol: str, start: date, end: date) -> pd.DataFrame:
@@ -86,81 +148,200 @@ def _compute_regime_series(data: pd.DataFrame) -> pd.Series:
     return regime
 
 
-def _run_strategy_on_symbol(
-    generator: Any,
+def _get_strategy_class(strategy_name: str) -> Optional[Type]:
+    """
+    Look up a Strategy class from the @register_strategy registry.
+
+    Imports the playbook package first to ensure all strategies are registered.
+    """
+    # Ensure playbook strategies are registered
+    import src.domain.strategy.playbook  # noqa: F401
+    from src.domain.strategy.registry import get_strategy_class
+
+    return get_strategy_class(strategy_name)
+
+
+async def _run_strategy_event_driven(
+    strategy_name: str,
+    strategy_class: Type,
     data: pd.DataFrame,
     params: Dict[str, Any],
-    regime_series: Optional[pd.Series] = None,
+    regime_series: pd.Series,
     init_cash: float = 100_000.0,
 ) -> Dict[str, Any]:
-    """Run a signal generator on one symbol's data via VectorBT."""
-    import vectorbt as vbt
+    """
+    Run a strategy on one symbol's data via BacktestEngine (event-driven).
 
-    if len(data) < generator.warmup_bars + 10:
+    This replaces the VectorBT path for consistent metrics across all strategies.
+
+    Args:
+        strategy_name: Name of the strategy (for logging).
+        strategy_class: Strategy class from @register_strategy registry.
+        data: OHLCV DataFrame for one symbol.
+        params: Strategy parameters from YAML.
+        regime_series: Pre-computed regime labels (from SPY).
+        init_cash: Initial capital.
+
+    Returns:
+        Metrics dict compatible with _aggregate_results(), or {} on failure.
+    """
+    from src.backtest.data.feeds.memory_feeds import InMemoryDataFeed
+    from src.backtest.execution.engines.backtest_engine import BacktestConfig, BacktestEngine
+
+    if len(data) < 260:
         return {}
 
-    entries, exits = generator.generate(data, params)
-    close = data["close"]
+    symbol = data.attrs.get("symbol", "UNKNOWN")
 
-    pf = vbt.Portfolio.from_signals(
-        close=close,
-        entries=entries,
-        exits=exits,
-        init_cash=init_cash,
-        fees=0.001,
-        slippage=0.0005,
-        freq="1D",
+    # Build InMemoryDataFeed from DataFrame
+    feed = InMemoryDataFeed()
+    for ts, row in data.iterrows():
+        bar_ts = ts.to_pydatetime() if hasattr(ts, "to_pydatetime") else ts
+        if hasattr(bar_ts, "tzinfo") and bar_ts.tzinfo is not None:
+            bar_ts = bar_ts.replace(tzinfo=None)
+        feed.add_bar(
+            symbol=symbol,
+            timestamp=bar_ts,
+            open=float(row["open"]),
+            high=float(row["high"]),
+            low=float(row["low"]),
+            close=float(row["close"]),
+            volume=float(row.get("volume", 0)),
+        )
+
+    # Create regime provider
+    regime_provider = SeriesRegimeProvider(regime_series)
+
+    # Configure BacktestEngine
+    start_date = data.index[0].date() if hasattr(data.index[0], "date") else data.index[0]
+    end_date = data.index[-1].date() if hasattr(data.index[-1], "date") else data.index[-1]
+
+    config = BacktestConfig(
+        start_date=start_date,
+        end_date=end_date,
+        symbols=[symbol],
+        initial_capital=init_cash,
+        strategy_name=strategy_name,
     )
 
-    # Extract key metrics
+    engine = BacktestEngine(config)
+
+    # Wire regime provider into context
+    engine._context.regime_provider = regime_provider
+
+    # Set strategy and data feed
+    engine.set_strategy(strategy_class=strategy_class, strategy_name=strategy_name, params=params)
+    engine.set_data_feed(feed)
+
+    # Hook: advance regime provider when clock advances
+    original_advance = engine._clock.advance_to
+
+    def _advance_with_regime(new_time: datetime) -> int:
+        regime_provider.advance_to(new_time)
+        return original_advance(new_time)
+
+    engine._clock.advance_to = _advance_with_regime  # type: ignore[assignment]
+
+    # Run backtest
     try:
-        stats = pf.stats()
+        result = await engine.run()
+    except Exception as e:
+        logger.warning(f"BacktestEngine failed for {strategy_name}/{symbol}: {e}")
+        return {}
 
-        def safe_get(key: str, default: float = 0.0) -> float:
-            try:
-                val = stats.get(key, default)
-                if pd.isna(val):
-                    return default
-                fval = float(val)
-                return default if np.isinf(fval) else fval
-            except (TypeError, ValueError):
-                return default
+    # Extract metrics into the same dict format as _aggregate_results expects
+    return _extract_metrics(result, regime_series, init_cash)
 
-        returns_series = pf.returns()
-        equity = pf.value()
 
-        # -- Per-regime metrics --
-        per_regime_sharpe: Dict[str, float] = {}
-        per_regime_return: Dict[str, float] = {}
-        if regime_series is not None:
-            aligned_regime = regime_series.reindex(returns_series.index, method="ffill")
-            for regime_label in ["R0", "R1", "R2", "R3"]:
-                mask = aligned_regime == regime_label
-                regime_rets = returns_series[mask]
-                if len(regime_rets) > 20:
-                    mean_r = float(regime_rets.mean())
-                    std_r = float(regime_rets.std())
-                    sharpe = (mean_r / std_r * np.sqrt(252)) if std_r > 0 else 0.0
-                    total_r = float((1 + regime_rets).prod() - 1)
-                    if not np.isinf(sharpe):
-                        per_regime_sharpe[regime_label] = round(sharpe, 3)
-                    per_regime_return[regime_label] = round(total_r, 4)
+def _extract_metrics(
+    result: Any,
+    regime_series: pd.Series,
+    init_cash: float,
+) -> Dict[str, Any]:
+    """
+    Extract metrics from BacktestResult into the dashboard-compatible dict.
 
-        # -- Monthly returns --
-        monthly_returns: Dict[str, float] = {}
-        if len(returns_series) > 0:
-            monthly = (1 + returns_series).resample("ME").prod() - 1
-            for dt, val in monthly.items():
-                if not pd.isna(val):
-                    monthly_returns[dt.strftime("%Y-%m")] = round(float(val), 4)
+    Maps BacktestResult fields to the same structure that _aggregate_results
+    and StrategyComparisonBuilder expect.
+    """
+    perf = result.performance
+    risk = result.risk
+    trades = result.trades
 
-        # -- Stress window results --
-        stress_results: Dict[str, Dict[str, float]] = {}
+    if perf is None or risk is None or trades is None:
+        return {}
+
+    total_return = perf.total_return
+    sharpe = risk.sharpe_ratio
+    max_dd = -(risk.max_drawdown / 100.0) if risk.max_drawdown > 0 else risk.max_drawdown / 100.0
+    win_rate = (trades.win_rate / 100.0) if trades.win_rate > 1 else trades.win_rate
+    total_trades = trades.total_trades
+
+    # Build equity values/index from equity_curve
+    equity_values: List[float] = []
+    equity_index: List[int] = []
+    for point in result.equity_curve:
+        equity_values.append(point["equity"])
+        # Parse date string to timestamp
+        dt = (
+            datetime.fromisoformat(point["date"])
+            if isinstance(point["date"], str)
+            else point["date"]
+        )
+        if isinstance(dt, date) and not isinstance(dt, datetime):
+            dt = datetime.combine(dt, datetime.min.time())
+        equity_index.append(int(dt.timestamp()))
+
+    # Build returns series from equity
+    returns_list: List[float] = []
+    for i in range(1, len(equity_values)):
+        if equity_values[i - 1] > 0:
+            returns_list.append(equity_values[i] / equity_values[i - 1] - 1)
+        else:
+            returns_list.append(0.0)
+
+    # Per-regime metrics
+    per_regime_sharpe: Dict[str, float] = {}
+    per_regime_return: Dict[str, float] = {}
+    if len(returns_list) > 0 and len(equity_index) > 1:
+        ret_idx = pd.Index([pd.Timestamp(t, unit="s") for t in equity_index[1:]])
+        returns_series = pd.Series(returns_list, index=ret_idx)
+        aligned_regime = regime_series.reindex(returns_series.index, method="ffill")
+        for regime_label in ["R0", "R1", "R2", "R3"]:
+            mask = aligned_regime == regime_label
+            regime_rets = returns_series[mask]
+            if len(regime_rets) > 20:
+                mean_r = float(regime_rets.mean())
+                std_r = float(regime_rets.std())
+                s = (mean_r / std_r * np.sqrt(252)) if std_r > 0 else 0.0
+                total_r = float((1 + regime_rets).prod() - 1)
+                if not np.isinf(s):
+                    per_regime_sharpe[regime_label] = round(s, 3)
+                per_regime_return[regime_label] = round(total_r, 4)
+
+    # Monthly returns
+    monthly_returns: Dict[str, float] = {}
+    if len(returns_list) > 0 and len(equity_index) > 1:
+        ret_idx = pd.Index([pd.Timestamp(t, unit="s") for t in equity_index[1:]])
+        returns_series = pd.Series(returns_list, index=ret_idx)
+        monthly = (1 + returns_series).resample("ME").prod() - 1
+        for dt, val in monthly.items():
+            if not pd.isna(val):
+                monthly_returns[dt.strftime("%Y-%m")] = round(float(val), 4)
+
+    # Stress window results
+    stress_results: Dict[str, Dict[str, float]] = {}
+    if equity_values and equity_index:
+        eq_idx_pd = pd.Index([pd.Timestamp(t, unit="s") for t in equity_index])
+        eq_series = pd.Series(equity_values, index=eq_idx_pd)
         for window_name, (start_str, end_str) in STRESS_WINDOWS.items():
-            start_dt = pd.Timestamp(start_str, tz=equity.index.tz)
-            end_dt = pd.Timestamp(end_str, tz=equity.index.tz)
-            mask = (equity.index >= start_dt) & (equity.index <= end_dt)
-            window_equity = equity[mask]
+            start_dt = pd.Timestamp(start_str)
+            end_dt = pd.Timestamp(end_str)
+            if eq_idx_pd.tz is not None:
+                start_dt = start_dt.tz_localize(eq_idx_pd.tz)
+                end_dt = end_dt.tz_localize(eq_idx_pd.tz)
+            mask = (eq_series.index >= start_dt) & (eq_series.index <= end_dt)
+            window_equity = eq_series[mask]
             if len(window_equity) > 3:
                 total_ret = float(window_equity.iloc[-1] / window_equity.iloc[0]) - 1
                 peak = window_equity.expanding().max()
@@ -170,39 +351,53 @@ def _run_strategy_on_symbol(
                     "max_drawdown": round(dd, 4),
                 }
 
-        # -- Rolling Sharpe (60-day) --
-        rolling_sharpe: List[List[float]] = []
-        if len(returns_series) > 60:
-            roll_mean = returns_series.rolling(60).mean()
-            roll_std = returns_series.rolling(60).std()
-            roll_sharpe = (roll_mean / roll_std * np.sqrt(252)).dropna()
-            for ts, val in zip(roll_sharpe.index, roll_sharpe.values):
-                fval = float(val)
-                if not np.isnan(fval) and not np.isinf(fval):
-                    rolling_sharpe.append([int(ts.timestamp()), fval])
+    # Rolling Sharpe (60-day)
+    rolling_sharpe: List[List[float]] = []
+    if len(returns_list) > 60:
+        ret_idx = pd.Index([pd.Timestamp(t, unit="s") for t in equity_index[1:]])
+        returns_series = pd.Series(returns_list, index=ret_idx)
+        roll_mean = returns_series.rolling(60).mean()
+        roll_std = returns_series.rolling(60).std()
+        roll_sharpe = (roll_mean / roll_std * np.sqrt(252)).dropna()
+        for ts, val in zip(roll_sharpe.index, roll_sharpe.values):
+            fval = float(val)
+            if not np.isnan(fval) and not np.isinf(fval):
+                rolling_sharpe.append([int(ts.timestamp()), fval])
 
-        # Timestamps in SECONDS (template multiplies by 1000 for JS Date)
-        return {
-            "total_return": safe_get("Total Return [%]", 0) / 100,
-            "sharpe": safe_get("Sharpe Ratio", 0),
-            "sortino": safe_get("Sortino Ratio", 0),
-            "calmar": safe_get("Calmar Ratio", 0),
-            "max_drawdown": safe_get("Max Drawdown [%]", 0) / 100,
-            "win_rate": safe_get("Win Rate [%]", 0) / 100,
-            "profit_factor": safe_get("Profit Factor", 0),
-            "total_trades": int(safe_get("Total Trades", 0)),
-            "equity_values": equity.values.tolist(),
-            "equity_index": [int(ts.timestamp()) for ts in equity.index],
-            "returns": returns_series.values.tolist(),
-            "per_regime_sharpe": per_regime_sharpe,
-            "per_regime_return": per_regime_return,
-            "monthly_returns": monthly_returns,
-            "stress_results": stress_results,
-            "rolling_sharpe": rolling_sharpe,
-        }
-    except Exception as e:
-        logger.warning(f"Metrics extraction failed: {e}")
-        return {}
+    # Sortino (from daily returns)
+    sortino = 0.0
+    if len(returns_list) > 20:
+        ret_arr = np.array(returns_list)
+        mean_r = float(ret_arr.mean())
+        downside = ret_arr[ret_arr < 0]
+        if len(downside) > 0:
+            downside_std = float(np.std(downside))
+            if downside_std > 0:
+                sortino = mean_r / downside_std * np.sqrt(252)
+
+    # Calmar
+    calmar = 0.0
+    if max_dd != 0:
+        calmar = abs(total_return / max_dd)
+
+    return {
+        "total_return": total_return,
+        "sharpe": sharpe,
+        "sortino": sortino,
+        "calmar": calmar,
+        "max_drawdown": max_dd,
+        "win_rate": win_rate,
+        "profit_factor": trades.profit_factor,
+        "total_trades": total_trades,
+        "equity_values": equity_values,
+        "equity_index": equity_index,
+        "returns": returns_list,
+        "per_regime_sharpe": per_regime_sharpe,
+        "per_regime_return": per_regime_return,
+        "monthly_returns": monthly_returns,
+        "stress_results": stress_results,
+        "rolling_sharpe": rolling_sharpe,
+    }
 
 
 def _aggregate_results(
@@ -385,11 +580,15 @@ def run_comparison(
     """
     Run strategy comparison and generate HTML dashboard.
 
+    All strategies run through BacktestEngine (event-driven) for consistent
+    metrics. No VectorBT in the comparison path.
+
     Args:
         symbols: List of ticker symbols.
         output_path: Path for strategies.html output.
         years: Lookback period in years.
         strategies: Strategy names to compare (default: all registered).
+        universe_path: Path to universe YAML (for sector mapping).
 
     Returns:
         Path to generated HTML file.
@@ -406,6 +605,7 @@ def run_comparison(
 
     print(f"Strategy comparison: {len(strategy_names)} strategies x {len(symbols)} symbols")
     print(f"Period: {start_date} to {end_date} ({years}yr)")
+    print("Engine: BacktestEngine (event-driven, all strategies)")
 
     # Download data for all symbols
     print("Downloading data...")
@@ -414,6 +614,8 @@ def run_comparison(
         try:
             df = _download_data(symbol, start_date, end_date)
             if not df.empty:
+                # Store symbol name in DataFrame attrs for downstream use
+                df.attrs["symbol"] = symbol
                 all_data[symbol] = df
                 print(f"  {symbol}: {len(df)} bars")
             else:
@@ -454,21 +656,26 @@ def run_comparison(
             print(f"  Unknown strategy: {strat_name} (skipped)")
             continue
 
-        module_path, class_name, default_params, tier = STRATEGY_REGISTRY[strat_name]
-        print(f"\nRunning {strat_name}...")
+        _module_path, _class_name, default_params, tier = STRATEGY_REGISTRY[strat_name]
+        print(f"\nRunning {strat_name} (event-driven)...")
 
-        # Import and instantiate
-        from importlib import import_module
-
-        mod = import_module(module_path)
-        gen_cls = getattr(mod, class_name)
-        generator = gen_cls()
+        # Look up Strategy class from @register_strategy registry
+        strategy_class = _get_strategy_class(strat_name)
+        if strategy_class is None:
+            print(f"  {strat_name}: not found in strategy registry (skipped)")
+            continue
 
         # Run on each symbol
         per_symbol: Dict[str, Dict[str, Any]] = {}
         for symbol, data in all_data.items():
-            result = _run_strategy_on_symbol(
-                generator, data, default_params, regime_series=regime_series
+            result = asyncio.run(
+                _run_strategy_event_driven(
+                    strategy_name=strat_name,
+                    strategy_class=strategy_class,
+                    data=data,
+                    params=default_params,
+                    regime_series=regime_series,
+                )
             )
             per_symbol[symbol] = result
             if result:
@@ -478,7 +685,7 @@ def run_comparison(
                     f"Trades={result['total_trades']}"
                 )
             else:
-                print(f"  {symbol}: insufficient data")
+                print(f"  {symbol}: insufficient data or backtest failed")
 
         # Aggregate
         agg = _aggregate_results(per_symbol)

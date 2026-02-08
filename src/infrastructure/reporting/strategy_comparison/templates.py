@@ -89,7 +89,6 @@ def render_comparison_html(data: Dict[str, Any]) -> str:
         row = f"<tr><td>{stress_labels.get(window, window)}</td>"
         for name, m in data["strategies"].items():
             stress = m.get("stress_results", {}).get(window, {})
-            dd = stress.get("max_drawdown", 0)
             ret = stress.get("total_return", 0)
             val = f"{ret:+.1%}" if ret != 0 else "N/A"
             row += f'<td class="{"positive" if ret > 0 else "negative"}">{val}</td>'

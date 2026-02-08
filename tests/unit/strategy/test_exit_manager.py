@@ -13,7 +13,6 @@ from src.domain.strategy.exit_manager import (
     ExitConditions,
     ExitManager,
     ExitPriority,
-    ExitSignal,
 )
 
 

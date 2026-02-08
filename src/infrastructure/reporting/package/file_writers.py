@@ -597,7 +597,7 @@ def _compute_squeeze_play_history(
     - src/domain/strategy/playbook/squeeze_play.py (full event-driven logic)
     """
     try:
-        from src.domain.strategy.signals.indicators import adx, atr, bbands, ema
+        from src.domain.strategy.signals.indicators import adx, atr, bbands
 
         if len(df) < 50:
             return []
