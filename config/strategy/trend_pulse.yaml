@@ -5,11 +5,13 @@ class_name: "TrendPulseSignalGenerator"
 
 # Current best parameters — used by all runners, playbooks, signal generators
 params:
-  zig_threshold_pct: 3.5
+  zig_threshold_pct: 2.5
   trend_strength_moderate: 0.15
   trend_strength_strong: 0.6
-  min_confidence: 0.5
-  atr_stop_mult: 3.5
+  min_confidence: 0.35
+  atr_stop_mult: 5.0
+  hard_stop_pct: 0.15
+  risk_per_trade_pct: 0.05
   exit_bearish_bars: 3
   enable_trend_reentry: false
   enable_chop_filter: true
@@ -28,6 +30,31 @@ params:
 
 # Parameter iteration history (most recent first)
 history:
+  - version: "v2.4-entry-fix"
+    date: "2026-02-08"
+    source: "Dashboard analysis — 9 trades/10 symbols root cause: R1 regime blocked + zig threshold too high"
+    changes:
+      - "zig_threshold_pct 3.5 → 2.5 (more frequent swing signals on daily bars)"
+      - "Regime gate: added R1 with 0.5 size factor (zig+DualMACD+ADX already filter adequately)"
+      - "Constructor defaults synced to YAML (atr_stop_mult 3.5→5.0, risk_per_trade_pct 0.02→0.05)"
+    params:
+      zig_threshold_pct: 2.5
+      atr_stop_mult: 5.0
+      risk_per_trade_pct: 0.05
+    reason: "AND-conjunction of 9 entry conditions with single-bar zig trigger was too restrictive; lowering zig threshold and allowing R1 regime increases opportunity set ~3x"
+
+  - version: "v2.3-atr-fix"
+    date: "2026-02-08"
+    source: "Production dashboard analysis — 6% WR root cause: ATR trail too tight"
+    changes:
+      - "atr_stop_mult 3.5 → 5.0 (daily bars need 10% trail room, not 7%)"
+    params:
+      atr_stop_mult: 5.0
+      hard_stop_pct: 0.15
+      min_confidence: 0.35
+      exit_bearish_bars: 3
+    reason: "ATR(14) × 3.5 = 7% trail catches normal consolidation; × 5.0 = 10% gives room for 2-3 day pullbacks"
+
   - version: "v2.2-optuna"
     date: "2026-02-08"
     source: "Optuna nested CV + walk-forward (trend_pulse_validate.yaml)"

@@ -11,15 +11,17 @@ a time. The vectorized signal generator uses TA-Lib wrappers.
 Edge: Low-volatility compression predicts expansion. The fake-release
 mitigation (persistence filter) avoids premature entries.
 
-Parameters (8, at budget cap):
-    bb_period: Bollinger period (default 20)
-    bb_std: Bollinger std dev multiplier (default 2.0)
-    kc_multiplier: Keltner channel multiplier (default 1.5)
-    release_persist_bars: Bars release must persist (default 2)
+Parameters (10):
+    bb_period: Bollinger period (default 20, frozen)
+    bb_std: Bollinger std dev multiplier (default 2.0, frozen)
+    kc_multiplier: Keltner channel multiplier (default 1.5, frozen)
+    release_persist_bars: Bars release must persist (default 3)
     close_outside_bars: Bars close must be outside BB (default 2)
     atr_stop_mult: ATR multiplier for trailing stop (default 2.5)
     adx_min: Minimum ADX for trend confirmation (default 20.0)
-    risk_per_trade_pct: Per-trade risk fraction (default 0.02)
+    hard_stop_pct: Hard stop loss from entry (default 0.08)
+    max_hold_bars: Maximum bars before time stop (default 40)
+    risk_per_trade_pct: Per-trade risk fraction (default 0.05)
 
 Fake-release mitigation:
     - Track consecutive bars where squeeze is OFF (release_count)
@@ -85,11 +87,13 @@ class SqueezePlayStrategy(Strategy):
         bb_period: int = 20,
         bb_std: float = 2.0,
         kc_multiplier: float = 1.5,
-        release_persist_bars: int = 2,
+        release_persist_bars: int = 3,
         close_outside_bars: int = 2,
         atr_stop_mult: float = 2.5,
         adx_min: float = 20.0,
-        risk_per_trade_pct: float = 0.02,
+        hard_stop_pct: float = 0.08,
+        max_hold_bars: int = 40,
+        risk_per_trade_pct: float = 0.05,
     ):
         super().__init__(strategy_id, symbols, context)
 
@@ -100,6 +104,8 @@ class SqueezePlayStrategy(Strategy):
         self.close_outside_bars = close_outside_bars
         self.atr_stop_mult = atr_stop_mult
         self.adx_min = adx_min
+        self.hard_stop_pct = hard_stop_pct
+        self.max_hold_bars = max_hold_bars
         self.risk_per_trade_pct = risk_per_trade_pct
 
         # Price history
@@ -123,9 +129,9 @@ class SqueezePlayStrategy(Strategy):
 
         # Infrastructure
         self._exit_manager = ExitManager(
-            hard_stop_pct=0.08,
+            hard_stop_pct=hard_stop_pct,
             atr_trail_mult=atr_stop_mult,
-            max_hold_bars=30,
+            max_hold_bars=max_hold_bars,
         )
         self._regime_gate = RegimeGate(
             policy=RegimePolicy(

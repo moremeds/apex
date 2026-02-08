@@ -4,9 +4,11 @@ module_path: "src.domain.strategy.playbook.sector_pulse"
 class_name: "SectorPulseStrategy"
 
 # Current best parameters — used by all runners, playbooks, signal generators
+execution_mode: portfolio  # Runs with all symbols at once (cross-sectional)
+
 params:
   top_n_sectors: 3
-  confidence_threshold: 0.4
+  confidence_threshold: 0.02
   rebalance_day: 4
   drift_threshold_pct: 0.05
   max_turnover_pct: 0.30

@@ -28,10 +28,33 @@ def render_comparison_html(data: Dict[str, Any]) -> str:
     # Build scorecard HTML
     scorecards = ""
     for name, m in data["strategies"].items():
-        tier_badge = f'<span class="tier-badge">{m.get("tier", "")}</span>' if m.get("tier") else ""
+        is_baseline = name == "buy_and_hold"
+        tier_badge = (
+            f'<span class="tier-badge">{m.get("tier", "")}</span>'
+            if m.get("tier") and not is_baseline
+            else ""
+        )
+        tc = m.get("trade_count", 0)
+        wr = m.get("win_rate", 0)
+        sr = m.get("sharpe", 0)
+        tr = m.get("total_return", 0)
+        mdd = m.get("max_drawdown", 0)
+        if is_baseline:
+            health_cls, health_txt = "health-baseline", "BASELINE"
+        elif tc == 0 or wr < 0.15 or tr < -0.05 or mdd < -0.50:
+            health_cls, health_txt = "health-red", "BROKEN"
+        elif wr < 0.30 or sr < 0.1 or tr < 0:
+            health_cls, health_txt = "health-yellow", "NEEDS WORK"
+        else:
+            health_cls, health_txt = "health-green", "HEALTHY"
+        health_badge = f'<span class="health-badge {health_cls}">{health_txt}</span>'
+        # For buy_and_hold, show "–" for meaningless trade metrics
+        wr_display = "–" if is_baseline else f"{m['win_rate']:.0%}"
+        pf_display = "–" if is_baseline else f"{m.get('profit_factor', 0):.2f}"
+        trades_display = "–" if is_baseline else str(m["trade_count"])
         scorecards += f"""
         <div class="scorecard">
-            <h3>{name} {tier_badge}</h3>
+            <h3>{name} {tier_badge} {health_badge}</h3>
             <div class="metric">
                 <span class="label">Sharpe</span>
                 <span class="value {'positive' if m['sharpe'] > 0 else 'negative'}">{m['sharpe']:.2f}</span>
@@ -46,27 +69,44 @@ def render_comparison_html(data: Dict[str, Any]) -> str:
             </div>
             <div class="metric">
                 <span class="label">WinRate</span>
-                <span class="value">{m['win_rate']:.0%}</span>
+                <span class="value">{wr_display}</span>
             </div>
             <div class="metric">
                 <span class="label">Trades</span>
-                <span class="value">{m['trade_count']}</span>
+                <span class="value">{trades_display}</span>
             </div>
         </div>"""
 
     # Build metrics table rows
     metrics_rows = ""
     for name, m in data["strategies"].items():
+        is_baseline = name == "buy_and_hold"
+        tc = m.get("trade_count", 0)
+        wr = m.get("win_rate", 0)
+        sr = m.get("sharpe", 0)
+        tr = m.get("total_return", 0)
+        mdd = m.get("max_drawdown", 0)
+        if is_baseline:
+            h_cls, h_txt = "health-baseline", "BASELINE"
+        elif tc == 0 or wr < 0.15 or tr < -0.05 or mdd < -0.50:
+            h_cls, h_txt = "health-red", "BROKEN"
+        elif wr < 0.30 or sr < 0.1 or tr < 0:
+            h_cls, h_txt = "health-yellow", "NEEDS WORK"
+        else:
+            h_cls, h_txt = "health-green", "HEALTHY"
+        wr_display = "–" if is_baseline else f"{m['win_rate']:.0%}"
+        pf_display = "–" if is_baseline else f"{m['profit_factor']:.2f}"
+        trades_display = "–" if is_baseline else str(m["trade_count"])
         metrics_rows += f"""
         <tr>
-            <td class="strategy-name">{name}</td>
+            <td class="strategy-name">{name} <span class="health-badge {h_cls}">{h_txt}</span></td>
             <td class="{'best' if m['sharpe'] == max(s['sharpe'] for s in data['strategies'].values()) else ''}">{m['sharpe']:.2f}</td>
             <td>{m['sortino']:.2f}</td>
             <td>{m['calmar']:.2f}</td>
             <td>{m['max_drawdown']:.1%}</td>
-            <td>{m['win_rate']:.0%}</td>
-            <td>{m['profit_factor']:.2f}</td>
-            <td>{m['trade_count']}</td>
+            <td>{wr_display}</td>
+            <td>{pf_display}</td>
+            <td>{trades_display}</td>
         </tr>"""
 
     # Build stress table
@@ -185,6 +225,17 @@ body {{
     color: var(--bg-primary);
     font-weight: 600;
 }}
+.health-badge {{
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 600;
+    color: var(--bg-primary);
+}}
+.health-green {{ background: var(--positive); }}
+.health-yellow {{ background: var(--warning); }}
+.health-red {{ background: var(--negative); }}
+.health-baseline {{ background: var(--accent); }}
 .metric {{
     display: flex;
     justify-content: space-between;
@@ -386,6 +437,10 @@ td.symbol {{ font-weight: 600; color: var(--text-primary); }}
         </div>
     </div>
     <h3 style="margin: 16px 0 8px;">Stress Window Survival</h3>
+    <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 8px;">
+        N/A = data period does not cover this stress window. 3yr data typically covers Aug 2024 only.
+        For full stress coverage, use 5yr+ data (2019+).
+    </p>
     <table>
         <thead>
             <tr>

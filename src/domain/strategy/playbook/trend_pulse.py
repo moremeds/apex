@@ -15,7 +15,8 @@ DualMACD bullish + ADX trending), exit via ExitManager priority chain.
 Parameters (8, at <=8 budget):
     zig_threshold_pct: Zig-zag reversal threshold (default 3.5)
     trend_strength_moderate: Min ADX/50 normalized strength (default 0.15)
-    min_confidence: Min 4-factor confidence score (default 0.5)
+    min_confidence: Min 4-factor confidence score (default 0.35)
+    hard_stop_pct: Hard stop loss from entry (default 0.15)
     atr_stop_mult: ATR multiplier for trailing stop (default 3.5)
     exit_bearish_bars: Consecutive bearish bars for DM exit (default 3)
     adx_entry_min: Min ADX for chop filter (default 15.0)
@@ -30,11 +31,11 @@ Entry (all must be true at bar close):
     5. ADX >= adx_entry_min (chop filter)
     6. 4-factor confidence >= min_confidence
     7. Cooldown elapsed since last exit
-    8. Regime in [R0, R3] via RegimeGate
+    8. Regime in [R0, R1, R3] via RegimeGate
     9. No existing position
 
 Exit priority (via ExitManager):
-    1. Hard stop: entry * (1 - 0.08)
+    1. Hard stop: entry * (1 - hard_stop_pct)
     2. ATR trail: peak - atr_stop_mult * ATR
     3. Regime veto: R2
     4. DM bearish persistence: N consecutive bearish bars
@@ -148,14 +149,15 @@ class TrendPulseStrategy(Strategy):
         strategy_id: str,
         symbols: List[str],
         context: StrategyContext,
-        zig_threshold_pct: float = 3.5,
+        zig_threshold_pct: float = 2.5,
         trend_strength_moderate: float = 0.15,
-        min_confidence: float = 0.5,
-        atr_stop_mult: float = 3.5,
+        min_confidence: float = 0.35,
+        hard_stop_pct: float = 0.15,
+        atr_stop_mult: float = 5.0,
         exit_bearish_bars: int = 3,
         adx_entry_min: float = 15.0,
         cooldown_bars: int = 5,
-        risk_per_trade_pct: float = 0.02,
+        risk_per_trade_pct: float = 0.05,
     ):
         super().__init__(strategy_id, symbols, context)
 
@@ -167,6 +169,7 @@ class TrendPulseStrategy(Strategy):
         self.zig_threshold_pct = zig_threshold_pct
         self.trend_strength_moderate = trend_strength_moderate
         self.min_confidence = min_confidence
+        self.hard_stop_pct = hard_stop_pct
         self.atr_stop_mult = atr_stop_mult
         self.exit_bearish_bars = exit_bearish_bars
         self.adx_entry_min = adx_entry_min
@@ -194,16 +197,16 @@ class TrendPulseStrategy(Strategy):
 
         # Infrastructure
         self._exit_manager = ExitManager(
-            hard_stop_pct=0.08,
+            hard_stop_pct=hard_stop_pct,
             atr_trail_mult=atr_stop_mult,
             max_hold_bars=60,
         )
         self._regime_gate = RegimeGate(
             policy=RegimePolicy(
-                allowed_regimes=["R0", "R3"],
+                allowed_regimes=["R0", "R1", "R3"],
                 min_dwell_bars=5,
                 switch_cooldown_bars=10,
-                size_factors={"R0": 1.0, "R3": 0.3},
+                size_factors={"R0": 1.0, "R1": 0.5, "R3": 0.3},
                 forced_degross_regimes=["R2"],
             )
         )
@@ -469,8 +472,8 @@ class TrendPulseStrategy(Strategy):
         indicator_exit = False
         indicator_reason = ""
 
-        # DM bearish persistence (trigger once at exactly N consecutive bars)
-        if self._dm_bearish_count[symbol] == self.exit_bearish_bars:
+        # DM bearish persistence (trigger at N+ consecutive bearish bars)
+        if self._dm_bearish_count[symbol] >= self.exit_bearish_bars:
             indicator_exit = True
             indicator_reason = f"DM bearish x{self.exit_bearish_bars}"
 

@@ -33,7 +33,11 @@ import numpy as np
 import pandas as pd
 
 from src.domain.signals.indicators.regime.models import MarketRegime, RegimeOutput
-from src.domain.strategy.param_loader import get_strategy_metadata, list_strategies
+from src.domain.strategy.param_loader import (
+    get_strategy_metadata,
+    list_strategies,
+    load_strategy_config,
+)
 from src.domain.strategy.providers import RegimeProvider
 
 logger = logging.getLogger(__name__)
@@ -229,8 +233,18 @@ async def _run_strategy_event_driven(
     # Wire regime provider into context
     engine._context.regime_provider = regime_provider
 
+    # Filter params to only those the strategy constructor accepts.
+    # YAML contains all params (signal gen + playbook), but __init__ only accepts a subset.
+    import inspect
+
+    sig = inspect.signature(strategy_class.__init__)
+    accepted_keys = set(sig.parameters.keys()) - {"self", "strategy_id", "symbols", "context"}
+    filtered_params = {k: v for k, v in params.items() if k in accepted_keys}
+
     # Set strategy and data feed
-    engine.set_strategy(strategy_class=strategy_class, strategy_name=strategy_name, params=params)
+    engine.set_strategy(
+        strategy_class=strategy_class, strategy_name=strategy_name, params=filtered_params
+    )
     engine.set_data_feed(feed)
 
     # Hook: advance regime provider when clock advances
@@ -253,6 +267,121 @@ async def _run_strategy_event_driven(
     return _extract_metrics(result, regime_series, init_cash)
 
 
+async def _run_portfolio_strategy(
+    strategy_name: str,
+    strategy_class: Type,
+    all_data: Dict[str, pd.DataFrame],
+    params: Dict[str, Any],
+    regime_series: pd.Series,
+    init_cash: float = 100_000.0,
+) -> Dict[str, Any]:
+    """
+    Run a portfolio-level strategy with ALL symbols at once.
+
+    Used for cross-sectional strategies (e.g. SectorPulse) that need
+    multiple symbols to rank/rotate. Returns a single aggregate result.
+
+    Args:
+        strategy_name: Name of the strategy.
+        strategy_class: Strategy class from @register_strategy registry.
+        all_data: Dict of symbol -> OHLCV DataFrame.
+        params: Strategy parameters from YAML.
+        regime_series: Pre-computed regime labels.
+        init_cash: Initial capital.
+
+    Returns:
+        Metrics dict compatible with _aggregate_results(), or {} on failure.
+    """
+    from src.backtest.data.feeds.memory_feeds import InMemoryDataFeed
+    from src.backtest.execution.engines.backtest_engine import BacktestConfig, BacktestEngine
+
+    if not all_data:
+        return {}
+
+    symbols = list(all_data.keys())
+
+    # Find common date range
+    all_starts = []
+    all_ends = []
+    for data in all_data.values():
+        if len(data) < 30:
+            continue
+        all_starts.append(data.index[0])
+        all_ends.append(data.index[-1])
+
+    if not all_starts:
+        return {}
+
+    common_start = max(all_starts)
+    common_end = min(all_ends)
+
+    # Build InMemoryDataFeed with all symbols
+    feed = InMemoryDataFeed()
+    for symbol, data in all_data.items():
+        # Trim to common range
+        mask = (data.index >= common_start) & (data.index <= common_end)
+        trimmed = data.loc[mask]
+        for ts, row in trimmed.iterrows():
+            bar_ts = ts.to_pydatetime() if hasattr(ts, "to_pydatetime") else ts
+            if hasattr(bar_ts, "tzinfo") and bar_ts.tzinfo is not None:
+                bar_ts = bar_ts.replace(tzinfo=None)
+            feed.add_bar(
+                symbol=symbol,
+                timestamp=bar_ts,
+                open=float(row["open"]),
+                high=float(row["high"]),
+                low=float(row["low"]),
+                close=float(row["close"]),
+                volume=float(row.get("volume", 0)),
+            )
+
+    # Create regime provider
+    regime_provider = SeriesRegimeProvider(regime_series)
+
+    start_date = common_start.date() if hasattr(common_start, "date") else common_start
+    end_date = common_end.date() if hasattr(common_end, "date") else common_end
+
+    config = BacktestConfig(
+        start_date=start_date,
+        end_date=end_date,
+        symbols=symbols,
+        initial_capital=init_cash,
+        strategy_name=strategy_name,
+    )
+
+    engine = BacktestEngine(config)
+    engine._context.regime_provider = regime_provider
+
+    # Filter params
+    import inspect
+
+    sig = inspect.signature(strategy_class.__init__)
+    accepted_keys = set(sig.parameters.keys()) - {"self", "strategy_id", "symbols", "context"}
+    filtered_params = {k: v for k, v in params.items() if k in accepted_keys}
+
+    engine.set_strategy(
+        strategy_class=strategy_class, strategy_name=strategy_name, params=filtered_params
+    )
+    engine.set_data_feed(feed)
+
+    # Hook: advance regime provider when clock advances
+    original_advance = engine._clock.advance_to
+
+    def _advance_with_regime(new_time: datetime) -> int:
+        regime_provider.advance_to(new_time)
+        return original_advance(new_time)
+
+    engine._clock.advance_to = _advance_with_regime  # type: ignore[assignment]
+
+    try:
+        result = await engine.run()
+    except Exception as e:
+        logger.warning(f"BacktestEngine failed for portfolio strategy {strategy_name}: {e}")
+        return {}
+
+    return _extract_metrics(result, regime_series, init_cash)
+
+
 def _extract_metrics(
     result: Any,
     regime_series: pd.Series,
@@ -270,6 +399,13 @@ def _extract_metrics(
 
     if perf is None or risk is None or trades is None:
         return {}
+
+    # Normalize regime_series index to tz-naive for safe comparison.
+    # BacktestEngine equity curves produce tz-naive timestamps from int seconds,
+    # while regime_series inherits tz-aware index (America/New_York) from Yahoo data.
+    if regime_series.index.tz is not None:
+        regime_series = regime_series.copy()
+        regime_series.index = regime_series.index.tz_localize(None)
 
     total_return = perf.total_return
     sharpe = risk.sharpe_ratio
@@ -657,7 +793,13 @@ def run_comparison(
             continue
 
         _module_path, _class_name, default_params, tier = STRATEGY_REGISTRY[strat_name]
-        print(f"\nRunning {strat_name} (event-driven)...")
+
+        # Check if this is a portfolio-level strategy (cross-sectional)
+        try:
+            strat_config = load_strategy_config(strat_name)
+            is_portfolio = strat_config.get("execution_mode") == "portfolio"
+        except KeyError:
+            is_portfolio = False
 
         # Look up Strategy class from @register_strategy registry
         strategy_class = _get_strategy_class(strat_name)
@@ -665,27 +807,51 @@ def run_comparison(
             print(f"  {strat_name}: not found in strategy registry (skipped)")
             continue
 
-        # Run on each symbol
-        per_symbol: Dict[str, Dict[str, Any]] = {}
-        for symbol, data in all_data.items():
-            result = asyncio.run(
-                _run_strategy_event_driven(
+        if is_portfolio:
+            print(f"\nRunning {strat_name} (portfolio mode, {len(all_data)} symbols)...")
+            portfolio_result = asyncio.run(
+                _run_portfolio_strategy(
                     strategy_name=strat_name,
                     strategy_class=strategy_class,
-                    data=data,
+                    all_data=all_data,
                     params=default_params,
                     regime_series=regime_series,
                 )
             )
-            per_symbol[symbol] = result
-            if result:
+            # Wrap as single "PORTFOLIO" entry for aggregation
+            per_symbol: Dict[str, Dict[str, Any]] = {}
+            if portfolio_result:
+                per_symbol["PORTFOLIO"] = portfolio_result
                 print(
-                    f"  {symbol}: Return={result['total_return']:+.1%} "
-                    f"Sharpe={result['sharpe']:.2f} "
-                    f"Trades={result['total_trades']}"
+                    f"  PORTFOLIO: Return={portfolio_result['total_return']:+.1%} "
+                    f"Sharpe={portfolio_result['sharpe']:.2f} "
+                    f"Trades={portfolio_result['total_trades']}"
                 )
             else:
-                print(f"  {symbol}: insufficient data or backtest failed")
+                print(f"  {strat_name}: portfolio backtest failed")
+        else:
+            print(f"\nRunning {strat_name} (event-driven)...")
+            # Run on each symbol
+            per_symbol = {}
+            for symbol, data in all_data.items():
+                result = asyncio.run(
+                    _run_strategy_event_driven(
+                        strategy_name=strat_name,
+                        strategy_class=strategy_class,
+                        data=data,
+                        params=default_params,
+                        regime_series=regime_series,
+                    )
+                )
+                per_symbol[symbol] = result
+                if result:
+                    print(
+                        f"  {symbol}: Return={result['total_return']:+.1%} "
+                        f"Sharpe={result['sharpe']:.2f} "
+                        f"Trades={result['total_trades']}"
+                    )
+                else:
+                    print(f"  {symbol}: insufficient data or backtest failed")
 
         # Aggregate
         agg = _aggregate_results(per_symbol)

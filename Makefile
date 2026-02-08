@@ -1,7 +1,7 @@
 # APEX Development Makefile
 # Quick commands for common development tasks
 
-.PHONY: install run run-dev run-prod run-demo run-headless lint format type-check dead-code complexity quality test test-all coverage clean help diagrams diagrams-classes diagrams-deps diagrams-flows validate-fast validate signals-test signals signals-deploy strategy-compare behavioral behavioral-full behavioral-cases
+.PHONY: install run run-dev run-prod run-demo run-headless lint format type-check dead-code complexity quality test test-all coverage clean help diagrams diagrams-classes diagrams-deps diagrams-flows validate-fast validate signals-test signals signals-deploy strategy-compare strategy-verify strategy-compare-quick behavioral behavioral-full behavioral-cases
 
 # Virtual environment - use .venv/bin executables directly
 VENV := .venv/bin
@@ -46,6 +46,8 @@ help:
 	@echo "  make signals           Full production run (all features)"
 	@echo "  make signals-deploy    Deploy to GitHub Pages"
 	@echo "  make strategy-compare  Run strategy backtests + comparison dashboard"
+	@echo "  make strategy-compare-quick  Quick compare (3 symbols, 1yr)"
+	@echo "  make strategy-verify   Full strategy verification (tests + compare + lint)"
 	@echo ""
 	@echo "$(GREEN)Behavioral Gate:$(RESET)"
 	@echo "  make behavioral       Quick test (default params) + serve"
@@ -213,6 +215,42 @@ strategy-compare:
 		--years 3 \
 		--output out/signals/strategies.html
 	@echo "$(GREEN)✓ Dashboard: out/signals/strategies.html$(RESET)"
+
+# Quick strategy comparison (3 symbols, 3yr — needs 260+ bars for warmup)
+strategy-compare-quick:
+	@echo "$(BOLD)Quick strategy comparison (3 symbols, 3yr)...$(RESET)"
+	$(PYTHON) -m src.runners.strategy_compare_runner \
+		--symbols SPY AAPL NVDA \
+		--years 3 \
+		--output /tmp/strategies_quick.html
+	@echo "$(GREEN)✓ Dashboard: /tmp/strategies_quick.html$(RESET)"
+
+# Full strategy verification — run after adding/modifying any strategy
+# SOP: tests → type check → quick compare → inspect output
+strategy-verify:
+	@echo "$(BOLD)═══ Strategy Verification Pipeline ═══$(RESET)"
+	@echo ""
+	@echo "$(BOLD)Step 1/5: Unit tests (strategy objective + infrastructure)$(RESET)"
+	$(PYTHON) -m pytest tests/unit/strategy/ -v --no-cov -q
+	@echo ""
+	@echo "$(BOLD)Step 2/5: Integration tests (signal parity)$(RESET)"
+	$(PYTHON) -m pytest tests/integration/test_strategy_parity.py -v --no-cov -q
+	@echo ""
+	@echo "$(BOLD)Step 3/5: Type checking (strategy files)$(RESET)"
+	$(PYTHON) -m mypy src/domain/strategy/signals/ src/backtest/optimization/strategy_objective.py --ignore-missing-imports
+	@echo ""
+	@echo "$(BOLD)Step 4/5: Formatting check$(RESET)"
+	$(PYTHON) -m black --check src/domain/strategy/signals/ src/runners/strategy_compare_runner.py src/backtest/optimization/strategy_objective.py
+	$(PYTHON) -m isort --check src/domain/strategy/signals/ src/runners/strategy_compare_runner.py src/backtest/optimization/strategy_objective.py
+	@echo ""
+	@echo "$(BOLD)Step 5/5: Quick compare (3 symbols, 3yr)$(RESET)"
+	$(PYTHON) -m src.runners.strategy_compare_runner \
+		--symbols SPY AAPL NVDA \
+		--years 3 \
+		--output /tmp/strategies_verify.html
+	@echo ""
+	@echo "$(GREEN)═══ All strategy verification checks passed ═══$(RESET)"
+	@echo "$(GREEN)✓ Dashboard: /tmp/strategies_verify.html$(RESET)"
 
 # Quick test with 12 diverse symbols + HTTP server
 signals-test:

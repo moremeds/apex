@@ -11,11 +11,12 @@ a time. The vectorized signal generator uses TA-Lib wrappers.
 Edge: Enter on RSI dips within confirmed uptrends (EMA filter + TrendPulse
 bullish), exit via deterministic ExitManager priority chain.
 
-Parameters (7, within <=8 budget):
+Parameters (8, within <=8 budget):
     ema_trend_period: EMA period for trend filter (default 99)
     rsi_period: RSI calculation period (default 14)
     rsi_entry_threshold: RSI below this = dip (default 35)
-    atr_stop_mult: ATR multiplier for trailing stop (default 3.0)
+    atr_stop_mult: ATR multiplier for trailing stop (default 2.5)
+    hard_stop_pct: Max loss from entry before catastrophic exit (default 0.08)
     min_confluence_score: Min alignment score (default 20)
     max_hold_bars: Maximum bars to hold (default 40)
     risk_per_trade_pct: Per-trade risk fraction (default 0.02)
@@ -27,11 +28,13 @@ Entry (all must be true at bar close):
     4. Confluence alignment_score >= min_confluence_score
     5. No existing position
 
-Exit priority (via ExitManager):
-    1. Hard stop: entry * (1 - 0.08)
-    2. ATR trail: peak - atr_stop_mult * ATR
+Exit priority (split by intent):
+    0. Win-target trail: if gain > 2*ATR, tighten trail to peak - 1.5*ATR
+    1. Hard stop: entry * (1 - hard_stop_pct)
+    2. ATR trail: peak - atr_stop_mult * ATR (default 2.5)
     3. Regime veto: R2
-    4. Indicator deterioration: RSI > 65 OR TrendPulse top_detected
+    4a. Profit-taking: RSI > 65 → partial exit (50%), rest continues
+    4b. Deterioration: TrendPulse top_detected → full exit
     5. Time stop: max_hold_bars
 """
 
@@ -51,8 +54,8 @@ from ..registry import register_strategy
 
 logger = logging.getLogger(__name__)
 
-# Warmup: max(ema_trend_period, rsi_period, atr_period) + buffer
-WARMUP_BARS = 120
+# Warmup: match signal generator (260 = TrendPulse EMA-99 + DualMACD slow_slow + buffer)
+WARMUP_BARS = 260
 
 
 @dataclass
@@ -65,6 +68,7 @@ class PulseDipPosition:
     peak_price: float
     stop_level: float
     trail_level: float
+    profit_taken: bool = False
 
 
 @register_strategy(
@@ -91,7 +95,8 @@ class PulseDipStrategy(Strategy):
         ema_trend_period: int = 99,
         rsi_period: int = 14,
         rsi_entry_threshold: float = 35.0,
-        atr_stop_mult: float = 3.0,
+        atr_stop_mult: float = 2.5,
+        hard_stop_pct: float = 0.08,
         min_confluence_score: int = 20,
         max_hold_bars: int = 40,
         risk_per_trade_pct: float = 0.02,
@@ -108,6 +113,7 @@ class PulseDipStrategy(Strategy):
         self.rsi_period = rsi_period
         self.rsi_entry_threshold = rsi_entry_threshold
         self.atr_stop_mult = atr_stop_mult
+        self.hard_stop_pct = hard_stop_pct
         self.min_confluence_score = min_confluence_score
         self.max_hold_bars = max_hold_bars
         self.risk_per_trade_pct = risk_per_trade_pct
@@ -128,7 +134,7 @@ class PulseDipStrategy(Strategy):
 
         # Infrastructure
         self._exit_manager = ExitManager(
-            hard_stop_pct=0.08,
+            hard_stop_pct=hard_stop_pct,
             atr_trail_mult=atr_stop_mult,
             max_hold_bars=max_hold_bars,
         )
@@ -309,30 +315,85 @@ class PulseDipStrategy(Strategy):
         bar_idx: int,
         pos: PulseDipPosition,
     ) -> None:
-        """Manage exit for existing position via ExitManager."""
+        """Manage exit for existing position via split exit logic.
+
+        Exit checks (in order):
+        0. Win-target trail: if gain > 2*ATR, tighten trail to 1.5*ATR
+        1-5. ExitManager priority chain (hard stop, ATR trail, regime, deterioration, time)
+        Partial: RSI > 65 → sell 50% (profit-taking), rest continues
+        """
         # Update peak price
         if close > pos.peak_price:
             pos.peak_price = close
 
         bars_held = bar_idx - pos.entry_bar
 
-        # Check regime veto
+        # --- Pre-ExitManager: Win-target trail tightening ---
+        # When profit exceeds 2*ATR, use tighter 1.5*ATR trail to lock in gains
+        unrealized_gain = close - pos.entry_price
+        if atr_val > 0 and unrealized_gain > 2.0 * atr_val:
+            tight_trail = pos.peak_price - 1.5 * atr_val
+            if close <= tight_trail:
+                self._exit_full(
+                    symbol,
+                    close,
+                    pos,
+                    bars_held,
+                    f"Win-target trail: {close:.2f} <= {tight_trail:.2f} "
+                    f"(peak {pos.peak_price:.2f} - 1.5*ATR)",
+                )
+                return
+
+        # --- Partial profit-taking: RSI > 65 → sell 50% ---
+        if rsi_val > 65 and not pos.profit_taken and pos.quantity > 1:
+            half_qty = pos.quantity // 2
+            if half_qty > 0:
+                pnl_pct = (close - pos.entry_price) / pos.entry_price
+                self.emit_signal(
+                    TradingSignal(
+                        signal_id="",
+                        symbol=symbol,
+                        direction="LONG",  # still long, just reduced
+                        reason=(
+                            f"PulseDip PARTIAL: RSI={rsi_val:.1f} > 65, "
+                            f"sell 50% (P/L: {pnl_pct:.1%})"
+                        ),
+                        metadata={
+                            "exit_type": "profit_taking",
+                            "pnl_pct": pnl_pct,
+                            "sold_qty": half_qty,
+                        },
+                    )
+                )
+                self.request_order(
+                    OrderRequest(
+                        symbol=symbol,
+                        side="SELL",
+                        quantity=half_qty,
+                        order_type="MARKET",
+                    )
+                )
+                pos.quantity -= half_qty
+                pos.profit_taken = True
+                logger.info(
+                    f"[{self.strategy_id}] PulseDip PARTIAL: {symbol} "
+                    f"sell {half_qty} @ {close:.2f}, RSI={rsi_val:.1f}"
+                )
+                # Continue — remaining position still managed by ExitManager
+
+        # --- ExitManager checks ---
+
+        # Regime veto
         regime = self._get_current_regime(symbol)
         regime_is_veto = False
         if regime is not None:
             regime_is_veto = regime.value in self._regime_gate.policy.forced_degross_regimes
 
-        # Check indicator deterioration: RSI > 65 OR TrendPulse top_detected
+        # Deterioration: TrendPulse top_detected only (RSI > 65 handled as partial above)
         indicator_exit = False
         indicator_reason = ""
-        if rsi_val > 65:
-            indicator_exit = True
-            indicator_reason = f"RSI overbought: {rsi_val:.1f} > 65"
-
-        # Check TrendPulse top_detected via regime provider
         regime_output = self.context.get_regime(symbol)
         if regime_output is not None:
-            # TrendPulse top detection is surfaced in component states
             tp = getattr(regime_output, "turning_point", None)
             if tp is not None and getattr(tp, "prediction", None) == "TOP_RISK":
                 indicator_exit = True
@@ -353,34 +414,52 @@ class PulseDipStrategy(Strategy):
 
         exit_signal = self._exit_manager.evaluate(conditions)
         if exit_signal is not None:
-            pnl_pct = (close - pos.entry_price) / pos.entry_price
-            self.emit_signal(
-                TradingSignal(
-                    signal_id="",
-                    symbol=symbol,
-                    direction="FLAT",
-                    reason=f"PulseDip EXIT: {exit_signal.reason} (P/L: {pnl_pct:.1%})",
-                    metadata={
-                        "exit_priority": exit_signal.priority.name,
-                        "pnl_pct": pnl_pct,
-                        "bars_held": bars_held,
-                    },
-                )
+            self._exit_full(
+                symbol,
+                close,
+                pos,
+                bars_held,
+                exit_signal.reason,
             )
-            self.request_order(
-                OrderRequest(
-                    symbol=symbol,
-                    side="SELL",
-                    quantity=pos.quantity,
-                    order_type="MARKET",
-                )
+
+    def _exit_full(
+        self,
+        symbol: str,
+        close: float,
+        pos: PulseDipPosition,
+        bars_held: int,
+        reason: str,
+    ) -> None:
+        """Execute full position exit."""
+        pnl_pct = (close - pos.entry_price) / pos.entry_price
+        self.emit_signal(
+            TradingSignal(
+                signal_id="",
+                symbol=symbol,
+                direction="FLAT",
+                reason=f"PulseDip EXIT: {reason} (P/L: {pnl_pct:.1%})",
+                metadata={
+                    "exit_reason": reason,
+                    "pnl_pct": pnl_pct,
+                    "bars_held": bars_held,
+                    "partial_taken": pos.profit_taken,
+                },
             )
-            self._positions[symbol] = None
-            logger.info(
-                f"[{self.strategy_id}] PulseDip EXIT: {symbol} "
-                f"@ {close:.2f}, reason={exit_signal.reason}, "
-                f"P/L={pnl_pct:.1%}, held={bars_held} bars"
+        )
+        self.request_order(
+            OrderRequest(
+                symbol=symbol,
+                side="SELL",
+                quantity=pos.quantity,
+                order_type="MARKET",
             )
+        )
+        self._positions[symbol] = None
+        logger.info(
+            f"[{self.strategy_id}] PulseDip EXIT: {symbol} "
+            f"@ {close:.2f}, reason={reason}, "
+            f"P/L={pnl_pct:.1%}, held={bars_held} bars"
+        )
 
     def _get_current_regime(self, symbol: str) -> Optional[MarketRegime]:
         """Get current regime for symbol (prefer market-level)."""

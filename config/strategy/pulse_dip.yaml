@@ -33,11 +33,32 @@ params:
   top_wr_main: 34
 
   # Risk management
-  atr_stop_mult: 3.0
+  atr_stop_mult: 2.5
   hard_stop_pct: 0.08
+  risk_per_trade_pct: 0.05
 
 # Parameter iteration history (most recent first)
 history:
+  - version: "v2.1-exit-tuning"
+    date: "2026-02-08"
+    source: "Phase B4 hardening — tighter trail, split exits, win-target"
+    changes:
+      - "Tightened atr_stop_mult 3.0 → 2.5 (dip-buy bounce target is closer)"
+      - "Split exits: RSI > 65 → partial (50%), TrendPulse top → full"
+      - "Win-target trail: gain > 2*ATR tightens trail to 1.5*ATR"
+      - "Playbook warmup 120 → 260 to match signal generator"
+      - "hard_stop_pct now parameterized (was hardcoded 0.08)"
+    params:
+      rsi_period: 14
+      rsi_entry_threshold: 35.0
+      ema_trend_period: 99
+      trend_strength_moderate: 0.15
+      adx_entry_min: 15.0
+      atr_stop_mult: 2.5
+      hard_stop_pct: 0.08
+      exit_bearish_bars: 3
+    reason: "Sharpe 0.08 → target 0.3+ via tighter exits and partial profit-taking"
+
   - version: "v2.0-parity"
     date: "2026-02-08"
     source: "Upgraded signal generator to TrendPulse+DualMACD for VBT/event-driven parity"

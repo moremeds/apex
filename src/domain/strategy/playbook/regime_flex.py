@@ -1,13 +1,18 @@
 """
 RegimeFlex Strategy - Regime-Based Gross Exposure Scaler.
 
-Computes and emits a regime-aware gross exposure signal with smooth
-ramping on regime transitions. Does NOT place trades directly -
-downstream consumers (e.g., portfolio managers or other strategies)
-use the emitted gross exposure target to scale positions.
+Standalone trading strategy that adjusts position size based on market regime.
+Buys/sells to match the regime-appropriate gross exposure target with smooth
+ramping on regime transitions.
 
 Edge: Smoothly adapts gross exposure to market regime, preventing
 sudden de-grossing on transient regime flips via linear ramping.
+
+Position logic:
+    - Computes target_shares = (gross_pct * portfolio_value) / price
+    - Compares to current position, issues BUY/SELL to rebalance
+    - R2 → immediate liquidation (override ramp)
+    - Minimum order threshold avoids excessive tiny trades
 
 Parameters (6):
     r0_gross_pct: Gross exposure in R0 (default 1.0)
@@ -19,9 +24,11 @@ Parameters (6):
 """
 
 import logging
+import uuid
 from typing import Dict, List, Optional
 
 from ...events.domain_events import BarData, QuoteTick, TradeFill
+from ...interfaces.execution_provider import OrderRequest
 from ...signals.indicators.regime.models import MarketRegime
 from ..base import Strategy, StrategyContext, TradingSignal
 from ..regime_gate import RegimeGate, RegimePolicy
@@ -29,24 +36,27 @@ from ..registry import register_strategy
 
 logger = logging.getLogger(__name__)
 
+# Minimum order size (shares) to avoid excessive tiny rebalances
+_MIN_ORDER_SHARES = 1
+
 
 @register_strategy(
     "regime_flex",
-    description="Regime-switched meta-strategy wrapping PulseDip + SqueezePlay",
+    description="Regime-switched gross exposure strategy — buys/sells to match regime targets",
     author="Apex",
-    version="1.0",
+    version="2.0",
     max_params=6,
     tier=2,
 )
 class RegimeFlexStrategy(Strategy):
     """
-    RegimeFlex: Regime-based gross exposure signal emitter.
+    RegimeFlex: Regime-based position sizing strategy.
 
-    Computes and emits gross exposure targets with smooth ramping:
+    Adjusts position quantity to match regime-appropriate gross exposure:
     - R0 (Healthy): Full allocation (r0_gross_pct)
     - R1 (Choppy): Reduced allocation (r1_gross_pct)
     - R3 (Rebound): Small allocation (r3_gross_pct)
-    - R2 (Risk-Off): De-gross to 0% over ramp_bars
+    - R2 (Risk-Off): Immediate liquidation to 0%
     """
 
     def __init__(
@@ -99,6 +109,8 @@ class RegimeFlexStrategy(Strategy):
         self._ramp_start_bar: int = 0
         self._ramp_start_gross: float = 1.0
         self._last_regime: Optional[MarketRegime] = None
+        self._initial_capital: float = 100_000.0
+        self._cash: float = 100_000.0  # Track cash dynamically via on_fill
 
     def on_start(self) -> None:
         logger.info(
@@ -108,10 +120,12 @@ class RegimeFlexStrategy(Strategy):
         )
 
     def on_bar(self, bar: BarData) -> None:
-        """Process bar - update regime and delegate to sub-strategies."""
+        """Process bar - update regime, compute exposure target, rebalance position."""
         symbol = bar.symbol
         if bar.close is None:
             return
+
+        close = bar.close
 
         self._bar_count[symbol] = self._bar_count.get(symbol, 0) + 1
         bar_idx = self._bar_count[symbol]
@@ -126,19 +140,29 @@ class RegimeFlexStrategy(Strategy):
 
         # Detect regime transitions for ramping
         if regime != self._last_regime and self._last_regime is not None:
-            self._start_ramp(regime, bar_idx)
+            # R2 override: immediate liquidation, no ramp
+            if regime == MarketRegime.R2_RISK_OFF:
+                self._target_gross = 0.0
+                self._current_gross = 0.0
+                self._ramp_start_bar = bar_idx
+                self._ramp_start_gross = 0.0
+            else:
+                self._start_ramp(regime, bar_idx)
         self._last_regime = regime
 
         # Compute current gross with smooth ramping
         current_gross = self._compute_ramped_gross(bar_idx)
         self._current_gross = current_gross
 
+        # Compute target shares and rebalance
+        self._rebalance_position(symbol, close, current_gross)
+
         # Emit regime status signal
         self.emit_signal(
             TradingSignal(
                 signal_id="",
                 symbol=symbol,
-                direction="LONG" if current_gross > 0.5 else "FLAT",
+                direction="LONG" if current_gross > 0.05 else "FLAT",
                 strength=current_gross,
                 reason=(
                     f"RegimeFlex: regime={regime.value}, "
@@ -154,6 +178,57 @@ class RegimeFlexStrategy(Strategy):
                 },
             )
         )
+
+    def _get_portfolio_value(self, symbol: str, price: float) -> float:
+        """Compute current portfolio value = cash + position value."""
+        position_value = self.context.get_position_quantity(symbol) * price
+        return self._cash + position_value
+
+    def _rebalance_position(self, symbol: str, price: float, gross_pct: float) -> None:
+        """Rebalance position to match target gross exposure."""
+        if price <= 0:
+            return
+
+        portfolio_value = self._get_portfolio_value(symbol, price)
+        target_value = gross_pct * portfolio_value
+        target_shares = int(target_value / price)
+
+        # Get current position
+        current_qty = self.context.get_position_quantity(symbol)
+        current_shares = int(current_qty)
+
+        diff = target_shares - current_shares
+
+        # Skip tiny rebalances
+        if abs(diff) < _MIN_ORDER_SHARES:
+            return
+
+        if diff > 0:
+            # Cap buy quantity to available cash
+            max_affordable = int(self._cash / price) if price > 0 else 0
+            buy_qty = min(diff, max_affordable)
+            if buy_qty < _MIN_ORDER_SHARES:
+                return
+            self.request_order(
+                OrderRequest(
+                    symbol=symbol,
+                    side="BUY",
+                    quantity=buy_qty,
+                    order_type="MARKET",
+                    client_order_id=f"{self.strategy_id}-buy-{uuid.uuid4().hex[:8]}",
+                )
+            )
+        elif diff < 0:
+            # Need to sell
+            self.request_order(
+                OrderRequest(
+                    symbol=symbol,
+                    side="SELL",
+                    quantity=abs(diff),
+                    order_type="MARKET",
+                    client_order_id=f"{self.strategy_id}-sell-{uuid.uuid4().hex[:8]}",
+                )
+            )
 
     def _start_ramp(self, new_regime: MarketRegime, bar_idx: int) -> None:
         """Start smooth ramping to new gross target."""
@@ -195,6 +270,12 @@ class RegimeFlexStrategy(Strategy):
         pass
 
     def on_fill(self, fill: TradeFill) -> None:
+        # Track cash for dynamic portfolio value (including commissions)
+        cost = fill.price * fill.quantity
+        if fill.side == "BUY":
+            self._cash -= cost + fill.commission
+        else:
+            self._cash += cost - fill.commission
         logger.debug(
             f"[{self.strategy_id}] FILL: "
             f"{fill.side} {fill.quantity} {fill.symbol} @ {fill.price:.2f}"

@@ -57,7 +57,7 @@ class SectorPulseStrategy(Strategy):
         symbols: List[str],
         context: StrategyContext,
         top_n_sectors: int = 3,
-        confidence_threshold: float = 0.4,
+        confidence_threshold: float = 0.02,
         rebalance_day: int = 4,  # Friday
         drift_threshold_pct: float = 0.05,
         max_turnover_pct: float = 0.30,
@@ -83,7 +83,8 @@ class SectorPulseStrategy(Strategy):
         self._per_symbol_bar_count: Dict[str, int] = {s: 0 for s in symbols}
         self._reference_symbol: str = symbols[0]  # Use first symbol for rebalance timing
         self._last_rebalance_bar: int = 0
-        self._total_capital: float = 100_000.0
+        self._initial_capital: float = 100_000.0
+        self._cash: float = 100_000.0  # Track cash dynamically via on_fill
         self._initialized: bool = False
 
         # Regime gate
@@ -213,24 +214,57 @@ class SectorPulseStrategy(Strategy):
         )
 
     def _rank_sectors(self) -> List[tuple[str, float]]:
-        """Rank sectors by momentum score (20-day return)."""
+        """Rank sectors by multi-horizon momentum score.
+
+        Composite: 0.5 * ret_1m + 0.3 * ret_3m + 0.2 * ret_6m (when available).
+        Falls back to available horizons with re-normalized weights.
+        """
         rankings = []
         for symbol in self.symbols:
             prices = list(self._prices[symbol])
-            if len(prices) < 20:
+            n = len(prices)
+            if n < 5:
                 rankings.append((symbol, 0.0))
                 continue
 
-            # Simple momentum: 20-day return
-            ret_20d = (prices[-1] / prices[-20] - 1.0) if prices[-20] > 0 else 0.0
-            rankings.append((symbol, ret_20d))
+            # Multi-horizon returns (20d ~ 1m, 60d ~ 3m)
+            horizons = []
+            weights = []
+            if n >= 20 and prices[-20] > 0:
+                horizons.append(prices[-1] / prices[-20] - 1.0)
+                weights.append(0.5)
+            if n >= 60 and prices[-60] > 0:
+                horizons.append(prices[-1] / prices[-60] - 1.0)
+                weights.append(0.3)
+            # Longest available horizon (up to 60 bars in deque)
+            if n >= 40 and prices[0] > 0:
+                horizons.append(prices[-1] / prices[0] - 1.0)
+                weights.append(0.2)
+
+            if not horizons:
+                rankings.append((symbol, 0.0))
+                continue
+
+            # Re-normalize weights
+            w_sum = sum(weights)
+            score = sum(h * w / w_sum for h, w in zip(horizons, weights))
+            rankings.append((symbol, score))
 
         # Sort descending by score
         rankings.sort(key=lambda x: x[1], reverse=True)
         return rankings
 
+    def _get_portfolio_value(self) -> float:
+        """Compute current portfolio value = cash + positions."""
+        position_value = sum(
+            self.context.get_position_quantity(s) * (self._current_prices.get(s) or 0)
+            for s in self.symbols
+        )
+        return self._cash + position_value
+
     def _execute_rebalance(self, target_weights: Dict[str, float]) -> None:
         """Execute rebalancing trades to match target weights."""
+        portfolio_value = self._get_portfolio_value()
         for symbol in self.symbols:
             target_weight = target_weights.get(symbol, 0.0)
             price = self._current_prices.get(symbol)
@@ -238,22 +272,36 @@ class SectorPulseStrategy(Strategy):
                 continue
 
             current_qty = self.context.get_position_quantity(symbol)
-            target_value = self._total_capital * target_weight
+            target_value = portfolio_value * target_weight
             target_qty = int(target_value / price)
             diff = target_qty - int(current_qty)
 
             if abs(diff) < 1:
                 continue
 
-            side = "BUY" if diff > 0 else "SELL"
-            self.request_order(
-                OrderRequest(
-                    symbol=symbol,
-                    side=side,
-                    quantity=abs(diff),
-                    order_type="MARKET",
+            if diff > 0:
+                # Cap buy quantity to available cash
+                max_affordable = int(self._cash / price) if price > 0 else 0
+                buy_qty = min(diff, max_affordable)
+                if buy_qty < 1:
+                    continue
+                self.request_order(
+                    OrderRequest(
+                        symbol=symbol,
+                        side="BUY",
+                        quantity=buy_qty,
+                        order_type="MARKET",
+                    )
                 )
-            )
+            else:
+                self.request_order(
+                    OrderRequest(
+                        symbol=symbol,
+                        side="SELL",
+                        quantity=abs(diff),
+                        order_type="MARKET",
+                    )
+                )
 
     def _liquidate_all(self) -> None:
         """Liquidate all positions (R2 regime forced exit)."""
@@ -316,6 +364,12 @@ class SectorPulseStrategy(Strategy):
         pass
 
     def on_fill(self, fill: TradeFill) -> None:
+        # Track cash for dynamic portfolio value (including commissions)
+        cost = fill.price * fill.quantity
+        if fill.side == "BUY":
+            self._cash -= cost + fill.commission
+        else:
+            self._cash += cost - fill.commission
         logger.debug(
             f"[{self.strategy_id}] FILL: "
             f"{fill.side} {fill.quantity} {fill.symbol} @ {fill.price:.2f}"
