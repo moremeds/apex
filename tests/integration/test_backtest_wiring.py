@@ -113,7 +113,7 @@ class TestStrategyRegistryConsistency:
 
     def test_strategy_registry_contains_expected_strategies(self) -> None:
         """Verify core strategies are registered."""
-        from src.domain.strategy import examples  # noqa: F401 - triggers registration
+        from src.domain.strategy import playbook  # noqa: F401 - triggers registration
         from src.domain.strategy.registry import StrategyRegistry
 
         registry = StrategyRegistry()
@@ -131,7 +131,7 @@ class TestStrategyRegistryConsistency:
         - StrategyRegistry: Full Strategy classes for ApexEngine/live trading
         - manifest.yaml: SignalGenerator-only strategies for VectorBT screening
         """
-        from src.domain.strategy import examples  # noqa: F401
+        from src.domain.strategy import playbook  # noqa: F401
         from src.domain.strategy.registry import StrategyRegistry
 
         registry = StrategyRegistry()
@@ -168,7 +168,7 @@ class TestStrategyRegistryConsistency:
 
     def test_mtf_strategy_registered(self) -> None:
         """Verify MTF RSI Trend strategy is registered."""
-        from src.domain.strategy import examples  # noqa: F401
+        from src.domain.strategy import playbook  # noqa: F401
         from src.domain.strategy.registry import StrategyRegistry
 
         registry = StrategyRegistry()

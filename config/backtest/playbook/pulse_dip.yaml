@@ -60,7 +60,7 @@ temporal:
   end_date: "2025-06-30"
 
 optimization:
-  method: optuna
+  method: bayesian
   metric: sharpe
   direction: maximize
   n_trials: 50

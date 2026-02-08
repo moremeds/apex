@@ -1,0 +1,27 @@
+name: regime_flex
+tier: "TIER 2"
+module_path: "src.domain.strategy.playbook.regime_flex"
+class_name: "RegimeFlexStrategy"
+
+# Current best parameters — used by all runners, playbooks, signal generators
+params:
+  r0_gross_pct: 1.0
+  r1_gross_pct: 0.6
+  r3_gross_pct: 0.3
+  ramp_bars: 10
+  min_dwell_bars: 10
+  switch_cooldown_bars: 15
+
+# Parameter iteration history (most recent first)
+history:
+  - version: "v1.0-manual"
+    date: "2025-12-01"
+    source: "Hand-tuned initial params"
+    params:
+      r0_gross_pct: 1.0
+      r1_gross_pct: 0.6
+      r3_gross_pct: 0.3
+      ramp_bars: 10
+      min_dwell_bars: 10
+      switch_cooldown_bars: 15
+    reason: "Initial hand-tuned params for regime-based exposure scaling"

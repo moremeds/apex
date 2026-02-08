@@ -75,7 +75,7 @@ temporal:
 
 # Optimization settings
 optimization:
-  method: optuna
+  method: bayesian
   direction: maximize
   n_trials: 27  # 3 x 3 x 3 (full grid for small space)
 

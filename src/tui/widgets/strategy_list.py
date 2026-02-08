@@ -104,7 +104,7 @@ class StrategyList(DataTable):
         try:
             # Import example strategies to ensure they're registered
             # This can be slow due to module loading
-            from ...domain.strategy import examples  # noqa: F401
+            from ...domain.strategy import playbook  # noqa: F401
             from ...domain.strategy.registry import StrategyRegistry, get_strategy_info
 
             strategy_list = sorted(StrategyRegistry.list_strategies())

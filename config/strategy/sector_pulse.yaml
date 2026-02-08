@@ -1,0 +1,29 @@
+name: sector_pulse
+tier: "TIER 2"
+module_path: "src.domain.strategy.playbook.sector_pulse"
+class_name: "SectorPulseStrategy"
+
+# Current best parameters — used by all runners, playbooks, signal generators
+params:
+  top_n_sectors: 3
+  confidence_threshold: 0.4
+  rebalance_day: 4
+  drift_threshold_pct: 0.05
+  max_turnover_pct: 0.30
+  slippage_bps: 10.0
+  risk_per_sector_pct: 0.10
+
+# Parameter iteration history (most recent first)
+history:
+  - version: "v1.0-manual"
+    date: "2025-12-01"
+    source: "Hand-tuned initial params"
+    params:
+      top_n_sectors: 3
+      confidence_threshold: 0.4
+      rebalance_day: 4
+      drift_threshold_pct: 0.05
+      max_turnover_pct: 0.30
+      slippage_bps: 10.0
+      risk_per_sector_pct: 0.10
+    reason: "Initial hand-tuned params for sector rotation with regime gating"
