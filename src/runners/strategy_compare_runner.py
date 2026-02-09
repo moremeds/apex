@@ -1022,16 +1022,21 @@ def run_comparison(
             # Run on each symbol
             per_symbol = {}
             for symbol, data in all_data.items():
-                result = asyncio.run(
-                    _run_strategy_event_driven(
-                        strategy_name=strat_name,
-                        strategy_class=strategy_class,
-                        data=data,
-                        params=default_params,
-                        regime_series=regime_series,
-                        order_config=order_config,
+                try:
+                    result = asyncio.run(
+                        _run_strategy_event_driven(
+                            strategy_name=strat_name,
+                            strategy_class=strategy_class,
+                            data=data,
+                            params=default_params,
+                            regime_series=regime_series,
+                            order_config=order_config,
+                        )
                     )
-                )
+                except Exception as e:
+                    # Some strategies (e.g. pairs_trading) can't run per-symbol
+                    print(f"  {strat_name}: failed on {symbol} ({e})")
+                    break
                 per_symbol[symbol] = result
                 if result:
                     print(
