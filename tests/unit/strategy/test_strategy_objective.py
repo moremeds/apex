@@ -19,7 +19,11 @@ import pytest
 from optuna import create_study
 from optuna.exceptions import TrialPruned
 
-from src.backtest.optimization.strategy_objective import BacktestResult, StrategyObjective
+from src.backtest.optimization.strategy_objective import (
+    FROZEN_PARAMS,
+    BacktestResult,
+    StrategyObjective,
+)
 
 
 def _make_result(
@@ -230,7 +234,7 @@ class TestParameterSpaces:
     """Test parameter suggestion for different strategies."""
 
     def test_pulse_dip_params(self) -> None:
-        """PulseDip suggests correct parameter space."""
+        """PulseDip suggests correct parameter space (matched to constructor)."""
         result = _make_result()
         objective = StrategyObjective(
             strategy_name="pulse_dip",
@@ -239,11 +243,16 @@ class TestParameterSpaces:
         study = create_study(direction="maximize")
         study.optimize(objective, n_trials=1)
         trial = study.trials[0]
-        # Verify expected params are suggested
+        # Verify expected params are suggested (matched to PulseDipStrategy.__init__)
         assert "rsi_period" in trial.params
         assert "rsi_entry_threshold" in trial.params
         assert "atr_stop_mult" in trial.params
-        assert "adx_entry_min" in trial.params
+        assert "hard_stop_pct" in trial.params
+        assert "min_confluence_score" in trial.params
+        # These should NOT be in pulse_dip (they belong to trend_pulse)
+        assert "adx_entry_min" not in trial.params
+        assert "trend_strength_moderate" not in trial.params
+        assert "exit_bearish_bars" not in trial.params
 
     def test_squeeze_play_frozen_params(self) -> None:
         """SqueezePlay: bb_period, bb_std, kc_multiplier NOT in search space."""
@@ -286,8 +295,10 @@ class TestParameterSpaces:
         study.optimize(objective, n_trials=1)
         trial = study.trials[0]
         assert "atr_stop_mult" in trial.params
-        assert "cooldown_bars" in trial.params
         assert "min_confidence" in trial.params
+        assert "zig_threshold_pct" in trial.params
+        # cooldown_bars is now frozen (structural)
+        assert "cooldown_bars" not in trial.params
 
     def test_unknown_strategy_empty_params(self) -> None:
         """Unknown strategy returns empty params (uses YAML defaults)."""
@@ -353,3 +364,121 @@ class TestEdgeCases:
         study = create_study(direction="maximize")
         study.optimize(objective, n_trials=1)
         assert study.trials[0].state.name == "PRUNED"
+
+
+class TestTier2ParamSpaces:
+    """Test Tier 2 strategy param spaces (RegimeFlex, SectorPulse)."""
+
+    def test_regime_flex_params(self) -> None:
+        """RegimeFlex suggests 4 params matched to constructor."""
+        result = _make_result()
+        objective = StrategyObjective(
+            strategy_name="regime_flex",
+            run_fn=lambda _: result,
+        )
+        study = create_study(direction="maximize")
+        study.optimize(objective, n_trials=1)
+        trial = study.trials[0]
+        assert "r0_gross_pct" in trial.params
+        assert "r1_gross_pct" in trial.params
+        assert "r3_gross_pct" in trial.params
+        assert "ramp_bars" in trial.params
+        assert len(trial.params) == 4
+
+    def test_sector_pulse_params(self) -> None:
+        """SectorPulse suggests 5 params (no frozen params after dead-code removal)."""
+        result = _make_result()
+        objective = StrategyObjective(
+            strategy_name="sector_pulse",
+            run_fn=lambda _: result,
+        )
+        study = create_study(direction="maximize")
+        study.optimize(objective, n_trials=1)
+        trial = study.trials[0]
+        assert "top_n_sectors" in trial.params
+        assert "confidence_threshold" in trial.params
+        assert "drift_threshold_pct" in trial.params
+        assert "max_turnover_pct" in trial.params
+        assert "risk_per_sector_pct" in trial.params
+        assert len(trial.params) == 5
+
+    def test_regime_flex_param_ranges(self) -> None:
+        """RegimeFlex params are within expected ranges."""
+        result = _make_result()
+        objective = StrategyObjective(
+            strategy_name="regime_flex",
+            run_fn=lambda _: result,
+        )
+        study = create_study(direction="maximize")
+        study.optimize(objective, n_trials=1)
+        trial = study.trials[0]
+        assert 0.7 <= trial.params["r0_gross_pct"] <= 1.0
+        assert 0.2 <= trial.params["r1_gross_pct"] <= 0.7
+        assert 0.1 <= trial.params["r3_gross_pct"] <= 0.5
+        assert 3 <= trial.params["ramp_bars"] <= 20
+
+
+class TestConstructorParamValidation:
+    """Test that Optuna param names are validated against strategy constructors."""
+
+    def test_valid_params_pass(self) -> None:
+        """Params matching constructor should pass validation."""
+        from src.domain.strategy.playbook.squeeze_play import SqueezePlayStrategy
+
+        result = _make_result()
+        objective = StrategyObjective(
+            strategy_name="squeeze_play",
+            run_fn=lambda _: result,
+            strategy_class=SqueezePlayStrategy,
+        )
+        study = create_study(direction="maximize")
+        study.optimize(objective, n_trials=1)
+        assert study.trials[0].state.name == "COMPLETE"
+
+    def test_invalid_params_raise(self) -> None:
+        """Params NOT in constructor should raise ValueError."""
+        from src.domain.strategy.playbook.squeeze_play import SqueezePlayStrategy
+
+        # Create a custom objective that suggests a param not in the constructor
+        class BadObjective(StrategyObjective):
+            def _build_param_space(self, trial: "Trial") -> Dict[str, Any]:
+                return {"nonexistent_param": trial.suggest_float("nonexistent_param", 0, 1)}
+
+        result = _make_result()
+        objective = BadObjective(
+            strategy_name="squeeze_play",
+            run_fn=lambda _: result,
+            strategy_class=SqueezePlayStrategy,
+        )
+        study = create_study(direction="maximize")
+        # Should raise ValueError (converted to TrialPruned by Optuna's error handling)
+        with pytest.raises(ValueError, match="not in squeeze_play constructor"):
+            objective(study.ask())
+
+    def test_no_class_skips_validation(self) -> None:
+        """Without strategy_class, validation is skipped (backward compatible)."""
+        result = _make_result()
+        objective = StrategyObjective(
+            strategy_name="squeeze_play",
+            run_fn=lambda _: result,
+            # No strategy_class provided
+        )
+        study = create_study(direction="maximize")
+        study.optimize(objective, n_trials=1)
+        assert study.trials[0].state.name == "COMPLETE"
+
+
+class TestFrozenParams:
+    """Test frozen params registry."""
+
+    def test_squeeze_play_frozen(self) -> None:
+        """SqueezePlay has 3 frozen params."""
+        assert FROZEN_PARAMS["squeeze_play"] == {"bb_period", "bb_std", "kc_multiplier"}
+
+    def test_sector_pulse_frozen(self) -> None:
+        """SectorPulse has no frozen params (dead params removed from constructor)."""
+        assert FROZEN_PARAMS["sector_pulse"] == set()
+
+    def test_trend_pulse_frozen(self) -> None:
+        """TrendPulse has 2 frozen params."""
+        assert FROZEN_PARAMS["trend_pulse"] == {"risk_per_trade_pct", "cooldown_bars"}

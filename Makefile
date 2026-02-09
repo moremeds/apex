@@ -289,6 +289,8 @@ signals:
 		--html-output out/signals
 	@echo "$(GREEN)✓ Report: out/signals/index.html$(RESET)"
 	@echo "$(GREEN)✓ Heatmap: out/signals/heatmap.html$(RESET)"
+	@echo "$(BOLD)Serving at http://localhost:8800 — Ctrl+C to stop$(RESET)"
+	@cd out/signals && python3 -m http.server 8800
 
 # Deploy to GitHub Pages (full pipeline + deploy in one command)
 signals-deploy:
@@ -324,12 +326,6 @@ signals-push:
 	@rm -rf /tmp/gh-pages-deploy
 	@echo "$(GREEN)✓ Deployed to GitHub Pages$(RESET)"
 
-# Serve local report (for testing before deploy)
-signals-serve:
-	@echo "$(BOLD)Serving signal report at http://localhost:8080$(RESET)"
-	@test -d out/signals || (echo "$(RED)Error: out/signals not found. Run 'make signals' first.$(RESET)" && exit 1)
-	@echo "$(YELLOW)Press Ctrl+C to stop$(RESET)"
-	@cd out/signals && python3 -m http.server 8080
 
 # Quick deploy (skip retraining - use existing models)
 signals-deploy-quick:

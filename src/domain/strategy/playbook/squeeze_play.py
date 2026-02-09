@@ -1,8 +1,10 @@
 """
-SqueezePlay Strategy - Bollinger/Keltner Squeeze Breakout.
+SqueezePlay Strategy - Bollinger/Keltner Squeeze Breakout (Long-Only).
 
 Detects Bollinger Bands inside Keltner Channels (squeeze), then enters
-on confirmed release with directional bias from TrendPulse.
+LONG on confirmed upside release (close > upper BB). Short path removed
+for parity with vectorized signal generator — squeeze breakout continuation
+historically has positive expectancy only on the long side.
 
 Note: Indicators (BB, KC, ATR, ADX) are computed incrementally bar-by-bar
 rather than via TA-Lib, since event-driven strategies process one bar at
@@ -54,13 +56,12 @@ WARMUP_BARS = 50
 
 @dataclass
 class SqueezePosition:
-    """Track an open SqueezePlay position."""
+    """Track an open SqueezePlay position (long-only)."""
 
     entry_price: float
     quantity: int
     entry_bar: int
     peak_price: float
-    direction: str  # "LONG" or "SHORT"
 
 
 @register_strategy(
@@ -246,13 +247,11 @@ class SqueezePlayStrategy(Strategy):
         if adx_val is not None and adx_val < self.adx_min:
             return
 
-        # Direction bias: close above upper BB = long, below lower = short
-        if close > bb_upper:
-            direction = "LONG"
-        elif close < bb_lower:
-            direction = "SHORT"
-        else:
-            return  # No clear direction
+        # Long-only: enter on upside breakout (close above upper BB).
+        # Short path removed for parity with signal generator — squeeze
+        # breakout continuation has positive expectancy only on the long side.
+        if close <= bb_upper:
+            return
 
         # Regime gate
         regime = self._get_current_regime(symbol)
@@ -286,20 +285,18 @@ class SqueezePlayStrategy(Strategy):
             quantity=sizing.shares,
             entry_bar=bar_idx,
             peak_price=close,
-            direction=direction,
         )
 
-        side = "BUY" if direction == "LONG" else "SELL"
         self.emit_signal(
             TradingSignal(
                 signal_id="",
                 symbol=symbol,
-                direction=direction,
+                direction="LONG",
                 strength=1.0,
                 target_quantity=float(sizing.shares),
                 target_price=close,
                 reason=(
-                    f"SqueezePlay BREAKOUT {direction}: "
+                    f"SqueezePlay BREAKOUT LONG: "
                     f"release={self._release_count[symbol]}bars, "
                     f"outside={self._outside_count[symbol]}bars"
                 ),
@@ -314,14 +311,14 @@ class SqueezePlayStrategy(Strategy):
         self.request_order(
             OrderRequest(
                 symbol=symbol,
-                side=side,
+                side="BUY",
                 quantity=sizing.shares,
                 order_type="MARKET",
             )
         )
 
         logger.info(
-            f"[{self.strategy_id}] SqueezePlay {direction}: {symbol} "
+            f"[{self.strategy_id}] SqueezePlay LONG: {symbol} "
             f"@ {close:.2f}, release={self._release_count[symbol]}bars, "
             f"ADX={adx_val}"
         )
@@ -335,13 +332,10 @@ class SqueezePlayStrategy(Strategy):
         pos: SqueezePosition,
     ) -> None:
         """Manage exit via ExitManager."""
-        if close > pos.peak_price and pos.direction == "LONG":
-            pos.peak_price = close
-        elif close < pos.peak_price and pos.direction == "SHORT":
+        if close > pos.peak_price:
             pos.peak_price = close
 
         bars_held = bar_idx - pos.entry_bar
-        is_long = pos.direction == "LONG"
 
         # Regime veto check
         regime = self._get_current_regime(symbol)
@@ -356,17 +350,13 @@ class SqueezePlayStrategy(Strategy):
             current_atr=atr_val,
             bars_held=bars_held,
             regime_is_veto=regime_veto,
-            is_long=is_long,
+            is_long=True,
         )
 
         exit_signal = self._exit_manager.evaluate(conditions)
         if exit_signal is not None:
-            if is_long:
-                pnl_pct = (close - pos.entry_price) / pos.entry_price
-            else:
-                pnl_pct = (pos.entry_price - close) / pos.entry_price
+            pnl_pct = (close - pos.entry_price) / pos.entry_price
 
-            side = "SELL" if is_long else "BUY"
             self.emit_signal(
                 TradingSignal(
                     signal_id="",
@@ -383,7 +373,7 @@ class SqueezePlayStrategy(Strategy):
             self.request_order(
                 OrderRequest(
                     symbol=symbol,
-                    side=side,
+                    side="SELL",
                     quantity=pos.quantity,
                     order_type="MARKET",
                 )

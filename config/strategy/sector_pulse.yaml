@@ -8,15 +8,30 @@ execution_mode: portfolio  # Runs with all symbols at once (cross-sectional)
 
 params:
   top_n_sectors: 3
-  confidence_threshold: 0.02
-  rebalance_day: 4
+  confidence_threshold: 0.05
   drift_threshold_pct: 0.05
   max_turnover_pct: 0.30
-  slippage_bps: 10.0
   risk_per_sector_pct: 0.10
 
 # Parameter iteration history (most recent first)
 history:
+  - version: "v1.1-structural-fix"
+    date: "2026-02-08"
+    source: "Phase C+ dashboard-driven hardening"
+    changes:
+      - "Removed dead params: rebalance_day, slippage_bps"
+      - "Raised confidence_threshold 0.02 → 0.05 to reduce churn"
+      - "Wired risk_per_sector_pct as allocation cap (was unused)"
+      - "Fixed drift denominator: portfolio value instead of invested-only"
+      - "Added de-risk on no selection (liquidate to cash)"
+    params:
+      top_n_sectors: 3
+      confidence_threshold: 0.05
+      drift_threshold_pct: 0.05
+      max_turnover_pct: 0.30
+      risk_per_sector_pct: 0.10
+    reason: "MaxDD -52.5% and 463 trades; structural fixes to reduce churn and drawdown"
+
   - version: "v1.0-manual"
     date: "2025-12-01"
     source: "Hand-tuned initial params"

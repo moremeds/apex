@@ -73,6 +73,7 @@ class BacktestConfig:
     fill_model: FillModel = FillModel.IMMEDIATE
     slippage_bps: float = 5.0
     commission_per_share: float = 0.005
+    min_commission: float = 1.0
 
     # Reality modeling (preferred over legacy execution settings)
     # Can be a RealityModelPack instance or a preset name string
@@ -160,6 +161,7 @@ class BacktestEngine:
             fill_model=config.fill_model,
             slippage_bps=config.slippage_bps,
             commission_per_share=config.commission_per_share,
+            min_commission=config.min_commission,
             reality_pack=reality_pack,
         )
 
@@ -327,6 +329,11 @@ class BacktestEngine:
 
             # Process scheduled actions (use normalized timestamp)
             self._scheduler.advance_to(bar_ts)
+
+            # Fill deferred NEXT_BAR_OPEN orders at this bar's open price
+            if bar.open is not None:
+                self._execution.fill_deferred_at_open({bar.symbol: bar.open})
+                self._process_fills()
 
             # Update execution with bar price
             tick = QuoteTick(

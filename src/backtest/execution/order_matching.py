@@ -38,7 +38,33 @@ class FillModel(Enum):
 
     IMMEDIATE = "immediate"  # Fill at current price instantly
     NEXT_BAR = "next_bar"  # Fill at next bar's open
+    NEXT_BAR_OPEN = "next_bar_open"  # Fill at next bar's open + slippage
     SLIPPAGE = "slippage"  # Fill with slippage model
+
+
+@dataclass
+class OrderMatcherConfig:
+    """Configuration for OrderMatcher execution realism."""
+
+    fill_model: FillModel = FillModel.IMMEDIATE
+    slippage_bps: float = 5.0
+    commission_per_share: float = 0.005
+    min_commission: float = 1.0
+
+
+# Tier presets for execution realism levels
+TIER_A_DEFAULTS = OrderMatcherConfig(
+    fill_model=FillModel.IMMEDIATE,
+    slippage_bps=5.0,
+    commission_per_share=0.005,
+)
+
+TIER_B_DEFAULTS = OrderMatcherConfig(
+    fill_model=FillModel.NEXT_BAR_OPEN,
+    slippage_bps=15.0,
+    commission_per_share=0.005,
+    min_commission=1.0,
+)
 
 
 @dataclass
@@ -100,6 +126,9 @@ class OrderMatcher:
         self._filled_orders: Dict[str, SimulatedOrder] = {}
         self._cancelled_orders: Dict[str, SimulatedOrder] = {}
 
+        # Deferred orders for NEXT_BAR_OPEN: filled at the next bar's open
+        self._deferred_orders: List[SimulatedOrder] = []
+
         # Fill queue
         self._pending_fills: List[TradeFill] = []
 
@@ -138,9 +167,12 @@ class OrderMatcher:
 
         logger.debug(f"Simulated order submitted: {order.client_order_id} -> {broker_order_id}")
 
-        # Immediate fill for market orders
+        # Immediate fill for market orders (legacy IMMEDIATE mode only)
         if self._fill_model == FillModel.IMMEDIATE and order.order_type == "MARKET":
             self._fill_order(sim_order)
+        elif self._fill_model == FillModel.NEXT_BAR_OPEN and order.order_type == "MARKET":
+            # Defer to next bar's open price
+            self._deferred_orders.append(sim_order)
 
         return OrderResult(
             success=True,
@@ -192,6 +224,46 @@ class OrderMatcher:
             should_fill = self._should_fill(order.request, tick)
             if should_fill:
                 self._fill_order(order)
+
+    def fill_deferred_at_open(self, open_prices: Dict[str, float]) -> None:
+        """
+        Fill deferred NEXT_BAR_OPEN orders at the given open prices + slippage.
+
+        Called by BacktestEngine at the start of each new bar, before strategy
+        processing, with the bar's open prices.
+
+        Args:
+            open_prices: Dict of symbol -> bar open price.
+        """
+        if not self._deferred_orders:
+            return
+
+        filled: List[SimulatedOrder] = []
+        for order in self._deferred_orders:
+            symbol = order.request.symbol
+            open_price = open_prices.get(symbol)
+            if open_price is None or open_price <= 0:
+                logger.warning(f"No open price for {symbol}, cannot fill deferred order")
+                continue
+
+            # Apply slippage to open price
+            slippage = open_price * (self._slippage_bps / 10000)
+            if order.request.side == "BUY":
+                fill_price = open_price + slippage
+            else:
+                fill_price = open_price - slippage
+
+            # Calculate commission
+            commission = max(
+                order.request.quantity * self._commission_per_share,
+                self._min_commission,
+            )
+
+            self._create_and_record_fill(order, fill_price, order.request.quantity, commission)
+            filled.append(order)
+
+        # Clear processed deferred orders
+        self._deferred_orders = [o for o in self._deferred_orders if o not in filled]
 
     def _should_fill(self, order: OrderRequest, tick: QuoteTick) -> bool:
         """Determine if order should be filled at current tick."""
@@ -273,7 +345,7 @@ class OrderMatcher:
             return
 
         # Apply slippage
-        if self._fill_model == FillModel.SLIPPAGE:
+        if self._fill_model in (FillModel.SLIPPAGE, FillModel.NEXT_BAR_OPEN):
             slippage = base_price * (self._slippage_bps / 10000)
             if order.request.side == "BUY":
                 fill_price = base_price + slippage
@@ -439,5 +511,6 @@ class OrderMatcher:
         self._pending_orders.clear()
         self._filled_orders.clear()
         self._cancelled_orders.clear()
+        self._deferred_orders.clear()
         self._pending_fills.clear()
         logger.debug("OrderMatcher reset")

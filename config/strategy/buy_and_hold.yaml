@@ -3,7 +3,17 @@ tier: "BASELINE"
 module_path: "src.domain.strategy.signals.buy_and_hold"
 class_name: "BuyAndHoldSignalGenerator"
 
-# No tunable parameters — baseline benchmark
-params: {}
+# Baseline benchmark — equal-weight allocation
+params:
+  initial_capital: 100000.0
 
-history: []
+history:
+  - version: "v1.1-equal-weight"
+    date: "2026-02-08"
+    source: "Phase C+ dashboard-driven hardening"
+    changes:
+      - "Replaced fixed 100-share sizing with equal-weight portfolio fraction"
+      - "qty = int(initial_capital / len(symbols) / price)"
+    params:
+      initial_capital: 100000.0
+    reason: "Fixed 100 shares unfair vs portfolio-fraction strategies (price-biased)"

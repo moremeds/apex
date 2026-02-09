@@ -36,9 +36,29 @@ params:
   atr_stop_mult: 2.5
   hard_stop_pct: 0.08
   risk_per_trade_pct: 0.05
+  min_confluence_score: 20
+  max_hold_bars: 40
 
 # Parameter iteration history (most recent first)
 history:
+  - version: "v2.2-r1-broadening"
+    date: "2026-02-08"
+    source: "Phase C+ dashboard-driven hardening"
+    changes:
+      - "Added min_confluence_score and max_hold_bars to YAML (were in ctor but missing from YAML)"
+      - "Fixed risk_per_trade_pct ctor default 0.02 → 0.05 to match YAML"
+      - "Added R1 to regime gate with 0.5x size factor (was 100% R0-concentrated)"
+    params:
+      rsi_period: 14
+      rsi_entry_threshold: 35.0
+      ema_trend_period: 99
+      atr_stop_mult: 2.5
+      hard_stop_pct: 0.08
+      risk_per_trade_pct: 0.05
+      min_confluence_score: 20
+      max_hold_bars: 40
+    reason: "100% R0 concentration → ~75-85% with R1 at 0.5x; YAML sync for 2 missing params"
+
   - version: "v2.1-exit-tuning"
     date: "2026-02-08"
     source: "Phase B4 hardening — tighter trail, split exits, win-target"

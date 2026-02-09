@@ -32,9 +32,16 @@ from typing import Any, Dict, List, Optional, Tuple, Type
 import numpy as np
 import pandas as pd
 
+from src.backtest.execution.order_matching import (
+    TIER_A_DEFAULTS,
+    TIER_B_DEFAULTS,
+    OrderMatcherConfig,
+)
+from src.backtest.optimization.strategy_objective import FROZEN_PARAMS
 from src.domain.signals.indicators.regime.models import MarketRegime, RegimeOutput
 from src.domain.strategy.param_loader import (
     get_strategy_metadata,
+    get_strategy_params,
     list_strategies,
     load_strategy_config,
 )
@@ -172,6 +179,7 @@ async def _run_strategy_event_driven(
     params: Dict[str, Any],
     regime_series: pd.Series,
     init_cash: float = 100_000.0,
+    order_config: Optional[OrderMatcherConfig] = None,
 ) -> Dict[str, Any]:
     """
     Run a strategy on one symbol's data via BacktestEngine (event-driven).
@@ -185,6 +193,7 @@ async def _run_strategy_event_driven(
         params: Strategy parameters from YAML.
         regime_series: Pre-computed regime labels (from SPY).
         init_cash: Initial capital.
+        order_config: Execution realism config (Tier A/B). Defaults to Tier A.
 
     Returns:
         Metrics dict compatible with _aggregate_results(), or {} on failure.
@@ -195,6 +204,7 @@ async def _run_strategy_event_driven(
     if len(data) < 260:
         return {}
 
+    oc = order_config or TIER_A_DEFAULTS
     symbol = data.attrs.get("symbol", "UNKNOWN")
 
     # Build InMemoryDataFeed from DataFrame
@@ -226,6 +236,10 @@ async def _run_strategy_event_driven(
         symbols=[symbol],
         initial_capital=init_cash,
         strategy_name=strategy_name,
+        fill_model=oc.fill_model,
+        slippage_bps=oc.slippage_bps,
+        commission_per_share=oc.commission_per_share,
+        min_commission=oc.min_commission,
     )
 
     engine = BacktestEngine(config)
@@ -274,6 +288,7 @@ async def _run_portfolio_strategy(
     params: Dict[str, Any],
     regime_series: pd.Series,
     init_cash: float = 100_000.0,
+    order_config: Optional[OrderMatcherConfig] = None,
 ) -> Dict[str, Any]:
     """
     Run a portfolio-level strategy with ALL symbols at once.
@@ -288,6 +303,7 @@ async def _run_portfolio_strategy(
         params: Strategy parameters from YAML.
         regime_series: Pre-computed regime labels.
         init_cash: Initial capital.
+        order_config: Execution realism config (Tier A/B). Defaults to Tier A.
 
     Returns:
         Metrics dict compatible with _aggregate_results(), or {} on failure.
@@ -298,6 +314,7 @@ async def _run_portfolio_strategy(
     if not all_data:
         return {}
 
+    oc = order_config or TIER_A_DEFAULTS
     symbols = list(all_data.keys())
 
     # Find common date range
@@ -347,6 +364,10 @@ async def _run_portfolio_strategy(
         symbols=symbols,
         initial_capital=init_cash,
         strategy_name=strategy_name,
+        fill_model=oc.fill_model,
+        slippage_bps=oc.slippage_bps,
+        commission_per_share=oc.commission_per_share,
+        min_commission=oc.min_commission,
     )
 
     engine = BacktestEngine(config)
@@ -455,6 +476,46 @@ def _extract_metrics(
                     per_regime_sharpe[regime_label] = round(s, 3)
                 per_regime_return[regime_label] = round(total_r, 4)
 
+    # Per-regime trade decomposition from trade_log
+    per_regime_trades: Dict[str, int] = {}
+    per_regime_wr: Dict[str, float] = {}
+    per_regime_pf: Dict[str, float] = {}
+    per_regime_avg_hold: Dict[str, float] = {}
+    if result.trade_log and len(regime_series) > 0:
+        for regime_label in ["R0", "R1", "R2", "R3"]:
+            regime_trade_list: List[Any] = []
+            for trade in result.trade_log:
+                if trade.entry_time is None:
+                    continue
+                # Look up regime at entry time
+                ts = pd.Timestamp(trade.entry_time)
+                if ts.tzinfo is not None and regime_series.index.tz is None:
+                    ts = ts.tz_localize(None)
+                elif ts.tzinfo is None and regime_series.index.tz is not None:
+                    ts = ts.tz_localize(regime_series.index.tz)
+                idx = regime_series.index.searchsorted(ts, side="right") - 1
+                if idx >= 0 and str(regime_series.iloc[idx]) == regime_label:
+                    regime_trade_list.append(trade)
+
+            n_trades = len(regime_trade_list)
+            per_regime_trades[regime_label] = n_trades
+            if n_trades > 0:
+                winners = sum(1 for t in regime_trade_list if t.pnl > 0)
+                per_regime_wr[regime_label] = round(winners / n_trades, 3)
+                gross_profit = sum(t.pnl for t in regime_trade_list if t.pnl > 0)
+                gross_loss = abs(sum(t.pnl for t in regime_trade_list if t.pnl <= 0))
+                per_regime_pf[regime_label] = (
+                    round(gross_profit / gross_loss, 3) if gross_loss > 0 else 0.0
+                )
+                durations = [
+                    t.duration.total_seconds() / 86400.0
+                    for t in regime_trade_list
+                    if t.entry_time and t.exit_time
+                ]
+                per_regime_avg_hold[regime_label] = (
+                    round(sum(durations) / len(durations), 1) if durations else 0.0
+                )
+
     # Monthly returns
     monthly_returns: Dict[str, float] = {}
     if len(returns_list) > 0 and len(equity_index) > 1:
@@ -530,6 +591,10 @@ def _extract_metrics(
         "returns": returns_list,
         "per_regime_sharpe": per_regime_sharpe,
         "per_regime_return": per_regime_return,
+        "per_regime_trades": per_regime_trades,
+        "per_regime_wr": per_regime_wr,
+        "per_regime_pf": per_regime_pf,
+        "per_regime_avg_hold": per_regime_avg_hold,
         "monthly_returns": monthly_returns,
         "stress_results": stress_results,
         "rolling_sharpe": rolling_sharpe,
@@ -617,6 +682,56 @@ def _aggregate_results(
         if regime_returns:
             per_regime_return[regime_label] = round(float(np.mean(regime_returns)), 4)
 
+    # -- Aggregate per-regime trade stats (sum trades, weighted-avg WR/PF) --
+    per_regime_trades: Dict[str, int] = {}
+    per_regime_wr: Dict[str, float] = {}
+    per_regime_pf: Dict[str, float] = {}
+    per_regime_avg_hold: Dict[str, float] = {}
+    for regime_label in ["R0", "R1", "R2", "R3"]:
+        trade_counts_r = [
+            m["per_regime_trades"].get(regime_label, 0)
+            for m in valid.values()
+            if "per_regime_trades" in m
+        ]
+        total_r = sum(trade_counts_r)
+        per_regime_trades[regime_label] = total_r
+        if total_r > 0:
+            # Weighted average WR by trade count
+            wr_vals = [
+                (
+                    m["per_regime_wr"].get(regime_label, 0.0),
+                    m["per_regime_trades"].get(regime_label, 0),
+                )
+                for m in valid.values()
+                if "per_regime_wr" in m and m.get("per_regime_trades", {}).get(regime_label, 0) > 0
+            ]
+            if wr_vals:
+                w_sum = sum(wr * n for wr, n in wr_vals)
+                n_sum = sum(n for _, n in wr_vals)
+                per_regime_wr[regime_label] = round(w_sum / n_sum, 3)
+            # Weighted average PF by trade count
+            pf_vals = [
+                (
+                    m["per_regime_pf"].get(regime_label, 0.0),
+                    m["per_regime_trades"].get(regime_label, 0),
+                )
+                for m in valid.values()
+                if "per_regime_pf" in m and m.get("per_regime_trades", {}).get(regime_label, 0) > 0
+            ]
+            if pf_vals:
+                w_sum = sum(pf * n for pf, n in pf_vals)
+                n_sum = sum(n for _, n in pf_vals)
+                per_regime_pf[regime_label] = round(w_sum / n_sum, 3)
+            # Average holding period
+            hold_vals = [
+                m["per_regime_avg_hold"].get(regime_label, 0.0)
+                for m in valid.values()
+                if "per_regime_avg_hold" in m
+                and m.get("per_regime_trades", {}).get(regime_label, 0) > 0
+            ]
+            if hold_vals:
+                per_regime_avg_hold[regime_label] = round(float(np.mean(hold_vals)), 1)
+
     # -- Aggregate stress results (average across symbols) --
     stress_results: Dict[str, Dict[str, float]] = {}
     for window_name in STRESS_WINDOWS:
@@ -678,6 +793,10 @@ def _aggregate_results(
         "per_symbol_metrics": per_symbol_metrics,
         "per_regime_sharpe": per_regime_sharpe,
         "per_regime_return": per_regime_return,
+        "per_regime_trades": per_regime_trades,
+        "per_regime_wr": per_regime_wr,
+        "per_regime_pf": per_regime_pf,
+        "per_regime_avg_hold": per_regime_avg_hold,
         "stress_results": stress_results,
         "monthly_returns": monthly_returns,
         "rolling_sharpe": rolling_sharpe,
@@ -712,6 +831,7 @@ def run_comparison(
     years: int = 3,
     strategies: List[str] | None = None,
     universe_path: str | None = None,
+    realism_tier: str = "A",
 ) -> str:
     """
     Run strategy comparison and generate HTML dashboard.
@@ -725,6 +845,7 @@ def run_comparison(
         years: Lookback period in years.
         strategies: Strategy names to compare (default: all registered).
         universe_path: Path to universe YAML (for sector mapping).
+        realism_tier: Execution realism level ("A" = immediate fill, "B" = next-bar-open).
 
     Returns:
         Path to generated HTML file.
@@ -737,11 +858,20 @@ def run_comparison(
     end_date = date.today() - timedelta(days=1)
     start_date = end_date - timedelta(days=365 * years)
 
+    # Resolve execution realism tier
+    order_config = TIER_B_DEFAULTS if realism_tier.upper() == "B" else TIER_A_DEFAULTS
+    tier_label = f"Tier {realism_tier.upper()}"
+
     strategy_names = strategies or list(STRATEGY_REGISTRY.keys())
 
     print(f"Strategy comparison: {len(strategy_names)} strategies x {len(symbols)} symbols")
     print(f"Period: {start_date} to {end_date} ({years}yr)")
-    print("Engine: BacktestEngine (event-driven, all strategies)")
+    print(f"Engine: BacktestEngine (event-driven, all strategies)")
+    print(
+        f"Realism: {tier_label} "
+        f"(fill={order_config.fill_model.value}, "
+        f"slippage={order_config.slippage_bps}bps)"
+    )
 
     # Download data for all symbols
     print("Downloading data...")
@@ -816,6 +946,7 @@ def run_comparison(
                     all_data=all_data,
                     params=default_params,
                     regime_series=regime_series,
+                    order_config=order_config,
                 )
             )
             # Wrap as single "PORTFOLIO" entry for aggregation
@@ -841,6 +972,7 @@ def run_comparison(
                         data=data,
                         params=default_params,
                         regime_series=regime_series,
+                        order_config=order_config,
                     )
                 )
                 per_symbol[symbol] = result
@@ -859,6 +991,18 @@ def run_comparison(
             print(f"  {strat_name}: no valid results")
             continue
 
+        # Compute param budget from Optuna space (not raw YAML)
+        try:
+            from src.backtest.optimization.strategy_objective import OPTUNA_PARAM_COUNTS
+
+            yaml_params = get_strategy_params(strat_name)
+            frozen = FROZEN_PARAMS.get(strat_name, set())
+            total_params = len(yaml_params) - len(frozen)  # Non-frozen YAML params
+            effective_params = OPTUNA_PARAM_COUNTS.get(strat_name, total_params)
+        except KeyError:
+            total_params = 0
+            effective_params = 0
+
         metrics = StrategyMetrics(
             name=strat_name,
             tier=tier,
@@ -875,10 +1019,16 @@ def run_comparison(
             per_symbol_sharpe=agg["per_symbol_sharpe"],
             per_regime_sharpe=agg["per_regime_sharpe"],
             per_regime_return=agg["per_regime_return"],
+            per_regime_trades=agg["per_regime_trades"],
+            per_regime_wr=agg["per_regime_wr"],
+            per_regime_pf=agg["per_regime_pf"],
+            per_regime_avg_hold=agg["per_regime_avg_hold"],
             stress_results=agg["stress_results"],
             monthly_returns=agg["monthly_returns"],
             rolling_sharpe=agg["rolling_sharpe"],
             per_symbol_metrics=agg["per_symbol_metrics"],
+            effective_params=effective_params,
+            total_params=total_params,
         )
         builder.add_strategy(strat_name, metrics)
         print(
@@ -924,6 +1074,12 @@ def main() -> None:
         nargs="+",
         help="Strategies to compare (default: all)",
     )
+    parser.add_argument(
+        "--realism-tier",
+        choices=["A", "B"],
+        default="A",
+        help="Execution realism level: A=immediate fill (default), B=next-bar-open + higher slippage",
+    )
     parser.add_argument("-v", "--verbose", action="store_true")
 
     args = parser.parse_args()
@@ -956,6 +1112,7 @@ def main() -> None:
         years=args.years,
         strategies=args.strategies,
         universe_path=args.universe,
+        realism_tier=args.realism_tier,
     )
 
 

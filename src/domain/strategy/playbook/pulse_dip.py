@@ -19,12 +19,12 @@ Parameters (8, within <=8 budget):
     hard_stop_pct: Max loss from entry before catastrophic exit (default 0.08)
     min_confluence_score: Min alignment score (default 20)
     max_hold_bars: Maximum bars to hold (default 40)
-    risk_per_trade_pct: Per-trade risk fraction (default 0.02)
+    risk_per_trade_pct: Per-trade risk fraction (default 0.05)
 
 Entry (all must be true at bar close):
     1. Close > EMA(ema_trend_period)
     2. RSI < rsi_entry_threshold
-    3. Regime in [R0, R3] via RegimeGate
+    3. Regime in [R0, R1, R3] via RegimeGate (R1 at 0.5x size)
     4. Confluence alignment_score >= min_confluence_score
     5. No existing position
 
@@ -99,7 +99,7 @@ class PulseDipStrategy(Strategy):
         hard_stop_pct: float = 0.08,
         min_confluence_score: int = 20,
         max_hold_bars: int = 40,
-        risk_per_trade_pct: float = 0.02,
+        risk_per_trade_pct: float = 0.05,
     ):
         super().__init__(strategy_id, symbols, context)
 
@@ -140,10 +140,10 @@ class PulseDipStrategy(Strategy):
         )
         self._regime_gate = RegimeGate(
             policy=RegimePolicy(
-                allowed_regimes=["R0", "R3"],
+                allowed_regimes=["R0", "R1", "R3"],
                 min_dwell_bars=5,
                 switch_cooldown_bars=10,
-                size_factors={"R0": 1.0, "R3": 0.3},
+                size_factors={"R0": 1.0, "R1": 0.5, "R3": 0.3},
                 forced_degross_regimes=["R2"],
             )
         )

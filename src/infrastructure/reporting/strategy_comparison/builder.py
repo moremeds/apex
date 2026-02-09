@@ -21,7 +21,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from .templates import render_comparison_html
 
@@ -49,12 +49,22 @@ class StrategyMetrics:
     per_symbol_sharpe: Dict[str, float] = field(default_factory=dict)
     per_regime_sharpe: Dict[str, float] = field(default_factory=dict)
     per_regime_return: Dict[str, float] = field(default_factory=dict)
+    per_regime_trades: Dict[str, int] = field(default_factory=dict)
+    per_regime_wr: Dict[str, float] = field(default_factory=dict)
+    per_regime_pf: Dict[str, float] = field(default_factory=dict)
+    per_regime_avg_hold: Dict[str, float] = field(default_factory=dict)
     stress_results: Dict[str, Dict[str, float]] = field(default_factory=dict)
     rolling_sharpe: List[List[float]] = field(default_factory=list)
     per_symbol_metrics: Dict[str, Dict[str, float]] = field(default_factory=dict)
+    effective_params: int = 0
+    total_params: int = 0
+
+    # Tier B execution realism metrics (optional, populated when --realism-tier B is used)
+    tier_b_sharpe: Optional[float] = None
+    tier_b_return: Optional[float] = None
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        d: Dict[str, Any] = {
             "name": self.name,
             "tier": self.tier,
             "sharpe": round(self.sharpe, 3),
@@ -72,10 +82,21 @@ class StrategyMetrics:
             "per_symbol_sharpe": self.per_symbol_sharpe,
             "per_regime_sharpe": self.per_regime_sharpe,
             "per_regime_return": self.per_regime_return,
+            "per_regime_trades": self.per_regime_trades,
+            "per_regime_wr": self.per_regime_wr,
+            "per_regime_pf": self.per_regime_pf,
+            "per_regime_avg_hold": self.per_regime_avg_hold,
             "stress_results": self.stress_results,
             "rolling_sharpe": self.rolling_sharpe,
             "per_symbol_metrics": self.per_symbol_metrics,
+            "effective_params": self.effective_params,
+            "total_params": self.total_params,
         }
+        if self.tier_b_sharpe is not None:
+            d["tier_b_sharpe"] = round(self.tier_b_sharpe, 3)
+        if self.tier_b_return is not None:
+            d["tier_b_return"] = round(self.tier_b_return, 4)
+        return d
 
 
 class StrategyComparisonBuilder:

@@ -52,6 +52,21 @@ def render_comparison_html(data: Dict[str, Any]) -> str:
         wr_display = "–" if is_baseline else f"{m['win_rate']:.0%}"
         pf_display = "–" if is_baseline else f"{m.get('profit_factor', 0):.2f}"
         trades_display = "–" if is_baseline else str(m["trade_count"])
+        # Param budget badge
+        eff_p = m.get("effective_params", 0)
+        tot_p = m.get("total_params", 0)
+        if is_baseline or tot_p == 0:
+            param_display = "–"
+            param_cls = ""
+        elif eff_p <= 5:
+            param_display = f"{eff_p}/{8}"
+            param_cls = "positive"
+        elif eff_p <= 8:
+            param_display = f"{eff_p}/{8} &#9888;"
+            param_cls = "warning-text"
+        else:
+            param_display = f"{eff_p}/{8} &#10060;"
+            param_cls = "negative"
         scorecards += f"""
         <div class="scorecard">
             <h3>{name} {tier_badge} {health_badge}</h3>
@@ -75,7 +90,14 @@ def render_comparison_html(data: Dict[str, Any]) -> str:
                 <span class="label">Trades</span>
                 <span class="value">{trades_display}</span>
             </div>
+            <div class="metric">
+                <span class="label">Params</span>
+                <span class="value {param_cls}">{param_display}</span>
+            </div>
         </div>"""
+
+    # Detect if Tier B data is present for any strategy
+    has_tier_b = any(m.get("tier_b_sharpe") is not None for m in data["strategies"].values())
 
     # Build metrics table rows
     metrics_rows = ""
@@ -97,6 +119,45 @@ def render_comparison_html(data: Dict[str, Any]) -> str:
         wr_display = "–" if is_baseline else f"{m['win_rate']:.0%}"
         pf_display = "–" if is_baseline else f"{m['profit_factor']:.2f}"
         trades_display = "–" if is_baseline else str(m["trade_count"])
+        # Param budget badge for metrics table
+        m_eff_p = m.get("effective_params", 0)
+        m_tot_p = m.get("total_params", 0)
+        if is_baseline or m_tot_p == 0:
+            m_param_display = "–"
+            m_param_cls = ""
+        elif m_eff_p <= 5:
+            m_param_display = f"{m_eff_p}/{8}"
+            m_param_cls = "positive"
+        elif m_eff_p <= 8:
+            m_param_display = f"{m_eff_p}/{8} &#9888;"
+            m_param_cls = "warning-text"
+        else:
+            m_param_display = f"{m_eff_p}/{8} &#10060;"
+            m_param_cls = "negative"
+
+        # Tier B degradation column
+        tier_b_cell = ""
+        if has_tier_b:
+            tier_b_sharpe = m.get("tier_b_sharpe")
+            if tier_b_sharpe is not None and sr != 0:
+                ratio = tier_b_sharpe / sr if sr != 0 else 0.0
+                # Strategy passes Tier B if Sharpe_B / Sharpe_A > 0.50
+                if ratio > 0.50:
+                    tb_cls = "positive"
+                    tb_label = "PASS"
+                else:
+                    tb_cls = "negative"
+                    tb_label = "FAIL"
+                delta_pct = (ratio - 1.0) * 100
+                tier_b_cell = (
+                    f'<td class="{tb_cls}">'
+                    f"{tier_b_sharpe:.2f} ({delta_pct:+.0f}%) "
+                    f'<span class="health-badge health-{"green" if ratio > 0.50 else "red"}">'
+                    f"{tb_label}</span></td>"
+                )
+            else:
+                tier_b_cell = "<td>–</td>"
+
         metrics_rows += f"""
         <tr>
             <td class="strategy-name">{name} <span class="health-badge {h_cls}">{h_txt}</span></td>
@@ -107,7 +168,12 @@ def render_comparison_html(data: Dict[str, Any]) -> str:
             <td>{wr_display}</td>
             <td>{pf_display}</td>
             <td>{trades_display}</td>
+            <td class="{m_param_cls}">{m_param_display}</td>
+            {tier_b_cell}
         </tr>"""
+
+    # Tier B column header for metrics table
+    tier_b_header = "<th>Tier B &#916;</th>" if has_tier_b else ""
 
     # Build stress table
     stress_rows = ""
@@ -285,6 +351,8 @@ td.strategy-name {{ font-weight: 600; color: var(--accent); }}
 td.best {{ color: var(--positive); font-weight: 600; }}
 td.positive {{ color: var(--positive); }}
 td.negative {{ color: var(--negative); }}
+td.warning-text {{ color: var(--warning); }}
+.metric .value.warning-text {{ color: var(--warning); }}
 
 .no-data {{
     color: var(--text-secondary);
@@ -339,6 +407,7 @@ td.symbol {{ font-weight: 600; color: var(--text-primary); }}
     <div class="tab" onclick="switchTab('perstock', this)">Per-Stock</div>
     <div class="tab" onclick="switchTab('sector', this)">Sector</div>
     <div class="tab" onclick="switchTab('regime', this)">Regime Performance</div>
+    <div class="tab" onclick="switchTab('regime-analysis', this)">Regime Analysis</div>
     <div class="tab" onclick="switchTab('heatmap', this)">Per-Symbol Heatmap</div>
     <div class="tab" onclick="switchTab('trades', this)">Trade Analysis</div>
 </div>
@@ -367,6 +436,8 @@ td.symbol {{ font-weight: 600; color: var(--text-primary); }}
                 <th>WinRate</th>
                 <th>ProfitF</th>
                 <th>Trades</th>
+                <th>Params</th>
+                {tier_b_header}
             </tr>
         </thead>
         <tbody>{metrics_rows}</tbody>
@@ -450,6 +521,24 @@ td.symbol {{ font-weight: 600; color: var(--text-primary); }}
         </thead>
         <tbody>{stress_rows}</tbody>
     </table>
+</div>
+
+<!-- TAB: REGIME ANALYSIS (Trade Decomposition) -->
+<div id="regime-analysis" class="tab-content">
+    <div class="charts-row">
+        <div class="chart-container">
+            <div id="regime-trades-chart" style="height: 400px;"></div>
+        </div>
+        <div class="chart-container">
+            <div id="regime-wr-chart" style="height: 400px;"></div>
+        </div>
+    </div>
+    <h3 class="section-title">Per-Regime Trade Breakdown</h3>
+    <table id="regime-analysis-table">
+        <thead id="regime-analysis-head"></thead>
+        <tbody id="regime-analysis-body"></tbody>
+    </table>
+    <div id="regime-alerts" style="margin-top: 16px;"></div>
 </div>
 
 <!-- TAB 6: PER-SYMBOL HEATMAP -->
@@ -985,6 +1074,187 @@ function renderMonthlyReturns() {{
     }});
 }}
 
+// --- REGIME ANALYSIS: Trade Decomposition ---
+const REGIME_LABELS = {{
+    R0: 'R0 (Uptrend)',
+    R1: 'R1 (Choppy)',
+    R2: 'R2 (Risk-Off)',
+    R3: 'R3 (Rebound)',
+}};
+
+function renderRegimeTradesChart() {{
+    const regimes = ['R0', 'R1', 'R2', 'R3'];
+    const traces = [];
+    let hasData = false;
+    STRATEGY_NAMES.forEach((name, i) => {{
+        const data = STRATEGIES[name].per_regime_trades || {{}};
+        const yVals = regimes.map(r => data[r] || 0);
+        if (yVals.some(v => v > 0)) hasData = true;
+        traces.push({{
+            x: regimes.map(r => REGIME_LABELS[r]),
+            y: yVals,
+            name: name,
+            type: 'bar',
+            marker: {{ color: COLORS[i % COLORS.length] }},
+        }});
+    }});
+
+    if (hasData) {{
+        Plotly.newPlot('regime-trades-chart', traces, {{
+            ...PLOTLY_LAYOUT_BASE,
+            title: {{ text: 'Trade Count by Regime', font: {{ color: '#e6edf3' }} }},
+            barmode: 'group',
+            xaxis: {{ gridcolor: '#30363d' }},
+            yaxis: {{ gridcolor: '#30363d', title: 'Number of Trades' }},
+        }});
+    }} else {{
+        document.getElementById('regime-trades-chart').innerHTML = '<div class="no-data">No per-regime trade data available</div>';
+    }}
+}}
+
+function renderRegimeWRChart() {{
+    const regimes = ['R0', 'R1', 'R2', 'R3'];
+    const traces = [];
+    let hasData = false;
+    STRATEGY_NAMES.forEach((name, i) => {{
+        const wrData = STRATEGIES[name].per_regime_wr || {{}};
+        const trData = STRATEGIES[name].per_regime_trades || {{}};
+        const yVals = regimes.map(r => (trData[r] || 0) > 0 ? (wrData[r] || 0) * 100 : 0);
+        if (yVals.some(v => v > 0)) hasData = true;
+        traces.push({{
+            x: regimes.map(r => REGIME_LABELS[r]),
+            y: yVals,
+            name: name,
+            type: 'bar',
+            marker: {{ color: COLORS[i % COLORS.length] }},
+        }});
+    }});
+
+    if (hasData) {{
+        // Add 50% reference line
+        traces.push({{
+            x: Object.values(REGIME_LABELS),
+            y: [50, 50, 50, 50],
+            name: '50% WR',
+            type: 'scatter',
+            mode: 'lines',
+            line: {{ color: '#30363d', width: 1, dash: 'dash' }},
+            showlegend: false,
+        }});
+        Plotly.newPlot('regime-wr-chart', traces, {{
+            ...PLOTLY_LAYOUT_BASE,
+            title: {{ text: 'Win Rate by Regime (%)', font: {{ color: '#e6edf3' }} }},
+            barmode: 'group',
+            xaxis: {{ gridcolor: '#30363d' }},
+            yaxis: {{ gridcolor: '#30363d', title: 'Win Rate %', range: [0, 100] }},
+        }});
+    }} else {{
+        document.getElementById('regime-wr-chart').innerHTML = '<div class="no-data">No per-regime win rate data available</div>';
+    }}
+}}
+
+function renderRegimeAnalysisTable() {{
+    const regimes = ['R0', 'R1', 'R2', 'R3'];
+    const thead = document.getElementById('regime-analysis-head');
+    let headHtml = '<tr><th>Strategy</th>';
+    regimes.forEach(r => {{
+        headHtml += '<th style="text-align:center" colspan="4">' + REGIME_LABELS[r] + '</th>';
+    }});
+    headHtml += '</tr><tr><th></th>';
+    regimes.forEach(() => {{
+        headHtml += '<th>Trades</th><th>WR</th><th>PF</th><th>Avg Hold</th>';
+    }});
+    headHtml += '</tr>';
+    thead.innerHTML = headHtml;
+
+    const tbody = document.getElementById('regime-analysis-body');
+    let bodyHtml = '';
+    STRATEGY_NAMES.forEach(name => {{
+        const s = STRATEGIES[name];
+        const isBaseline = name === 'buy_and_hold';
+        let cells = '';
+        regimes.forEach(r => {{
+            const trades = (s.per_regime_trades || {{}})[r] || 0;
+            const wr = (s.per_regime_wr || {{}})[r] || 0;
+            const pf = (s.per_regime_pf || {{}})[r] || 0;
+            const hold = (s.per_regime_avg_hold || {{}})[r] || 0;
+            if (isBaseline || trades === 0) {{
+                cells += '<td>-</td><td>-</td><td>-</td><td>-</td>';
+            }} else {{
+                const wrCls = wr >= 0.5 ? 'positive' : (wr < 0.3 ? 'negative' : '');
+                const pfCls = pf >= 1.0 ? 'positive' : 'negative';
+                cells += '<td>' + trades + '</td>';
+                cells += '<td class="' + wrCls + '">' + (wr * 100).toFixed(0) + '%</td>';
+                cells += '<td class="' + pfCls + '">' + pf.toFixed(2) + '</td>';
+                cells += '<td>' + hold.toFixed(1) + 'd</td>';
+            }}
+        }});
+        bodyHtml += '<tr><td class="strategy-name">' + name + '</td>' + cells + '</tr>';
+    }});
+    tbody.innerHTML = bodyHtml;
+}}
+
+function renderRegimeAlerts() {{
+    const alerts = [];
+    STRATEGY_NAMES.forEach(name => {{
+        if (name === 'buy_and_hold') return;
+        const s = STRATEGIES[name];
+        const trades = s.per_regime_trades || {{}};
+        const totalTrades = Object.values(trades).reduce((a, b) => a + b, 0);
+        if (totalTrades === 0) return;
+
+        // Concentration alert: >70% of trades in one regime
+        Object.entries(trades).forEach(([r, n]) => {{
+            const pct = n / totalTrades;
+            if (pct > 0.7) {{
+                alerts.push({{
+                    level: 'warning',
+                    msg: '<strong>' + name + '</strong>: ' + (pct * 100).toFixed(0) + '% of trades concentrated in ' + REGIME_LABELS[r] + '. Strategy may underperform in other market conditions.',
+                }});
+            }}
+        }});
+
+        // Loss concentration: check if >80% of total losses come from one regime
+        const regimeReturns = s.per_regime_return || {{}};
+        const negReturns = Object.entries(regimeReturns).filter(([, v]) => v < 0);
+        if (negReturns.length > 0) {{
+            const totalNeg = negReturns.reduce((a, [, v]) => a + Math.abs(v), 0);
+            negReturns.forEach(([r, v]) => {{
+                if (totalNeg > 0 && Math.abs(v) / totalNeg > 0.8) {{
+                    alerts.push({{
+                        level: 'danger',
+                        msg: '<strong>' + name + '</strong>: ' + (Math.abs(v) / totalNeg * 100).toFixed(0) + '% of losses concentrated in ' + REGIME_LABELS[r] + '. Consider reducing exposure in this regime.',
+                    }});
+                }}
+            }});
+        }}
+
+        // Poor performance alert: WR < 20% in any regime with >5 trades
+        const wr = s.per_regime_wr || {{}};
+        Object.entries(trades).forEach(([r, n]) => {{
+            if (n > 5 && wr[r] !== undefined && wr[r] < 0.2) {{
+                alerts.push({{
+                    level: 'warning',
+                    msg: '<strong>' + name + '</strong>: Win rate only ' + (wr[r] * 100).toFixed(0) + '% in ' + REGIME_LABELS[r] + ' (' + n + ' trades). Strategy may be ill-suited for this regime.',
+                }});
+            }}
+        }});
+    }});
+
+    const container = document.getElementById('regime-alerts');
+    if (alerts.length === 0) {{
+        container.innerHTML = '';
+        return;
+    }}
+    let html = '<h3 class="section-title" style="margin-bottom:8px">Concentration Alerts</h3>';
+    alerts.forEach(a => {{
+        const bgColor = a.level === 'danger' ? 'rgba(248,81,73,0.15)' : 'rgba(210,153,34,0.15)';
+        const borderColor = a.level === 'danger' ? 'var(--negative)' : 'var(--warning)';
+        html += '<div style="padding:10px 16px;margin-bottom:8px;border-left:3px solid ' + borderColor + ';background:' + bgColor + ';border-radius:4px;font-size:13px;">' + a.msg + '</div>';
+    }});
+    container.innerHTML = html;
+}}
+
 // Initialize all charts
 renderEquityCurves();
 renderDrawdowns();
@@ -996,6 +1266,10 @@ renderSectorReturn();
 renderSectorTable();
 renderRegimeSharpe();
 renderRegimeReturn();
+renderRegimeTradesChart();
+renderRegimeWRChart();
+renderRegimeAnalysisTable();
+renderRegimeAlerts();
 renderSymbolHeatmap();
 renderRollingSharpe();
 renderMonthlyReturns();

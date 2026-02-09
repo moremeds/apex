@@ -161,6 +161,7 @@ class ApexEngine(BaseEngine):
         fill_model_map = {
             "immediate": SimFillModel.IMMEDIATE,
             "next_bar": SimFillModel.NEXT_BAR,
+            "next_bar_open": SimFillModel.NEXT_BAR_OPEN,
             "slippage": SimFillModel.SLIPPAGE,
         }
 

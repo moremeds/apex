@@ -16,6 +16,7 @@ Each YAML file contains:
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
@@ -115,6 +116,63 @@ def list_strategies() -> List[str]:
     """
     configs = _load_all()
     return sorted(configs.keys())
+
+
+def update_strategy_params(name: str, new_params: Dict[str, Any]) -> None:
+    """Update strategy params in YAML, archiving current params to history.
+
+    Loads the existing YAML file, moves the current ``params`` block into
+    ``history`` with a timestamp, writes the new params, and clears the
+    in-memory cache so subsequent reads see the update.
+
+    Args:
+        name: Strategy name (must match an existing YAML file).
+        new_params: New parameter dict to write as the active ``params``.
+
+    Raises:
+        KeyError: If no config file exists for the strategy name.
+        FileNotFoundError: If the YAML file is missing on disk.
+    """
+    # Validate strategy exists in cache
+    _load_all()
+    if name not in _cache:
+        raise KeyError(
+            f"No strategy config for '{name}'. "
+            f"Available: {sorted(_cache.keys())}. "
+            f"Config dir: {_CONFIG_DIR}"
+        )
+
+    yaml_path = _CONFIG_DIR / f"{name}.yaml"
+    if not yaml_path.exists():
+        raise FileNotFoundError(f"Strategy YAML not found: {yaml_path}")
+
+    # Load raw YAML to preserve structure
+    with open(yaml_path) as f:
+        data = yaml.safe_load(f)
+
+    # Archive current params into history
+    old_params = data.get("params", {})
+    if old_params:
+        history_entry: Dict[str, Any] = {
+            "version": f"pre-optuna-{datetime.now().strftime('%Y%m%d-%H%M%S')}",
+            "date": datetime.now().strftime("%Y-%m-%d"),
+            "source": "Superseded by Optuna optimization",
+            "params": dict(old_params),
+        }
+        if "history" not in data or data["history"] is None:
+            data["history"] = []
+        data["history"].insert(0, history_entry)
+
+    # Write new params
+    data["params"] = dict(new_params)
+
+    with open(yaml_path, "w") as f:
+        yaml.dump(data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+
+    logger.info(f"Updated strategy params for '{name}' in {yaml_path}")
+
+    # Clear cache so next read picks up changes
+    reload()
 
 
 def reload() -> None:

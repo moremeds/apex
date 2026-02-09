@@ -8,13 +8,11 @@ with turnover caps and cost-aware execution.
 Edge: Exploits sector momentum persistence (winners keep winning)
 with regime gating to avoid rotation during risk-off periods.
 
-Parameters (7):
+Parameters (5):
     top_n_sectors: Number of sectors to hold (default 3)
-    confidence_threshold: Min TrendPulse confidence (default 0.4)
-    rebalance_day: Day of week for rebalance, 0=Mon (default 4=Fri)
+    confidence_threshold: Min TrendPulse confidence (default 0.05)
     drift_threshold_pct: Drift trigger for inter-rebalance (default 0.05)
     max_turnover_pct: Turnover cap per rebalance (default 0.30)
-    slippage_bps: Conservative slippage estimate (default 10.0)
     risk_per_sector_pct: Max per-sector allocation (default 0.10)
 
 Sectors from config/universe.yaml:
@@ -40,7 +38,7 @@ logger = logging.getLogger(__name__)
     description="Regime-aware sector rotation ranked by TrendPulse confidence",
     author="Apex",
     version="1.0",
-    max_params=7,
+    max_params=5,
     tier=2,
 )
 class SectorPulseStrategy(Strategy):
@@ -57,21 +55,17 @@ class SectorPulseStrategy(Strategy):
         symbols: List[str],
         context: StrategyContext,
         top_n_sectors: int = 3,
-        confidence_threshold: float = 0.02,
-        rebalance_day: int = 4,  # Friday
+        confidence_threshold: float = 0.05,
         drift_threshold_pct: float = 0.05,
         max_turnover_pct: float = 0.30,
-        slippage_bps: float = 10.0,
         risk_per_sector_pct: float = 0.10,
     ):
         super().__init__(strategy_id, symbols, context)
 
         self.top_n_sectors = top_n_sectors
         self.confidence_threshold = confidence_threshold
-        self.rebalance_day = rebalance_day
         self.drift_threshold_pct = drift_threshold_pct
         self.max_turnover_pct = max_turnover_pct
-        self.slippage_bps = slippage_bps
         self.risk_per_sector_pct = risk_per_sector_pct
 
         # Price and momentum tracking
@@ -102,7 +96,7 @@ class SectorPulseStrategy(Strategy):
         logger.info(
             f"SectorPulse started: {self.symbols} "
             f"(top_n={self.top_n_sectors}, "
-            f"rebalance_day={self.rebalance_day})"
+            f"conf_thresh={self.confidence_threshold})"
         )
 
     def on_bar(self, bar: BarData) -> None:
@@ -164,14 +158,17 @@ class SectorPulseStrategy(Strategy):
                 selected.append(symbol)
 
         if not selected:
+            # Nothing meets threshold — liquidate to cash
+            self._liquidate_all()
             return
 
-        # Equal weight among selected, scaled by regime
+        # Equal weight among selected, scaled by regime, capped per-sector
         base_weight = 1.0 / len(selected)
         new_weights: Dict[str, float] = {}
         for s in self.symbols:
             if s in selected:
-                new_weights[s] = base_weight * size_factor
+                w = base_weight * size_factor
+                new_weights[s] = min(w, self.risk_per_sector_pct)
             else:
                 new_weights[s] = 0.0
 
@@ -329,22 +326,23 @@ class SectorPulseStrategy(Strategy):
         )
 
     def _calc_max_drift(self) -> float:
-        """Calculate maximum weight drift from target."""
-        total_value = 0.0
-        position_values: Dict[str, float] = {}
-        for s in self.symbols:
-            price = self._current_prices.get(s)
-            qty = self.context.get_position_quantity(s)
-            val = (qty * price) if price and qty else 0.0
-            position_values[s] = val
-            total_value += val
+        """Calculate maximum weight drift from target.
 
-        if total_value == 0:
+        Uses portfolio value (cash + positions) as denominator so that
+        current weights reflect actual allocation, not just relative
+        invested proportions. This prevents inflated drift when target
+        weights sum to < 1.0 (e.g., after per-sector cap).
+        """
+        total_value = self._get_portfolio_value()
+        if total_value <= 0:
             return 0.0
 
         max_drift = 0.0
         for s in self.symbols:
-            current_w = position_values[s] / total_value
+            price = self._current_prices.get(s)
+            qty = self.context.get_position_quantity(s)
+            position_val = (qty * price) if price and qty else 0.0
+            current_w = position_val / total_value
             target_w = self._target_weights.get(s, 0.0)
             max_drift = max(max_drift, abs(current_w - target_w))
         return max_drift

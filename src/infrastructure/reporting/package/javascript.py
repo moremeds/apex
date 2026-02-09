@@ -115,6 +115,8 @@ async function updateChart(symbolOverride = null) {{
     updateTrendPulseHistory(data);
     updatePulseDipHistory(data);
     updateSqueezePlayHistory(data);
+    updateRegimeFlexHistory(data);
+    updateSectorPulseHistory(data);
 }}
 
 // Render full multi-subplot chart using Plotly (matches SignalReportGenerator)
@@ -1584,6 +1586,251 @@ function updateSqueezePlayHistory(data) {{
                                 <th style="padding:6px 6px;text-align:right;font-size:11px;color:${{muted}};">ADX</th>
                                 <th style="padding:6px 6px;text-align:left;font-size:11px;color:${{muted}};">Bias</th>
                                 <th style="padding:6px 6px;text-align:left;font-size:11px;color:${{muted}};">Signal</th>
+                            </tr>
+                        </thead>
+                        <tbody>${{bodyHtml}}</tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    `;
+
+    container.innerHTML = `<div style="padding:16px;">${{summaryCard}}${{historyTable}}</div>`;
+}}
+
+// ========== RegimeFlex Strategy Section ==========
+function updateRegimeFlexHistory(data) {{
+    const container = document.getElementById('regime-flex-table');
+    if (!container) return;
+
+    const rows = data.regime_flex_history || [];
+    if (rows.length === 0) {{
+        container.innerHTML = '<div style="color: ' + colors.text_muted + '; padding: 16px;">No RegimeFlex history available for this symbol/timeframe.</div>';
+        return;
+    }}
+
+    const border = colors.border || '#334155';
+    const muted = colors.text_muted || '#94a3b8';
+    const headerBg = colors.bg || '#1e293b';
+    const cardBg = colors.card_bg || '#1e293b';
+
+    const regimeColors = {{
+        'R0': '#10b981',
+        'R1': '#f59e0b',
+        'R2': '#ef4444',
+        'R3': '#a855f7',
+    }};
+    const regimeLabels = {{
+        'R0': 'Healthy Uptrend',
+        'R1': 'Choppy/Extended',
+        'R2': 'Risk-Off',
+        'R3': 'Rebound Window',
+    }};
+    const signalBg = {{
+        'BUY': 'rgba(16, 185, 129, 0.10)',
+        'SELL': 'rgba(239, 68, 68, 0.10)',
+        'HOLD': 'transparent',
+    }};
+    const signalColor = {{
+        'BUY': '#10b981',
+        'SELL': '#ef4444',
+        'HOLD': muted,
+    }};
+
+    const cur = rows[0];
+    const curRegime = cur.regime || '--';
+    const curExposure = cur.target_exposure || 0;
+    const curSignal = cur.signal || 'HOLD';
+    const curRegimeColor = regimeColors[curRegime] || muted;
+    const curRegimeLabel = regimeLabels[curRegime] || curRegime;
+
+    let signalBadge;
+    if (curSignal === 'BUY') {{
+        signalBadge = `<span style="background:rgba(16,185,129,0.2);color:#10b981;border:1px solid #10b981;padding:4px 12px;border-radius:6px;font-weight:700;">BUY</span>`;
+    }} else if (curSignal === 'SELL') {{
+        signalBadge = `<span style="background:rgba(239,68,68,0.2);color:#ef4444;border:1px solid #ef4444;padding:4px 12px;border-radius:6px;font-weight:700;">SELL</span>`;
+    }} else {{
+        signalBadge = `<span style="color:${{muted}};border:1px solid ${{border}};padding:4px 12px;border-radius:6px;">HOLD</span>`;
+    }}
+
+    const exposureBarWidth = Math.min(curExposure, 100);
+    const exposureColor = curExposure >= 80 ? '#10b981' : curExposure >= 40 ? '#f59e0b' : curExposure > 0 ? '#a855f7' : '#ef4444';
+
+    const summaryCard = `
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:12px;">
+            <div style="background:${{cardBg}};border:1px solid ${{border}};border-radius:10px;padding:16px;text-align:center;">
+                <div style="font-size:10px;text-transform:uppercase;color:${{muted}};margin-bottom:6px;letter-spacing:0.5px;">Current Regime</div>
+                <div style="font-size:20px;font-weight:700;color:${{curRegimeColor}};">${{curRegime}}</div>
+                <div style="font-size:11px;color:${{muted}};margin-top:4px;">${{curRegimeLabel}}</div>
+            </div>
+            <div style="background:${{cardBg}};border:1px solid ${{border}};border-radius:10px;padding:16px;text-align:center;">
+                <div style="font-size:10px;text-transform:uppercase;color:${{muted}};margin-bottom:6px;letter-spacing:0.5px;">Target Exposure</div>
+                <div style="font-size:20px;font-weight:700;color:${{exposureColor}};">${{curExposure}}%</div>
+                <div style="width:80%;height:6px;background:${{border}};border-radius:3px;overflow:hidden;margin:6px auto 0;">
+                    <div style="width:${{exposureBarWidth}}%;height:100%;background:${{exposureColor}};border-radius:3px;"></div>
+                </div>
+            </div>
+            <div style="background:${{cardBg}};border:1px solid ${{border}};border-radius:10px;padding:16px;text-align:center;">
+                <div style="font-size:10px;text-transform:uppercase;color:${{muted}};margin-bottom:6px;letter-spacing:0.5px;">Signal</div>
+                <div style="margin-top:4px;">${{signalBadge}}</div>
+            </div>
+        </div>
+        <div style="font-size:11px;color:${{muted}};margin-bottom:4px;">
+            As of ${{cur.date}} \\u00b7 ${{data.symbol}} \\u00b7 ${{data.timeframe}}
+        </div>
+    `;
+
+    let bodyHtml = '';
+    for (const row of rows) {{
+        const regime = row.regime || '--';
+        const sig = row.signal || 'HOLD';
+        const rowBg = signalBg[sig] || 'transparent';
+        const sigCol = signalColor[sig] || muted;
+        const regCol = regimeColors[regime] || muted;
+        const exposure = row.target_exposure || 0;
+        const expColor = exposure >= 80 ? '#10b981' : exposure >= 40 ? '#f59e0b' : exposure > 0 ? '#a855f7' : '#ef4444';
+
+        bodyHtml += `<tr style="background:${{rowBg}};border-bottom:1px solid ${{border}};">
+            <td style="padding:4px 8px;font-size:11px;white-space:nowrap;">${{row.date}}</td>
+            <td style="padding:4px 6px;font-size:11px;color:${{regCol}};font-weight:600;">${{regime}}</td>
+            <td style="padding:4px 6px;font-size:11px;text-align:right;font-family:monospace;">
+                <span style="color:${{expColor}};">${{exposure}}%</span>
+            </td>
+            <td style="padding:4px 6px;font-size:11px;color:${{sigCol}};font-weight:${{sig !== 'HOLD' ? '600' : '400'}};">${{sig}}</td>
+        </tr>`;
+    }}
+
+    const historyTable = `
+        <div style="margin-top:16px;">
+            <h4 style="cursor:pointer;margin:0 0 8px 0;color:${{muted}};font-size:12px;text-transform:uppercase;"
+                onclick="(function(el){{
+                    const t=el.nextElementSibling;
+                    const show=t.style.display==='none';
+                    t.style.display=show?'block':'none';
+                    el.querySelector('span').textContent=show?'\\u25bc':'\\u25b6';
+                }})(this)">
+                <span>\\u25b6</span> Bar-by-Bar History (${{rows.length}} bars) \\u2014 Click to expand
+            </h4>
+            <div style="display:none;">
+                <div style="font-size:11px;color:${{muted}};margin-bottom:8px;">
+                    Newest first \\u00b7
+                    <span style="display:inline-block;width:10px;height:10px;background:rgba(16,185,129,0.10);border:1px solid #10b981;border-radius:2px;vertical-align:middle;"></span> BUY
+                    <span style="display:inline-block;width:10px;height:10px;background:rgba(239,68,68,0.10);border:1px solid #ef4444;border-radius:2px;vertical-align:middle;margin-left:8px;"></span> SELL
+                </div>
+                <div style="overflow-x:auto;">
+                    <table style="width:100%;border-collapse:collapse;color:${{colors.text}};font-size:12px;">
+                        <thead>
+                            <tr style="background:${{headerBg}};border-bottom:2px solid ${{border}};">
+                                <th style="padding:6px 8px;text-align:left;font-size:11px;color:${{muted}};">Date</th>
+                                <th style="padding:6px 6px;text-align:left;font-size:11px;color:${{muted}};">Regime</th>
+                                <th style="padding:6px 6px;text-align:right;font-size:11px;color:${{muted}};">Exposure</th>
+                                <th style="padding:6px 6px;text-align:left;font-size:11px;color:${{muted}};">Signal</th>
+                            </tr>
+                        </thead>
+                        <tbody>${{bodyHtml}}</tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    `;
+
+    container.innerHTML = `<div style="padding:16px;">${{summaryCard}}${{historyTable}}</div>`;
+}}
+
+// ========== SectorPulse Strategy Section ==========
+function updateSectorPulseHistory(data) {{
+    const container = document.getElementById('sector-pulse-table');
+    if (!container) return;
+
+    const rows = data.sector_pulse_history || [];
+    if (rows.length === 0) {{
+        container.innerHTML = '<div style="color: ' + colors.text_muted + '; padding: 16px;">No SectorPulse history available for this symbol/timeframe.</div>';
+        return;
+    }}
+
+    const border = colors.border || '#334155';
+    const muted = colors.text_muted || '#94a3b8';
+    const headerBg = colors.bg || '#1e293b';
+    const cardBg = colors.card_bg || '#1e293b';
+
+    const regimeColors = {{
+        'R0': '#10b981',
+        'R1': '#f59e0b',
+        'R2': '#ef4444',
+        'R3': '#a855f7',
+    }};
+
+    const cur = rows[0];
+    const curMomentum = cur.momentum_score || 0;
+    const curRegime = cur.regime || '--';
+    const curRegimeColor = regimeColors[curRegime] || muted;
+    const momColor = curMomentum > 5 ? '#10b981' : curMomentum > 0 ? '#06b6d4' : curMomentum > -5 ? '#f59e0b' : '#ef4444';
+
+    const summaryCard = `
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:12px;">
+            <div style="background:${{cardBg}};border:1px solid ${{border}};border-radius:10px;padding:16px;text-align:center;">
+                <div style="font-size:10px;text-transform:uppercase;color:${{muted}};margin-bottom:6px;letter-spacing:0.5px;">20-Day Momentum</div>
+                <div style="font-size:24px;font-weight:700;color:${{momColor}};">
+                    ${{curMomentum >= 0 ? '+' : ''}}${{curMomentum.toFixed(2)}}%
+                </div>
+                <div style="font-size:11px;color:${{muted}};margin-top:4px;">
+                    ${{curMomentum > 5 ? 'Strong upside' : curMomentum > 0 ? 'Mild upside' : curMomentum > -5 ? 'Mild downside' : 'Strong downside'}}
+                </div>
+            </div>
+            <div style="background:${{cardBg}};border:1px solid ${{border}};border-radius:10px;padding:16px;text-align:center;">
+                <div style="font-size:10px;text-transform:uppercase;color:${{muted}};margin-bottom:6px;letter-spacing:0.5px;">Regime</div>
+                <div style="font-size:20px;font-weight:700;color:${{curRegimeColor}};">${{curRegime}}</div>
+                <div style="font-size:11px;color:${{muted}};margin-top:4px;">
+                    ${{curRegime === 'R0' ? 'Full allocation OK' : curRegime === 'R1' ? 'Reduced allocation' : curRegime === 'R2' ? 'No new positions' : curRegime === 'R3' ? 'Small positions only' : ''}}
+                </div>
+            </div>
+        </div>
+        <div style="font-size:11px;color:${{muted}};margin-bottom:4px;">
+            As of ${{cur.date}} \\u00b7 ${{data.symbol}} \\u00b7 ${{data.timeframe}}
+        </div>
+    `;
+
+    let bodyHtml = '';
+    for (const row of rows) {{
+        const mom = row.momentum_score || 0;
+        const regime = row.regime || '--';
+        const regCol = regimeColors[regime] || muted;
+        const mC = mom > 5 ? '#10b981' : mom > 0 ? '#06b6d4' : mom > -5 ? '#f59e0b' : '#ef4444';
+        const rowBg = mom > 5 ? 'rgba(16, 185, 129, 0.05)' : mom < -5 ? 'rgba(239, 68, 68, 0.05)' : 'transparent';
+
+        bodyHtml += `<tr style="background:${{rowBg}};border-bottom:1px solid ${{border}};">
+            <td style="padding:4px 8px;font-size:11px;white-space:nowrap;">${{row.date}}</td>
+            <td style="padding:4px 6px;font-size:11px;text-align:right;font-family:monospace;color:${{mC}};">
+                ${{mom >= 0 ? '+' : ''}}${{mom.toFixed(2)}}%
+            </td>
+            <td style="padding:4px 6px;font-size:11px;color:${{regCol}};font-weight:600;">${{regime}}</td>
+        </tr>`;
+    }}
+
+    const historyTable = `
+        <div style="margin-top:16px;">
+            <h4 style="cursor:pointer;margin:0 0 8px 0;color:${{muted}};font-size:12px;text-transform:uppercase;"
+                onclick="(function(el){{
+                    const t=el.nextElementSibling;
+                    const show=t.style.display==='none';
+                    t.style.display=show?'block':'none';
+                    el.querySelector('span').textContent=show?'\\u25bc':'\\u25b6';
+                }})(this)">
+                <span>\\u25b6</span> Bar-by-Bar History (${{rows.length}} bars) \\u2014 Click to expand
+            </h4>
+            <div style="display:none;">
+                <div style="font-size:11px;color:${{muted}};margin-bottom:8px;">
+                    Newest first \\u00b7
+                    <span style="display:inline-block;width:10px;height:10px;background:rgba(16,185,129,0.05);border:1px solid #10b981;border-radius:2px;vertical-align:middle;"></span> Strong upside (&gt;5%)
+                    <span style="display:inline-block;width:10px;height:10px;background:rgba(239,68,68,0.05);border:1px solid #ef4444;border-radius:2px;vertical-align:middle;margin-left:8px;"></span> Strong downside (&lt;-5%)
+                </div>
+                <div style="overflow-x:auto;">
+                    <table style="width:100%;border-collapse:collapse;color:${{colors.text}};font-size:12px;">
+                        <thead>
+                            <tr style="background:${{headerBg}};border-bottom:2px solid ${{border}};">
+                                <th style="padding:6px 8px;text-align:left;font-size:11px;color:${{muted}};">Date</th>
+                                <th style="padding:6px 6px;text-align:right;font-size:11px;color:${{muted}};" title="20-day return (momentum score)">Momentum</th>
+                                <th style="padding:6px 6px;text-align:left;font-size:11px;color:${{muted}};">Regime</th>
                             </tr>
                         </thead>
                         <tbody>${{bodyHtml}}</tbody>

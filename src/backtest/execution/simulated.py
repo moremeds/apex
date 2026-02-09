@@ -128,6 +128,17 @@ class SimulatedExecution:
         self._ledger.update_price(tick)
         self._matcher.match_orders(tick.symbol)
 
+    def fill_deferred_at_open(self, open_prices: Dict[str, float]) -> None:
+        """
+        Fill deferred NEXT_BAR_OPEN orders at the given open prices.
+
+        Called by BacktestEngine at the start of each new bar.
+
+        Args:
+            open_prices: Dict of symbol -> bar open price.
+        """
+        self._matcher.fill_deferred_at_open(open_prices)
+
     async def submit_order(self, order: OrderRequest) -> OrderResult:
         """
         Submit order for simulated execution (async version).

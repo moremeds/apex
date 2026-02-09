@@ -66,6 +66,10 @@ def write_data_files(
         # Compute strategy signal histories
         pulse_dip_history = _compute_pulse_dip_history(df, timeframe, display_timezone)
         squeeze_play_history = _compute_squeeze_play_history(df, timeframe, display_timezone)
+        regime_flex_history = _compute_regime_flex_history(df, timeframe, display_timezone)
+        sector_pulse_history = _compute_sector_pulse_history(
+            symbol, df, timeframe, display_timezone
+        )
 
         file_data = {
             "symbol": symbol,
@@ -78,6 +82,8 @@ def write_data_files(
             "trend_pulse_history": trend_pulse_history,
             "pulse_dip_history": pulse_dip_history,
             "squeeze_play_history": squeeze_play_history,
+            "regime_flex_history": regime_flex_history,
+            "sector_pulse_history": sector_pulse_history,
         }
 
         file_path = data_dir / f"{key}.json"
@@ -682,9 +688,9 @@ def _compute_squeeze_play_history(
                 else:
                     outside_count = 0
 
-            # Direction bias
+            # Long-only strategy: show bullish bias context
             bbm = float(bb_middle.iloc[i]) if not pd.isna(bb_middle.iloc[i]) else c
-            direction = "BULL" if c > bbm else "BEAR" if c < bbm else "NEUT"
+            direction = "BULL" if c > bbm else "NEUT"
 
             signal = ""
             if sq:
@@ -695,7 +701,7 @@ def _compute_squeeze_play_history(
                 and adx_v >= adx_min
             ):
                 if not in_position:
-                    signal = "BREAK"
+                    signal = "LONG ENTRY"
                     in_position = True
                 else:
                     signal = "HOLD"
@@ -720,4 +726,173 @@ def _compute_squeeze_play_history(
         return rows
     except Exception as e:
         logger.warning(f"Failed to compute SqueezePlay history: {e}")
+        return []
+
+
+def _compute_regime_flex_history(
+    df: pd.DataFrame, timeframe: str = "1d", display_timezone: str = "US/Eastern"
+) -> List[Dict[str, Any]]:
+    """Compute RegimeFlex strategy signal history for a single DataFrame (last 60 bars).
+
+    Uses the RegimeDetector to classify each bar's regime, then maps regime to
+    target exposure using the strategy's YAML params (r0/r1/r3_gross_pct).
+    Generates BUY/SELL/HOLD signals based on exposure changes.
+
+    DRIFT RISK: This re-implements RegimeFlex exposure logic for display-only
+    per-bar annotations. Keep in sync with:
+    - src/domain/strategy/signals/regime_flex.py (signal conditions)
+    - src/domain/strategy/playbook/regime_flex.py (full event-driven logic)
+    """
+    try:
+        from src.domain.strategy.param_loader import get_strategy_params
+
+        if len(df) < 130:
+            return []
+
+        required = ["high", "low", "close"]
+        if not all(c in df.columns for c in required):
+            return []
+
+        # Load strategy params
+        params = get_strategy_params("regime_flex")
+        r0_pct = params.get("r0_gross_pct", 1.0)
+        r1_pct = params.get("r1_gross_pct", 0.6)
+        r3_pct = params.get("r3_gross_pct", 0.3)
+
+        exposure_map: Dict[str, float] = {
+            "R0": r0_pct,
+            "R1": r1_pct,
+            "R2": 0.0,
+            "R3": r3_pct,
+        }
+
+        # Try to compute regime series via RegimeDetector
+        regime_values: List[str] = []
+        try:
+            from src.domain.signals.indicators.regime.regime_detector import (
+                RegimeDetectorIndicator,
+            )
+
+            detector = RegimeDetectorIndicator()
+            result = detector.calculate(df[required].copy(), detector.default_params)
+            if not result.empty and "regime" in result.columns:
+                regime_values = [str(v) for v in result["regime"].values]
+            else:
+                return []
+        except Exception:
+            return []
+
+        if len(regime_values) != len(df):
+            return []
+
+        last_n = 60
+        start_idx = max(0, len(df) - last_n)
+        rows: List[Dict[str, Any]] = []
+
+        prev_exposure: Optional[float] = None
+
+        for i in range(start_idx, len(df)):
+            regime = regime_values[i]
+            target_exposure = exposure_map.get(regime, 0.0)
+
+            # Determine signal based on exposure change
+            if prev_exposure is None:
+                signal = "HOLD"
+            elif target_exposure > prev_exposure:
+                signal = "BUY"
+            elif target_exposure < prev_exposure:
+                signal = "SELL"
+            else:
+                signal = "HOLD"
+
+            prev_exposure = target_exposure
+
+            ts = df.index[i]
+            date_str = _format_timestamp(ts, timeframe, display_timezone)
+
+            row: Dict[str, Any] = {
+                "date": date_str,
+                "regime": regime,
+                "target_exposure": round(target_exposure * 100, 1),
+                "signal": signal,
+            }
+            rows.append(row)
+
+        rows.reverse()
+        return rows
+    except Exception as e:
+        logger.warning(f"Failed to compute RegimeFlex history: {e}")
+        return []
+
+
+def _compute_sector_pulse_history(
+    symbol: str,
+    df: pd.DataFrame,
+    timeframe: str = "1d",
+    display_timezone: str = "US/Eastern",
+) -> List[Dict[str, Any]]:
+    """Compute SectorPulse strategy signal history for a single DataFrame (last 60 bars).
+
+    Computes a simple 20-day momentum score for the symbol and overlays the
+    regime classification. This is a per-symbol approximation of the cross-sectional
+    SectorPulse strategy (which normally ranks all sectors together).
+
+    DRIFT RISK: This re-implements SectorPulse momentum logic for display-only
+    per-bar annotations. Keep in sync with:
+    - src/domain/strategy/signals/sector_pulse.py (signal conditions)
+    - src/domain/strategy/playbook/sector_pulse.py (full event-driven logic)
+    """
+    try:
+        if len(df) < 130:
+            return []
+
+        required = ["high", "low", "close"]
+        if not all(c in df.columns for c in required):
+            return []
+
+        close = df["close"]
+        momentum_period = 20
+
+        # Compute momentum as 20-day return
+        momentum = close.pct_change(momentum_period) * 100  # as percentage
+
+        # Try to compute regime series via RegimeDetector
+        regime_values: List[str] = []
+        try:
+            from src.domain.signals.indicators.regime.regime_detector import (
+                RegimeDetectorIndicator,
+            )
+
+            detector = RegimeDetectorIndicator()
+            result = detector.calculate(df[required].copy(), detector.default_params)
+            if not result.empty and "regime" in result.columns:
+                regime_values = [str(v) for v in result["regime"].values]
+            else:
+                # Fall back to empty regime
+                regime_values = ["--"] * len(df)
+        except Exception:
+            regime_values = ["--"] * len(df)
+
+        last_n = 60
+        start_idx = max(0, len(df) - last_n)
+        rows: List[Dict[str, Any]] = []
+
+        for i in range(start_idx, len(df)):
+            mom_val = float(momentum.iloc[i]) if not pd.isna(momentum.iloc[i]) else 0.0
+            regime = regime_values[i] if i < len(regime_values) else "--"
+
+            ts = df.index[i]
+            date_str = _format_timestamp(ts, timeframe, display_timezone)
+
+            row: Dict[str, Any] = {
+                "date": date_str,
+                "momentum_score": round(mom_val, 2),
+                "regime": regime,
+            }
+            rows.append(row)
+
+        rows.reverse()
+        return rows
+    except Exception as e:
+        logger.warning(f"Failed to compute SectorPulse history: {e}")
         return []

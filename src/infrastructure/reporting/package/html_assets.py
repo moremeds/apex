@@ -201,6 +201,28 @@ def build_index_html(
         </div>
 
         <div class="section">
+            <h2 class="section-header" onclick="toggleSection('regime-flex-content')">
+                <span class="toggle-icon">&#9660;</span> RegimeFlex Strategy
+            </h2>
+            <div id="regime-flex-content" class="section-content">
+                <div id="regime-flex-table">
+                    <div style="color: #94a3b8; padding: 16px;">Loading RegimeFlex signals...</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2 class="section-header" onclick="toggleSection('sector-pulse-content')">
+                <span class="toggle-icon">&#9660;</span> SectorPulse Strategy
+            </h2>
+            <div id="sector-pulse-content" class="section-content">
+                <div id="sector-pulse-table">
+                    <div style="color: #94a3b8; padding: 16px;">Loading SectorPulse signals...</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
             <h2 class="section-header" onclick="toggleSection('indicators-content')">
                 <span class="toggle-icon">&#9660;</span> Indicators
             </h2>
