@@ -402,43 +402,14 @@ async def _run_portfolio_strategy(
     return _extract_metrics(result, regime_series, init_cash)
 
 
-def _extract_metrics(
+def _build_equity_and_returns(
     result: Any,
-    regime_series: pd.Series,
-    init_cash: float,
-) -> Dict[str, Any]:
-    """
-    Extract metrics from BacktestResult into the dashboard-compatible dict.
-
-    Maps BacktestResult fields to the same structure that _aggregate_results
-    and StrategyComparisonBuilder expect.
-    """
-    perf = result.performance
-    risk = result.risk
-    trades = result.trades
-
-    if perf is None or risk is None or trades is None:
-        return {}
-
-    # Normalize regime_series index to tz-naive for safe comparison.
-    # BacktestEngine equity curves produce tz-naive timestamps from int seconds,
-    # while regime_series inherits tz-aware index (America/New_York) from Yahoo data.
-    if regime_series.index.tz is not None:
-        regime_series = regime_series.copy()
-        regime_series.index = regime_series.index.tz_localize(None)
-
-    total_return = perf.total_return
-    sharpe = risk.sharpe_ratio
-    max_dd = -(risk.max_drawdown / 100.0) if risk.max_drawdown > 0 else risk.max_drawdown / 100.0
-    win_rate = (trades.win_rate / 100.0) if trades.win_rate > 1 else trades.win_rate
-    total_trades = trades.total_trades
-
-    # Build equity values/index from equity_curve
+) -> Tuple[List[float], List[int], List[float]]:
+    """Parse equity_curve into parallel value/index lists and daily returns."""
     equity_values: List[float] = []
     equity_index: List[int] = []
     for point in result.equity_curve:
         equity_values.append(point["equity"])
-        # Parse date string to timestamp
         dt = (
             datetime.fromisoformat(point["date"])
             if isinstance(point["date"], str)
@@ -448,7 +419,6 @@ def _extract_metrics(
             dt = datetime.combine(dt, datetime.min.time())
         equity_index.append(int(dt.timestamp()))
 
-    # Build returns series from equity
     returns_list: List[float] = []
     for i in range(1, len(equity_values)):
         if equity_values[i - 1] > 0:
@@ -456,7 +426,15 @@ def _extract_metrics(
         else:
             returns_list.append(0.0)
 
-    # Per-regime metrics
+    return equity_values, equity_index, returns_list
+
+
+def _calc_per_regime_metrics(
+    returns_list: List[float],
+    equity_index: List[int],
+    regime_series: pd.Series,
+) -> Tuple[Dict[str, float], Dict[str, float]]:
+    """Compute Sharpe and total return per regime from daily returns."""
     per_regime_sharpe: Dict[str, float] = {}
     per_regime_return: Dict[str, float] = {}
     if len(returns_list) > 0 and len(equity_index) > 1:
@@ -474,19 +452,24 @@ def _extract_metrics(
                 if not np.isinf(s):
                     per_regime_sharpe[regime_label] = round(s, 3)
                 per_regime_return[regime_label] = round(total_r, 4)
+    return per_regime_sharpe, per_regime_return
 
-    # Per-regime trade decomposition from trade_log
+
+def _calc_per_regime_trades(
+    trade_log: Optional[List[Any]],
+    regime_series: pd.Series,
+) -> Tuple[Dict[str, int], Dict[str, float], Dict[str, float], Dict[str, float]]:
+    """Decompose trades by regime: count, win-rate, profit-factor, avg holding period."""
     per_regime_trades: Dict[str, int] = {}
     per_regime_wr: Dict[str, float] = {}
     per_regime_pf: Dict[str, float] = {}
     per_regime_avg_hold: Dict[str, float] = {}
-    if result.trade_log and len(regime_series) > 0:
+    if trade_log and len(regime_series) > 0:
         for regime_label in ["R0", "R1", "R2", "R3"]:
             regime_trade_list: List[Any] = []
-            for trade in result.trade_log:
+            for trade in trade_log:
                 if trade.entry_time is None:
                     continue
-                # Look up regime at entry time
                 ts = pd.Timestamp(trade.entry_time)
                 if ts.tzinfo is not None and regime_series.index.tz is None:
                     ts = ts.tz_localize(None)
@@ -514,18 +497,14 @@ def _extract_metrics(
                 per_regime_avg_hold[regime_label] = (
                     round(sum(durations) / len(durations), 1) if durations else 0.0
                 )
+    return per_regime_trades, per_regime_wr, per_regime_pf, per_regime_avg_hold
 
-    # Monthly returns
-    monthly_returns: Dict[str, float] = {}
-    if len(returns_list) > 0 and len(equity_index) > 1:
-        ret_idx = pd.Index([pd.Timestamp(t, unit="s") for t in equity_index[1:]])
-        returns_series = pd.Series(returns_list, index=ret_idx)
-        monthly = (1 + returns_series).resample("ME").prod() - 1
-        for dt, val in monthly.items():
-            if not pd.isna(val):
-                monthly_returns[dt.strftime("%Y-%m")] = round(float(val), 4)
 
-    # Stress window results
+def _calc_stress_results(
+    equity_values: List[float],
+    equity_index: List[int],
+) -> Dict[str, Dict[str, float]]:
+    """Compute return and drawdown for each predefined stress window."""
     stress_results: Dict[str, Dict[str, float]] = {}
     if equity_values and equity_index:
         eq_idx_pd = pd.Index([pd.Timestamp(t, unit="s") for t in equity_index])
@@ -546,8 +525,14 @@ def _extract_metrics(
                     "total_return": round(total_ret, 4),
                     "max_drawdown": round(dd, 4),
                 }
+    return stress_results
 
-    # Rolling Sharpe (60-day)
+
+def _calc_rolling_sharpe(
+    returns_list: List[float],
+    equity_index: List[int],
+) -> List[List[float]]:
+    """Compute 60-day rolling Sharpe as [[timestamp, value], ...]."""
     rolling_sharpe: List[List[float]] = []
     if len(returns_list) > 60:
         ret_idx = pd.Index([pd.Timestamp(t, unit="s") for t in equity_index[1:]])
@@ -559,6 +544,57 @@ def _extract_metrics(
             fval = float(val)
             if not np.isnan(fval) and not np.isinf(fval):
                 rolling_sharpe.append([int(ts.timestamp()), fval])
+    return rolling_sharpe
+
+
+def _extract_metrics(
+    result: Any,
+    regime_series: pd.Series,
+    init_cash: float,
+) -> Dict[str, Any]:
+    """
+    Extract metrics from BacktestResult into the dashboard-compatible dict.
+
+    Maps BacktestResult fields to the same structure that _aggregate_results
+    and StrategyComparisonBuilder expect.
+    """
+    perf = result.performance
+    risk = result.risk
+    trades = result.trades
+
+    if perf is None or risk is None or trades is None:
+        return {}
+
+    # Normalize regime_series index to tz-naive for safe comparison.
+    if regime_series.index.tz is not None:
+        regime_series = regime_series.copy()
+        regime_series.index = regime_series.index.tz_localize(None)
+
+    total_return = perf.total_return
+    sharpe = risk.sharpe_ratio
+    max_dd = -(risk.max_drawdown / 100.0) if risk.max_drawdown > 0 else risk.max_drawdown / 100.0
+    win_rate = (trades.win_rate / 100.0) if trades.win_rate > 1 else trades.win_rate
+    total_trades = trades.total_trades
+
+    equity_values, equity_index, returns_list = _build_equity_and_returns(result)
+    per_regime_sharpe, per_regime_return = _calc_per_regime_metrics(
+        returns_list, equity_index, regime_series
+    )
+    per_regime_trades, per_regime_wr, per_regime_pf, per_regime_avg_hold = _calc_per_regime_trades(
+        result.trade_log, regime_series
+    )
+    stress_results = _calc_stress_results(equity_values, equity_index)
+    rolling_sharpe = _calc_rolling_sharpe(returns_list, equity_index)
+
+    # Monthly returns
+    monthly_returns: Dict[str, float] = {}
+    if len(returns_list) > 0 and len(equity_index) > 1:
+        ret_idx = pd.Index([pd.Timestamp(t, unit="s") for t in equity_index[1:]])
+        returns_series = pd.Series(returns_list, index=ret_idx)
+        monthly = (1 + returns_series).resample("ME").prod() - 1
+        for dt, val in monthly.items():
+            if not pd.isna(val):
+                monthly_returns[dt.strftime("%Y-%m")] = round(float(val), 4)
 
     # Sortino (from daily returns)
     sortino = 0.0
@@ -600,28 +636,12 @@ def _extract_metrics(
     }
 
 
-def _aggregate_results(
-    per_symbol: Dict[str, Dict[str, Any]],
-) -> Dict[str, Any]:
-    """Aggregate per-symbol results into strategy-level metrics."""
-    valid = {s: m for s, m in per_symbol.items() if m}
-    if not valid:
-        return {}
-
-    # Average core metrics across symbols
-    sharpes = [m["sharpe"] for m in valid.values()]
-    sortinos = [m["sortino"] for m in valid.values()]
-    calmars = [m["calmar"] for m in valid.values()]
-    returns = [m["total_return"] for m in valid.values()]
-    drawdowns = [m["max_drawdown"] for m in valid.values()]
-    win_rates = [m["win_rate"] for m in valid.values()]
-    pf_factors = [m["profit_factor"] for m in valid.values()]
-    trade_counts = [m["total_trades"] for m in valid.values()]
-
-    # Build composite equity curve (equal-weighted average across all symbols)
+def _aggregate_equity_curves(
+    valid: Dict[str, Dict[str, Any]],
+) -> Tuple[List[List[float]], List[List[float]]]:
+    """Build composite equity + drawdown curves (equal-weighted average across symbols)."""
     eq_curve: List[List[float]] = []
     dd_curve: List[List[float]] = []
-    # Collect normalized equity series from each symbol
     norm_series: Dict[str, pd.Series] = {}
     for sym, m in valid.items():
         if m.get("equity_values") and m.get("equity_index"):
@@ -632,37 +652,23 @@ def _aggregate_results(
                 idx = pd.Index([pd.Timestamp(t, unit="s") for t in eq_idx])
                 norm_series[sym] = pd.Series([(v / base) * 100 for v in eq_vals], index=idx)
     if norm_series:
-        # Average across symbols at each timestamp (forward-fill gaps)
         combined = pd.DataFrame(norm_series)
         combined = combined.ffill().bfill()
         avg_equity = combined.mean(axis=1)
         for ts, val in zip(avg_equity.index, avg_equity.values):
             eq_curve.append([int(ts.timestamp()), float(val)])
-        # Drawdown from composite equity
         peak = 0.0
         for ts, val in zip(avg_equity.index, avg_equity.values):
             peak = max(peak, float(val))
             dd = (float(val) - peak) / peak if peak > 0 else 0
             dd_curve.append([int(ts.timestamp()), dd])
+    return eq_curve, dd_curve
 
-    per_symbol_sharpe = {s: round(m["sharpe"], 3) for s, m in valid.items()}
 
-    # Slim per-symbol metrics for Per-Stock tab (no equity curves)
-    per_symbol_metrics: Dict[str, Dict[str, float]] = {
-        s: {
-            "sharpe": round(m["sharpe"], 3),
-            "total_return": round(m["total_return"], 4),
-            "max_drawdown": round(m["max_drawdown"], 4),
-            "win_rate": round(m["win_rate"], 3),
-            "total_trades": m["total_trades"],
-            "sortino": round(m["sortino"], 3),
-            "calmar": round(m["calmar"], 3),
-            "profit_factor": round(m["profit_factor"], 3),
-        }
-        for s, m in valid.items()
-    }
-
-    # -- Aggregate per-regime metrics (average across symbols) --
+def _aggregate_regime_metrics(
+    valid: Dict[str, Dict[str, Any]],
+) -> Tuple[Dict[str, float], Dict[str, float]]:
+    """Average per-regime Sharpe and return across symbols."""
     per_regime_sharpe: Dict[str, float] = {}
     per_regime_return: Dict[str, float] = {}
     for regime_label in ["R0", "R1", "R2", "R3"]:
@@ -680,8 +686,13 @@ def _aggregate_results(
             per_regime_sharpe[regime_label] = round(float(np.mean(regime_sharpes)), 3)
         if regime_returns:
             per_regime_return[regime_label] = round(float(np.mean(regime_returns)), 4)
+    return per_regime_sharpe, per_regime_return
 
-    # -- Aggregate per-regime trade stats (sum trades, weighted-avg WR/PF) --
+
+def _aggregate_regime_trades(
+    valid: Dict[str, Dict[str, Any]],
+) -> Tuple[Dict[str, int], Dict[str, float], Dict[str, float], Dict[str, float]]:
+    """Sum trades and compute weighted-avg WR/PF/hold per regime across symbols."""
     per_regime_trades: Dict[str, int] = {}
     per_regime_wr: Dict[str, float] = {}
     per_regime_pf: Dict[str, float] = {}
@@ -695,7 +706,6 @@ def _aggregate_results(
         total_r = sum(trade_counts_r)
         per_regime_trades[regime_label] = total_r
         if total_r > 0:
-            # Weighted average WR by trade count
             wr_vals = [
                 (
                     m["per_regime_wr"].get(regime_label, 0.0),
@@ -708,7 +718,6 @@ def _aggregate_results(
                 w_sum = sum(wr * n for wr, n in wr_vals)
                 n_sum = sum(n for _, n in wr_vals)
                 per_regime_wr[regime_label] = round(w_sum / n_sum, 3)
-            # Weighted average PF by trade count
             pf_vals = [
                 (
                     m["per_regime_pf"].get(regime_label, 0.0),
@@ -721,7 +730,6 @@ def _aggregate_results(
                 w_sum = sum(pf * n for pf, n in pf_vals)
                 n_sum = sum(n for _, n in pf_vals)
                 per_regime_pf[regime_label] = round(w_sum / n_sum, 3)
-            # Average holding period
             hold_vals = [
                 m["per_regime_avg_hold"].get(regime_label, 0.0)
                 for m in valid.values()
@@ -730,8 +738,13 @@ def _aggregate_results(
             ]
             if hold_vals:
                 per_regime_avg_hold[regime_label] = round(float(np.mean(hold_vals)), 1)
+    return per_regime_trades, per_regime_wr, per_regime_pf, per_regime_avg_hold
 
-    # -- Aggregate stress results (average across symbols) --
+
+def _aggregate_stress(
+    valid: Dict[str, Dict[str, Any]],
+) -> Dict[str, Dict[str, float]]:
+    """Average stress window results across symbols."""
     stress_results: Dict[str, Dict[str, float]] = {}
     for window_name in STRESS_WINDOWS:
         window_returns = []
@@ -746,8 +759,13 @@ def _aggregate_results(
                 "total_return": round(float(np.mean(window_returns)), 4),
                 "max_drawdown": round(float(np.mean(window_dds)), 4),
             }
+    return stress_results
 
-    # -- Aggregate monthly returns (average across symbols) --
+
+def _aggregate_time_series(
+    valid: Dict[str, Dict[str, Any]],
+) -> Tuple[Dict[str, float], List[List[float]]]:
+    """Average monthly returns and rolling Sharpe across symbols."""
     monthly_returns: Dict[str, float] = {}
     all_months: set[str] = set()
     for m in valid.values():
@@ -761,7 +779,6 @@ def _aggregate_results(
         if vals:
             monthly_returns[month] = round(float(np.mean(vals)), 4)
 
-    # -- Rolling Sharpe: average across all symbols --
     rolling_sharpe: List[List[float]] = []
     rs_series: Dict[str, pd.Series] = {}
     for sym, m in valid.items():
@@ -776,6 +793,47 @@ def _aggregate_results(
             fval = float(val)
             if not np.isnan(fval) and not np.isinf(fval):
                 rolling_sharpe.append([int(ts.timestamp()), fval])
+    return monthly_returns, rolling_sharpe
+
+
+def _aggregate_results(
+    per_symbol: Dict[str, Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Aggregate per-symbol results into strategy-level metrics."""
+    valid = {s: m for s, m in per_symbol.items() if m}
+    if not valid:
+        return {}
+
+    sharpes = [m["sharpe"] for m in valid.values()]
+    sortinos = [m["sortino"] for m in valid.values()]
+    calmars = [m["calmar"] for m in valid.values()]
+    returns = [m["total_return"] for m in valid.values()]
+    drawdowns = [m["max_drawdown"] for m in valid.values()]
+    win_rates = [m["win_rate"] for m in valid.values()]
+    pf_factors = [m["profit_factor"] for m in valid.values()]
+    trade_counts = [m["total_trades"] for m in valid.values()]
+
+    eq_curve, dd_curve = _aggregate_equity_curves(valid)
+    per_symbol_sharpe = {s: round(m["sharpe"], 3) for s, m in valid.items()}
+    per_symbol_metrics: Dict[str, Dict[str, float]] = {
+        s: {
+            "sharpe": round(m["sharpe"], 3),
+            "total_return": round(m["total_return"], 4),
+            "max_drawdown": round(m["max_drawdown"], 4),
+            "win_rate": round(m["win_rate"], 3),
+            "total_trades": m["total_trades"],
+            "sortino": round(m["sortino"], 3),
+            "calmar": round(m["calmar"], 3),
+            "profit_factor": round(m["profit_factor"], 3),
+        }
+        for s, m in valid.items()
+    }
+    per_regime_sharpe, per_regime_return = _aggregate_regime_metrics(valid)
+    per_regime_trades, per_regime_wr, per_regime_pf, per_regime_avg_hold = _aggregate_regime_trades(
+        valid
+    )
+    stress_results = _aggregate_stress(valid)
+    monthly_returns, rolling_sharpe = _aggregate_time_series(valid)
 
     return {
         "sharpe": float(np.mean(sharpes)) if sharpes else 0.0,

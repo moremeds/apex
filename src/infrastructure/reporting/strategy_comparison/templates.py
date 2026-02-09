@@ -11,21 +11,37 @@ import json
 from typing import Any, Dict
 
 
-def render_comparison_html(data: Dict[str, Any]) -> str:
-    """
-    Render the full comparison dashboard HTML.
+def _classify_health(name: str, m: Dict[str, Any]) -> tuple[str, str]:
+    """Return (css_class, label) for a strategy's health badge."""
+    if name == "buy_and_hold":
+        return "health-baseline", "BASELINE"
+    tc = m.get("trade_count", 0)
+    wr = m.get("win_rate", 0)
+    tr = m.get("total_return", 0)
+    mdd = m.get("max_drawdown", 0)
+    sr = m.get("sharpe", 0)
+    if tc == 0 or wr < 0.15 or tr < -0.05 or mdd < -0.50:
+        return "health-red", "BROKEN"
+    if wr < 0.30 or sr < 0.1 or tr < 0:
+        return "health-yellow", "NEEDS WORK"
+    return "health-green", "HEALTHY"
 
-    Args:
-        data: Dashboard data with strategies, metrics, etc.
 
-    Returns:
-        Complete HTML string.
-    """
-    strategies_json = json.dumps(data["strategies"], indent=2)
-    strategy_names = list(data["strategies"].keys())
-    sector_map_json = json.dumps(data.get("sector_map", {}), indent=2)
+def _param_badge(m: Dict[str, Any], is_baseline: bool) -> tuple[str, str]:
+    """Return (display_text, css_class) for the param budget badge."""
+    eff_p = m.get("effective_params", 0)
+    tot_p = m.get("total_params", 0)
+    if is_baseline or tot_p == 0:
+        return "–", ""
+    if eff_p <= 5:
+        return f"{eff_p}/{8}", "positive"
+    if eff_p <= 8:
+        return f"{eff_p}/{8} &#9888;", "warning-text"
+    return f"{eff_p}/{8} &#10060;", "negative"
 
-    # Build scorecard HTML
+
+def _build_scorecards_html(data: Dict[str, Any]) -> str:
+    """Build the scorecard div for each strategy."""
     scorecards = ""
     for name, m in data["strategies"].items():
         is_baseline = name == "buy_and_hold"
@@ -34,39 +50,11 @@ def render_comparison_html(data: Dict[str, Any]) -> str:
             if m.get("tier") and not is_baseline
             else ""
         )
-        tc = m.get("trade_count", 0)
-        wr = m.get("win_rate", 0)
-        sr = m.get("sharpe", 0)
-        tr = m.get("total_return", 0)
-        mdd = m.get("max_drawdown", 0)
-        if is_baseline:
-            health_cls, health_txt = "health-baseline", "BASELINE"
-        elif tc == 0 or wr < 0.15 or tr < -0.05 or mdd < -0.50:
-            health_cls, health_txt = "health-red", "BROKEN"
-        elif wr < 0.30 or sr < 0.1 or tr < 0:
-            health_cls, health_txt = "health-yellow", "NEEDS WORK"
-        else:
-            health_cls, health_txt = "health-green", "HEALTHY"
+        health_cls, health_txt = _classify_health(name, m)
         health_badge = f'<span class="health-badge {health_cls}">{health_txt}</span>'
-        # For buy_and_hold, show "–" for meaningless trade metrics
         wr_display = "–" if is_baseline else f"{m['win_rate']:.0%}"
-        pf_display = "–" if is_baseline else f"{m.get('profit_factor', 0):.2f}"
         trades_display = "–" if is_baseline else str(m["trade_count"])
-        # Param budget badge
-        eff_p = m.get("effective_params", 0)
-        tot_p = m.get("total_params", 0)
-        if is_baseline or tot_p == 0:
-            param_display = "–"
-            param_cls = ""
-        elif eff_p <= 5:
-            param_display = f"{eff_p}/{8}"
-            param_cls = "positive"
-        elif eff_p <= 8:
-            param_display = f"{eff_p}/{8} &#9888;"
-            param_cls = "warning-text"
-        else:
-            param_display = f"{eff_p}/{8} &#10060;"
-            param_cls = "negative"
+        param_display, param_cls = _param_badge(m, is_baseline)
         scorecards += f"""
         <div class="scorecard">
             <h3>{name} {tier_badge} {health_badge}</h3>
@@ -95,53 +83,27 @@ def render_comparison_html(data: Dict[str, Any]) -> str:
                 <span class="value {param_cls}">{param_display}</span>
             </div>
         </div>"""
+    return scorecards
 
-    # Detect if Tier B data is present for any strategy
+
+def _build_metrics_rows_html(data: Dict[str, Any]) -> tuple[str, str]:
+    """Build metrics table <tr> rows. Returns (rows_html, tier_b_header)."""
     has_tier_b = any(m.get("tier_b_sharpe") is not None for m in data["strategies"].values())
-
-    # Build metrics table rows
     metrics_rows = ""
     for name, m in data["strategies"].items():
         is_baseline = name == "buy_and_hold"
-        tc = m.get("trade_count", 0)
-        wr = m.get("win_rate", 0)
-        sr = m.get("sharpe", 0)
-        tr = m.get("total_return", 0)
-        mdd = m.get("max_drawdown", 0)
-        if is_baseline:
-            h_cls, h_txt = "health-baseline", "BASELINE"
-        elif tc == 0 or wr < 0.15 or tr < -0.05 or mdd < -0.50:
-            h_cls, h_txt = "health-red", "BROKEN"
-        elif wr < 0.30 or sr < 0.1 or tr < 0:
-            h_cls, h_txt = "health-yellow", "NEEDS WORK"
-        else:
-            h_cls, h_txt = "health-green", "HEALTHY"
+        h_cls, h_txt = _classify_health(name, m)
         wr_display = "–" if is_baseline else f"{m['win_rate']:.0%}"
         pf_display = "–" if is_baseline else f"{m['profit_factor']:.2f}"
         trades_display = "–" if is_baseline else str(m["trade_count"])
-        # Param budget badge for metrics table
-        m_eff_p = m.get("effective_params", 0)
-        m_tot_p = m.get("total_params", 0)
-        if is_baseline or m_tot_p == 0:
-            m_param_display = "–"
-            m_param_cls = ""
-        elif m_eff_p <= 5:
-            m_param_display = f"{m_eff_p}/{8}"
-            m_param_cls = "positive"
-        elif m_eff_p <= 8:
-            m_param_display = f"{m_eff_p}/{8} &#9888;"
-            m_param_cls = "warning-text"
-        else:
-            m_param_display = f"{m_eff_p}/{8} &#10060;"
-            m_param_cls = "negative"
+        m_param_display, m_param_cls = _param_badge(m, is_baseline)
+        sr = m.get("sharpe", 0)
 
-        # Tier B degradation column
         tier_b_cell = ""
         if has_tier_b:
             tier_b_sharpe = m.get("tier_b_sharpe")
             if tier_b_sharpe is not None and sr != 0:
                 ratio = tier_b_sharpe / sr if sr != 0 else 0.0
-                # Strategy passes Tier B if Sharpe_B / Sharpe_A > 0.50
                 if ratio > 0.50:
                     tb_cls = "positive"
                     tb_label = "PASS"
@@ -172,10 +134,12 @@ def render_comparison_html(data: Dict[str, Any]) -> str:
             {tier_b_cell}
         </tr>"""
 
-    # Tier B column header for metrics table
     tier_b_header = "<th>Tier B &#916;</th>" if has_tier_b else ""
+    return metrics_rows, tier_b_header
 
-    # Build stress table
+
+def _build_stress_rows_html(data: Dict[str, Any]) -> str:
+    """Build stress table rows for each stress window."""
     stress_rows = ""
     stress_windows = [
         "covid_crash",
@@ -200,6 +164,26 @@ def render_comparison_html(data: Dict[str, Any]) -> str:
             row += f'<td class="{"positive" if ret > 0 else "negative"}">{val}</td>'
         row += "</tr>"
         stress_rows += row
+    return stress_rows
+
+
+def render_comparison_html(data: Dict[str, Any]) -> str:
+    """
+    Render the full comparison dashboard HTML.
+
+    Args:
+        data: Dashboard data with strategies, metrics, etc.
+
+    Returns:
+        Complete HTML string.
+    """
+    strategies_json = json.dumps(data["strategies"], indent=2)
+    strategy_names = list(data["strategies"].keys())
+    sector_map_json = json.dumps(data.get("sector_map", {}), indent=2)
+
+    scorecards = _build_scorecards_html(data)
+    metrics_rows, tier_b_header = _build_metrics_rows_html(data)
+    stress_rows = _build_stress_rows_html(data)
 
     return f"""<!DOCTYPE html>
 <html lang="en">
