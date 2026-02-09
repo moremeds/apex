@@ -32,6 +32,11 @@ on:
     - cron: '30 17,18 * * 1-5'    # 4H close 1:30pm ET (EDT→17:30, EST→18:30)
     - cron: '15 20,21 * * 1-5'    # Post-close 4:15pm ET (EDT→20:15, EST→21:15)
   workflow_dispatch:
+    inputs:
+      run_strategy_compare:
+        description: "Also run strategy comparison backtests"
+        type: boolean
+        default: false
 
 concurrency:
   group: hourly-signals
@@ -96,6 +101,8 @@ jobs:
 
       - name: Check market open
         id: market-check
+        env:
+          INPUT_RUN_STRATEGY_COMPARE: ${{ inputs.run_strategy_compare || 'false' }}
         run: |
           source .venv/bin/activate
           python << 'EOF'
@@ -134,14 +141,17 @@ jobs:
           is_hourly   = (10 <= et_hour < 13) or (14 <= et_hour < 16)
           in_window   = is_first or is_4h_close or is_close or is_hourly
 
+          # Manual dispatch: check workflow_dispatch input for comparison toggle
+          manual_compare = os.environ.get('INPUT_RUN_STRATEGY_COMPARE', 'false') == 'true'
+
           if is_manual:
               should_run = True
               should_retrain = True
               send_1h = "true"
               send_4h = "true"
               send_1d = "true"
-              run_strategy_compare = "true"
-              label = f"Manual dispatch (market {'open' if is_trading_day else 'closed'} on {today})"
+              run_strategy_compare = "true" if manual_compare else "false"
+              label = f"Manual dispatch (compare={'on' if manual_compare else 'off'}, market {'open' if is_trading_day else 'closed'})"
           elif not is_trading_day or not in_window:
               should_run = False
               should_retrain = False
