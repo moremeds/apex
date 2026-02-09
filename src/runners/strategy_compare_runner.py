@@ -974,12 +974,18 @@ def run_comparison(
         sector_map = {"all": list(all_data.keys())}
     builder.set_sector_map(sector_map)
 
+    # Skip noise tiers — LEGACY strategies are unmaintained, DEMO is for teaching
+    skip_tiers = {"LEGACY", "DEMO"}
+
     for strat_name in strategy_names:
         if strat_name not in STRATEGY_REGISTRY:
             print(f"  Unknown strategy: {strat_name} (skipped)")
             continue
 
         _module_path, _class_name, default_params, tier = STRATEGY_REGISTRY[strat_name]
+
+        if tier in skip_tiers:
+            continue
 
         # Check if this is a portfolio-level strategy (cross-sectional)
         try:
