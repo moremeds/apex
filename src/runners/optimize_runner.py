@@ -200,7 +200,7 @@ def _aggregate_to_backtest_result(
         # or if there's a non-zero daily return (equity[i] != equity[i-1]).
         init_val = eq_vals[0]
         for i in range(1, total_bars_sym):
-            if abs(eq_vals[i] - init_val) > 0.01:  # More than 1 cent change
+            if abs(eq_vals[i] - init_val[i-1]) > 0.01:  # More than 1 cent change
                 bars_in_position_all += 1
 
     if total_bars_all > 0:
