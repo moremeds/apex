@@ -7,12 +7,13 @@ name: "Intraday: Signal Reports"
 # The Python market-check step uses America/New_York timezone to classify
 # each run by ET time window, so NO manual DST switching is needed.
 #
-# ET time windows (with ~45min tolerance for GHA startup delays):
-#   8:00-9:29am ET:   First report (1H+4H+1D + strategy comparison)
-#   10am-12:59pm ET:  Intraday hourly (1H only)
+# ET time windows:
+#   5:00-5:59am ET:   First report (1H+4H+1D + strategy comparison)
+#   7:00-7:59am ET:   Premarket report (1H+4H+1D)
+#   10:00-12:59pm ET: Intraday hourly (1H only)
 #   1:00-1:59pm ET:   4H bar close (1H+4H)
 #   2:00-3:59pm ET:   Intraday hourly (1H only)
-#   4:00-5:59pm ET:   Post-close (1H+4H+1D, no retrain)
+#   4:00-4:59pm ET:   Post-close (1H+4H+1D, no retrain)
 #
 # Pipeline:
 #   Step 1: Update market caps
@@ -26,10 +27,10 @@ on:
   schedule:
     # DST-safe schedule — covers both EDT (UTC-4) and EST (UTC-5).
     # Python market-check decides what to run based on ET time.
-    # Duplicate crons (e.g. 12+13) ensure at least one fires per DST season.
-    - cron: '30 12,13 * * 1-5'    # First report 8:30am ET (EDT→12:30, EST→13:30)
-    - cron: '0 14-21 * * 1-5'     # Hourly: covers 9am-5pm ET across both DST seasons
-    - cron: '30 17,18 * * 1-5'    # 4H close 1:30pm ET (EDT→17:30, EST→18:30)
+    # Duplicate UTC hours ensure one correct ET trigger across DST seasons.
+    - cron: '0 9,10 * * 1-5'      # First report 5:00am ET (EDT→09:00, EST→10:00)
+    - cron: '0 11,12 * * 1-5'     # Premarket report 7:00am ET (EDT→11:00, EST→12:00)
+    - cron: '35 14-20 * * 1-5'    # Hourly/4H closes (~:35 ET, after bar close)
     - cron: '15 20,21 * * 1-5'    # Post-close 4:15pm ET (EDT→20:15, EST→21:15)
   workflow_dispatch:
     inputs:
@@ -120,26 +121,29 @@ jobs:
 
           # ── DST-safe classification using ET timezone ─────────────────
           # Uses America/New_York (auto-switches EDT/EST) instead of UTC
-          # hour matching. Range-based windows handle GHA startup delays
-          # of up to ~45 minutes gracefully.
+          # hour matching.
           et_now = datetime.now(ZoneInfo("America/New_York"))
           et_hour = et_now.hour
+          et_min = et_now.minute
           et_time = et_now.strftime("%-I:%M %p ET")
           et_date = et_now.strftime("%b %d")
 
           # ET time windows:
-          #   <8am:         Too early (skip)
-          #   8-9am:        First report (1H+4H+1D + strategy comparison)
+          #   <5am:         Too early (skip)
+          #   5-5:59am:     First report (1H+4H+1D + strategy comparison)
+          #   7-7:59am:     Premarket report (1H+4H+1D)
           #   10am-12pm:    Intraday hourly (1H only)
           #   1-1:59pm:     4H bar close (1H+4H)
           #   2-3:59pm:     Intraday hourly (1H only)
-          #   4-5:59pm:     Post-close (1H+4H+1D, no retrain)
-          #   >=6pm:        Too late (skip)
-          is_first    = 8 <= et_hour < 10
+          #   4-4:59pm:     Post-close (1H+4H+1D, no retrain)
+          #   >=5pm:        Too late (skip)
+          is_first     = 5 <= et_hour < 6
+          is_premarket = 7 <= et_hour < 8
           is_4h_close = 13 <= et_hour < 14
-          is_close    = 16 <= et_hour < 18
+          # Post-close is pinned to the 4:15pm ET run (allow startup delay, avoid 4:35 duplicates)
+          is_close    = 16 <= et_hour < 17 and et_min < 30
           is_hourly   = (10 <= et_hour < 13) or (14 <= et_hour < 16)
-          in_window   = is_first or is_4h_close or is_close or is_hourly
+          in_window   = is_first or is_premarket or is_4h_close or is_close or is_hourly
 
           # Manual dispatch: check workflow_dispatch input for comparison toggle
           manual_compare = os.environ.get('INPUT_RUN_STRATEGY_COMPARE', 'false') == 'true'
@@ -170,6 +174,15 @@ jobs:
               send_1d = "true"
               run_strategy_compare = "true"
               label = f"FIRST REPORT ({et_time})"
+          elif is_premarket:
+              # Premarket report: full signals, no strategy comparison
+              should_run = True
+              should_retrain = True
+              send_1h = "true"
+              send_4h = "true"
+              send_1d = "true"
+              run_strategy_compare = "false"
+              label = f"PREMARKET ({et_time})"
           elif is_close:
               # Post-close: full signals, no retrain
               should_run = True
@@ -256,7 +269,7 @@ jobs:
           LOG_LEVEL: WARNING
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # === STRATEGY COMPARISON (first report of day, ~8:30am ET) ===
+      # === STRATEGY COMPARISON (first report of day, 5:00am ET) ===
 
       - name: "Run strategy comparison backtests"
         if: steps.market-check.outputs.run_strategy_compare == 'true'
