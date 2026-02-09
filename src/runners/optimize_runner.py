@@ -435,9 +435,39 @@ def run_optimization(
     if update_yaml:
         # Merge best params with current (best params override, keep non-optimized params)
         merged = {**current_params, **best.params}
-        update_strategy_params(strategy_name, merged)
+
+        # Build rich history metadata from best trial
+        opt_results: Dict[str, Any] = {}
+        for attr in (
+            "total_return",
+            "max_drawdown",
+            "trade_count",
+            "win_rate",
+            "calmar",
+            "exposure_pct",
+        ):
+            val = best.user_attrs.get(attr)
+            if val is not None:
+                opt_results[attr] = round(val, 4) if isinstance(val, float) else val
+        if best.value is not None:
+            opt_results["composite_score"] = round(best.value, 4)
+
+        opt_changes = [
+            f"{k}: {current_params.get(k, 'N/A')} -> {v}"
+            for k, v in sorted(best.params.items())
+            if current_params.get(k) != v
+        ]
+
+        update_strategy_params(
+            strategy_name,
+            merged,
+            source=f"Optuna TPE ({len(completed)}/{len(study.trials)} trials completed)",
+            reason=f"Best composite score {best.value:.4f} (trial #{best.number})",
+            results=opt_results,
+            changes=opt_changes or None,
+        )
         print(f"\nYAML updated: config/strategy/{strategy_name}.yaml")
-        print("  Previous params moved to history with timestamp.")
+        print("  Previous params moved to history with metrics and change log.")
 
     return {
         "strategy": strategy_name,

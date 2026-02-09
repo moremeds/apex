@@ -1,0 +1,18 @@
+name: momentum_breakout
+tier: "LEGACY"
+module_path: "src.domain.strategy.signals.momentum_breakout"
+class_name: "MomentumBreakoutSignalGenerator"
+
+# Current best parameters — used by all runners, playbooks, signal generators
+params:
+  lookback_days: 20
+  momentum_threshold: 0.0
+
+history:
+  - version: "v1.0-initial"
+    date: "2025-01-01"
+    source: "Original hardcoded defaults"
+    params:
+      lookback_days: 20
+      momentum_threshold: 0.0
+    reason: "Pre-architecture strategy with hardcoded defaults"

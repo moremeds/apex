@@ -6,7 +6,10 @@ from typing import Any, Dict, Optional, Tuple
 
 import pandas as pd
 
+from ..param_loader import get_strategy_params
 from .indicators import rsi
+
+_DEFAULTS = get_strategy_params("mtf_rsi_trend")
 
 
 class MTFRsiTrendSignalGenerator:
@@ -109,11 +112,12 @@ class MTFRsiTrendSignalGenerator:
         index = close.index
 
         # Extract parameters
-        trend_period = int(params.get("trend_rsi_period", 14))
-        entry_period = int(params.get("entry_rsi_period", 14))
-        trend_threshold = float(params.get("trend_threshold", 50))
-        oversold = float(params.get("entry_oversold", 30))
-        overbought = float(params.get("entry_overbought", 70))
+        effective = {**_DEFAULTS, **params}
+        trend_period = int(effective.get("trend_rsi_period", 14))
+        entry_period = int(effective.get("entry_rsi_period", 14))
+        trend_threshold = float(effective.get("trend_threshold", 50))
+        oversold = float(effective.get("entry_oversold", 30))
+        overbought = float(effective.get("entry_overbought", 70))
 
         # Calculate primary timeframe RSI for trend
         primary_rsi = rsi(close, trend_period)

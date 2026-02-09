@@ -6,7 +6,10 @@ from typing import Any, Dict, Optional, Tuple
 
 import pandas as pd
 
+from ..param_loader import get_strategy_params
 from .indicators import rsi
+
+_DEFAULTS = get_strategy_params("rsi_mean_reversion")
 
 
 class RSIMeanReversionSignalGenerator:
@@ -48,10 +51,11 @@ class RSIMeanReversionSignalGenerator:
         """
         close = data["close"]
 
+        effective = {**_DEFAULTS, **params}
         # Support both prefixed and non-prefixed param names for compatibility
-        period = int(params.get("rsi_period", 14))
-        oversold = float(params.get("rsi_oversold", params.get("oversold", 30)))
-        overbought = float(params.get("rsi_overbought", params.get("overbought", 70)))
+        period = int(effective.get("rsi_period", 14))
+        oversold = float(effective.get("rsi_oversold", effective.get("oversold", 30)))
+        overbought = float(effective.get("rsi_overbought", effective.get("overbought", 70)))
 
         # Calculate RSI using TA-Lib
         rsi_values = rsi(close, period)

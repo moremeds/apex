@@ -7,7 +7,10 @@ from typing import Any, Dict, Optional, Tuple
 import numpy as np
 import pandas as pd
 
+from ..param_loader import get_strategy_params
 from .indicators import macd, rsi, sma
+
+_DEFAULTS = get_strategy_params("ta_metrics")
 
 
 class TAMetricsSignalGenerator:
@@ -59,15 +62,16 @@ class TAMetricsSignalGenerator:
         index = close.index
 
         # Extract parameters
-        sma_fast_period = int(params.get("sma_fast", 20))
-        sma_slow_period = int(params.get("sma_slow", 50))
-        rsi_period = int(params.get("rsi_period", 14))
-        rsi_oversold = float(params.get("rsi_oversold", 30))
-        rsi_overbought = float(params.get("rsi_overbought", 70))
-        macd_fast = int(params.get("macd_fast", 12))
-        macd_slow = int(params.get("macd_slow", 26))
-        macd_signal_period = int(params.get("macd_signal", 9))
-        min_score = float(params.get("min_score", 3))
+        effective = {**_DEFAULTS, **params}
+        sma_fast_period = int(effective.get("sma_fast", 20))
+        sma_slow_period = int(effective.get("sma_slow", 50))
+        rsi_period = int(effective.get("rsi_period", 14))
+        rsi_oversold = float(effective.get("rsi_oversold", 30))
+        rsi_overbought = float(effective.get("rsi_overbought", 70))
+        macd_fast = int(effective.get("macd_fast", 12))
+        macd_slow = int(effective.get("macd_slow", 26))
+        macd_signal_period = int(effective.get("macd_signal", 9))
+        min_score = float(effective.get("min_score", 3))
 
         # Calculate indicators using TA-Lib wrappers
         sma_fast_series = sma(close, sma_fast_period)

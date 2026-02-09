@@ -1,0 +1,84 @@
+# SectorPulse Strategy - Sector Rotation with Regime Gating
+#
+# Tier 2 strategy: Cross-sectional sector rotation.
+# Portfolio-mode: trades all symbols at once, NOT vectorbt-compatible.
+#
+# Run with:
+#   python -m src.backtest.runner --strategy sector_pulse --symbols AAPL NVDA MSFT --start 2022-01-01 --end 2025-06-30
+#   python -m src.backtest.runner --spec config/backtest/playbook/sector_pulse.yaml
+
+name: "SectorPulse_Backtest"
+description: "Cross-sectional sector rotation with multi-horizon scoring and regime gating"
+strategy: "sector_pulse"
+
+parameters:
+  # All params optimizable (matches strategy_objective.py _build_param_space)
+  top_n_sectors:
+    type: range
+    min: 2
+    max: 5
+    step: 1
+  confidence_threshold:
+    type: range
+    min: 0.005
+    max: 0.10
+    step: 0.005
+  drift_threshold_pct:
+    type: range
+    min: 0.03
+    max: 0.15
+    step: 0.01
+  max_turnover_pct:
+    type: range
+    min: 0.15
+    max: 0.50
+    step: 0.05
+  risk_per_sector_pct:
+    type: range
+    min: 0.05
+    max: 0.20
+    step: 0.05
+
+universe:
+  type: static
+  symbols:
+    - AAPL
+    - NVDA
+    - MSFT
+    - AMZN
+    - GOOGL
+
+temporal:
+  primary_method: walk_forward
+  train_days: 504
+  test_days: 126
+  folds: 4
+  purge_days: 5
+  embargo_days: 2
+  start_date: "2020-01-01"
+  end_date: "2025-06-30"
+
+optimization:
+  method: bayesian
+  metric: sharpe
+  direction: maximize
+  n_trials: 50
+  constraints:
+    - metric: p10_sharpe
+      operator: ">="
+      value: 0.0
+    - metric: median_max_dd
+      operator: "<="
+      value: 0.35
+
+profiles:
+  default:
+    name: tier_a
+    version: v1
+    slippage_bps: 5.0
+    commission_per_share: 0.005
+    fill_model: close
+
+reproducibility:
+  random_seed: 42
+  data_version: "apex_2025.01"

@@ -7,7 +7,10 @@ from typing import Any, Dict, Optional, Tuple
 import numpy as np
 import pandas as pd
 
+from ..param_loader import get_strategy_params
 from .indicators import sma
+
+_DEFAULTS = get_strategy_params("pairs_trading")
 
 
 class PairsTradingSignalGenerator:
@@ -78,9 +81,10 @@ class PairsTradingSignalGenerator:
         close_b = data["close_b"]
         index = close_a.index
 
-        lookback = int(params.get("lookback", 20))
-        entry_zscore = float(params.get("entry_zscore", 2.0))
-        exit_zscore = float(params.get("exit_zscore", 0.5))
+        effective = {**_DEFAULTS, **params}
+        lookback = int(effective.get("lookback", 20))
+        entry_zscore = float(effective.get("entry_zscore", 2.0))
+        exit_zscore = float(effective.get("exit_zscore", 0.5))
 
         # Calculate spread as ratio
         spread = close_a / close_b
