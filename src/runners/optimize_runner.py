@@ -185,29 +185,23 @@ def _aggregate_to_backtest_result(
         combined = pd.DataFrame(norm_series).ffill().bfill()
         equity_series = combined.mean(axis=1)
 
-    # Compute actual exposure from trade data
+    # Compute exposure from equity curve: bars where equity differs from initial
+    # capital indicate the strategy had a position. This is more reliable than
+    # trade_log (which may not be populated in _extract_metrics).
     total_bars_all = 0
     bars_in_position_all = 0
     for sym, m in valid.items():
-        eq_idx = m.get("equity_index", [])
-        total_bars_sym = len(eq_idx)
+        eq_vals = m.get("equity_values", [])
+        if len(eq_vals) < 2:
+            continue
+        total_bars_sym = len(eq_vals)
         total_bars_all += total_bars_sym
-
-        trade_log = m.get("trade_log", [])
-        if trade_log and total_bars_sym > 0:
-            # Count bars held from entry/exit timestamps
-            for t in trade_log:
-                entry_ts = t.get("entry_time", 0)
-                exit_ts = t.get("exit_time", 0)
-                if entry_ts and exit_ts and exit_ts > entry_ts:
-                    # Estimate bars held: assume daily bars (~86400s per bar)
-                    bar_duration = (
-                        (eq_idx[-1] - eq_idx[0]) / max(total_bars_sym - 1, 1)
-                        if total_bars_sym > 1
-                        else 86400
-                    )
-                    bars_held = max(1, int((exit_ts - entry_ts) / bar_duration))
-                    bars_in_position_all += min(bars_held, total_bars_sym)
+        # A bar is "in position" if equity changed from the initial value
+        # or if there's a non-zero daily return (equity[i] != equity[i-1]).
+        init_val = eq_vals[0]
+        for i in range(1, total_bars_sym):
+            if abs(eq_vals[i] - init_val) > 0.01:  # More than 1 cent change
+                bars_in_position_all += 1
 
     if total_bars_all > 0:
         exposure_pct = bars_in_position_all / total_bars_all
@@ -359,10 +353,19 @@ def run_optimization(
         init_cash=init_cash,
     )
 
+    # Per-strategy gate overrides: portfolio/exposure strategies inherit
+    # market drawdowns, so they need a wider MaxDD cap than signal-based ones.
+    gate_overrides: Dict[str, Dict[str, Any]] = {
+        "regime_flex": {"max_drawdown_cap": -0.50, "min_trades": 10},
+        "sector_pulse": {"max_drawdown_cap": -0.50, "min_trades": 10},
+    }
+    gates = gate_overrides.get(strategy_name, {})
+
     objective = StrategyObjective(
         strategy_name=strategy_name,
         run_fn=run_fn,
         strategy_class=strategy_class,
+        **gates,
     )
 
     # Step 4: Create and run Optuna study
