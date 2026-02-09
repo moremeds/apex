@@ -14,57 +14,84 @@
 
 strategies:
   buy_and_hold:
-    strategy: src.domain.strategy.examples.buy_and_hold:BuyAndHoldStrategy
+    strategy: src.domain.strategy.playbook.buy_and_hold:BuyAndHoldStrategy
     signals: src.domain.strategy.signals.buy_and_hold:BuyAndHoldSignalGenerator
     validation:
       validated_by_apex: false
 
   ma_cross:
-    strategy: src.domain.strategy.examples.ma_cross:MovingAverageCrossStrategy
+    strategy: src.domain.strategy.playbook.ma_cross:MovingAverageCrossStrategy
     signals: src.domain.strategy.signals.ma_cross:MACrossSignalGenerator
     validation:
       validated_by_apex: false
 
   pairs_trading:
-    strategy: src.domain.strategy.examples.pairs_trading:PairsTradingStrategy
+    strategy: src.domain.strategy.playbook.pairs_trading:PairsTradingStrategy
     signals: src.domain.strategy.signals.pairs_trading:PairsTradingSignalGenerator
     apex_only: true  # Requires multi-symbol data; VectorBT needs custom handling
     validation:
       validated_by_apex: false
 
   rsi_mean_reversion:
-    strategy: src.domain.strategy.examples.rsi_mean_reversion:RsiMeanReversionStrategy
+    strategy: src.domain.strategy.playbook.rsi_mean_reversion:RsiMeanReversionStrategy
     signals: src.domain.strategy.signals.rsi_mean_reversion:RSIMeanReversionSignalGenerator
     validation:
       validated_by_apex: false
 
   scheduled_rebalance:
-    strategy: src.domain.strategy.examples.scheduled_rebalance:ScheduledRebalanceStrategy
+    strategy: src.domain.strategy.playbook.scheduled_rebalance:ScheduledRebalanceStrategy
     signals: null  # Portfolio strategy - no vectorized signals
     apex_only: true
     validation:
       validated_by_apex: false
 
   momentum_breakout:
-    strategy: src.domain.strategy.examples.momentum_breakout:MomentumBreakoutStrategy
+    strategy: src.domain.strategy.playbook.momentum_breakout:MomentumBreakoutStrategy
     signals: src.domain.strategy.signals.momentum_breakout:MomentumBreakoutSignalGenerator
     validation:
       validated_by_apex: false
 
   ta_metrics:
-    strategy: src.domain.strategy.examples.ta_metrics_strategy:TAMetricsStrategy
+    strategy: src.domain.strategy.playbook.ta_metrics_strategy:TAMetricsStrategy
     signals: src.domain.strategy.signals.ta_metrics:TAMetricsSignalGenerator
     validation:
       validated_by_apex: false
 
   trend_pulse:
+    strategy: src.domain.strategy.playbook.trend_pulse:TrendPulseStrategy
     signals: src.domain.strategy.signals.trend_pulse:TrendPulseSignalGenerator
     validation:
       validated_by_apex: false
 
   mtf_rsi_trend:
-    strategy: src.domain.strategy.examples.mtf_rsi_trend:MTFRsiTrendStrategy
+    strategy: src.domain.strategy.playbook.mtf_rsi_trend:MTFRsiTrendStrategy
     signals: src.domain.strategy.signals.mtf_rsi_trend:MTFRsiTrendSignalGenerator
     multi_timeframe: true  # Uses secondary_data parameter in signal generator
+    validation:
+      validated_by_apex: false
+
+  pulse_dip:
+    strategy: src.domain.strategy.playbook.pulse_dip:PulseDipStrategy
+    signals: src.domain.strategy.signals.pulse_dip:PulseDipSignalGenerator
+    validation:
+      validated_by_apex: false
+
+  squeeze_play:
+    strategy: src.domain.strategy.playbook.squeeze_play:SqueezePlayStrategy
+    signals: src.domain.strategy.signals.squeeze_play:SqueezePlaySignalGenerator
+    validation:
+      validated_by_apex: false
+
+  regime_flex:
+    strategy: src.domain.strategy.playbook.regime_flex:RegimeFlexStrategy
+    signals: null  # Meta-strategy - no vectorized signals
+    apex_only: true
+    validation:
+      validated_by_apex: false
+
+  sector_pulse:
+    strategy: src.domain.strategy.playbook.sector_pulse:SectorPulseStrategy
+    signals: null  # Portfolio strategy - no vectorized signals
+    apex_only: true
     validation:
       validated_by_apex: false

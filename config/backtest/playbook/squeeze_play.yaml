@@ -1,0 +1,98 @@
+# SqueezePlay Strategy - Bollinger/Keltner Squeeze Breakout
+#
+# Tier 1 strategy: Volatility compression -> expansion breakout.
+# Fake-release mitigation via persistence filter.
+#
+# Run with:
+#   python -m src.backtest.runner --strategy squeeze_play --symbols AAPL NVDA MSFT --start 2022-01-01 --end 2025-06-30
+#   python -m src.backtest.runner --spec config/backtest/playbook/squeeze_play.yaml
+
+name: "SqueezePlay_Backtest"
+description: "Bollinger/Keltner squeeze breakout with fake-release filter"
+strategy: "squeeze_play"
+
+parameters:
+  bb_period:
+    type: range
+    min: 15
+    max: 30
+    step: 5
+  bb_std:
+    type: fixed
+    value: 2.0
+  kc_multiplier:
+    type: range
+    min: 1.0
+    max: 2.0
+    step: 0.25
+  release_persist_bars:
+    type: range
+    min: 1
+    max: 4
+    step: 1
+  close_outside_bars:
+    type: range
+    min: 1
+    max: 3
+    step: 1
+  atr_stop_mult:
+    type: range
+    min: 1.5
+    max: 3.5
+    step: 0.5
+  adx_min:
+    type: fixed
+    value: 20.0
+  risk_per_trade_pct:
+    type: fixed
+    value: 0.02
+
+universe:
+  type: static
+  symbols:
+    - AAPL
+    - NVDA
+    - MSFT
+    - AMZN
+    - GOOGL
+
+temporal:
+  primary_method: walk_forward
+  train_days: 504
+  test_days: 126
+  folds: 4
+  purge_days: 5
+  embargo_days: 2
+  start_date: "2020-01-01"
+  end_date: "2025-06-30"
+
+optimization:
+  method: bayesian
+  metric: sharpe
+  direction: maximize
+  n_trials: 50
+  constraints:
+    - metric: p10_sharpe
+      operator: ">="
+      value: 0.0
+    - metric: median_max_dd
+      operator: "<="
+      value: 0.25
+
+profiles:
+  default:
+    name: tier_a
+    version: v1
+    slippage_bps: 5.0
+    commission_per_share: 0.005
+    fill_model: close
+  conservative:
+    name: tier_b
+    version: v1
+    slippage_bps: 15.0
+    commission_per_share: 0.005
+    fill_model: next_open
+
+reproducibility:
+  random_seed: 42
+  data_version: "apex_2025.01"

@@ -113,6 +113,10 @@ async function updateChart(symbolOverride = null) {{
     updateRegimeSection();
     updateDualMACDHistory(data);
     updateTrendPulseHistory(data);
+    updatePulseDipHistory(data);
+    updateSqueezePlayHistory(data);
+    updateRegimeFlexHistory(data);
+    updateSectorPulseHistory(data);
 }}
 
 // Render full multi-subplot chart using Plotly (matches SignalReportGenerator)
@@ -1316,6 +1320,517 @@ function updateTrendPulseHistory(data) {{
                                 <th style="padding:6px 6px;text-align:right;font-size:11px;color:${{muted}};cursor:help;" title="Informational trailing stop level.&#10;= Rolling max(close, 20 bars) - 3.5 × ATR(20).&#10;Not position-aware; shows per-bar level.&#10;Exit triggers when close < ATR stop.">ATR Stop</th>
                                 <th style="padding:6px 6px;text-align:center;font-size:11px;color:${{muted}};cursor:help;" title="Cooldown bars remaining after an exit signal.&#10;Counts down from 5 to 0 after each exit.&#10;Green (0) = ready for new entry.&#10;Red (>0) = entry blocked.">CD</th>
                                 <th style="padding:6px 6px;text-align:left;font-size:11px;color:${{muted}};cursor:help;" title="Exit signal reason (first match wins):&#10;atr_stop: close < trailing ATR stop level&#10;dm_regime: 3 consecutive MACD BEARISH bars&#10;zig_sell: ZIG/MA cross down&#10;top_detected: Williams %%R top confirmed&#10;none: no exit condition">Exit</th>
+                            </tr>
+                        </thead>
+                        <tbody>${{bodyHtml}}</tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    `;
+
+    container.innerHTML = `<div style="padding:16px;">${{summaryCard}}${{historyTable}}</div>`;
+}}
+
+// ========== PulseDip Strategy Section ==========
+function updatePulseDipHistory(data) {{
+    const container = document.getElementById('pulse-dip-table');
+    if (!container) return;
+
+    const rows = data.pulse_dip_history || [];
+    if (rows.length === 0) {{
+        container.innerHTML = '<div style="color: ' + colors.text_muted + '; padding: 16px;">No PulseDip history available for this symbol/timeframe.</div>';
+        return;
+    }}
+
+    const border = colors.border || '#334155';
+    const muted = colors.text_muted || '#94a3b8';
+    const headerBg = colors.bg || '#1e293b';
+    const cardBg = colors.card_bg || '#1e293b';
+
+    const signalBg = {{
+        'ENTRY': 'rgba(16, 185, 129, 0.15)',
+        'EXIT': 'rgba(239, 68, 68, 0.10)',
+        'LONG': 'rgba(59, 130, 246, 0.05)',
+        'WATCH': 'rgba(250, 204, 21, 0.05)',
+    }};
+    const signalColor = {{
+        'ENTRY': '#10b981',
+        'EXIT': '#ef4444',
+        'LONG': '#3b82f6',
+        'WATCH': '#facc15',
+    }};
+
+    // Summary card from most recent row
+    const cur = rows[0];
+    const curSignal = cur.signal || '';
+    const curRsi = cur.rsi || 50;
+    const curEma = cur.ema_ok;
+
+    let signalBadge;
+    if (curSignal === 'ENTRY') {{
+        signalBadge = `<span style="background:rgba(16,185,129,0.2);color:#10b981;border:1px solid #10b981;padding:4px 12px;border-radius:6px;font-weight:700;">ENTRY</span>`;
+    }} else if (curSignal === 'LONG') {{
+        signalBadge = `<span style="background:rgba(59,130,246,0.2);color:#3b82f6;border:1px solid #3b82f6;padding:4px 12px;border-radius:6px;font-weight:700;">LONG</span>`;
+    }} else if (curSignal === 'EXIT') {{
+        signalBadge = `<span style="background:rgba(239,68,68,0.2);color:#ef4444;border:1px solid #ef4444;padding:4px 12px;border-radius:6px;font-weight:700;">EXIT</span>`;
+    }} else if (curSignal === 'WATCH') {{
+        signalBadge = `<span style="background:rgba(250,204,21,0.2);color:#facc15;border:1px solid #facc15;padding:4px 12px;border-radius:6px;">WATCHING</span>`;
+    }} else {{
+        signalBadge = `<span style="color:${{muted}};border:1px solid ${{border}};padding:4px 12px;border-radius:6px;">No Signal</span>`;
+    }}
+
+    const emaCheck = curEma ? '<span style="color:#10b981;">\\u2713 Above EMA</span>' : '<span style="color:#ef4444;">\\u2717 Below EMA</span>';
+    const rsiColor = curRsi < 35 ? '#10b981' : curRsi > 65 ? '#ef4444' : muted;
+
+    const summaryCard = `
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:12px;">
+            <div style="background:${{cardBg}};border:1px solid ${{border}};border-radius:10px;padding:16px;text-align:center;">
+                <div style="font-size:10px;text-transform:uppercase;color:${{muted}};margin-bottom:6px;letter-spacing:0.5px;">Signal</div>
+                <div style="margin-top:4px;">${{signalBadge}}</div>
+                <div style="font-size:11px;color:${{muted}};margin-top:6px;">${{cur.bars_held != null ? 'Bars held: ' + cur.bars_held : ''}}</div>
+            </div>
+            <div style="background:${{cardBg}};border:1px solid ${{border}};border-radius:10px;padding:16px;text-align:center;">
+                <div style="font-size:10px;text-transform:uppercase;color:${{muted}};margin-bottom:6px;letter-spacing:0.5px;">Entry Conditions</div>
+                <div style="font-size:14px;margin-top:4px;">${{emaCheck}}</div>
+                <div style="font-size:14px;color:${{rsiColor}};margin-top:4px;">RSI: ${{curRsi.toFixed(1)}}</div>
+            </div>
+            <div style="background:${{cardBg}};border:1px solid ${{border}};border-radius:10px;padding:16px;text-align:center;">
+                <div style="font-size:10px;text-transform:uppercase;color:${{muted}};margin-bottom:6px;letter-spacing:0.5px;">Risk</div>
+                <div style="font-size:14px;margin-top:4px;">${{cur.stop_level ? 'Stop: $' + cur.stop_level.toFixed(2) : '<span style="color:' + muted + ';">\\u2014</span>'}}</div>
+                <div style="font-size:11px;color:${{muted}};margin-top:4px;">${{cur.exit_reason || ''}}</div>
+            </div>
+        </div>
+        <div style="font-size:11px;color:${{muted}};margin-bottom:4px;">
+            As of ${{cur.date}} \\u00b7 ${{data.symbol}} \\u00b7 ${{data.timeframe}}
+        </div>
+    `;
+
+    // History table
+    let bodyHtml = '';
+    for (const row of rows) {{
+        const sig = row.signal || '';
+        const rowBg = signalBg[sig] || 'transparent';
+        const sigCol = signalColor[sig] || muted;
+
+        const exitCell = row.exit_reason
+            ? `<span style="color:#ef4444;font-weight:600;">${{row.exit_reason}}</span>`
+            : '<span style="color:' + muted + ';">\\u2014</span>';
+
+        const pnlCell = row.pnl_pct != null
+            ? `<span style="color:${{row.pnl_pct >= 0 ? '#10b981' : '#ef4444'}};font-weight:600;">${{row.pnl_pct >= 0 ? '+' : ''}}${{row.pnl_pct}}%</span>`
+            : '<span style="color:' + muted + ';">\\u2014</span>';
+
+        const rsiC = row.rsi < 35 ? '#10b981' : row.rsi > 65 ? '#ef4444' : muted;
+
+        bodyHtml += `<tr style="background:${{rowBg}};border-bottom:1px solid ${{border}};">
+            <td style="padding:4px 8px;font-size:11px;white-space:nowrap;">${{row.date}}</td>
+            <td style="padding:4px 6px;font-size:11px;text-align:right;color:${{rsiC}};font-family:monospace;">${{row.rsi.toFixed(1)}}</td>
+            <td style="padding:4px 6px;font-size:11px;text-align:center;">${{row.ema_ok ? '<span style="color:#10b981;">\\u2713</span>' : '<span style="color:#ef4444;">\\u2717</span>'}}</td>
+            <td style="padding:4px 6px;font-size:11px;color:${{sigCol}};font-weight:${{sig === 'ENTRY' || sig === 'EXIT' ? '600' : '400'}};">${{sig || '\\u2014'}}</td>
+            <td style="padding:4px 6px;font-size:11px;">${{exitCell}}</td>
+            <td style="padding:4px 6px;font-size:11px;">${{pnlCell}}</td>
+        </tr>`;
+    }}
+
+    const historyTable = `
+        <div style="margin-top:16px;">
+            <h4 style="cursor:pointer;margin:0 0 8px 0;color:${{muted}};font-size:12px;text-transform:uppercase;"
+                onclick="(function(el){{
+                    const t=el.nextElementSibling;
+                    const show=t.style.display==='none';
+                    t.style.display=show?'block':'none';
+                    el.querySelector('span').textContent=show?'\\u25bc':'\\u25b6';
+                }})(this)">
+                <span>\\u25b6</span> Bar-by-Bar History (${{rows.length}} bars) \\u2014 Click to expand
+            </h4>
+            <div style="display:none;">
+                <div style="font-size:11px;color:${{muted}};margin-bottom:8px;">
+                    Newest first \\u00b7
+                    <span style="display:inline-block;width:10px;height:10px;background:rgba(16,185,129,0.15);border:1px solid #10b981;border-radius:2px;vertical-align:middle;"></span> Entry
+                    <span style="display:inline-block;width:10px;height:10px;background:rgba(239,68,68,0.10);border:1px solid #ef4444;border-radius:2px;vertical-align:middle;margin-left:8px;"></span> Exit
+                    <span style="display:inline-block;width:10px;height:10px;background:rgba(59,130,246,0.05);border:1px solid #3b82f6;border-radius:2px;vertical-align:middle;margin-left:8px;"></span> Long
+                </div>
+                <div style="overflow-x:auto;">
+                    <table style="width:100%;border-collapse:collapse;color:${{colors.text}};font-size:12px;">
+                        <thead>
+                            <tr style="background:${{headerBg}};border-bottom:2px solid ${{border}};">
+                                <th style="padding:6px 8px;text-align:left;font-size:11px;color:${{muted}};">Date</th>
+                                <th style="padding:6px 6px;text-align:right;font-size:11px;color:${{muted}};">RSI</th>
+                                <th style="padding:6px 6px;text-align:center;font-size:11px;color:${{muted}};">EMA</th>
+                                <th style="padding:6px 6px;text-align:left;font-size:11px;color:${{muted}};">Signal</th>
+                                <th style="padding:6px 6px;text-align:left;font-size:11px;color:${{muted}};">Exit</th>
+                                <th style="padding:6px 6px;text-align:left;font-size:11px;color:${{muted}};">P/L</th>
+                            </tr>
+                        </thead>
+                        <tbody>${{bodyHtml}}</tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    `;
+
+    container.innerHTML = `<div style="padding:16px;">${{summaryCard}}${{historyTable}}</div>`;
+}}
+
+// ========== SqueezePlay Strategy Section ==========
+function updateSqueezePlayHistory(data) {{
+    const container = document.getElementById('squeeze-play-table');
+    if (!container) return;
+
+    const rows = data.squeeze_play_history || [];
+    if (rows.length === 0) {{
+        container.innerHTML = '<div style="color: ' + colors.text_muted + '; padding: 16px;">No SqueezePlay history available for this symbol/timeframe.</div>';
+        return;
+    }}
+
+    const border = colors.border || '#334155';
+    const muted = colors.text_muted || '#94a3b8';
+    const headerBg = colors.bg || '#1e293b';
+    const cardBg = colors.card_bg || '#1e293b';
+
+    const signalBg = {{
+        'SQUEEZE': 'rgba(59, 130, 246, 0.05)',
+        'BREAK': 'rgba(16, 185, 129, 0.15)',
+        'HOLD': 'rgba(59, 130, 246, 0.05)',
+    }};
+    const signalColor = {{
+        'SQUEEZE': '#3b82f6',
+        'BREAK': '#10b981',
+        'HOLD': '#3b82f6',
+    }};
+    const dirColor = {{ 'BULL': '#10b981', 'BEAR': '#ef4444', 'NEUT': muted }};
+
+    const cur = rows[0];
+    const curSq = cur.squeeze_on;
+    const curSig = cur.signal || '';
+
+    let signalBadge;
+    if (curSig === 'SQUEEZE') {{
+        signalBadge = `<span style="background:rgba(59,130,246,0.2);color:#3b82f6;border:1px solid #3b82f6;padding:4px 12px;border-radius:6px;font-weight:700;">SQUEEZE</span>`;
+    }} else if (curSig === 'BREAK') {{
+        signalBadge = `<span style="background:rgba(16,185,129,0.2);color:#10b981;border:1px solid #10b981;padding:4px 12px;border-radius:6px;font-weight:700;">BREAKOUT</span>`;
+    }} else if (curSig === 'HOLD') {{
+        signalBadge = `<span style="background:rgba(59,130,246,0.15);color:#3b82f6;border:1px solid #3b82f6;padding:4px 12px;border-radius:6px;">HOLDING</span>`;
+    }} else {{
+        signalBadge = `<span style="color:${{muted}};border:1px solid ${{border}};padding:4px 12px;border-radius:6px;">No Signal</span>`;
+    }}
+
+    const dirBadge = `<span style="color:${{dirColor[cur.direction] || muted}};font-weight:600;">${{cur.direction}}</span>`;
+
+    const summaryCard = `
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:12px;">
+            <div style="background:${{cardBg}};border:1px solid ${{border}};border-radius:10px;padding:16px;text-align:center;">
+                <div style="font-size:10px;text-transform:uppercase;color:${{muted}};margin-bottom:6px;letter-spacing:0.5px;">Signal</div>
+                <div style="margin-top:4px;">${{signalBadge}}</div>
+            </div>
+            <div style="background:${{cardBg}};border:1px solid ${{border}};border-radius:10px;padding:16px;text-align:center;">
+                <div style="font-size:10px;text-transform:uppercase;color:${{muted}};margin-bottom:6px;letter-spacing:0.5px;">Squeeze State</div>
+                <div style="font-size:14px;margin-top:4px;">${{curSq ? '<span style="color:#3b82f6;font-weight:600;">COILING</span>' : '<span style="color:#10b981;">RELEASED</span>'}}</div>
+                <div style="font-size:11px;color:${{muted}};margin-top:4px;">Rel: ${{cur.release_count}} bars \\u00b7 Out: ${{cur.outside_bb}} bars</div>
+            </div>
+            <div style="background:${{cardBg}};border:1px solid ${{border}};border-radius:10px;padding:16px;text-align:center;">
+                <div style="font-size:10px;text-transform:uppercase;color:${{muted}};margin-bottom:6px;letter-spacing:0.5px;">Direction</div>
+                <div style="font-size:18px;margin-top:4px;">${{dirBadge}}</div>
+                <div style="font-size:11px;color:${{muted}};margin-top:4px;">ADX: ${{cur.adx.toFixed(1)}} ${{cur.adx >= 20 ? '\\u2713' : '\\u26a0'}}</div>
+            </div>
+        </div>
+        <div style="font-size:11px;color:${{muted}};margin-bottom:4px;">
+            As of ${{cur.date}} \\u00b7 ${{data.symbol}} \\u00b7 ${{data.timeframe}}
+        </div>
+    `;
+
+    let bodyHtml = '';
+    for (const row of rows) {{
+        const sig = row.signal || '';
+        const rowBg = signalBg[sig] || 'transparent';
+        const sigCol = signalColor[sig] || muted;
+        const dCol = dirColor[row.direction] || muted;
+
+        bodyHtml += `<tr style="background:${{rowBg}};border-bottom:1px solid ${{border}};">
+            <td style="padding:4px 8px;font-size:11px;white-space:nowrap;">${{row.date}}</td>
+            <td style="padding:4px 6px;font-size:11px;text-align:center;">${{row.squeeze_on ? '<span style="color:#3b82f6;">\\u25cf</span>' : '<span style="color:' + muted + ';">\\u25cb</span>'}}</td>
+            <td style="padding:4px 6px;font-size:11px;text-align:right;font-family:monospace;">${{row.release_count}}</td>
+            <td style="padding:4px 6px;font-size:11px;text-align:right;font-family:monospace;">${{row.outside_bb}}</td>
+            <td style="padding:4px 6px;font-size:11px;text-align:right;font-family:monospace;">${{row.adx.toFixed(1)}}</td>
+            <td style="padding:4px 6px;font-size:11px;color:${{dCol}};font-weight:500;">${{row.direction}}</td>
+            <td style="padding:4px 6px;font-size:11px;color:${{sigCol}};font-weight:${{sig === 'BREAK' ? '700' : '400'}};">${{sig || '\\u2014'}}</td>
+        </tr>`;
+    }}
+
+    const historyTable = `
+        <div style="margin-top:16px;">
+            <h4 style="cursor:pointer;margin:0 0 8px 0;color:${{muted}};font-size:12px;text-transform:uppercase;"
+                onclick="(function(el){{
+                    const t=el.nextElementSibling;
+                    const show=t.style.display==='none';
+                    t.style.display=show?'block':'none';
+                    el.querySelector('span').textContent=show?'\\u25bc':'\\u25b6';
+                }})(this)">
+                <span>\\u25b6</span> Bar-by-Bar History (${{rows.length}} bars) \\u2014 Click to expand
+            </h4>
+            <div style="display:none;">
+                <div style="font-size:11px;color:${{muted}};margin-bottom:8px;">
+                    Newest first \\u00b7
+                    <span style="display:inline-block;width:10px;height:10px;background:rgba(59,130,246,0.05);border:1px solid #3b82f6;border-radius:2px;vertical-align:middle;"></span> Squeeze
+                    <span style="display:inline-block;width:10px;height:10px;background:rgba(16,185,129,0.15);border:1px solid #10b981;border-radius:2px;vertical-align:middle;margin-left:8px;"></span> Breakout
+                </div>
+                <div style="overflow-x:auto;">
+                    <table style="width:100%;border-collapse:collapse;color:${{colors.text}};font-size:12px;">
+                        <thead>
+                            <tr style="background:${{headerBg}};border-bottom:2px solid ${{border}};">
+                                <th style="padding:6px 8px;text-align:left;font-size:11px;color:${{muted}};">Date</th>
+                                <th style="padding:6px 6px;text-align:center;font-size:11px;color:${{muted}};" title="Bollinger inside Keltner = squeeze ON">SqOn</th>
+                                <th style="padding:6px 6px;text-align:right;font-size:11px;color:${{muted}};" title="Consecutive bars since release">Rels</th>
+                                <th style="padding:6px 6px;text-align:right;font-size:11px;color:${{muted}};" title="Consecutive bars close outside BB">OutBB</th>
+                                <th style="padding:6px 6px;text-align:right;font-size:11px;color:${{muted}};">ADX</th>
+                                <th style="padding:6px 6px;text-align:left;font-size:11px;color:${{muted}};">Bias</th>
+                                <th style="padding:6px 6px;text-align:left;font-size:11px;color:${{muted}};">Signal</th>
+                            </tr>
+                        </thead>
+                        <tbody>${{bodyHtml}}</tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    `;
+
+    container.innerHTML = `<div style="padding:16px;">${{summaryCard}}${{historyTable}}</div>`;
+}}
+
+// ========== RegimeFlex Strategy Section ==========
+function updateRegimeFlexHistory(data) {{
+    const container = document.getElementById('regime-flex-table');
+    if (!container) return;
+
+    const rows = data.regime_flex_history || [];
+    if (rows.length === 0) {{
+        container.innerHTML = '<div style="color: ' + colors.text_muted + '; padding: 16px;">No RegimeFlex history available for this symbol/timeframe.</div>';
+        return;
+    }}
+
+    const border = colors.border || '#334155';
+    const muted = colors.text_muted || '#94a3b8';
+    const headerBg = colors.bg || '#1e293b';
+    const cardBg = colors.card_bg || '#1e293b';
+
+    const regimeColors = {{
+        'R0': '#10b981',
+        'R1': '#f59e0b',
+        'R2': '#ef4444',
+        'R3': '#a855f7',
+    }};
+    const regimeLabels = {{
+        'R0': 'Healthy Uptrend',
+        'R1': 'Choppy/Extended',
+        'R2': 'Risk-Off',
+        'R3': 'Rebound Window',
+    }};
+    const signalBg = {{
+        'BUY': 'rgba(16, 185, 129, 0.10)',
+        'SELL': 'rgba(239, 68, 68, 0.10)',
+        'HOLD': 'transparent',
+    }};
+    const signalColor = {{
+        'BUY': '#10b981',
+        'SELL': '#ef4444',
+        'HOLD': muted,
+    }};
+
+    const cur = rows[0];
+    const curRegime = cur.regime || '--';
+    const curExposure = cur.target_exposure || 0;
+    const curSignal = cur.signal || 'HOLD';
+    const curRegimeColor = regimeColors[curRegime] || muted;
+    const curRegimeLabel = regimeLabels[curRegime] || curRegime;
+
+    let signalBadge;
+    if (curSignal === 'BUY') {{
+        signalBadge = `<span style="background:rgba(16,185,129,0.2);color:#10b981;border:1px solid #10b981;padding:4px 12px;border-radius:6px;font-weight:700;">BUY</span>`;
+    }} else if (curSignal === 'SELL') {{
+        signalBadge = `<span style="background:rgba(239,68,68,0.2);color:#ef4444;border:1px solid #ef4444;padding:4px 12px;border-radius:6px;font-weight:700;">SELL</span>`;
+    }} else {{
+        signalBadge = `<span style="color:${{muted}};border:1px solid ${{border}};padding:4px 12px;border-radius:6px;">HOLD</span>`;
+    }}
+
+    const exposureBarWidth = Math.min(curExposure, 100);
+    const exposureColor = curExposure >= 80 ? '#10b981' : curExposure >= 40 ? '#f59e0b' : curExposure > 0 ? '#a855f7' : '#ef4444';
+
+    const summaryCard = `
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:12px;">
+            <div style="background:${{cardBg}};border:1px solid ${{border}};border-radius:10px;padding:16px;text-align:center;">
+                <div style="font-size:10px;text-transform:uppercase;color:${{muted}};margin-bottom:6px;letter-spacing:0.5px;">Current Regime</div>
+                <div style="font-size:20px;font-weight:700;color:${{curRegimeColor}};">${{curRegime}}</div>
+                <div style="font-size:11px;color:${{muted}};margin-top:4px;">${{curRegimeLabel}}</div>
+            </div>
+            <div style="background:${{cardBg}};border:1px solid ${{border}};border-radius:10px;padding:16px;text-align:center;">
+                <div style="font-size:10px;text-transform:uppercase;color:${{muted}};margin-bottom:6px;letter-spacing:0.5px;">Target Exposure</div>
+                <div style="font-size:20px;font-weight:700;color:${{exposureColor}};">${{curExposure}}%</div>
+                <div style="width:80%;height:6px;background:${{border}};border-radius:3px;overflow:hidden;margin:6px auto 0;">
+                    <div style="width:${{exposureBarWidth}}%;height:100%;background:${{exposureColor}};border-radius:3px;"></div>
+                </div>
+            </div>
+            <div style="background:${{cardBg}};border:1px solid ${{border}};border-radius:10px;padding:16px;text-align:center;">
+                <div style="font-size:10px;text-transform:uppercase;color:${{muted}};margin-bottom:6px;letter-spacing:0.5px;">Signal</div>
+                <div style="margin-top:4px;">${{signalBadge}}</div>
+            </div>
+        </div>
+        <div style="font-size:11px;color:${{muted}};margin-bottom:4px;">
+            As of ${{cur.date}} \\u00b7 ${{data.symbol}} \\u00b7 ${{data.timeframe}}
+        </div>
+    `;
+
+    let bodyHtml = '';
+    for (const row of rows) {{
+        const regime = row.regime || '--';
+        const sig = row.signal || 'HOLD';
+        const rowBg = signalBg[sig] || 'transparent';
+        const sigCol = signalColor[sig] || muted;
+        const regCol = regimeColors[regime] || muted;
+        const exposure = row.target_exposure || 0;
+        const expColor = exposure >= 80 ? '#10b981' : exposure >= 40 ? '#f59e0b' : exposure > 0 ? '#a855f7' : '#ef4444';
+
+        bodyHtml += `<tr style="background:${{rowBg}};border-bottom:1px solid ${{border}};">
+            <td style="padding:4px 8px;font-size:11px;white-space:nowrap;">${{row.date}}</td>
+            <td style="padding:4px 6px;font-size:11px;color:${{regCol}};font-weight:600;">${{regime}}</td>
+            <td style="padding:4px 6px;font-size:11px;text-align:right;font-family:monospace;">
+                <span style="color:${{expColor}};">${{exposure}}%</span>
+            </td>
+            <td style="padding:4px 6px;font-size:11px;color:${{sigCol}};font-weight:${{sig !== 'HOLD' ? '600' : '400'}};">${{sig}}</td>
+        </tr>`;
+    }}
+
+    const historyTable = `
+        <div style="margin-top:16px;">
+            <h4 style="cursor:pointer;margin:0 0 8px 0;color:${{muted}};font-size:12px;text-transform:uppercase;"
+                onclick="(function(el){{
+                    const t=el.nextElementSibling;
+                    const show=t.style.display==='none';
+                    t.style.display=show?'block':'none';
+                    el.querySelector('span').textContent=show?'\\u25bc':'\\u25b6';
+                }})(this)">
+                <span>\\u25b6</span> Bar-by-Bar History (${{rows.length}} bars) \\u2014 Click to expand
+            </h4>
+            <div style="display:none;">
+                <div style="font-size:11px;color:${{muted}};margin-bottom:8px;">
+                    Newest first \\u00b7
+                    <span style="display:inline-block;width:10px;height:10px;background:rgba(16,185,129,0.10);border:1px solid #10b981;border-radius:2px;vertical-align:middle;"></span> BUY
+                    <span style="display:inline-block;width:10px;height:10px;background:rgba(239,68,68,0.10);border:1px solid #ef4444;border-radius:2px;vertical-align:middle;margin-left:8px;"></span> SELL
+                </div>
+                <div style="overflow-x:auto;">
+                    <table style="width:100%;border-collapse:collapse;color:${{colors.text}};font-size:12px;">
+                        <thead>
+                            <tr style="background:${{headerBg}};border-bottom:2px solid ${{border}};">
+                                <th style="padding:6px 8px;text-align:left;font-size:11px;color:${{muted}};">Date</th>
+                                <th style="padding:6px 6px;text-align:left;font-size:11px;color:${{muted}};">Regime</th>
+                                <th style="padding:6px 6px;text-align:right;font-size:11px;color:${{muted}};">Exposure</th>
+                                <th style="padding:6px 6px;text-align:left;font-size:11px;color:${{muted}};">Signal</th>
+                            </tr>
+                        </thead>
+                        <tbody>${{bodyHtml}}</tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    `;
+
+    container.innerHTML = `<div style="padding:16px;">${{summaryCard}}${{historyTable}}</div>`;
+}}
+
+// ========== SectorPulse Strategy Section ==========
+function updateSectorPulseHistory(data) {{
+    const container = document.getElementById('sector-pulse-table');
+    if (!container) return;
+
+    const rows = data.sector_pulse_history || [];
+    if (rows.length === 0) {{
+        container.innerHTML = '<div style="color: ' + colors.text_muted + '; padding: 16px;">No SectorPulse history available for this symbol/timeframe.</div>';
+        return;
+    }}
+
+    const border = colors.border || '#334155';
+    const muted = colors.text_muted || '#94a3b8';
+    const headerBg = colors.bg || '#1e293b';
+    const cardBg = colors.card_bg || '#1e293b';
+
+    const regimeColors = {{
+        'R0': '#10b981',
+        'R1': '#f59e0b',
+        'R2': '#ef4444',
+        'R3': '#a855f7',
+    }};
+
+    const cur = rows[0];
+    const curMomentum = cur.momentum_score || 0;
+    const curRegime = cur.regime || '--';
+    const curRegimeColor = regimeColors[curRegime] || muted;
+    const momColor = curMomentum > 5 ? '#10b981' : curMomentum > 0 ? '#06b6d4' : curMomentum > -5 ? '#f59e0b' : '#ef4444';
+
+    const summaryCard = `
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:12px;">
+            <div style="background:${{cardBg}};border:1px solid ${{border}};border-radius:10px;padding:16px;text-align:center;">
+                <div style="font-size:10px;text-transform:uppercase;color:${{muted}};margin-bottom:6px;letter-spacing:0.5px;">20-Day Momentum</div>
+                <div style="font-size:24px;font-weight:700;color:${{momColor}};">
+                    ${{curMomentum >= 0 ? '+' : ''}}${{curMomentum.toFixed(2)}}%
+                </div>
+                <div style="font-size:11px;color:${{muted}};margin-top:4px;">
+                    ${{curMomentum > 5 ? 'Strong upside' : curMomentum > 0 ? 'Mild upside' : curMomentum > -5 ? 'Mild downside' : 'Strong downside'}}
+                </div>
+            </div>
+            <div style="background:${{cardBg}};border:1px solid ${{border}};border-radius:10px;padding:16px;text-align:center;">
+                <div style="font-size:10px;text-transform:uppercase;color:${{muted}};margin-bottom:6px;letter-spacing:0.5px;">Regime</div>
+                <div style="font-size:20px;font-weight:700;color:${{curRegimeColor}};">${{curRegime}}</div>
+                <div style="font-size:11px;color:${{muted}};margin-top:4px;">
+                    ${{curRegime === 'R0' ? 'Full allocation OK' : curRegime === 'R1' ? 'Reduced allocation' : curRegime === 'R2' ? 'No new positions' : curRegime === 'R3' ? 'Small positions only' : ''}}
+                </div>
+            </div>
+        </div>
+        <div style="font-size:11px;color:${{muted}};margin-bottom:4px;">
+            As of ${{cur.date}} \\u00b7 ${{data.symbol}} \\u00b7 ${{data.timeframe}}
+        </div>
+    `;
+
+    let bodyHtml = '';
+    for (const row of rows) {{
+        const mom = row.momentum_score || 0;
+        const regime = row.regime || '--';
+        const regCol = regimeColors[regime] || muted;
+        const mC = mom > 5 ? '#10b981' : mom > 0 ? '#06b6d4' : mom > -5 ? '#f59e0b' : '#ef4444';
+        const rowBg = mom > 5 ? 'rgba(16, 185, 129, 0.05)' : mom < -5 ? 'rgba(239, 68, 68, 0.05)' : 'transparent';
+
+        bodyHtml += `<tr style="background:${{rowBg}};border-bottom:1px solid ${{border}};">
+            <td style="padding:4px 8px;font-size:11px;white-space:nowrap;">${{row.date}}</td>
+            <td style="padding:4px 6px;font-size:11px;text-align:right;font-family:monospace;color:${{mC}};">
+                ${{mom >= 0 ? '+' : ''}}${{mom.toFixed(2)}}%
+            </td>
+            <td style="padding:4px 6px;font-size:11px;color:${{regCol}};font-weight:600;">${{regime}}</td>
+        </tr>`;
+    }}
+
+    const historyTable = `
+        <div style="margin-top:16px;">
+            <h4 style="cursor:pointer;margin:0 0 8px 0;color:${{muted}};font-size:12px;text-transform:uppercase;"
+                onclick="(function(el){{
+                    const t=el.nextElementSibling;
+                    const show=t.style.display==='none';
+                    t.style.display=show?'block':'none';
+                    el.querySelector('span').textContent=show?'\\u25bc':'\\u25b6';
+                }})(this)">
+                <span>\\u25b6</span> Bar-by-Bar History (${{rows.length}} bars) \\u2014 Click to expand
+            </h4>
+            <div style="display:none;">
+                <div style="font-size:11px;color:${{muted}};margin-bottom:8px;">
+                    Newest first \\u00b7
+                    <span style="display:inline-block;width:10px;height:10px;background:rgba(16,185,129,0.05);border:1px solid #10b981;border-radius:2px;vertical-align:middle;"></span> Strong upside (&gt;5%)
+                    <span style="display:inline-block;width:10px;height:10px;background:rgba(239,68,68,0.05);border:1px solid #ef4444;border-radius:2px;vertical-align:middle;margin-left:8px;"></span> Strong downside (&lt;-5%)
+                </div>
+                <div style="overflow-x:auto;">
+                    <table style="width:100%;border-collapse:collapse;color:${{colors.text}};font-size:12px;">
+                        <thead>
+                            <tr style="background:${{headerBg}};border-bottom:2px solid ${{border}};">
+                                <th style="padding:6px 8px;text-align:left;font-size:11px;color:${{muted}};">Date</th>
+                                <th style="padding:6px 6px;text-align:right;font-size:11px;color:${{muted}};" title="20-day return (momentum score)">Momentum</th>
+                                <th style="padding:6px 6px;text-align:left;font-size:11px;color:${{muted}};">Regime</th>
                             </tr>
                         </thead>
                         <tbody>${{bodyHtml}}</tbody>

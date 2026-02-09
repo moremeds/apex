@@ -11,7 +11,7 @@ Usage:
         ApexStrategyWrapper,
         run_backtest_with_backtrader,
     )
-    from src.domain.strategy.examples import MovingAverageCrossStrategy
+    from src.domain.strategy.playbook import MovingAverageCrossStrategy
 
     # Create wrapper
     cerebro = bt.Cerebro()

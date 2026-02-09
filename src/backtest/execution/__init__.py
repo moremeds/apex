@@ -30,7 +30,12 @@ from .engines import (
     VectorBTEngine,
 )
 from .ledger import PositionLedger
-from .order_matching import OrderMatcher
+from .order_matching import (
+    TIER_A_DEFAULTS,
+    TIER_B_DEFAULTS,
+    OrderMatcher,
+    OrderMatcherConfig,
+)
 from .parallel import (
     ExecutionProgress,
     ParallelConfig,
