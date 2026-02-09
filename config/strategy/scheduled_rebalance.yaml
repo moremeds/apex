@@ -1,0 +1,19 @@
+name: scheduled_rebalance
+tier: "DEMO"
+module_path: "src.domain.strategy.playbook.scheduled_rebalance"
+class_name: "ScheduledRebalanceStrategy"
+vectorbt_compatible: false  # Demo strategy: uses scheduler/clock, not vectorizable
+
+# Current best parameters — used by all runners, playbooks, signal generators
+params:
+  rebalance_threshold: 0.05
+  total_capital: 100000
+
+history:
+  - version: "v1.0-initial"
+    date: "2025-01-01"
+    source: "Original hardcoded defaults"
+    params:
+      rebalance_threshold: 0.05
+      total_capital: 100000
+    reason: "Demo strategy for scheduler/clock abstraction"

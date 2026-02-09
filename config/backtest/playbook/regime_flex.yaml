@@ -1,0 +1,86 @@
+# RegimeFlex Strategy - Regime-Based Exposure Scaling
+#
+# Tier 2 strategy: Adjusts portfolio gross exposure based on market regime.
+# Portfolio-mode: requires regime context, NOT vectorbt-compatible.
+#
+# Run with:
+#   python -m src.backtest.runner --strategy regime_flex --symbols AAPL NVDA MSFT --start 2022-01-01 --end 2025-06-30
+#   python -m src.backtest.runner --spec config/backtest/playbook/regime_flex.yaml
+
+name: "RegimeFlex_Backtest"
+description: "Regime-based gross exposure scaling with dwell/cooldown filters"
+strategy: "regime_flex"
+
+parameters:
+  # Frozen structural params (use YAML defaults)
+  min_dwell_bars:
+    type: fixed
+    value: 10
+  switch_cooldown_bars:
+    type: fixed
+    value: 15
+  # Optimizable params (matches strategy_objective.py _build_param_space)
+  r0_gross_pct:
+    type: range
+    min: 0.7
+    max: 1.0
+    step: 0.1
+  r1_gross_pct:
+    type: range
+    min: 0.2
+    max: 0.7
+    step: 0.1
+  r3_gross_pct:
+    type: range
+    min: 0.1
+    max: 0.5
+    step: 0.1
+  ramp_bars:
+    type: range
+    min: 3
+    max: 20
+    step: 1
+
+universe:
+  type: static
+  symbols:
+    - AAPL
+    - NVDA
+    - MSFT
+    - AMZN
+    - GOOGL
+
+temporal:
+  primary_method: walk_forward
+  train_days: 504
+  test_days: 126
+  folds: 4
+  purge_days: 5
+  embargo_days: 2
+  start_date: "2020-01-01"
+  end_date: "2025-06-30"
+
+optimization:
+  method: bayesian
+  metric: sharpe
+  direction: maximize
+  n_trials: 50
+  constraints:
+    - metric: p10_sharpe
+      operator: ">="
+      value: 0.0
+    - metric: median_max_dd
+      operator: "<="
+      value: 0.30
+
+profiles:
+  default:
+    name: tier_a
+    version: v1
+    slippage_bps: 5.0
+    commission_per_share: 0.005
+    fill_model: close
+
+reproducibility:
+  random_seed: 42
+  data_version: "apex_2025.01"

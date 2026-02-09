@@ -1,0 +1,18 @@
+name: ma_cross
+tier: "LEGACY"
+module_path: "src.domain.strategy.signals.ma_cross"
+class_name: "MACrossSignalGenerator"
+
+# Current best parameters — used by all runners, playbooks, signal generators
+params:
+  short_window: 10
+  long_window: 50
+
+history:
+  - version: "v1.0-initial"
+    date: "2025-01-01"
+    source: "Original hardcoded defaults"
+    params:
+      short_window: 10
+      long_window: 50
+    reason: "Pre-architecture strategy with hardcoded defaults"

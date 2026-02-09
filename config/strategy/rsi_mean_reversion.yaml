@@ -1,0 +1,20 @@
+name: rsi_mean_reversion
+tier: "LEGACY"
+module_path: "src.domain.strategy.signals.rsi_mean_reversion"
+class_name: "RSIMeanReversionSignalGenerator"
+
+# Current best parameters — used by all runners, playbooks, signal generators
+params:
+  rsi_period: 14
+  rsi_oversold: 30
+  rsi_overbought: 70
+
+history:
+  - version: "v1.0-initial"
+    date: "2025-01-01"
+    source: "Original hardcoded defaults"
+    params:
+      rsi_period: 14
+      rsi_oversold: 30
+      rsi_overbought: 70
+    reason: "Pre-architecture strategy with hardcoded defaults"

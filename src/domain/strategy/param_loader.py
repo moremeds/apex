@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
 
@@ -118,16 +118,28 @@ def list_strategies() -> List[str]:
     return sorted(configs.keys())
 
 
-def update_strategy_params(name: str, new_params: Dict[str, Any]) -> None:
+def update_strategy_params(
+    name: str,
+    new_params: Dict[str, Any],
+    *,
+    source: str = "Superseded by Optuna optimization",
+    reason: str = "",
+    results: Optional[Dict[str, Any]] = None,
+    changes: Optional[List[str]] = None,
+) -> None:
     """Update strategy params in YAML, archiving current params to history.
 
     Loads the existing YAML file, moves the current ``params`` block into
-    ``history`` with a timestamp, writes the new params, and clears the
-    in-memory cache so subsequent reads see the update.
+    ``history`` with a timestamp and optional metadata, writes the new params,
+    and clears the in-memory cache so subsequent reads see the update.
 
     Args:
         name: Strategy name (must match an existing YAML file).
         new_params: New parameter dict to write as the active ``params``.
+        source: Description of what produced these params (e.g. "Optuna TPE 50 trials").
+        reason: Human-readable rationale for the change.
+        results: Performance metrics dict (e.g. sharpe, return, max_drawdown).
+        changes: List of human-readable change descriptions.
 
     Raises:
         KeyError: If no config file exists for the strategy name.
@@ -156,9 +168,15 @@ def update_strategy_params(name: str, new_params: Dict[str, Any]) -> None:
         history_entry: Dict[str, Any] = {
             "version": f"pre-optuna-{datetime.now().strftime('%Y%m%d-%H%M%S')}",
             "date": datetime.now().strftime("%Y-%m-%d"),
-            "source": "Superseded by Optuna optimization",
+            "source": source,
             "params": dict(old_params),
         }
+        if reason:
+            history_entry["reason"] = reason
+        if results:
+            history_entry["results"] = results
+        if changes:
+            history_entry["changes"] = changes
         if "history" not in data or data["history"] is None:
             data["history"] = []
         data["history"].insert(0, history_entry)

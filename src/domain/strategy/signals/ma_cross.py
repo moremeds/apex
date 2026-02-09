@@ -6,7 +6,10 @@ from typing import Any, Dict, Optional, Tuple
 
 import pandas as pd
 
+from ..param_loader import get_strategy_params
 from .indicators import sma
+
+_DEFAULTS = get_strategy_params("ma_cross")
 
 
 class MACrossSignalGenerator:
@@ -49,9 +52,10 @@ class MACrossSignalGenerator:
         """
         close = data["close"]
 
+        effective = {**_DEFAULTS, **params}
         # Support both new and legacy param names
-        short_window = params.get("short_window", params.get("fast_period", 10))
-        long_window = params.get("long_window", params.get("slow_period", 50))
+        short_window = effective.get("short_window", effective.get("fast_period", 10))
+        long_window = effective.get("long_window", effective.get("slow_period", 50))
 
         # Calculate MAs using TA-Lib
         fast_ma = sma(close, int(short_window))

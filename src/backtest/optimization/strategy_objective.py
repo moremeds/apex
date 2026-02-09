@@ -64,7 +64,7 @@ FROZEN_PARAMS: Dict[str, Set[str]] = {
     "squeeze_play": {"bb_period", "bb_std", "kc_multiplier"},
     "trend_pulse": {"risk_per_trade_pct", "cooldown_bars"},
     "pulse_dip": set(),
-    "regime_flex": set(),
+    "regime_flex": {"min_dwell_bars", "switch_cooldown_bars"},
     "sector_pulse": set(),
 }
 

@@ -6,7 +6,10 @@ from typing import Any, Dict, Optional, Tuple
 
 import pandas as pd
 
+from ..param_loader import get_strategy_params
 from .indicators import momentum
+
+_DEFAULTS = get_strategy_params("momentum_breakout")
 
 
 class MomentumBreakoutSignalGenerator:
@@ -46,8 +49,9 @@ class MomentumBreakoutSignalGenerator:
         """
         close = data["close"]
 
-        lookback = int(params.get("lookback_days", 20))
-        threshold = float(params.get("momentum_threshold", 0.0))
+        effective = {**_DEFAULTS, **params}
+        lookback = int(effective.get("lookback_days", 20))
+        threshold = float(effective.get("momentum_threshold", 0.0))
 
         # Calculate momentum using TA-Lib
         mom = momentum(close, lookback)

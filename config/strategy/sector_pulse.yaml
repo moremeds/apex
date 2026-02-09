@@ -2,8 +2,7 @@ name: sector_pulse
 tier: "TIER 2"
 module_path: "src.domain.strategy.playbook.sector_pulse"
 class_name: "SectorPulseStrategy"
-
-# Current best parameters — used by all runners, playbooks, signal generators
+vectorbt_compatible: false  # Cross-sectional portfolio mode: can't vectorize per-symbol
 execution_mode: portfolio  # Runs with all symbols at once (cross-sectional)
 
 params:

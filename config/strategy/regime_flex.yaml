@@ -2,6 +2,7 @@ name: regime_flex
 tier: "TIER 2"
 module_path: "src.domain.strategy.playbook.regime_flex"
 class_name: "RegimeFlexStrategy"
+vectorbt_compatible: false  # Portfolio-mode: requires regime context across symbols
 
 # Current best parameters — used by all runners, playbooks, signal generators
 params:

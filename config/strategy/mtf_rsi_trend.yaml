@@ -1,0 +1,24 @@
+name: mtf_rsi_trend
+tier: "LEGACY"
+module_path: "src.domain.strategy.signals.mtf_rsi_trend"
+class_name: "MTFRsiTrendSignalGenerator"
+
+# Current best parameters — used by all runners, playbooks, signal generators
+params:
+  trend_rsi_period: 14
+  entry_rsi_period: 14
+  trend_threshold: 50
+  entry_oversold: 30
+  entry_overbought: 70
+
+history:
+  - version: "v1.0-initial"
+    date: "2025-01-01"
+    source: "Original hardcoded defaults"
+    params:
+      trend_rsi_period: 14
+      entry_rsi_period: 14
+      trend_threshold: 50
+      entry_oversold: 30
+      entry_overbought: 70
+    reason: "Pre-architecture strategy with hardcoded defaults"
