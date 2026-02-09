@@ -3,23 +3,20 @@ name: "Intraday: Signal Reports"
 # ═══════════════════════════════════════════════════════════════════════════
 # Signal report generation during market hours.
 #
-# Schedule: 8:30am, 10am–3pm hourly, 1:30pm (4H), 4:15pm ET (Mon-Fri)
+# DST-safe design: Cron triggers cover BOTH EDT (UTC-4) and EST (UTC-5).
+# The Python market-check step uses America/New_York timezone to classify
+# each run by ET time window, so NO manual DST switching is needed.
 #
-# All timeframes (1h, 4h, 1d) are always generated. Unfinished bars use
-# the current spot price as close (partial/potential signals).
-#
-# Intraday emails show the primary 1H TrendPulse plus "Potential Daily"
-# signals derived from the partial 1D bar.
-#
-# Daily email breakdown:
-#   8:30am ET:        1H + 4H + 1D (first report, catches overnight changes)
-#   10am–3pm ET:      Intraday 1H email (every hour on the hour)
-#   1:30pm ET:        Intraday 4H (first 4H bar close)
-#   4:15pm ET:        1H + 4H + 1D (post-close, end of day report)
+# ET time windows (with ~45min tolerance for GHA startup delays):
+#   8:00-9:29am ET:   First report (1H+4H+1D + strategy comparison)
+#   10am-12:59pm ET:  Intraday hourly (1H only)
+#   1:00-1:59pm ET:   4H bar close (1H+4H)
+#   2:00-3:59pm ET:   Intraday hourly (1H only)
+#   4:00-5:59pm ET:   Post-close (1H+4H+1D, no retrain)
 #
 # Pipeline:
 #   Step 1: Update market caps
-#   Step 2: Retrain models (not at close)
+#   Step 2: Retrain models (skipped at post-close)
 #   Step 3: Generate and deploy report
 #
 # Email: Plain-text TUI-formatted report (monospace, mobile-friendly)
@@ -27,13 +24,13 @@ name: "Intraday: Signal Reports"
 
 on:
   schedule:
-    # Market hours schedule — EDT times (Mar-Nov: UTC = ET + 4)
-    # TODO: Switch to EST times (Nov-Mar: UTC = ET + 5) after DST ends
-    - cron: '0 10 * * 1-5'      # 5am EST / 6am EDT — premarket strategy comparison only
-    - cron: '30 12 * * 1-5'     # 8:30am ET — first report (1H+4H+1D, catches overnight)
-    - cron: '0 14-19 * * 1-5'   # 10am–3pm ET — every hour on the hour (1H)
-    - cron: '30 17 * * 1-5'     # 1:30pm ET — 4H bar close report
-    - cron: '15 20 * * 1-5'     # 4:15pm ET — end of day report (1H+4H+1D)
+    # DST-safe schedule — covers both EDT (UTC-4) and EST (UTC-5).
+    # Python market-check decides what to run based on ET time.
+    # Duplicate crons (e.g. 12+13) ensure at least one fires per DST season.
+    - cron: '30 12,13 * * 1-5'    # First report 8:30am ET (EDT→12:30, EST→13:30)
+    - cron: '0 14-21 * * 1-5'     # Hourly: covers 9am-5pm ET across both DST seasons
+    - cron: '30 17,18 * * 1-5'    # 4H close 1:30pm ET (EDT→17:30, EST→18:30)
+    - cron: '15 20,21 * * 1-5'    # Post-close 4:15pm ET (EDT→20:15, EST→21:15)
   workflow_dispatch:
 
 concurrency:
@@ -113,17 +110,29 @@ jobs:
 
           is_trading_day = not schedule.empty
           is_manual = os.environ.get('GITHUB_EVENT_NAME') == 'workflow_dispatch'
-          now_utc = datetime.now(timezone.utc)
-          utc_hour = now_utc.hour
-          utc_min = now_utc.minute
 
-          # Schedule: 8:30am, 10am-3pm hourly, 1:30pm (4H), 4:15pm ET
-          # All timeframes always generated (partial bars use spot price)
-          is_close = utc_hour == 21 and utc_min >= 10  # 4:15pm ET (end of day)
-          is_first = utc_hour == 13  # 8:30am ET (first report)
-          is_4h_close = utc_hour == 18 and utc_min == 30  # 1:30pm ET (4H bar close)
-          is_4h_bar = is_4h_close or is_close or is_first
-          is_premarket = utc_hour == 10  # 5am EST / 6am EDT — strategy comparison only
+          # ── DST-safe classification using ET timezone ─────────────────
+          # Uses America/New_York (auto-switches EDT/EST) instead of UTC
+          # hour matching. Range-based windows handle GHA startup delays
+          # of up to ~45 minutes gracefully.
+          et_now = datetime.now(ZoneInfo("America/New_York"))
+          et_hour = et_now.hour
+          et_time = et_now.strftime("%-I:%M %p ET")
+          et_date = et_now.strftime("%b %d")
+
+          # ET time windows:
+          #   <8am:         Too early (skip)
+          #   8-9am:        First report (1H+4H+1D + strategy comparison)
+          #   10am-12pm:    Intraday hourly (1H only)
+          #   1-1:59pm:     4H bar close (1H+4H)
+          #   2-3:59pm:     Intraday hourly (1H only)
+          #   4-5:59pm:     Post-close (1H+4H+1D, no retrain)
+          #   >=6pm:        Too late (skip)
+          is_first    = 8 <= et_hour < 10
+          is_4h_close = 13 <= et_hour < 14
+          is_close    = 16 <= et_hour < 18
+          is_hourly   = (10 <= et_hour < 13) or (14 <= et_hour < 16)
+          in_window   = is_first or is_4h_close or is_close or is_hourly
 
           if is_manual:
               should_run = True
@@ -132,29 +141,55 @@ jobs:
               send_4h = "true"
               send_1d = "true"
               run_strategy_compare = "true"
-          elif is_premarket:
-              # Premarket run: only strategy comparison, no signal report
+              label = f"Manual dispatch (market {'open' if is_trading_day else 'closed'} on {today})"
+          elif not is_trading_day or not in_window:
               should_run = False
               should_retrain = False
               send_1h = "false"
               send_4h = "false"
               send_1d = "false"
-              run_strategy_compare = "true" if is_trading_day else "false"
-          else:
-              should_run = is_trading_day
-              should_retrain = should_run and not is_close
-              send_1h = "true" if is_trading_day else "false"
-              send_4h = "true" if is_trading_day and is_4h_bar else "false"
-              send_1d = "true" if is_trading_day and (is_close or is_first) else "false"
               run_strategy_compare = "false"
+              reason = "closed" if not is_trading_day else f"outside window (ET {et_hour}:{et_now.minute:02d})"
+              label = f"SKIP: market {reason}"
+          elif is_first:
+              # First report: full signals + strategy comparison
+              should_run = True
+              should_retrain = True
+              send_1h = "true"
+              send_4h = "true"
+              send_1d = "true"
+              run_strategy_compare = "true"
+              label = f"FIRST REPORT ({et_time})"
+          elif is_close:
+              # Post-close: full signals, no retrain
+              should_run = True
+              should_retrain = False
+              send_1h = "true"
+              send_4h = "true"
+              send_1d = "true"
+              run_strategy_compare = "false"
+              label = f"POST-CLOSE ({et_time})"
+          elif is_4h_close:
+              # 4H bar close: 1H + 4H
+              should_run = True
+              should_retrain = True
+              send_1h = "true"
+              send_4h = "true"
+              send_1d = "false"
+              run_strategy_compare = "false"
+              label = f"4H CLOSE ({et_time})"
+          else:
+              # Regular hourly: 1H only
+              should_run = True
+              should_retrain = True
+              send_1h = "true"
+              send_4h = "false"
+              send_1d = "false"
+              run_strategy_compare = "false"
+              label = f"HOURLY ({et_time})"
 
           # Always generate all timeframes (partial bars are useful)
           timeframes = "1d 4h 1h"
-
-          # ET timestamp for subject line
-          et_now = datetime.now(ZoneInfo("America/New_York"))
-          et_time = et_now.strftime("%-I:%M %p ET")
-          et_date = et_now.strftime("%b %d")
 
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               f.write(f'should_run={str(should_run).lower()}\n')
@@ -166,12 +201,7 @@ jobs:
               f.write(f'timeframes={timeframes}\n')
               f.write(f'et_time={et_time}\n')
               f.write(f'et_date={et_date}\n')
-          if is_manual:
-              print(f"Manual dispatch — forcing run (market {'open' if is_trading_day else 'closed'} on {today})")
-          elif is_premarket:
-              print(f"Premarket run | strategy_compare={run_strategy_compare} | market {'open' if is_trading_day else 'closed'}")
-          else:
-              print(f"Market {'OPEN' if is_trading_day else 'CLOSED'} | 1H={send_1h} 4H={send_4h} 1D={send_1d} | tf={timeframes}")
+          print(label)
           EOF
 
       # === PIPELINE ===
@@ -216,7 +246,7 @@ jobs:
           LOG_LEVEL: WARNING
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # === STRATEGY COMPARISON (daily premarket only) ===
+      # === STRATEGY COMPARISON (first report of day, ~8:30am ET) ===
 
       - name: "Run strategy comparison backtests"
         if: steps.market-check.outputs.run_strategy_compare == 'true'
