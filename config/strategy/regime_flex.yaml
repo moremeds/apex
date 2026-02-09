@@ -1,28 +1,47 @@
 name: regime_flex
-tier: "TIER 2"
-module_path: "src.domain.strategy.playbook.regime_flex"
-class_name: "RegimeFlexStrategy"
-vectorbt_compatible: false  # Portfolio-mode: requires regime context across symbols
-
-# Current best parameters — used by all runners, playbooks, signal generators
+tier: TIER 2
+module_path: src.domain.strategy.playbook.regime_flex
+class_name: RegimeFlexStrategy
+vectorbt_compatible: false
 params:
-  r0_gross_pct: 1.0
+  r0_gross_pct: 0.7
   r1_gross_pct: 0.6
-  r3_gross_pct: 0.3
-  ramp_bars: 10
+  r3_gross_pct: 0.1
+  ramp_bars: 14
   min_dwell_bars: 10
   switch_cooldown_bars: 15
-
-# Parameter iteration history (most recent first)
 history:
-  - version: "v1.0-manual"
-    date: "2025-12-01"
-    source: "Hand-tuned initial params"
-    params:
-      r0_gross_pct: 1.0
-      r1_gross_pct: 0.6
-      r3_gross_pct: 0.3
-      ramp_bars: 10
-      min_dwell_bars: 10
-      switch_cooldown_bars: 15
-    reason: "Initial hand-tuned params for regime-based exposure scaling"
+- version: pre-optuna-20260209-201540
+  date: '2026-02-09'
+  source: Optuna TPE (48/50 trials completed)
+  params:
+    r0_gross_pct: 1.0
+    r1_gross_pct: 0.6
+    r3_gross_pct: 0.3
+    ramp_bars: 10
+    min_dwell_bars: 10
+    switch_cooldown_bars: 15
+  reason: 'Best composite score 0.8937 (trial #46). Sharpe +41%, MaxDD -54% reduction.'
+  results:
+    total_return: 0.824
+    max_drawdown: -0.209
+    trade_count: 2035
+    win_rate: 0.909
+    composite_score: 0.8937
+    calmar: 3.9472
+    exposure_pct: 0.999
+  changes:
+  - 'r0_gross_pct: 1.0 -> 0.7 (less aggressive in uptrends)'
+  - 'r3_gross_pct: 0.3 -> 0.1 (minimal rebound exposure)'
+  - 'ramp_bars: 10 -> 14 (slower regime transitions)'
+- version: v1.0-manual
+  date: '2025-12-01'
+  source: Hand-tuned initial params
+  params:
+    r0_gross_pct: 1.0
+    r1_gross_pct: 0.6
+    r3_gross_pct: 0.3
+    ramp_bars: 10
+    min_dwell_bars: 10
+    switch_cooldown_bars: 15
+  reason: Initial hand-tuned params for regime-based exposure scaling
