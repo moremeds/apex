@@ -12,12 +12,10 @@ Validates:
 from __future__ import annotations
 
 from typing import Any, Dict
-from unittest.mock import MagicMock
 
-import pandas as pd
 import pytest
 from optuna import create_study
-from optuna.exceptions import TrialPruned
+from optuna.trial import Trial
 
 from src.backtest.optimization.strategy_objective import (
     FROZEN_PARAMS,
@@ -441,7 +439,7 @@ class TestConstructorParamValidation:
 
         # Create a custom objective that suggests a param not in the constructor
         class BadObjective(StrategyObjective):
-            def _build_param_space(self, trial: "Trial") -> Dict[str, Any]:
+            def _build_param_space(self, trial: Trial) -> Dict[str, Any]:
                 return {"nonexistent_param": trial.suggest_float("nonexistent_param", 0, 1)}
 
         result = _make_result()

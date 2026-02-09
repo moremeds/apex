@@ -88,7 +88,6 @@ class PulseDipSignalGenerator:
 
         # --- Extract params: YAML defaults merged with caller overrides ---
         effective = {**_DEFAULTS, **params}
-        ema_period = int(effective.get("ema_trend_period", 99))
         rsi_period = int(effective.get("rsi_period", 14))
         rsi_thresh = float(effective.get("rsi_entry_threshold", 35.0))
         atr_mult = float(effective.get("atr_stop_mult", 3.0))

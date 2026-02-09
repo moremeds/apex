@@ -45,7 +45,6 @@ from src.domain.strategy.param_loader import (
     list_strategies,
     load_strategy_config,
 )
-from src.domain.strategy.providers import RegimeProvider
 
 logger = logging.getLogger(__name__)
 
