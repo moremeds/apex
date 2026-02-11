@@ -118,6 +118,7 @@ class TurningPointTrainingService:
         comparisons: Dict[str, ModelComparisonResult] = {}
         promoted: List[str] = []
         rejected: List[str] = []
+        skipped: List[str] = []
         failed: List[str] = []
         errors: Dict[str, str] = {}
 
@@ -136,6 +137,9 @@ class TurningPointTrainingService:
 
         # Compare and promote
         for symbol, result in results.items():
+            if result.is_skipped:
+                skipped.append(symbol)
+                continue
             try:
                 comparison = await self._compare_and_promote(
                     symbol=symbol,
@@ -165,6 +169,7 @@ class TurningPointTrainingService:
             comparisons=comparisons,
             promoted=promoted,
             rejected=rejected,
+            skipped=skipped,
             failed=failed,
             errors=errors,
         )
@@ -175,7 +180,8 @@ class TurningPointTrainingService:
 
         self._logger.info(
             f"Training run {run_id} complete: "
-            f"{len(promoted)} promoted, {len(rejected)} rejected, {len(failed)} failed"
+            f"{len(promoted)} promoted, {len(rejected)} rejected, "
+            f"{len(skipped)} skipped, {len(failed)} failed"
         )
 
         return run_result
@@ -207,7 +213,47 @@ class TurningPointTrainingService:
         start_time = time.time()
         self._logger.info(f"Training {symbol}...")
 
-        # Import training components (domain layer)
+        # 1. Fetch historical data
+        df = await self._fetch_historical_data(symbol, config.days)
+        dataset_hash = self._compute_dataset_hash(df)
+        dataset_start = df.index[0].to_pydatetime()
+        dataset_end = df.index[-1].to_pydatetime()
+
+        # Fast path: skip retraining when both data and feature/model code are unchanged.
+        skip_reason = await self._get_skip_reason(
+            symbol=symbol,
+            dataset_hash=dataset_hash,
+            training_code_signature=config.training_code_signature,
+            force_update=config.force_update,
+        )
+        if skip_reason:
+            training_time = time.time() - start_time
+            self._logger.info(f"Skipping {symbol}: {skip_reason}")
+            return SymbolTrainingResult(
+                symbol=symbol,
+                trained_at=datetime.utcnow(),
+                dataset_hash=dataset_hash,
+                n_samples=0,
+                n_positive_top=0,
+                n_positive_bottom=0,
+                dataset_start=dataset_start,
+                dataset_end=dataset_end,
+                roc_auc_top=0.0,
+                roc_auc_top_std=0.0,
+                pr_auc_top=0.0,
+                pr_auc_top_std=0.0,
+                brier_top=0.0,
+                roc_auc_bottom=0.0,
+                roc_auc_bottom_std=0.0,
+                pr_auc_bottom=0.0,
+                pr_auc_bottom_std=0.0,
+                brier_bottom=0.0,
+                training_seconds=training_time,
+                status="skipped_unchanged",
+                skip_reason=skip_reason,
+            )
+
+        # Import training components (domain layer) only when training is needed.
         from src.domain.signals.indicators.regime.turning_point import (
             TurningPointLabeler,
             TurningPointModel,
@@ -215,10 +261,6 @@ class TurningPointTrainingService:
         from src.domain.signals.indicators.regime.turning_point.features import (
             extract_features,
         )
-
-        # 1. Fetch historical data
-        df = await self._fetch_historical_data(symbol, config.days)
-        dataset_hash = self._compute_dataset_hash(df)
 
         # 2. Generate labels
         labeler = TurningPointLabeler(
@@ -263,10 +305,10 @@ class TurningPointTrainingService:
             symbol=symbol,
             model_type=config.model_type,
             trained_at=datetime.utcnow(),
-            dataset_start=df.index[0].to_pydatetime(),
-            dataset_end=df.index[-1].to_pydatetime(),
+            dataset_start=dataset_start,
+            dataset_end=dataset_end,
             dataset_hash=dataset_hash,
-            feature_version="1.0",
+            feature_version=config.training_code_signature,
             roc_auc=(top_metrics.cv_roc_auc_mean + bottom_metrics.cv_roc_auc_mean) / 2,
             pr_auc=(top_metrics.cv_pr_auc_mean + bottom_metrics.cv_pr_auc_mean) / 2,
             brier_score=(
@@ -291,8 +333,8 @@ class TurningPointTrainingService:
             n_samples=len(X),
             n_positive_top=int(y_top_arr.sum()),
             n_positive_bottom=int(y_bottom_arr.sum()),
-            dataset_start=df.index[0].to_pydatetime(),
-            dataset_end=df.index[-1].to_pydatetime(),
+            dataset_start=dataset_start,
+            dataset_end=dataset_end,
             roc_auc_top=top_metrics.cv_roc_auc_mean,
             roc_auc_top_std=top_metrics.cv_roc_auc_std,
             pr_auc_top=top_metrics.cv_pr_auc_mean,
@@ -329,6 +371,34 @@ class TurningPointTrainingService:
             ),
             training_seconds=training_time,
         )
+
+    async def _get_skip_reason(
+        self,
+        symbol: str,
+        dataset_hash: str,
+        training_code_signature: str,
+        force_update: bool,
+    ) -> Optional[str]:
+        """
+        Determine whether model training can be skipped for this symbol.
+
+        Training is skipped only when:
+        - force_update is disabled
+        - an active baseline model exists
+        - baseline dataset_hash matches current dataset_hash
+        - baseline feature_version matches current training_code_signature
+        """
+        if force_update:
+            return None
+
+        baseline_metadata = await self._registry.load_metadata(symbol, "active")
+        if baseline_metadata is None:
+            return None
+        if baseline_metadata.dataset_hash != dataset_hash:
+            return None
+        if baseline_metadata.feature_version != training_code_signature:
+            return None
+        return "dataset and training_code_signature unchanged"
 
     async def _train_parallel(
         self,
@@ -513,6 +583,8 @@ class TurningPointTrainingService:
         from src.domain.interfaces.experiment_tracker import TrainingRunRecord
 
         for symbol, sym_result in result.results.items():
+            if sym_result.is_skipped:
+                continue
             _comparison = result.comparisons.get(symbol)  # noqa: F841 - kept for future use
 
             record = TrainingRunRecord(

@@ -49,6 +49,7 @@ permissions:
 env:
   PYTHON_VERSION: '3.13'
   UNIVERSE: config/universe.yaml
+  CACHE_VERSION: v1
 
 jobs:
   generate-report:
@@ -67,6 +68,19 @@ jobs:
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
+
+      - name: Cache Python dependencies
+        id: cache-python-deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            .venv
+            ~/.cache/uv
+            ~/.cache/pip
+          key: ${{ env.CACHE_VERSION }}-deps-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-${{ hashFiles('pyproject.toml', 'uv.lock') }}
+          restore-keys: |
+            ${{ env.CACHE_VERSION }}-deps-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-
+            ${{ env.CACHE_VERSION }}-deps-${{ runner.os }}-
 
       - name: Cache TA-Lib
         id: cache-talib
@@ -96,7 +110,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv venv
+          [ -d .venv ] || uv venv
           source .venv/bin/activate
           uv pip install -e ".[dev,observability]"
 
@@ -127,6 +141,7 @@ jobs:
           et_min = et_now.minute
           et_time = et_now.strftime("%-I:%M %p ET")
           et_date = et_now.strftime("%b %d")
+          et_day_key = et_now.strftime("%Y%m%d")
 
           # ET time windows:
           #   <5am:         Too early (skip)
@@ -177,7 +192,7 @@ jobs:
           elif is_premarket:
               # Premarket report: full signals, no strategy comparison
               should_run = True
-              should_retrain = True
+              should_retrain = False
               send_1h = "true"
               send_4h = "true"
               send_1d = "true"
@@ -204,7 +219,7 @@ jobs:
           else:
               # Regular hourly: 1H only
               should_run = True
-              should_retrain = True
+              should_retrain = False
               send_1h = "true"
               send_4h = "false"
               send_1d = "false"
@@ -224,8 +239,41 @@ jobs:
               f.write(f'timeframes={timeframes}\n')
               f.write(f'et_time={et_time}\n')
               f.write(f'et_date={et_date}\n')
+              f.write(f'et_day_key={et_day_key}\n')
           print(label)
           EOF
+
+      - name: Cache historical data
+        if: steps.market-check.outputs.should_run == 'true'
+        id: cache-historical
+        uses: actions/cache@v4
+        with:
+          path: data/historical
+          key: ${{ env.CACHE_VERSION }}-historical-${{ runner.os }}-${{ steps.market-check.outputs.et_day_key }}-${{ hashFiles('config/universe.yaml') }}
+          restore-keys: |
+            ${{ env.CACHE_VERSION }}-historical-${{ runner.os }}-${{ steps.market-check.outputs.et_day_key }}-
+            ${{ env.CACHE_VERSION }}-historical-${{ runner.os }}-
+
+      - name: Cache turning point models
+        if: steps.market-check.outputs.should_run == 'true'
+        id: cache-models
+        uses: actions/cache@v4
+        with:
+          path: models/turning_point
+          key: ${{ env.CACHE_VERSION }}-models-${{ runner.os }}-${{ hashFiles('config/universe.yaml', 'src/**/turning_point/**', 'src/application/services/turning_point_training_service.py', 'src/infrastructure/adapters/file_model_registry.py') }}
+          restore-keys: |
+            ${{ env.CACHE_VERSION }}-models-${{ runner.os }}-
+
+      - name: Cache diagnostics
+        if: steps.market-check.outputs.should_run == 'true'
+        run: |
+          echo "deps cache hit: ${{ steps.cache-python-deps.outputs.cache-hit }}"
+          echo "historical cache hit: ${{ steps.cache-historical.outputs.cache-hit }}"
+          echo "models cache hit: ${{ steps.cache-models.outputs.cache-hit }}"
+          du -sh .venv 2>/dev/null || true
+          du -sh ~/.cache/uv 2>/dev/null || true
+          du -sh data/historical 2>/dev/null || true
+          du -sh models/turning_point 2>/dev/null || true
 
       # === PIPELINE ===
 
