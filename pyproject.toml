@@ -22,7 +22,7 @@ dependencies = [
     "tenacity>=8.2.0",         # Retry logic for database operations
 
     # Data science stack
-    "numpy>=2.3.0,<2.4",       # Numerical computing library (capped for numba/vectorbt compat)
+    "numpy>=2.3.0,<2.5",       # Numerical computing library (capped for numba/vectorbt compat)
     "pandas>=2.3.3",           # Data manipulation and analysis
     "pyarrow>=15.0.0",         # Parquet file support for historical data storage
     "scikit-learn>=1.8.0",     # Machine learning library
