@@ -32,7 +32,7 @@ jobs:
 
       - name: Cache TA-Lib
         id: cache-talib
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/ta-lib-install
           key: talib-0.6.4-${{ runner.os }}-${{ runner.arch }}
@@ -72,7 +72,7 @@ jobs:
 
       - name: Upload signal verification results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: signal-verification-nightly
           path: |
@@ -101,7 +101,7 @@ jobs:
 
       - name: Cache TA-Lib
         id: cache-talib
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/ta-lib-install
           key: talib-0.6.4-${{ runner.os }}-${{ runner.arch }}
@@ -136,7 +136,7 @@ jobs:
 
       - name: Upload regime verification results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: regime-verification-nightly
           path: regime_verification.json
@@ -164,7 +164,7 @@ jobs:
 
       - name: Cache TA-Lib
         id: cache-talib
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/ta-lib-install
           key: talib-0.6.4-${{ runner.os }}-${{ runner.arch }}
@@ -203,7 +203,7 @@ jobs:
 
       - name: Upload coverage report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: coverage-nightly
           path: |
