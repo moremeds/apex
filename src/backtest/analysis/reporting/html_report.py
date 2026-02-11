@@ -126,7 +126,7 @@ class HTMLReportGenerator:
         generator = HTMLReportGenerator()
         data = ReportData(
             experiment_id="exp_123",
-            strategy_name="ma_cross",
+            strategy_name="trend_pulse",
             symbols=["AAPL", "MSFT"],
             metrics={"sharpe": 1.42, "return": 0.243},
             ...

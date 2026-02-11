@@ -11,14 +11,14 @@ Usage:
         ApexStrategyWrapper,
         run_backtest_with_backtrader,
     )
-    from src.domain.strategy.playbook import MovingAverageCrossStrategy
+    from src.domain.strategy.playbook import TrendPulseStrategy
 
     # Create wrapper
     cerebro = bt.Cerebro()
     cerebro.addstrategy(
         ApexStrategyWrapper,
-        apex_strategy_class=MovingAverageCrossStrategy,
-        apex_params={'short_window': 10, 'long_window': 50},
+        apex_strategy_class=TrendPulseStrategy,
+        apex_params={'zig_pct': 2.5},
     )
 
     # Add data and run

@@ -29,7 +29,7 @@ def sample_experiment_spec() -> ExperimentSpec:
     """Sample experiment specification."""
     return ExperimentSpec(
         name="Test_Experiment",
-        strategy="ma_cross",
+        strategy="trend_pulse",
         parameters={
             "fast_period": {"type": "range", "min": 10, "max": 30, "step": 10},
             "slow_period": {"type": "range", "min": 50, "max": 70, "step": 10},

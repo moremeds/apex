@@ -16,17 +16,16 @@ class SignalGenerator(Protocol):
     event-driven Strategy.on_bar() implementation.
 
     Example:
-        class MACrossSignalGenerator:
+        class RSIMeanReversionSignalGenerator:
             @property
             def warmup_bars(self) -> int:
-                return 50
+                return 14
 
             def generate(self, data: pd.DataFrame, params: dict[str, Any]) -> Tuple[pd.Series, pd.Series]:
-                from .indicators import sma
+                from .indicators import rsi
                 close = data["close"]
-                fast = sma(close, params.get("short_window", 10))
-                slow = sma(close, params.get("long_window", 50))
-                entries = (fast > slow) & (fast.shift(1) <= slow.shift(1))
+                rsi_vals = rsi(close, params.get("rsi_period", 14))
+                entries = rsi_vals < params.get("rsi_oversold", 30)
                 exits = (fast < slow) & (fast.shift(1) >= slow.shift(1))
                 return entries, exits
 
@@ -102,7 +101,7 @@ class DirectionalSignalGenerator(Protocol):
         )
 
     Example:
-        class MTFRsiTrendSignalGenerator:
+        class TrendPulseDirectionalGenerator:
             def generate_directional(
                 self,
                 data: pd.DataFrame,

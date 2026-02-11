@@ -72,7 +72,7 @@ class CaseStudyRunner:
     Runs predefined case studies comparing baseline vs gated strategies.
 
     Usage:
-        runner = CaseStudyRunner(base_generator=MACrossSignalGenerator())
+        runner = CaseStudyRunner(base_generator=RSIMeanReversionSignalGenerator())
         results = runner.run_all(data_loader=load_fn)
     """
 

@@ -68,22 +68,19 @@ def create_parser() -> argparse.ArgumentParser:
         epilog="""
 Examples:
     # Single backtest (ApexEngine - full simulation)
-    python -m src.backtest.runner --strategy ma_cross --symbols AAPL \\
+    python -m src.backtest.runner --strategy trend_pulse --symbols AAPL \\
         --start 2024-01-01 --end 2024-06-30
 
-    # Systematic experiment (VectorBTEngine - fast optimization)
-    python -m src.backtest.runner --spec config/backtest/playbook/ta_metrics.yaml
-
     # Force VectorBT engine for single backtest
-    python -m src.backtest.runner --strategy ma_cross --symbols AAPL \\
+    python -m src.backtest.runner --strategy rsi_mean_reversion --symbols AAPL \\
         --start 2024-01-01 --end 2024-06-30 --engine vectorbt
 
     # Offline mode (fail if data gaps)
-    python -m src.backtest.runner --strategy ma_cross --symbols AAPL \\
+    python -m src.backtest.runner --strategy trend_pulse --symbols AAPL \\
         --start 2024-01-01 --end 2024-06-30 --coverage-mode check
 
     # Use Backtrader engine
-    python -m src.backtest.runner --strategy ma_cross --symbols AAPL \\
+    python -m src.backtest.runner --strategy rsi_mean_reversion --symbols AAPL \\
         --start 2024-01-01 --end 2024-06-30 --engine backtrader
 
     # List available strategies
@@ -92,7 +89,7 @@ Examples:
     )
 
     # Single backtest options
-    parser.add_argument("--strategy", type=str, help="Strategy name (e.g., ma_cross)")
+    parser.add_argument("--strategy", type=str, help="Strategy name (e.g., trend_pulse)")
     parser.add_argument("--symbols", type=str, help="Comma-separated symbols (e.g., AAPL,MSFT)")
     parser.add_argument("--start", action=DateAction, help="Start date (YYYY-MM-DD)")
     parser.add_argument("--end", action=DateAction, help="End date (YYYY-MM-DD)")

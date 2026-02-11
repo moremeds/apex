@@ -211,7 +211,7 @@ async def _run_single(
         SymbolResult,
         generate_summary_report,
     )
-    from src.domain.strategy.signals.ma_cross import MACrossSignalGenerator
+    from src.domain.strategy.signals.rsi_mean_reversion import RSIMeanReversionSignalGenerator
 
     from .runner import prefetch_data
 
@@ -238,8 +238,8 @@ async def _run_single(
         symbols=symbols, start_date=start_date, end_date=end_date, timeframe="1d"
     )
 
-    base_generator = MACrossSignalGenerator()
-    base_params = {"short_window": 10, "long_window": 50}
+    base_generator = RSIMeanReversionSignalGenerator()
+    base_params = {"rsi_period": 14, "rsi_oversold": 30, "rsi_overbought": 70}
     calculator = BehavioralMetricsCalculator()
     symbol_results: list[SymbolResult] = []
 
@@ -321,7 +321,7 @@ async def _run_optimization(
         generate_summary_report,
     )
     from src.domain.strategy.signals.dual_macd_gate import DualMACDGateSignalGenerator
-    from src.domain.strategy.signals.ma_cross import MACrossSignalGenerator
+    from src.domain.strategy.signals.rsi_mean_reversion import RSIMeanReversionSignalGenerator
 
     from .optimization.behavioral_objective import BehavioralObjective
     from .runner import prefetch_data
@@ -346,8 +346,8 @@ async def _run_optimization(
         symbols=symbols, start_date=start_date, end_date=end_date, timeframe="1d"
     )
 
-    base_generator = MACrossSignalGenerator()
-    base_params = {"short_window": 10, "long_window": 50}
+    base_generator = RSIMeanReversionSignalGenerator()
+    base_params = {"rsi_period": 14, "rsi_oversold": 30, "rsi_overbought": 70}
     calculator = BehavioralMetricsCalculator()
 
     # Aggregate metrics across all symbols for a given param combo
@@ -544,12 +544,12 @@ async def _run_case_studies(
     """Run predefined case studies."""
     from src.backtest.analysis.dual_macd.behavioral_report import generate_behavioral_report
     from src.backtest.analysis.dual_macd.case_study import PREDEFINED_CASES, CaseStudyRunner
-    from src.domain.strategy.signals.ma_cross import MACrossSignalGenerator
+    from src.domain.strategy.signals.rsi_mean_reversion import RSIMeanReversionSignalGenerator
 
     from .runner import prefetch_data
 
-    base_generator = MACrossSignalGenerator()
-    base_params = {"short_window": 10, "long_window": 50}
+    base_generator = RSIMeanReversionSignalGenerator()
+    base_params = {"rsi_period": 14, "rsi_oversold": 30, "rsi_overbought": 70}
 
     runner = CaseStudyRunner(
         base_generator=base_generator,

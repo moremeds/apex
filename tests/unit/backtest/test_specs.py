@@ -143,7 +143,7 @@ class TestExperimentSpec:
     def test_basic_creation(self, sample_experiment_spec: ExperimentSpec) -> None:
         """Test basic experiment spec creation."""
         assert sample_experiment_spec.name == "Test_Experiment"
-        assert sample_experiment_spec.strategy == "ma_cross"
+        assert sample_experiment_spec.strategy == "trend_pulse"
         assert sample_experiment_spec.experiment_id is not None
         assert sample_experiment_spec.experiment_id.startswith("exp_")
 

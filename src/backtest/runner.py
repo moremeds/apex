@@ -8,14 +8,11 @@ Main entry point for all backtesting operations:
 
 Usage:
     # Single backtest (ApexEngine - full execution simulation)
-    python -m src.backtest.runner --strategy ma_cross --symbols AAPL \\
+    python -m src.backtest.runner --strategy trend_pulse --symbols AAPL \\
         --start 2024-01-01 --end 2024-06-30
 
-    # Systematic experiment (VectorBTEngine - fast parameter optimization)
-    python -m src.backtest.runner --spec config/backtest/playbook/ta_metrics.yaml
-
     # Force specific engine
-    python -m src.backtest.runner --strategy ma_cross --symbols AAPL \\
+    python -m src.backtest.runner --strategy rsi_mean_reversion --symbols AAPL \\
         --start 2024-01-01 --end 2024-06-30 --engine vectorbt
 
     # List strategies

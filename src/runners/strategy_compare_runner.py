@@ -1040,7 +1040,7 @@ def run_comparison(
                         )
                     )
                 except Exception as e:
-                    # Some strategies (e.g. pairs_trading) can't run per-symbol
+                    # Some strategies (e.g. apex_only) can't run per-symbol
                     print(f"  {strat_name}: failed on {symbol} ({e})")
                     break
                 per_symbol[symbol] = result

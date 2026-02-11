@@ -126,7 +126,7 @@ class BehavioralRunConfig:
     hist_norm_window: int = 252
 
     # Base strategy
-    base_strategy: str = "ma_cross"
+    base_strategy: str = "rsi_mean_reversion"
     base_params: dict = field(default_factory=dict)
 
     # Gate settings

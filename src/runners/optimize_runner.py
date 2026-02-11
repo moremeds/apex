@@ -11,12 +11,12 @@ Usage:
         --symbols SPY QQQ AAPL NVDA --n-trials 50
 
     # With custom lookback and output
-    python -m src.runners.optimize_runner --strategy pulse_dip \
+    python -m src.runners.optimize_runner --strategy regime_flex \
         --symbols SPY AAPL MSFT --years 3 --n-trials 100 \
         --output out/optimization
 
     # Auto-update YAML params after optimization
-    python -m src.runners.optimize_runner --strategy squeeze_play \
+    python -m src.runners.optimize_runner --strategy sector_pulse \
         --symbols SPY QQQ AAPL --n-trials 50 --update-yaml
 """
 

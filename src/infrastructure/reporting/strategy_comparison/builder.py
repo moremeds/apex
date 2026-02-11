@@ -9,8 +9,8 @@ Uses Plotly for interactive charts. Output is a single HTML file.
 
 Usage:
     builder = StrategyComparisonBuilder()
-    builder.add_strategy("pulse_dip", result_pulse)
-    builder.add_strategy("squeeze_play", result_squeeze)
+    builder.add_strategy("trend_pulse", result_trend)
+    builder.add_strategy("regime_flex", result_regime)
     builder.add_strategy("buy_and_hold", result_baseline)
     builder.build("results/comparison_report.html")
 """

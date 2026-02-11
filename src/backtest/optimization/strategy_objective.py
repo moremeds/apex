@@ -13,8 +13,8 @@ Stage 2 — Rank survivors (no pruning, just scoring):
 
 Usage:
     objective = StrategyObjective(
-        strategy_name="pulse_dip",
-        run_fn=lambda params: run_backtest("pulse_dip", params),
+        strategy_name="trend_pulse",
+        run_fn=lambda params: run_backtest("trend_pulse", params),
         max_params=7,
     )
     study = optuna.create_study(direction="maximize")
@@ -59,11 +59,8 @@ class BacktestResult:
 
 
 # Frozen params: structural parameters that should NOT be optimized.
-# Optimizing these overfits to noise (e.g., BB geometry for SqueezePlay).
 FROZEN_PARAMS: Dict[str, Set[str]] = {
-    "squeeze_play": {"bb_period", "bb_std", "kc_multiplier"},
     "trend_pulse": {"risk_per_trade_pct", "cooldown_bars"},
-    "pulse_dip": set(),
     "regime_flex": {"min_dwell_bars", "switch_cooldown_bars"},
     "sector_pulse": set(),
 }
@@ -76,8 +73,6 @@ CORRELATED_GROUPS: Dict[str, List[List[str]]] = {}
 # This is the true overfitting budget — raw YAML param count includes
 # structural params (warmup_bars, indicator periods) that are never optimized.
 OPTUNA_PARAM_COUNTS: Dict[str, int] = {
-    "pulse_dip": 7,  # rsi_period, rsi_entry_threshold, atr_stop_mult, hard_stop_pct, min_confluence_score, max_hold_bars, risk_per_trade_pct
-    "squeeze_play": 4,  # release_persist_bars, close_outside_bars, adx_min, atr_stop_mult
     "trend_pulse": 7,  # zig_threshold_pct, trend_strength_moderate, min_confidence, hard_stop_pct, atr_stop_mult, exit_bearish_bars, adx_entry_min
     "regime_flex": 4,  # r0_gross_pct, r1_gross_pct, r3_gross_pct, ramp_bars
     "sector_pulse": 5,  # top_n_sectors, confidence_threshold, drift_threshold_pct, max_turnover_pct, risk_per_sector_pct
@@ -230,30 +225,7 @@ class StrategyObjective:
 
     def _build_param_space(self, trial: Trial) -> Dict[str, Any]:
         """Build the Optuna param space for the current strategy."""
-        if self._strategy_name == "pulse_dip":
-            # PulseDip constructor: ema_trend_period, rsi_period,
-            # rsi_entry_threshold, atr_stop_mult, hard_stop_pct,
-            # min_confluence_score, max_hold_bars, risk_per_trade_pct
-            return {
-                "rsi_period": trial.suggest_int("rsi_period", 10, 21),
-                "rsi_entry_threshold": trial.suggest_float("rsi_entry_threshold", 25, 45, step=5),
-                "atr_stop_mult": trial.suggest_float("atr_stop_mult", 2.0, 4.0, step=0.5),
-                "hard_stop_pct": trial.suggest_float("hard_stop_pct", 0.05, 0.12, step=0.01),
-                "min_confluence_score": trial.suggest_int("min_confluence_score", 10, 30),
-                "max_hold_bars": trial.suggest_int("max_hold_bars", 20, 60),
-                "risk_per_trade_pct": trial.suggest_float(
-                    "risk_per_trade_pct", 0.01, 0.05, step=0.01
-                ),
-            }
-        elif self._strategy_name == "squeeze_play":
-            # bb_period, bb_std, kc_multiplier are FROZEN — use YAML defaults
-            return {
-                "release_persist_bars": trial.suggest_int("release_persist_bars", 1, 4),
-                "close_outside_bars": trial.suggest_int("close_outside_bars", 1, 3),
-                "adx_min": trial.suggest_float("adx_min", 15, 30, step=5),
-                "atr_stop_mult": trial.suggest_float("atr_stop_mult", 1.5, 3.5, step=0.5),
-            }
-        elif self._strategy_name == "trend_pulse":
+        if self._strategy_name == "trend_pulse":
             # cooldown_bars and risk_per_trade_pct are FROZEN (structural)
             return {
                 "zig_threshold_pct": trial.suggest_float("zig_threshold_pct", 1.5, 5.0, step=0.5),

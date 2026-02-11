@@ -48,7 +48,7 @@ class VectorBTConfig(EngineConfig):
     size_type: str = "amount"  # amount, value, percent
 
     # Strategy-specific
-    strategy_type: str = "ma_cross"  # ma_cross, rsi, custom
+    strategy_type: str = "rsi_mean_reversion"
 
     # Performance
     use_numba: bool = True
@@ -64,7 +64,7 @@ class VectorBTEngine(BaseEngine):
     and custom signal functions.
 
     Example:
-        engine = VectorBTEngine(VectorBTConfig(strategy_type="ma_cross"))
+        engine = VectorBTEngine(VectorBTConfig(strategy_type="rsi_mean_reversion"))
         result = engine.run(run_spec)
 
         # Batch with parameter vectorization
@@ -121,7 +121,7 @@ class VectorBTEngine(BaseEngine):
         if signals_path is None:
             raise ValueError(f"Strategy '{strategy_name}' has no SignalGenerator defined")
 
-        # Lazy import: "src.domain.strategy.signals.ma_cross:MACrossSignalGenerator"
+        # Lazy import: "src.domain.strategy.signals.rsi_mean_reversion:RSIMeanReversionSignalGenerator"
         module_path, class_name = signals_path.rsplit(":", 1)
         module = import_module(module_path)
         return getattr(module, class_name)  # type: ignore[no-any-return]
@@ -431,214 +431,14 @@ class VectorBTEngine(BaseEngine):
                     if not filtered_tf.empty:
                         filtered_secondary[tf] = filtered_tf
 
-            # Get strategy
-            strategy_type = first_spec.params.get("strategy_type", self._vbt_config.strategy_type)
-
-            # Extract parameter arrays for vectorization
-            close = data["close"]
-
-            # Build vectorized signals based on strategy
-            if strategy_type == "ma_cross":
-                results = self._vectorized_ma_cross(indexed_specs, data, close)
-            else:
-                # Fall back to sequential for unsupported strategies
-                # Pass secondary data for MTF support
-                return [self.run(spec, data, filtered_secondary) for _, spec in indexed_specs]
-
-            return results
+            # Run each spec sequentially via manifest-based signal lookup
+            return [self.run(spec, data, filtered_secondary) for _, spec in indexed_specs]
 
         except Exception as e:
             return [
                 self._create_error_result(spec, RunStatus.FAIL_EXECUTION, str(e), started_at)
                 for _, spec in indexed_specs
             ]
-
-    def _vectorized_ma_cross(
-        self, indexed_specs: List[Tuple[int, RunSpec]], data: pd.DataFrame, close: pd.Series
-    ) -> List[RunResult]:
-        """
-        HIGH-011: True vectorized MA crossover using single Portfolio.
-
-        Instead of creating separate portfolios per spec, we:
-        1. Generate all signals into multi-column DataFrames
-        2. Create ONE Portfolio with all columns
-        3. Extract metrics per column
-
-        This provides 10-20x speedup for parameter sweeps.
-        """
-        import vectorbt as vbt
-
-        from src.domain.strategy.signals import MACrossSignalGenerator
-
-        started_at = datetime.now()
-        signal_generator = MACrossSignalGenerator()
-
-        # Generate all signals first (into columns)
-        all_entries = pd.DataFrame(index=close.index)
-        all_exits = pd.DataFrame(index=close.index)
-        spec_map = {}  # column_name -> (idx, spec)
-
-        for i, (idx, spec) in enumerate(indexed_specs):
-            try:
-                entries, exits = signal_generator.generate(data, spec.params)
-                col_name = f"param_{i}"
-                all_entries[col_name] = entries
-                all_exits[col_name] = exits
-                spec_map[col_name] = (idx, spec, "")  # Empty string for no error
-            except Exception as e:
-                # Store error for later
-                spec_map[f"error_{i}"] = (idx, spec, str(e))
-
-        if all_entries.empty:
-            return [
-                self._create_error_result(
-                    spec, RunStatus.FAIL_EXECUTION, "Signal generation failed", started_at
-                )
-                for _, spec in indexed_specs
-            ]
-
-        # HIGH-011 FIX: Validate that all specs have same fees/slippage before vectorization
-        # If they differ, fall back to sequential to avoid silent incorrect results
-        first_spec = indexed_specs[0][1]
-        fees_slippage_consistent = all(
-            spec.commission_per_share == first_spec.commission_per_share
-            and spec.slippage_bps == first_spec.slippage_bps
-            and spec.initial_capital == first_spec.initial_capital
-            for _, spec in indexed_specs
-        )
-        if not fees_slippage_consistent:
-            logger.warning(
-                "HIGH-011: Specs have different fees/slippage/capital - falling back to sequential"
-            )
-            return self._vectorized_ma_cross_sequential(indexed_specs, data, close)
-
-        # HIGH-011: Create SINGLE vectorized portfolio with all parameter combinations
-        avg_close = close.mean()
-
-        try:
-            pf = vbt.Portfolio.from_signals(
-                close=close,
-                entries=all_entries,
-                exits=all_exits,
-                init_cash=first_spec.initial_capital,
-                fees=first_spec.commission_per_share / avg_close if avg_close > 0 else 0,
-                slippage=first_spec.slippage_bps / 10000,
-                freq=self._vbt_config.freq,
-            )
-        except Exception:
-            # Fallback to sequential if vectorized fails
-            return self._vectorized_ma_cross_sequential(indexed_specs, data, close)
-
-        # Extract metrics per column
-        results = []
-        completed_at = datetime.now()
-
-        for col_name, value in spec_map.items():
-            idx, spec, error_msg = value
-            if col_name.startswith("error_"):
-                results.append(
-                    (
-                        idx,
-                        self._create_error_result(
-                            spec, RunStatus.FAIL_EXECUTION, error_msg, started_at
-                        ),
-                    )
-                )
-            else:
-                try:
-                    # Extract metrics for this specific column
-                    col_pf = pf[col_name] if hasattr(pf, "__getitem__") else pf
-                    metrics = self._extract_metrics(col_pf, data)
-
-                    results.append(
-                        (
-                            idx,
-                            RunResult(
-                                run_id=spec.run_id or "",
-                                trial_id=spec.trial_id,
-                                experiment_id=spec.experiment_id or "",
-                                symbol=spec.symbol,
-                                window_id=spec.window.window_id,
-                                profile_version=spec.profile_version,
-                                data_version=spec.data_version,
-                                status=RunStatus.SUCCESS,
-                                started_at=started_at,
-                                completed_at=completed_at,
-                                duration_seconds=(completed_at - started_at).total_seconds(),
-                                metrics=metrics,
-                                is_train=spec.window.is_train,
-                                is_oos=spec.window.is_oos,
-                                params=spec.params,
-                            ),
-                        )
-                    )
-                except Exception as e:
-                    results.append(
-                        (
-                            idx,
-                            self._create_error_result(
-                                spec, RunStatus.FAIL_EXECUTION, str(e), started_at
-                            ),
-                        )
-                    )
-
-        # Sort by original index and return just results
-        results.sort(key=lambda x: x[0])
-        return [r for _, r in results]
-
-    def _vectorized_ma_cross_sequential(
-        self, indexed_specs: List[Tuple[int, RunSpec]], data: pd.DataFrame, close: pd.Series
-    ) -> List[RunResult]:
-        """Fallback sequential execution if vectorized fails."""
-        import vectorbt as vbt
-
-        from src.domain.strategy.signals import MACrossSignalGenerator
-
-        started_at = datetime.now()
-        signal_generator = MACrossSignalGenerator()
-
-        results = []
-        for idx, spec in indexed_specs:
-            try:
-                entries, exits = signal_generator.generate(data, spec.params)
-                pf = vbt.Portfolio.from_signals(
-                    close=close,
-                    entries=entries,
-                    exits=exits,
-                    init_cash=spec.initial_capital,
-                    fees=spec.commission_per_share / close.mean(),
-                    slippage=spec.slippage_bps / 10000,
-                    freq=self._vbt_config.freq,
-                )
-
-                metrics = self._extract_metrics(pf, data)
-                completed_at = datetime.now()
-
-                results.append(
-                    RunResult(
-                        run_id=spec.run_id or "",
-                        trial_id=spec.trial_id,
-                        experiment_id=spec.experiment_id or "",
-                        symbol=spec.symbol,
-                        window_id=spec.window.window_id,
-                        profile_version=spec.profile_version,
-                        data_version=spec.data_version,
-                        status=RunStatus.SUCCESS,
-                        started_at=started_at,
-                        completed_at=completed_at,
-                        duration_seconds=(completed_at - started_at).total_seconds(),
-                        metrics=metrics,
-                        is_train=spec.window.is_train,
-                        is_oos=spec.window.is_oos,
-                        params=spec.params,
-                    )
-                )
-            except Exception as e:
-                results.append(
-                    self._create_error_result(spec, RunStatus.FAIL_EXECUTION, str(e), started_at)
-                )
-
-        return results
 
     def _extract_metrics(self, pf: Any, data: pd.DataFrame) -> RunMetrics:
         """

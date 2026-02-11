@@ -54,7 +54,12 @@ def run_spec():
         window=window,
         profile_version="v1",
         data_version="test",
-        params={"fast_period": 10, "slow_period": 30, "strategy_type": "ma_cross"},
+        params={
+            "rsi_period": 14,
+            "rsi_oversold": 30,
+            "rsi_overbought": 70,
+            "strategy_type": "rsi_mean_reversion",
+        },
         initial_capital=100000.0,
         experiment_id="exp_test",
     )
@@ -150,51 +155,12 @@ class TestVectorBTEngineRun:
 class TestSignalGenerators:
     """Test SignalGenerator implementations used by VectorBT."""
 
-    def test_ma_cross_generates_signals(self, sample_data: Any) -> None:
-        """MA crossover SignalGenerator should generate valid signals."""
-        from src.domain.strategy.signals import MACrossSignalGenerator
-
-        generator = MACrossSignalGenerator()
-        params = {"short_window": 5, "long_window": 20}
-
-        entries, exits = generator.generate(sample_data, params)
-
-        assert isinstance(entries, pd.Series)
-        assert isinstance(exits, pd.Series)
-        assert len(entries) == len(sample_data)
-        assert entries.dtype == bool
-        assert exits.dtype == bool
-
     def test_rsi_generates_signals(self, sample_data: Any) -> None:
         """RSI SignalGenerator should generate signals."""
         from src.domain.strategy.signals import RSIMeanReversionSignalGenerator
 
         generator = RSIMeanReversionSignalGenerator()
         params = {"rsi_period": 14, "rsi_oversold": 30, "rsi_overbought": 70}
-
-        entries, exits = generator.generate(sample_data, params)
-
-        assert isinstance(entries, pd.Series)
-        assert isinstance(exits, pd.Series)
-
-    def test_momentum_generates_signals(self, sample_data: Any) -> None:
-        """Momentum SignalGenerator should generate signals."""
-        from src.domain.strategy.signals import MomentumBreakoutSignalGenerator
-
-        generator = MomentumBreakoutSignalGenerator()
-        params = {"lookback_days": 20, "momentum_threshold": 0.0}
-
-        entries, exits = generator.generate(sample_data, params)
-
-        assert isinstance(entries, pd.Series)
-        assert isinstance(exits, pd.Series)
-
-    def test_ta_metrics_generates_signals(self, sample_data: Any) -> None:
-        """TA Metrics SignalGenerator should generate signals."""
-        from src.domain.strategy.signals import TAMetricsSignalGenerator
-
-        generator = TAMetricsSignalGenerator()
-        params = {"min_score": 3}
 
         entries, exits = generator.generate(sample_data, params)
 
@@ -227,14 +193,14 @@ class TestSignalGenerators:
         """Apex-only strategies should fail in VectorBT."""
         engine = VectorBTEngine()
 
-        # Test scheduled_rebalance (portfolio strategy)
-        run_spec.params["strategy_type"] = "scheduled_rebalance"
+        # Test regime_flex (meta-strategy, apex_only)
+        run_spec.params["strategy_type"] = "regime_flex"
         result = engine.run(run_spec, sample_data)
         assert result.status == RunStatus.FAIL_STRATEGY
         assert "apex_only" in result.error.lower()
 
-        # Test pairs_trading (multi-symbol strategy)
-        run_spec.params["strategy_type"] = "pairs_trading"
+        # Test sector_pulse (portfolio strategy, apex_only)
+        run_spec.params["strategy_type"] = "sector_pulse"
         result = engine.run(run_spec, sample_data)
         assert result.status == RunStatus.FAIL_STRATEGY
         assert "apex_only" in result.error.lower()
@@ -255,7 +221,12 @@ class TestVectorBTBatch:
                 window=run_spec.window,
                 profile_version="v1",
                 data_version="test",
-                params={"fast_period": fast, "slow_period": 30, "strategy_type": "ma_cross"},
+                params={
+                    "rsi_period": fast,
+                    "rsi_oversold": 30,
+                    "rsi_overbought": 70,
+                    "strategy_type": "rsi_mean_reversion",
+                },
                 experiment_id="exp_test",
             )
             specs.append(spec)
@@ -277,7 +248,12 @@ class TestVectorBTBatch:
                 window=run_spec.window,
                 profile_version="v1",
                 data_version="test",
-                params={"fast_period": 5 + i * 5, "slow_period": 30, "strategy_type": "ma_cross"},
+                params={
+                    "rsi_period": 10 + i * 2,
+                    "rsi_oversold": 30,
+                    "rsi_overbought": 70,
+                    "strategy_type": "rsi_mean_reversion",
+                },
                 experiment_id="exp_test",
             )
             specs.append(spec)

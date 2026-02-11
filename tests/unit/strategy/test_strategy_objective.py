@@ -6,7 +6,7 @@ Validates:
 - Stage 2 ranking: composite = Sharpe - turnover_penalty
 - Stress results stored as badges (not gates)
 - Parameter budget enforcement
-- SqueezePlay frozen params (4 optimizable, not 8)
+- TrendPulse frozen params (cooldown_bars, risk_per_trade_pct)
 """
 
 from __future__ import annotations
@@ -52,7 +52,7 @@ class TestStage1Gates:
         """Prune trials with MaxDD exceeding cap."""
         result = _make_result(max_drawdown=-0.35)  # Exceeds -30% cap
         objective = StrategyObjective(
-            strategy_name="pulse_dip",
+            strategy_name="trend_pulse",
             run_fn=lambda _: result,
         )
         study = create_study(direction="maximize")
@@ -63,7 +63,7 @@ class TestStage1Gates:
         """MaxDD exactly at cap should pass."""
         result = _make_result(max_drawdown=-0.30)  # Exactly at cap
         objective = StrategyObjective(
-            strategy_name="pulse_dip",
+            strategy_name="trend_pulse",
             run_fn=lambda _: result,
         )
         study = create_study(direction="maximize")
@@ -74,7 +74,7 @@ class TestStage1Gates:
         """Prune trials with too few trades."""
         result = _make_result(trade_count=10)  # Below 20 min
         objective = StrategyObjective(
-            strategy_name="pulse_dip",
+            strategy_name="trend_pulse",
             run_fn=lambda _: result,
         )
         study = create_study(direction="maximize")
@@ -85,7 +85,7 @@ class TestStage1Gates:
         """Exactly at min trades should pass."""
         result = _make_result(trade_count=20)
         objective = StrategyObjective(
-            strategy_name="pulse_dip",
+            strategy_name="trend_pulse",
             run_fn=lambda _: result,
         )
         study = create_study(direction="maximize")
@@ -96,7 +96,7 @@ class TestStage1Gates:
         """Prune trials with negative Sharpe."""
         result = _make_result(sharpe=-0.5)
         objective = StrategyObjective(
-            strategy_name="pulse_dip",
+            strategy_name="trend_pulse",
             run_fn=lambda _: result,
         )
         study = create_study(direction="maximize")
@@ -107,7 +107,7 @@ class TestStage1Gates:
         """Zero Sharpe should pass (gate is < 0, not <= 0)."""
         result = _make_result(sharpe=0.0)
         objective = StrategyObjective(
-            strategy_name="pulse_dip",
+            strategy_name="trend_pulse",
             run_fn=lambda _: result,
         )
         study = create_study(direction="maximize")
@@ -118,7 +118,7 @@ class TestStage1Gates:
         """Prune trials with insufficient exposure (win by being flat)."""
         result = _make_result(exposure_pct=0.10)  # 10% < 30% min
         objective = StrategyObjective(
-            strategy_name="pulse_dip",
+            strategy_name="trend_pulse",
             run_fn=lambda _: result,
         )
         study = create_study(direction="maximize")
@@ -129,7 +129,7 @@ class TestStage1Gates:
         """Exactly at min exposure should pass."""
         result = _make_result(exposure_pct=0.30)
         objective = StrategyObjective(
-            strategy_name="pulse_dip",
+            strategy_name="trend_pulse",
             run_fn=lambda _: result,
         )
         study = create_study(direction="maximize")
@@ -140,7 +140,7 @@ class TestStage1Gates:
         """Custom gate thresholds are respected."""
         result = _make_result(max_drawdown=-0.22, trade_count=8, exposure_pct=0.15)
         objective = StrategyObjective(
-            strategy_name="pulse_dip",
+            strategy_name="trend_pulse",
             run_fn=lambda _: result,
             max_drawdown_cap=-0.25,  # Looser cap
             min_trades=5,
@@ -158,7 +158,7 @@ class TestStage2Ranking:
         """Score = Sharpe - turnover_penalty."""
         result = _make_result(sharpe=1.5, total_cost=2.0)
         objective = StrategyObjective(
-            strategy_name="pulse_dip",
+            strategy_name="trend_pulse",
             run_fn=lambda _: result,
             turnover_penalty_weight=0.1,
         )
@@ -173,7 +173,7 @@ class TestStage2Ranking:
         result = _make_result(sharpe=0.8)
         # Even if stress would fail, trial should COMPLETE
         objective = StrategyObjective(
-            strategy_name="pulse_dip",
+            strategy_name="trend_pulse",
             run_fn=lambda _: result,
         )
         study = create_study(direction="maximize")
@@ -193,7 +193,7 @@ class TestStage2Ranking:
             exposure_pct=0.45,
         )
         objective = StrategyObjective(
-            strategy_name="pulse_dip",
+            strategy_name="trend_pulse",
             run_fn=lambda _: result,
         )
         study = create_study(direction="maximize")
@@ -220,7 +220,7 @@ class TestStage2Ranking:
             return results[idx]
 
         objective = StrategyObjective(
-            strategy_name="pulse_dip",
+            strategy_name="trend_pulse",
             run_fn=run_fn,
         )
         study = create_study(direction="maximize")
@@ -230,57 +230,6 @@ class TestStage2Ranking:
 
 class TestParameterSpaces:
     """Test parameter suggestion for different strategies."""
-
-    def test_pulse_dip_params(self) -> None:
-        """PulseDip suggests correct parameter space (matched to constructor)."""
-        result = _make_result()
-        objective = StrategyObjective(
-            strategy_name="pulse_dip",
-            run_fn=lambda _: result,
-        )
-        study = create_study(direction="maximize")
-        study.optimize(objective, n_trials=1)
-        trial = study.trials[0]
-        # Verify expected params are suggested (matched to PulseDipStrategy.__init__)
-        assert "rsi_period" in trial.params
-        assert "rsi_entry_threshold" in trial.params
-        assert "atr_stop_mult" in trial.params
-        assert "hard_stop_pct" in trial.params
-        assert "min_confluence_score" in trial.params
-        # These should NOT be in pulse_dip (they belong to trend_pulse)
-        assert "adx_entry_min" not in trial.params
-        assert "trend_strength_moderate" not in trial.params
-        assert "exit_bearish_bars" not in trial.params
-
-    def test_squeeze_play_frozen_params(self) -> None:
-        """SqueezePlay: bb_period, bb_std, kc_multiplier NOT in search space."""
-        result = _make_result()
-        objective = StrategyObjective(
-            strategy_name="squeeze_play",
-            run_fn=lambda _: result,
-        )
-        study = create_study(direction="maximize")
-        study.optimize(objective, n_trials=1)
-        trial = study.trials[0]
-        # Frozen params should NOT be suggested
-        assert "bb_period" not in trial.params
-        assert "bb_std" not in trial.params
-        assert "kc_multiplier" not in trial.params
-        # Only optimizable params
-        assert "release_persist_bars" in trial.params
-        assert "atr_stop_mult" in trial.params
-
-    def test_squeeze_play_only_4_params(self) -> None:
-        """SqueezePlay should have exactly 4 optimizable params."""
-        result = _make_result()
-        objective = StrategyObjective(
-            strategy_name="squeeze_play",
-            run_fn=lambda _: result,
-        )
-        study = create_study(direction="maximize")
-        study.optimize(objective, n_trials=1)
-        trial = study.trials[0]
-        assert len(trial.params) == 4
 
     def test_trend_pulse_params(self) -> None:
         """TrendPulse suggests correct parameter space."""
@@ -295,8 +244,26 @@ class TestParameterSpaces:
         assert "atr_stop_mult" in trial.params
         assert "min_confidence" in trial.params
         assert "zig_threshold_pct" in trial.params
-        # cooldown_bars is now frozen (structural)
+        assert "trend_strength_moderate" in trial.params
+        assert "hard_stop_pct" in trial.params
+        assert "exit_bearish_bars" in trial.params
+        assert "adx_entry_min" in trial.params
+        # cooldown_bars is frozen (structural)
         assert "cooldown_bars" not in trial.params
+        # risk_per_trade_pct is frozen (structural)
+        assert "risk_per_trade_pct" not in trial.params
+
+    def test_trend_pulse_has_7_params(self) -> None:
+        """TrendPulse should have exactly 7 optimizable params."""
+        result = _make_result()
+        objective = StrategyObjective(
+            strategy_name="trend_pulse",
+            run_fn=lambda _: result,
+        )
+        study = create_study(direction="maximize")
+        study.optimize(objective, n_trials=1)
+        trial = study.trials[0]
+        assert len(trial.params) == 7
 
     def test_unknown_strategy_empty_params(self) -> None:
         """Unknown strategy returns empty params (uses YAML defaults)."""
@@ -340,7 +307,7 @@ class TestEdgeCases:
             raise RuntimeError("Backtest crashed")
 
         objective = StrategyObjective(
-            strategy_name="pulse_dip",
+            strategy_name="trend_pulse",
             run_fn=failing_run,
         )
         study = create_study(direction="maximize")
@@ -356,7 +323,7 @@ class TestEdgeCases:
             exposure_pct=0.05,
         )
         objective = StrategyObjective(
-            strategy_name="pulse_dip",
+            strategy_name="trend_pulse",
             run_fn=lambda _: result,
         )
         study = create_study(direction="maximize")
@@ -421,13 +388,13 @@ class TestConstructorParamValidation:
 
     def test_valid_params_pass(self) -> None:
         """Params matching constructor should pass validation."""
-        from src.domain.strategy.playbook.squeeze_play import SqueezePlayStrategy
+        from src.domain.strategy.playbook.trend_pulse import TrendPulseStrategy
 
         result = _make_result()
         objective = StrategyObjective(
-            strategy_name="squeeze_play",
+            strategy_name="trend_pulse",
             run_fn=lambda _: result,
-            strategy_class=SqueezePlayStrategy,
+            strategy_class=TrendPulseStrategy,
         )
         study = create_study(direction="maximize")
         study.optimize(objective, n_trials=1)
@@ -435,7 +402,7 @@ class TestConstructorParamValidation:
 
     def test_invalid_params_raise(self) -> None:
         """Params NOT in constructor should raise ValueError."""
-        from src.domain.strategy.playbook.squeeze_play import SqueezePlayStrategy
+        from src.domain.strategy.playbook.trend_pulse import TrendPulseStrategy
 
         # Create a custom objective that suggests a param not in the constructor
         class BadObjective(StrategyObjective):
@@ -444,20 +411,20 @@ class TestConstructorParamValidation:
 
         result = _make_result()
         objective = BadObjective(
-            strategy_name="squeeze_play",
+            strategy_name="trend_pulse",
             run_fn=lambda _: result,
-            strategy_class=SqueezePlayStrategy,
+            strategy_class=TrendPulseStrategy,
         )
         study = create_study(direction="maximize")
         # Should raise ValueError (converted to TrialPruned by Optuna's error handling)
-        with pytest.raises(ValueError, match="not in squeeze_play constructor"):
+        with pytest.raises(ValueError, match="not in trend_pulse constructor"):
             objective(study.ask())
 
     def test_no_class_skips_validation(self) -> None:
-        """Without strategy_class, validation is skipped (backward compatible)."""
+        """Without strategy_class, validation is skipped."""
         result = _make_result()
         objective = StrategyObjective(
-            strategy_name="squeeze_play",
+            strategy_name="trend_pulse",
             run_fn=lambda _: result,
             # No strategy_class provided
         )
@@ -468,10 +435,6 @@ class TestConstructorParamValidation:
 
 class TestFrozenParams:
     """Test frozen params registry."""
-
-    def test_squeeze_play_frozen(self) -> None:
-        """SqueezePlay has 3 frozen params."""
-        assert FROZEN_PARAMS["squeeze_play"] == {"bb_period", "bb_std", "kc_multiplier"}
 
     def test_sector_pulse_frozen(self) -> None:
         """SectorPulse has no frozen params (dead params removed from constructor)."""

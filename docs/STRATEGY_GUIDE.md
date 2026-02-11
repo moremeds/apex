@@ -45,12 +45,12 @@ The APEX strategy framework provides:
 # List available strategies
 python -m src.runners.backtest_runner --list-strategies
 
-# Run MA Cross on AAPL
-python -m src.runners.backtest_runner --strategy ma_cross --symbols AAPL \
+# Run Trend Pulse on AAPL
+python -m src.runners.backtest_runner --strategy trend_pulse --symbols AAPL \
     --start 2024-01-01 --end 2024-06-30
 
 # Run from spec file
-python -m src.runners.backtest_runner --spec config/backtest/ma_cross_example.yaml
+python -m src.runners.backtest_runner --spec config/backtest/trend_pulse_example.yaml
 ```
 
 ### CLI Options
@@ -290,7 +290,7 @@ signal = TradingSignal(
     strength=0.8,          # 0.0 to 1.0
     target_quantity=100,
     target_price=150.0,
-    reason="MA crossover",
+    reason="EMA trend confirmation",
     timestamp=self.context.now(),
 )
 self.emit_signal(signal)
@@ -428,7 +428,7 @@ brokers:
 ### CSV Data
 
 ```bash
-python -m src.runners.backtest_runner --strategy ma_cross --symbols AAPL \
+python -m src.runners.backtest_runner --strategy trend_pulse --symbols AAPL \
     --data-source csv --data-dir ./data/csv \
     --start 2024-01-01 --end 2024-06-30
 ```
@@ -444,7 +444,7 @@ date,open,high,low,close,volume
 ### Parquet Data
 
 ```bash
-python -m src.runners.backtest_runner --strategy ma_cross --symbols AAPL \
+python -m src.runners.backtest_runner --strategy trend_pulse --symbols AAPL \
     --data-source parquet --data-dir ./data/parquet \
     --start 2024-01-01 --end 2024-06-30
 ```
@@ -460,12 +460,12 @@ python -m src.runners.backtest_runner --strategy ma_cross --symbols AAPL \
 
 # Strategy definition
 strategy:
-  name: ma_cross                    # Registry name
-  id: ma-cross-aapl-2024           # Unique run ID
+  name: trend_pulse                  # Registry name
+  id: trend-pulse-aapl-2024         # Unique run ID
   params:
-    short_window: 10
-    long_window: 50
-    position_size: 100
+    ema_fast: 8
+    ema_slow: 21
+    atr_period: 14
 
 # Universe
 universe:
@@ -517,9 +517,9 @@ reporting:
 # Metadata
 metadata:
   author: "Strategy Team"
-  description: "MA crossover backtest"
+  description: "Trend pulse backtest"
   tags:
-    - momentum
+    - trend
     - equities
 ```
 
@@ -542,7 +542,7 @@ from src.runners.backtest_runner import BacktestRunner
 
 async def run_backtest():
     runner = BacktestRunner(
-        strategy_name="ma_cross",
+        strategy_name="trend_pulse",
         symbols=["AAPL", "MSFT"],
         start_date=date(2024, 1, 1),
         end_date=date(2024, 6, 30),
@@ -550,8 +550,8 @@ async def run_backtest():
         data_source="ib",
         bar_size="1d",
         strategy_params={
-            "short_window": 10,
-            "long_window": 50,
+            "ema_fast": 8,
+            "ema_slow": 21,
         },
     )
 
@@ -607,7 +607,7 @@ result.to_dict()               # Dictionary
 
 ```
 ============================================================
-BACKTEST RESULTS: ma_cross
+BACKTEST RESULTS: trend_pulse
 ============================================================
 Period:         2024-01-01 to 2024-06-30 (125 trading days)
 Initial:        $100,000.00
@@ -637,21 +637,35 @@ TRADES
 
 ## Example Strategies
 
-### 1. Moving Average Cross (`ma_cross`)
+### 1. Buy and Hold (`buy_and_hold`)
 
-Classic trend-following strategy.
+Baseline benchmark strategy for comparison.
 
 ```python
-# Entry: Short MA crosses above Long MA
-# Exit: Short MA crosses below Long MA
+# Entry: Buy equal-weight positions on first bar
+# Exit: Hold until end of backtest
 ```
 
 Parameters:
-- `short_window`: Short MA period (default: 10)
-- `long_window`: Long MA period (default: 50)
-- `position_size`: Shares per trade (default: 100)
+- `position_size`: Shares per symbol (default: 100)
 
-### 2. RSI Mean Reversion (`rsi_mean_reversion`)
+### 2. Trend Pulse (`trend_pulse`)
+
+EMA-based trend following with Dual MACD confirmation and ATR trailing stops.
+
+```python
+# Entry: EMA fast crosses above EMA slow + Dual MACD confirmation + regime gate
+# Exit: ATR trailing stop or hard stop
+```
+
+Parameters:
+- `ema_fast`: Fast EMA period (default: 8)
+- `ema_slow`: Slow EMA period (default: 21)
+- `atr_period`: ATR period (default: 14)
+- `atr_stop_mult`: ATR multiplier for trailing stop (default: 5.0)
+- `hard_stop_pct`: Hard stop loss percentage (default: 0.15)
+
+### 3. RSI Mean Reversion (`rsi_mean_reversion`)
 
 Counter-trend with limit orders.
 
@@ -665,46 +679,33 @@ Parameters:
 - `oversold`: Oversold threshold (default: 30)
 - `overbought`: Overbought threshold (default: 70)
 
-### 3. Momentum Breakout (`momentum_breakout`)
+### 4. Regime Flex (`regime_flex`)
 
-ATR-based trend following with trailing stops.
+Adaptive portfolio strategy that adjusts allocation based on market regime (R0-R3).
 
 ```python
-# Entry: Price breaks above N-period high
-# Stop: ATR-based trailing stop
+# Action: Allocate to equities vs. bonds based on regime classification
+# R0/R1: Higher equity allocation
+# R2/R3: Higher bond/cash allocation
 ```
 
 Parameters:
-- `lookback`: Channel period (default: 20)
-- `atr_period`: ATR period (default: 14)
-- `atr_multiplier`: Stop distance in ATRs (default: 2.0)
+- `rebalance_frequency`: Rebalance frequency in bars (default: 5)
+- `max_equity_pct`: Maximum equity allocation (default: 0.8)
 
-### 4. Pairs Trading (`pairs_trading`)
+### 5. Sector Pulse (`sector_pulse`)
 
-Statistical arbitrage on correlated pairs.
+Multi-sector rotation strategy with momentum scoring across horizons.
 
 ```python
-# Entry: Z-score exceeds threshold
-# Exit: Z-score returns to mean
+# Action: Rank sectors by multi-horizon momentum, allocate to top N
+# Rebalance: Periodic rotation based on scoring
 ```
 
 Parameters:
-- `lookback`: Mean/std calculation period (default: 20)
-- `entry_zscore`: Entry threshold (default: 2.0)
-- `exit_zscore`: Exit threshold (default: 0.5)
-
-### 5. Scheduled Rebalance (`scheduled_rebalance`)
-
-Time-based portfolio rebalancing.
-
-```python
-# Action: Rebalance to target weights daily at 3:55 PM
-# Trigger: When drift exceeds threshold
-```
-
-Parameters:
-- `target_weights`: Dict of symbol → weight
-- `rebalance_threshold`: Drift threshold (default: 0.05)
+- `top_n`: Number of top sectors to hold (default: 3)
+- `lookback_short`: Short momentum lookback (default: 21)
+- `lookback_long`: Long momentum lookback (default: 63)
 
 ---
 
