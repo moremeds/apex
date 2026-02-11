@@ -117,7 +117,7 @@ class TestStrategyRegistryConsistency:
         from src.domain.strategy.registry import StrategyRegistry
 
         registry = StrategyRegistry()
-        expected = {"ma_cross", "rsi_mean_reversion", "momentum_breakout", "ta_metrics"}
+        expected = {"rsi_mean_reversion", "trend_pulse"}
 
         registered = set(registry._strategies.keys())
         missing = expected - registered
@@ -166,13 +166,13 @@ class TestStrategyRegistryConsistency:
                 f"Available strategies: {sorted(registered)}"
             )
 
-    def test_mtf_strategy_registered(self) -> None:
-        """Verify MTF RSI Trend strategy is registered."""
+    def test_regime_flex_strategy_registered(self) -> None:
+        """Verify RegimeFlex strategy is registered."""
         from src.domain.strategy import playbook  # noqa: F401
         from src.domain.strategy.registry import StrategyRegistry
 
         registry = StrategyRegistry()
-        assert "mtf_rsi_trend" in registry._strategies, "mtf_rsi_trend strategy not registered"
+        assert "regime_flex" in registry._strategies, "regime_flex strategy not registered"
 
 
 class TestHTMLReportGenerator:
@@ -212,7 +212,7 @@ class TestHTMLReportGenerator:
         generator = HTMLReportGenerator(ReportConfig(title="Test Report"))
         data = ReportData(
             experiment_id="test_exp_001",
-            strategy_name="ma_cross",
+            strategy_name="trend_pulse",
             symbols=["AAPL"],
             metrics={"sharpe": 1.5, "total_return": 0.15, "max_drawdown": 0.08},
         )
@@ -224,7 +224,7 @@ class TestHTMLReportGenerator:
             result_path = generator.generate(data, output_path)
             assert result_path.exists()
             content = result_path.read_text()
-            assert "Test Report" in content or "ma_cross" in content
+            assert "Test Report" in content or "trend_pulse" in content
         finally:
             output_path.unlink(missing_ok=True)
 
@@ -373,7 +373,7 @@ class TestVersionAutoIncrement:
         result = ExperimentResult(
             experiment_id="test_v1",
             name="test",
-            strategy="ma_cross",
+            strategy="trend_pulse",
         )
 
         # Should be able to set experiment_id which includes version

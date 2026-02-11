@@ -6,7 +6,7 @@ Supports dry-run mode for testing without actual execution.
 
 Usage:
     runner = TradingRunner(
-        strategy_name="ma_cross",
+        strategy_name="trend_pulse",
         symbols=["AAPL", "MSFT"],
         broker="ib",
         dry_run=True,

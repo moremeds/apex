@@ -120,7 +120,7 @@ def _normalize_experiment(raw: Dict[str, Any], filename: str) -> Dict[str, Any]:
     # Extract date: prefer explicit field, fallback to filename parsing
     date = raw.get("date", "")
     if not date:
-        # Try to extract date from filename like "squeeze_play_2026-02-08.json"
+        # Try to extract date from filename like "trend_pulse_2026-02-08.json"
         parts = filename.rsplit("_", 1)
         if len(parts) == 2:
             date = parts[1].replace(".json", "")

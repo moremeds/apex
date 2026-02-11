@@ -6,15 +6,15 @@ Strategies can be registered either via decorator or explicit registration.
 
 Usage:
     # Register via decorator
-    @register_strategy("ma_cross")
-    class MovingAverageCrossStrategy(Strategy):
+    @register_strategy("trend_pulse")
+    class TrendPulseStrategy(Strategy):
         pass
 
     # Register explicitly
-    StrategyRegistry.register("momentum", MomentumStrategy)
+    StrategyRegistry.register("rsi_mean_reversion", RsiMeanReversionStrategy)
 
     # Get strategy class by name
-    strategy_class = get_strategy_class("ma_cross")
+    strategy_class = get_strategy_class("trend_pulse")
 
     # List all registered strategies
     for name in StrategyRegistry.list_strategies():
@@ -157,8 +157,8 @@ def register_strategy(
     Decorator to register a strategy class.
 
     Usage:
-        @register_strategy("ma_cross", description="MA crossover strategy")
-        class MovingAverageCrossStrategy(Strategy):
+        @register_strategy("trend_pulse", description="Trend pulse strategy")
+        class TrendPulseStrategy(Strategy):
             pass
 
     Args:

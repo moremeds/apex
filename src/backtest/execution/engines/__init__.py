@@ -15,7 +15,7 @@ Example:
     from src.backtest.execution.engines import VectorBTEngine, ApexEngine
 
     # Fast screening
-    engine = VectorBTEngine(VectorBTConfig(strategy_type="ma_cross"))
+    engine = VectorBTEngine(VectorBTConfig(strategy_type="rsi_mean_reversion"))
     result = engine.run(run_spec)
 
     # Full validation (via RunSpec)

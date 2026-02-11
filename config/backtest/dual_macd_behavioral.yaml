@@ -10,10 +10,11 @@
 name: "DualMACD_Behavioral_Gate"
 mode: behavioral
 
-strategy: ma_cross
+strategy: rsi_mean_reversion
 base_params:
-  short_window: 10
-  long_window: 50
+  rsi_period: 14
+  rsi_oversold: 30
+  rsi_overbought: 70
 
 # DualMACD gate parameters (Optuna search space)
 gate_params:

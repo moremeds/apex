@@ -25,7 +25,7 @@ class TestLoadStrategyManifest:
         """Manifest should contain known strategies."""
         manifest = load_strategy_manifest()
         strategies = manifest.get("strategies", {})
-        assert "ma_cross" in strategies
+        assert "trend_pulse" in strategies
         assert "buy_and_hold" in strategies
 
     def test_load_manifest_has_validation_section(self) -> None:
@@ -53,7 +53,7 @@ class TestValidationGateDryRun:
         """Dry run should not check manifest."""
         with patch("src.runners.trading_runner.load_strategy_manifest") as mock_load:
             runner = TradingRunner(
-                strategy_name="ma_cross",
+                strategy_name="trend_pulse",
                 symbols=["AAPL"],
                 dry_run=True,
             )
@@ -67,7 +67,7 @@ class TestValidationGateLive:
     def test_live_unvalidated_raises_error(self) -> None:
         """Live trading with unvalidated strategy should raise error."""
         runner = TradingRunner(
-            strategy_name="ma_cross",
+            strategy_name="trend_pulse",
             symbols=["AAPL"],
             dry_run=False,
         )
@@ -76,14 +76,14 @@ class TestValidationGateLive:
             runner._check_validation_gate()
 
         assert "LIVE TRADING BLOCKED" in str(exc_info.value)
-        assert "ma_cross" in str(exc_info.value)
+        assert "trend_pulse" in str(exc_info.value)
 
     def test_live_validated_passes(self) -> None:
         """Live trading with validated strategy should pass."""
         # Create mock manifest with validated strategy
         mock_manifest = {
             "strategies": {
-                "ma_cross": {
+                "trend_pulse": {
                     "strategy": "...",
                     "validation": {
                         "validated_by_apex": True,
@@ -98,7 +98,7 @@ class TestValidationGateLive:
             return_value=mock_manifest,
         ):
             runner = TradingRunner(
-                strategy_name="ma_cross",
+                strategy_name="trend_pulse",
                 symbols=["AAPL"],
                 dry_run=False,
             )
@@ -119,7 +119,7 @@ class TestValidationGateLive:
         """Strategy without validation section should raise error."""
         mock_manifest = {
             "strategies": {
-                "ma_cross": {
+                "trend_pulse": {
                     "strategy": "...",
                     # No validation section
                 }
@@ -131,7 +131,7 @@ class TestValidationGateLive:
             return_value=mock_manifest,
         ):
             runner = TradingRunner(
-                strategy_name="ma_cross",
+                strategy_name="trend_pulse",
                 symbols=["AAPL"],
                 dry_run=False,
             )
@@ -157,7 +157,7 @@ class TestValidationGateErrorMessages:
     def test_error_includes_instructions(self) -> None:
         """Error message should include validation instructions."""
         runner = TradingRunner(
-            strategy_name="ma_cross",
+            strategy_name="trend_pulse",
             symbols=["AAPL"],
             dry_run=False,
         )
@@ -180,7 +180,7 @@ class TestValidationGateManifestMissing:
             side_effect=ManifestLoadError("Not found"),
         ):
             runner = TradingRunner(
-                strategy_name="ma_cross",
+                strategy_name="trend_pulse",
                 symbols=["AAPL"],
                 dry_run=False,
             )
@@ -196,7 +196,7 @@ class TestValidationGateManifestMissing:
             side_effect=ManifestLoadError("Malformed YAML"),
         ):
             runner = TradingRunner(
-                strategy_name="ma_cross",
+                strategy_name="trend_pulse",
                 symbols=["AAPL"],
                 dry_run=False,
             )
@@ -212,7 +212,7 @@ class TestValidationGateManifestMissing:
             return_value=mock_manifest,
         ):
             runner = TradingRunner(
-                strategy_name="ma_cross",
+                strategy_name="trend_pulse",
                 symbols=["AAPL"],
                 dry_run=False,
             )
@@ -225,7 +225,7 @@ class TestValidationGateManifestMissing:
         """Non-dict validation section should be treated as unvalidated."""
         mock_manifest = {
             "strategies": {
-                "ma_cross": {
+                "trend_pulse": {
                     "strategy": "...",
                     "validation": "not a dict",
                 }
@@ -237,7 +237,7 @@ class TestValidationGateManifestMissing:
             return_value=mock_manifest,
         ):
             runner = TradingRunner(
-                strategy_name="ma_cross",
+                strategy_name="trend_pulse",
                 symbols=["AAPL"],
                 dry_run=False,
             )

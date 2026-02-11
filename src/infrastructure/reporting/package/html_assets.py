@@ -179,28 +179,6 @@ def build_index_html(
         </div>
 
         <div class="section">
-            <h2 class="section-header" onclick="toggleSection('pulse-dip-content')">
-                <span class="toggle-icon">&#9660;</span> PulseDip Strategy
-            </h2>
-            <div id="pulse-dip-content" class="section-content">
-                <div id="pulse-dip-table">
-                    <div style="color: #94a3b8; padding: 16px;">Loading PulseDip signals...</div>
-                </div>
-            </div>
-        </div>
-
-        <div class="section">
-            <h2 class="section-header" onclick="toggleSection('squeeze-play-content')">
-                <span class="toggle-icon">&#9660;</span> SqueezePlay Strategy
-            </h2>
-            <div id="squeeze-play-content" class="section-content">
-                <div id="squeeze-play-table">
-                    <div style="color: #94a3b8; padding: 16px;">Loading SqueezePlay signals...</div>
-                </div>
-            </div>
-        </div>
-
-        <div class="section">
             <h2 class="section-header" onclick="toggleSection('regime-flex-content')">
                 <span class="toggle-icon">&#9660;</span> RegimeFlex Strategy
             </h2>

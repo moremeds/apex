@@ -85,7 +85,7 @@ APEX is a comprehensive risk management and backtesting platform designed for ac
 - **Thread-safe** RCU (Read-Copy-Update) stores for lock-free reads
 - **Hexagonal architecture** with clear domain/infrastructure separation
 - **118 test files** across unit, integration, and partial test suites
-- **8 registered strategies** with live/backtest parity via clock abstraction
+- **5 registered strategies** with live/backtest parity via clock abstraction
 - **4-Regime market classification** (R0-R3) with ML turning point detection
 
 ---
@@ -154,7 +154,7 @@ apex/
 │   │   ├── events/         # PriorityEventBus (dual-lane)
 │   │   ├── services/       # Risk, MDQC, Regime, Correlation, Sizing
 │   │   ├── signals/        # 47+ indicators, rule engine, bar aggregation
-│   │   ├── strategy/       # Strategy framework (8 strategies)
+│   │   ├── strategy/       # Strategy framework (5 strategies)
 │   │   └── interfaces/     # Port definitions (DI)
 │   ├── infrastructure/     # External integrations (117 files)
 │   │   ├── adapters/       # IB, Futu, Yahoo
@@ -303,9 +303,8 @@ python main.py --env prod --no-dashboard
 python main.py --env dev --metrics-port 9090
 
 # Backtest mode
-python main.py --mode backtest --strategy ma_cross --symbols AAPL \
+python main.py --mode backtest --strategy trend_pulse --symbols AAPL \
     --start 2024-01-01 --end 2024-06-30
-python main.py --mode backtest --spec config/backtest/ma_cross_example.yaml
 
 # Trading mode (live execution)
 python main.py --mode trading --dry-run  # Paper trading
@@ -320,19 +319,16 @@ python main.py --mode trading --dry-run  # Paper trading
 
 ```bash
 # Single backtest with ApexEngine (full simulation)
-python -m src.backtest.runner --strategy ma_cross --symbols AAPL \
+python -m src.backtest.runner --strategy trend_pulse --symbols AAPL \
     --start 2024-01-01 --end 2024-06-30
 
 # VectorBT engine (100x faster for parameter sweeps)
-python -m src.backtest.runner --strategy ma_cross --symbols AAPL \
+python -m src.backtest.runner --strategy trend_pulse --symbols AAPL \
     --start 2024-01-01 --end 2024-06-30 --engine vectorbt
 
 # Backtrader engine
-python -m src.backtest.runner --strategy ma_cross --symbols AAPL \
+python -m src.backtest.runner --strategy trend_pulse --symbols AAPL \
     --start 2024-01-01 --end 2024-06-30 --engine backtrader
-
-# Systematic experiment with YAML spec
-python -m src.backtest.runner --spec config/backtest/playbook/ta_metrics.yaml
 
 # Behavioral gate validation
 python -m src.backtest.runner --behavioral \
@@ -345,11 +341,11 @@ python -m src.backtest.runner --behavioral-cases
 python -m src.backtest.runner --list-strategies
 
 # Custom parameters
-python -m src.backtest.runner --strategy ma_cross --symbols AAPL MSFT \
-    --start 2024-01-01 --end 2024-06-30 --params fast_period=10 slow_period=30
+python -m src.backtest.runner --strategy trend_pulse --symbols AAPL MSFT \
+    --start 2024-01-01 --end 2024-06-30 --params zig_pct=2.5 atr_stop_mult=5.0
 
 # Offline mode (fail if data gaps)
-python -m src.backtest.runner --strategy ma_cross --symbols AAPL \
+python -m src.backtest.runner --strategy trend_pulse --symbols AAPL \
     --start 2024-01-01 --end 2024-06-30 --coverage-mode check
 ```
 
@@ -434,14 +430,11 @@ APEX includes a production-ready strategy framework with **live/backtest parity*
 
 | Strategy | Registry Name | Description |
 |----------|---------------|-------------|
-| Moving Average Cross | `ma_cross` | Classic SMA/EMA crossover |
 | Buy and Hold | `buy_and_hold` | Passive benchmark strategy |
+| TrendPulse | `trend_pulse` | Hybrid multi-factor trend scoring with regime gating |
 | RSI Mean Reversion | `rsi_mean_reversion` | RSI-based with limit orders |
-| Momentum Breakout | `momentum_breakout` | ATR-based with trailing stops |
-| Pairs Trading | `pairs_trading` | Statistical arbitrage |
-| Scheduled Rebalance | `scheduled_rebalance` | Time-based rebalancing |
-| MTF RSI Trend | `mtf_rsi_trend` | Multi-timeframe RSI strategy |
-| TA Metrics | `ta_metrics_strategy` | Technical analysis metrics |
+| RegimeFlex | `regime_flex` | Regime-adaptive portfolio strategy |
+| SectorPulse | `sector_pulse` | Multi-horizon sector rotation |
 
 ### Creating Custom Strategies
 

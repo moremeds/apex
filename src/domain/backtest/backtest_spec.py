@@ -14,7 +14,7 @@ Usage:
 
     # Create programmatically
     spec = BacktestSpec(
-        strategy=StrategySpecConfig(name="ma_cross", params={"short_window": 10}),
+        strategy=StrategySpecConfig(name="trend_pulse", params={"zig_pct": 2.5}),
         universe={"symbols": ["AAPL", "MSFT"]},
         data=DataSpecConfig(source="csv", start_date=date(2024, 1, 1)),
         execution=ExecutionSpecConfig(initial_capital=100000),

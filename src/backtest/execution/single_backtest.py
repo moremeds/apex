@@ -166,7 +166,7 @@ class SingleBacktestRunner:
         # Import to register strategies
         from ...domain.strategy.playbook import (  # noqa
             BuyAndHoldStrategy,
-            MovingAverageCrossStrategy,
+            TrendPulseStrategy,
         )
         from .engines.backtest_engine import BacktestConfig, BacktestEngine
 
