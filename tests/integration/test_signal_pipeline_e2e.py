@@ -232,9 +232,11 @@ class TestSignalPipelineE2E:
             timeout=30,
         )
 
-        # Should show help with --no-validate flag
+        # Should show new report/cache controls
         assert result.returncode == 0
         assert "--no-validate" in result.stdout
+        assert "--no-report-cache" in result.stdout
+        assert "--training-code-signature" in result.stdout
 
     def test_makefile_targets_exist(self) -> None:
         """Test that new Makefile targets are defined."""

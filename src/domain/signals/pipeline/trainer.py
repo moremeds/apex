@@ -8,14 +8,14 @@ Extracted from signal_runner.py for better modularity.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING, List, Optional
 
 from src.utils.logging_setup import get_logger
 
 from .config import SignalPipelineConfig
 
 if TYPE_CHECKING:
-    pass
+    from src.application.services.turning_point.models import TrainingRunResult
 
 logger = get_logger(__name__)
 
@@ -80,6 +80,7 @@ class TurningPointTrainer:
             config: Pipeline configuration.
         """
         self.config = config
+        self.last_result: Optional["TrainingRunResult"] = None
 
     async def train(self) -> int:
         """
@@ -140,6 +141,7 @@ class TurningPointTrainer:
             days=self.config.model_days,
             model_type="logistic",
             cv_splits=5,
+            training_code_signature=self.config.training_code_signature,
             force_update=self.config.force_retrain and not self.config.dry_run,
             eval_only=effective_eval_only,
             max_workers=self.config.train_concurrency,
@@ -152,22 +154,30 @@ class TurningPointTrainer:
         print(f"  Force update:    {self.config.force_retrain and not self.config.dry_run}")
         print(f"  Eval only:       {effective_eval_only}")
         print(f"  Dry run:         {self.config.dry_run}")
+        print(f"  Code signature:  {self.config.training_code_signature}")
         print(f"  Output dir:      {model_dir}")
         print()
 
         try:
             result = await service.train(training_config)
+            self.last_result = result
 
             # Print summary
             print("\n" + "-" * 60)
             print("TRAINING RESULTS")
             print("-" * 60)
             print(result.summary())
+            print(f"Training total seconds: {result.duration_seconds:.2f}")
+            print(f"Training skipped count: {result.skipped_count}")
 
             # Detailed per-symbol results
             if self.config.verbose:
                 print("\nPer-symbol details:")
                 for symbol, sym_result in result.results.items():
+                    if sym_result.is_skipped:
+                        print(f"\n  {symbol}:")
+                        print(f"    Skipped: {sym_result.skip_reason}")
+                        continue
                     comparison = result.comparisons.get(symbol)
                     print(f"\n  {symbol}:")
                     print(

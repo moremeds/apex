@@ -13,6 +13,7 @@ import shutil
 import signal
 import subprocess
 import tempfile
+import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, cast
@@ -28,6 +29,7 @@ from src.utils.logging_setup import get_logger
 from src.utils.timezone import DisplayTimezone, now_utc
 
 from .config import SignalPipelineConfig
+from .report_cache import ReportFrameCache
 
 # Project root for resolving relative paths (works regardless of cwd)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
@@ -232,9 +234,12 @@ class SignalPipelineProcessor:
         bar_preloader = self._create_bar_preloader(historical_manager)
 
         # Run pipeline
+        preload_started = time.monotonic()
         _ = await self._preload_bars(bar_preloader)
+        preload_seconds = time.monotonic() - preload_started
         await self._wait_for_signals()
         self._print_stats()
+        print(f"  historical_preload_seconds: {preload_seconds:.2f}")
 
         # Generate report if requested
         if self.config.html_output:
@@ -528,10 +533,12 @@ class SignalPipelineProcessor:
         from src.infrastructure.reporting import PackageBuilder, SignalReportGenerator
 
         print(f"\nGenerating HTML report...")
+        report_started = time.monotonic()
 
         # Load historical data into DataFrames
         data: Dict[Tuple[str, str], pd.DataFrame] = {}
         end = self._get_intraday_end()
+        historical_load_started = time.monotonic()
 
         # PR-A: Data quality validator for sentinel/holiday filtering
         validator = DataQualityValidator()
@@ -582,6 +589,8 @@ class SignalPipelineProcessor:
                 except Exception as e:
                     logger.warning(f"Failed to load {symbol}/{tf} for report: {e}")
 
+        historical_load_seconds = time.monotonic() - historical_load_started
+
         # Log quality summary
         if quality_issues:
             print(f"  Data quality warnings: {len(quality_issues)} symbol/timeframes")
@@ -602,14 +611,41 @@ class SignalPipelineProcessor:
             indicators = registry.get_all()
             logger.info(f"Loaded {len(indicators)} indicators from registry")
 
-        # Compute indicators on DataFrames
+        # Compute indicators on DataFrames (with strict-freshness report cache)
+        cache_dir = Path(self.config.report_cache_dir or "data/cache/report_frames")
+        if not cache_dir.is_absolute():
+            cache_dir = PROJECT_ROOT / cache_dir
+
+        report_cache = ReportFrameCache(
+            cache_dir=cache_dir,
+            max_age_minutes=self.config.report_cache_max_age_minutes,
+            cleanup_max_files=self.config.report_cache_cleanup_max_files,
+            enabled=self.config.report_cache_enabled,
+        )
+        cleaned_count = report_cache.cleanup()
+        if cleaned_count > 0:
+            logger.info(f"Report cache cleanup removed {cleaned_count} stale files")
+
+        indicator_signature = report_cache.indicator_signature(indicators)
+        indicator_compute_started = time.monotonic()
         for data_key in list(data.keys()):
-            data[data_key] = self._compute_indicators_on_df(data[data_key], indicators)
+            symbol, timeframe = data_key
+            base_df = data[data_key]
+            cached_df = report_cache.load(symbol, timeframe, base_df, indicator_signature)
+            if cached_df is not None:
+                data[data_key] = cached_df
+                continue
+
+            enriched_df = self._compute_indicators_on_df(base_df, indicators)
+            data[data_key] = enriched_df
+            report_cache.save(symbol, timeframe, base_df, indicator_signature, enriched_df)
+        indicator_compute_seconds = time.monotonic() - indicator_compute_started
 
         # Generate report based on format
         output = Path(output_path)
         if not output.is_absolute():
             output = PROJECT_ROOT / output
+        report_build_started = time.monotonic()
 
         if self.config.output_format == "package":
             # PR-02: Package format with lazy loading
@@ -695,6 +731,18 @@ class SignalPipelineProcessor:
                 output_path=output,
             )
             print(f"  Report saved: {report_path}")
+
+        report_build_seconds = time.monotonic() - report_build_started
+        total_seconds = time.monotonic() - report_started
+        print("\nReport timing:")
+        print(f"  historical_load_seconds: {historical_load_seconds:.2f}")
+        print(f"  indicator_compute_seconds: {indicator_compute_seconds:.2f}")
+        print(f"  report_build_seconds: {report_build_seconds:.2f}")
+        print(
+            "  report_cache_hits/misses/hit_rate: "
+            f"{report_cache.hits}/{report_cache.misses}/{report_cache.hit_rate:.1%}"
+        )
+        print(f"  report_total_seconds: {total_seconds:.2f}")
 
     def _deploy_to_github(self, package_path: Path) -> None:
         """

@@ -113,11 +113,18 @@ class SignalPipelineConfig:
     # Post-generation validation (M3 integration) - default True for package format
     validate: bool = True  # Run quality gates (G1-G15) after report generation
 
+    # Report-path cache (strict-freshness, report generation only)
+    report_cache_enabled: bool = True
+    report_cache_dir: Optional[str] = "data/cache/report_frames"
+    report_cache_max_age_minutes: int = 10
+    report_cache_cleanup_max_files: int = 4000
+
     # Model training options
     train_models: bool = False  # Train models before signal generation
     retrain_models: bool = False  # Walk-forward retrain (mutually exclusive with train_models)
     model_symbols: Optional[List[str]] = None  # Symbols for training (default: main symbols)
     model_days: int = 750  # Days of history for training
+    training_code_signature: str = "tp-v1"  # Bump to force retrain after feature/model changes
     force_retrain: bool = False  # Force update even if not better
     eval_only: bool = False  # Evaluation only, no promotion
     model_output_dir: Optional[str] = None  # Override model output directory
@@ -143,6 +150,10 @@ Examples:
 
   # Skip heatmap
   python -m src.runners.signal_runner --live --symbols AAPL --no-heatmap
+
+  # Report cache tuning (strict freshness)
+  python -m src.runners.signal_runner --live --symbols AAPL \\
+      --report-cache-max-age 10 --report-cache-cleanup-max-files 4000
 
   # Legacy single-file HTML format
   python -m src.runners.signal_runner --live --symbols AAPL --format singlefile
@@ -274,6 +285,32 @@ Examples:
         action="store_true",
         help="Skip heatmap landing page generation.",
     )
+    parser.add_argument(
+        "--no-report-cache",
+        action="store_true",
+        help="Disable report-path DataFrame cache for indicator computation.",
+    )
+    parser.add_argument(
+        "--report-cache-dir",
+        type=str,
+        default="data/cache/report_frames",
+        metavar="DIR",
+        help="Report cache directory for enriched DataFrames (default: data/cache/report_frames)",
+    )
+    parser.add_argument(
+        "--report-cache-max-age",
+        type=int,
+        default=10,
+        metavar="MINUTES",
+        help="Maximum age for report cache entries in minutes (default: 10)",
+    )
+    parser.add_argument(
+        "--report-cache-cleanup-max-files",
+        type=int,
+        default=4000,
+        metavar="N",
+        help="Maximum report cache files after cleanup (default: 4000)",
+    )
 
     # General options
     parser.add_argument(
@@ -326,6 +363,13 @@ Examples:
         default=750,
         metavar="DAYS",
         help="Days of history for training (default: 750)",
+    )
+    training_group.add_argument(
+        "--training-code-signature",
+        type=str,
+        default="tp-v1",
+        metavar="SIG",
+        help="Training code signature used for skip-unchanged checks (default: tp-v1)",
     )
 
     training_group.add_argument(
@@ -417,11 +461,16 @@ def parse_config(args: argparse.Namespace) -> SignalPipelineConfig:
         deploy_github=args.deploy == "github",
         github_repo=args.github_repo,
         validate=not args.no_validate,
+        report_cache_enabled=not args.no_report_cache,
+        report_cache_dir=args.report_cache_dir,
+        report_cache_max_age_minutes=args.report_cache_max_age,
+        report_cache_cleanup_max_files=args.report_cache_cleanup_max_files,
         # Training options
         train_models=args.train_models,
         retrain_models=args.retrain_models,
         model_symbols=args.model_symbols,
         model_days=args.model_days,
+        training_code_signature=args.training_code_signature,
         force_retrain=args.force_retrain,
         eval_only=args.eval_only,
         model_output_dir=args.model_output_dir,

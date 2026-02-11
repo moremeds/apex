@@ -41,6 +41,7 @@ class TrainingConfig:
     atr_period: int = 14
     zigzag_threshold: float = 2.0
     risk_threshold: float = 1.5
+    training_code_signature: str = "tp-v1"
 
     # Parallelization
     max_workers: int = 2  # Parallel symbol training
@@ -59,6 +60,7 @@ class TrainingConfig:
             "atr_period": self.atr_period,
             "zigzag_threshold": self.zigzag_threshold,
             "risk_threshold": self.risk_threshold,
+            "training_code_signature": self.training_code_signature,
             "max_workers": self.max_workers,
         }
 
@@ -106,6 +108,13 @@ class SymbolTrainingResult:
 
     # Training time
     training_seconds: float = 0.0
+    status: Literal["trained", "skipped_unchanged"] = "trained"
+    skip_reason: Optional[str] = None
+
+    @property
+    def is_skipped(self) -> bool:
+        """Whether training was skipped for this symbol."""
+        return self.status == "skipped_unchanged"
 
     @property
     def roc_auc_combined(self) -> float:
@@ -148,6 +157,8 @@ class SymbolTrainingResult:
             "ece_top": self.ece_top,
             "ece_bottom": self.ece_bottom,
             "training_seconds": self.training_seconds,
+            "status": self.status,
+            "skip_reason": self.skip_reason,
         }
 
 
@@ -215,6 +226,7 @@ class TrainingRunResult:
     # Summary lists
     promoted: List[str] = field(default_factory=list)
     rejected: List[str] = field(default_factory=list)
+    skipped: List[str] = field(default_factory=list)
     failed: List[str] = field(default_factory=list)
     errors: Dict[str, str] = field(default_factory=dict)  # symbol -> error message
 
@@ -225,8 +237,13 @@ class TrainingRunResult:
 
     @property
     def success_count(self) -> int:
-        """Number of successfully trained symbols."""
-        return len(self.results)
+        """Number of symbols that completed model training."""
+        return sum(1 for result in self.results.values() if not result.is_skipped)
+
+    @property
+    def skipped_count(self) -> int:
+        """Number of symbols skipped due to unchanged data/code signature."""
+        return len(self.skipped)
 
     @property
     def total_count(self) -> int:
@@ -245,12 +262,13 @@ class TrainingRunResult:
         lines = [
             f"Training Run: {self.run_id}",
             f"Duration: {self.duration_seconds:.1f}s",
-            f"Symbols: {self.success_count}/{self.total_count} successful",
+            (
+                f"Symbols: {self.success_count} trained, {self.skipped_count} skipped, "
+                f"{len(self.failed)} failed (total={self.total_count})"
+            ),
             f"Promoted: {len(self.promoted)} ({', '.join(self.promoted) or 'none'})",
             f"Rejected: {len(self.rejected)} ({', '.join(self.rejected) or 'none'})",
         ]
-        if self.failed:
-            lines.append(f"Failed: {len(self.failed)} ({', '.join(self.failed)})")
         return "\n".join(lines)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -265,10 +283,12 @@ class TrainingRunResult:
             "comparisons": {k: v.to_dict() for k, v in self.comparisons.items()},
             "promoted": self.promoted,
             "rejected": self.rejected,
+            "skipped": self.skipped,
             "failed": self.failed,
             "errors": self.errors,
             "summary": {
                 "success_count": self.success_count,
+                "skipped_count": self.skipped_count,
                 "total_count": self.total_count,
                 "success_rate": self.success_rate,
             },

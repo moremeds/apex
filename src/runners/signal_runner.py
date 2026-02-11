@@ -25,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -92,8 +93,14 @@ class SignalRunner:
                 print("=== TRAINING PHASE ===")
                 print("=" * 60)
 
+                training_started = time.monotonic()
                 trainer = TurningPointTrainer(self.config)
                 training_result = await trainer.train()
+                training_elapsed = time.monotonic() - training_started
+                skipped_count = trainer.last_result.skipped_count if trainer.last_result else 0
+                print(
+                    f"Training phase timing: {training_elapsed:.2f}s " f"(skipped={skipped_count})"
+                )
                 if training_result != 0:
                     logger.warning("Training phase completed with issues")
                     # Continue to signal phase even if training had issues
