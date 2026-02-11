@@ -100,7 +100,7 @@ jobs:
           echo "- Use \`make quality\` locally to run these checks" >> CODE_HEALTH.md
 
       - name: Create GitHub Issue
-        uses: peter-evans/create-issue-from-file@v5
+        uses: peter-evans/create-issue-from-file@v6
         with:
           title: "📊 Weekly Code Health Report - ${{ github.run_id }}"
           content-filepath: CODE_HEALTH.md
@@ -126,7 +126,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '20'
 
@@ -175,7 +175,7 @@ jobs:
 
       - name: Create duplicate code issue
         if: steps.jscpd.outputs.has_duplicates == 'true'
-        uses: peter-evans/create-issue-from-file@v5
+        uses: peter-evans/create-issue-from-file@v6
         with:
           title: "🔄 Duplicate Code Detected - ${{ github.run_id }}"
           content-filepath: DUPLICATES.md

@@ -71,7 +71,7 @@ jobs:
 
       - name: Cache Python dependencies
         id: cache-python-deps
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             .venv
@@ -84,7 +84,7 @@ jobs:
 
       - name: Cache TA-Lib
         id: cache-talib
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/ta-lib-install
           key: talib-0.6.4-${{ runner.os }}-${{ runner.arch }}
@@ -246,7 +246,7 @@ jobs:
       - name: Cache historical data
         if: steps.market-check.outputs.should_run == 'true'
         id: cache-historical
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: data/historical
           key: ${{ env.CACHE_VERSION }}-historical-${{ runner.os }}-${{ steps.market-check.outputs.et_day_key }}-${{ hashFiles('config/universe.yaml') }}
@@ -257,7 +257,7 @@ jobs:
       - name: Cache turning point models
         if: steps.market-check.outputs.should_run == 'true'
         id: cache-models
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: models/turning_point
           key: ${{ env.CACHE_VERSION }}-models-${{ runner.os }}-${{ hashFiles('config/universe.yaml', 'src/**/turning_point/**', 'src/application/services/turning_point_training_service.py', 'src/infrastructure/adapters/file_model_registry.py') }}
@@ -391,7 +391,7 @@ jobs:
       - name: "Send email: 1H"
         if: steps.market-check.outputs.send_1h == 'true'
         continue-on-error: true
-        uses: dawidd6/action-send-mail@v3
+        uses: dawidd6/action-send-mail@v9
         with:
           server_address: ${{ secrets.SMTP_SERVER }}
           server_port: ${{ secrets.SMTP_PORT || 587 }}
@@ -407,7 +407,7 @@ jobs:
       - name: "Send email: 4H"
         if: steps.market-check.outputs.send_4h == 'true'
         continue-on-error: true
-        uses: dawidd6/action-send-mail@v3
+        uses: dawidd6/action-send-mail@v9
         with:
           server_address: ${{ secrets.SMTP_SERVER }}
           server_port: ${{ secrets.SMTP_PORT || 587 }}
@@ -423,7 +423,7 @@ jobs:
       - name: "Send email: 1D"
         if: steps.market-check.outputs.send_1d == 'true'
         continue-on-error: true
-        uses: dawidd6/action-send-mail@v3
+        uses: dawidd6/action-send-mail@v9
         with:
           server_address: ${{ secrets.SMTP_SERVER }}
           server_port: ${{ secrets.SMTP_PORT || 587 }}
@@ -442,7 +442,7 @@ jobs:
 
       - name: Upload report artifact
         if: steps.market-check.outputs.should_run == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: signal-report-${{ github.run_id }}
           path: out/signals/
