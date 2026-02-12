@@ -1,0 +1,264 @@
+name: "Daily: PEAD Earnings Drift Screen"
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Screens APEX universe for Post-Earnings Announcement Drift candidates.
+#
+# DST-safe design: Dual UTC cron hours cover both EDT (UTC-4) and EST (UTC-5).
+# Python step uses ZoneInfo("America/New_York") to gate on 9:00-9:59 AM ET.
+#
+# Pipeline:
+#   Step 1: Update market caps
+#   Step 2: Update earnings cache from FMP
+#   Step 3: Run PEAD screen
+#   Step 4: Deploy pead.html to gh-pages
+#   Step 5: Render + send email (skip if 0 candidates)
+#
+# FMP API: ~11-41 calls/day (well within 250/day free tier)
+# ═══════════════════════════════════════════════════════════════════════════
+
+on:
+  schedule:
+    # DST-safe: 9 AM ET = UTC 13:00 (EDT) or UTC 14:00 (EST)
+    - cron: '0 13,14 * * 1-5'
+  workflow_dispatch:
+
+concurrency:
+  group: daily-pead-screen
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+env:
+  PYTHON_VERSION: '3.13'
+  UNIVERSE: config/universe.yaml
+  CACHE_VERSION: v1
+
+jobs:
+  pead-screen:
+    name: PEAD Earnings Screen
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Cache Python dependencies
+        id: cache-python-deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            .venv
+            ~/.cache/uv
+            ~/.cache/pip
+          key: ${{ env.CACHE_VERSION }}-deps-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-${{ hashFiles('pyproject.toml', 'uv.lock') }}
+          restore-keys: |
+            ${{ env.CACHE_VERSION }}-deps-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-
+            ${{ env.CACHE_VERSION }}-deps-${{ runner.os }}-
+
+      - name: Cache TA-Lib
+        id: cache-talib
+        uses: actions/cache@v4
+        with:
+          path: ~/ta-lib-install
+          key: talib-0.6.4-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Install TA-Lib
+        run: |
+          if [ -d "$HOME/ta-lib-install/lib" ]; then
+            echo "Restoring TA-Lib from cache..."
+            sudo cp -r $HOME/ta-lib-install/lib/* /usr/lib/
+            sudo cp -r $HOME/ta-lib-install/include/* /usr/include/
+            sudo ldconfig
+          else
+            echo "Building TA-Lib 0.6.4 from source..."
+            sudo apt-get update && sudo apt-get install -y wget build-essential
+            wget https://github.com/ta-lib/ta-lib/releases/download/v0.6.4/ta-lib-0.6.4-src.tar.gz
+            tar -xzf ta-lib-0.6.4-src.tar.gz
+            cd ta-lib-0.6.4 && ./configure --prefix=/usr && make -j$(nproc) && sudo make install
+            sudo ldconfig
+            mkdir -p $HOME/ta-lib-install/lib $HOME/ta-lib-install/include
+            cp -r /usr/lib/libta* $HOME/ta-lib-install/lib/ 2>/dev/null || true
+            cp -r /usr/include/ta-lib $HOME/ta-lib-install/include/ 2>/dev/null || true
+          fi
+
+      - name: Install dependencies
+        run: |
+          [ -d .venv ] || uv venv
+          source .venv/bin/activate
+          uv pip install -e ".[dev,observability]"
+
+      - name: Check market day + ET window
+        id: market-check
+        run: |
+          source .venv/bin/activate
+          python << 'EOF'
+          import pandas_market_calendars as mcal
+          from datetime import date, datetime
+          from zoneinfo import ZoneInfo
+          import os
+
+          nyse = mcal.get_calendar('NYSE')
+          today = date.today()
+          schedule = nyse.schedule(start_date=today, end_date=today)
+          is_trading_day = not schedule.empty
+          is_manual = os.environ.get('GITHUB_EVENT_NAME') == 'workflow_dispatch'
+
+          # DST-safe ET classification
+          et_now = datetime.now(ZoneInfo("America/New_York"))
+          et_hour = et_now.hour
+          et_time = et_now.strftime("%-I:%M %p ET")
+          et_date = et_now.strftime("%b %d")
+
+          # PEAD screen window: 9:00-9:59 AM ET
+          is_pead_window = 9 <= et_hour < 10
+
+          if is_manual:
+              should_run = True
+              label = f"Manual dispatch (market {'open' if is_trading_day else 'closed'})"
+          elif not is_trading_day or not is_pead_window:
+              should_run = False
+              reason = "closed" if not is_trading_day else f"outside window (ET {et_hour}:{et_now.minute:02d})"
+              label = f"SKIP: {reason}"
+          else:
+              should_run = True
+              label = f"PEAD SCREEN ({et_time})"
+
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f'should_run={str(should_run).lower()}\n')
+              f.write(f'et_time={et_time}\n')
+              f.write(f'et_date={et_date}\n')
+          print(label)
+          EOF
+
+      # === PIPELINE ===
+
+      - name: "Step 1/3: Update market caps"
+        if: steps.market-check.outputs.should_run == 'true'
+        run: |
+          source .venv/bin/activate
+          python -m src.runners.signal_runner --update-market-caps \
+            --universe ${{ env.UNIVERSE }}
+        env:
+          LOG_LEVEL: WARNING
+
+      - name: "Step 2/3: Update earnings cache"
+        if: steps.market-check.outputs.should_run == 'true'
+        run: |
+          source .venv/bin/activate
+          python -m src.runners.pead_runner --update-earnings \
+            --universe ${{ env.UNIVERSE }}
+        env:
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+          LOG_LEVEL: WARNING
+
+      - name: Fetch regime data from gh-pages
+        if: steps.market-check.outputs.should_run == 'true'
+        continue-on-error: true
+        run: |
+          mkdir -p out/signals/data
+          git fetch origin gh-pages --depth=1 2>/dev/null || true
+          git show origin/gh-pages:data/summary.json > out/signals/data/summary.json 2>/dev/null || echo '{}' > out/signals/data/summary.json
+          echo "Regime data fetched ($(wc -c < out/signals/data/summary.json) bytes)"
+
+      - name: "Step 3/3: Run PEAD screen"
+        if: steps.market-check.outputs.should_run == 'true'
+        id: pead-screen
+        run: |
+          source .venv/bin/activate
+          mkdir -p out/pead/data
+          python -m src.runners.pead_runner --screen \
+            --html-output out/pead/pead.html \
+            --signals-dir out/signals
+
+          # Count candidates for email decision
+          if [ -f out/pead/data/pead_candidates.json ]; then
+            count=$(python -c "import json; d=json.load(open('out/pead/data/pead_candidates.json')); print(len(d.get('candidates', [])))")
+            echo "candidate_count=$count" >> "$GITHUB_OUTPUT"
+          else
+            echo "candidate_count=0" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          LOG_LEVEL: WARNING
+
+      # === DEPLOY ===
+
+      - name: Deploy pead.html to gh-pages
+        if: steps.market-check.outputs.should_run == 'true'
+        run: |
+          git fetch origin gh-pages --depth=1 2>/dev/null || true
+          rm -rf /tmp/pead-deploy
+          git clone --branch gh-pages --single-branch --depth 1 \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" \
+            /tmp/pead-deploy 2>/dev/null || \
+            (mkdir -p /tmp/pead-deploy && cd /tmp/pead-deploy && git init -b gh-pages)
+          cp out/pead/pead.html /tmp/pead-deploy/pead.html
+          cd /tmp/pead-deploy && \
+            git add pead.html && \
+            git diff --cached --quiet || \
+            (git -c user.name="github-actions[bot]" \
+                 -c user.email="github-actions[bot]@users.noreply.github.com" \
+             commit -m "Update PEAD screen $(date +%Y-%m-%d)" && \
+             git push origin gh-pages)
+          rm -rf /tmp/pead-deploy
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # === EMAIL ===
+
+      - name: Render PEAD email
+        if: steps.market-check.outputs.should_run == 'true' && steps.pead-screen.outputs.candidate_count != '0'
+        run: |
+          source .venv/bin/activate
+          python << 'PYEOF'
+          from src.infrastructure.reporting.email_pead_renderer import render_pead_email_text
+          text = render_pead_email_text(
+              "out/pead/data/pead_candidates.json",
+              display_timezone="America/New_York",
+          )
+          with open("email_body_pead.txt", "w") as f:
+              f.write(text)
+          print(f"Rendered PEAD email ({len(text)} chars)")
+          PYEOF
+
+      - name: Send PEAD email
+        if: steps.market-check.outputs.should_run == 'true' && steps.pead-screen.outputs.candidate_count != '0'
+        continue-on-error: true
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.SMTP_SERVER }}
+          server_port: ${{ secrets.SMTP_PORT || 587 }}
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          subject: "APEX PEAD — ${{ steps.pead-screen.outputs.candidate_count }} candidates — ${{ steps.market-check.outputs.et_date }} ${{ steps.market-check.outputs.et_time }}"
+          to: ${{ secrets.SIGNAL_REPORT_RECIPIENTS }}
+          from: "APEX Signal Bot <${{ secrets.SMTP_USERNAME }}>"
+          body: file://${{ github.workspace }}/email_body_pead.txt
+          content_type: text/plain
+          convert_markdown: false
+
+      - name: No candidates notice
+        if: steps.market-check.outputs.should_run == 'true' && steps.pead-screen.outputs.candidate_count == '0'
+        run: echo "::notice::PEAD screen found 0 candidates. HTML deployed, email skipped."
+
+      - name: Holiday/off-window notice
+        if: steps.market-check.outputs.should_run != 'true'
+        run: echo "::notice::Market closed or outside PEAD window. Skipping."
+
+      - name: Upload report artifact
+        if: steps.market-check.outputs.should_run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pead-report-${{ github.run_id }}
+          path: out/pead/
+          if-no-files-found: warn
+          retention-days: 7

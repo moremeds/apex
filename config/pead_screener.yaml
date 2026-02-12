@@ -1,0 +1,39 @@
+version: "1.0"
+description: "PEAD screener thresholds and trade parameters"
+
+data_source:
+  primary: "fmp"                      # FMP API for earnings data
+  price_source: "yfinance"            # yfinance for OHLCV (gap, volume, 52w high)
+
+filters:
+  min_sue: 2.0
+  min_earnings_day_gap: 0.02
+  min_volume_ratio: 2.0
+  max_entry_delay_trading_days: 5
+  max_forward_pe: 40.0
+  exclude_at_52w_high: true
+  exclude_analyst_downgrade_days: 3
+  require_revenue_beat: false
+
+trade_params:
+  default_profit_target: 0.06
+  default_stop_loss: -0.05
+  default_max_hold_trading_days: 25
+  trailing_stop_atr_multiplier: 2.0
+  trailing_stop_activation_pct: 0.03
+
+regime_rules:
+  r0_position_size_factor: 1.0
+  r1_position_size_factor: 0.5
+  r2_block_entirely: true
+
+liquidity_tiers:
+  large_cap_min_market_cap: 50_000_000_000
+  mid_cap_min_market_cap: 2_000_000_000
+  large_cap_slippage_bps: 10
+  mid_cap_slippage_bps: 25
+  small_cap_slippage_bps: 50
+
+quality_thresholds:
+  strong: 70
+  moderate: 45
