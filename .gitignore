@@ -12,6 +12,11 @@ build/
 .eggs/
 
 # =============================================================================
+# Secrets
+# =============================================================================
+config/secrets.yaml
+
+# =============================================================================
 # Virtual Environments
 # =============================================================================
 .venv/
@@ -109,3 +114,5 @@ coverage.xml
 /data/historical/
 /data/MD（富途moomoo）副图版.txt
 /data/MD（富途moomoo） 主图版.txt
+/output/systematic-hedge-fund-quant-dev-interview-prep.html
+/output/systematic-hedge-fund-quant-dev-interview-prep.json

@@ -99,6 +99,7 @@ def build_index_html(
                 <a href="index.html" class="back-link">\u2190 Heatmap</a>
                 <h1>Signal Analysis Report</h1>
                 <a href="strategies.html" class="strategies-link" style="color:#58a6ff;font-size:13px;text-decoration:none;">Strategy Comparison</a>
+                <a href="pead.html" style="color:#58a6ff;font-size:13px;text-decoration:none;">PEAD Screen</a>
                 {validation_link}
             </div>
             <div class="meta">

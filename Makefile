@@ -1,7 +1,7 @@
 # APEX Development Makefile
 # Quick commands for common development tasks
 
-.PHONY: install run run-dev run-prod run-demo run-headless lint format type-check dead-code complexity quality test test-all coverage clean help diagrams diagrams-classes diagrams-deps diagrams-flows validate-fast validate signals-test signals signals-deploy strategy-compare strategy-verify strategy-compare-quick behavioral behavioral-full behavioral-cases
+.PHONY: install run run-dev run-prod run-demo run-headless lint format type-check dead-code complexity quality test test-all coverage clean help diagrams diagrams-classes diagrams-deps diagrams-flows validate-fast validate signals-test signals signals-deploy strategy-compare strategy-verify strategy-compare-quick behavioral behavioral-full behavioral-cases pead pead-test pead-screen
 
 # Virtual environment - use .venv/bin executables directly
 VENV := .venv/bin
@@ -60,6 +60,11 @@ help:
 	@echo "  make tp-universe-quick  Quick test (12 symbols)"
 	@echo "  make behavioral-full  Optuna optimization + walk-forward + serve"
 	@echo "  make behavioral-cases Predefined case studies + serve"
+	@echo ""
+	@echo "$(GREEN)PEAD Screener:$(RESET)"
+	@echo "  make pead           Full PEAD pipeline (update caps + earnings + screen + HTML)"
+	@echo "  make pead-test      Run PEAD unit tests"
+	@echo "  make pead-screen    Screen only (from cached earnings, no fetch)"
 	@echo ""
 	@echo "$(GREEN)Other:$(RESET)"
 	@echo "  make diagrams       Generate architecture diagrams"
@@ -405,6 +410,43 @@ tp-universe-quick:
 	@echo "$(GREEN)✓ Report: out/trend_pulse/quick_report.html$(RESET)"
 
 .PHONY: tp-validate tp-holdout tp-optimize tp-universe tp-universe-quick
+
+# ═══════════════════════════════════════════════════════════════
+# PEAD Earnings Drift Screener
+# ═══════════════════════════════════════════════════════════════
+
+# Full pipeline: update market caps → fetch earnings → screen → HTML report
+pead:
+	@echo "$(BOLD)PEAD Earnings Drift Screen — Full Pipeline$(RESET)"
+	@echo ""
+	@echo "$(BOLD)Step 1/3: Updating market caps...$(RESET)"
+	$(PYTHON) -m src.runners.signal_runner --update-market-caps \
+		--universe config/universe.yaml
+	@echo ""
+	@echo "$(BOLD)Step 2/3: Fetching earnings from FMP...$(RESET)"
+	$(PYTHON) -m src.runners.pead_runner --update-earnings \
+		--universe config/universe.yaml
+	@echo ""
+	@echo "$(BOLD)Step 3/3: Running PEAD screen...$(RESET)"
+	$(PYTHON) -m src.runners.pead_runner --screen \
+		--html-output out/pead/pead.html
+	@echo ""
+	@echo "$(GREEN)✓ Candidates: out/pead/data/pead_candidates.json$(RESET)"
+	@echo "$(GREEN)✓ HTML report: out/pead/pead.html$(RESET)"
+
+# Screen from cached earnings (no FMP fetch — fast)
+pead-screen:
+	@echo "$(BOLD)PEAD Screen (from cache)...$(RESET)"
+	$(PYTHON) -m src.runners.pead_runner --screen \
+		--html-output out/pead/pead.html
+	@echo "$(GREEN)✓ HTML report: out/pead/pead.html$(RESET)"
+
+# Run PEAD unit tests
+pead-test:
+	@echo "$(BOLD)Running PEAD screener tests...$(RESET)"
+	$(PYTHON) -m pytest tests/unit/screeners/ -v --no-cov -q
+
+.PHONY: pead pead-test pead-screen
 
 # ═══════════════════════════════════════════════════════════════
 # Diagrams
