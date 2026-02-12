@@ -133,6 +133,8 @@ attributes  # NoopInstrument method parameter (intentionally unused)
 Meter  # OpenTelemetry Meter type (TYPE_CHECKING import)
 ExperimentTrackerPort  # TYPE_CHECKING import for dependency injection
 ModelRegistryPort  # TYPE_CHECKING import for dependency injection
+ConfluenceProvider  # TYPE_CHECKING import for type annotations in Strategy dataclass
+RegimeProvider  # TYPE_CHECKING import for type annotations in Strategy dataclass
 time_type  # backtrader type annotation import
 load_labeler_thresholds_from_yaml  # Used dynamically/conditionally
 

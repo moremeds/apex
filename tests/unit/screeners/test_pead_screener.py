@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date
 
-import pytest
-
-from src.domain.screeners.pead.models import LiquidityTier, PEADScreenResult
+from src.domain.screeners.pead.models import LiquidityTier
 from src.domain.screeners.pead.scorer import classify_quality, score_pead_quality
 from src.domain.screeners.pead.screener import PEADScreener
 

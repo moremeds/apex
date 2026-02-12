@@ -11,7 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -175,7 +175,7 @@ def cmd_screen(
 
     # Write JSON
     output_dir = Path(html_output).parent if html_output else PROJECT_ROOT / "out" / "pead"
-    candidates_path = _write_candidates_json(result, output_dir)
+    _write_candidates_json(result, output_dir)
 
     # Write HTML if requested
     if html_output:

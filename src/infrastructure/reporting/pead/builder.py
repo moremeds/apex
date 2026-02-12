@@ -5,9 +5,6 @@ Serializes PEADScreenResult to JSON and passes to templates for rendering.
 
 from __future__ import annotations
 
-import json
-from dataclasses import asdict
-from datetime import date
 from pathlib import Path
 from typing import Any
 
