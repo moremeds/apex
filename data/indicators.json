@@ -1,0 +1,1112 @@
+{
+  "categories": [
+    {
+      "name": "Momentum Indicators",
+      "indicators": [
+        {
+          "name": "AWESOME",
+          "description": "awesome indicator",
+          "params": {},
+          "rules": [
+            {
+              "id": "awesome_zero_cross_up",
+              "direction": "buy",
+              "description": "{symbol} Awesome Oscillator crossed above zero (bullish)"
+            },
+            {
+              "id": "awesome_zero_cross_down",
+              "direction": "sell",
+              "description": "{symbol} Awesome Oscillator crossed below zero (bearish)"
+            },
+            {
+              "id": "awesome_direction_bullish",
+              "direction": "buy",
+              "description": "{symbol} Awesome Oscillator turned bullish"
+            },
+            {
+              "id": "awesome_direction_bearish",
+              "direction": "sell",
+              "description": "{symbol} Awesome Oscillator turned bearish"
+            }
+          ]
+        },
+        {
+          "name": "CCI",
+          "description": "cci indicator",
+          "params": {},
+          "rules": [
+            {
+              "id": "cci_oversold_exit",
+              "direction": "buy",
+              "description": "{symbol} CCI exiting oversold zone"
+            },
+            {
+              "id": "cci_overbought_exit",
+              "direction": "sell",
+              "description": "{symbol} CCI exiting overbought zone"
+            },
+            {
+              "id": "cci_zero_cross_up",
+              "direction": "buy",
+              "description": "{symbol} CCI crossed above zero (bullish momentum)"
+            },
+            {
+              "id": "cci_zero_cross_down",
+              "direction": "sell",
+              "description": "{symbol} CCI crossed below zero (bearish momentum)"
+            }
+          ]
+        },
+        {
+          "name": "DUAL_MACD",
+          "description": "dual_macd indicator",
+          "params": {},
+          "rules": []
+        },
+        {
+          "name": "KDJ",
+          "description": "kdj indicator",
+          "params": {},
+          "rules": [
+            {
+              "id": "kdj_bullish_cross",
+              "direction": "buy",
+              "description": "{symbol} KDJ bullish crossover (K crossed above D)"
+            },
+            {
+              "id": "kdj_bearish_cross",
+              "direction": "sell",
+              "description": "{symbol} KDJ bearish crossover (K crossed below D)"
+            },
+            {
+              "id": "kdj_oversold_exit",
+              "direction": "buy",
+              "description": "{symbol} KDJ exiting oversold zone"
+            },
+            {
+              "id": "kdj_st_bullish_cross",
+              "direction": "alert",
+              "description": "{symbol} KDJ bullish crossover (short-term)"
+            },
+            {
+              "id": "kdj_st_bearish_cross",
+              "direction": "alert",
+              "description": "{symbol} KDJ bearish crossover (short-term)"
+            },
+            {
+              "id": "kdj_st_oversold_exit",
+              "direction": "alert",
+              "description": "{symbol} KDJ exiting oversold (short-term)"
+            }
+          ]
+        },
+        {
+          "name": "MACD",
+          "description": "macd indicator",
+          "params": {},
+          "rules": [
+            {
+              "id": "macd_bullish_cross",
+              "direction": "buy",
+              "description": "{symbol} MACD bullish crossover"
+            },
+            {
+              "id": "macd_bearish_cross",
+              "direction": "sell",
+              "description": "{symbol} MACD bearish crossover"
+            },
+            {
+              "id": "macd_histogram_bullish",
+              "direction": "buy",
+              "description": "{symbol} MACD histogram turned positive"
+            },
+            {
+              "id": "macd_histogram_bearish",
+              "direction": "sell",
+              "description": "{symbol} MACD histogram turned negative"
+            },
+            {
+              "id": "macd_st_bullish_cross",
+              "direction": "alert",
+              "description": "{symbol} MACD bullish crossover (short-term)"
+            },
+            {
+              "id": "macd_st_bearish_cross",
+              "direction": "alert",
+              "description": "{symbol} MACD bearish crossover (short-term)"
+            },
+            {
+              "id": "macd_st_histogram_bullish",
+              "direction": "alert",
+              "description": "{symbol} MACD histogram turned positive (short-term)"
+            },
+            {
+              "id": "macd_st_histogram_bearish",
+              "direction": "alert",
+              "description": "{symbol} MACD histogram turned negative (short-term)"
+            }
+          ]
+        },
+        {
+          "name": "MFI",
+          "description": "mfi indicator",
+          "params": {},
+          "rules": [
+            {
+              "id": "mfi_oversold_exit",
+              "direction": "buy",
+              "description": "{symbol} MFI exiting oversold zone (buying pressure)"
+            },
+            {
+              "id": "mfi_overbought_exit",
+              "direction": "sell",
+              "description": "{symbol} MFI exiting overbought zone (selling pressure)"
+            }
+          ]
+        },
+        {
+          "name": "MOMENTUM",
+          "description": "momentum indicator",
+          "params": {},
+          "rules": [
+            {
+              "id": "momentum_bullish_cross",
+              "direction": "buy",
+              "description": "{symbol} Momentum crossed above zero (bullish)"
+            },
+            {
+              "id": "momentum_bearish_cross",
+              "direction": "sell",
+              "description": "{symbol} Momentum crossed below zero (bearish)"
+            }
+          ]
+        },
+        {
+          "name": "ROC",
+          "description": "roc indicator",
+          "params": {},
+          "rules": [
+            {
+              "id": "roc_zero_cross_up",
+              "direction": "buy",
+              "description": "{symbol} ROC crossed above zero (bullish momentum)"
+            },
+            {
+              "id": "roc_zero_cross_down",
+              "direction": "sell",
+              "description": "{symbol} ROC crossed below zero (bearish momentum)"
+            },
+            {
+              "id": "roc_st_bullish_cross",
+              "direction": "alert",
+              "description": "{symbol} ROC turned positive (short-term momentum)"
+            },
+            {
+              "id": "roc_st_bearish_cross",
+              "direction": "alert",
+              "description": "{symbol} ROC turned negative (short-term momentum)"
+            }
+          ]
+        },
+        {
+          "name": "RSI",
+          "description": "rsi indicator",
+          "params": {},
+          "rules": [
+            {
+              "id": "rsi_oversold_exit",
+              "direction": "buy",
+              "description": "{symbol} RSI exiting oversold zone"
+            },
+            {
+              "id": "rsi_overbought_exit",
+              "direction": "sell",
+              "description": "{symbol} RSI exiting overbought zone"
+            },
+            {
+              "id": "rsi_50_cross_up",
+              "direction": "buy",
+              "description": "{symbol} RSI crossed above 50 (bullish momentum)"
+            },
+            {
+              "id": "rsi_50_cross_down",
+              "direction": "sell",
+              "description": "{symbol} RSI crossed below 50 (bearish momentum)"
+            },
+            {
+              "id": "rsi_st_oversold_exit",
+              "direction": "alert",
+              "description": "{symbol} RSI exiting oversold (short-term)"
+            },
+            {
+              "id": "rsi_st_overbought_exit",
+              "direction": "alert",
+              "description": "{symbol} RSI exiting overbought (short-term)"
+            },
+            {
+              "id": "rsi_st_extreme_oversold",
+              "direction": "alert",
+              "description": "{symbol} RSI extremely oversold (<20)"
+            },
+            {
+              "id": "rsi_st_extreme_overbought",
+              "direction": "alert",
+              "description": "{symbol} RSI extremely overbought (>80)"
+            }
+          ]
+        },
+        {
+          "name": "RSI_HARMONICS",
+          "description": "rsi_harmonics indicator",
+          "params": {},
+          "rules": [
+            {
+              "id": "rsi_harmonics_bullish_confluence",
+              "direction": "buy",
+              "description": "{symbol} RSI Harmonics bullish confluence (all periods bullish)"
+            },
+            {
+              "id": "rsi_harmonics_bearish_confluence",
+              "direction": "sell",
+              "description": "{symbol} RSI Harmonics bearish confluence (all periods bearish)"
+            },
+            {
+              "id": "rsi_harmonics_oversold_exit",
+              "direction": "buy",
+              "description": "{symbol} RSI Harmonics exiting oversold zone"
+            },
+            {
+              "id": "rsi_harmonics_overbought_exit",
+              "direction": "sell",
+              "description": "{symbol} RSI Harmonics exiting overbought zone"
+            }
+          ]
+        },
+        {
+          "name": "TSI",
+          "description": "tsi indicator",
+          "params": {},
+          "rules": [
+            {
+              "id": "tsi_bullish_cross",
+              "direction": "buy",
+              "description": "{symbol} TSI bullish crossover (TSI crossed above signal)"
+            },
+            {
+              "id": "tsi_bearish_cross",
+              "direction": "sell",
+              "description": "{symbol} TSI bearish crossover (TSI crossed below signal)"
+            },
+            {
+              "id": "tsi_oversold_exit",
+              "direction": "buy",
+              "description": "{symbol} TSI exiting oversold zone"
+            },
+            {
+              "id": "tsi_overbought_exit",
+              "direction": "sell",
+              "description": "{symbol} TSI exiting overbought zone"
+            }
+          ]
+        },
+        {
+          "name": "ULTIMATE",
+          "description": "ultimate indicator",
+          "params": {},
+          "rules": [
+            {
+              "id": "ultimate_oversold_exit",
+              "direction": "buy",
+              "description": "{symbol} Ultimate Oscillator exiting oversold zone"
+            },
+            {
+              "id": "ultimate_overbought_exit",
+              "direction": "sell",
+              "description": "{symbol} Ultimate Oscillator exiting overbought zone"
+            }
+          ]
+        },
+        {
+          "name": "WILLIAMS_R",
+          "description": "williams_r indicator",
+          "params": {},
+          "rules": [
+            {
+              "id": "williams_r_oversold_exit",
+              "direction": "buy",
+              "description": "{symbol} Williams %R exiting oversold zone"
+            },
+            {
+              "id": "williams_r_overbought_exit",
+              "direction": "sell",
+              "description": "{symbol} Williams %R exiting overbought zone"
+            },
+            {
+              "id": "williams_st_oversold_exit",
+              "direction": "alert",
+              "description": "{symbol} Williams %R exiting oversold (short-term)"
+            },
+            {
+              "id": "williams_st_overbought_exit",
+              "direction": "alert",
+              "description": "{symbol} Williams %R exiting overbought (short-term)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Trend Indicators",
+      "indicators": [
+        {
+          "name": "ADX",
+          "description": "adx indicator",
+          "params": {},
+          "rules": [
+            {
+              "id": "adx_trend_strong",
+              "direction": "alert",
+              "description": "{symbol} ADX above 25 - strong trend developing"
+            },
+            {
+              "id": "adx_trend_very_strong",
+              "direction": "alert",
+              "description": "{symbol} ADX above 40 - very strong trend"
+            },
+            {
+              "id": "adx_di_bullish_cross",
+              "direction": "buy",
+              "description": "{symbol} ADX +DI crossed above -DI (bullish trend)"
+            },
+            {
+              "id": "adx_di_bearish_cross",
+              "direction": "sell",
+              "description": "{symbol} ADX +DI crossed below -DI (bearish trend)"
+            }
+          ]
+        },
+        {
+          "name": "AROON",
+          "description": "aroon indicator",
+          "params": {},
+          "rules": [
+            {
+              "id": "aroon_bullish_cross",
+              "direction": "buy",
+              "description": "{symbol} Aroon Up crossed above Aroon Down"
+            },
+            {
+              "id": "aroon_bearish_cross",
+              "direction": "sell",
+              "description": "{symbol} Aroon Up crossed below Aroon Down"
+            },
+            {
+              "id": "aroon_osc_bullish_cross",
+              "direction": "buy",
+              "description": "{symbol} Aroon Oscillator crossed above zero (bullish trend)"
+            },
+            {
+              "id": "aroon_osc_bearish_cross",
+              "direction": "sell",
+              "description": "{symbol} Aroon Oscillator crossed below zero (bearish trend)"
+            }
+          ]
+        },
+        {
+          "name": "EMA",
+          "description": "ema indicator",
+          "params": {},
+          "rules": [
+            {
+              "id": "ema_golden_cross",
+              "direction": "buy",
+              "description": "{symbol} EMA golden cross (fast crossed above slow)"
+            },
+            {
+              "id": "ema_death_cross",
+              "direction": "sell",
+              "description": "{symbol} EMA death cross (fast crossed below slow)"
+            }
+          ]
+        },
+        {
+          "name": "ICHIMOKU",
+          "description": "ichimoku indicator",
+          "params": {},
+          "rules": [
+            {
+              "id": "ichimoku_tk_bullish_cross",
+              "direction": "buy",
+              "description": "{symbol} Ichimoku TK bullish cross (Tenkan above Kijun)"
+            },
+            {
+              "id": "ichimoku_tk_bearish_cross",
+              "direction": "sell",
+              "description": "{symbol} Ichimoku TK bearish cross (Tenkan below Kijun)"
+            },
+            {
+              "id": "ichimoku_cloud_bullish_breakout",
+              "direction": "buy",
+              "description": "{symbol} Ichimoku price broke above cloud (strong bullish)"
+            },
+            {
+              "id": "ichimoku_cloud_bearish_breakout",
+              "direction": "sell",
+              "description": "{symbol} Ichimoku price broke below cloud (strong bearish)"
+            },
+            {
+              "id": "ichimoku_kumo_bullish_twist",
+              "direction": "buy",
+              "description": "{symbol} Ichimoku kumo twist to bullish (green cloud)"
+            },
+            {
+              "id": "ichimoku_kumo_bearish_twist",
+              "direction": "sell",
+              "description": "{symbol} Ichimoku kumo twist to bearish (red cloud)"
+            }
+          ]
+        },
+        {
+          "name": "PSAR",
+          "description": "psar indicator",
+          "params": {},
+          "rules": [
+            {
+              "id": "psar_bullish_flip",
+              "direction": "buy",
+              "description": "{symbol} PSAR flipped bullish"
+            },
+            {
+              "id": "psar_bearish_flip",
+              "direction": "sell",
+              "description": "{symbol} PSAR flipped bearish"
+            }
+          ]
+        },
+        {
+          "name": "SMA",
+          "description": "sma indicator",
+          "params": {},
+          "rules": [
+            {
+              "id": "sma_golden_cross",
+              "direction": "buy",
+              "description": "{symbol} SMA golden cross"
+            },
+            {
+              "id": "sma_death_cross",
+              "direction": "sell",
+              "description": "{symbol} SMA death cross"
+            }
+          ]
+        },
+        {
+          "name": "SUPERTREND",
+          "description": "supertrend indicator",
+          "params": {},
+          "rules": [
+            {
+              "id": "supertrend_bullish",
+              "direction": "buy",
+              "description": "{symbol} SuperTrend turned bullish"
+            },
+            {
+              "id": "supertrend_bearish",
+              "direction": "sell",
+              "description": "{symbol} SuperTrend turned bearish"
+            },
+            {
+              "id": "supertrend_st_bullish_flip",
+              "direction": "alert",
+              "description": "{symbol} SuperTrend flipped bullish (short-term)"
+            },
+            {
+              "id": "supertrend_st_bearish_flip",
+              "direction": "alert",
+              "description": "{symbol} SuperTrend flipped bearish (short-term)"
+            }
+          ]
+        },
+        {
+          "name": "TREND_PULSE",
+          "description": "trend_pulse indicator",
+          "params": {},
+          "rules": []
+        },
+        {
+          "name": "TRIX",
+          "description": "trix indicator",
+          "params": {},
+          "rules": [
+            {
+              "id": "trix_bullish_cross",
+              "direction": "buy",
+              "description": "{symbol} TRIX bullish crossover (TRIX above signal)"
+            },
+            {
+              "id": "trix_bearish_cross",
+              "direction": "sell",
+              "description": "{symbol} TRIX bearish crossover (TRIX below signal)"
+            }
+          ]
+        },
+        {
+          "name": "VORTEX",
+          "description": "vortex indicator",
+          "params": {},
+          "rules": [
+            {
+              "id": "vortex_bullish_cross",
+              "direction": "buy",
+              "description": "{symbol} Vortex bullish cross (VI+ above VI-)"
+            },
+            {
+              "id": "vortex_bearish_cross",
+              "direction": "sell",
+              "description": "{symbol} Vortex bearish cross (VI+ below VI-)"
+            }
+          ]
+        },
+        {
+          "name": "ZEROLAG",
+          "description": "zerolag indicator",
+          "params": {},
+          "rules": [
+            {
+              "id": "zerolag_slope_bullish",
+              "direction": "buy",
+              "description": "{symbol} Zero-Lag EMA slope turned bullish"
+            },
+            {
+              "id": "zerolag_slope_bearish",
+              "direction": "sell",
+              "description": "{symbol} Zero-Lag EMA slope turned bearish"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Volatility Indicators",
+      "indicators": [
+        {
+          "name": "ATR",
+          "description": "atr indicator",
+          "params": {},
+          "rules": [
+            {
+              "id": "atr_expansion",
+              "direction": "alert",
+              "description": "{symbol} ATR expanding - increased volatility"
+            },
+            {
+              "id": "atr_contraction",
+              "direction": "alert",
+              "description": "{symbol} ATR contracting - volatility decreasing"
+            },
+            {
+              "id": "atr_st_expansion",
+              "direction": "alert",
+              "description": "{symbol} ATR expanding - volatility spike (short-term)"
+            },
+            {
+              "id": "atr_st_contraction",
+              "direction": "alert",
+              "description": "{symbol} ATR contracting - low volatility (short-term)"
+            }
+          ]
+        },
+        {
+          "name": "BOLLINGER",
+          "description": "bollinger indicator",
+          "params": {},
+          "rules": [
+            {
+              "id": "bollinger_lower_touch",
+              "direction": "buy",
+              "description": "{symbol} price touched lower Bollinger Band"
+            },
+            {
+              "id": "bollinger_upper_touch",
+              "direction": "sell",
+              "description": "{symbol} price touched upper Bollinger Band"
+            },
+            {
+              "id": "bollinger_squeeze",
+              "direction": "alert",
+              "description": "{symbol} Bollinger Bands squeeze detected - breakout pending"
+            },
+            {
+              "id": "bollinger_expansion",
+              "direction": "alert",
+              "description": "{symbol} Bollinger Bands expanding - breakout in progress"
+            }
+          ]
+        },
+        {
+          "name": "CHAIKIN_VOL",
+          "description": "chaikin_vol indicator",
+          "params": {},
+          "rules": [
+            {
+              "id": "chaikin_vol_expanding",
+              "direction": "alert",
+              "description": "{symbol} Chaikin Volatility expanding - range increasing"
+            },
+            {
+              "id": "chaikin_vol_contracting",
+              "direction": "alert",
+              "description": "{symbol} Chaikin Volatility contracting - range decreasing"
+            }
+          ]
+        },
+        {
+          "name": "DONCHIAN",
+          "description": "donchian indicator",
+          "params": {},
+          "rules": [
+            {
+              "id": "donchian_upper_breakout",
+              "direction": "buy",
+              "description": "{symbol} Donchian upper channel breakout"
+            },
+            {
+              "id": "donchian_lower_breakout",
+              "direction": "sell",
+              "description": "{symbol} Donchian lower channel breakout"
+            }
+          ]
+        },
+        {
+          "name": "HVOL",
+          "description": "hvol indicator",
+          "params": {},
+          "rules": [
+            {
+              "id": "hvol_high_regime",
+              "direction": "alert",
+              "description": "{symbol} Historical Volatility entered high regime (>30%)"
+            },
+            {
+              "id": "hvol_low_regime",
+              "direction": "alert",
+              "description": "{symbol} Historical Volatility entered low regime (<15%) - breakout potential"
+            }
+          ]
+        },
+        {
+          "name": "KELTNER",
+          "description": "keltner indicator",
+          "params": {},
+          "rules": [
+            {
+              "id": "keltner_upper_breakout",
+              "direction": "buy",
+              "description": "{symbol} Keltner Channel upper breakout (bullish momentum)"
+            },
+            {
+              "id": "keltner_lower_breakout",
+              "direction": "sell",
+              "description": "{symbol} Keltner Channel lower breakout (bearish momentum)"
+            }
+          ]
+        },
+        {
+          "name": "SQUEEZE",
+          "description": "squeeze indicator",
+          "params": {},
+          "rules": [
+            {
+              "id": "squeeze_fire_bullish",
+              "direction": "buy",
+              "description": "{symbol} Squeeze fired bullish - momentum breakout"
+            },
+            {
+              "id": "squeeze_fire_bearish",
+              "direction": "sell",
+              "description": "{symbol} Squeeze fired bearish - momentum breakdown"
+            },
+            {
+              "id": "squeeze_on",
+              "direction": "alert",
+              "description": "{symbol} Squeeze activated - consolidation phase"
+            }
+          ]
+        },
+        {
+          "name": "STDDEV",
+          "description": "stddev indicator",
+          "params": {},
+          "rules": [
+            {
+              "id": "stddev_spike",
+              "direction": "alert",
+              "description": "{symbol} Standard Deviation spike - volatility increasing"
+            },
+            {
+              "id": "stddev_compression",
+              "direction": "alert",
+              "description": "{symbol} Standard Deviation compression - potential breakout setup"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Volume Indicators",
+      "indicators": [
+        {
+          "name": "AD",
+          "description": "ad indicator",
+          "params": {},
+          "rules": [
+            {
+              "id": "ad_accumulation",
+              "direction": "buy",
+              "description": "{symbol} A/D Line turned to accumulation (buying pressure)"
+            },
+            {
+              "id": "ad_distribution",
+              "direction": "sell",
+              "description": "{symbol} A/D Line turned to distribution (selling pressure)"
+            }
+          ]
+        },
+        {
+          "name": "CMF",
+          "description": "cmf indicator",
+          "params": {},
+          "rules": [
+            {
+              "id": "cmf_bullish",
+              "direction": "buy",
+              "description": "{symbol} CMF turned positive (money flow bullish)"
+            },
+            {
+              "id": "cmf_bearish",
+              "direction": "sell",
+              "description": "{symbol} CMF turned negative (money flow bearish)"
+            }
+          ]
+        },
+        {
+          "name": "CVD",
+          "description": "cvd indicator",
+          "params": {},
+          "rules": [
+            {
+              "id": "cvd_st_buying_pressure",
+              "direction": "alert",
+              "description": "{symbol} CVD buying pressure detected (short-term)"
+            },
+            {
+              "id": "cvd_st_selling_pressure",
+              "direction": "alert",
+              "description": "{symbol} CVD selling pressure detected (short-term)"
+            }
+          ]
+        },
+        {
+          "name": "FORCE",
+          "description": "force indicator",
+          "params": {},
+          "rules": [
+            {
+              "id": "force_bullish_cross",
+              "direction": "buy",
+              "description": "{symbol} Force Index turned positive (buying pressure)"
+            },
+            {
+              "id": "force_bearish_cross",
+              "direction": "sell",
+              "description": "{symbol} Force Index turned negative (selling pressure)"
+            }
+          ]
+        },
+        {
+          "name": "OBV",
+          "description": "obv indicator",
+          "params": {},
+          "rules": [
+            {
+              "id": "obv_trend_up",
+              "direction": "buy",
+              "description": "{symbol} OBV trend turned bullish (accumulation)"
+            },
+            {
+              "id": "obv_trend_down",
+              "direction": "sell",
+              "description": "{symbol} OBV trend turned bearish (distribution)"
+            },
+            {
+              "id": "obv_divergence_bullish",
+              "direction": "buy",
+              "description": "{symbol} OBV bullish divergence detected"
+            },
+            {
+              "id": "obv_divergence_bearish",
+              "direction": "sell",
+              "description": "{symbol} OBV bearish divergence detected"
+            },
+            {
+              "id": "obv_st_accumulation",
+              "direction": "alert",
+              "description": "{symbol} OBV shows accumulation (short-term)"
+            },
+            {
+              "id": "obv_st_distribution",
+              "direction": "alert",
+              "description": "{symbol} OBV shows distribution (short-term)"
+            }
+          ]
+        },
+        {
+          "name": "VOLUME",
+          "description": "volume indicator",
+          "params": {},
+          "rules": [
+            {
+              "id": "volume_spike",
+              "direction": "alert",
+              "description": "{symbol} volume spike detected - significant activity"
+            },
+            {
+              "id": "volume_dry_up",
+              "direction": "alert",
+              "description": "{symbol} volume dried up - potential consolidation"
+            }
+          ]
+        },
+        {
+          "name": "VOLUME_RATIO",
+          "description": "volume_ratio indicator",
+          "params": {},
+          "rules": [
+            {
+              "id": "volume_ratio_spike",
+              "direction": "alert",
+              "description": "{symbol} Volume ratio spike detected - unusual activity"
+            },
+            {
+              "id": "volume_ratio_high",
+              "direction": "alert",
+              "description": "{symbol} Volume ratio turned high - significant volume increase"
+            },
+            {
+              "id": "volume_ratio_low",
+              "direction": "alert",
+              "description": "{symbol} Volume ratio turned low - lack of interest"
+            }
+          ]
+        },
+        {
+          "name": "VPVR",
+          "description": "vpvr indicator",
+          "params": {},
+          "rules": []
+        },
+        {
+          "name": "VWAP",
+          "description": "vwap indicator",
+          "params": {},
+          "rules": [
+            {
+              "id": "vwap_cross_above",
+              "direction": "buy",
+              "description": "{symbol} price crossed above VWAP (bullish)"
+            },
+            {
+              "id": "vwap_cross_below",
+              "direction": "sell",
+              "description": "{symbol} price crossed below VWAP (bearish)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Pattern Indicators",
+      "indicators": [
+        {
+          "name": "CANDLESTICK",
+          "description": "candlestick indicator",
+          "params": {},
+          "rules": [
+            {
+              "id": "candlestick_bullish_pattern",
+              "direction": "buy",
+              "description": "{symbol} bullish candlestick pattern detected"
+            },
+            {
+              "id": "candlestick_bearish_pattern",
+              "direction": "sell",
+              "description": "{symbol} bearish candlestick pattern detected"
+            }
+          ]
+        },
+        {
+          "name": "CHART_PATTERNS",
+          "description": "chart_patterns indicator",
+          "params": {},
+          "rules": [
+            {
+              "id": "chart_pattern_double_top",
+              "direction": "sell",
+              "description": "{symbol} Double Top pattern detected (bearish reversal)"
+            },
+            {
+              "id": "chart_pattern_head_shoulders",
+              "direction": "sell",
+              "description": "{symbol} Head & Shoulders pattern detected (bearish reversal)"
+            },
+            {
+              "id": "chart_pattern_double_bottom",
+              "direction": "buy",
+              "description": "{symbol} Double Bottom pattern detected (bullish reversal)"
+            },
+            {
+              "id": "chart_pattern_inv_head_shoulders",
+              "direction": "buy",
+              "description": "{symbol} Inverse Head & Shoulders pattern detected (bullish reversal)"
+            },
+            {
+              "id": "chart_pattern_ascending_triangle",
+              "direction": "buy",
+              "description": "{symbol} Ascending Triangle pattern (bullish continuation)"
+            },
+            {
+              "id": "chart_pattern_descending_triangle",
+              "direction": "sell",
+              "description": "{symbol} Descending Triangle pattern (bearish continuation)"
+            },
+            {
+              "id": "chart_pattern_symmetrical_triangle",
+              "direction": "alert",
+              "description": "{symbol} Symmetrical Triangle pattern (breakout imminent)"
+            },
+            {
+              "id": "chart_pattern_bullish_detected",
+              "direction": "buy",
+              "description": "{symbol} bullish chart pattern forming"
+            },
+            {
+              "id": "chart_pattern_bearish_detected",
+              "direction": "sell",
+              "description": "{symbol} bearish chart pattern forming"
+            }
+          ]
+        },
+        {
+          "name": "FIBONACCI",
+          "description": "fibonacci indicator",
+          "params": {},
+          "rules": [
+            {
+              "id": "fib_at_382",
+              "direction": "alert",
+              "description": "{symbol} at 38.2% Fibonacci retracement level"
+            },
+            {
+              "id": "fib_at_500",
+              "direction": "alert",
+              "description": "{symbol} at 50% Fibonacci retracement level"
+            },
+            {
+              "id": "fib_at_618",
+              "direction": "alert",
+              "description": "{symbol} at 61.8% Golden Ratio Fibonacci level"
+            },
+            {
+              "id": "fib_breakout_above",
+              "direction": "buy",
+              "description": "{symbol} broke above Fibonacci range (bullish breakout)"
+            },
+            {
+              "id": "fib_breakdown_below",
+              "direction": "sell",
+              "description": "{symbol} broke below Fibonacci range (bearish breakdown)"
+            }
+          ]
+        },
+        {
+          "name": "PIVOT",
+          "description": "pivot indicator",
+          "params": {},
+          "rules": [
+            {
+              "id": "pivot_bullish_breakout",
+              "direction": "buy",
+              "description": "{symbol} broke above pivot point (bullish)"
+            },
+            {
+              "id": "pivot_bearish_breakdown",
+              "direction": "sell",
+              "description": "{symbol} broke below pivot point (bearish)"
+            },
+            {
+              "id": "pivot_r2_test",
+              "direction": "alert",
+              "description": "{symbol} testing R2/R3 resistance"
+            },
+            {
+              "id": "pivot_s2_test",
+              "direction": "alert",
+              "description": "{symbol} testing S2/S3 support"
+            }
+          ]
+        },
+        {
+          "name": "SUPPORT_RESISTANCE",
+          "description": "support_resistance indicator",
+          "params": {},
+          "rules": [
+            {
+              "id": "sr_approaching_support",
+              "direction": "alert",
+              "description": "{symbol} approaching key support level"
+            },
+            {
+              "id": "sr_approaching_resistance",
+              "direction": "alert",
+              "description": "{symbol} approaching key resistance level"
+            },
+            {
+              "id": "sr_support_bounce",
+              "direction": "buy",
+              "description": "{symbol} bounced off support level (bullish)"
+            },
+            {
+              "id": "sr_resistance_rejection",
+              "direction": "sell",
+              "description": "{symbol} rejected at resistance level (bearish)"
+            }
+          ]
+        },
+        {
+          "name": "TRENDLINE",
+          "description": "trendline indicator",
+          "params": {},
+          "rules": [
+            {
+              "id": "trendline_uptrend_start",
+              "direction": "buy",
+              "description": "{symbol} trendline indicates uptrend starting"
+            },
+            {
+              "id": "trendline_downtrend_start",
+              "direction": "sell",
+              "description": "{symbol} trendline indicates downtrend starting"
+            },
+            {
+              "id": "trendline_consolidation",
+              "direction": "alert",
+              "description": "{symbol} entering consolidation (sideways trend)"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "total_indicators": 48,
+  "total_rules": 151
+}

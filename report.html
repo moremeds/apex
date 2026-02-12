@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Signal Analysis Report</title>
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body class="apex-hm">
+    <div class="container">
+        <header class="header">
+            <div class="header-top">
+                <a href="index.html" class="back-link">← Heatmap</a>
+                <h1>Signal Analysis Report</h1>
+                <a href="strategies.html" class="strategies-link" style="color:#58a6ff;font-size:13px;text-decoration:none;">Strategy Comparison</a>
+                <a href="pead.html" style="color:#58a6ff;font-size:13px;text-decoration:none;">PEAD Screen</a>
+                <a href="validation.html" class="validation-link">:bar_chart: Validation Results</a>
+            </div>
+            <div class="meta">
+                <span><strong>Symbols:</strong> 145</span>
+                <span><strong>Timeframes:</strong> 1h, 4h, 1d</span>
+                <span><strong>Generated:</strong> 2026-02-12 17:10</span>
+            </div>
+        </header>
+
+        <div class="controls">
+            <div class="control-group">
+                <label>Symbol</label>
+                <select id="symbol-select" onchange="updateChart()">
+                    <option value="AAPL">AAPL</option>
+                    <option value="ABBV">ABBV</option>
+                    <option value="ABT">ABT</option>
+                    <option value="ADBE">ADBE</option>
+                    <option value="AEP">AEP</option>
+                    <option value="AMAT">AMAT</option>
+                    <option value="AMD">AMD</option>
+                    <option value="AMGN">AMGN</option>
+                    <option value="AMT">AMT</option>
+                    <option value="AMZN">AMZN</option>
+                    <option value="APD">APD</option>
+                    <option value="ASML">ASML</option>
+                    <option value="AVGO">AVGO</option>
+                    <option value="AXP">AXP</option>
+                    <option value="BA">BA</option>
+                    <option value="BAC">BAC</option>
+                    <option value="BLK">BLK</option>
+                    <option value="C">C</option>
+                    <option value="CAT">CAT</option>
+                    <option value="CCI">CCI</option>
+                    <option value="CHTR">CHTR</option>
+                    <option value="CL">CL</option>
+                    <option value="CMCSA">CMCSA</option>
+                    <option value="CME">CME</option>
+                    <option value="COP">COP</option>
+                    <option value="COST">COST</option>
+                    <option value="CRM">CRM</option>
+                    <option value="CSCO">CSCO</option>
+                    <option value="CVS">CVS</option>
+                    <option value="CVX">CVX</option>
+                    <option value="D">D</option>
+                    <option value="DE">DE</option>
+                    <option value="DHR">DHR</option>
+                    <option value="DIA">DIA</option>
+                    <option value="DIS">DIS</option>
+                    <option value="DLR">DLR</option>
+                    <option value="DOW">DOW</option>
+                    <option value="DUK">DUK</option>
+                    <option value="ECL">ECL</option>
+                    <option value="EOG">EOG</option>
+                    <option value="EQIX">EQIX</option>
+                    <option value="EXC">EXC</option>
+                    <option value="FCX">FCX</option>
+                    <option value="FDX">FDX</option>
+                    <option value="GE">GE</option>
+                    <option value="GILD">GILD</option>
+                    <option value="GIS">GIS</option>
+                    <option value="GLD">GLD</option>
+                    <option value="GOOGL">GOOGL</option>
+                    <option value="GS">GS</option>
+                    <option value="HD">HD</option>
+                    <option value="HON">HON</option>
+                    <option value="IBM">IBM</option>
+                    <option value="ICE">ICE</option>
+                    <option value="INTC">INTC</option>
+                    <option value="ISRG">ISRG</option>
+                    <option value="IWM">IWM</option>
+                    <option value="JNJ">JNJ</option>
+                    <option value="JPM">JPM</option>
+                    <option value="KHC">KHC</option>
+                    <option value="KLAC">KLAC</option>
+                    <option value="KMI">KMI</option>
+                    <option value="KO">KO</option>
+                    <option value="LIN">LIN</option>
+                    <option value="LLY">LLY</option>
+                    <option value="LMT">LMT</option>
+                    <option value="LOW">LOW</option>
+                    <option value="LRCX">LRCX</option>
+                    <option value="MA">MA</option>
+                    <option value="MCD">MCD</option>
+                    <option value="MDT">MDT</option>
+                    <option value="META">META</option>
+                    <option value="MMM">MMM</option>
+                    <option value="MO">MO</option>
+                    <option value="MPC">MPC</option>
+                    <option value="MRK">MRK</option>
+                    <option value="MRVL">MRVL</option>
+                    <option value="MS">MS</option>
+                    <option value="MSFT">MSFT</option>
+                    <option value="MU">MU</option>
+                    <option value="NEE">NEE</option>
+                    <option value="NEM">NEM</option>
+                    <option value="NFLX">NFLX</option>
+                    <option value="NKE">NKE</option>
+                    <option value="NOW">NOW</option>
+                    <option value="NUE">NUE</option>
+                    <option value="NVDA">NVDA</option>
+                    <option value="O">O</option>
+                    <option value="ORCL">ORCL</option>
+                    <option value="OXY">OXY</option>
+                    <option value="PEP">PEP</option>
+                    <option value="PFE">PFE</option>
+                    <option value="PG">PG</option>
+                    <option value="PLD">PLD</option>
+                    <option value="PM">PM</option>
+                    <option value="PSA">PSA</option>
+                    <option value="PSX">PSX</option>
+                    <option value="QCOM">QCOM</option>
+                    <option value="QQQ">QQQ</option>
+                    <option value="RTX">RTX</option>
+                    <option value="SBUX">SBUX</option>
+                    <option value="SCHW">SCHW</option>
+                    <option value="SHW">SHW</option>
+                    <option value="SLB">SLB</option>
+                    <option value="SLV">SLV</option>
+                    <option value="SMH">SMH</option>
+                    <option value="SO">SO</option>
+                    <option value="SPG">SPG</option>
+                    <option value="SPGI">SPGI</option>
+                    <option value="SPY">SPY</option>
+                    <option value="SRE">SRE</option>
+                    <option value="STZ">STZ</option>
+                    <option value="T">T</option>
+                    <option value="TGT">TGT</option>
+                    <option value="TJX">TJX</option>
+                    <option value="TLT">TLT</option>
+                    <option value="TMO">TMO</option>
+                    <option value="TMUS">TMUS</option>
+                    <option value="TSLA">TSLA</option>
+                    <option value="TSM">TSM</option>
+                    <option value="TXN">TXN</option>
+                    <option value="UNH">UNH</option>
+                    <option value="UNP">UNP</option>
+                    <option value="UPS">UPS</option>
+                    <option value="UVXY">UVXY</option>
+                    <option value="V">V</option>
+                    <option value="VLO">VLO</option>
+                    <option value="VZ">VZ</option>
+                    <option value="WELL">WELL</option>
+                    <option value="WFC">WFC</option>
+                    <option value="WMB">WMB</option>
+                    <option value="WMT">WMT</option>
+                    <option value="XEL">XEL</option>
+                    <option value="XLB">XLB</option>
+                    <option value="XLC">XLC</option>
+                    <option value="XLE">XLE</option>
+                    <option value="XLF">XLF</option>
+                    <option value="XLI">XLI</option>
+                    <option value="XLK">XLK</option>
+                    <option value="XLP">XLP</option>
+                    <option value="XLRE">XLRE</option>
+                    <option value="XLU">XLU</option>
+                    <option value="XLV">XLV</option>
+                    <option value="XLY">XLY</option>
+                    <option value="XOM">XOM</option>
+                </select>
+            </div>
+            <div class="control-group">
+                <label>Timeframe</label>
+                <div class="timeframe-buttons">
+                    <button class="tf-btn" data-tf="1h" onclick="setTimeframe('1h')">1h</button>
+                    <button class="tf-btn" data-tf="4h" onclick="setTimeframe('4h')">4h</button>
+                    <button class="tf-btn" data-tf="1d" onclick="setTimeframe('1d')">1d</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="chart-container">
+            <div id="main-chart" class="loading">
+                <div class="loading-spinner">Loading chart data...</div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2 class="section-header" onclick="toggleSection('confluence-content')">
+                <span class="toggle-icon">&#9660;</span> Confluence Analysis
+            </h2>
+            <div id="confluence-content" class="section-content">
+                <div class="no-confluence">Loading confluence data...</div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2 class="section-header" onclick="toggleSection('dual-macd-history-content')">
+                <span class="toggle-icon">&#9660;</span> DualMACD
+            </h2>
+            <div id="dual-macd-history-content" class="section-content">
+                <div id="dual-macd-history-table">
+                    <div style="color: #94a3b8; padding: 16px;">Loading DualMACD state...</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2 class="section-header" onclick="toggleSection('trend-pulse-history-content')">
+                <span class="toggle-icon">&#9660;</span> TrendPulse
+            </h2>
+            <div id="trend-pulse-history-content" class="section-content">
+                <div id="trend-pulse-history-table">
+                    <div style="color: #94a3b8; padding: 16px;">Loading TrendPulse state...</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2 class="section-header" onclick="toggleSection('regime-content')">
+                <span class="toggle-icon">&#9660;</span> Regime Analysis
+            </h2>
+            <div id="regime-content" class="section-content">
+                <div class="no-regime">Loading regime data...</div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2 class="section-header" onclick="toggleSection('signals-content')">
+                <span class="toggle-icon">&#9660;</span> Signal History
+            </h2>
+            <div id="signals-content" class="section-content">
+                <div class="no-signals">Loading signal history...</div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2 class="section-header" onclick="toggleSection('regime-flex-content')">
+                <span class="toggle-icon">&#9660;</span> RegimeFlex Strategy
+            </h2>
+            <div id="regime-flex-content" class="section-content">
+                <div id="regime-flex-table">
+                    <div style="color: #94a3b8; padding: 16px;">Loading RegimeFlex signals...</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2 class="section-header" onclick="toggleSection('sector-pulse-content')">
+                <span class="toggle-icon">&#9660;</span> SectorPulse Strategy
+            </h2>
+            <div id="sector-pulse-content" class="section-content">
+                <div id="sector-pulse-table">
+                    <div style="color: #94a3b8; padding: 16px;">Loading SectorPulse signals...</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2 class="section-header" onclick="toggleSection('indicators-content')">
+                <span class="toggle-icon">&#9660;</span> Indicators
+            </h2>
+            <div id="indicators-content" class="section-content collapsed">
+                <div class="no-indicators">Loading indicators...</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="assets/app.js"></script>
+</body>
+</html>
