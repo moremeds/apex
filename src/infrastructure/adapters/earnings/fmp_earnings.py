@@ -4,6 +4,11 @@ Fetches earnings calendar, per-symbol earnings history, and analyst grades
 from FMP's stable API. Uses yfinance for OHLCV price data around earnings.
 
 Free tier covers ~87 major stocks; 402 responses are skipped gracefully.
+
+BMO/AMC handling:
+    - BMO (Before Market Open): reaction date = report_date
+    - AMC (After Market Close): reaction date = next trading day
+    The FMP earnings calendar returns a `time` field with these values.
 """
 
 from __future__ import annotations
@@ -13,6 +18,7 @@ import time
 from datetime import date, timedelta
 from typing import Any
 
+import pandas_market_calendars as mcal
 import requests
 import yaml
 
@@ -25,6 +31,21 @@ _FMP_BASE = "https://financialmodelingprep.com"
 # Rate limits (seconds between requests)
 _FMP_DELAY = 0.3
 _YF_DELAY = 0.5
+
+# NYSE calendar for BMO/AMC trading-day arithmetic
+_NYSE = mcal.get_calendar("NYSE")
+
+
+def _next_trading_day(ref_date: date) -> date:
+    """Return the next NYSE trading day after ref_date."""
+    end = ref_date + timedelta(days=10)
+    schedule = _NYSE.schedule(
+        start_date=ref_date + timedelta(days=1),
+        end_date=end,
+    )
+    if len(schedule) == 0:
+        return ref_date + timedelta(days=1)
+    return date.fromisoformat(schedule.index[0].strftime("%Y-%m-%d"))
 
 
 def _load_fmp_key() -> str:
@@ -116,8 +137,14 @@ class FMPEarningsAdapter:
     # ── yfinance Price Helper ─────────────────────────────────────────
 
     @staticmethod
-    def fetch_price_data(symbol: str, report_date: date) -> dict[str, Any]:
-        """Fetch OHLCV around earnings date via yfinance.
+    def fetch_price_data(symbol: str, reaction_date: date) -> dict[str, Any]:
+        """Fetch OHLCV around the earnings reaction date via yfinance.
+
+        Args:
+            symbol: Ticker symbol.
+            reaction_date: The trading day when the market reacts to earnings.
+                For BMO reporters: same as report_date.
+                For AMC reporters: next trading day after report_date.
 
         Returns dict with: prior_close, open, close, volume, avg_20d_volume,
         high_52w, current_price, forward_pe.
@@ -146,23 +173,23 @@ class FMPEarningsAdapter:
                 info.get("currentPrice", 0.0) or info.get("regularMarketPrice", 0.0) or 0.0
             )
 
-            # Historical data around earnings
-            start = report_date - timedelta(days=30)
-            end = report_date + timedelta(days=5)
+            # Historical data around earnings reaction date
+            start = reaction_date - timedelta(days=30)
+            end = reaction_date + timedelta(days=5)
             hist = ticker.history(start=start.isoformat(), end=end.isoformat())
 
             if hist.empty:
                 return result
 
-            # Find earnings day row (nearest to report_date)
-            report_str = report_date.isoformat()
-            if report_str in hist.index.strftime("%Y-%m-%d").tolist():
-                idx = hist.index.strftime("%Y-%m-%d").tolist().index(report_str)
+            # Find reaction day row (nearest to reaction_date)
+            reaction_str = reaction_date.isoformat()
+            if reaction_str in hist.index.strftime("%Y-%m-%d").tolist():
+                idx = hist.index.strftime("%Y-%m-%d").tolist().index(reaction_str)
             else:
                 # Find nearest trading day
                 idx = len(hist) - 1
                 for i, d in enumerate(hist.index):
-                    if d.date() >= report_date:
+                    if d.date() >= reaction_date:
                         idx = i
                         break
 
@@ -249,11 +276,20 @@ class FMPEarningsAdapter:
                 logger.warning(f"Invalid date for {symbol}: {report_date_str}")
                 continue
 
+            # BMO/AMC: determine reaction date
+            report_time = (entry.get("time") or "bmo").lower().strip()
+            if report_time == "amc":
+                reaction_date = _next_trading_day(report_date)
+            else:
+                reaction_date = report_date
+
             time.sleep(_YF_DELAY)
-            price = self.fetch_price_data(symbol, report_date)
+            price = self.fetch_price_data(symbol, reaction_date)
 
             # Build merged dict
-            merged = self._merge_earning_data(entry, history, grades, price, report_date)
+            merged = self._merge_earning_data(
+                entry, history, grades, price, report_date, report_time=report_time
+            )
             results.append(merged)
 
         logger.info(
@@ -302,15 +338,29 @@ class FMPEarningsAdapter:
         price: dict[str, Any],
         report_date: date,
         downgrade_window_days: int = 3,
+        report_time: str = "bmo",
     ) -> dict[str, Any]:
         """Merge FMP calendar + history + grades + yfinance into screener input."""
         symbol = calendar_entry["symbol"]
         actual = calendar_entry.get("epsActual", 0.0) or 0.0
         estimated = calendar_entry.get("epsEstimated", 0.0) or 0.0
 
-        # Historical surprises for SUE (last 8 quarters)
+        # Sort history by date descending to ensure correct ordering
+        # (FMP order is not contractually guaranteed)
+        sorted_history = sorted(
+            history,
+            key=lambda h: h.get("date", "")[:10],
+            reverse=True,
+        )
+
+        # Exclude current quarter from history to prevent SUE leakage
+        # (current quarter's surprise must not be in its own SUE denominator)
+        report_date_str = report_date.isoformat()
+        past_history = [h for h in sorted_history if h.get("date", "")[:10] != report_date_str]
+
+        # Historical surprises for SUE (last 12 quarters for multi-Q SUE)
         historical_surprises: list[float] = []
-        for h in history[:8]:
+        for h in past_history[:12]:
             h_actual = h.get("epsActual")
             h_est = h.get("epsEstimated")
             if h_actual is not None and h_est is not None:
@@ -353,6 +403,7 @@ class FMPEarningsAdapter:
         return {
             "symbol": symbol,
             "report_date": report_date.isoformat(),
+            "report_time": report_time,
             "actual_eps": actual,
             "consensus_eps": estimated,
             "historical_surprises": historical_surprises,

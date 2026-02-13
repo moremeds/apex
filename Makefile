@@ -62,9 +62,9 @@ help:
 	@echo "  make behavioral-cases Predefined case studies + serve"
 	@echo ""
 	@echo "$(GREEN)PEAD Screener:$(RESET)"
-	@echo "  make pead           Full PEAD pipeline (update caps + earnings + screen + HTML)"
+	@echo "  make pead           Full pipeline (caps + earnings + attention + screen + track + stats)"
 	@echo "  make pead-test      Run PEAD unit tests"
-	@echo "  make pead-screen    Screen only (from cached earnings, no fetch)"
+	@echo "  make pead-screen    Screen from cache (still tracks + resolves by default)"
 	@echo ""
 	@echo "$(GREEN)Other:$(RESET)"
 	@echo "  make diagrams       Generate architecture diagrams"
@@ -415,26 +415,24 @@ tp-universe-quick:
 # PEAD Earnings Drift Screener
 # ═══════════════════════════════════════════════════════════════
 
-# Full pipeline: update market caps → fetch earnings → screen → HTML report
+# Full pipeline: caps → earnings → attention → screen → track → resolve → stats → HTML
 pead:
 	@echo "$(BOLD)PEAD Earnings Drift Screen — Full Pipeline$(RESET)"
 	@echo ""
-	@echo "$(BOLD)Step 1/3: Updating market caps...$(RESET)"
+	@echo "$(BOLD)Step 1/2: Updating market caps...$(RESET)"
 	$(PYTHON) -m src.runners.signal_runner --update-market-caps \
 		--universe config/universe.yaml
 	@echo ""
-	@echo "$(BOLD)Step 2/3: Fetching earnings from FMP...$(RESET)"
-	$(PYTHON) -m src.runners.pead_runner --update-earnings \
-		--universe config/universe.yaml
-	@echo ""
-	@echo "$(BOLD)Step 3/3: Running PEAD screen...$(RESET)"
-	$(PYTHON) -m src.runners.pead_runner --screen \
+	@echo "$(BOLD)Step 2/2: Full PEAD run (earnings + attention + screen + track + stats)...$(RESET)"
+	$(PYTHON) -m src.runners.pead_runner --full \
+		--universe config/universe.yaml \
 		--html-output out/pead/pead.html
 	@echo ""
 	@echo "$(GREEN)✓ Candidates: out/pead/data/pead_candidates.json$(RESET)"
+	@echo "$(GREEN)✓ Tracker:    data/cache/pead_tracker.json$(RESET)"
 	@echo "$(GREEN)✓ HTML report: out/pead/pead.html$(RESET)"
 
-# Screen from cached earnings (no FMP fetch — fast)
+# Screen from cached earnings (no FMP fetch — still tracks + resolves by default)
 pead-screen:
 	@echo "$(BOLD)PEAD Screen (from cache)...$(RESET)"
 	$(PYTHON) -m src.runners.pead_runner --screen \

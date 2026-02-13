@@ -44,3 +44,9 @@ strategies:
     apex_only: true
     validation:
       validated_by_apex: false
+
+  pead:
+    strategy: null  # Screener-only - no event-driven playbook
+    signals: src.domain.strategy.signals.pead:PeadSignalGenerator
+    validation:
+      validated_by_apex: false

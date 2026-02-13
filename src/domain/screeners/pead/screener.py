@@ -6,7 +6,6 @@ Uses pandas_market_calendars for trading-day arithmetic (NYSE schedule).
 
 from __future__ import annotations
 
-import statistics
 from datetime import date, datetime, timedelta
 from typing import Any
 
@@ -14,6 +13,7 @@ import pandas_market_calendars as mcal
 
 from src.utils.logging_setup import get_logger
 
+from .config import PEADConfig
 from .models import (
     EarningsSurprise,
     LiquidityTier,
@@ -21,6 +21,7 @@ from .models import (
     PEADScreenResult,
 )
 from .scorer import classify_quality, score_pead_quality
+from .sue import compute_sue
 
 logger = get_logger(__name__)
 
@@ -45,12 +46,11 @@ class PEADScreener:
     After filters: score quality, assign trade params, sort descending.
     """
 
-    def __init__(self, config: dict[str, Any]) -> None:
-        self._filters = config.get("filters", {})
-        self._trade = config.get("trade_params", {})
-        self._regime = config.get("regime_rules", {})
-        self._liquidity = config.get("liquidity_tiers", {})
-        self._quality = config.get("quality_thresholds", {})
+    def __init__(self, config: PEADConfig | dict[str, Any]) -> None:
+        if isinstance(config, dict):
+            self._config = PEADConfig.from_dict(config)
+        else:
+            self._config = config
 
     # ── Public API ────────────────────────────────────────────────────
 
@@ -60,6 +60,7 @@ class PEADScreener:
         regime: str,
         today: date,
         market_caps: dict[str, float],
+        attention_data: dict[str, str | None] | None = None,
     ) -> PEADScreenResult:
         """Screen recent earnings for PEAD candidates.
 
@@ -69,14 +70,18 @@ class PEADScreener:
             regime: Current market regime ("R0", "R1", "R2", "R3").
             today: Current date for entry window calculation.
             market_caps: symbol -> market cap in USD.
+            attention_data: symbol -> attention level ("low"/"medium"/"high"/None).
+                Optional. When provided and config.attention_filter.enabled,
+                the attention modifier is applied to quality scores.
 
         Returns:
             PEADScreenResult with scored, sorted candidates.
         """
         generated_at = datetime.now()
+        cfg = self._config
 
         # Gate 1: R2 block
-        if regime == "R2" and self._regime.get("r2_block_entirely", True):
+        if regime == "R2" and cfg.regime_rules.r2_block_entirely:
             logger.info("PEAD: R2 regime — blocking all new positions")
             return PEADScreenResult(
                 candidates=[],
@@ -89,10 +94,13 @@ class PEADScreener:
         candidates: list[PEADCandidate] = []
         errors: dict[str, str] = {}
 
+        attn = attention_data or {}
         for earning in recent_earnings:
             symbol = earning.get("symbol", "?")
             try:
-                candidate = self._evaluate_single(earning, regime, today, market_caps)
+                candidate = self._evaluate_single(
+                    earning, regime, today, market_caps, attn.get(symbol)
+                )
                 if candidate is not None:
                     candidates.append(candidate)
             except Exception as e:
@@ -110,40 +118,6 @@ class PEADScreener:
             generated_at=generated_at,
             errors=errors,
         )
-
-    # ── SUE Computation ───────────────────────────────────────────────
-
-    @staticmethod
-    def compute_sue(
-        actual_eps: float,
-        consensus_eps: float,
-        historical_surprises: list[float],
-    ) -> float:
-        """Compute Standardized Unexpected Earnings (SUE).
-
-        When >= 4 quarters of historical surprise data:
-            SUE = raw_surprise / stdev(historical_surprises)
-        Fallback (< 4 quarters):
-            SUE = raw_surprise / (|consensus| * 0.05 + 0.01)
-
-        Args:
-            actual_eps: Actual reported EPS.
-            consensus_eps: Analyst consensus EPS estimate.
-            historical_surprises: List of past (actual - consensus) values.
-
-        Returns:
-            SUE score (positive = beat, negative = miss).
-        """
-        raw = actual_eps - consensus_eps
-
-        if len(historical_surprises) >= 4:
-            std = statistics.stdev(historical_surprises)
-            if std > 0:
-                return raw / std
-            # Zero std means all identical — use fallback
-        # Fallback: proxy scaling
-        denom = abs(consensus_eps) * 0.05 + 0.01
-        return raw / denom
 
     # ── Earnings Reaction ─────────────────────────────────────────────
 
@@ -202,15 +176,17 @@ class PEADScreener:
         regime: str,
         today: date,
         market_caps: dict[str, float],
+        attention_level: str | None = None,
     ) -> PEADCandidate | None:
         """Evaluate a single earning event. Returns None if filtered out."""
+        cfg = self._config
         symbol = earning["symbol"]
         report_date = earning["report_date"]
         if isinstance(report_date, str):
             report_date = date.fromisoformat(report_date)
 
         # Gate 2: Entry window (1-5 trading days)
-        max_delay = self._filters.get("max_entry_delay_trading_days", 5)
+        max_delay = cfg.filters.max_entry_delay_trading_days
         days_since = self.count_trading_days(report_date, today)
         if days_since < 1 or days_since > max_delay:
             return None
@@ -219,10 +195,10 @@ class PEADScreener:
         historical = earning.get("historical_surprises", [])
         actual = earning.get("actual_eps", 0.0)
         consensus = earning.get("consensus_eps", 0.0)
-        sue = self.compute_sue(actual, consensus, historical)
+        sue = compute_sue(actual, consensus, historical)
 
         # Gate 3: SUE filter
-        if sue < self._filters.get("min_sue", 2.0):
+        if sue < cfg.filters.min_sue:
             return None
 
         # Earnings reaction
@@ -231,7 +207,7 @@ class PEADScreener:
         volume_ratio = earning.get("earnings_day_volume_ratio", 0.0)
 
         # Gate 4: Gap filter — must be POSITIVE (long-only PEAD)
-        if gap_return < self._filters.get("min_earnings_day_gap", 0.02):
+        if gap_return < cfg.filters.min_earnings_day_gap:
             return None
 
         # Gate 4b: Beat-but-closed-down rejection
@@ -240,12 +216,12 @@ class PEADScreener:
             return None
 
         # Gate 5: Volume filter
-        if volume_ratio < self._filters.get("min_volume_ratio", 2.0):
+        if volume_ratio < cfg.filters.min_volume_ratio:
             return None
 
         # Gate 6: 52w high hard exclude
         at_52w_high = earning.get("at_52w_high", False)
-        if at_52w_high and self._filters.get("exclude_at_52w_high", True):
+        if at_52w_high and cfg.filters.exclude_at_52w_high:
             return None
 
         # Gate 7: Analyst downgrade hard exclude
@@ -255,20 +231,51 @@ class PEADScreener:
 
         # Gate 8: Forward PE filter
         forward_pe = earning.get("forward_pe")
-        max_pe = self._filters.get("max_forward_pe", 40.0)
-        if forward_pe is not None and forward_pe > max_pe:
+        if forward_pe is not None and forward_pe > cfg.filters.max_forward_pe:
             return None
 
         # Gate 9: Revenue beat (optional)
         revenue_beat = earning.get("revenue_beat", False)
-        if self._filters.get("require_revenue_beat", False) and not revenue_beat:
+        if cfg.filters.require_revenue_beat and not revenue_beat:
             return None
 
         # ── Score ─────────────────────────────────────────────────────
         score = score_pead_quality(sue, gap_return, volume_ratio, revenue_beat)
-        strong_th = self._quality.get("strong", 70)
-        moderate_th = self._quality.get("moderate", 45)
-        label = classify_quality(score, strong_th, moderate_th)
+
+        # Multi-quarter SUE modifier
+        multi_q_sue: float | None = None
+        if cfg.multi_quarter_sue.enabled:
+            from .sue import compute_multi_quarter_sue
+
+            multi_q_sue = compute_multi_quarter_sue(
+                historical,
+                decay_lambda=cfg.multi_quarter_sue.decay_lambda,
+                min_quarters=cfg.multi_quarter_sue.min_quarters,
+            )
+            if multi_q_sue is not None:
+                from .scorer import apply_multi_quarter_modifier
+
+                score = apply_multi_quarter_modifier(
+                    score,
+                    multi_q_sue,
+                    max_bonus=cfg.multi_quarter_sue.max_bonus,
+                    max_penalty=cfg.multi_quarter_sue.max_penalty,
+                )
+
+        # Attention modifier
+        if cfg.attention_filter.enabled and attention_level is not None:
+            from .scorer import apply_attention_modifier
+
+            score = apply_attention_modifier(
+                score,
+                attention_level,
+                low_bonus=cfg.attention_filter.low_bonus,
+                high_penalty=cfg.attention_filter.high_penalty,
+            )
+
+        label = classify_quality(
+            score, cfg.quality_thresholds.strong, cfg.quality_thresholds.moderate
+        )
 
         # ── Liquidity tier + slippage ─────────────────────────────────
         cap = market_caps.get(symbol, 0.0)
@@ -288,6 +295,7 @@ class PEADScreener:
             consensus_eps=consensus,
             surprise_pct=(actual - consensus) / abs(consensus) * 100 if consensus else 0.0,
             sue_score=sue,
+            multi_quarter_sue=multi_q_sue,
             earnings_day_return=day_return,
             earnings_day_gap=gap_return,
             earnings_day_volume_ratio=volume_ratio,
@@ -303,11 +311,11 @@ class PEADScreener:
             surprise=surprise,
             entry_date=entry_date,
             entry_price=entry_price,
-            profit_target_pct=self._trade.get("default_profit_target", 0.06),
-            stop_loss_pct=self._trade.get("default_stop_loss", -0.05),
-            trailing_stop_atr=self._trade.get("trailing_stop_atr_multiplier", 2.0),
-            trailing_activation_pct=self._trade.get("trailing_stop_activation_pct", 0.03),
-            max_hold_days=self._trade.get("default_max_hold_trading_days", 25),
+            profit_target_pct=cfg.trade_params.default_profit_target,
+            stop_loss_pct=cfg.trade_params.default_stop_loss,
+            trailing_stop_atr=cfg.trade_params.trailing_stop_atr_multiplier,
+            trailing_activation_pct=cfg.trade_params.trailing_stop_activation_pct,
+            max_hold_days=cfg.trade_params.default_max_hold_trading_days,
             position_size_factor=size_factor,
             quality_score=score,
             quality_label=label,
@@ -317,24 +325,25 @@ class PEADScreener:
         )
 
     def _classify_liquidity(self, market_cap: float) -> LiquidityTier:
-        large_min = self._liquidity.get("large_cap_min_market_cap", 50_000_000_000)
-        mid_min = self._liquidity.get("mid_cap_min_market_cap", 2_000_000_000)
-        if market_cap >= large_min:
+        cfg = self._config.liquidity_tiers
+        if market_cap >= cfg.large_cap_min_market_cap:
             return LiquidityTier.LARGE_CAP
-        if market_cap >= mid_min:
+        if market_cap >= cfg.mid_cap_min_market_cap:
             return LiquidityTier.MID_CAP
         return LiquidityTier.SMALL_CAP
 
     def _estimate_slippage(self, tier: LiquidityTier) -> int:
+        cfg = self._config.liquidity_tiers
         if tier == LiquidityTier.LARGE_CAP:
-            return int(self._liquidity.get("large_cap_slippage_bps", 10))
+            return cfg.large_cap_slippage_bps
         if tier == LiquidityTier.MID_CAP:
-            return int(self._liquidity.get("mid_cap_slippage_bps", 25))
-        return int(self._liquidity.get("small_cap_slippage_bps", 50))
+            return cfg.mid_cap_slippage_bps
+        return cfg.small_cap_slippage_bps
 
     def _get_position_size_factor(self, regime: str) -> float:
+        cfg = self._config.regime_rules
         if regime == "R0":
-            return float(self._regime.get("r0_position_size_factor", 1.0))
+            return cfg.r0_position_size_factor
         if regime == "R1":
-            return float(self._regime.get("r1_position_size_factor", 0.5))
+            return cfg.r1_position_size_factor
         return 1.0

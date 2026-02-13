@@ -36,6 +36,7 @@ class EarningsSurprise:
     analyst_downgrade: bool
     liquidity_tier: LiquidityTier
     forward_pe: float | None = None
+    multi_quarter_sue: float | None = None
 
 
 @dataclass

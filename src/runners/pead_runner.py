@@ -1,9 +1,14 @@
 """PEAD Screener CLI runner.
 
+Tracker (--track, --update-tracker, --tracker-stats) and attention
+(--update-attention) run by default on every invocation. Use --no-*
+flags to skip individual steps.
+
 Usage:
     python -m src.runners.pead_runner --update-earnings --universe config/universe.yaml
     python -m src.runners.pead_runner --screen --html-output out/signals/pead.html
     python -m src.runners.pead_runner --full --universe config/universe.yaml --html-output out/pead/pead.html
+    python -m src.runners.pead_runner --screen --no-attention --no-track
 """
 
 from __future__ import annotations
@@ -13,7 +18,10 @@ import json
 import sys
 from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from src.domain.screeners.pead.config import PEADConfig
 
 import yaml
 
@@ -25,36 +33,54 @@ logger = get_logger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
+# Fail-closed: unknown regime defaults to R1 (reduced size), not R0 (full trading)
+_REGIME_FALLBACK = "R1"
+
+# Module-level reference to last screen result for --track after --screen
+_last_screen_result: Any = None
+
 
 def _load_pead_config() -> dict[str, Any]:
-    """Load PEAD screener config from YAML."""
+    """Load PEAD screener config from YAML (raw dict for backward compat)."""
     path = PROJECT_ROOT / "config" / "pead_screener.yaml"
     with open(path) as f:
         return yaml.safe_load(f) or {}
 
 
-def _read_current_regime(signals_dir: Path) -> str:
-    """Read SPY regime from signal pipeline output."""
+def _load_typed_config() -> "PEADConfig":
+    """Load PEAD screener config as typed dataclass."""
+    from src.domain.screeners.pead.config import PEADConfig
+
+    path = PROJECT_ROOT / "config" / "pead_screener.yaml"
+    return PEADConfig.from_yaml(path)
+
+
+def _read_current_regime(signals_dir: Path, fallback: str = _REGIME_FALLBACK) -> str:
+    """Read SPY regime from signal pipeline output.
+
+    Fail-closed: defaults to fallback (R1) when data is unavailable,
+    ensuring conservative position sizing when regime is unknown.
+    """
     summary_path = signals_dir / "data" / "summary.json"
     if not summary_path.exists():
         logger.warning(
             f"No summary.json at {summary_path}. "
-            "Defaulting to R0 — R2 blocking will NOT activate. "
+            f"Defaulting to {fallback} (fail-closed). "
             "Ensure hourly-signals runs before PEAD, or fetch from gh-pages."
         )
-        return "R0"
+        return fallback
 
     try:
         data = json.loads(summary_path.read_text())
         for t in data.get("tickers", []):
             if t.get("symbol") == "SPY":
-                regime = t.get("regime", "R0")
+                regime = t.get("regime", fallback)
                 logger.info(f"SPY regime: {regime}")
                 return str(regime)
     except Exception as e:
         logger.warning(f"Failed to read regime from summary.json: {e}")
 
-    return "R0"
+    return fallback
 
 
 def _write_candidates_json(result: Any, output_dir: Path) -> Path:
@@ -72,6 +98,11 @@ def _write_candidates_json(result: Any, output_dir: Path) -> Path:
                 "actual_eps": c.surprise.actual_eps,
                 "consensus_eps": c.surprise.consensus_eps,
                 "sue_score": round(c.surprise.sue_score, 2),
+                "multi_quarter_sue": (
+                    round(c.surprise.multi_quarter_sue, 2)
+                    if c.surprise.multi_quarter_sue is not None
+                    else None
+                ),
                 "earnings_day_gap": round(c.surprise.earnings_day_gap, 4),
                 "earnings_day_return": round(c.surprise.earnings_day_return, 4),
                 "earnings_day_volume_ratio": round(c.surprise.earnings_day_volume_ratio, 2),
@@ -108,6 +139,9 @@ def _write_candidates_json(result: Any, output_dir: Path) -> Path:
     return out_path
 
 
+# ── Commands ──────────────────────────────────────────────────────────────
+
+
 def cmd_update_earnings(symbols: list[str], lookback_days: int = 10) -> None:
     """Update earnings cache from FMP + yfinance."""
     service = EarningsService()
@@ -121,11 +155,12 @@ def cmd_update_earnings(symbols: list[str], lookback_days: int = 10) -> None:
 def cmd_screen(
     html_output: str | None = None,
     signals_dir: str | None = None,
-) -> None:
-    """Run PEAD screening from cached data."""
+    regime_fallback: str = _REGIME_FALLBACK,
+) -> Any:
+    """Run PEAD screening from cached data. Returns screen result."""
     from src.domain.screeners.pead.screener import PEADScreener
 
-    config = _load_pead_config()
+    config = _load_typed_config()
     screener = PEADScreener(config)
 
     # Read cached earnings
@@ -133,18 +168,38 @@ def cmd_screen(
     earnings = service.get_recent_earnings()
     if not earnings:
         logger.warning("No earnings in cache. Run --update-earnings first.")
-        return
+        return None
 
     # Read regime
     sig_dir = Path(signals_dir) if signals_dir else PROJECT_ROOT / "out" / "signals"
-    regime = _read_current_regime(sig_dir)
+    regime = _read_current_regime(sig_dir, fallback=regime_fallback)
 
     # Read market caps for liquidity tiers
     cap_service = MarketCapService()
     all_caps = cap_service.get_all_cached_caps()
 
+    # Read attention data (optional, never blocks screening)
+    attention_data: dict[str, str | None] | None = None
+    if config.attention_filter.enabled:
+        try:
+            from src.infrastructure.adapters.earnings.attention_adapter import AttentionAdapter
+
+            adapter = AttentionAdapter()
+            attention_data = {}
+            for e in earnings:
+                sym = e.get("symbol", "")
+                rdate = e.get("report_date")
+                if isinstance(rdate, str):
+                    rdate = date.fromisoformat(rdate)
+                if sym and rdate:
+                    attention_data[sym] = adapter.get_attention_level(sym, rdate)
+        except Exception as e:
+            logger.warning(f"Attention data unavailable: {e}")
+
     today = date.today()
-    result = screener.generate_pead_candidates(earnings, regime, today, all_caps)
+    result = screener.generate_pead_candidates(
+        earnings, regime, today, all_caps, attention_data=attention_data
+    )
 
     # Print summary
     print(f"\nPEAD Screen Results — {today.isoformat()}")
@@ -155,9 +210,10 @@ def cmd_screen(
     print("=" * 50)
 
     for i, c in enumerate(result.candidates, 1):
+        mq = f" MQ:{c.surprise.multi_quarter_sue:.1f}" if c.surprise.multi_quarter_sue else ""
         print(f"#{i} {c.symbol} [{c.surprise.liquidity_tier.value.upper()}]")
         print(
-            f"   SUE:{c.surprise.sue_score:.1f} Gap:{c.surprise.earnings_day_gap:+.1%} "
+            f"   SUE:{c.surprise.sue_score:.1f}{mq} Gap:{c.surprise.earnings_day_gap:+.1%} "
             f"Vol:{c.surprise.earnings_day_volume_ratio:.1f}x"
         )
         print(
@@ -185,6 +241,103 @@ def cmd_screen(
         html_path = builder.build(result, html_output)
         logger.info(f"PEAD HTML report: {html_path}")
 
+    return result
+
+
+def cmd_update_attention() -> None:
+    """Pre-fetch Google Trends attention data for cached earnings.
+
+    Never blocks screening — separate pre-fetch step.
+    Requires optional ``pytrends`` dependency.
+    """
+    try:
+        from src.infrastructure.adapters.earnings.attention_adapter import AttentionAdapter
+    except ImportError:
+        print("Attention filter requires pytrends: pip install pytrends")
+        return
+
+    service = EarningsService()
+    earnings = service.get_recent_earnings()
+    if not earnings:
+        logger.info("No earnings in cache. Run --update-earnings first.")
+        return
+
+    pairs: list[tuple[date, date]] = []
+    for e in earnings:
+        sym = e.get("symbol", "")
+        rdate = e.get("report_date")
+        if isinstance(rdate, str):
+            rdate = date.fromisoformat(rdate)
+        if sym and rdate:
+            pairs.append((sym, rdate))  # type: ignore[arg-type]
+
+    adapter = AttentionAdapter()
+    fetched = adapter.update_attention_batch(pairs)  # type: ignore[arg-type]
+    print(f"Attention: {fetched} new scores fetched ({len(pairs)} symbols checked)")
+
+
+def cmd_track(result: Any) -> None:
+    """Persist screening candidates to tracker."""
+    if result is None or not result.candidates:
+        logger.info("No candidates to track")
+        return
+
+    from src.services.pead_tracker_service import PEADTrackerService
+
+    tracker = PEADTrackerService()
+    added = tracker.add_candidates(result.candidates)
+    print(f"Tracker: {added} new candidates added ({len(result.candidates)} screened)")
+
+
+def cmd_update_tracker() -> None:
+    """Resolve open tracker candidates via OHLC first-touch."""
+    from src.services.pead_tracker_service import PEADTrackerService
+
+    tracker = PEADTrackerService()
+    resolved = tracker.update_outcomes()
+    print(f"Tracker: {resolved} candidates resolved")
+
+
+def cmd_tracker_stats() -> None:
+    """Print tracker performance summary."""
+    from src.services.pead_tracker_service import PEADTrackerService
+
+    tracker = PEADTrackerService()
+    stats = tracker.get_stats()
+
+    print("\nPEAD Tracker Stats")
+    print("=" * 40)
+    print(f"Total tracked:  {stats.total}")
+    print(f"Open:           {stats.open}")
+    print(f"Won:            {stats.won}")
+    print(f"Lost:           {stats.lost}")
+    print(f"Timeout:        {stats.timeout}")
+
+    if stats.win_rate is not None:
+        print(f"Win rate:       {stats.win_rate:.1%}")
+    if stats.avg_pnl_pct is not None:
+        print(f"Avg P&L:        {stats.avg_pnl_pct:+.2%}")
+    if stats.avg_hold_days is not None:
+        print(f"Avg hold days:  {stats.avg_hold_days:.1f}")
+
+    if stats.by_quality:
+        print("\nBy Quality Tier:")
+        for label, data in sorted(stats.by_quality.items()):
+            wr = data.get("win_rate")
+            pnl = data.get("avg_pnl_pct")
+            print(
+                (
+                    f"  {label:10s} n={data['total']:3d}  " f"WR={wr:.1%} "
+                    if wr is not None
+                    else f"  {label:10s} n={data['total']:3d}  "
+                ),
+                end="",
+            )
+            if pnl is not None:
+                print(f"P&L={pnl:+.2%}")
+            else:
+                print()
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="PEAD Earnings Drift Screener")
@@ -199,12 +352,40 @@ def main() -> None:
     parser.add_argument("--lookback-days", type=int, default=10, help="Calendar days to look back")
     parser.add_argument("--html-output", type=str, default=None, help="Output HTML path")
     parser.add_argument("--signals-dir", type=str, default=None, help="Signal pipeline output dir")
+    parser.add_argument(
+        "--regime-fallback",
+        type=str,
+        default=_REGIME_FALLBACK,
+        help=f"Regime when summary.json unavailable (default: {_REGIME_FALLBACK})",
+    )
+    # Attention filter (on by default; --no-attention to skip)
+    parser.add_argument(
+        "--no-attention",
+        action="store_true",
+        help="Skip Google Trends attention pre-fetch",
+    )
+    # Tracker flags (on by default; --no-track / --no-tracker to skip)
+    parser.add_argument(
+        "--no-track", action="store_true", help="Skip persisting candidates to tracker"
+    )
+    parser.add_argument(
+        "--no-update-tracker",
+        action="store_true",
+        help="Skip resolving open tracker candidates",
+    )
+    parser.add_argument(
+        "--no-tracker-stats",
+        action="store_true",
+        help="Skip printing tracker performance summary",
+    )
     args = parser.parse_args()
 
-    if not (args.update_earnings or args.screen or args.full):
+    has_action = any([args.update_earnings, args.screen, args.full])
+    if not has_action:
         parser.print_help()
         sys.exit(1)
 
+    # Update earnings
     if args.update_earnings or args.full:
         universe_path = Path(args.universe)
         if not universe_path.is_absolute():
@@ -213,8 +394,30 @@ def main() -> None:
         logger.info(f"Universe: {len(symbols)} symbols from {universe_path}")
         cmd_update_earnings(symbols, lookback_days=args.lookback_days)
 
+    # Update attention (default on; --no-attention to skip)
+    if not args.no_attention:
+        cmd_update_attention()
+
+    # Screen
+    result = None
     if args.screen or args.full:
-        cmd_screen(html_output=args.html_output, signals_dir=args.signals_dir)
+        result = cmd_screen(
+            html_output=args.html_output,
+            signals_dir=args.signals_dir,
+            regime_fallback=args.regime_fallback,
+        )
+
+    # Track candidates (default on; --no-track to skip)
+    if not args.no_track:
+        cmd_track(result)
+
+    # Update tracker outcomes (default on; --no-update-tracker to skip)
+    if not args.no_update_tracker:
+        cmd_update_tracker()
+
+    # Print stats (default on; --no-tracker-stats to skip)
+    if not args.no_tracker_stats:
+        cmd_tracker_stats()
 
 
 if __name__ == "__main__":

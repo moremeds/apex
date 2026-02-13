@@ -1,7 +1,9 @@
-"""PEAD quality scorer — pure scoring function.
+"""PEAD quality scorer — pure scoring functions.
 
 Scores candidates on SUE magnitude, gap quality, volume confirmation,
-and revenue beat. No hard filters here (52w high, regime, analyst downgrade
+and revenue beat. Additive modifiers for multi-quarter SUE and attention.
+
+No hard filters here (52w high, regime, analyst downgrade
 are all handled upstream in the screener filter pipeline).
 """
 
@@ -70,3 +72,69 @@ def classify_quality(
     if score >= moderate_threshold:
         return "MODERATE"
     return "MARGINAL"
+
+
+def apply_multi_quarter_modifier(
+    base_score: float,
+    multi_quarter_sue: float | None,
+    max_bonus: float = 10.0,
+    max_penalty: float = -5.0,
+) -> float:
+    """Apply additive multi-quarter SUE modifier to base quality score.
+
+    Strong historical trajectory = bonus, deteriorating = penalty.
+    NOT a blend with single-Q SUE — a separate additive modifier on 0-100 score.
+
+    Args:
+        base_score: Base quality score (0-100).
+        multi_quarter_sue: Multi-quarter SUE score (None = no data).
+        max_bonus: Maximum bonus for strong trajectory.
+        max_penalty: Maximum penalty for deteriorating trajectory (negative).
+
+    Returns:
+        Adjusted quality score, clamped to [0, 100].
+    """
+    if multi_quarter_sue is None:
+        return base_score
+
+    # Map multi-Q SUE to modifier: positive SUE → bonus, negative → penalty
+    # Scale: SUE of 2.0 gets full bonus, SUE of -2.0 gets full penalty
+    if multi_quarter_sue > 0:
+        modifier = min(multi_quarter_sue / 2.0, 1.0) * max_bonus
+    else:
+        modifier = max(multi_quarter_sue / 2.0, -1.0) * abs(max_penalty)
+
+    return max(0.0, min(100.0, base_score + modifier))
+
+
+def apply_attention_modifier(
+    base_score: float,
+    attention_level: str | None,
+    low_bonus: float = 5.0,
+    high_penalty: float = -5.0,
+) -> float:
+    """Apply additive attention modifier to base quality score.
+
+    Low attention (under-followed) = bonus (PEAD more likely to persist).
+    High attention (well-covered) = penalty (market reacts faster).
+
+    Args:
+        base_score: Base quality score (0-100).
+        attention_level: "low" / "medium" / "high" / None.
+        low_bonus: Bonus for low-attention stocks.
+        high_penalty: Penalty for high-attention stocks (negative).
+
+    Returns:
+        Adjusted quality score, clamped to [0, 100].
+    """
+    if attention_level is None:
+        return base_score
+
+    modifier = 0.0
+    if attention_level == "low":
+        modifier = low_bonus
+    elif attention_level == "high":
+        modifier = high_penalty
+    # "medium" = no modifier
+
+    return max(0.0, min(100.0, base_score + modifier))
