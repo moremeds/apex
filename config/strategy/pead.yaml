@@ -1,0 +1,32 @@
+name: pead
+tier: "TIER 2"
+module_path: "src.domain.strategy.signals.pead"
+class_name: "PeadSignalGenerator"
+
+# PEAD (Post-Earnings Announcement Drift) screener as a backtestable strategy.
+#
+# Unlike price-based strategies, entries come from earnings events.
+# Pass earnings_data via params (list of dicts with report_date, sue_score, etc.)
+# or let the generator load from earnings cache automatically.
+#
+# vectorbt_compatible: true (long-only, target/stop/timeout exits)
+
+params:
+  # SUE filter thresholds
+  min_sue: 2.0
+  min_gap_pct: 0.02
+  min_volume_ratio: 2.0
+
+  # Exit parameters
+  profit_target_pct: 0.06
+  stop_loss_pct: -0.05
+  max_hold_bars: 25
+
+  # Entry timing
+  entry_delay_bars: 2
+
+  # Quality weighting (confidence-based sizing)
+  use_quality_sizing: true
+  min_quality_for_entry: 0.0
+
+history: []

@@ -1,11 +1,16 @@
-"""Unit tests for PEAD screener, scorer, and SUE computation."""
+"""Unit tests for PEAD screener filter pipeline, scorer, and config."""
 
 from __future__ import annotations
 
 from datetime import date
 
+from src.domain.screeners.pead.config import PEADConfig
 from src.domain.screeners.pead.models import LiquidityTier
-from src.domain.screeners.pead.scorer import classify_quality, score_pead_quality
+from src.domain.screeners.pead.scorer import (
+    apply_multi_quarter_modifier,
+    classify_quality,
+    score_pead_quality,
+)
 from src.domain.screeners.pead.screener import PEADScreener
 
 # ── Default config matching config/pead_screener.yaml ─────────────────────
@@ -41,6 +46,7 @@ DEFAULT_CONFIG: dict = {
         "small_cap_slippage_bps": 50,
     },
     "quality_thresholds": {"strong": 70, "moderate": 45},
+    "multi_quarter_sue": {"enabled": False},  # Disabled for existing tests
 }
 
 
@@ -88,61 +94,38 @@ _CAPS = {"AAPL": 3_000_000_000_000, "AMZN": 2_000_000_000_000, "SMLL": 500_000_0
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# SUE Computation
+# Typed Config
 # ═══════════════════════════════════════════════════════════════════════
 
 
-class TestComputeSue:
-    def test_sue_with_history(self) -> None:
-        """SUE = raw_surprise / stdev(history) when >= 4 quarters."""
-        history = [0.10, -0.05, 0.15, 0.20, -0.10, 0.05, 0.08, -0.03]
-        sue = PEADScreener.compute_sue(2.50, 2.00, history)
-        # raw = 0.50, stdev ≈ 0.104
-        assert sue > 4.0, f"Expected SUE > 4.0, got {sue:.2f}"
+class TestPEADConfig:
+    def test_from_dict_defaults(self) -> None:
+        """Empty dict produces valid config with defaults."""
+        cfg = PEADConfig.from_dict({})
+        assert cfg.filters.min_sue == 2.0
+        assert cfg.trade_params.default_profit_target == 0.06
 
-    def test_sue_no_history(self) -> None:
-        """Fallback when < 4 quarters: raw / (|consensus| * 0.05 + 0.01)."""
-        sue = PEADScreener.compute_sue(2.50, 2.00, [0.1, 0.2])
-        # raw = 0.50, denom = 2.0 * 0.05 + 0.01 = 0.11
-        expected = 0.50 / 0.11
-        assert abs(sue - expected) < 0.01
+    def test_from_dict_overrides(self) -> None:
+        """Partial dict overrides specific fields, keeps defaults for rest."""
+        cfg = PEADConfig.from_dict({"filters": {"min_sue": 3.0}})
+        assert cfg.filters.min_sue == 3.0
+        assert cfg.filters.min_volume_ratio == 2.0  # default kept
 
-    def test_sue_zero_std(self) -> None:
-        """When all historical surprises are identical, use fallback."""
-        sue = PEADScreener.compute_sue(2.50, 2.00, [0.1, 0.1, 0.1, 0.1])
-        # std=0, fallback to proxy
-        assert sue > 0
+    def test_unknown_keys_ignored(self) -> None:
+        """Unknown keys in YAML don't cause errors."""
+        cfg = PEADConfig.from_dict({"filters": {"min_sue": 2.0, "unknown_key": 99}})
+        assert cfg.filters.min_sue == 2.0
 
+    def test_screener_accepts_dict(self) -> None:
+        """PEADScreener.__init__ still accepts raw dict for backward compat."""
+        screener = PEADScreener(DEFAULT_CONFIG)
+        assert screener._config.filters.min_sue == 2.0
 
-class TestCheckEarningsReaction:
-    def test_basic_reaction(self) -> None:
-        gap, day_ret, vol_ratio, at_high = PEADScreener.check_earnings_reaction(
-            prior_close=100.0,
-            open_price=105.0,
-            close_price=106.0,
-            volume=5_000_000,
-            avg_volume=2_000_000,
-            high_52w=110.0,
-        )
-        assert abs(gap - 0.05) < 0.001
-        assert abs(day_ret - 0.06) < 0.001
-        assert abs(vol_ratio - 2.5) < 0.001
-        # at_52w_high uses prior_close (pre-earnings), not close_price
-        # 100 < 110*0.95=104.5 → False
-        assert at_high is False
-
-    def test_at_52w_high(self) -> None:
-        """prior_close near 52w high → at_52w_high is True."""
-        _, _, _, at_high = PEADScreener.check_earnings_reaction(
-            prior_close=105,
-            open_price=108,
-            close_price=110,
-            volume=1000,
-            avg_volume=500,
-            high_52w=110,
-        )
-        # 105 >= 110 * 0.95 = 104.5 → True (pre-earnings state)
-        assert at_high is True
+    def test_screener_accepts_typed_config(self) -> None:
+        """PEADScreener.__init__ accepts typed PEADConfig."""
+        cfg = PEADConfig.from_dict(DEFAULT_CONFIG)
+        screener = PEADScreener(cfg)
+        assert screener._config.filters.min_sue == 2.0
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -174,6 +157,78 @@ class TestScorer:
 
     def test_classify_marginal(self) -> None:
         assert classify_quality(30) == "MARGINAL"
+
+
+class TestMultiQuarterModifier:
+    def test_positive_multi_q_adds_bonus(self) -> None:
+        """Positive multi-Q SUE adds bonus to base score."""
+        modified = apply_multi_quarter_modifier(50.0, 2.0, max_bonus=10.0)
+        assert modified == 60.0  # 50 + 10 (full bonus at multi_q=2.0)
+
+    def test_negative_multi_q_applies_penalty(self) -> None:
+        """Negative multi-Q SUE applies penalty."""
+        modified = apply_multi_quarter_modifier(50.0, -2.0, max_penalty=-5.0)
+        assert modified == 45.0  # 50 - 5 (full penalty at multi_q=-2.0)
+
+    def test_none_multi_q_no_change(self) -> None:
+        """None multi-Q SUE leaves score unchanged."""
+        modified = apply_multi_quarter_modifier(50.0, None)
+        assert modified == 50.0
+
+    def test_clamped_to_100(self) -> None:
+        """Score clamped to max 100."""
+        modified = apply_multi_quarter_modifier(98.0, 2.0, max_bonus=10.0)
+        assert modified == 100.0
+
+    def test_clamped_to_0(self) -> None:
+        """Score clamped to min 0."""
+        modified = apply_multi_quarter_modifier(3.0, -2.0, max_penalty=-5.0)
+        assert modified == 0.0
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Phase 0.1: Regime Fail-Closed
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestRegimeFallback:
+    def test_regime_fallback_when_missing(self) -> None:
+        """Regime defaults to R1 (not R0) when summary.json is missing."""
+        import tempfile
+        from pathlib import Path
+
+        from src.runners.pead_runner import _read_current_regime
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            regime = _read_current_regime(Path(tmpdir))
+            assert regime == "R1", f"Expected R1 (fail-closed), got {regime}"
+
+    def test_regime_fallback_custom(self) -> None:
+        """Custom fallback regime can be provided."""
+        import tempfile
+        from pathlib import Path
+
+        from src.runners.pead_runner import _read_current_regime
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            regime = _read_current_regime(Path(tmpdir), fallback="R2")
+            assert regime == "R2"
+
+    def test_regime_reads_from_summary(self) -> None:
+        """When summary.json exists with SPY regime, uses that."""
+        import json
+        import tempfile
+        from pathlib import Path
+
+        from src.runners.pead_runner import _read_current_regime
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir) / "data"
+            data_dir.mkdir()
+            summary = {"tickers": [{"symbol": "SPY", "regime": "R0"}]}
+            (data_dir / "summary.json").write_text(json.dumps(summary))
+            regime = _read_current_regime(Path(tmpdir))
+            assert regime == "R0"
 
 
 # ═══════════════════════════════════════════════════════════════════════

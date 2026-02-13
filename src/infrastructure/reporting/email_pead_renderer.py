@@ -71,8 +71,11 @@ def render_pead_email_text(
             slip = c.get("estimated_slippage_bps", 0)
             gap_held = "Y" if c.get("gap_held") else "N"
 
+            mq_sue = c.get("multi_quarter_sue")
+            mq_str = f" MQ:{mq_sue:.1f}" if mq_sue is not None else ""
+
             lines.append(f"#{i} {c['symbol']} [{tier}]")
-            lines.append(f"   SUE:{sue:.1f} Gap:{gap:+.1f}% Vol:{vol:.1f}x")
+            lines.append(f"   SUE:{sue:.1f}{mq_str} Gap:{gap:+.1f}% Vol:{vol:.1f}x")
             lines.append(f"   Quality: {score:.0f} {label}  Rev: {rev}")
             lines.append(f"   Gap Held: {gap_held}")
             lines.append(f"   Target: +{target:.1f}%  Stop: {stop:.1f}%")

@@ -56,6 +56,8 @@ def render_pead_html(data: dict[str, Any]) -> str:
 
     timestamp = generated_at[:19] if len(generated_at) > 19 else generated_at
 
+    tracker_section = _build_tracker_section(data.get("tracker_stats"))
+
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -82,6 +84,7 @@ def render_pead_html(data: dict[str, Any]) -> str:
 
     {summary_cards}
     {tier_tables}
+    {tracker_section}
     {methodology}
 
     <div class="footer">
@@ -159,6 +162,7 @@ def _build_tier_tables(by_tier: dict[str, list[dict[str, Any]]]) -> str:
                     <th>#</th>
                     <th>Symbol</th>
                     <th>SUE</th>
+                    <th>MQ-SUE</th>
                     <th>Gap</th>
                     <th>Vol</th>
                     <th>Rev</th>
@@ -194,6 +198,13 @@ def _build_candidate_rows(candidates: list[dict[str, Any]]) -> str:
         size_pct = c["position_size_factor"] * 100
         target_pct = c["profit_target_pct"] * 100
         stop_pct = c["stop_loss_pct"] * 100
+        mq_sue = c.get("multi_quarter_sue")
+        mq_str = f"{mq_sue:.1f}" if mq_sue is not None else "&ndash;"
+        mq_cls = (
+            "positive"
+            if mq_sue is not None and mq_sue > 0
+            else "negative" if mq_sue is not None and mq_sue < 0 else ""
+        )
 
         # Detail row content
         detail = _build_detail(c)
@@ -203,6 +214,7 @@ def _build_candidate_rows(candidates: list[dict[str, Any]]) -> str:
                     <td>{i}</td>
                     <td class="symbol">{c['symbol']}</td>
                     <td>{c['sue_score']:.1f}</td>
+                    <td class="{mq_cls}">{mq_str}</td>
                     <td class="{gap_cls}">{gap_pct:+.1f}%</td>
                     <td>{c['earnings_day_volume_ratio']:.1f}x</td>
                     <td>{rev}</td>
@@ -213,7 +225,7 @@ def _build_candidate_rows(candidates: list[dict[str, Any]]) -> str:
                     <td class="negative">{stop_pct:.1f}%</td>
                 </tr>
                 <tr class="detail-row" style="display:none;">
-                    <td colspan="11">{detail}</td>
+                    <td colspan="12">{detail}</td>
                 </tr>"""
     return rows
 
@@ -241,6 +253,7 @@ def _build_detail(c: dict[str, Any]) -> str:
             <div class="detail-col">
                 <h4>Quality Breakdown</h4>
                 <p>SUE: {c['sue_score']:.1f} (earnings surprise magnitude)</p>
+                <p>Multi-Q SUE: {f"{c['multi_quarter_sue']:.1f}" if c.get('multi_quarter_sue') is not None else "N/A"} (historical trajectory)</p>
                 <p>Gap: {c['earnings_day_gap']*100:+.1f}% (post-report gap)</p>
                 <p>Volume: {c['earnings_day_volume_ratio']:.1f}x avg (institutional confirmation)</p>
                 <p>Revenue Beat: {'Yes' if c['revenue_beat'] else 'No'}</p>
@@ -262,6 +275,71 @@ def _build_net_alpha(candidates: list[dict[str, Any]]) -> str:
             Est. round-trip cost: ~{avg_slip*2:.0f}bps &middot;
             <strong>Net alpha: ~{net_alpha:.1f}%</strong>
         </div>"""
+
+
+def _build_tracker_section(tracker_stats: dict[str, Any] | None) -> str:
+    """Build historical performance section from tracker stats."""
+    if not tracker_stats:
+        return ""
+
+    total = tracker_stats.get("total", 0)
+    if total == 0:
+        return ""
+
+    won = tracker_stats.get("won", 0)
+    lost = tracker_stats.get("lost", 0)
+    timeout = tracker_stats.get("timeout", 0)
+    open_count = tracker_stats.get("open", 0)
+    win_rate = tracker_stats.get("win_rate")
+    avg_pnl = tracker_stats.get("avg_pnl_pct")
+    avg_hold = tracker_stats.get("avg_hold_days")
+
+    wr_str = f"{win_rate:.1%}" if win_rate is not None else "N/A"
+    pnl_str = f"{avg_pnl:+.2%}" if avg_pnl is not None else "N/A"
+    pnl_cls = (
+        "positive" if avg_pnl and avg_pnl > 0 else "negative" if avg_pnl and avg_pnl < 0 else ""
+    )
+    hold_str = f"{avg_hold:.1f}d" if avg_hold is not None else "N/A"
+
+    # Quality tier breakdown
+    by_quality = tracker_stats.get("by_quality", {})
+    tier_rows = ""
+    for label in ["STRONG", "MODERATE", "MARGINAL"]:
+        data = by_quality.get(label)
+        if not data:
+            continue
+        t_wr = data.get("win_rate")
+        t_pnl = data.get("avg_pnl_pct")
+        tier_rows += f"""
+            <tr>
+                <td><span class="quality-badge {label.lower()}">{label}</span></td>
+                <td>{data['total']}</td>
+                <td>{f'{t_wr:.1%}' if t_wr is not None else 'N/A'}</td>
+                <td class="{'positive' if t_pnl and t_pnl > 0 else 'negative' if t_pnl and t_pnl < 0 else ''}">{f'{t_pnl:+.2%}' if t_pnl is not None else 'N/A'}</td>
+            </tr>"""
+
+    return f"""
+    <div class="tier-section">
+        <h2>Historical Performance</h2>
+        <div class="cards">
+            <div class="card">
+                <div class="card-label">Win Rate</div>
+                <div class="card-value">{wr_str}</div>
+                <div class="card-sub">{won}W / {lost}L / {timeout}T</div>
+            </div>
+            <div class="card">
+                <div class="card-label">Avg P&amp;L</div>
+                <div class="card-value {pnl_cls}">{pnl_str}</div>
+                <div class="card-sub">{total} total tracked</div>
+            </div>
+            <div class="card">
+                <div class="card-label">Avg Hold</div>
+                <div class="card-value">{hold_str}</div>
+                <div class="card-sub">{open_count} still open</div>
+            </div>
+        </div>
+        {"<table class='candidates-table'><thead><tr><th>Tier</th><th>Count</th><th>Win Rate</th><th>Avg P&L</th></tr></thead><tbody>" + tier_rows + "</tbody></table>" if tier_rows else ""}
+    </div>"""
 
 
 def _build_methodology() -> str:

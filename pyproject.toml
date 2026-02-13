@@ -48,6 +48,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+pead = [
+    "pytrends>=4.9.0",            # Google Trends for PEAD attention filter
+]
+
 dev = [
     "pytest>=7.4.0",           # Testing framework
     "pytest-cov>=4.1.0",       # Coverage reporting

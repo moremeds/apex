@@ -52,6 +52,11 @@ class PEADReportBuilder:
                     "consensus_eps": c.surprise.consensus_eps,
                     "surprise_pct": round(c.surprise.surprise_pct, 2),
                     "sue_score": round(c.surprise.sue_score, 2),
+                    "multi_quarter_sue": (
+                        round(c.surprise.multi_quarter_sue, 2)
+                        if c.surprise.multi_quarter_sue is not None
+                        else None
+                    ),
                     "earnings_day_gap": round(c.surprise.earnings_day_gap, 4),
                     "earnings_day_return": round(c.surprise.earnings_day_return, 4),
                     "earnings_day_volume_ratio": round(c.surprise.earnings_day_volume_ratio, 2),

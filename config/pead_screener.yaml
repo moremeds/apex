@@ -37,3 +37,15 @@ liquidity_tiers:
 quality_thresholds:
   strong: 70
   moderate: 45
+
+multi_quarter_sue:
+  enabled: true
+  decay_lambda: 0.75
+  min_quarters: 6
+  max_bonus: 10.0
+  max_penalty: -5.0
+
+attention_filter:
+  enabled: false
+  low_bonus: 5.0
+  high_penalty: -5.0
