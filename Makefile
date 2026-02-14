@@ -447,6 +447,35 @@ pead-test:
 .PHONY: pead pead-test pead-screen
 
 # ═══════════════════════════════════════════════════════════════
+# Momentum Screener
+# ═══════════════════════════════════════════════════════════════
+
+# Run momentum screen from cached data
+momentum:
+	@echo "$(BOLD)Momentum Screen (from cache)...$(RESET)"
+	$(PYTHON) -m src.runners.momentum_runner --html out/momentum/report.html
+	@echo "$(GREEN)✓ HTML report: out/momentum/report.html$(RESET)"
+
+# Fetch fresh data + screen
+momentum-update:
+	@echo "$(BOLD)Momentum Screen — Full Update...$(RESET)"
+	$(PYTHON) -m src.runners.momentum_runner --update --html out/momentum/report.html
+	@echo "$(GREEN)✓ HTML report: out/momentum/report.html$(RESET)"
+
+# Walk-forward backtest
+momentum-backtest:
+	@echo "$(BOLD)Momentum Backtest...$(RESET)"
+	$(PYTHON) -m src.runners.momentum_runner --backtest --html out/momentum/backtest.html
+	@echo "$(GREEN)✓ Backtest: out/momentum/backtest.html$(RESET)"
+
+# Run momentum screener tests
+momentum-test:
+	@echo "$(BOLD)Running momentum screener tests...$(RESET)"
+	$(PYTHON) -m pytest tests/unit/screeners/test_momentum*.py -v --no-cov -q
+
+.PHONY: momentum momentum-update momentum-backtest momentum-test
+
+# ═══════════════════════════════════════════════════════════════
 # Diagrams
 # ═══════════════════════════════════════════════════════════════
 

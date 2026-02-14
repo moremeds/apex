@@ -1,0 +1,54 @@
+version: "1.0"
+description: "Quantitative momentum screener (12-1 momentum + FIP)"
+
+universe:
+  indices: ["sp500", "nasdaq"]
+  russell_proxy:
+    enabled: true
+    market_cap_min: 300_000_000       # $300M
+    market_cap_max: 10_000_000_000    # $10B
+  source: "fmp"
+  cache_path: "data/cache/index_constituents.json"
+
+data_source:
+  price_source: "yfinance"
+  lookback_trading_days: 252          # standard 12-1 window
+  skip_recent_trading_days: 21
+
+filters:
+  min_market_cap: 500_000_000         # $500M
+  min_avg_daily_dollar_volume: 10_000_000
+  min_price: 10.0
+  # Turnover rate: live-only filter (not applied in backtest to avoid look-ahead)
+  min_daily_turnover_rate: 0.002      # 0.2%, live screen only
+
+scoring:
+  momentum_weight: 0.5
+  fip_weight: 0.5
+  top_n: 30
+
+regime_rules:
+  r0_min_composite_percentile: 0.0
+  r0_position_size_factor: 1.0
+  r1_min_composite_percentile: 0.70   # state-conditional (Galvani 2024)
+  r1_position_size_factor: 0.5
+  r2_block_entirely: true
+
+liquidity_tiers:
+  large_cap_min: 50_000_000_000
+  mid_cap_min: 2_000_000_000
+  large_cap_slippage_bps: 10
+  mid_cap_slippage_bps: 25
+  small_cap_slippage_bps: 50
+
+quality_thresholds:
+  strong: 0.80
+  moderate: 0.60
+
+backtest:
+  start_date: "2023-01-01"
+  end_date: null                      # null = today
+  benchmark: "SPY"
+  use_historical_constituents: true   # point-in-time membership (anti-survivorship)
+  holding_period_days: 5
+  portfolio_top_n: 20
