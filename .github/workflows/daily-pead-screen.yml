@@ -54,7 +54,7 @@ jobs:
 
       - name: Cache Python dependencies
         id: cache-python-deps
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             .venv
@@ -67,7 +67,7 @@ jobs:
 
       - name: Cache TA-Lib
         id: cache-talib
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/ta-lib-install
           key: talib-0.6.4-${{ runner.os }}-${{ runner.arch }}
@@ -233,7 +233,7 @@ jobs:
       - name: Send PEAD email
         if: steps.market-check.outputs.should_run == 'true' && steps.pead-screen.outputs.candidate_count != '0'
         continue-on-error: true
-        uses: dawidd6/action-send-mail@v3
+        uses: dawidd6/action-send-mail@v9
         with:
           server_address: ${{ secrets.SMTP_SERVER }}
           server_port: ${{ secrets.SMTP_PORT || 587 }}
@@ -256,7 +256,7 @@ jobs:
 
       - name: Upload report artifact
         if: steps.market-check.outputs.should_run == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: pead-report-${{ github.run_id }}
           path: out/pead/
