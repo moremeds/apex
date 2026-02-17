@@ -1,0 +1,32 @@
+name: Momentum Screener
+
+on:
+  schedule:
+    # Daily Mon-Fri after market close (21:30 UTC = 4:30 PM ET)
+    - cron: '30 21 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install dependencies
+        run: pip install -e .
+
+      - name: Run momentum screener
+        env:
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+        run: python -m src.runners.momentum_runner --update --html out/momentum/report.html
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: momentum-${{ github.run_id }}
+          path: |
+            out/momentum/data/momentum_watchlist.json
+            out/momentum/report.html
