@@ -93,7 +93,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          [ -d .venv ] || uv venv
+          .venv/bin/python --version 2>/dev/null || uv venv
           source .venv/bin/activate
           uv pip install -e ".[dev,observability]"
 

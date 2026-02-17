@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import tempfile
 from datetime import date
 from pathlib import Path
@@ -10,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pandas as pd
 
-from src.domain.screeners.pead.tracker import TrackedCandidate, TrackerStats
+from src.domain.screeners.pead.tracker import TrackedCandidate
 from src.services.pead_tracker_service import PEADTrackerService
 
 

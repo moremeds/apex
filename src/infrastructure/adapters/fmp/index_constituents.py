@@ -10,7 +10,7 @@ Historical (for backtest, anti-survivorship):
 - /stable/historical/sp500-constituent → additions/removals with dates
 
 Russell 2000 proxy:
-- /stable/stock-screener with marketCapMoreThan/LowerThan + country=US
+- /stable/company-screener with marketCapMoreThan/LowerThan + country=US
 """
 
 from __future__ import annotations
@@ -88,7 +88,7 @@ class FMPIndexConstituentsAdapter:
             List of symbols matching the criteria.
         """
         data = self._fmp_get(
-            f"{_FMP_BASE}/stable/stock-screener",
+            f"{_FMP_BASE}/stable/company-screener",
             params={
                 "marketCapMoreThan": int(cap_min),
                 "marketCapLowerThan": int(cap_max),
@@ -205,7 +205,10 @@ class FMPIndexConstituentsAdapter:
         try:
             resp = requests.get(url, params=request_params, timeout=30)
             if resp.status_code == 402:
-                logger.warning(f"FMP free tier limit reached for {url}")
+                logger.warning(
+                    f"FMP 402 (Payment Required) for {url}. "
+                    "Check your FMP plan includes this endpoint."
+                )
                 return []
             if resp.status_code == 429:
                 logger.warning("FMP rate limit hit, backing off 5s")

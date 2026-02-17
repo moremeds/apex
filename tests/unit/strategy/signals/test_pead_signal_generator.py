@@ -6,7 +6,6 @@ from datetime import date
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from src.domain.strategy.signals.pead import PeadSignalGenerator, _find_entry_bar
 

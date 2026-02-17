@@ -126,7 +126,6 @@ class MomentumDataService:
         """
         import yfinance as yf
 
-        from src.domain.events.domain_events import BarData
         from src.infrastructure.stores.parquet_historical_store import (
             ParquetHistoricalStore,
         )

@@ -6,7 +6,6 @@ Uses synthetic OHLCV data that simulates real market patterns
 
 from __future__ import annotations
 
-from datetime import datetime
 from pathlib import Path
 
 import numpy as np
