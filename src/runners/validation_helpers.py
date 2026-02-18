@@ -7,7 +7,7 @@ Provides data loading utilities for validation.
 from __future__ import annotations
 
 import logging
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
 from typing import Dict, List, Optional
 
