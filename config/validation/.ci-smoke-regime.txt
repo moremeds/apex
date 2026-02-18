@@ -1,3 +1,0 @@
-Smoke check marker commit 1: regime-only path change for PR workflow filtering.
-
-Smoke check marker commit 1b: verify regime-only triggers only regime job.
