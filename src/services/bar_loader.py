@@ -18,7 +18,6 @@ Usage:
 from __future__ import annotations
 
 import logging
-import time
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
@@ -101,19 +100,19 @@ def _fetch_yahoo(
     start_date: date,
     end_date: date,
 ) -> dict[str, pd.DataFrame]:
-    """Fetch bars from Yahoo Finance.
+    """Fetch bars from Yahoo Finance using batch download.
 
-    yf.Ticker.history() returns split- and dividend-adjusted prices by default
-    (auto_adjust=True since yfinance 0.2.x), so the output is suitable for
-    momentum ranking and backtesting without further adjustment.
+    Uses yf.download() for multi-symbol batch fetching (single HTTP request
+    per batch of ~500 symbols) instead of per-symbol requests.
+
+    yfinance returns split- and dividend-adjusted prices by default
+    (auto_adjust=True since yfinance 0.2.x).
     """
     try:
         import yfinance as yf
     except ImportError:
         logger.debug("yfinance not installed")
         return {}
-
-    delay = _get_rate_delay("yahoo")
 
     interval_map = {
         "1d": "1d",
@@ -128,46 +127,72 @@ def _fetch_yahoo(
     interval = interval_map.get(timeframe, "1d")
 
     result: dict[str, pd.DataFrame] = {}
-    for symbol in symbols:
-        try:
-            if delay > 0:
-                time.sleep(delay)
-            ticker = yf.Ticker(symbol)
-            df = ticker.history(
-                start=start_date.isoformat(),
-                end=end_date.isoformat(),
-                interval=interval,
-            )
-            if df.empty:
-                continue
 
-            # Standardize
-            df.columns = [c.lower() for c in df.columns]
+    # Batch download — yf.download handles multiple tickers in one call
+    try:
+        raw = yf.download(
+            symbols,
+            start=start_date.isoformat(),
+            end=end_date.isoformat(),
+            interval=interval,
+            group_by="ticker",
+            threads=True,
+            progress=False,
+        )
+
+        if raw.empty:
+            return {}
+
+        # yf.download returns different shapes for 1 vs N symbols
+        if len(symbols) == 1:
+            sym = symbols[0]
+            df = raw.copy()
+            df.columns = [c.lower() if isinstance(c, str) else c[0].lower() for c in df.columns]
             for col in ["dividends", "stock splits", "adj close"]:
                 if col in df.columns:
                     df = df.drop(columns=[col])
+            df = df.dropna(subset=["close"])
+            if not df.empty:
+                result[sym] = _maybe_resample(df, timeframe, interval)
+        else:
+            for sym in symbols:
+                try:
+                    if sym not in raw.columns.get_level_values(0):
+                        continue
+                    df = raw[sym].copy()
+                    df.columns = [c.lower() for c in df.columns]
+                    for col in ["dividends", "stock splits", "adj close"]:
+                        if col in df.columns:
+                            df = df.drop(columns=[col])
+                    df = df.dropna(subset=["close"])
+                    if not df.empty:
+                        result[sym] = _maybe_resample(df, timeframe, interval)
+                except Exception as e:
+                    logger.debug(f"Yahoo parse failed for {sym}: {e}")
 
-            # Aggregate if needed (4h/2h from 1h)
-            if timeframe in ("4h", "2h") and interval == "1h":
-                df = (
-                    df.resample(timeframe)
-                    .agg(
-                        {
-                            "open": "first",
-                            "high": "max",
-                            "low": "min",
-                            "close": "last",
-                            "volume": "sum",
-                        }
-                    )
-                    .dropna()
-                )
-
-            result[symbol] = df
-        except Exception as e:
-            logger.warning(f"Yahoo fetch failed for {symbol}: {e}")
+    except Exception as e:
+        logger.warning(f"Yahoo batch download failed: {e}")
 
     return result
+
+
+def _maybe_resample(df: pd.DataFrame, timeframe: str, interval: str) -> pd.DataFrame:
+    """Aggregate intraday bars if the target timeframe differs from download interval."""
+    if timeframe in ("4h", "2h") and interval == "1h":
+        df = (
+            df.resample(timeframe)
+            .agg(
+                {
+                    "open": "first",
+                    "high": "max",
+                    "low": "min",
+                    "close": "last",
+                    "volume": "sum",
+                }
+            )
+            .dropna()
+        )
+    return df
 
 
 # ── Public API ──────────────────────────────────────────────────

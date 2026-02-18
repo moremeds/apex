@@ -1,7 +1,8 @@
 """HTML templates for momentum screener dashboard.
 
-Renders a standalone dark-theme HTML page with watchlist table,
-filter funnel summary, and sector distribution.
+Renders standalone dark-theme HTML pages:
+- ``render_momentum_html``: live watchlist table + filter funnel
+- ``render_backtest_html``: walk-forward results + ablation comparison
 """
 
 from __future__ import annotations
@@ -79,7 +80,7 @@ def render_momentum_html(data: dict[str, Any]) -> str:
             <div class="card-label">Avg Momentum</div>
         </div>
         <div class="card">
-            <div class="card-value">{avg_fip:+.2f}</div>
+            <div class="card-value">{avg_fip:.2f}</div>
             <div class="card-label">Avg FIP</div>
         </div>
     </div>
@@ -138,7 +139,7 @@ def _build_table_rows(candidates: list[dict[str, Any]]) -> str:
         mom = c["momentum_12_1"]
         fip = c["fip"]
         mom_color = "color: #3fb950" if mom > 0 else "color: #f85149"
-        fip_color = "color: #3fb950" if fip > 0 else "color: #f85149"
+        fip_color = "color: #3fb950" if fip > 0.5 else "color: #f85149"
         quality_cls = c["quality_label"].lower()
 
         # Format market cap
@@ -158,7 +159,7 @@ def _build_table_rows(candidates: list[dict[str, Any]]) -> str:
                 <td>{c['rank']}</td>
                 <td class="symbol">{c['symbol']}</td>
                 <td style="{mom_color}">{mom:+.1%}</td>
-                <td style="{fip_color}">{fip:+.3f}</td>
+                <td style="{fip_color}">{fip:.3f}</td>
                 <td>{c['composite_rank']:.3f}</td>
                 <td><span class="quality-badge {quality_cls}">{c['quality_label']}</span></td>
                 <td>{tier_display}</td>
@@ -257,4 +258,233 @@ tr:hover { background: var(--bg-tertiary); }
 }
 .methodology h3 { margin-bottom: 12px; font-size: 16px; }
 .methodology p { color: var(--text-secondary); font-size: 13px; margin-bottom: 8px; }
+"""
+
+
+# ── Backtest HTML ─────────────────────────────────────────────────────
+
+
+def render_backtest_html(data: dict[str, Any]) -> str:
+    """Render momentum backtest + ablation HTML report.
+
+    Args:
+        data: Dict with keys ``backtest`` (walk-forward results) and
+              ``ablation`` (3-config comparison).  Both produced by
+              ``cmd_backtest`` in the momentum runner.
+
+    Returns:
+        Complete standalone HTML page.
+    """
+    bt = data.get("backtest", {})
+    abl = data.get("ablation", {})
+
+    start = bt.get("start", "?")
+    end = bt.get("end", "?")
+    top_n = abl.get("top_n", bt.get("top_n", "?"))
+    hold_days = abl.get("hold_days", bt.get("hold_days", "?"))
+
+    cum_ret = bt.get("cumulative_return", 0.0)
+    sharpe = bt.get("sharpe_approx", 0.0)
+    max_dd = bt.get("max_drawdown", 0.0)
+    avg_weekly = bt.get("avg_weekly_return", 0.0)
+    n_periods = len(bt.get("periods", []))
+
+    # Summary card colors
+    cum_color = "var(--accent-green)" if cum_ret >= 0 else "var(--accent-red)"
+    dd_color = "var(--accent-red)" if max_dd < -0.1 else "var(--accent-yellow)"
+
+    # Ablation table rows
+    ablation_rows = _build_ablation_rows(abl.get("configs", []))
+
+    # Period returns table rows
+    period_rows = _build_period_rows(bt.get("periods", []))
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Momentum Backtest</title>
+<style>
+{_BACKTEST_CSS}
+</style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>Momentum Backtest</h1>
+        <span class="date-range">{start} &rarr; {end}</span>
+    </div>
+    <div class="meta">Top-{top_n} &middot; {hold_days}-day hold &middot; weekly rebalance</div>
+
+    <div class="cards">
+        <div class="card">
+            <div class="card-value" style="color:{cum_color}">{cum_ret:+.1%}</div>
+            <div class="card-label">Cumulative Return</div>
+        </div>
+        <div class="card">
+            <div class="card-value">{sharpe:.2f}</div>
+            <div class="card-label">Sharpe (approx)</div>
+        </div>
+        <div class="card">
+            <div class="card-value" style="color:{dd_color}">{max_dd:+.1%}</div>
+            <div class="card-label">Max Drawdown</div>
+        </div>
+        <div class="card">
+            <div class="card-value">{avg_weekly:+.3%}</div>
+            <div class="card-label">Avg Weekly</div>
+        </div>
+        <div class="card">
+            <div class="card-value">{n_periods}</div>
+            <div class="card-label"># Periods</div>
+        </div>
+    </div>
+
+    <h2 class="section-title">Ablation Comparison</h2>
+    <table class="ablation">
+        <thead>
+            <tr>
+                <th>Configuration</th>
+                <th>Cum Return</th>
+                <th>Sharpe</th>
+                <th>Max DD</th>
+                <th>Avg Weekly</th>
+            </tr>
+        </thead>
+        <tbody>
+            {ablation_rows}
+        </tbody>
+    </table>
+
+    <h2 class="section-title">Period Returns</h2>
+    <div class="table-scroll">
+    <table>
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th># Picks</th>
+                <th>Avg Return</th>
+                <th>Top 5 Picks</th>
+            </tr>
+        </thead>
+        <tbody>
+            {period_rows}
+        </tbody>
+    </table>
+    </div>
+</div>
+</body>
+</html>"""
+
+
+def _build_ablation_rows(configs: list[dict[str, Any]]) -> str:
+    """Build HTML rows for the ablation comparison table."""
+    rows: list[str] = []
+    for cfg in configs:
+        label = cfg.get("label", "?")
+        cr = cfg.get("cumulative_return", 0.0)
+        sh = cfg.get("sharpe_approx", 0.0)
+        dd = cfg.get("max_drawdown", 0.0)
+        aw = cfg.get("avg_weekly_return", 0.0)
+        cr_color = "color: #3fb950" if cr >= 0 else "color: #f85149"
+        dd_color = "color: #f85149" if dd < -0.1 else "color: #d29922"
+        rows.append(f"""<tr>
+                <td class="config-label">{label}</td>
+                <td style="{cr_color}">{cr:+.2%}</td>
+                <td>{sh:.2f}</td>
+                <td style="{dd_color}">{dd:+.2%}</td>
+                <td>{aw:+.4%}</td>
+            </tr>""")
+    return "\n".join(rows)
+
+
+def _build_period_rows(periods: list[dict[str, Any]]) -> str:
+    """Build HTML rows for the period returns table."""
+    rows: list[str] = []
+    for p in periods:
+        ret = p.get("avg_return", 0.0)
+        ret_color = "color: #3fb950" if ret >= 0 else "color: #f85149"
+        picks = ", ".join(p.get("picks", [])[:5])
+        rows.append(f"""<tr>
+                <td>{p.get('date', '?')}</td>
+                <td>{p.get('n_picks', 0)}</td>
+                <td style="{ret_color}">{ret:+.2%}</td>
+                <td class="picks">{picks}</td>
+            </tr>""")
+    return "\n".join(rows)
+
+
+_BACKTEST_CSS = """
+:root {
+    --bg-primary: #0d1117;
+    --bg-secondary: #161b22;
+    --bg-tertiary: #21262d;
+    --text-primary: #e6edf3;
+    --text-secondary: #8b949e;
+    --border: #30363d;
+    --accent-green: #3fb950;
+    --accent-red: #f85149;
+    --accent-blue: #58a6ff;
+    --accent-yellow: #d29922;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    line-height: 1.5;
+}
+
+.container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+
+.header {
+    display: flex; align-items: center; gap: 16px;
+    margin-bottom: 8px;
+}
+.header h1 { font-size: 24px; font-weight: 600; }
+.date-range {
+    padding: 4px 12px; border-radius: 12px;
+    background: var(--bg-tertiary); color: var(--accent-blue);
+    font-size: 13px; font-weight: 600;
+}
+
+.meta { color: var(--text-secondary); font-size: 13px; margin-bottom: 20px; }
+
+.cards {
+    display: flex; gap: 16px; margin-bottom: 28px; flex-wrap: wrap;
+}
+.card {
+    background: var(--bg-secondary); border: 1px solid var(--border);
+    border-radius: 8px; padding: 16px 24px; flex: 1; min-width: 140px;
+    text-align: center;
+}
+.card-value { font-size: 28px; font-weight: 700; }
+.card-label { font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
+
+.section-title {
+    font-size: 18px; font-weight: 600; margin-bottom: 12px;
+}
+
+table {
+    width: 100%; border-collapse: collapse;
+    background: var(--bg-secondary); border-radius: 8px; overflow: hidden;
+    margin-bottom: 24px;
+}
+table.ablation { margin-bottom: 32px; }
+thead { background: var(--bg-tertiary); }
+th {
+    padding: 10px 12px; text-align: left; font-size: 12px;
+    color: var(--text-secondary); font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+td { padding: 10px 12px; border-top: 1px solid var(--border); font-size: 14px; }
+tr:hover { background: var(--bg-tertiary); }
+
+.config-label { font-weight: 600; color: var(--accent-blue); }
+.picks { color: var(--text-secondary); font-size: 13px; }
+
+.table-scroll { max-height: 600px; overflow-y: auto; border-radius: 8px; }
+.table-scroll thead { position: sticky; top: 0; z-index: 1; }
 """

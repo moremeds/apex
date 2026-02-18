@@ -50,6 +50,7 @@ class MomentumDataService:
         russell_proxy: bool = True,
         cap_min: float = 300_000_000,
         cap_max: float = 10_000_000_000,
+        fallback_max_symbols: int = 800,
         api_key: str | None = None,
     ) -> list[str]:
         """Fetch index constituents via FMP and cache to JSON.
@@ -59,6 +60,7 @@ class MomentumDataService:
             russell_proxy: Include Russell 2000 proxy.
             cap_min: Min market cap for Russell proxy.
             cap_max: Max market cap for Russell proxy.
+            fallback_max_symbols: Max symbols from company-screener fallback.
             api_key: Optional FMP API key override.
 
         Returns:
@@ -68,12 +70,14 @@ class MomentumDataService:
             FMPIndexConstituentsAdapter,
         )
 
+        print("  Fetching universe from FMP...", end=" ", flush=True)
         adapter = FMPIndexConstituentsAdapter(api_key=api_key)
         symbols = adapter.get_combined_universe(
             indices=indices,
             russell_proxy=russell_proxy,
             cap_min=cap_min,
             cap_max=cap_max,
+            fallback_max_symbols=fallback_max_symbols,
         )
 
         # Save cache
@@ -85,6 +89,7 @@ class MomentumDataService:
             "count": len(symbols),
         }
         self._universe_cache.write_text(json.dumps(cache_data, indent=2))
+        print(f"{len(symbols)} symbols")
         logger.info(f"Universe cache updated: {len(symbols)} symbols → {self._universe_cache}")
         return symbols
 
@@ -112,14 +117,14 @@ class MomentumDataService:
         months: int = 15,
         batch_size: int = 500,
     ) -> int:
-        """Download daily OHLCV and store in Parquet.
+        """Incrementally update daily OHLCV in Parquet.
 
-        Uses unified bar loader (FMP -> Yahoo -> IB) for data sourcing,
-        then writes each symbol to the ParquetHistoricalStore.
+        Smart refresh: checks each symbol's last Parquet date and only
+        fetches new bars. Symbols with no existing data get a full download.
 
         Args:
             symbols: List of symbols to fetch.
-            months: Months of history to fetch (15 = ~13mo lookback + buffer).
+            months: Months of history for symbols missing data entirely.
             batch_size: Symbols per batch call.
 
         Returns:
@@ -128,36 +133,124 @@ class MomentumDataService:
         from src.infrastructure.stores.parquet_historical_store import (
             ParquetHistoricalStore,
         )
-        from src.services.bar_loader import load_bars
 
         store = ParquetHistoricalStore(self._hist_dir)
         end_date = date.today()
 
+        # Partition symbols by freshness
+        stale: list[str] = []
+        missing: list[str] = []
+        fresh_count = 0
+
+        for sym in symbols:
+            parquet_path = self._hist_dir / sym.upper() / "1d.parquet"
+            if not parquet_path.exists():
+                missing.append(sym)
+                continue
+            try:
+                df = pd.read_parquet(parquet_path, columns=["timestamp"])
+                if df.empty:
+                    missing.append(sym)
+                    continue
+                last_date = pd.Timestamp(df["timestamp"].iloc[-1]).date()
+                if last_date < end_date - timedelta(days=1):
+                    stale.append(sym)
+                else:
+                    fresh_count += 1
+            except Exception:
+                missing.append(sym)
+
+        print(
+            f"  OHLCV: {fresh_count} fresh, {len(stale)} stale, "
+            f"{len(missing)} missing (of {len(symbols)} total)"
+        )
+
+        success_count = 0
+
+        # Incremental: stale symbols only need recent bars (14 days buffer)
+        if stale:
+            print(f"  Updating {len(stale)} stale symbols (14 days)...", flush=True)
+            success_count += self._batch_fetch_and_store(
+                stale, store, days=14, batch_size=batch_size
+            )
+
+        # Full download: symbols with no Parquet data
+        if missing:
+            print(
+                f"  Downloading {len(missing)} new symbols ({months} months)...",
+                flush=True,
+            )
+            success_count += self._batch_fetch_and_store(
+                missing, store, days=months * 31, batch_size=batch_size
+            )
+
+        if fresh_count == len(symbols):
+            print("  All symbols up to date — nothing to fetch")
+        else:
+            print(f"  Done: {success_count} updated, {fresh_count} already fresh")
+
+        return success_count
+
+    def _batch_fetch_and_store(
+        self,
+        symbols: list[str],
+        store: Any,
+        days: int,
+        batch_size: int = 500,
+    ) -> int:
+        """Fetch bars in batches and upsert into Parquet store.
+
+        When fetching > 250 symbols, uses Yahoo batch download directly
+        (single HTTP call per 500-symbol batch) instead of FMP's serial
+        per-symbol path which incurs 0.3s rate-limit sleep per symbol.
+        """
+        from src.services.bar_loader import load_bars
+
+        # Yahoo's yf.download() handles 500 symbols in one HTTP call;
+        # FMP loops per-symbol with 0.3s sleep → ~3 min/batch vs ~5s/batch.
+        # Keep FMP as fallback so Yahoo outages don't lose data entirely.
+        use_yahoo_batch = len(symbols) > 250
+        source_override: list[str] | None = ["yahoo", "fmp"] if use_yahoo_batch else None
+        if use_yahoo_batch:
+            logger.info(f"Large batch ({len(symbols)} symbols): using Yahoo-first batch download")
+
+        end_date = date.today()
         success_count = 0
         total_batches = (len(symbols) + batch_size - 1) // batch_size
 
         for batch_idx in range(total_batches):
             batch_start = batch_idx * batch_size
             batch = symbols[batch_start : batch_start + batch_size]
-            logger.info(f"Downloading batch {batch_idx + 1}/{total_batches} ({len(batch)} symbols)")
+            print(
+                f"    Batch {batch_idx + 1}/{total_batches} " f"({len(batch)} symbols)...",
+                end=" ",
+                flush=True,
+            )
 
-            bars_dict = load_bars(batch, timeframe="1d", days=months * 31, end_date=end_date)
+            bars_dict = load_bars(
+                batch,
+                timeframe="1d",
+                days=days,
+                end_date=end_date,
+                source_priority=source_override,
+            )
 
+            batch_ok = 0
             for symbol, df in bars_dict.items():
                 try:
                     if df.empty:
                         continue
-                    # Capitalize columns for _df_to_bars compatibility
                     df_compat = df.copy()
                     df_compat.columns = [c.capitalize() for c in df_compat.columns]
                     bar_list = self._df_to_bars(df_compat, symbol)
                     if bar_list:
                         store.write_bars(symbol, "1d", bar_list, mode="upsert")
                         success_count += 1
+                        batch_ok += 1
                 except Exception as e:
                     logger.warning(f"Failed to process {symbol}: {e}")
+            print(f"{batch_ok}/{len(batch)} ok")
 
-        logger.info(f"OHLCV update complete: {success_count}/{len(symbols)} symbols written")
         return success_count
 
     def get_daily_data(self, symbol: str, start: date, end: date) -> pd.DataFrame | None:
@@ -244,6 +337,118 @@ class MomentumDataService:
                 result[symbol] = df["volume"].values
 
         return result
+
+    def get_bulk_close_series(
+        self,
+        symbols: list[str],
+        end: date,
+        lookback_days: int = 300,
+    ) -> dict[str, pd.Series]:
+        """Batch read closing prices as date-indexed Series (for PIT backtest).
+
+        Returns:
+            Dict of symbol -> pd.Series with DatetimeIndex of daily closes.
+        """
+        start = end - timedelta(days=lookback_days)
+        result: dict[str, pd.Series] = {}
+        for symbol in symbols:
+            df = self.get_daily_data(symbol, start, end)
+            if df is not None and not df.empty:
+                result[symbol] = df["close"]
+        logger.info(
+            f"Loaded close series: {len(result)}/{len(symbols)} symbols "
+            f"({start.isoformat()} to {end.isoformat()})"
+        )
+        return result
+
+    def get_bulk_volume_series(
+        self,
+        symbols: list[str],
+        end: date,
+        lookback_days: int = 300,
+    ) -> dict[str, pd.Series]:
+        """Batch read daily volumes as date-indexed Series (for PIT backtest).
+
+        Returns:
+            Dict of symbol -> pd.Series with DatetimeIndex of daily volumes.
+        """
+        start = end - timedelta(days=lookback_days)
+        result: dict[str, pd.Series] = {}
+        for symbol in symbols:
+            df = self.get_daily_data(symbol, start, end)
+            if df is not None and not df.empty:
+                result[symbol] = df["volume"]
+        return result
+
+    def get_data_as_of_date(self, symbols: list[str], sample_size: int = 5) -> date | None:
+        """Determine the most recent data date by probing Parquet files.
+
+        Uses a deterministic sample (sorted, first N) so results are
+        reproducible across runs.
+
+        Returns:
+            The most recent data date found, or None if no data.
+        """
+        sampled = sorted(symbols)[:sample_size] if symbols else []
+        latest: date | None = None
+
+        for symbol in sampled:
+            parquet_path = self._hist_dir / symbol.upper() / "1d.parquet"
+            if not parquet_path.exists():
+                continue
+            try:
+                df = pd.read_parquet(parquet_path)
+                if "timestamp" in df.columns:
+                    df = df.set_index("timestamp")
+                if df.empty:
+                    continue
+                last_ts = pd.Timestamp(df.index[-1])
+                last_date = last_ts.date()
+                if latest is None or last_date > latest:
+                    latest = last_date
+            except Exception as e:
+                logger.warning(f"Failed to read data_as_of for {symbol}: {e}")
+
+        return latest
+
+    def get_upcoming_earnings(self, symbols: list[str], lookahead_days: int = 7) -> dict[str, date]:
+        """Fetch upcoming earnings dates for given symbols.
+
+        Calls FMP earnings calendar and filters to provided symbol list.
+        Fail-open: returns empty dict on any error.
+
+        Args:
+            symbols: Symbols to check.
+            lookahead_days: Days ahead to scan for earnings.
+
+        Returns:
+            Dict of symbol -> earnings date for symbols reporting soon.
+        """
+        try:
+            from src.infrastructure.adapters.earnings.fmp_earnings import (
+                FMPEarningsAdapter,
+            )
+
+            adapter = FMPEarningsAdapter()
+            today = date.today()
+            end = today + timedelta(days=lookahead_days)
+            calendar = adapter.fetch_earnings_calendar(today, end)
+
+            symbol_set = set(symbols)
+            result: dict[str, date] = {}
+            for entry in calendar:
+                sym = entry.get("symbol", "")
+                if sym in symbol_set and "date" in entry:
+                    try:
+                        result[sym] = date.fromisoformat(entry["date"])
+                    except (ValueError, TypeError):
+                        continue
+
+            logger.info(f"Upcoming earnings: {len(result)} symbols within {lookahead_days} days")
+            return result
+        except Exception as e:
+            logger.warning(f"Earnings calendar fetch failed (fail-open): {e}")
+            return {}
 
     def get_market_caps(self, symbols: list[str]) -> dict[str, float]:
         """Read market caps from the existing MarketCapService cache.

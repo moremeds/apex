@@ -18,7 +18,7 @@ Filter pipeline (cheapest first):
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 import numpy as np
@@ -56,6 +56,7 @@ class MomentumScreener:
         *,
         is_backtest: bool = False,
         use_adaptive: bool = False,
+        earnings_dates: dict[str, date] | None = None,
     ) -> MomentumScreenResult:
         """Run the full screening pipeline.
 
@@ -64,8 +65,9 @@ class MomentumScreener:
             volume_data: Symbol -> array of daily volumes (chronological).
             regime: Current market regime ("R0", "R1", "R2", "R3").
             market_caps: Symbol -> market cap in USD.
-            is_backtest: If True, skip turnover filter (avoids look-ahead bias).
+            is_backtest: If True, skip turnover + earnings filter (avoids look-ahead bias).
             use_adaptive: If True, use adaptive momentum for stocks with < 12mo history.
+            earnings_dates: Symbol -> upcoming earnings date (for blackout filter).
 
         Returns:
             MomentumScreenResult with ranked candidates.
@@ -129,6 +131,19 @@ class MomentumScreener:
             # Price filter
             if len(closes) == 0 or closes[-1] < cfg.filters.min_price:
                 continue
+
+            # Earnings blackout filter (live-only, avoids look-ahead in backtest).
+            # Uses calendar days intentionally: simpler, more conservative than
+            # trading days, and avoids market-calendar dependency in domain layer.
+            if (
+                not is_backtest
+                and earnings_dates
+                and cfg.filters.earnings_blackout_days > 0
+                and symbol in earnings_dates
+            ):
+                days_to = (earnings_dates[symbol] - date.today()).days
+                if 0 <= days_to <= cfg.filters.earnings_blackout_days:
+                    continue
 
             # History length filter (relaxed for adaptive mode)
             if use_adaptive:

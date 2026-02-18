@@ -10,6 +10,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+from src.utils.regime_display import regime_label as _regime_label
 from src.utils.timezone import DisplayTimezone
 
 
@@ -107,13 +108,3 @@ def _format_timestamp(generated_at: str, display_timezone: str) -> str:
         except (ValueError, AttributeError):
             return generated_at
     return datetime.now(tz=timezone.utc).strftime("%b %d, %Y %I:%M %p UTC")
-
-
-def _regime_label(regime: str) -> str:
-    labels = {
-        "R0": "Healthy Uptrend",
-        "R1": "Choppy/Extended",
-        "R2": "Risk-Off",
-        "R3": "Rebound Window",
-    }
-    return labels.get(regime, "Unknown")

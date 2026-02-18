@@ -7,6 +7,7 @@ universe:
     enabled: true
     market_cap_min: 300_000_000       # $300M
     market_cap_max: 10_000_000_000    # $10B
+  fallback_max_symbols: 800           # company-screener fallback when 402
   source: "fmp"
   cache_path: "data/cache/index_constituents.json"
 
@@ -17,10 +18,11 @@ data_source:
 
 filters:
   min_market_cap: 500_000_000         # $500M
-  min_avg_daily_dollar_volume: 10_000_000
+  min_avg_daily_dollar_volume: 20_000_000   # $20M (thesis spec)
   min_price: 10.0
   # Turnover rate: live-only filter (not applied in backtest to avoid look-ahead)
   min_daily_turnover_rate: 0.002      # 0.2%, live screen only
+  earnings_blackout_days: 5           # exclude if reporting within N calendar days
 
 scoring:
   momentum_weight: 0.5

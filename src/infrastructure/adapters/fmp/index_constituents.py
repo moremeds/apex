@@ -99,6 +99,47 @@ class FMPIndexConstituentsAdapter:
         )
         return self._extract_symbols(data)
 
+    def fetch_us_stocks(self, cap_min: float = 500_000_000, max_symbols: int = 800) -> list[str]:
+        """Fetch large-cap US stocks via company-screener as universe fallback.
+
+        Used when constituent endpoints (sp500/nasdaq) return 402 on
+        FMP Starter plans.
+
+        Args:
+            cap_min: Minimum market cap in USD.
+            max_symbols: Maximum number of symbols to return.
+
+        Returns:
+            List of symbols sorted by market cap descending, capped at max_symbols.
+        """
+        data = self._fmp_get(
+            f"{_FMP_BASE}/stable/company-screener",
+            params={
+                "marketCapMoreThan": int(cap_min),
+                "country": "US",
+                "isActivelyTrading": True,
+                "limit": 5000,
+            },
+        )
+        if not isinstance(data, list):
+            return []
+
+        # Sort by market cap descending; coerce None/non-numeric to 0
+        items_with_cap: list[tuple[str, float]] = []
+        for item in data:
+            sym = item.get("symbol")
+            if not sym or not isinstance(sym, str):
+                continue
+            raw_cap = item.get("marketCap")
+            cap = float(raw_cap) if isinstance(raw_cap, (int, float)) else 0.0
+            items_with_cap.append((sym, cap))
+        items_with_cap.sort(key=lambda x: x[1], reverse=True)
+        symbols = [sym for sym, _ in items_with_cap[:max_symbols]]
+        logger.info(
+            f"US stocks screener: {len(data)} total, returning top {len(symbols)} by market cap"
+        )
+        return symbols
+
     def fetch_historical_sp500_changes(self) -> list[dict[str, Any]]:
         """Fetch historical S&P 500 additions and removals.
 
@@ -160,32 +201,56 @@ class FMPIndexConstituentsAdapter:
         russell_proxy: bool = True,
         cap_min: float = 300_000_000,
         cap_max: float = 10_000_000_000,
+        fallback_cap_min: float = 500_000_000,
+        fallback_max_symbols: int = 800,
     ) -> list[str]:
         """Fetch combined universe from multiple indices.
+
+        Falls back to company-screener if constituent endpoints return 402
+        (FMP Starter plan limitation).
 
         Args:
             indices: List of index names to include ("sp500", "nasdaq").
             russell_proxy: Whether to include Russell 2000 proxy.
             cap_min: Min market cap for Russell proxy.
             cap_max: Max market cap for Russell proxy.
+            fallback_cap_min: Min market cap for screener fallback.
+            fallback_max_symbols: Max symbols from screener fallback.
 
         Returns:
             Deduplicated sorted list of symbols.
         """
         all_symbols: set[str] = set()
+        constituent_count = 0
         indices = indices or ["sp500", "nasdaq"]
 
         for idx in indices:
             if idx == "sp500":
                 symbols = self.fetch_sp500()
                 logger.info(f"S&P 500: {len(symbols)} symbols")
+                constituent_count += len(symbols)
                 all_symbols.update(symbols)
             elif idx == "nasdaq":
                 symbols = self.fetch_nasdaq()
                 logger.info(f"NASDAQ: {len(symbols)} symbols")
+                constituent_count += len(symbols)
                 all_symbols.update(symbols)
             else:
                 logger.warning(f"Unknown index: {idx}")
+
+        # Fallback: if constituent endpoints returned 0 (402), use screener
+        if constituent_count == 0:
+            logger.warning(
+                "Constituent endpoints unavailable (402), " "falling back to company-screener"
+            )
+            fallback = self.fetch_us_stocks(
+                cap_min=fallback_cap_min, max_symbols=fallback_max_symbols
+            )
+            logger.info(
+                f"Company-screener fallback: {len(fallback)} US stocks "
+                f"(cap >= ${fallback_cap_min / 1e6:.0f}M)"
+            )
+            all_symbols.update(fallback)
 
         if russell_proxy:
             symbols = self.fetch_russell_proxy(cap_min, cap_max)
