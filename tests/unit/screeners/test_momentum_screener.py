@@ -6,7 +6,9 @@ Uses synthetic OHLCV data that simulates real market patterns
 
 from __future__ import annotations
 
+from datetime import date, timedelta
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -359,6 +361,73 @@ class TestMomentumScreener:
         result = screener.screen(price_data, volume_data, "R0", market_caps)
         assert len(result.candidates) == 0
 
+    def test_earnings_blackout_excludes_reporting_symbol(self) -> None:
+        """Symbol reporting within blackout window should be excluded."""
+        price_data, volume_data, market_caps = _build_screener_data()
+
+        config_with_blackout = {
+            **DEFAULT_CONFIG,
+            "filters": {**DEFAULT_CONFIG["filters"], "earnings_blackout_days": 5},
+        }
+        screener = MomentumScreener(config_with_blackout)
+
+        today = date.today()
+        earnings_dates = {"SYM05": today + timedelta(days=3)}  # Reporting in 3 days
+
+        # With blackout: SYM05 should be excluded
+        with patch("src.domain.screeners.momentum.screener.date") as mock_date:
+            mock_date.today.return_value = today
+            mock_date.side_effect = lambda *a, **kw: date(*a, **kw)
+            result = screener.screen(
+                price_data, volume_data, "R0", market_caps, earnings_dates=earnings_dates
+            )
+
+        symbols = [c.signal.symbol for c in result.candidates]
+        assert "SYM05" not in symbols
+
+    def test_earnings_blackout_skipped_in_backtest(self) -> None:
+        """Backtest mode should ignore earnings blackout (no look-ahead bias)."""
+        price_data, volume_data, market_caps = _build_screener_data()
+
+        config_with_blackout = {
+            **DEFAULT_CONFIG,
+            "filters": {**DEFAULT_CONFIG["filters"], "earnings_blackout_days": 5},
+        }
+        screener = MomentumScreener(config_with_blackout)
+
+        today = date.today()
+        earnings_dates = {sym: today + timedelta(days=2) for sym in price_data}
+
+        # Backtest mode: all symbols should still be eligible
+        result = screener.screen(
+            price_data,
+            volume_data,
+            "R0",
+            market_caps,
+            is_backtest=True,
+            earnings_dates=earnings_dates,
+        )
+        assert len(result.candidates) > 0
+
+    def test_earnings_blackout_disabled_when_zero(self) -> None:
+        """earnings_blackout_days=0 should not filter anything."""
+        price_data, volume_data, market_caps = _build_screener_data()
+
+        config_no_blackout = {
+            **DEFAULT_CONFIG,
+            "filters": {**DEFAULT_CONFIG["filters"], "earnings_blackout_days": 0},
+        }
+        screener = MomentumScreener(config_no_blackout)
+
+        today = date.today()
+        earnings_dates = {sym: today + timedelta(days=1) for sym in price_data}
+
+        result = screener.screen(
+            price_data, volume_data, "R0", market_caps, earnings_dates=earnings_dates
+        )
+        # All symbols should still be eligible (blackout disabled)
+        assert len(result.candidates) > 0
+
 
 # ── config.py Tests ───────────────────────────────────────────────────
 
@@ -373,6 +442,9 @@ class TestConfig:
             assert config.data_source.lookback_trading_days == 252
             assert config.scoring.top_n == 30
             assert config.regime_rules.r2_block_entirely is True
+            assert config.filters.min_avg_daily_dollar_volume == 20_000_000
+            assert config.filters.earnings_blackout_days == 5
+            assert config.universe.fallback_max_symbols == 800
 
     def test_from_dict_defaults(self) -> None:
         config = MomentumConfig.from_dict({})

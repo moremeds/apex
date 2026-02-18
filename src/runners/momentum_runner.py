@@ -1,11 +1,14 @@
 """Quantitative Momentum Screener CLI runner.
 
-Cache-first by default: screens from existing Parquet data.
-Use --update to fetch fresh universe + OHLCV before screening.
+Always-fresh: refreshes universe + incrementally updates OHLCV before
+screening. Incremental update only fetches new bars since each symbol's
+last Parquet date, so repeat runs are fast.
 
 Usage:
-    python -m src.runners.momentum_runner                           # screen from cache
-    python -m src.runners.momentum_runner --update                  # fetch + screen
+    python -m src.runners.momentum_runner                           # refresh + screen
+    python -m src.runners.momentum_runner --no-refresh              # screen from cache only
+    python -m src.runners.momentum_runner --no-email                # skip email
+    python -m src.runners.momentum_runner --no-earnings             # skip earnings blackout filter
     python -m src.runners.momentum_runner --backtest                # walk-forward backtest
     python -m src.runners.momentum_runner --include-recent-ipos     # adaptive momentum
     python -m src.runners.momentum_runner --html out/momentum/report.html
@@ -22,6 +25,7 @@ from typing import Any
 import numpy as np
 
 from src.utils.logging_setup import get_logger
+from src.utils.regime_display import regime_label
 
 logger = get_logger(__name__)
 
@@ -56,7 +60,7 @@ def _read_current_regime(signals_dir: Path, fallback: str = _REGIME_FALLBACK) ->
         for t in data.get("tickers", []):
             if t.get("symbol") == "SPY":
                 regime = t.get("regime", fallback)
-                logger.info(f"SPY regime: {regime}")
+                logger.info(f"SPY regime: {regime} ({regime_label(str(regime))})")
                 return str(regime)
     except Exception as e:
         logger.warning(f"Failed to read regime from summary.json: {e}")
@@ -64,7 +68,7 @@ def _read_current_regime(signals_dir: Path, fallback: str = _REGIME_FALLBACK) ->
     return fallback
 
 
-def _write_watchlist_json(result: Any, output_dir: Path) -> Path:
+def _write_watchlist_json(result: Any, output_dir: Path, data_as_of: date | None = None) -> Path:
     """Write screening results to JSON for downstream consumers."""
     data_dir = output_dir / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
@@ -94,14 +98,16 @@ def _write_watchlist_json(result: Any, output_dir: Path) -> Path:
             }
         )
 
-    payload = {
+    payload: dict[str, Any] = {
         "candidates": candidates_data,
         "universe_size": result.universe_size,
         "passed_filters": result.passed_filters,
         "regime": result.regime,
         "generated_at": result.generated_at.isoformat(),
-        "errors": result.errors,
+        "errors": [f"{k}: {v}" for k, v in result.errors.items()],
     }
+    if data_as_of is not None:
+        payload["data_as_of"] = data_as_of.isoformat()
 
     out_path.write_text(json.dumps(payload, indent=2))
     logger.info(f"Wrote {len(candidates_data)} candidates to {out_path}")
@@ -124,6 +130,7 @@ def cmd_update(config: Any) -> list[str]:
         russell_proxy=ucfg.russell_proxy_enabled,
         cap_min=ucfg.russell_proxy_market_cap_min,
         cap_max=ucfg.russell_proxy_market_cap_max,
+        fallback_max_symbols=ucfg.fallback_max_symbols,
     )
 
     # Download OHLCV
@@ -140,35 +147,81 @@ def cmd_screen(
     html_output: str | None = None,
     signals_dir: str | None = None,
     include_recent_ipos: bool = False,
+    send_email_flag: bool = True,
+    no_earnings: bool = False,
+    no_refresh: bool = False,
 ) -> Any:
-    """Run momentum screening from cached data."""
+    """Run momentum screening with universe + OHLCV refresh.
+
+    Always-fresh by default: refreshes universe, then incrementally
+    updates stale Parquet data (only fetches new bars — fast).
+    Use --no-refresh to skip both and screen from cache only.
+
+    Args:
+        no_earnings: Skip earnings blackout filter.
+        no_refresh: Skip universe + OHLCV refresh (use stale cache).
+    """
     from src.domain.screeners.momentum.screener import MomentumScreener
     from src.services.momentum_data_service import MomentumDataService
 
     svc = MomentumDataService()
 
-    # Read universe
-    symbols = svc.get_universe()
-    if not symbols:
-        logger.error("No universe cached. Run with --update first.")
-        return None
+    if no_refresh:
+        # Cache-only mode
+        print("[1/4] Using cached universe...", flush=True)
+        symbols = svc.get_universe()
+        if not symbols:
+            logger.error("No universe cached. Run without --no-refresh first.")
+            return None
+        print(f"  {len(symbols)} symbols from cache")
+    else:
+        # Always-fresh: refresh universe + incremental OHLCV
+        print("[1/4] Refreshing universe...", flush=True)
+        ucfg = config.universe
+        symbols = svc.update_universe(
+            indices=ucfg.indices,
+            russell_proxy=ucfg.russell_proxy_enabled,
+            cap_min=ucfg.russell_proxy_market_cap_min,
+            cap_max=ucfg.russell_proxy_market_cap_max,
+            fallback_max_symbols=ucfg.fallback_max_symbols,
+        )
+        print("[2/4] Updating OHLCV (incremental)...", flush=True)
+        months = (config.data_source.lookback_trading_days // 21) + 3
+        svc.update_ohlcv(symbols, months=months)
 
     # Read regime
     sig_dir = Path(signals_dir) if signals_dir else PROJECT_ROOT / "out" / "signals"
     regime = _read_current_regime(sig_dir)
 
-    # Read market caps
-    market_caps = svc.get_market_caps(symbols)
-
     # Load price + volume data
+    print("[3/4] Loading price data...", end=" ", flush=True)
     today = date.today()
     lookback_cal_days = int(config.data_source.lookback_trading_days * 1.5) + 50
     price_data = svc.get_bulk_closes(symbols, today, lookback_days=lookback_cal_days)
     volume_data = svc.get_bulk_volumes(symbols, today, lookback_days=lookback_cal_days)
+    market_caps = svc.get_market_caps(symbols)
+    print(f"{len(price_data)} symbols loaded")
 
-    logger.info(
-        f"Data loaded: {len(price_data)} symbols with closes, " f"{len(volume_data)} with volumes"
-    )
+    # Check data freshness
+    data_as_of = svc.get_data_as_of_date(list(price_data.keys()))
+    if data_as_of:
+        bdays_behind = int(np.busday_count(data_as_of, today))
+        if bdays_behind > 2:
+            print(
+                f"  WARNING: Data still {bdays_behind} business days behind "
+                f"(data: {data_as_of.isoformat()}, today: {today.isoformat()})"
+            )
+
+    # Fetch upcoming earnings for blackout filter
+    print("[4/4] Screening...", end=" ", flush=True)
+    earnings_dates = None
+    if not no_earnings and config.filters.earnings_blackout_days > 0:
+        earnings_dates = svc.get_upcoming_earnings(
+            list(price_data.keys()),
+            lookahead_days=config.filters.earnings_blackout_days + 2,
+        )
+        if earnings_dates:
+            logger.info(f"Earnings blackout: {len(earnings_dates)} symbols excluded")
 
     # Screen
     screener = MomentumScreener(config)
@@ -178,12 +231,15 @@ def cmd_screen(
         regime=regime,
         market_caps=market_caps,
         use_adaptive=include_recent_ipos,
+        earnings_dates=earnings_dates,
     )
+    print(f"{len(result.candidates)} candidates")
 
     # Print summary
-    print(f"\nMomentum Screen — {today.isoformat()}")
+    data_as_of_str = data_as_of.isoformat() if data_as_of else "unknown"
+    print(f"\nMomentum Screen — {today.isoformat()} (data: {data_as_of_str})")
     print(
-        f"Regime: {regime} | Universe: {result.universe_size} | "
+        f"Regime: {regime} ({regime_label(regime)}) | Universe: {result.universe_size} | "
         f"Passed: {result.passed_filters} | Top-N: {len(result.candidates)}"
     )
     print("=" * 80)
@@ -203,11 +259,11 @@ def cmd_screen(
                 f"{c.position_size_factor:4.0%}"
             )
     else:
-        print(f"0 momentum candidates (regime: {regime})")
+        print(f"0 momentum candidates (regime: {regime} - {regime_label(regime)})")
 
     # Write JSON
     output_dir = Path(html_output).parent if html_output else PROJECT_ROOT / "out" / "momentum"
-    _write_watchlist_json(result, output_dir)
+    _write_watchlist_json(result, output_dir, data_as_of=data_as_of)
 
     # Write HTML
     if html_output:
@@ -216,6 +272,21 @@ def cmd_screen(
         builder = MomentumReportBuilder()
         html_path = builder.build(result, html_output)
         logger.info(f"Momentum HTML report: {html_path}")
+
+    # Send email
+    if send_email_flag:
+        if result.candidates:
+            from src.infrastructure.reporting.email_momentum_renderer import (
+                render_momentum_email_text,
+            )
+            from src.utils.email_sender import send_email
+
+            watchlist_path = output_dir / "data" / "momentum_watchlist.json"
+            body = render_momentum_email_text(watchlist_path)
+            subject = f"APEX Momentum — {len(result.candidates)} candidates — {today.isoformat()}"
+            send_email(subject, body)
+        else:
+            print("0 candidates — email skipped.")
 
     return result
 
@@ -367,7 +438,9 @@ def main() -> None:
         description="Quantitative Momentum Screener (12-1 momentum + FIP)"
     )
     parser.add_argument(
-        "--update", action="store_true", help="Fetch universe + OHLCV before screening"
+        "--update",
+        action="store_true",
+        help="Legacy alias — universe + OHLCV refresh is now the default behavior",
     )
     parser.add_argument(
         "--backtest", action="store_true", help="Run walk-forward portfolio backtest"
@@ -379,6 +452,13 @@ def main() -> None:
     )
     parser.add_argument("--html", type=str, default=None, help="Output HTML report path")
     parser.add_argument("--signals-dir", type=str, default=None, help="Signal pipeline output dir")
+    parser.add_argument("--no-email", action="store_true", help="Skip email notification")
+    parser.add_argument("--no-earnings", action="store_true", help="Skip earnings blackout filter")
+    parser.add_argument(
+        "--no-refresh",
+        action="store_true",
+        help="Skip universe + OHLCV refresh (screen from stale cache)",
+    )
     args = parser.parse_args()
 
     config = _load_config()
@@ -394,6 +474,10 @@ def main() -> None:
             html_output=args.html,
             signals_dir=args.signals_dir,
             include_recent_ipos=args.include_recent_ipos,
+            send_email_flag=not args.no_email,
+            no_earnings=args.no_earnings,
+            # --update already fetched OHLCV; skip redundant refresh
+            no_refresh=args.no_refresh or args.update,
         )
 
 

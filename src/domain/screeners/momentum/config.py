@@ -22,6 +22,7 @@ class UniverseConfig:
     russell_proxy_enabled: bool = True
     russell_proxy_market_cap_min: float = 300_000_000
     russell_proxy_market_cap_max: float = 10_000_000_000
+    fallback_max_symbols: int = 800
     source: str = "fmp"
     cache_path: str = "data/cache/index_constituents.json"
 
@@ -40,9 +41,10 @@ class MomentumFilters:
     """Filter thresholds for the screening pipeline."""
 
     min_market_cap: float = 500_000_000
-    min_avg_daily_dollar_volume: float = 10_000_000
+    min_avg_daily_dollar_volume: float = 20_000_000
     min_price: float = 10.0
     min_daily_turnover_rate: float = 0.002
+    earnings_blackout_days: int = 0  # calendar days, 0 = disabled
 
 
 @dataclass
@@ -132,6 +134,7 @@ class MomentumConfig:
                 "russell_proxy_enabled": rp.get("enabled", True),
                 "russell_proxy_market_cap_min": rp.get("market_cap_min", 300_000_000),
                 "russell_proxy_market_cap_max": rp.get("market_cap_max", 10_000_000_000),
+                "fallback_max_symbols": universe_raw.get("fallback_max_symbols", 800),
             },
         )
 

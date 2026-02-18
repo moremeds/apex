@@ -67,8 +67,8 @@ help:
 	@echo "  make pead-screen    Screen from cache (still tracks + resolves by default)"
 	@echo ""
 	@echo "$(GREEN)Momentum Screener:$(RESET)"
-	@echo "  make quantitative-moment          Screen from cache (alias: momentum)"
-	@echo "  make quantitative-moment-update   Fetch fresh data + screen"
+	@echo "  make quantitative-moment          Refresh + screen + email (alias: momentum)"
+	@echo "  make quantitative-moment-update   Same as above (refresh is now default)"
 	@echo "  make quantitative-moment-backtest Walk-forward backtest"
 	@echo "  make quantitative-moment-test     Run unit tests"
 	@echo ""
@@ -455,17 +455,14 @@ pead-test:
 # Momentum Screener
 # ═══════════════════════════════════════════════════════════════
 
-# Run momentum screen from cached data
+# Always-fresh: refresh universe + incremental OHLCV + screen
 momentum:
-	@echo "$(BOLD)Momentum Screen (from cache)...$(RESET)"
+	@echo "$(BOLD)Momentum Screen (refresh + screen)...$(RESET)"
 	$(PYTHON) -m src.runners.momentum_runner --html out/momentum/report.html
 	@echo "$(GREEN)✓ HTML report: out/momentum/report.html$(RESET)"
 
-# Fetch fresh data + screen
-momentum-update:
-	@echo "$(BOLD)Momentum Screen — Full Update...$(RESET)"
-	$(PYTHON) -m src.runners.momentum_runner --update --html out/momentum/report.html
-	@echo "$(GREEN)✓ HTML report: out/momentum/report.html$(RESET)"
+# Alias: momentum-update is now identical to momentum (refresh is default)
+momentum-update: momentum
 
 # Walk-forward backtest
 momentum-backtest:
