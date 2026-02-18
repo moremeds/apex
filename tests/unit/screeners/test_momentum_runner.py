@@ -5,11 +5,9 @@ from __future__ import annotations
 import json
 from datetime import date, datetime
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-import numpy as np
 import pandas as pd
-import pytest
 
 from src.domain.screeners.momentum.models import MomentumScreenResult
 
