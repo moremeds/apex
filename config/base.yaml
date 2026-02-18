@@ -271,6 +271,10 @@ historical_data:
 
   # Data sources for historical downloads
   sources:
+    fmp:
+      enabled: true
+      rate_limit_per_sec: 3.0         # ~0.3s delay between requests
+
     yahoo:
       enabled: true
       rate_limit_per_sec: 1.0         # Yahoo rate limit (avoid 429)
@@ -279,8 +283,9 @@ historical_data:
       enabled: true
       # Uses historical_pool client_ids from brokers.ibkr config
 
-  # Source priority (IB preferred when available)
-  source_priority: ["ib", "yahoo"]
+  # Source priority for offline/batch runners (load_bars).
+  # "ib" is async-only and handled separately by HistoricalDataService.
+  source_priority: ["fmp", "yahoo"]
 
   # Supported timeframes for backtesting
   timeframes:
