@@ -123,18 +123,14 @@ class SeriesRegimeProvider:
 
 
 def _download_data(symbol: str, start: date, end: date) -> pd.DataFrame:
-    """Download daily OHLCV data from Yahoo Finance."""
-    import yfinance as yf
+    """Download daily OHLCV data using unified bar loader (FMP -> Yahoo -> IB)."""
+    from src.services.bar_loader import load_bars
 
-    ticker = yf.Ticker(symbol)
-    df = ticker.history(start=start.isoformat(), end=end.isoformat(), interval="1d")
+    result = load_bars([symbol], timeframe="1d", days=(end - start).days, end_date=end)
+    df = result.get(symbol, pd.DataFrame())
     if df.empty:
         logger.warning(f"No data for {symbol}")
-        return df
-    df.columns = [c.lower() for c in df.columns]
-    # Keep only OHLCV
-    cols = ["open", "high", "low", "close", "volume"]
-    return df[[c for c in cols if c in df.columns]]
+    return df
 
 
 def _compute_regime_series(data: pd.DataFrame) -> pd.Series:

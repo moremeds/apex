@@ -115,18 +115,6 @@ APEX is a comprehensive risk management and backtesting platform designed for ac
 +-------------------------------------------------------------------+
 ```
 
-### Architecture Diagrams
-
-Auto-generated diagrams are available in [`docs/diagrams/`](docs/diagrams/README.md):
-
-| Type | Tool | Description |
-|------|------|-------------|
-| **Class Diagrams** | pyreverse | UML-style class relationships and inheritance |
-| **Dependency Graphs** | pydeps | Module import relationships |
-| **Call Flow Diagrams** | code2flow | Function call graphs and execution flow |
-
-Generate locally with `make diagrams` (requires Graphviz).
-
 ### Directory Structure
 
 ```
@@ -745,7 +733,6 @@ flake8 src/ tests/      # Linting
 | [docs/STRATEGY_GUIDE.md](docs/STRATEGY_GUIDE.md) | Strategy development guide |
 | [docs/PERSISTENCE_LAYER.md](docs/PERSISTENCE_LAYER.md) | Database setup and API reference |
 | [docs/OBSERVABILITY_SETUP.md](docs/OBSERVABILITY_SETUP.md) | Observability setup guide |
-| [docs/diagrams/](docs/diagrams/README.md) | Auto-generated architecture diagrams |
 | [docs/indicators/](docs/indicators/) | Indicator documentation by category |
 | [docs/rules/](docs/rules/) | Signal rule documentation |
 | [docs/designs/](docs/designs/) | Architecture design documents |

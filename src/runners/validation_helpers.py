@@ -132,7 +132,10 @@ def load_bars_yahoo(
     end_date: Optional[date] = None,
 ) -> Dict[str, pd.DataFrame]:
     """
-    Load historical bars from Yahoo Finance.
+    Load historical bars using the unified bar loader.
+
+    Uses configured source priority (FMP -> Yahoo) by default.
+    Signature preserved for backward compatibility with validation_runner.py.
 
     Args:
         symbols: List of symbols to load
@@ -143,60 +146,14 @@ def load_bars_yahoo(
     Returns:
         Dict mapping symbol -> OHLCV DataFrame
     """
-    try:
-        import yfinance as yf
-    except ImportError:
-        logger.error("yfinance not installed. Run: pip install yfinance")
-        return {}
+    from src.services.bar_loader import load_bars
 
-    if end_date is None:
-        end_date = date.today()
-
-    start_date = end_date - timedelta(days=days)
-
-    # Map timeframe to yfinance interval
-    interval_map = {
-        "1d": "1d",
-        "4h": "1h",  # Aggregate 1h -> 4h
-        "2h": "1h",  # Aggregate 1h -> 2h
-        "1h": "1h",
-    }
-    interval = interval_map.get(timeframe, "1d")
-
-    bars_by_symbol: Dict[str, pd.DataFrame] = {}
-
-    for symbol in symbols:
-        try:
-            ticker = yf.Ticker(symbol)
-            df = ticker.history(
-                start=start_date.isoformat(),
-                end=end_date.isoformat(),
-                interval=interval,
-            )
-
-            if df.empty:
-                logger.warning(f"No data for {symbol}")
-                continue
-
-            # Standardize column names
-            df.columns = [c.lower() for c in df.columns]
-            for col in ["dividends", "stock splits", "adj close"]:
-                if col in df.columns:
-                    df = df.drop(columns=[col])
-
-            # Aggregate if needed
-            if timeframe == "4h" and interval == "1h":
-                df = _aggregate_bars(df, "4h")
-            elif timeframe == "2h" and interval == "1h":
-                df = _aggregate_bars(df, "2h")
-
-            bars_by_symbol[symbol] = df
-            logger.debug(f"Loaded {len(df)} {timeframe} bars for {symbol}")
-
-        except Exception as e:
-            logger.error(f"Failed to load {symbol}: {e}")
-
-    return bars_by_symbol
+    return load_bars(
+        symbols=symbols,
+        timeframe=timeframe,
+        days=days,
+        end_date=end_date,
+    )
 
 
 def _aggregate_bars(df: pd.DataFrame, target_tf: str) -> pd.DataFrame:

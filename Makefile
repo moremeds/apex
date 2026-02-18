@@ -1,7 +1,7 @@
 # APEX Development Makefile
 # Quick commands for common development tasks
 
-.PHONY: install run run-dev run-prod run-demo run-headless lint format type-check dead-code complexity quality test test-all coverage clean help diagrams diagrams-classes diagrams-deps diagrams-flows validate-fast validate signals-test signals signals-deploy strategy-compare strategy-verify strategy-compare-quick behavioral behavioral-full behavioral-cases pead pead-test pead-screen
+.PHONY: install run run-dev run-prod run-demo run-headless lint format type-check dead-code complexity quality test test-all coverage clean help validate-fast validate signals-test signals signals-deploy strategy-compare strategy-verify strategy-compare-quick behavioral behavioral-full behavioral-cases pead pead-test pead-screen
 
 # Virtual environment - use .venv/bin executables directly
 VENV := .venv/bin
@@ -66,8 +66,13 @@ help:
 	@echo "  make pead-test      Run PEAD unit tests"
 	@echo "  make pead-screen    Screen from cache (still tracks + resolves by default)"
 	@echo ""
+	@echo "$(GREEN)Momentum Screener:$(RESET)"
+	@echo "  make quantitative-moment          Screen from cache (alias: momentum)"
+	@echo "  make quantitative-moment-update   Fetch fresh data + screen"
+	@echo "  make quantitative-moment-backtest Walk-forward backtest"
+	@echo "  make quantitative-moment-test     Run unit tests"
+	@echo ""
 	@echo "$(GREEN)Other:$(RESET)"
-	@echo "  make diagrams       Generate architecture diagrams"
 	@echo "  make clean          Remove build artifacts"
 
 # ═══════════════════════════════════════════════════════════════
@@ -475,41 +480,13 @@ momentum-test:
 
 .PHONY: momentum momentum-update momentum-backtest momentum-test
 
-# ═══════════════════════════════════════════════════════════════
-# Diagrams
-# ═══════════════════════════════════════════════════════════════
+# Aliases (preferred names)
+quantitative-moment: momentum
+quantitative-moment-update: momentum-update
+quantitative-moment-backtest: momentum-backtest
+quantitative-moment-test: momentum-test
 
-diagrams: diagrams-classes diagrams-deps diagrams-flows
-	@echo "$(GREEN)✓ All diagrams generated in docs/diagrams/$(RESET)"
-
-# Hidden from help but still functional
-diagrams-classes:
-	@echo "$(BOLD)Generating class diagrams (PlantUML via pyreverse)...$(RESET)"
-	@mkdir -p docs/diagrams/classes
-	$(VENV)/pyreverse -o puml -d docs/diagrams/classes -p domain_services src/domain/services
-	$(VENV)/pyreverse -o puml -d docs/diagrams/classes -p domain_signals src/domain/signals
-	$(VENV)/pyreverse -o puml -d docs/diagrams/classes -p domain_events src/domain/events
-	$(VENV)/pyreverse -o puml -d docs/diagrams/classes -p infrastructure_adapters src/infrastructure/adapters
-	$(VENV)/pyreverse -o puml -d docs/diagrams/classes -p application_orchestrator src/application/orchestrator
-	@echo "$(GREEN)✓ Class diagrams generated$(RESET)"
-
-# Hidden from help but still functional
-diagrams-deps:
-	@echo "$(BOLD)Generating dependency graphs (SVG)...$(RESET)"
-	@mkdir -p docs/diagrams/dependencies
-	$(VENV)/pydeps src/domain -o docs/diagrams/dependencies/domain_deps.svg --max-module-depth=2 --cluster --noshow
-	$(VENV)/pydeps src/infrastructure -o docs/diagrams/dependencies/infrastructure_deps.svg --max-module-depth=2 --cluster --noshow
-	$(VENV)/pydeps src -o docs/diagrams/dependencies/full_project_deps.svg --max-module-depth=1 --cluster --noshow
-	@echo "$(GREEN)✓ Dependency graphs generated$(RESET)"
-
-# Hidden from help but still functional
-diagrams-flows:
-	@echo "$(BOLD)Generating call flow diagrams (SVG via code2flow)...$(RESET)"
-	@mkdir -p docs/diagrams/flows
-	$(VENV)/code2flow src/application/orchestrator -o docs/diagrams/flows/orchestrator_flow.svg --language py --no-trimming --quiet
-	$(VENV)/code2flow src/domain/services/risk -o docs/diagrams/flows/risk_services_flow.svg --language py --no-trimming --quiet
-	$(VENV)/code2flow src/domain/signals -o docs/diagrams/flows/signal_pipeline_flow.svg --language py --no-trimming --quiet
-	@echo "$(GREEN)✓ Call flow diagrams generated$(RESET)"
+.PHONY: quantitative-moment quantitative-moment-update quantitative-moment-backtest quantitative-moment-test
 
 # ═══════════════════════════════════════════════════════════════
 # Cleanup

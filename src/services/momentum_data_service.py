@@ -1,7 +1,8 @@
 """Momentum screener data service.
 
 Cache-first pattern: screening reads from ParquetHistoricalStore and cached
-universe JSON. Explicit `update_*` commands fetch from FMP + yfinance.
+universe JSON. Explicit `update_*` commands fetch via unified bar loader
+(FMP -> Yahoo -> IB priority).
 
 Data storage:
 - Universe: data/cache/index_constituents.json (FMP index membership)
@@ -111,28 +112,26 @@ class MomentumDataService:
         months: int = 15,
         batch_size: int = 500,
     ) -> int:
-        """Download daily OHLCV via yfinance and store in Parquet.
+        """Download daily OHLCV and store in Parquet.
 
-        Uses yfinance batch download for efficiency, then writes each symbol
-        to the ParquetHistoricalStore.
+        Uses unified bar loader (FMP -> Yahoo -> IB) for data sourcing,
+        then writes each symbol to the ParquetHistoricalStore.
 
         Args:
             symbols: List of symbols to fetch.
             months: Months of history to fetch (15 = ~13mo lookback + buffer).
-            batch_size: Symbols per yfinance batch call.
+            batch_size: Symbols per batch call.
 
         Returns:
             Number of symbols successfully written.
         """
-        import yfinance as yf
-
         from src.infrastructure.stores.parquet_historical_store import (
             ParquetHistoricalStore,
         )
+        from src.services.bar_loader import load_bars
 
         store = ParquetHistoricalStore(self._hist_dir)
         end_date = date.today()
-        start_date = end_date - timedelta(days=months * 31)
 
         success_count = 0
         total_batches = (len(symbols) + batch_size - 1) // batch_size
@@ -140,43 +139,20 @@ class MomentumDataService:
         for batch_idx in range(total_batches):
             batch_start = batch_idx * batch_size
             batch = symbols[batch_start : batch_start + batch_size]
-            logger.info(
-                f"Downloading batch {batch_idx + 1}/{total_batches} " f"({len(batch)} symbols)"
-            )
+            logger.info(f"Downloading batch {batch_idx + 1}/{total_batches} ({len(batch)} symbols)")
 
-            try:
-                df = yf.download(
-                    batch,
-                    start=start_date.isoformat(),
-                    end=end_date.isoformat(),
-                    group_by="ticker",
-                    auto_adjust=True,
-                    threads=True,
-                )
-            except Exception as e:
-                logger.error(f"yfinance batch download failed: {e}")
-                continue
+            bars_dict = load_bars(batch, timeframe="1d", days=months * 31, end_date=end_date)
 
-            if df.empty:
-                continue
-
-            for symbol in batch:
+            for symbol, df in bars_dict.items():
                 try:
-                    if len(batch) == 1:
-                        sym_df = df
-                    else:
-                        sym_df = df[symbol] if symbol in df.columns.get_level_values(0) else None
-
-                    if sym_df is None or sym_df.empty:
+                    if df.empty:
                         continue
-
-                    sym_df = sym_df.dropna(subset=["Close"])
-                    if sym_df.empty:
-                        continue
-
-                    bars = self._df_to_bars(sym_df, symbol)
-                    if bars:
-                        store.write_bars(symbol, "1d", bars, mode="upsert")
+                    # Capitalize columns for _df_to_bars compatibility
+                    df_compat = df.copy()
+                    df_compat.columns = [c.capitalize() for c in df_compat.columns]
+                    bar_list = self._df_to_bars(df_compat, symbol)
+                    if bar_list:
+                        store.write_bars(symbol, "1d", bar_list, mode="upsert")
                         success_count += 1
                 except Exception as e:
                     logger.warning(f"Failed to process {symbol}: {e}")
@@ -281,8 +257,8 @@ class MomentumDataService:
         return {s: all_caps.get(s, 0.0) for s in symbols}
 
     @staticmethod
-    def _df_to_bars(df: pd.DataFrame, symbol: str) -> list[Any]:
-        """Convert yfinance DataFrame to BarData list."""
+    def _df_to_bars(df: pd.DataFrame, symbol: str, source: str = "bar_loader") -> list[Any]:
+        """Convert OHLCV DataFrame to BarData list. Expects capitalized columns."""
         from zoneinfo import ZoneInfo
 
         from src.domain.events.domain_events import BarData
@@ -307,7 +283,7 @@ class MomentumDataService:
                     vwap=None,
                     trade_count=None,
                     bar_start=ts,
-                    source="yfinance",
+                    source=source,
                     timestamp=ts,
                 )
             )
