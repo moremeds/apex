@@ -1,0 +1,301 @@
+name: "Nightly: Full Signal & Regime Validation + Deploy"
+
+# Runs full validation workflow and publishes to GitHub Pages.
+
+on:
+  schedule:
+    - cron: '0 3 * * *'  # 3 AM UTC daily
+  workflow_dispatch:
+    inputs:
+      skip_publish:
+        description: 'Skip publishing to GitHub Pages'
+        type: boolean
+        default: false
+      max_symbols:
+        description: 'Max symbols for validation (default: 40)'
+        type: number
+        default: 40
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false  # Do not cancel nightly runs.
+
+permissions:
+  contents: write
+
+env:
+  PYTHON_VERSION: '3.13'
+  VALIDATION_UNIVERSE: config/universe.yaml
+  REPORTS_DIR: reports/validation
+
+jobs:
+  validate-and-publish:
+    name: Full Validation + Publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Cache TA-Lib build
+        id: cache-talib
+        uses: actions/cache@v5
+        with:
+          path: ~/ta-lib-install
+          key: talib-0.6.4-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Install TA-Lib C library
+        run: |
+          if [ -d "$HOME/ta-lib-install/lib" ]; then
+            echo "Restoring TA-Lib from cache..."
+            sudo cp -r $HOME/ta-lib-install/lib/* /usr/lib/
+            sudo cp -r $HOME/ta-lib-install/include/* /usr/include/
+            sudo ldconfig
+          else
+            echo "Building TA-Lib 0.6.4 from source..."
+            sudo apt-get update
+            sudo apt-get install -y wget build-essential
+            wget https://github.com/ta-lib/ta-lib/releases/download/v0.6.4/ta-lib-0.6.4-src.tar.gz
+            tar -xzf ta-lib-0.6.4-src.tar.gz
+            cd ta-lib-0.6.4 && ./configure --prefix=/usr && make -j$(nproc) && sudo make install
+            sudo ldconfig
+            mkdir -p $HOME/ta-lib-install/lib $HOME/ta-lib-install/include
+            cp -r /usr/lib/libta* $HOME/ta-lib-install/lib/ 2>/dev/null || true
+            cp -r /usr/include/ta-lib $HOME/ta-lib-install/include/ 2>/dev/null || true
+          fi
+
+      - name: Install dependencies
+        run: |
+          uv venv
+          source .venv/bin/activate
+          uv pip install -e ".[dev,observability]"
+
+      - name: Generate Universe (if not exists)
+        run: |
+          source .venv/bin/activate
+          if [ ! -f ${{ env.VALIDATION_UNIVERSE }} ]; then
+            python scripts/generate_validation_universe.py \
+              --seed 42 \
+              --output config/validation/
+          fi
+
+      - name: "Step 1/7: Parameter Optimization"
+        continue-on-error: true
+        run: |
+          source .venv/bin/activate
+          mkdir -p ${{ env.REPORTS_DIR }} config/validation
+          python -m src.runners.validation_runner optimize \
+            --universe ${{ env.VALIDATION_UNIVERSE }} \
+            --outer-folds 3 --inner-folds 2 --inner-trials 20 \
+            --days 600 --max-symbols 25 --horizon-days 20 \
+            --output ${{ env.REPORTS_DIR }}/optimization_result.json \
+            --params-output config/validation/optimized_params.yaml
+
+      - name: "Step 2/7: Full Validation"
+        continue-on-error: true
+        run: |
+          source .venv/bin/activate
+          python -m src.runners.validation_runner full \
+            --universe ${{ env.VALIDATION_UNIVERSE }} \
+            --timeframes 1d \
+            --horizon-days 20 \
+            --outer-folds 3 --inner-folds 2 --inner-trials 10 \
+            --days 600 --max-symbols ${{ inputs.max_symbols || 40 }} \
+            --output ${{ env.REPORTS_DIR }}/full_validation.json
+
+      - name: "Step 3/7: Holdout Validation"
+        continue-on-error: true
+        run: |
+          source .venv/bin/activate
+          python -m src.runners.validation_runner holdout \
+            --universe ${{ env.VALIDATION_UNIVERSE }} \
+            --horizon-days 20 --days 500 \
+            --output ${{ env.REPORTS_DIR }}/holdout_validation.json
+
+      - name: "Step 4/7: Validation Summary Report"
+        run: |
+          source .venv/bin/activate
+          python -m src.infrastructure.reporting.validation_report \
+            --reports-dir ${{ env.REPORTS_DIR }} \
+            --output ${{ env.REPORTS_DIR }}/validation_summary.html
+
+      - name: "Step 5/7: Signal Report"
+        run: |
+          source .venv/bin/activate
+          python -m src.runners.signal_runner --live \
+            --universe ${{ env.VALIDATION_UNIVERSE }} \
+            --timeframes 1d 4h 1h \
+            --format package \
+            --html-output ${{ env.REPORTS_DIR }}/signal_report
+
+      - name: "Step 6/7: Publish to GitHub Pages"
+        if: ${{ !inputs.skip_publish && github.ref == 'refs/heads/master' }}
+        run: |
+          PUBLISH_DIR=${{ env.REPORTS_DIR }}/signal_report
+          if [ ! -d "$PUBLISH_DIR" ]; then
+            PUBLISH_DIR=${{ env.REPORTS_DIR }}
+          fi
+          mkdir -p "$PUBLISH_DIR"
+
+          cp ${{ env.REPORTS_DIR }}/validation_summary.html "$PUBLISH_DIR"/validation.html 2>/dev/null || true
+          cp ${{ env.REPORTS_DIR }}/*.json "$PUBLISH_DIR"/ 2>/dev/null || true
+          touch "$PUBLISH_DIR"/.nojekyll
+
+          git fetch origin gh-pages --depth=1 2>/dev/null || true
+          rm -rf /tmp/nightly-deploy
+
+          if ! git clone --branch gh-pages --single-branch --depth 1 \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" \
+            /tmp/nightly-deploy 2>/dev/null; then
+            mkdir -p /tmp/nightly-deploy
+            cd /tmp/nightly-deploy
+            git init -b gh-pages
+            git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
+          fi
+
+          cp -r "$PUBLISH_DIR"/. /tmp/nightly-deploy/ 2>/dev/null || true
+
+          cd /tmp/nightly-deploy
+          git add -A
+          if ! git diff --cached --quiet; then
+            git -c user.name="github-actions[bot]" \
+                -c user.email="github-actions[bot]@users.noreply.github.com" \
+                commit -m "Deploy nightly validation $(date +%Y-%m-%d)"
+            git push origin gh-pages
+          else
+            echo "No changes to publish"
+          fi
+
+          rm -rf /tmp/nightly-deploy
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: "Step 7/7: Signal Quality Gates (report-only)"
+        if: always()
+        continue-on-error: true
+        run: |
+          source .venv/bin/activate
+          if [ -d "${{ env.REPORTS_DIR }}/signal_report/data" ]; then
+            python scripts/validate_gates.py --all \
+              --package ${{ env.REPORTS_DIR }}/signal_report \
+              --output ${{ env.REPORTS_DIR }}/signal_gates.json \
+              -v
+          else
+            echo "WARNING: No signal report data found, skipping signal gates"
+          fi
+
+      - name: Upload Validation Reports
+        uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: nightly-validation-${{ github.run_number }}
+          path: |
+            ${{ env.REPORTS_DIR }}/*.json
+            ${{ env.REPORTS_DIR }}/*.html
+            ${{ env.REPORTS_DIR }}/signal_report/
+          retention-days: 30
+
+  extended-verification:
+    name: Extended Signal Verification + Full Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Cache TA-Lib
+        id: cache-talib
+        uses: actions/cache@v5
+        with:
+          path: ~/ta-lib-install
+          key: talib-0.6.4-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Install TA-Lib C library
+        run: |
+          if [ -d "$HOME/ta-lib-install/lib" ]; then
+            echo "Restoring TA-Lib from cache..."
+            sudo cp -r $HOME/ta-lib-install/lib/* /usr/lib/
+            sudo cp -r $HOME/ta-lib-install/include/* /usr/include/
+            sudo ldconfig
+          else
+            echo "Building TA-Lib 0.6.4 from source..."
+            sudo apt-get update
+            sudo apt-get install -y wget build-essential
+            wget https://github.com/ta-lib/ta-lib/releases/download/v0.6.4/ta-lib-0.6.4-src.tar.gz
+            tar -xzf ta-lib-0.6.4-src.tar.gz
+            cd ta-lib-0.6.4 && ./configure --prefix=/usr && make -j$(nproc) && sudo make install
+            sudo ldconfig
+            mkdir -p $HOME/ta-lib-install/lib $HOME/ta-lib-install/include
+            cp -r /usr/lib/libta* $HOME/ta-lib-install/lib/ 2>/dev/null || true
+            cp -r /usr/include/ta-lib $HOME/ta-lib-install/include/ 2>/dev/null || true
+          fi
+
+      - name: Install dependencies
+        run: |
+          uv venv
+          source .venv/bin/activate
+          uv pip install -e ".[dev,observability]"
+
+      - name: Run signal verification (talib profile)
+        continue-on-error: true
+        run: |
+          source .venv/bin/activate
+          python -m src.verification.signal_verifier --all --profile signal_talib \
+            --json > signal_talib_verification.json 2>&1 || true
+          python -m src.verification.signal_verifier --all --profile signal_talib
+
+      - name: Run signal nightly profile (performance checks)
+        continue-on-error: true
+        run: |
+          source .venv/bin/activate
+          python -m src.verification.signal_verifier --all --profile signal_nightly \
+            --json > signal_nightly_verification.json 2>&1 || true
+
+      - name: Run regime verification (all checks)
+        continue-on-error: true
+        run: |
+          source .venv/bin/activate
+          python -m src.verification.regime_verifier --all \
+            --json > regime_verification.json 2>&1 || true
+          python -m src.verification.regime_verifier --all
+
+      - name: Full test suite with coverage
+        continue-on-error: true
+        run: |
+          source .venv/bin/activate
+          pytest tests/ -v --tb=short \
+            --cov=src \
+            --cov-report=xml \
+            --cov-report=html \
+            --ignore=tests/partial/
+
+      - name: Upload verification and coverage artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: nightly-verification-${{ github.run_number }}
+          path: |
+            signal_talib_verification.json
+            signal_nightly_verification.json
+            regime_verification.json
+            coverage.xml
+            htmlcov/
+          if-no-files-found: ignore

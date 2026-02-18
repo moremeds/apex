@@ -1,0 +1,233 @@
+name: "PullRequest: Signal Quality + Regime Causality Gates"
+
+on:
+  pull_request:
+    paths:
+      - 'src/domain/signals/**'
+      - 'src/runners/signal_runner.py'
+      - 'src/runners/validation_runner.py'
+      - 'config/signals/**'
+      - 'config/validation/**'
+      - 'scripts/validate_gates.py'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: Detect Changed Paths
+    runs-on: ubuntu-latest
+    outputs:
+      regime: ${{ steps.filter.outputs.regime }}
+      signals: ${{ steps.filter.outputs.signals }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Detect changed path groups
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            regime:
+              - 'src/domain/signals/indicators/regime/**'
+              - 'src/domain/signals/validation/**'
+              - 'src/runners/validation_runner.py'
+              - 'config/validation/**'
+            signals:
+              - 'src/domain/signals/**'
+              - '!src/domain/signals/indicators/regime/**'
+              - '!src/domain/signals/validation/**'
+              - 'src/runners/signal_runner.py'
+              - 'config/signals/**'
+              - 'scripts/validate_gates.py'
+
+  regime-causality-gate:
+    name: Regime Causality Gate
+    needs: changes
+    if: needs.changes.outputs.regime == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install dependencies
+        run: |
+          uv venv
+          source .venv/bin/activate
+          uv pip install -e ".[dev]"
+
+      - name: Run Fast Validation
+        run: |
+          source .venv/bin/activate
+          # Use --synthetic to avoid Yahoo Finance API rate limiting in CI
+          # Synthetic data exercises the same validation logic with deterministic data
+          python -m src.runners.validation_runner fast \
+            --symbols SPY QQQ AAPL MSFT NVDA \
+            --timeframes 1d \
+            --folds 2 \
+            --no-optuna \
+            --synthetic \
+            --output ci_fast.json
+
+      - name: Validate Output Structure
+        run: |
+          source .venv/bin/activate
+          python -c "
+          import json
+          import sys
+
+          with open('ci_fast.json') as f:
+              data = json.load(f)
+
+          # Validate output structure
+          required_keys = ['version', 'mode', 'generated_at', 'gate_results', 'all_gates_passed', 'universe']
+          missing = [k for k in required_keys if k not in data]
+          if missing:
+              print(f'ERROR: Missing required keys: {missing}')
+              sys.exit(1)
+
+          # Validate gate results exist
+          gate_names = {g['gate_name'] for g in data['gate_results']}
+          expected_gates = {'trending_r0', 'choppy_r0', 'causality_g7'}
+          if not expected_gates.issubset(gate_names):
+              print(f'ERROR: Missing expected gates: {expected_gates - gate_names}')
+              sys.exit(1)
+
+          print('Gate Results (with synthetic data):')
+          print('-' * 40)
+          for gate in data['gate_results']:
+              status = 'PASS' if gate['passed'] else 'INFO'
+              print(f\"  {gate['gate_name']}: {status}\")
+
+          # Key invariant: causality must pass (trending > choppy)
+          # This validates the scientific correctness of the detector
+          causality_gate = next((g for g in data['gate_results'] if g['gate_name'] == 'causality_g7'), None)
+          if causality_gate and not causality_gate['passed']:
+              print()
+              print('ERROR: Causality gate FAILED - detector is not distinguishing regimes!')
+              sys.exit(1)
+
+          print()
+          print('Output structure valid, causality invariant holds')
+          "
+
+      - name: Upload Fast Validation Report
+        uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: fast-validation-report
+          path: ci_fast.json
+          retention-days: 7
+
+  signal-quality-gates:
+    name: Signal Quality Gates
+    needs: changes
+    if: needs.changes.outputs.signals == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install dependencies
+        run: |
+          uv venv
+          source .venv/bin/activate
+          uv pip install -e ".[dev]"
+
+      - name: Generate Signal Report
+        run: |
+          source .venv/bin/activate
+          # PR validation subset from config/universe.yaml
+          python -m src.runners.signal_runner --live \
+            --symbols SPY QQQ AAPL MSFT NVDA AMD TSLA JPM META GOOGL \
+            --timeframes 1d \
+            --format package \
+            --html-output reports/validation/signal_report
+
+      - name: Check Report Generated
+        run: |
+          if [ ! -d "reports/validation/signal_report/data" ]; then
+            echo "ERROR: Signal report generation failed - no data directory found"
+            echo "Check the 'Generate Signal Report' step output for errors"
+            exit 1
+          fi
+          echo "Signal report generated successfully"
+
+      - name: Run All Gates
+        run: |
+          source .venv/bin/activate
+          python scripts/validate_gates.py --all \
+            --package reports/validation/signal_report \
+            --output ci_gates_report.json \
+            -v
+
+      - name: Check Gate Results
+        run: |
+          source .venv/bin/activate
+          python -c "
+          import json
+          import sys
+
+          with open('ci_gates_report.json') as f:
+              report = json.load(f)
+
+          print('Gate Results Summary:')
+          print('-' * 50)
+
+          for gate in report['gates']:
+              status = 'PASS' if gate['passed'] else gate['severity']
+              symbol = '+' if gate['passed'] else 'X' if gate['severity'] == 'FAIL' else '~'
+              print(f'  [{symbol}] {gate[\"gate_id\"]} {gate[\"gate_name\"]}: {status}')
+              if not gate['passed']:
+                  print(f'      {gate[\"message\"]}')
+
+          print()
+          print('-' * 50)
+          print(f'FAILS: {report[\"fail_count\"]} | WARNS: {report[\"warn_count\"]}')
+
+          if report['fail_count'] > 0:
+              print()
+              print('ERROR: Some gates FAILED!')
+              sys.exit(1)
+
+          print()
+          print('All critical gates PASSED')
+          "
+
+      - name: Upload Gate Report
+        uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: signal-gates-report
+          path: |
+            ci_gates_report.json
+            reports/validation/signal_report/manifest.json
+            reports/validation/signal_report/data/summary.json
+          retention-days: 7
+
+      - name: Upload Signal Package (on success)
+        uses: actions/upload-artifact@v6
+        if: success()
+        with:
+          name: signal-package
+          path: reports/validation/signal_report/
+          retention-days: 3

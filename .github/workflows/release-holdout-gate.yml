@@ -1,9 +1,9 @@
-name: "Release: Holdout Validation"
+name: "Release: Holdout Validation Gate"
 
 on:
   release:
     types: [published]
-  workflow_dispatch:  # Manual trigger
+  workflow_dispatch:
 
 jobs:
   holdout-validation:
@@ -76,24 +76,23 @@ jobs:
           print('=' * 60)
           print('HOLDOUT VALIDATION (Release Gate)')
           print('=' * 60)
-          print()
-          print(f\"Mode: {data.get('mode', 'unknown')}\")
-          print(f\"Generated: {data.get('generated_at', 'unknown')}\")
-          print()
 
-          # For now, holdout is a placeholder
-          # In production, this would validate against the same thresholds as nightly
-          if 'gate_results' in data:
-              print('Gate Results:')
-              print('-' * 40)
-              for gate in data['gate_results']:
-                  status = '✓ PASS' if gate['passed'] else '✗ FAIL'
-                  print(f\"  {gate['gate_name']}: {status}\")
+          if 'gate_results' not in data or not isinstance(data['gate_results'], list):
+              print('ERROR: Missing or malformed gate_results in holdout payload')
+              sys.exit(1)
 
-              if not data.get('all_gates_passed', True):
-                  print()
-                  print('ERROR: Holdout validation failed!')
-                  sys.exit(1)
+          if len(data['gate_results']) == 0:
+              print('ERROR: No gate results found - holdout validation incomplete')
+              sys.exit(1)
+
+          for gate in data['gate_results']:
+              status = 'PASS' if gate['passed'] else 'FAIL'
+              print(f\"  {gate['gate_name']}: {status}\")
+
+          if not data.get('all_gates_passed', False):
+              print()
+              print('ERROR: Holdout validation FAILED')
+              sys.exit(1)
 
           print()
           print('Holdout validation PASSED')
