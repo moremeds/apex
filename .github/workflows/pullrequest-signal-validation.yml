@@ -23,24 +23,52 @@ jobs:
       signals: ${{ steps.filter.outputs.signals }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Detect changed path groups
-        uses: dorny/paths-filter@v3
         id: filter
-        with:
-          filters: |
-            regime:
-              - 'src/domain/signals/indicators/regime/**'
-              - 'src/domain/signals/validation/**'
-              - 'src/runners/validation_runner.py'
-              - 'config/validation/**'
-            signals:
-              - 'src/domain/signals/**'
-              - '!src/domain/signals/indicators/regime/**'
-              - '!src/domain/signals/validation/**'
-              - 'src/runners/signal_runner.py'
-              - 'config/signals/**'
-              - 'scripts/validate_gates.py'
+        run: |
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          CHANGED_FILES="$(git diff --name-only "$BASE_SHA...$HEAD_SHA")"
+
+          echo "Changed files:"
+          printf '%s\n' "$CHANGED_FILES"
+
+          regime=false
+          signals=false
+
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+
+            case "$file" in
+              src/domain/signals/indicators/regime/*|src/domain/signals/validation/*|src/runners/validation_runner.py|config/validation/*)
+                regime=true
+                ;;
+            esac
+
+            case "$file" in
+              src/runners/signal_runner.py|config/signals/*|scripts/validate_gates.py)
+                signals=true
+                ;;
+              src/domain/signals/*)
+                case "$file" in
+                  src/domain/signals/indicators/regime/*|src/domain/signals/validation/*)
+                    ;;
+                  *)
+                    signals=true
+                    ;;
+                esac
+                ;;
+            esac
+          done <<EOF
+          $CHANGED_FILES
+          EOF
+
+          echo "regime=$regime" >> "$GITHUB_OUTPUT"
+          echo "signals=$signals" >> "$GITHUB_OUTPUT"
+          echo "regime=$regime, signals=$signals"
 
   regime-causality-gate:
     name: Regime Causality Gate
