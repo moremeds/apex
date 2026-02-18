@@ -44,7 +44,7 @@ class MomentumFilters:
     min_avg_daily_dollar_volume: float = 20_000_000
     min_price: float = 10.0
     min_daily_turnover_rate: float = 0.002
-    earnings_blackout_days: int = 0  # calendar days, 0 = disabled
+    earnings_blackout_days: int = 5  # calendar days, 0 = disabled
 
 
 @dataclass

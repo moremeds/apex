@@ -133,13 +133,43 @@ class TestFIP:
         closes = _make_uptrend(300)
         result = compute_fip(closes, skip=21, lookback=252)
         assert result is not None
-        assert -1.0 <= result <= 1.0, "FIP must be in [-1, 1]"
+        assert 0.0 <= result <= 1.0, "FIP must be in [0, 1]"
 
-    def test_downtrend_negative_fip(self) -> None:
+    def test_downtrend_low_fip(self) -> None:
         closes = _make_downtrend(300)
         result = compute_fip(closes, skip=21, lookback=252)
         assert result is not None
-        assert result < 0, "Downtrend should have negative FIP"
+        assert result < 0.5, "Downtrend should have FIP < 0.5 (fewer positive days)"
+
+    def test_fip_thesis_formula(self) -> None:
+        """Verify FIP = n_pos / total per thesis specification.
+
+        Constructs a price series where exactly 60 out of 100 daily
+        returns are positive, then verifies FIP ≈ 0.60.
+        """
+        # Build a series with exactly 60 positive returns out of 100
+        # in the momentum window (positions -(252+21) to -21)
+        n = 252 + 21 + 10  # extra buffer
+        closes = np.ones(n) * 100.0
+
+        # Fill the momentum window with controlled returns
+        # Window: daily_closes[-(273):-(21)] = 252 prices → 251 returns
+        window_start = n - 273
+        window_end = n - 21
+        window_len = window_end - window_start  # 252 prices → 251 returns
+
+        # We want exactly 60% of 251 returns to be positive
+        n_pos_target = int(round(0.60 * (window_len - 1)))  # 151
+
+        for i in range(window_start, window_end):
+            if i - window_start < n_pos_target:
+                closes[i + 1] = closes[i] * 1.001  # positive return
+            else:
+                closes[i + 1] = closes[i] * 0.999  # negative return
+
+        result = compute_fip(closes, skip=21, lookback=252)
+        assert result is not None
+        assert abs(result - n_pos_target / (window_len - 1)) < 0.01
 
     def test_insufficient_data_returns_none(self) -> None:
         result = compute_fip(np.array([100.0, 101.0]), skip=21, lookback=252)

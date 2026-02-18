@@ -51,14 +51,21 @@ def compute_fip(
     skip: int = 21,
     lookback: int = 252,
 ) -> float | None:
-    """Frog-In-Pan indicator over the momentum window.
+    """Frog-In-Pan smoothness proxy over the momentum window.
 
-    FIP = (# positive return days - # negative return days) / total days
-    in the momentum window (excluding the skip period).
+    Computes the fraction of positive-return days as a path-smoothness
+    proxy inspired by Da, Gurun & Warachka (2014).
 
-    High FIP (close to 1.0) means smooth, gradual appreciation.
-    Low FIP (close to -1.0) means smooth, gradual decline.
-    FIP near 0 means roughly equal up/down days.
+    Note: the original DGW paper defines Information Discreteness as
+    ``ID_i = sgn(PRET) * (%neg - %pos)`` (Eq. 1), where
+    %pos + %neg + %zero = 1.  Our FIP is a monotonic proxy (%pos/total)
+    that correlates with smooth appreciation but is NOT the paper's ID.
+    Higher FIP = smoother path = stronger momentum persistence signal.
+
+    FIP = 0.58 means 58% of trading days had positive returns.
+    High FIP (close to 1.0) = smooth, gradual appreciation.
+    Low FIP (close to 0.0) = mostly negative days.
+    FIP near 0.5 = roughly equal up/down days.
 
     Args:
         daily_closes: Array of daily closing prices, chronologically ordered.
@@ -66,7 +73,7 @@ def compute_fip(
         lookback: Total lookback trading days.
 
     Returns:
-        FIP value in [-1.0, 1.0], or None if insufficient data.
+        FIP value in [0.0, 1.0], or None if insufficient data.
     """
     required = lookback + skip
     if len(daily_closes) < required:
@@ -78,15 +85,12 @@ def compute_fip(
     # Daily returns within the window
     returns = np.diff(window) / window[:-1]
 
-    # Count positive and negative days (exclude zero-return days)
-    n_pos = int(np.sum(returns > 0))
-    n_neg = int(np.sum(returns < 0))
-    total = n_pos + n_neg
-
+    total = len(returns)
     if total == 0:
         return 0.0
 
-    return float((n_pos - n_neg) / total)
+    n_pos = int(np.sum(returns > 0))
+    return float(n_pos / total)
 
 
 def compute_adaptive_momentum(

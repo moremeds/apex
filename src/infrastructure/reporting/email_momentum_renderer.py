@@ -75,7 +75,7 @@ def render_momentum_email_text(
             mktcap_str = _format_market_cap(mktcap) if mktcap else "N/A"
 
             lines.append(f"#{rank} {symbol} [{tier}]")
-            lines.append(f"   Mom 12-1: {mom:+.1%}  FIP: {fip:+.2f}")
+            lines.append(f"   Mom 12-1: {mom:+.1%}  FIP: {fip:.2f}")
             lines.append(f"   Composite: {comp:.2f}  Quality: {quality}")
             lines.append(f"   Close: ${close:.2f}  MktCap: {mktcap_str}")
             lines.append(f"   ADDV: ${addv:,.0f}  Slippage: ~{slip}bps")

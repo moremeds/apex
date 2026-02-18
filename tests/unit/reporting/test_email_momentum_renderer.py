@@ -105,7 +105,7 @@ class TestRenderMomentumEmailText:
         assert "#1 AAPL [MEGA]" in result
         assert "#2 NVDA [MEGA]" in result
         assert "Mom 12-1: +32.1%" in result
-        assert "FIP: +1.42" in result
+        assert "FIP: 1.42" in result
         assert "Composite: 0.92" in result
         assert "Quality: STRONG" in result
         assert "Close: $198.50" in result

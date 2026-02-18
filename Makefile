@@ -69,7 +69,7 @@ help:
 	@echo "$(GREEN)Momentum Screener:$(RESET)"
 	@echo "  make quantitative-moment          Refresh + screen + email (alias: momentum)"
 	@echo "  make quantitative-moment-update   Same as above (refresh is now default)"
-	@echo "  make quantitative-moment-backtest Walk-forward backtest"
+	@echo "  make quantitative-moment-backtest Walk-forward backtest + ablation + HTML"
 	@echo "  make quantitative-moment-test     Run unit tests"
 	@echo ""
 	@echo "$(GREEN)Other:$(RESET)"
@@ -464,11 +464,11 @@ momentum:
 # Alias: momentum-update is now identical to momentum (refresh is default)
 momentum-update: momentum
 
-# Walk-forward backtest
+# Walk-forward backtest + ablation + HTML report
 momentum-backtest:
-	@echo "$(BOLD)Momentum Backtest...$(RESET)"
-	$(PYTHON) -m src.runners.momentum_runner --backtest --html out/momentum/backtest.html
-	@echo "$(GREEN)✓ Backtest: out/momentum/backtest.html$(RESET)"
+	@echo "$(BOLD)Momentum Backtest + Ablation...$(RESET)"
+	$(PYTHON) -m src.runners.momentum_runner --backtest --no-refresh
+	@echo "$(GREEN)✓ Report: out/momentum/backtest.html$(RESET)"
 
 # Run momentum screener tests
 momentum-test:

@@ -198,8 +198,21 @@ class MomentumDataService:
         days: int,
         batch_size: int = 500,
     ) -> int:
-        """Fetch bars in batches and upsert into Parquet store."""
+        """Fetch bars in batches and upsert into Parquet store.
+
+        When fetching > 250 symbols, uses Yahoo batch download directly
+        (single HTTP call per 500-symbol batch) instead of FMP's serial
+        per-symbol path which incurs 0.3s rate-limit sleep per symbol.
+        """
         from src.services.bar_loader import load_bars
+
+        # Yahoo's yf.download() handles 500 symbols in one HTTP call;
+        # FMP loops per-symbol with 0.3s sleep → ~3 min/batch vs ~5s/batch.
+        # Keep FMP as fallback so Yahoo outages don't lose data entirely.
+        use_yahoo_batch = len(symbols) > 250
+        source_override: list[str] | None = ["yahoo", "fmp"] if use_yahoo_batch else None
+        if use_yahoo_batch:
+            logger.info(f"Large batch ({len(symbols)} symbols): using Yahoo-first batch download")
 
         end_date = date.today()
         success_count = 0
@@ -214,7 +227,13 @@ class MomentumDataService:
                 flush=True,
             )
 
-            bars_dict = load_bars(batch, timeframe="1d", days=days, end_date=end_date)
+            bars_dict = load_bars(
+                batch,
+                timeframe="1d",
+                days=days,
+                end_date=end_date,
+                source_priority=source_override,
+            )
 
             batch_ok = 0
             for symbol, df in bars_dict.items():
@@ -317,6 +336,48 @@ class MomentumDataService:
             if df is not None and not df.empty:
                 result[symbol] = df["volume"].values
 
+        return result
+
+    def get_bulk_close_series(
+        self,
+        symbols: list[str],
+        end: date,
+        lookback_days: int = 300,
+    ) -> dict[str, pd.Series]:
+        """Batch read closing prices as date-indexed Series (for PIT backtest).
+
+        Returns:
+            Dict of symbol -> pd.Series with DatetimeIndex of daily closes.
+        """
+        start = end - timedelta(days=lookback_days)
+        result: dict[str, pd.Series] = {}
+        for symbol in symbols:
+            df = self.get_daily_data(symbol, start, end)
+            if df is not None and not df.empty:
+                result[symbol] = df["close"]
+        logger.info(
+            f"Loaded close series: {len(result)}/{len(symbols)} symbols "
+            f"({start.isoformat()} to {end.isoformat()})"
+        )
+        return result
+
+    def get_bulk_volume_series(
+        self,
+        symbols: list[str],
+        end: date,
+        lookback_days: int = 300,
+    ) -> dict[str, pd.Series]:
+        """Batch read daily volumes as date-indexed Series (for PIT backtest).
+
+        Returns:
+            Dict of symbol -> pd.Series with DatetimeIndex of daily volumes.
+        """
+        start = end - timedelta(days=lookback_days)
+        result: dict[str, pd.Series] = {}
+        for symbol in symbols:
+            df = self.get_daily_data(symbol, start, end)
+            if df is not None and not df.empty:
+                result[symbol] = df["volume"]
         return result
 
     def get_data_as_of_date(self, symbols: list[str], sample_size: int = 5) -> date | None:
