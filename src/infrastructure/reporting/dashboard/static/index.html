@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>APEX Dashboard</title>
+
+  <!-- Tabulator CSS (eager) -->
+  <link rel="stylesheet"
+        href="https://unpkg.com/tabulator-tables@6.3.1/dist/css/tabulator_midnight.min.css"
+        integrity="sha384-vBqRsRIPXb03PYCog2z5jjcEBrrvg3yilshFbdVOmFtVX27t9rYeO7lXit0xIcou"
+        crossorigin="anonymous">
+
+  <link rel="stylesheet" href="assets/styles.css">
+
+  <!-- Import map for ES modules (LC v5 has no UMD build) -->
+  <script type="importmap">
+  {
+    "imports": {
+      "lightweight-charts": "https://unpkg.com/lightweight-charts@5.0.0/dist/lightweight-charts.standalone.production.mjs"
+    }
+  }
+  </script>
+
+  <!-- Tabulator JS (eager — sets window.Tabulator) -->
+  <script src="https://unpkg.com/tabulator-tables@6.3.1/dist/js/tabulator.min.js"
+          integrity="sha384-SKSq3cuuVWdfrjtLz9wNlqE0bMc903yMS5zGnFtwvfddplgxa1hywtiLyw1CbSHO"
+          crossorigin="anonymous"></script>
+
+  <!-- Plotly (eager — used by overview treemap + signal charts + backtest) -->
+  <script src="https://cdn.plot.ly/plotly-2.27.0.min.js" crossorigin="anonymous"></script>
+</head>
+<body class="apex-dash">
+
+  <!-- Navigation -->
+  <nav class="dash-nav">
+    <div class="nav-brand">APEX</div>
+    <div class="nav-links">
+      <a href="#/overview" class="nav-link active" data-page="overview">Overview</a>
+      <a href="#/signals" class="nav-link" data-page="signals">Signals</a>
+      <a href="#/screeners" class="nav-link" data-page="screeners">Screeners</a>
+      <a href="#/regime" class="nav-link" data-page="regime">Regime</a>
+      <a href="#/backtest" class="nav-link" data-page="backtest">Backtest</a>
+    </div>
+    <span class="nav-timestamp" id="gen-timestamp"></span>
+  </nav>
+
+  <!-- Page: Overview -->
+  <section id="page-overview" class="page active">
+    <div class="page-content">
+      <div id="overview-etf-dashboard" class="hm-dashboard"></div>
+      <div id="overview-controls" class="hm-controls" style="display:none"></div>
+      <div id="overview-stats" class="hm-stats" style="display:none"></div>
+      <div id="overview-heatmap" class="hm-treemap-container"></div>
+    </div>
+  </section>
+
+  <!-- Page: Signals -->
+  <section id="page-signals" class="page">
+    <div class="page-content">
+      <div class="signals-controls">
+        <select id="signals-symbol-select" class="dash-select">
+          <option value="">Select symbol...</option>
+        </select>
+        <div id="signals-tf-tabs" class="tf-tabs"></div>
+      </div>
+      <div id="signals-chart" class="chart-container" style="height:700px"></div>
+      <div id="signals-sections"></div>
+    </div>
+  </section>
+
+  <!-- Page: Screeners -->
+  <section id="page-screeners" class="page">
+    <div class="page-content">
+      <div class="screener-tabs">
+        <button class="tab-btn active" data-tab="momentum">Momentum</button>
+        <button class="tab-btn" data-tab="pead">PEAD</button>
+      </div>
+      <div id="screener-momentum" class="screener-panel active">
+        <div id="momentum-summary" class="metric-cards-row"></div>
+        <div id="momentum-table"></div>
+        <div id="momentum-empty" class="empty-state" style="display:none">
+          No momentum data. Run <code>make quantitative-moment</code> to generate.
+        </div>
+      </div>
+      <div id="screener-pead" class="screener-panel">
+        <div id="pead-summary" class="metric-cards-row"></div>
+        <div id="pead-table"></div>
+        <div id="pead-methodology"></div>
+        <div id="pead-empty" class="empty-state" style="display:none">
+          No PEAD data. Run <code>make pead-screen</code> to generate.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Page: Regime -->
+  <section id="page-regime" class="page">
+    <div class="page-content">
+      <div id="regime-badge" class="regime-badge-large"></div>
+      <h3 class="section-title">Components</h3>
+      <div id="regime-components" class="card-grid"></div>
+      <h3 class="section-title">Exposure Timeline</h3>
+      <div id="regime-timeline" class="chart-container"></div>
+      <h3 class="section-title">All Symbols</h3>
+      <div id="regime-filters" class="regime-filter-bar"></div>
+      <div id="regime-grid" class="heatmap-grid"></div>
+    </div>
+  </section>
+
+  <!-- Page: Backtest -->
+  <section id="page-backtest" class="page">
+    <div class="page-content">
+      <div id="backtest-content"></div>
+      <div id="backtest-empty" class="empty-state" style="display:none">
+        No backtest data. Run <code>make strategy-compare</code> to generate.
+      </div>
+    </div>
+  </section>
+
+  <!-- Loading overlay -->
+  <div id="loading-overlay" class="loading-overlay" style="display:none">
+    <div class="spinner"></div>
+  </div>
+
+  <script type="module" src="assets/app.js"></script>
+</body>
+</html>

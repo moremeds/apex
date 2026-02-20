@@ -885,6 +885,7 @@ def run_comparison(
     strategies: List[str] | None = None,
     universe_path: str | None = None,
     realism_tier: str = "A",
+    json_output: str | None = None,
 ) -> str:
     """
     Run strategy comparison and generate HTML dashboard.
@@ -1104,6 +1105,18 @@ def run_comparison(
     # Build dashboard
     result_path = builder.build(output_path)
     print(f"\nDashboard written to {result_path}")
+
+    # Write JSON for CF dashboard if requested
+    if json_output:
+        import json
+        from pathlib import Path
+
+        json_data = builder.to_json_data()
+        json_path = Path(json_output)
+        json_path.parent.mkdir(parents=True, exist_ok=True)
+        json_path.write_text(json.dumps(json_data, default=str), encoding="utf-8")
+        print(f"Strategy JSON written to {json_path}")
+
     return result_path
 
 
@@ -1144,6 +1157,11 @@ def main() -> None:
         default="A",
         help="Execution realism level: A=immediate fill (default), B=next-bar-open + higher slippage",
     )
+    parser.add_argument(
+        "--json-output",
+        default=None,
+        help="Also write strategy metrics as JSON (for CF dashboard)",
+    )
     parser.add_argument("-v", "--verbose", action="store_true")
 
     args = parser.parse_args()
@@ -1177,6 +1195,7 @@ def main() -> None:
         strategies=args.strategies,
         universe_path=args.universe,
         realism_tier=args.realism_tier,
+        json_output=args.json_output,
     )
 
 
