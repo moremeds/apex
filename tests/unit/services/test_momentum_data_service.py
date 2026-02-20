@@ -26,8 +26,9 @@ def _write_parquet(hist_dir: Path, symbol: str, last_date: str) -> None:
     sym_dir = hist_dir / symbol.upper()
     sym_dir.mkdir(parents=True, exist_ok=True)
     dates = pd.date_range(end=last_date, periods=10, freq="B")
+    n = len(dates)
     df = pd.DataFrame(
-        {"close": range(10), "volume": range(10)},
+        {"close": range(n), "volume": range(n)},
         index=dates,
     )
     df.index.name = "timestamp"
