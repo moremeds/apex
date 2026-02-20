@@ -448,3 +448,25 @@ jobs:
           path: out/signals/
           if-no-files-found: warn
           retention-days: 7
+
+      # === CLOUDFLARE DASHBOARD ===
+
+      - name: Setup Node.js for Wrangler
+        if: steps.market-check.outputs.should_run == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build Cloudflare dashboard
+        if: steps.market-check.outputs.should_run == 'true'
+        run: |
+          source .venv/bin/activate
+          python -c "from src.infrastructure.reporting.dashboard import DashboardBuilder; DashboardBuilder().build()"
+
+      - name: Deploy to Cloudflare Pages
+        if: steps.market-check.outputs.should_run == 'true'
+        continue-on-error: true
+        run: npx wrangler@3 pages deploy out/site/ --project-name apex-dashboard
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

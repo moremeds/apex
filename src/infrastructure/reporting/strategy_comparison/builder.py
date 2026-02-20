@@ -173,3 +173,18 @@ class StrategyComparisonBuilder:
             f"({len(self._strategies)} strategies)"
         )
         return output_path
+
+    def to_json_data(self) -> dict:
+        """Return the comparison data dict for JSON export (dashboard bundle)."""
+        if not self._strategies:
+            return {}
+        return {
+            "title": self._title,
+            "generated_at": self._generated_at,
+            "universe_name": self._universe_name,
+            "period": self._period,
+            "strategy_count": len(self._strategies),
+            "symbols": self._symbols,
+            "strategies": {name: m.to_dict() for name, m in self._strategies.items()},
+            "sector_map": self._sector_map,
+        }

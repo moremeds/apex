@@ -1,7 +1,7 @@
 # APEX Development Makefile
 # Quick commands for common development tasks
 
-.PHONY: install run run-dev run-prod run-demo run-headless lint format type-check dead-code complexity quality test test-all coverage clean help validate-fast validate signals-test signals signals-deploy strategy-compare strategy-verify strategy-compare-quick behavioral behavioral-full behavioral-cases pead pead-test pead-screen
+.PHONY: install run run-dev run-prod run-demo run-headless lint format type-check dead-code complexity quality test test-all coverage clean help validate-fast validate signals-test dashboard-test signals signals-deploy strategy-compare strategy-verify strategy-compare-quick behavioral behavioral-full behavioral-cases pead pead-test pead-screen
 
 # Virtual environment - use .venv/bin executables directly
 VENV := .venv/bin
@@ -43,6 +43,7 @@ help:
 	@echo ""
 	@echo "$(GREEN)Signal Pipeline:$(RESET)"
 	@echo "  make signals-test      Quick test (20 symbols) + strategy comparison + HTTP server"
+	@echo "  make dashboard-test    CF dashboard test (signals + screeners + backtest → serve :8801)"
 	@echo "  make signals           Full production run (all features)"
 	@echo "  make signals-deploy    Deploy to GitHub Pages"
 	@echo "  make strategy-compare  Run strategy backtests + comparison dashboard"
@@ -71,6 +72,11 @@ help:
 	@echo "  make quantitative-moment-update   Same as above (refresh is now default)"
 	@echo "  make quantitative-moment-backtest Walk-forward backtest + ablation + HTML"
 	@echo "  make quantitative-moment-test     Run unit tests"
+	@echo ""
+	@echo "$(GREEN)Cloudflare Dashboard:$(RESET)"
+	@echo "  make dashboard-build   Build CF dashboard from pipeline output"
+	@echo "  make dashboard-dev     Build + serve locally (:8801)"
+	@echo "  make dashboard-deploy  Build + deploy to Cloudflare Pages"
 	@echo ""
 	@echo "$(GREEN)Other:$(RESET)"
 	@echo "  make clean          Remove build artifacts"
@@ -223,7 +229,8 @@ strategy-compare:
 	$(PYTHON) -m src.runners.strategy_compare_runner \
 		--universe config/universe.yaml \
 		--years 3 \
-		--output out/signals/strategies.html
+		--output out/signals/strategies.html \
+		--json-output out/signals/data/strategies.json
 	@echo "$(GREEN)✓ Dashboard: out/signals/strategies.html$(RESET)"
 
 # Quick strategy comparison (3 symbols, 3yr — needs 260+ bars for warmup)
@@ -280,6 +287,39 @@ signals-test:
 	@echo "$(GREEN)Starting HTTP server at http://localhost:8800$(RESET)"
 	@echo "$(YELLOW)Press Ctrl+C to stop$(RESET)"
 	cd /tmp/signal_test && python3 -m http.server 8800
+
+# CF Dashboard test: signals → screeners → strategy compare → CF build → serve
+dashboard-test:
+	@echo "$(BOLD)Dashboard test pipeline (20 symbols)...$(RESET)"
+	@echo ""
+	@echo "Step 1/5: Signal generation..."
+	$(PYTHON) -m src.runners.signal_runner --live \
+		--symbols SPY QQQ XLB GLD TLT UVXY AAPL NVDA JPM XOM UNH HD DIS TSLA AMD META SLV IWM DIA MU \
+		--timeframes 1d 1h 4h \
+		--format package \
+		--html-output out/signals
+	@echo ""
+	@echo "Step 2/5: Momentum screener (from cache if available)..."
+	$(PYTHON) -m src.runners.momentum_runner --screen --no-refresh || true
+	@echo ""
+	@echo "Step 3/5: PEAD screener (from cache if available)..."
+	$(PYTHON) -m src.runners.pead_runner --screen || true
+	@echo ""
+	@echo "Step 4/5: Strategy comparison backtests..."
+	$(PYTHON) -m src.runners.strategy_compare_runner \
+		--symbols SPY QQQ AAPL NVDA JPM XOM UNH HD DIS TSLA \
+		--years 3 \
+		--output out/signals/strategies.html \
+		--json-output out/signals/data/strategies.json
+	@echo ""
+	@echo "Step 5/5: Building CF dashboard..."
+	$(PYTHON) -c "from src.infrastructure.reporting.dashboard import DashboardBuilder; DashboardBuilder().build()"
+	@echo "$(GREEN)✓ Dashboard built → out/site/$(RESET)"
+	@lsof -ti:8801 | xargs kill -9 2>/dev/null || true
+	@echo "$(BOLD)Serving dashboard at http://localhost:8801$(RESET)"
+	@echo "$(YELLOW)Press Ctrl+C to stop$(RESET)"
+	@open http://localhost:8801 &
+	cd out/site && python3 -m http.server 8801
 
 # Full production run with ALL features (update-caps, retrain, heatmap, validate)
 # Uses unified config/universe.yaml for all operations
@@ -484,6 +524,24 @@ quantitative-moment-backtest: momentum-backtest
 quantitative-moment-test: momentum-test
 
 .PHONY: quantitative-moment quantitative-moment-update quantitative-moment-backtest quantitative-moment-test
+
+# ═══════════════════════════════════════════════════════════════
+# Cloudflare Dashboard
+# ═══════════════════════════════════════════════════════════════
+
+dashboard-build:   ## Build CF dashboard from existing pipeline output
+	@echo "$(BOLD)Building Cloudflare dashboard...$(RESET)"
+	$(PYTHON) -c "from src.infrastructure.reporting.dashboard import DashboardBuilder; DashboardBuilder().build()"
+	@echo "$(GREEN)✓ Dashboard built → out/site/$(RESET)"
+
+dashboard-dev: dashboard-build   ## Build + serve locally (:8801)
+	@echo "$(BOLD)Serving dashboard at http://localhost:8801$(RESET)"
+	python3 -m http.server 8801 --directory out/site
+
+dashboard-deploy: dashboard-build   ## Build + deploy to Cloudflare Pages
+	npx wrangler@3 pages deploy out/site/ --project-name apex-dashboard
+
+.PHONY: dashboard-build dashboard-dev dashboard-deploy
 
 # ═══════════════════════════════════════════════════════════════
 # Cleanup

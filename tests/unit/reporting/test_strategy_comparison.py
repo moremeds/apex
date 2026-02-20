@@ -239,3 +239,69 @@ class TestStrategyComparisonBuilder:
             path = str(Path(tmpdir) / "nested" / "deep" / "report.html")
             builder.build(path)
             assert Path(path).exists()
+
+    def test_to_json_data_empty(self) -> None:
+        """to_json_data returns empty dict when no strategies added."""
+        builder = StrategyComparisonBuilder()
+        assert builder.to_json_data() == {}
+
+    def test_to_json_data_returns_full_bundle(self) -> None:
+        """to_json_data returns full comparison bundle with all expected keys."""
+        builder = StrategyComparisonBuilder(
+            title="Test Dashboard",
+            universe_name="test_universe",
+            period="2024-01-01 to 2024-12-31",
+        )
+        m = StrategyMetrics(
+            name="trend_pulse",
+            sharpe=1.5,
+            total_return=0.15,
+            max_drawdown=-0.10,
+            win_rate=0.55,
+            trade_count=50,
+        )
+        builder.add_strategy("trend_pulse", m)
+        builder.set_symbols(["AAPL", "SPY", "NVDA"])
+        builder.set_sector_map({"Technology": ["AAPL", "NVDA"], "Finance": ["SPY"]})
+
+        data = builder.to_json_data()
+
+        # Required top-level keys
+        assert "title" in data
+        assert "generated_at" in data
+        assert "universe_name" in data
+        assert "period" in data
+        assert "strategy_count" in data
+        assert "symbols" in data
+        assert "strategies" in data
+        assert "sector_map" in data
+
+        # Values
+        assert data["title"] == "Test Dashboard"
+        assert data["universe_name"] == "test_universe"
+        assert data["strategy_count"] == 1
+        assert data["symbols"] == ["AAPL", "SPY", "NVDA"]
+        assert "trend_pulse" in data["strategies"]
+        assert data["strategies"]["trend_pulse"]["sharpe"] == 1.5
+
+        # sector_map shape: Dict[str, List[str]]
+        assert isinstance(data["sector_map"], dict)
+        assert isinstance(data["sector_map"]["Technology"], list)
+        assert "AAPL" in data["sector_map"]["Technology"]
+
+    def test_to_json_data_matches_build_data(self) -> None:
+        """to_json_data returns same structure as build() would use."""
+        builder = StrategyComparisonBuilder()
+        m = StrategyMetrics(
+            name="buy_and_hold",
+            sharpe=0.8,
+            total_return=0.12,
+            max_drawdown=-0.15,
+        )
+        builder.add_strategy("buy_and_hold", m)
+        builder.set_symbols(["SPY"])
+
+        data = builder.to_json_data()
+        assert isinstance(data["strategies"]["buy_and_hold"], dict)
+        assert data["strategies"]["buy_and_hold"]["name"] == "buy_and_hold"
+        assert data["strategies"]["buy_and_hold"]["sharpe"] == 0.8
