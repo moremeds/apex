@@ -359,14 +359,14 @@ class TestFullBuild:
         assert "overview-alerts" not in html
         assert "overview-benchmarks" not in html
 
-    def test_signals_has_plotly_chart_container(self, source_dir: Path, tmp_path: Path):
-        """Signals page has 700px chart container and sections div."""
+    def test_signals_has_chart_container(self, source_dir: Path, tmp_path: Path):
+        """Signals page has LC v5 multi-pane chart wrapper and sections div."""
         output = tmp_path / "site"
         DashboardBuilder(source_dir=source_dir).build(output_dir=output)
 
         html = (output / "index.html").read_text()
-        assert 'id="signals-chart"' in html
-        assert "height:700px" in html
+        assert 'id="signals-chart-wrapper"' in html
+        assert 'id="signals-chart-main"' in html
         assert 'id="signals-sections"' in html
 
     def test_html_contains_plotly(self, source_dir: Path, tmp_path: Path):
