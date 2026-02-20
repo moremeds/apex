@@ -134,7 +134,20 @@ function renderEtfDashboard(tickers, scoreHistory) {
 
   const tickerMap = {};
   (tickers || []).forEach(t => { if (t.symbol) tickerMap[t.symbol] = t; });
-  const sparklines = scoreHistory?.sparklines || {};
+
+  // Build sparkline points per-symbol from snapshots (score_history.json format)
+  const sparklinePoints: Record<string, number[]> = {};
+  if (scoreHistory?.snapshots?.length > 1) {
+    const snapshots = scoreHistory.snapshots;
+    const allSyms = new Set<string>();
+    for (const snap of snapshots) {
+      for (const sym of Object.keys(snap.scores || {})) allSyms.add(sym);
+    }
+    for (const sym of allSyms) {
+      const pts = snapshots.map(s => s.scores?.[sym]).filter(v => v != null);
+      if (pts.length >= 2) sparklinePoints[sym] = pts;
+    }
+  }
 
   let html = '<div class="hm-dashboard-title">Market Overview</div>';
 
@@ -150,10 +163,10 @@ function renderEtfDashboard(tickers, scoreHistory) {
       const t = tickerMap[sym] || {};
       const displayName = getEtfDisplayName(sym);
       const regime = t.regime || null;
-      const compositeScore = t.composite_score != null ? t.composite_score : null;
+      const compositeScore = t.composite_score_avg != null ? t.composite_score_avg : null;
       const regimeClass = regime ? `hm-regime-${regime.toLowerCase()}` : 'hm-regime-unknown';
       const regimeText = compositeScore != null ? Math.round(compositeScore).toString() : (regime || '—');
-      const sparkline = renderSparklineSvg(sparklines[sym] || t.score_sparkline || []);
+      const sparkline = renderSparklineSvg(sparklinePoints[sym] || []);
       const priceStr = fmtPrice(t.close);
       const changeStr = fmtPct(t.daily_change_pct);
       const changeClass = (t.daily_change_pct || 0) >= 0 ? 'hm-positive' : 'hm-negative';
@@ -342,7 +355,7 @@ async function renderHeatmap(tickers) {
       const cap = caps[t.symbol] || (t.volume && t.close ? t.volume * t.close : 1);
       const leafVal = cap > 0 ? cap : 1;
       sectorTotal += leafVal;
-      const score = t.composite_score != null ? t.composite_score : 50;
+      const score = t.composite_score_avg != null ? t.composite_score_avg : 50;
 
       ids.push(`stock_${t.symbol}`);
       labels.push(t.symbol);

@@ -76,7 +76,11 @@ function updateActiveTimeframe(tf) {
 
 function renderChart(data) {
   const chartEl = document.getElementById('signals-chart');
-  if (!chartEl || !data?.chart_data || !window.Plotly) return;
+  if (!chartEl || !data?.chart_data || !window.Plotly) {
+    if (chartEl) chartEl.innerHTML = '<div class="empty-state">Chart unavailable (Plotly: ' + !!window.Plotly + ')</div>';
+    return;
+  }
+  try {
 
   const cd = data.chart_data;
   const traces: any[] = [];
@@ -97,6 +101,8 @@ function renderChart(data) {
 
   // Overlays: Bollinger Bands, SuperTrend
   const overlayConfig = {
+    ema_ema_fast: { color: '#06b6d4', dash: 'solid' },
+    ema_ema_slow: { color: '#8b5cf6', dash: 'solid' },
     bollinger_bb_upper: { color: '#3b82f6', dash: 'dot' },
     bollinger_bb_middle: { color: '#6366f1', dash: 'solid' },
     bollinger_bb_lower: { color: '#3b82f6', dash: 'dot' },
@@ -200,6 +206,7 @@ function renderChart(data) {
     paper_bgcolor: C.card_bg, plot_bgcolor: C.card_bg, font: { color: C.text },
     margin: { t: 50, r: 50, b: 80, l: 50 }, hovermode: 'x unified', bargap: 0.1, barmode: 'overlay',
     xaxis: {
+      type: isDaily ? 'date' : undefined,
       gridcolor: C.border, showgrid: true, rangeslider: { visible: false }, tickangle: -45,
       domain: [0, 1], rangebreaks: isDaily ? [{ bounds: ['sat', 'mon'] }] : [],
       ...tickConfig,
@@ -211,6 +218,11 @@ function renderChart(data) {
   };
 
   window.Plotly.newPlot(chartEl, traces, layout, { responsive: true, displayModeBar: true, modeBarButtonsToRemove: ['lasso2d', 'select2d'] });
+
+  } catch (err) {
+    console.error('Chart render error:', err);
+    chartEl.innerHTML = '<div class="empty-state">Chart error: ' + (err as Error).message + '</div>';
+  }
 }
 
 // ─── Collapsible Section Helper ──────────────────────────────────────────────

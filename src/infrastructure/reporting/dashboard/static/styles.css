@@ -194,7 +194,7 @@
   flex-wrap: wrap;
 }
 
-.hm-cards-compact > .hm-card { min-width: 140px; flex: 1; }
+.hm-cards-compact > .hm-card { min-width: 140px; max-width: 220px; flex: 0 1 auto; }
 
 .hm-cards-mini {
   display: grid;
@@ -272,6 +272,8 @@
 
 .hm-card-compact .hm-card-symbol { font-size: 13px; }
 .hm-card-compact .hm-card-price { font-size: 15px; }
+
+.hm-card-compact { display: flex; align-items: center; gap: 6px; }
 
 .hm-card-mini {
   padding: 8px;
