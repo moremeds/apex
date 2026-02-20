@@ -1,5 +1,5 @@
 /**
- * Signals Page — Per-symbol Plotly multi-subplot chart with 8 collapsible sections.
+ * Signals Page — Per-symbol LC v5 multi-pane chart with 8 collapsible sections.
  *
  * Ported 1:1 from the original gh-pages signal report:
  *   - javascript.py (renderMainChart, updateConfluencePanel, updateDualMACDHistory,
@@ -7,10 +7,16 @@
  *     updateSignalHistoryTable, loadIndicatorsSection)
  */
 
+import {
+  createCandlestickChart, addOverlay, addVolumeHistogram,
+  createRSIChart, createDualMACDChart, syncTimeScales,
+} from '../charts.js';
+
 let currentSymbol = null;
 let currentTf = null;
 const dataCache = {};
 const regimeHtmlCache = {};
+let activeCharts: { chart: any; [key: string]: any }[] = [];
 
 // Theme colors (match original javascript.py)
 const C = {
@@ -72,156 +78,88 @@ function updateActiveTimeframe(tf) {
   });
 }
 
-// ─── Plotly Multi-Subplot Chart (4 rows) ─────────────────────────────────────
+// ─── LC v5 Multi-Pane Chart (candlestick + RSI + DualMACD) ───────────────────
+
+function destroyActiveCharts() {
+  for (const entry of activeCharts) {
+    try { entry.chart.remove(); } catch { /* already removed */ }
+  }
+  activeCharts = [];
+}
 
 function renderChart(data) {
-  const chartEl = document.getElementById('signals-chart');
-  if (!chartEl || !data?.chart_data || !window.Plotly) {
-    if (chartEl) chartEl.innerHTML = '<div class="empty-state">Chart unavailable (Plotly: ' + !!window.Plotly + ')</div>';
+  const mainEl = document.getElementById('signals-chart-main');
+  const rsiEl = document.getElementById('signals-chart-rsi');
+  const macdEl = document.getElementById('signals-chart-macd');
+  const titleEl = document.getElementById('signals-chart-title');
+
+  if (!mainEl || !data?.chart_data) {
+    if (mainEl) mainEl.innerHTML = '<div class="empty-state">Chart data unavailable</div>';
     return;
   }
+
   try {
+    destroyActiveCharts();
 
-  const cd = data.chart_data;
-  const traces: any[] = [];
-  const hasData = (v) => v && v.length > 0 && !v.every(x => x === null);
+    const cd = data.chart_data;
+    const hasArr = (v) => v && v.length > 0 && !v.every(x => x === null);
 
-  // Intraday: use index-based x-axis to avoid gaps
-  const isIntraday = ['1m','5m','15m','30m','1h','4h'].includes(data.timeframe);
-  const xValues = isIntraday ? cd.timestamps.map((_, i) => i) : cd.timestamps;
+    // Title
+    if (titleEl) titleEl.textContent = `${data.symbol} - ${data.timeframe} (${data.bar_count} bars)`;
 
-  // Row 1: Candlestick
-  traces.push({
-    type: 'candlestick', x: xValues, open: cd.open, high: cd.high, low: cd.low, close: cd.close,
-    name: 'Price',
-    increasing: { line: { color: C.success }, fillcolor: C.success },
-    decreasing: { line: { color: C.danger }, fillcolor: C.danger },
-    xaxis: 'x', yaxis: 'y',
-  });
+    // Main chart: candlestick + overlays + volume + signal markers
+    const main = createCandlestickChart(mainEl, cd);
+    activeCharts.push(main);
 
-  // Overlays: Bollinger Bands, SuperTrend
-  const overlayConfig = {
-    ema_ema_fast: { color: '#06b6d4', dash: 'solid' },
-    ema_ema_slow: { color: '#8b5cf6', dash: 'solid' },
-    bollinger_bb_upper: { color: '#3b82f6', dash: 'dot' },
-    bollinger_bb_middle: { color: '#6366f1', dash: 'solid' },
-    bollinger_bb_lower: { color: '#3b82f6', dash: 'dot' },
-    supertrend_supertrend: { color: '#f59e0b', dash: 'solid' },
-  };
-  for (const [name, cfg] of Object.entries(overlayConfig)) {
-    const vals = cd.overlays?.[name];
-    if (!hasData(vals)) continue;
-    traces.push({
-      type: 'scatter', mode: 'lines', x: xValues, y: vals,
-      name: name.replace('bollinger_bb_', 'BB ').replace('supertrend_', 'ST '),
-      line: { color: cfg.color, width: 1, dash: cfg.dash },
-      xaxis: 'x', yaxis: 'y',
-    });
-  }
-
-  // Row 2: RSI
-  const rsiValues = cd.rsi?.['rsi_rsi'];
-  if (hasData(rsiValues)) {
-    traces.push({ type: 'scatter', mode: 'lines', x: xValues, y: rsiValues, name: 'RSI',
-      line: { color: '#8b5cf6', width: 1.5 }, xaxis: 'x', yaxis: 'y2' });
-    const boundsX = [xValues[0], xValues[xValues.length - 1]];
-    traces.push({ type: 'scatter', mode: 'lines', x: boundsX, y: [70, 70], name: 'Overbought',
-      line: { color: C.danger, width: 1, dash: 'dash' }, xaxis: 'x', yaxis: 'y2', showlegend: false });
-    traces.push({ type: 'scatter', mode: 'lines', x: boundsX, y: [30, 30], name: 'Oversold',
-      line: { color: C.success, width: 1, dash: 'dash' }, xaxis: 'x', yaxis: 'y2', showlegend: false });
-  }
-
-  // Row 3: MACD (DualMACD if available)
-  const hasDualMACD = cd.dual_macd && (hasData(cd.dual_macd['dual_macd_slow_histogram']) || hasData(cd.dual_macd['dual_macd_fast_histogram']));
-  if (hasDualMACD) {
-    const slowHist = cd.dual_macd['dual_macd_slow_histogram'];
-    const fastHist = cd.dual_macd['dual_macd_fast_histogram'];
-    if (hasData(slowHist)) {
-      traces.push({ type: 'bar', x: xValues, y: slowHist, name: 'Slow MACD (55/89)',
-        marker: { color: slowHist.map(v => v >= 0 ? 'rgba(16,185,129,0.4)' : 'rgba(239,68,68,0.4)') },
-        xaxis: 'x', yaxis: 'y3', width: isIntraday ? 0.8 : 86400000 * 0.8 });
+    // Overlays
+    const overlayNames = [
+      'ema_ema_fast', 'ema_ema_slow',
+      'bollinger_bb_upper', 'bollinger_bb_middle', 'bollinger_bb_lower',
+      'supertrend_supertrend',
+    ];
+    for (const name of overlayNames) {
+      const vals = cd.overlays?.[name];
+      if (hasArr(vals)) addOverlay(main.chart, name, vals, cd.timestamps);
     }
-    if (hasData(fastHist)) {
-      traces.push({ type: 'bar', x: xValues, y: fastHist, name: 'Fast MACD (13/21)',
-        marker: { color: fastHist.map(v => v >= 0 ? 'rgba(59,130,246,0.8)' : 'rgba(249,115,22,0.8)') },
-        xaxis: 'x', yaxis: 'y3', width: isIntraday ? 0.4 : 86400000 * 0.4 });
+
+    // Volume overlay (bottom 20% of main chart)
+    if (cd.volume?.length > 0) addVolumeHistogram(main.chart, cd);
+
+    const chartsToSync = [main.chart];
+
+    // RSI pane
+    const rsiValues = cd.rsi?.['rsi_rsi'];
+    if (rsiEl && hasArr(rsiValues)) {
+      const rsi = createRSIChart(rsiEl, rsiValues, cd.timestamps);
+      activeCharts.push(rsi);
+      chartsToSync.push(rsi.chart);
+    } else if (rsiEl) {
+      rsiEl.innerHTML = '<div class="empty-state" style="padding:8px;font-size:12px">No RSI data</div>';
     }
-    traces.push({ type: 'scatter', mode: 'lines', x: [xValues[0], xValues[xValues.length-1]], y: [0,0],
-      line: { color: C.text_muted, width: 1, dash: 'dot' }, xaxis: 'x', yaxis: 'y3', showlegend: false });
-  } else {
-    const macdHist = cd.macd?.['macd_histogram'];
-    if (hasData(macdHist)) {
-      traces.push({ type: 'bar', x: xValues, y: macdHist, name: 'MACD Hist',
-        marker: { color: macdHist.map(v => v >= 0 ? C.success : C.danger) }, xaxis: 'x', yaxis: 'y3' });
+
+    // DualMACD / MACD pane
+    const hasDualMACD = cd.dual_macd && (hasArr(cd.dual_macd['dual_macd_slow_histogram']) || hasArr(cd.dual_macd['dual_macd_fast_histogram']));
+    if (macdEl && hasDualMACD) {
+      const slowHist = cd.dual_macd['dual_macd_slow_histogram'] || [];
+      const fastHist = cd.dual_macd['dual_macd_fast_histogram'] || [];
+      const macd = createDualMACDChart(macdEl, slowHist, fastHist, cd.timestamps);
+      activeCharts.push(macd);
+      chartsToSync.push(macd.chart);
+    } else if (macdEl && hasArr(cd.macd?.['macd_histogram'])) {
+      // Fallback: single MACD → pass as slow histogram, empty fast
+      const macd = createDualMACDChart(macdEl, cd.macd['macd_histogram'], [], cd.timestamps);
+      activeCharts.push(macd);
+      chartsToSync.push(macd.chart);
+    } else if (macdEl) {
+      macdEl.innerHTML = '<div class="empty-state" style="padding:8px;font-size:12px">No MACD data</div>';
     }
-  }
 
-  // Row 4: Volume
-  if (cd.volume?.length > 0) {
-    const volColors = cd.close.map((c, i) => i === 0 ? C.text_muted : (c >= cd.close[i-1] ? C.success : C.danger));
-    traces.push({ type: 'bar', x: xValues, y: cd.volume, name: 'Volume',
-      marker: { color: volColors, opacity: 0.5 }, xaxis: 'x', yaxis: 'y4' });
-  }
-
-  // Signal markers
-  const signals = data.signals || [];
-  for (const dir of ['buy', 'sell']) {
-    const sigs = signals.filter(s => s.direction === dir);
-    if (sigs.length === 0) continue;
-    const pts = sigs.map(s => {
-      const idx = cd.timestamps.findIndex(t => t === s.timestamp);
-      if (idx < 0) return null;
-      return { x: isIntraday ? idx : s.timestamp, y: dir === 'buy' ? cd.low[idx] * 0.995 : cd.high[idx] * 1.005, rule: s.rule };
-    }).filter(Boolean);
-    if (pts.length > 0) {
-      traces.push({
-        type: 'scatter', mode: 'markers', x: pts.map(p => p.x), y: pts.map(p => p.y),
-        name: dir === 'buy' ? 'Buy Signal' : 'Sell Signal',
-        marker: { symbol: dir === 'buy' ? 'triangle-up' : 'triangle-down', size: 12,
-          color: dir === 'buy' ? C.success : C.danger, line: { color: 'white', width: 1 } },
-        hovertemplate: '%{text}<extra></extra>', text: pts.map(p => p.rule),
-        xaxis: 'x', yaxis: 'y',
-      });
-    }
-  }
-
-  // Intraday tick labels
-  let tickConfig: any = { nticks: 15 };
-  if (isIntraday && cd.timestamps.length > 0) {
-    const n = cd.timestamps.length;
-    const step = Math.max(1, Math.floor(n / 15));
-    const tickvals = [], ticktext = [];
-    for (let i = 0; i < n; i += step) {
-      tickvals.push(i);
-      const ts = new Date(cd.timestamps[i]);
-      ticktext.push(`${String(ts.getUTCMonth()+1).padStart(2,'0')}/${String(ts.getUTCDate()).padStart(2,'0')} ${String(ts.getUTCHours()).padStart(2,'0')}:${String(ts.getUTCMinutes()).padStart(2,'0')}`);
-    }
-    tickConfig = { tickvals, ticktext };
-  }
-
-  const isDaily = ['1d','1w','1D','1W'].includes(data.timeframe);
-  const layout = {
-    title: { text: `${data.symbol} - ${data.timeframe} (${data.bar_count} bars)`, font: { color: C.text, size: 18 } },
-    showlegend: true, legend: { orientation: 'h', y: -0.08, font: { color: C.text, size: 10 } },
-    paper_bgcolor: C.card_bg, plot_bgcolor: C.card_bg, font: { color: C.text },
-    margin: { t: 50, r: 50, b: 80, l: 50 }, hovermode: 'x unified', bargap: 0.1, barmode: 'overlay',
-    xaxis: {
-      type: isDaily ? 'date' : undefined,
-      gridcolor: C.border, showgrid: true, rangeslider: { visible: false }, tickangle: -45,
-      domain: [0, 1], rangebreaks: isDaily ? [{ bounds: ['sat', 'mon'] }] : [],
-      ...tickConfig,
-    },
-    yaxis:  { title: 'Price', side: 'right', gridcolor: C.border, showgrid: true, domain: [0.52, 1.00], autorange: true },
-    yaxis2: { title: 'RSI',   side: 'right', gridcolor: C.border, showgrid: true, domain: [0.36, 0.48], range: [0, 100], dtick: 25 },
-    yaxis3: { title: hasDualMACD ? 'DualMACD (55/89 + 13/21)' : 'MACD', side: 'right', gridcolor: C.border, showgrid: true, domain: [0.20, 0.32] },
-    yaxis4: { title: 'Vol', side: 'right', gridcolor: C.border, showgrid: true, domain: [0.00, 0.16] },
-  };
-
-  window.Plotly.newPlot(chartEl, traces, layout, { responsive: true, displayModeBar: true, modeBarButtonsToRemove: ['lasso2d', 'select2d'] });
+    // Sync pan/zoom across all panes
+    if (chartsToSync.length > 1) syncTimeScales(chartsToSync);
 
   } catch (err) {
     console.error('Chart render error:', err);
-    chartEl.innerHTML = '<div class="empty-state">Chart error: ' + (err as Error).message + '</div>';
+    if (mainEl) mainEl.innerHTML = '<div class="empty-state">Chart error: ' + (err as Error).message + '</div>';
   }
 }
 
@@ -634,12 +572,20 @@ async function loadAndRender(symbol, tf) {
 
   const data = await loadSymbolData(symbol, tf);
   if (!data) {
-    document.getElementById('signals-chart')!.innerHTML = `<div class="empty-state">No data for ${symbol}. Run pipeline with this symbol.</div>`;
+    destroyActiveCharts();
+    const titleEl = document.getElementById('signals-chart-title');
+    const mainEl = document.getElementById('signals-chart-main');
+    const rsiEl = document.getElementById('signals-chart-rsi');
+    const macdEl = document.getElementById('signals-chart-macd');
+    if (titleEl) titleEl.textContent = '';
+    if (mainEl) mainEl.innerHTML = `<div class="empty-state">No data for ${symbol}. Run pipeline with this symbol.</div>`;
+    if (rsiEl) rsiEl.innerHTML = '';
+    if (macdEl) macdEl.innerHTML = '';
     document.getElementById('signals-sections')!.innerHTML = '';
     return;
   }
 
-  // Render Plotly chart
+  // Render LC v5 charts
   renderChart(data);
 
   // Build all 8 sections

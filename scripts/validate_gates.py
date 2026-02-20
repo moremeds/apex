@@ -508,7 +508,7 @@ def check_g6_bar_validation(package_path: Path) -> GateResult:
     invalid_files = []
 
     for data_file in data_dir.glob("*.json"):
-        if data_file.name in ["summary.json", "indicators.json", "score_history.json"]:
+        if data_file.name in ["summary.json", "indicators.json", "score_history.json", "strategies.json"]:
             continue
 
         with open(data_file) as f:
@@ -830,7 +830,7 @@ def check_g12_no_sentinels(package_path: Path) -> GateResult:
     total_sentinels = 0
 
     for data_file in data_dir.glob("*.json"):
-        if data_file.name in ["summary.json", "indicators.json", "score_history.json"]:
+        if data_file.name in ["summary.json", "indicators.json", "score_history.json", "strategies.json"]:
             continue
 
         with open(data_file) as f:
@@ -1021,7 +1021,7 @@ def check_g15_bar_continuity(package_path: Path) -> GateResult:
     files_with_gaps = []
 
     for data_file in data_dir.glob("*.json"):
-        if data_file.name in ["summary.json", "indicators.json", "score_history.json"]:
+        if data_file.name in ["summary.json", "indicators.json", "score_history.json", "strategies.json"]:
             continue
 
         with open(data_file) as f:
