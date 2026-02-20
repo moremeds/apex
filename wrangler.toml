@@ -1,0 +1,16 @@
+# Cloudflare Workers Builds configuration
+#
+# Tells CF auto-build to produce a static site shell (HTML + JS + CSS)
+# instead of auto-detecting pyproject.toml and running `uv sync`.
+#
+# Signal data is deployed separately via GH Actions (dashboard-refresh.yml)
+# using `wrangler pages deploy` — that workflow is unaffected by this file.
+
+name = "apex"
+compatibility_date = "2025-02-19"
+
+[assets]
+directory = "out/site"
+
+[build]
+command = "node scripts/build-dashboard.mjs"
