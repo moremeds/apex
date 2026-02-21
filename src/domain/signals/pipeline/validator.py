@@ -88,37 +88,50 @@ class BarValidator:
         print(f"Timeframes: {', '.join(self.config.timeframes)}")
         print("=" * 60)
 
+        # Read source priority from config
+        try:
+            from config.config_manager import ConfigManager
+
+            config = ConfigManager().load()
+            source_priority = (
+                config.historical_data.source_priority
+                if config.historical_data
+                else ["fmp", "yahoo"]
+            )
+        except Exception:
+            source_priority = ["fmp", "yahoo"]
+
         # Create historical data manager
         historical_manager = HistoricalDataManager(
             base_dir=Path("data/historical"),
-            source_priority=["ib", "yahoo"],
+            source_priority=source_priority,
         )
 
-        # Try to set IB source for better data quality
+        # Only try IB if it's in the effective priority
         ib_adapter = None
-        try:
-            from config.config_manager import ConfigManager
-            from src.infrastructure.adapters.ib.historical_adapter import IbHistoricalAdapter
+        if "ib" in source_priority:
+            try:
+                from src.infrastructure.adapters.ib.historical_adapter import IbHistoricalAdapter
 
-            config = ConfigManager().load()
-            ib_config = config.ibkr
+                ib_config = config.ibkr
 
-            if ib_config.enabled:
-                ib_adapter = IbHistoricalAdapter(
-                    host=ib_config.host,
-                    port=ib_config.port,
-                    client_id=(
-                        ib_config.client_ids.historical_pool[0]
-                        if ib_config.client_ids.historical_pool
-                        else 3
-                    ),
-                )
-                await ib_adapter.connect()
-                historical_manager.set_ib_source(ib_adapter)
-                print(f"Connected to IB at {ib_config.host}:{ib_config.port}")
-        except Exception as e:
-            logger.warning(f"IB not available, using Yahoo: {e}")
-            print("Using Yahoo Finance (IB unavailable)")
+                if ib_config.enabled:
+                    ib_adapter = IbHistoricalAdapter(
+                        host=ib_config.host,
+                        port=ib_config.port,
+                        client_id=(
+                            ib_config.client_ids.historical_pool[0]
+                            if ib_config.client_ids.historical_pool
+                            else 3
+                        ),
+                    )
+                    await ib_adapter.connect()
+                    historical_manager.set_ib_source(ib_adapter)
+                    print(f"Connected to IB at {ib_config.host}:{ib_config.port}")
+            except Exception as e:
+                logger.warning(f"IB not available: {e}")
+
+        print(f"Historical data sources: {source_priority}")
 
         reports: List[BarValidationReport] = []
 

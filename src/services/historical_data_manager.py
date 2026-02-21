@@ -277,7 +277,7 @@ class HistoricalDataManager:
         self._base_dir = base_dir or Path("data/historical")
         self._base_dir.mkdir(parents=True, exist_ok=True)
 
-        self._source_priority = source_priority or ["ib", "yahoo"]
+        self._source_priority = source_priority or ["fmp", "yahoo"]
 
         # Initialize stores
         self._coverage_store = DuckDBCoverageStore(db_path=self._base_dir / "_metadata.duckdb")
@@ -289,6 +289,17 @@ class HistoricalDataManager:
 
     def _init_sources(self) -> None:
         """Initialize data sources."""
+        # FMP (paid, priority - requires API key)
+        try:
+            from ..infrastructure.adapters.fmp.historical_source_adapter import (
+                FMPHistoricalSourceAdapter,
+            )
+
+            self._sources["fmp"] = FMPHistoricalSourceAdapter()
+            logger.info("FMP historical source initialized")
+        except (ValueError, ImportError) as e:
+            logger.info(f"FMP not available: {e}")
+
         # Yahoo is always available (no connection needed)
         try:
             self._sources["yahoo"] = YahooHistoricalAdapter()
@@ -339,7 +350,9 @@ class HistoricalDataManager:
         # IB returns clock-aligned bars (10:00, 11:00) with partial first bar at 09:30
         # Yahoo returns proper market-aligned bars (09:30, 10:30, 11:30...)
         if timeframe in YAHOO_PREFERRED_TIMEFRAMES and source_priority is None:
-            priority = ["yahoo", "ib"]
+            # Promote Yahoo to front for market-aligned intraday bars, keep others as fallback
+            if "yahoo" in priority:
+                priority = ["yahoo"] + [s for s in priority if s != "yahoo"]
 
         # Special handling for 4h: resample from 1h bars
         # Neither IB nor Yahoo provide properly aligned 4h bars
@@ -355,8 +368,33 @@ class HistoricalDataManager:
         missing = self._coverage_store.find_gaps(symbol, timeframe, start_cmp, end_cmp)
 
         if missing:
+            # Auto-repair: if coverage DB has NO records but Parquet has data,
+            # register existing Parquet data as coverage.
+            # Only triggers when coverage is completely absent (not partial gaps).
+            coverage_records = self._coverage_store.get_coverage(symbol, timeframe)
+            if not coverage_records:
+                existing_range = self._bar_store.get_date_range(symbol, timeframe)
+                if existing_range:
+                    actual_start, actual_end = existing_range
+                    bar_count = self._bar_store.get_bar_count(symbol, timeframe)
+                    logger.info(
+                        f"Repairing coverage for {symbol}/{timeframe} from Parquet: "
+                        f"{actual_start.date()} to {actual_end.date()} ({bar_count} bars)"
+                    )
+                    self._coverage_store.update_coverage(
+                        symbol=symbol,
+                        timeframe=timeframe,
+                        source="local",
+                        start=actual_start,
+                        end=actual_end,
+                        bar_count=bar_count,
+                    )
+                    # Re-check gaps after repair
+                    missing = self._coverage_store.find_gaps(symbol, timeframe, start_cmp, end_cmp)
+
+        if missing:
             logger.info(
-                f"Found {len(missing)} gaps in {symbol}/{timeframe} coverage, " f"downloading..."
+                f"Found {len(missing)} gaps in {symbol}/{timeframe} coverage, downloading..."
             )
 
             for gap in missing:

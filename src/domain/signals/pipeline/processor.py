@@ -258,38 +258,53 @@ class SignalPipelineProcessor:
         print("=" * 60)
 
     async def _create_historical_manager(self) -> "HistoricalDataManager":
-        """Create and configure historical data manager with optional IB source."""
+        """Create and configure historical data manager with config-driven source priority."""
         from src.services.historical_data_manager import HistoricalDataManager
+
+        # Read source priority from config
+        try:
+            from config.config_manager import ConfigManager
+
+            config = ConfigManager().load()
+            source_priority = (
+                config.historical_data.source_priority
+                if config.historical_data
+                else ["fmp", "yahoo"]
+            )
+        except Exception:
+            source_priority = ["fmp", "yahoo"]
 
         historical_manager = HistoricalDataManager(
             base_dir=PROJECT_ROOT / "data/historical",
-            source_priority=["ib", "yahoo"],
+            source_priority=source_priority,
         )
 
-        # Try to set IB source for better data quality
-        try:
-            from config.config_manager import ConfigManager
-            from src.infrastructure.adapters.ib.historical_adapter import IbHistoricalAdapter
+        # Only try IB if it's in the effective priority
+        if "ib" in source_priority:
+            try:
+                from src.infrastructure.adapters.ib.historical_adapter import IbHistoricalAdapter
 
-            config = ConfigManager().load()
-            ib_config = config.ibkr
+                ib_config = config.ibkr
 
-            if ib_config.enabled:
-                ib_adapter = IbHistoricalAdapter(
-                    host=ib_config.host,
-                    port=ib_config.port,
-                    client_id=(
-                        ib_config.client_ids.historical_pool[0]
-                        if ib_config.client_ids.historical_pool
-                        else 3
-                    ),
-                )
-                await ib_adapter.connect()
-                historical_manager.set_ib_source(ib_adapter)
-                print(f"Connected to IB at {ib_config.host}:{ib_config.port} for historical data")
-        except Exception as e:
-            logger.warning(f"IB not available, using Yahoo only: {e}")
-            print("Using Yahoo Finance for historical data (IB unavailable)")
+                if ib_config.enabled:
+                    ib_adapter = IbHistoricalAdapter(
+                        host=ib_config.host,
+                        port=ib_config.port,
+                        client_id=(
+                            ib_config.client_ids.historical_pool[0]
+                            if ib_config.client_ids.historical_pool
+                            else 3
+                        ),
+                    )
+                    await ib_adapter.connect()
+                    historical_manager.set_ib_source(ib_adapter)
+                    print(
+                        f"Connected to IB at {ib_config.host}:{ib_config.port} for historical data"
+                    )
+            except Exception as e:
+                logger.warning(f"IB not available: {e}")
+
+        print(f"Historical data sources: {source_priority}")
 
         return historical_manager
 
@@ -469,33 +484,45 @@ class SignalPipelineProcessor:
         end_date = self._get_intraday_end()
         start_date = end_date - timedelta(days=days)
 
-        manager = HistoricalDataManager(
-            base_dir=PROJECT_ROOT / "data/historical",
-            source_priority=["ib", "yahoo"],
-        )
-
-        # Try to set up IB source
+        # Read source priority from config
         try:
             from config.config_manager import ConfigManager
-            from src.infrastructure.adapters.ib.historical_adapter import IbHistoricalAdapter
 
             config = ConfigManager().load()
-            ib_config = config.ibkr
+            source_priority = (
+                config.historical_data.source_priority
+                if config.historical_data
+                else ["fmp", "yahoo"]
+            )
+        except Exception:
+            source_priority = ["fmp", "yahoo"]
 
-            if ib_config.enabled:
-                ib_adapter = IbHistoricalAdapter(
-                    host=ib_config.host,
-                    port=ib_config.port,
-                    client_id=(
-                        ib_config.client_ids.historical_pool[0]
-                        if ib_config.client_ids.historical_pool
-                        else 3
-                    ),
-                )
-                await ib_adapter.connect()
-                manager.set_ib_source(ib_adapter)
-        except Exception as e:
-            logger.warning(f"IB not available for backfill, using Yahoo: {e}")
+        manager = HistoricalDataManager(
+            base_dir=PROJECT_ROOT / "data/historical",
+            source_priority=source_priority,
+        )
+
+        # Only try IB if it's in the effective priority
+        if "ib" in source_priority:
+            try:
+                from src.infrastructure.adapters.ib.historical_adapter import IbHistoricalAdapter
+
+                ib_config = config.ibkr
+
+                if ib_config.enabled:
+                    ib_adapter = IbHistoricalAdapter(
+                        host=ib_config.host,
+                        port=ib_config.port,
+                        client_id=(
+                            ib_config.client_ids.historical_pool[0]
+                            if ib_config.client_ids.historical_pool
+                            else 3
+                        ),
+                    )
+                    await ib_adapter.connect()
+                    manager.set_ib_source(ib_adapter)
+            except Exception as e:
+                logger.warning(f"IB not available for backfill: {e}")
 
         bars = await manager.ensure_data(
             symbol=symbol,
@@ -563,6 +590,13 @@ class SignalPipelineProcessor:
                         ]
                         df = pd.DataFrame(records)
                         df.set_index("timestamp", inplace=True)
+
+                        # Daily bars: normalize timestamps to midnight UTC and
+                        # drop duplicates so FMP/Yahoo bars for the same date
+                        # don't produce two entries with different closes.
+                        if tf in ("1d", "1w") and isinstance(df.index, pd.DatetimeIndex):
+                            df.index = df.index.normalize()
+                            df = df[~df.index.duplicated(keep="last")]
 
                         # PR-A: Validate and clean data (filter sentinels, holidays, etc.)
                         df_clean, quality_result = validator.validate_and_clean(
