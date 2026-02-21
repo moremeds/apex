@@ -16,6 +16,7 @@ from .model import (
     SECTOR_ETF_NAMES,
     ETFCardData,
     HeatmapModel,
+    get_score_gradient_color,
 )
 
 # Regime name mapping
@@ -253,6 +254,37 @@ def render_etf_dashboard_html(model: HeatmapModel) -> str:
     </div>"""
 
 
+def _build_regime_badge(card: ETFCardData) -> tuple:
+    """
+    Build regime badge text and HTML attribute string.
+
+    When composite_score is available, uses continuous gradient color via inline
+    styles. Falls back to discrete CSS classes when score is None.
+
+    Returns:
+        (regime_text, badge_attrs) where badge_attrs is the class + style string
+    """
+    if card.composite_score is not None:
+        regime_text = f"{card.composite_score:.0f}"
+        hex_color = get_score_gradient_color(card.composite_score)
+        # Parse hex to RGB for rgba()
+        r = int(hex_color[1:3], 16)
+        g = int(hex_color[3:5], 16)
+        b = int(hex_color[5:7], 16)
+        badge_attrs = (
+            f'class="hm-regime" '
+            f'style="background:rgba({r},{g},{b},0.15);'
+            f"color:{hex_color};"
+            f'border:1px solid rgba({r},{g},{b},0.3);"'
+        )
+    else:
+        regime_text = card.regime if card.regime else "\u2014"
+        regime_class = f"hm-regime-{card.regime.lower()}" if card.regime else "hm-regime-unknown"
+        badge_attrs = f'class="hm-regime {regime_class}"'
+
+    return regime_text, badge_attrs
+
+
 def render_etf_card_html(card: ETFCardData, style: str) -> str:
     """
     Render a single ETF card HTML.
@@ -264,12 +296,8 @@ def render_etf_card_html(card: ETFCardData, style: str) -> str:
     Returns:
         HTML string for the card
     """
-    # Regime class and text - prefer composite score display
-    regime_class = f"hm-regime-{card.regime.lower()}" if card.regime else "hm-regime-unknown"
-    if card.composite_score is not None:
-        regime_text = f"{card.composite_score:.0f}"
-    else:
-        regime_text = card.regime if card.regime else "—"
+    # Build regime badge with gradient or discrete class
+    regime_text, badge_attrs = _build_regime_badge(card)
 
     # Sparkline SVG from score history
     sparkline_svg = _render_sparkline_svg(card.score_sparkline)
@@ -297,7 +325,7 @@ def render_etf_card_html(card: ETFCardData, style: str) -> str:
             <div class="hm-card-header">
                 <span class="hm-card-symbol">{card.symbol}</span>
                 <span class="hm-card-name">{card.display_name}</span>
-                <span class="hm-regime {regime_class}">{regime_text}</span>{sparkline_svg}
+                <span {badge_attrs}>{regime_text}</span>{sparkline_svg}
             </div>
             <div class="hm-card-price">{price_str}</div>
             <div class="hm-card-change {change_class}">{change_str}</div>
@@ -306,13 +334,13 @@ def render_etf_card_html(card: ETFCardData, style: str) -> str:
         return f"""
         <a href="{url}" class="hm-card hm-card-mini {direction_class}">
             <div class="hm-card-symbol">{card.symbol}</div>
-            <span class="hm-regime {regime_class}">{regime_text}</span>{sparkline_svg}
+            <span {badge_attrs}>{regime_text}</span>{sparkline_svg}
             <div class="hm-card-name">{card.display_name}</div>
         </a>"""
     else:  # compact
         return f"""
         <a href="{url}" class="hm-card hm-card-compact {direction_class}">
-            <span class="hm-regime {regime_class}">{regime_text}</span>{sparkline_svg}
+            <span {badge_attrs}>{regime_text}</span>{sparkline_svg}
             <span class="hm-card-symbol">{card.symbol}</span>
             <span class="hm-card-price">{price_str}</span>
             <span class="hm-card-change {change_class}">{change_str}</span>

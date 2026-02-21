@@ -1,7 +1,7 @@
 # APEX Development Makefile
 # Quick commands for common development tasks
 
-.PHONY: install run run-dev run-prod run-demo run-headless lint format type-check dead-code complexity quality test test-all coverage clean help validate-fast validate signals-test dashboard-test dashboard-data dashboard-data-ready dashboard-signal dashboard-signal-qa signals signals-deploy strategy-compare strategy-verify strategy-compare-quick behavioral behavioral-full behavioral-cases pead pead-test pead-screen
+.PHONY: install run run-dev run-prod run-demo run-headless lint format type-check dead-code complexity quality test test-all coverage clean help validate-fast validate signals-test dashboard-test dashboard-data dashboard-data-ready dashboard-signal dashboard-signal-qa dashboard-web-dev dashboard-web-preview-deploy signals signals-deploy strategy-compare strategy-verify strategy-compare-quick behavioral behavioral-full behavioral-cases pead pead-test pead-screen
 
 # Virtual environment - use .venv/bin executables directly
 VENV := .venv/bin
@@ -13,6 +13,9 @@ BOLD := $(shell tput bold)
 RESET := $(shell tput sgr0)
 GREEN := $(shell tput setaf 2)
 YELLOW := $(shell tput setaf 3)
+
+# Dashboard preview branch for Cloudflare Pages (non-production)
+DASHBOARD_PREVIEW_BRANCH ?= dashboard-preview
 
 help:
 	@echo "$(BOLD)APEX Development Commands$(RESET)"
@@ -81,6 +84,8 @@ help:
 	@echo "$(GREEN)Dashboard Web Build & Deploy:$(RESET)"
 	@echo "  make dashboard-build   Build CF dashboard from pipeline output"
 	@echo "  make dashboard-dev     Build + serve locally (:8801)"
+	@echo "  make dashboard-web-dev Build + serve with Wrangler Pages dev (:8801)"
+	@echo "  make dashboard-web-preview-deploy Build + deploy preview branch ($(DASHBOARD_PREVIEW_BRANCH))"
 	@echo "  make dashboard-deploy  Build + deploy to Cloudflare Pages"
 	@echo ""
 	@echo "$(GREEN)Other:$(RESET)"
@@ -339,6 +344,32 @@ dashboard-data: dashboard-signal  ## Full data pipeline (signals + screeners + s
 		--json-output out/signals/data/strategies.json
 	@echo "$(GREEN)✓ Dashboard data ready$(RESET)"
 
+# Dashboard data-only pipeline: generate package inputs without serving/deploying
+dashboard-data:
+	@echo "$(BOLD)Dashboard data pipeline (20 symbols, no serve/deploy)...$(RESET)"
+	@echo ""
+	@echo "Step 1/4: Signal generation..."
+	$(PYTHON) -m src.runners.signal_runner --live \
+		--symbols SPY QQQ XLB GLD TLT UVXY AAPL NVDA JPM XOM UNH HD DIS TSLA AMD META SLV IWM DIA MU \
+		--timeframes 1d 1h 4h \
+		--format package \
+		--html-output out/signals
+	@echo ""
+	@echo "Step 2/4: Momentum screener (optional, from cache if available)..."
+	$(PYTHON) -m src.runners.momentum_runner --screen --no-refresh || true
+	@echo ""
+	@echo "Step 3/4: PEAD screener (optional, from cache if available)..."
+	$(PYTHON) -m src.runners.pead_runner --screen || true
+	@echo ""
+	@echo "Step 4/4: Strategy comparison backtests..."
+	$(PYTHON) -m src.runners.strategy_compare_runner \
+		--symbols SPY QQQ AAPL NVDA JPM XOM UNH HD DIS TSLA \
+		--years 3 \
+		--output out/signals/strategies.html \
+		--json-output out/signals/data/strategies.json
+	@echo ""
+	@echo "$(GREEN)✓ Dashboard data ready in out/signals/$(RESET)"
+
 # Full production run with ALL features (update-caps, retrain, heatmap, validate)
 # Uses unified config/universe.yaml for all operations
 signals:
@@ -552,6 +583,14 @@ dashboard-build:   ## Build CF dashboard from existing pipeline output
 	$(PYTHON) -c "from src.infrastructure.reporting.dashboard import DashboardBuilder; DashboardBuilder().build()"
 	@echo "$(GREEN)✓ Dashboard built → out/site/$(RESET)"
 
+dashboard-web-dev: dashboard-build   ## Build + serve with Wrangler Pages dev (:8801)
+	@echo "$(BOLD)Serving dashboard (Wrangler Pages dev) at http://localhost:8801$(RESET)"
+	npx wrangler@3 pages dev out/site --port 8801
+
+dashboard-web-preview-deploy: dashboard-build   ## Build + deploy to Cloudflare preview branch
+	@echo "$(BOLD)Deploying dashboard preview branch '$(DASHBOARD_PREVIEW_BRANCH)'...$(RESET)"
+	npx wrangler@3 pages deploy out/site/ --project-name apex-dashboard --branch $(DASHBOARD_PREVIEW_BRANCH)
+
 dashboard-dev: dashboard-build   ## Build + serve locally (:8801)
 	@echo "$(BOLD)Serving dashboard at http://localhost:8801$(RESET)"
 	python3 -m http.server 8801 --directory out/site
@@ -559,7 +598,7 @@ dashboard-dev: dashboard-build   ## Build + serve locally (:8801)
 dashboard-deploy: dashboard-build   ## Build + deploy to Cloudflare Pages
 	npx wrangler@3 pages deploy out/site/ --project-name apex-dashboard
 
-.PHONY: dashboard-build dashboard-dev dashboard-deploy
+.PHONY: dashboard-build dashboard-dev dashboard-deploy dashboard-data dashboard-web-dev dashboard-web-preview-deploy
 
 # ═══════════════════════════════════════════════════════════════
 # Cleanup

@@ -420,16 +420,21 @@ class AppContainer:
         )
 
     def _create_historical_data_manager(self) -> None:
-        """Phase 4a: Create historical data manager."""
+        """Phase 4a: Create historical data manager with config-driven source priority."""
         historical_cfg = self.config.raw.get("historical_data", {})
         storage_cfg = historical_cfg.get("storage", {})
+        source_priority = historical_cfg.get("source_priority", ["fmp", "yahoo"])
 
         self.historical_data_manager = HistoricalDataManager(
             base_dir=Path(storage_cfg.get("base_dir", "data/historical")),
-            source_priority=["ib", "yahoo"],
+            source_priority=source_priority,
         )
 
-        self._log(LogCategory.SYSTEM, "HistoricalDataManager created")
+        self._log(
+            LogCategory.SYSTEM,
+            "HistoricalDataManager created",
+            {"source_priority": source_priority},
+        )
 
     def _create_bar_persistence_service(self) -> None:
         """Phase 4b: Create bar persistence service."""
@@ -531,7 +536,8 @@ class AppContainer:
         await self.orchestrator.start()
 
         # Register IB historical source after broker is connected
-        if self.config.ibkr.enabled:
+        # Only register when IB is in the effective source priority
+        if self.config.ibkr.enabled and "ib" in self.historical_data_manager._source_priority:
             ib_adapter = self.broker_manager.get_adapter("ib")
             if ib_adapter and ib_adapter.is_connected():
                 if hasattr(ib_adapter, "_historical_adapter") and ib_adapter._historical_adapter:

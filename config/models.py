@@ -1,8 +1,9 @@
 """Configuration data models."""
 
 from __future__ import annotations
+
 from dataclasses import dataclass, field
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 
 @dataclass
@@ -17,6 +18,7 @@ class IbClientIdsConfig:
 @dataclass
 class IbConfig:
     """Interactive Brokers configuration."""
+
     enabled: bool
     host: str
     port: int
@@ -27,6 +29,7 @@ class IbConfig:
 @dataclass
 class FutuConfig:
     """Futu OpenD configuration."""
+
     enabled: bool
     host: str
     port: int
@@ -39,6 +42,7 @@ class FutuConfig:
 @dataclass
 class ManualPositionsConfig:
     """Manual positions file configuration."""
+
     file: str
     reload_interval_sec: int
 
@@ -46,6 +50,7 @@ class ManualPositionsConfig:
 @dataclass
 class RiskLimitsConfig:
     """Risk limits configuration."""
+
     max_total_gross_notional: float
     max_per_underlying_notional: Dict[str, float]
     portfolio_delta_range: List[float]
@@ -59,6 +64,7 @@ class RiskLimitsConfig:
 @dataclass
 class ScenariosConfig:
     """Scenarios configuration."""
+
     enabled: bool
     spot_shocks: List[float]
     iv_shocks: List[float]
@@ -68,6 +74,7 @@ class ScenariosConfig:
 @dataclass
 class MdqcConfig:
     """Market Data Quality Control configuration."""
+
     stale_seconds: int
     ignore_zero_quotes: bool
     enforce_bid_ask_sanity: bool
@@ -78,6 +85,7 @@ class MdqcConfig:
 @dataclass
 class DashboardConfig:
     """Dashboard configuration."""
+
     refresh_interval_sec: int
     show_positions: bool
 
@@ -85,6 +93,7 @@ class DashboardConfig:
 @dataclass
 class WatchdogConfig:
     """Watchdog configuration."""
+
     snapshot_stale_sec: int
     max_missing_md_ratio: float
     reconnect_backoff_sec: Dict[str, Any]
@@ -93,6 +102,7 @@ class WatchdogConfig:
 @dataclass
 class LoggingConfig:
     """Logging configuration."""
+
     level: str
     json: bool
     file: str
@@ -107,6 +117,7 @@ class LoggingConfig:
 @dataclass
 class DatabasePoolConfig:
     """Database connection pool configuration."""
+
     min_connections: int = 2
     max_connections: int = 10
 
@@ -114,6 +125,7 @@ class DatabasePoolConfig:
 @dataclass
 class TimescaleConfig:
     """TimescaleDB-specific configuration."""
+
     enabled: bool = True
     chunk_interval: str = "1 month"
     compression_enabled: bool = True
@@ -123,6 +135,7 @@ class TimescaleConfig:
 @dataclass
 class DatabaseConfig:
     """Database connection configuration for PostgreSQL/TimescaleDB."""
+
     type: str = "timescaledb"
     host: str = "localhost"
     port: int = 5432
@@ -141,6 +154,7 @@ class DatabaseConfig:
 @dataclass
 class DisplayConfig:
     """Display timezone and formatting configuration for UI."""
+
     timezone: str = "Asia/Hong_Kong"
     date_format: str = "%Y-%m-%d"
     time_format: str = "%H:%M:%S"
@@ -150,6 +164,7 @@ class DisplayConfig:
 @dataclass
 class SnapshotConfig:
     """Snapshot persistence configuration for warm-start and history."""
+
     position_interval_sec: int = 60
     account_interval_sec: int = 60
     risk_interval_sec: int = 60
@@ -161,6 +176,7 @@ class SnapshotConfig:
 @dataclass
 class RateLimitConfig:
     """Rate limit configuration for API calls."""
+
     requests_per_window: int = 10
     window_seconds: int = 30
 
@@ -168,6 +184,7 @@ class RateLimitConfig:
 @dataclass
 class HistoryLoaderConfig:
     """History loader configuration."""
+
     default_lookback_days: int = 30
     batch_size: int = 100
     futu_rate_limit: RateLimitConfig = field(default_factory=lambda: RateLimitConfig(10, 30))
@@ -188,11 +205,13 @@ class HistoricalDataConfig:
     """Historical data services configuration."""
 
     bar_cache: BarCacheConfig = field(default_factory=BarCacheConfig)
+    source_priority: List[str] = field(default_factory=lambda: ["fmp", "yahoo"])
 
 
 @dataclass
 class AppConfig:
     """Complete application configuration."""
+
     ibkr: IbConfig
     futu: FutuConfig
     manual_positions: ManualPositionsConfig

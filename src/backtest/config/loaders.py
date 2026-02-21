@@ -71,7 +71,7 @@ def load_historical_data_config(config_path: Optional[Path] = None) -> Dict[str,
 
         return {
             "base_dir": storage_cfg.get("base_dir", "data/historical"),
-            "source_priority": historical_cfg.get("source_priority", ["ib", "yahoo"]),
+            "source_priority": historical_cfg.get("source_priority", ["fmp", "yahoo"]),
             "sources": historical_cfg.get("sources", {}),
         }
     except Exception as e:
