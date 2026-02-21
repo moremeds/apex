@@ -351,7 +351,9 @@ class TestFullBuild:
         assert "importmap" in html
         assert "lightweight-charts" in html
 
-    def test_overview_has_etf_dashboard_containers(self, _mock_run, source_dir: Path, tmp_path: Path):
+    def test_overview_has_etf_dashboard_containers(
+        self, _mock_run, source_dir: Path, tmp_path: Path
+    ):
         """Overview page has ETF dashboard, controls, stats, treemap containers."""
         output = tmp_path / "site"
         DashboardBuilder(source_dir=source_dir).build(output_dir=output)
@@ -390,7 +392,9 @@ class TestFullBuild:
         html = (output / "index.html").read_text()
         assert "plotly" in html.lower()
 
-    def test_html_contains_backtest_content_container(self, _mock_run, source_dir: Path, tmp_path: Path):
+    def test_html_contains_backtest_content_container(
+        self, _mock_run, source_dir: Path, tmp_path: Path
+    ):
         """HTML has backtest-content container for dynamic tab rendering."""
         output = tmp_path / "site"
         DashboardBuilder(source_dir=source_dir).build(output_dir=output)
