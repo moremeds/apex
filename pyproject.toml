@@ -71,6 +71,10 @@ dev = [
 
 ]
 
+cloudflare = [
+    "boto3>=1.35",             # S3-compatible client for Cloudflare R2
+]
+
 observability = [
     "opentelemetry-api>=1.20.0",                  # OpenTelemetry API
     "opentelemetry-sdk>=1.20.0",                  # OpenTelemetry SDK
@@ -170,6 +174,14 @@ module = [
     "backtrader.*",
     "generate_validation_universe",
 ]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "boto3.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "botocore.*"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

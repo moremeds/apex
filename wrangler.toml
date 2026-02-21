@@ -14,3 +14,7 @@ directory = "out/site"
 
 [build]
 command = "node scripts/build-dashboard.mjs"
+
+[[r2_buckets]]
+binding = "APEX_DATA"
+bucket_name = "apex-data"

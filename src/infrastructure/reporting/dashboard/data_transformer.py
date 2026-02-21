@@ -141,6 +141,8 @@ class DataTransformer:
             "summary.json",
             "score_history.json",
             "indicators.json",
+            "data_quality.json",
+            "universe.json",
         ):
             src = source_data / name
             if _copy_json_if_exists(src, data_dir / name):
@@ -158,7 +160,13 @@ class DataTransformer:
             for src_file in sorted(source_data.glob("*_*.json")):
                 # Skip non-symbol files
                 name = src_file.stem
-                if name in ("summary", "score_history", "indicators"):
+                if name in (
+                    "summary",
+                    "score_history",
+                    "indicators",
+                    "data_quality",
+                    "universe",
+                ):
                     continue
 
                 try:
