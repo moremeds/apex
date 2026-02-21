@@ -285,7 +285,7 @@ class SingleBacktestRunner:
                 "base_dir", "data/historical"
             )
             config_info["sources"] = self.source_priority or historical_cfg.get(
-                "source_priority", ["ib", "yahoo"]
+                "source_priority", ["fmp", "yahoo"]
             )
             config_info["coverage_mode"] = self.coverage_mode or "download"
 
@@ -317,7 +317,7 @@ class SingleBacktestRunner:
         historical_cfg = load_historical_data_config()
         base_dir = Path(self.historical_dir or historical_cfg.get("base_dir", "data/historical"))
         source_priority = self.source_priority or historical_cfg.get(
-            "source_priority", ["ib", "yahoo"]
+            "source_priority", ["fmp", "yahoo"]
         )
 
         logger.info(f"Coverage check: mode={mode}, base_dir={base_dir}, sources={source_priority}")

@@ -55,6 +55,11 @@ def build_heatmap(
 
         model = builder.build_heatmap_model(summary, manifest, score_sparklines)
 
+        logger.info(
+            f"Heatmap model: {model.symbol_count} symbols, "
+            f"{model.total_signals} signals, regime={model.regime_distribution}"
+        )
+
         # Render and save as index.html (heatmap is the landing page)
         heatmap_path = builder.save_heatmap(model, output_dir, "index.html")
 
@@ -69,5 +74,8 @@ def build_heatmap(
         logger.warning(f"Heatmap generation skipped: {e}")
         return None
     except Exception as e:
-        logger.error(f"Heatmap generation failed: {e}")
+        logger.error(
+            f"Heatmap generation FAILED: {e}. "
+            f"index.html was not generated — check output directory."
+        )
         return None

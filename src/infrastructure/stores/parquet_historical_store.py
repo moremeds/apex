@@ -170,7 +170,7 @@ class ParquetHistoricalStore:
         file_path = self.get_file_path(symbol, timeframe)
         file_path.parent.mkdir(parents=True, exist_ok=True)
 
-        new_table = self._bars_to_table(bars)
+        new_table = self._bars_to_table(bars, timeframe)
 
         if mode == "overwrite" or not file_path.exists():
             pq.write_table(
@@ -191,7 +191,7 @@ class ParquetHistoricalStore:
             merged = merged.sort_by("timestamp")
         else:
             # Upsert: merge and deduplicate by timestamp
-            merged = self._merge_tables(existing_table, new_table)
+            merged = self._merge_tables(existing_table, new_table, timeframe)
 
         pq.write_table(
             merged,
@@ -207,6 +207,7 @@ class ParquetHistoricalStore:
         self,
         existing: pa.Table,
         new: pa.Table,
+        timeframe: str = "",
     ) -> pa.Table:
         """
         Merge tables, with new data taking precedence for duplicate timestamps.
@@ -215,13 +216,20 @@ class ParquetHistoricalStore:
         timestamp[ns] vs timestamp[us,tz=UTC]). Converts to pandas for
         schema-agnostic merge, then back to target schema.
 
+        For daily bars, normalizes timestamps to midnight UTC before
+        deduplication so that bars from different sources (FMP midnight-UTC
+        vs Yahoo midnight-ET) collapse to the same key.
+
         Args:
             existing: Existing table.
             new: New table to merge.
+            timeframe: Bar timeframe (used for daily normalization).
 
         Returns:
             Merged and deduplicated table with BAR_SCHEMA.
         """
+        is_daily = timeframe in ("1d", "1w")
+
         # Convert to pandas for schema-agnostic merge
         # This handles schema differences (timestamp precision, timezone, extra columns)
         existing_df = existing.to_pandas()
@@ -247,6 +255,11 @@ class ParquetHistoricalStore:
                 # This prevents "same" bars with different microseconds from being duplicated
                 df["timestamp"] = df["timestamp"].dt.floor("s")
 
+                # Daily bars: normalize to midnight UTC so FMP (00:00) and Yahoo (05:00)
+                # collapse to the same timestamp for proper deduplication
+                if is_daily:
+                    df["timestamp"] = df["timestamp"].dt.normalize()
+
         # Concatenate DataFrames
         combined_df = pd.concat([existing_df, new_df], ignore_index=True)
 
@@ -268,15 +281,21 @@ class ParquetHistoricalStore:
         # Convert back to PyArrow with target schema
         return pa.Table.from_pandas(combined_df, schema=BAR_SCHEMA)
 
-    def _bars_to_table(self, bars: List[BarData]) -> pa.Table:
+    def _bars_to_table(self, bars: List[BarData], timeframe: str = "") -> pa.Table:
         """Convert BarData list to PyArrow table."""
         from zoneinfo import ZoneInfo
 
         UTC = ZoneInfo("UTC")
         now = datetime.now(UTC)
+        is_daily = timeframe in ("1d", "1w")
 
         def normalize_timestamp(ts: datetime) -> datetime:
-            """Normalize timestamp to UTC with truncated microseconds."""
+            """Normalize timestamp to UTC with truncated microseconds.
+
+            For daily bars, truncate to midnight UTC so that bars from
+            different sources (FMP midnight-UTC vs Yahoo midnight-ET)
+            collapse to the same timestamp and deduplicate correctly.
+            """
             if ts is None:
                 return now  # Fallback to current time
             # Ensure timezone-aware (UTC)
@@ -286,7 +305,11 @@ class ParquetHistoricalStore:
             else:
                 ts = ts.astimezone(UTC)
             # Truncate microseconds for consistent deduplication
-            return ts.replace(microsecond=0)
+            ts = ts.replace(microsecond=0)
+            # Daily bars: normalize to midnight UTC
+            if is_daily:
+                ts = ts.replace(hour=0, minute=0, second=0)
+            return ts
 
         timestamps = [normalize_timestamp(b.bar_start or b.timestamp) for b in bars]
 
