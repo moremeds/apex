@@ -1,7 +1,12 @@
 name: "Intraday: Signal Reports"
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Signal report generation during market hours.
+# Signal report generation during market hours — split into 5 jobs:
+#
+#   setup-and-check (3 min)
+#       ├──→ signal-pipeline (30 min) ──┬──→ notify (10 min)
+#       │                               └──→ dashboard (10 min)
+#       └──→ strategy-compare (30 min, parallel to signal-pipeline)
 #
 # DST-safe design: Cron triggers cover BOTH EDT (UTC-4) and EST (UTC-5).
 # The Python market-check step uses America/New_York timezone to classify
@@ -14,11 +19,6 @@ name: "Intraday: Signal Reports"
 #   1:00-1:59pm ET:   4H bar close (1H+4H)
 #   2:00-3:59pm ET:   Intraday hourly (1H only)
 #   4:00-4:59pm ET:   Post-close (1H+4H+1D, no retrain)
-#
-# Pipeline:
-#   Step 1: Update market caps
-#   Step 2: Retrain models (skipped at post-close)
-#   Step 3: Generate and deploy report
 #
 # Email: Plain-text TUI-formatted report (monospace, mobile-friendly)
 # ═══════════════════════════════════════════════════════════════════════════
@@ -38,6 +38,10 @@ on:
         description: "Also run strategy comparison backtests"
         type: boolean
         default: false
+      force_run:
+        description: "Override: run even on weekends/holidays"
+        type: boolean
+        default: false
 
 concurrency:
   group: hourly-signals
@@ -52,74 +56,45 @@ env:
   CACHE_VERSION: v1
 
 jobs:
-  generate-report:
-    name: Generate Signal Report
+  # ═══════════════════════════════════════════════════════════════════════
+  # Job 1: Setup & Check — lightweight market-hours classification
+  # ═══════════════════════════════════════════════════════════════════════
+  setup-and-check:
+    name: Setup & Check
     runs-on: ubuntu-latest
-    timeout-minutes: 90  # Longer timeout for retraining
+    timeout-minutes: 3
+    outputs:
+      should_run: ${{ steps.market-check.outputs.should_run }}
+      should_retrain: ${{ steps.market-check.outputs.should_retrain }}
+      run_strategy_compare: ${{ steps.market-check.outputs.run_strategy_compare }}
+      timeframes: ${{ steps.market-check.outputs.timeframes }}
+      send_1h: ${{ steps.market-check.outputs.send_1h }}
+      send_4h: ${{ steps.market-check.outputs.send_4h }}
+      send_1d: ${{ steps.market-check.outputs.send_1d }}
+      et_time: ${{ steps.market-check.outputs.et_time }}
+      et_date: ${{ steps.market-check.outputs.et_date }}
+      et_day_key: ${{ steps.market-check.outputs.et_day_key }}
     steps:
       - uses: actions/checkout@v6
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          sparse-checkout: |
+            pyproject.toml
+            uv.lock
 
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-
-      - name: Cache Python dependencies
-        id: cache-python-deps
-        uses: actions/cache@v5
-        with:
-          path: |
-            .venv
-            ~/.cache/uv
-            ~/.cache/pip
-          key: ${{ env.CACHE_VERSION }}-deps-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-${{ hashFiles('pyproject.toml', 'uv.lock') }}
-          restore-keys: |
-            ${{ env.CACHE_VERSION }}-deps-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-
-            ${{ env.CACHE_VERSION }}-deps-${{ runner.os }}-
-
-      - name: Cache TA-Lib
-        id: cache-talib
-        uses: actions/cache@v5
-        with:
-          path: ~/ta-lib-install
-          key: talib-0.6.4-${{ runner.os }}-${{ runner.arch }}
-
-      - name: Install TA-Lib
-        run: |
-          if [ -d "$HOME/ta-lib-install/lib" ]; then
-            echo "Restoring TA-Lib from cache..."
-            sudo cp -r $HOME/ta-lib-install/lib/* /usr/lib/
-            sudo cp -r $HOME/ta-lib-install/include/* /usr/include/
-            sudo ldconfig
-          else
-            echo "Building TA-Lib 0.6.4 from source..."
-            sudo apt-get update && sudo apt-get install -y wget build-essential
-            wget https://github.com/ta-lib/ta-lib/releases/download/v0.6.4/ta-lib-0.6.4-src.tar.gz
-            tar -xzf ta-lib-0.6.4-src.tar.gz
-            cd ta-lib-0.6.4 && ./configure --prefix=/usr && make -j$(nproc) && sudo make install
-            sudo ldconfig
-            mkdir -p $HOME/ta-lib-install/lib $HOME/ta-lib-install/include
-            cp -r /usr/lib/libta* $HOME/ta-lib-install/lib/ 2>/dev/null || true
-            cp -r /usr/include/ta-lib $HOME/ta-lib-install/include/ 2>/dev/null || true
-          fi
-
-      - name: Install dependencies
-        run: |
-          .venv/bin/python --version 2>/dev/null || uv venv --clear
-          source .venv/bin/activate
-          uv pip install -e ".[dev,observability]"
+      - name: Install market calendar
+        run: pip install pandas-market-calendars
 
       - name: Check market open
         id: market-check
         env:
           INPUT_RUN_STRATEGY_COMPARE: ${{ inputs.run_strategy_compare || 'false' }}
+          INPUT_FORCE_RUN: ${{ inputs.force_run || 'false' }}
         run: |
-          source .venv/bin/activate
           python << 'EOF'
           import pandas_market_calendars as mcal
           from datetime import date, datetime, timezone
@@ -132,6 +107,7 @@ jobs:
 
           is_trading_day = not schedule.empty
           is_manual = os.environ.get('GITHUB_EVENT_NAME') == 'workflow_dispatch'
+          force_run = os.environ.get('INPUT_FORCE_RUN', 'false') == 'true'
 
           # ── DST-safe classification using ET timezone ─────────────────
           # Uses America/New_York (auto-switches EDT/EST) instead of UTC
@@ -170,7 +146,8 @@ jobs:
               send_4h = "true"
               send_1d = "true"
               run_strategy_compare = "true" if manual_compare else "false"
-              label = f"Manual dispatch (compare={'on' if manual_compare else 'off'}, market {'open' if is_trading_day else 'closed'})"
+              label_suffix = " [force_run]" if force_run else ""
+              label = f"Manual dispatch{label_suffix} (compare={'on' if manual_compare else 'off'}, market {'open' if is_trading_day else 'closed'})"
           elif not is_trading_day or not in_window:
               should_run = False
               should_retrain = False
@@ -243,20 +220,86 @@ jobs:
           print(label)
           EOF
 
+      - name: Holiday notice
+        if: steps.market-check.outputs.should_run != 'true' && steps.market-check.outputs.run_strategy_compare != 'true'
+        run: echo "::notice::Market is closed today. Skipping report generation."
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Job 2: Signal Pipeline — generate report + deploy to gh-pages
+  # ═══════════════════════════════════════════════════════════════════════
+  signal-pipeline:
+    name: Signal Pipeline
+    needs: [setup-and-check]
+    if: needs.setup-and-check.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Cache Python dependencies
+        uses: actions/cache@v5
+        with:
+          path: |
+            .venv
+            ~/.cache/uv
+            ~/.cache/pip
+          key: ${{ env.CACHE_VERSION }}-deps-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-${{ hashFiles('pyproject.toml', 'uv.lock') }}
+          restore-keys: |
+            ${{ env.CACHE_VERSION }}-deps-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-
+            ${{ env.CACHE_VERSION }}-deps-${{ runner.os }}-
+
+      - name: Cache TA-Lib
+        id: cache-talib
+        uses: actions/cache@v5
+        with:
+          path: ~/ta-lib-install
+          key: talib-0.6.4-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Install TA-Lib
+        run: |
+          if [ -d "$HOME/ta-lib-install/lib" ]; then
+            echo "Restoring TA-Lib from cache..."
+            sudo cp -r $HOME/ta-lib-install/lib/* /usr/lib/
+            sudo cp -r $HOME/ta-lib-install/include/* /usr/include/
+            sudo ldconfig
+          else
+            echo "Building TA-Lib 0.6.4 from source..."
+            sudo apt-get update && sudo apt-get install -y wget build-essential
+            wget https://github.com/ta-lib/ta-lib/releases/download/v0.6.4/ta-lib-0.6.4-src.tar.gz
+            tar -xzf ta-lib-0.6.4-src.tar.gz
+            cd ta-lib-0.6.4 && ./configure --prefix=/usr && make -j$(nproc) && sudo make install
+            sudo ldconfig
+            mkdir -p $HOME/ta-lib-install/lib $HOME/ta-lib-install/include
+            cp -r /usr/lib/libta* $HOME/ta-lib-install/lib/ 2>/dev/null || true
+            cp -r /usr/include/ta-lib $HOME/ta-lib-install/include/ 2>/dev/null || true
+          fi
+
+      - name: Install dependencies
+        run: |
+          .venv/bin/python --version 2>/dev/null || uv venv --clear
+          source .venv/bin/activate
+          uv pip install -e ".[dev,observability]"
+
       - name: Cache historical data
-        if: steps.market-check.outputs.should_run == 'true'
-        id: cache-historical
         uses: actions/cache@v5
         with:
           path: data/historical
-          key: ${{ env.CACHE_VERSION }}-historical-${{ runner.os }}-${{ steps.market-check.outputs.et_day_key }}-${{ hashFiles('config/universe.yaml') }}
+          key: ${{ env.CACHE_VERSION }}-historical-${{ runner.os }}-${{ needs.setup-and-check.outputs.et_day_key }}-${{ hashFiles('config/universe.yaml') }}
           restore-keys: |
-            ${{ env.CACHE_VERSION }}-historical-${{ runner.os }}-${{ steps.market-check.outputs.et_day_key }}-
+            ${{ env.CACHE_VERSION }}-historical-${{ runner.os }}-${{ needs.setup-and-check.outputs.et_day_key }}-
             ${{ env.CACHE_VERSION }}-historical-${{ runner.os }}-
 
       - name: Cache turning point models
-        if: steps.market-check.outputs.should_run == 'true'
-        id: cache-models
         uses: actions/cache@v5
         with:
           path: models/turning_point
@@ -264,21 +307,9 @@ jobs:
           restore-keys: |
             ${{ env.CACHE_VERSION }}-models-${{ runner.os }}-
 
-      - name: Cache diagnostics
-        if: steps.market-check.outputs.should_run == 'true'
-        run: |
-          echo "deps cache hit: ${{ steps.cache-python-deps.outputs.cache-hit }}"
-          echo "historical cache hit: ${{ steps.cache-historical.outputs.cache-hit }}"
-          echo "models cache hit: ${{ steps.cache-models.outputs.cache-hit }}"
-          du -sh .venv 2>/dev/null || true
-          du -sh ~/.cache/uv 2>/dev/null || true
-          du -sh data/historical 2>/dev/null || true
-          du -sh models/turning_point 2>/dev/null || true
-
       # === PIPELINE ===
 
       - name: "Step 1/3: Update market caps"
-        if: steps.market-check.outputs.should_run == 'true'
         run: |
           source .venv/bin/activate
           python -m src.runners.signal_runner --update-market-caps \
@@ -287,7 +318,7 @@ jobs:
           LOG_LEVEL: WARNING
 
       - name: "Step 2/3: Retrain models"
-        if: steps.market-check.outputs.should_retrain == 'true'
+        if: needs.setup-and-check.outputs.should_retrain == 'true'
         run: |
           source .venv/bin/activate
           python -m src.runners.signal_runner --retrain-models \
@@ -296,7 +327,6 @@ jobs:
           LOG_LEVEL: WARNING
 
       - name: Fetch existing score history from gh-pages
-        if: steps.market-check.outputs.should_run == 'true'
         continue-on-error: true
         run: |
           mkdir -p out/signals/data
@@ -304,12 +334,11 @@ jobs:
           git show origin/gh-pages:data/score_history.json > out/signals/data/score_history.json 2>/dev/null || echo '{"snapshots":[]}' > out/signals/data/score_history.json
 
       - name: "Step 3/3: Generate and deploy report"
-        if: steps.market-check.outputs.should_run == 'true'
         run: |
           source .venv/bin/activate
           python -m src.runners.signal_runner --live \
             --universe ${{ env.UNIVERSE }} \
-            --timeframes ${{ steps.market-check.outputs.timeframes }} \
+            --timeframes ${{ needs.setup-and-check.outputs.timeframes }} \
             --format package \
             --html-output out/signals \
             --deploy github
@@ -317,21 +346,128 @@ jobs:
           LOG_LEVEL: WARNING
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # === STRATEGY COMPARISON (first report of day, 5:00am ET) ===
+      - name: "Screeners (from cache)"
+        continue-on-error: true
+        run: |
+          source .venv/bin/activate
+          python -m src.runners.momentum_runner --screen --no-refresh || true
+          python -m src.runners.pead_runner --screen || true
+        env:
+          LOG_LEVEL: WARNING
 
-      - name: "Run strategy comparison backtests"
-        if: steps.market-check.outputs.run_strategy_compare == 'true'
+      - name: Smoke check signal output
+        run: |
+          if [ ! -s "out/signals/data/summary.json" ]; then
+            echo "ERROR: Missing or empty out/signals/data/summary.json"
+            exit 1
+          fi
+          echo "Signal output smoke check passed"
+
+      - name: Upload signal data artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: signal-data
+          path: out/signals/
+          if-no-files-found: error
+          retention-days: 1
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Job 3: Strategy Comparison — parallel to signal-pipeline
+  # ═══════════════════════════════════════════════════════════════════════
+  strategy-compare:
+    name: Strategy Comparison
+    needs: [setup-and-check]
+    if: needs.setup-and-check.outputs.run_strategy_compare == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Cache Python dependencies
+        uses: actions/cache@v5
+        with:
+          path: |
+            .venv
+            ~/.cache/uv
+            ~/.cache/pip
+          key: ${{ env.CACHE_VERSION }}-deps-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-${{ hashFiles('pyproject.toml', 'uv.lock') }}
+          restore-keys: |
+            ${{ env.CACHE_VERSION }}-deps-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-
+            ${{ env.CACHE_VERSION }}-deps-${{ runner.os }}-
+
+      - name: Cache TA-Lib
+        id: cache-talib
+        uses: actions/cache@v5
+        with:
+          path: ~/ta-lib-install
+          key: talib-0.6.4-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Install TA-Lib
+        run: |
+          if [ -d "$HOME/ta-lib-install/lib" ]; then
+            echo "Restoring TA-Lib from cache..."
+            sudo cp -r $HOME/ta-lib-install/lib/* /usr/lib/
+            sudo cp -r $HOME/ta-lib-install/include/* /usr/include/
+            sudo ldconfig
+          else
+            echo "Building TA-Lib 0.6.4 from source..."
+            sudo apt-get update && sudo apt-get install -y wget build-essential
+            wget https://github.com/ta-lib/ta-lib/releases/download/v0.6.4/ta-lib-0.6.4-src.tar.gz
+            tar -xzf ta-lib-0.6.4-src.tar.gz
+            cd ta-lib-0.6.4 && ./configure --prefix=/usr && make -j$(nproc) && sudo make install
+            sudo ldconfig
+            mkdir -p $HOME/ta-lib-install/lib $HOME/ta-lib-install/include
+            cp -r /usr/lib/libta* $HOME/ta-lib-install/lib/ 2>/dev/null || true
+            cp -r /usr/include/ta-lib $HOME/ta-lib-install/include/ 2>/dev/null || true
+          fi
+
+      - name: Install dependencies
+        run: |
+          .venv/bin/python --version 2>/dev/null || uv venv --clear
+          source .venv/bin/activate
+          uv pip install -e ".[dev,observability]"
+
+      - name: Cache historical data
+        uses: actions/cache@v5
+        with:
+          path: data/historical
+          key: ${{ env.CACHE_VERSION }}-historical-${{ runner.os }}-${{ needs.setup-and-check.outputs.et_day_key }}-${{ hashFiles('config/universe.yaml') }}
+          restore-keys: |
+            ${{ env.CACHE_VERSION }}-historical-${{ runner.os }}-${{ needs.setup-and-check.outputs.et_day_key }}-
+            ${{ env.CACHE_VERSION }}-historical-${{ runner.os }}-
+
+      - name: Run strategy comparison backtests
         run: |
           source .venv/bin/activate
           python -m src.runners.strategy_compare_runner \
             --universe ${{ env.UNIVERSE }} \
             --years 3 \
-            --output out/signals/strategies.html
+            --output out/signals/strategies.html \
+            --json-output out/signals/data/strategies.json
         env:
           LOG_LEVEL: WARNING
 
-      - name: "Deploy strategies.html to gh-pages"
-        if: steps.market-check.outputs.run_strategy_compare == 'true'
+      - name: Upload strategy data artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: strategy-data
+          path: |
+            out/signals/strategies.html
+            out/signals/data/strategies.json
+          if-no-files-found: warn
+          retention-days: 1
+
+      - name: Deploy strategies.html to gh-pages
         run: |
           git fetch origin gh-pages --depth=1 2>/dev/null || true
           rm -rf /tmp/strategy-deploy
@@ -352,10 +488,77 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # === RENDER EMAILS ===
+  # ═══════════════════════════════════════════════════════════════════════
+  # Job 4: Notify — render & send emails (rerunnable on SMTP failure)
+  # ═══════════════════════════════════════════════════════════════════════
+  notify:
+    name: Send Notifications
+    needs: [setup-and-check, signal-pipeline]
+    if: needs.setup-and-check.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Cache Python dependencies
+        uses: actions/cache@v5
+        with:
+          path: |
+            .venv
+            ~/.cache/uv
+            ~/.cache/pip
+          key: ${{ env.CACHE_VERSION }}-deps-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-${{ hashFiles('pyproject.toml', 'uv.lock') }}
+          restore-keys: |
+            ${{ env.CACHE_VERSION }}-deps-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-
+            ${{ env.CACHE_VERSION }}-deps-${{ runner.os }}-
+
+      - name: Cache TA-Lib
+        id: cache-talib
+        uses: actions/cache@v5
+        with:
+          path: ~/ta-lib-install
+          key: talib-0.6.4-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Install TA-Lib
+        run: |
+          if [ -d "$HOME/ta-lib-install/lib" ]; then
+            echo "Restoring TA-Lib from cache..."
+            sudo cp -r $HOME/ta-lib-install/lib/* /usr/lib/
+            sudo cp -r $HOME/ta-lib-install/include/* /usr/include/
+            sudo ldconfig
+          else
+            echo "Building TA-Lib 0.6.4 from source..."
+            sudo apt-get update && sudo apt-get install -y wget build-essential
+            wget https://github.com/ta-lib/ta-lib/releases/download/v0.6.4/ta-lib-0.6.4-src.tar.gz
+            tar -xzf ta-lib-0.6.4-src.tar.gz
+            cd ta-lib-0.6.4 && ./configure --prefix=/usr && make -j$(nproc) && sudo make install
+            sudo ldconfig
+            mkdir -p $HOME/ta-lib-install/lib $HOME/ta-lib-install/include
+            cp -r /usr/lib/libta* $HOME/ta-lib-install/lib/ 2>/dev/null || true
+            cp -r /usr/include/ta-lib $HOME/ta-lib-install/include/ 2>/dev/null || true
+          fi
+
+      - name: Install dependencies
+        run: |
+          .venv/bin/python --version 2>/dev/null || uv venv --clear
+          source .venv/bin/activate
+          uv pip install -e ".[dev,observability]"
+
+      - name: Download signal data
+        uses: actions/download-artifact@v6
+        with:
+          name: signal-data
+          path: out/signals
 
       - name: Render email content
-        if: steps.market-check.outputs.should_run == 'true'
         run: |
           source .venv/bin/activate
           python << 'PYEOF'
@@ -382,14 +585,12 @@ jobs:
               print(f"Rendered {tag} email ({len(text)} chars)")
           PYEOF
         env:
-          SEND_1H: ${{ steps.market-check.outputs.send_1h }}
-          SEND_4H: ${{ steps.market-check.outputs.send_4h }}
-          SEND_1D: ${{ steps.market-check.outputs.send_1d }}
-
-      # === SEND EMAILS ===
+          SEND_1H: ${{ needs.setup-and-check.outputs.send_1h }}
+          SEND_4H: ${{ needs.setup-and-check.outputs.send_4h }}
+          SEND_1D: ${{ needs.setup-and-check.outputs.send_1d }}
 
       - name: "Send email: 1H"
-        if: steps.market-check.outputs.send_1h == 'true'
+        if: needs.setup-and-check.outputs.send_1h == 'true'
         continue-on-error: true
         uses: dawidd6/action-send-mail@v9
         with:
@@ -397,7 +598,7 @@ jobs:
           server_port: ${{ secrets.SMTP_PORT || 587 }}
           username: ${{ secrets.SMTP_USERNAME }}
           password: ${{ secrets.SMTP_PASSWORD }}
-          subject: "APEX Intraday 1H — ${{ steps.market-check.outputs.et_date }} ${{ steps.market-check.outputs.et_time }}"
+          subject: "APEX Intraday 1H — ${{ needs.setup-and-check.outputs.et_date }} ${{ needs.setup-and-check.outputs.et_time }}"
           to: ${{ secrets.SIGNAL_REPORT_RECIPIENTS }}
           from: "APEX Signal Bot <${{ secrets.SMTP_USERNAME }}>"
           body: file://${{ github.workspace }}/email_body_1h.txt
@@ -405,7 +606,7 @@ jobs:
           convert_markdown: false
 
       - name: "Send email: 4H"
-        if: steps.market-check.outputs.send_4h == 'true'
+        if: needs.setup-and-check.outputs.send_4h == 'true'
         continue-on-error: true
         uses: dawidd6/action-send-mail@v9
         with:
@@ -413,7 +614,7 @@ jobs:
           server_port: ${{ secrets.SMTP_PORT || 587 }}
           username: ${{ secrets.SMTP_USERNAME }}
           password: ${{ secrets.SMTP_PASSWORD }}
-          subject: "APEX Intraday 4H — ${{ steps.market-check.outputs.et_date }} ${{ steps.market-check.outputs.et_time }}"
+          subject: "APEX Intraday 4H — ${{ needs.setup-and-check.outputs.et_date }} ${{ needs.setup-and-check.outputs.et_time }}"
           to: ${{ secrets.SIGNAL_REPORT_RECIPIENTS }}
           from: "APEX Signal Bot <${{ secrets.SMTP_USERNAME }}>"
           body: file://${{ github.workspace }}/email_body_4h.txt
@@ -421,7 +622,7 @@ jobs:
           convert_markdown: false
 
       - name: "Send email: 1D"
-        if: steps.market-check.outputs.send_1d == 'true'
+        if: needs.setup-and-check.outputs.send_1d == 'true'
         continue-on-error: true
         uses: dawidd6/action-send-mail@v9
         with:
@@ -429,44 +630,128 @@ jobs:
           server_port: ${{ secrets.SMTP_PORT || 587 }}
           username: ${{ secrets.SMTP_USERNAME }}
           password: ${{ secrets.SMTP_PASSWORD }}
-          subject: "APEX End of Day — ${{ steps.market-check.outputs.et_date }} ${{ steps.market-check.outputs.et_time }}"
+          subject: "APEX End of Day — ${{ needs.setup-and-check.outputs.et_date }} ${{ needs.setup-and-check.outputs.et_time }}"
           to: ${{ secrets.SIGNAL_REPORT_RECIPIENTS }}
           from: "APEX Signal Bot <${{ secrets.SMTP_USERNAME }}>"
           body: file://${{ github.workspace }}/email_body_1d.txt
           content_type: text/plain
           convert_markdown: false
 
-      - name: Holiday notice
-        if: steps.market-check.outputs.should_run != 'true' && steps.market-check.outputs.run_strategy_compare != 'true'
-        run: echo "::notice::Market is closed today. Skipping report generation."
+  # ═══════════════════════════════════════════════════════════════════════
+  # Job 5: Dashboard — build + deploy to Cloudflare Pages
+  # ═══════════════════════════════════════════════════════════════════════
+  dashboard:
+    name: Cloudflare Dashboard
+    needs: [setup-and-check, signal-pipeline, strategy-compare]
+    # Run when signal-pipeline succeeded; strategy-compare must be success or skipped (not cancelled/failed)
+    if: |
+      always() &&
+      needs.setup-and-check.outputs.should_run == 'true' &&
+      needs.signal-pipeline.result == 'success' &&
+      (needs.strategy-compare.result == 'success' || needs.strategy-compare.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Cache Python dependencies
+        uses: actions/cache@v5
+        with:
+          path: |
+            .venv
+            ~/.cache/uv
+            ~/.cache/pip
+          key: ${{ env.CACHE_VERSION }}-deps-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-${{ hashFiles('pyproject.toml', 'uv.lock') }}
+          restore-keys: |
+            ${{ env.CACHE_VERSION }}-deps-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-
+            ${{ env.CACHE_VERSION }}-deps-${{ runner.os }}-
+
+      - name: Cache TA-Lib
+        id: cache-talib
+        uses: actions/cache@v5
+        with:
+          path: ~/ta-lib-install
+          key: talib-0.6.4-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Install TA-Lib
+        run: |
+          if [ -d "$HOME/ta-lib-install/lib" ]; then
+            echo "Restoring TA-Lib from cache..."
+            sudo cp -r $HOME/ta-lib-install/lib/* /usr/lib/
+            sudo cp -r $HOME/ta-lib-install/include/* /usr/include/
+            sudo ldconfig
+          else
+            echo "Building TA-Lib 0.6.4 from source..."
+            sudo apt-get update && sudo apt-get install -y wget build-essential
+            wget https://github.com/ta-lib/ta-lib/releases/download/v0.6.4/ta-lib-0.6.4-src.tar.gz
+            tar -xzf ta-lib-0.6.4-src.tar.gz
+            cd ta-lib-0.6.4 && ./configure --prefix=/usr && make -j$(nproc) && sudo make install
+            sudo ldconfig
+            mkdir -p $HOME/ta-lib-install/lib $HOME/ta-lib-install/include
+            cp -r /usr/lib/libta* $HOME/ta-lib-install/lib/ 2>/dev/null || true
+            cp -r /usr/include/ta-lib $HOME/ta-lib-install/include/ 2>/dev/null || true
+          fi
+
+      - name: Install dependencies
+        run: |
+          .venv/bin/python --version 2>/dev/null || uv venv --clear
+          source .venv/bin/activate
+          uv pip install -e ".[dev,observability]"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Download signal data
+        uses: actions/download-artifact@v6
+        with:
+          name: signal-data
+          path: out/signals
+
+      # Strategy data is optional — only produced when run_strategy_compare=true
+      - name: Download strategy data (if available)
+        if: needs.strategy-compare.result == 'success'
+        uses: actions/download-artifact@v6
+        with:
+          name: strategy-data
+          path: out/signals
+          merge-multiple: true
+
+      - name: Build Cloudflare dashboard
+        run: |
+          source .venv/bin/activate
+          python -c "from src.infrastructure.reporting.dashboard import DashboardBuilder; DashboardBuilder().build()"
+
+      - name: Smoke check dashboard artifacts
+        run: |
+          for f in out/site/index.html out/site/assets/app.js out/site/data/summary.json; do
+            if [ ! -s "$f" ]; then
+              echo "ERROR: Missing or empty required file: $f"
+              exit 1
+            fi
+          done
+          echo "Smoke check passed"
+
+      - name: Deploy to Cloudflare Pages
+        continue-on-error: true
+        run: npx wrangler@3 pages deploy out/site/ --project-name apex-dashboard
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Upload report artifact
-        if: steps.market-check.outputs.should_run == 'true'
         uses: actions/upload-artifact@v6
         with:
           name: signal-report-${{ github.run_id }}
           path: out/signals/
           if-no-files-found: warn
           retention-days: 7
-
-      # === CLOUDFLARE DASHBOARD ===
-
-      - name: Setup Node.js for Wrangler
-        if: steps.market-check.outputs.should_run == 'true'
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Build Cloudflare dashboard
-        if: steps.market-check.outputs.should_run == 'true'
-        run: |
-          source .venv/bin/activate
-          python -c "from src.infrastructure.reporting.dashboard import DashboardBuilder; DashboardBuilder().build()"
-
-      - name: Deploy to Cloudflare Pages
-        if: steps.market-check.outputs.should_run == 'true'
-        continue-on-error: true
-        run: npx wrangler@3 pages deploy out/site/ --project-name apex-dashboard
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

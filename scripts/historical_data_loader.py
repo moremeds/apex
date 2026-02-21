@@ -429,8 +429,10 @@ async def cmd_backfill(args: argparse.Namespace) -> int:
         source_priority = ["yahoo"]
     elif args.source == "ib":
         source_priority = ["ib", "yahoo"]
+    elif args.source == "fmp":
+        source_priority = ["fmp", "yahoo"]
     else:
-        source_priority = ["ib", "yahoo"]  # Default: IB first
+        source_priority = ["fmp", "yahoo"]  # Default: FMP first (matches config/base.yaml)
 
     # Discover symbols
     print("Discovering symbols...")
@@ -1079,8 +1081,8 @@ def main() -> int:
     )
     download_parser.add_argument(
         "--source",
-        choices=["yahoo", "ib"],
-        help="Data source (default: auto)",
+        choices=["yahoo", "ib", "fmp"],
+        help="Data source (default: auto = fmp > yahoo)",
     )
     download_parser.add_argument(
         "--ib-host",
@@ -1158,9 +1160,9 @@ def main() -> int:
     )
     backfill_parser.add_argument(
         "--source",
-        choices=["yahoo", "ib", "auto"],
+        choices=["yahoo", "ib", "fmp", "auto"],
         default="auto",
-        help="Data source (default: auto = ib > yahoo)",
+        help="Data source (default: auto = fmp > yahoo)",
     )
     backfill_parser.add_argument(
         "--dry-run",

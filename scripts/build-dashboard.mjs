@@ -123,14 +123,9 @@ if (tsFiles.length > 0) {
     esbuildOk = true;
     console.log(`[build] esbuild compiled ${tsFiles.length} TS files`);
   } catch (err) {
-    // Fallback: copy .ts → .js (works if code is valid JS + type annotations)
-    console.warn("[build] esbuild unavailable or failed — falling back to .ts → .js copy");
-    for (const f of tsFiles) {
-      const jsPath = f.replace(/\.ts$/, ".js");
-      if (!existsSync(jsPath)) {
-        cpSync(f, jsPath);
-      }
-    }
+    console.error("[build] ERROR: esbuild compilation failed");
+    console.error(err.stderr?.toString().slice(0, 500) || err.message);
+    process.exit(1);
   }
 
   // Remove .ts sources from output (keep only compiled .js)

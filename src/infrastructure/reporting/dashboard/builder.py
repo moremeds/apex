@@ -177,17 +177,14 @@ class DashboardBuilder:
                 capture_output=True,
             )
         except FileNotFoundError:
-            logger.warning(
+            raise RuntimeError(
                 "esbuild not available (npx not found). "
-                "Falling back to direct .ts → .js rename (strip types manually)."
+                "Install Node.js and npm to compile TypeScript assets."
             )
-            # Fallback: just rename .ts → .js (works if code is valid JS + type annotations)
-            for f in ts_files:
-                js_path = f.with_suffix(".js")
-                if not js_path.exists():
-                    shutil.copy2(f, js_path)
         except subprocess.CalledProcessError as e:
-            logger.warning("esbuild compilation failed: %s", e.stderr.decode()[:500])
+            raise RuntimeError(
+                f"esbuild compilation failed (exit {e.returncode}): {e.stderr.decode()[:500]}"
+            ) from e
 
         # Remove .ts sources from output (keep only compiled .js)
         for f in assets_dir.rglob("*.ts"):
