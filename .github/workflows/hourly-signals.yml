@@ -1,19 +1,20 @@
 name: "Intraday: Signal Reports"
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Signal report generation during market hours — split into 5 jobs:
+# Signal report generation during market hours — 4 jobs:
 #
 #   setup-and-check (3 min)
-#       ├──→ signal-pipeline (30 min) ──┬──→ notify (10 min)
-#       │                               └──→ dashboard (10 min)
-#       └──→ strategy-compare (30 min, parallel to signal-pipeline)
+#       └──→ signal-pipeline (30 min)
+#                ├──→ notify (10 min)
+#                ├──→ deploy-gh-pages (10 min)
+#                └──→ deploy-cloudflare (5 min)
 #
 # DST-safe design: Cron triggers cover BOTH EDT (UTC-4) and EST (UTC-5).
 # The Python market-check step uses America/New_York timezone to classify
 # each run by ET time window, so NO manual DST switching is needed.
 #
 # ET time windows:
-#   5:00-5:59am ET:   First report (1H+4H+1D + strategy comparison)
+#   5:00-5:59am ET:   First report (1H+4H+1D)
 #   7:00-7:59am ET:   Premarket report (1H+4H+1D)
 #   10:00-12:59pm ET: Intraday hourly (1H only)
 #   1:00-1:59pm ET:   4H bar close (1H+4H)
@@ -21,6 +22,7 @@ name: "Intraday: Signal Reports"
 #   4:00-4:59pm ET:   Post-close (1H+4H+1D, no retrain)
 #
 # Email: Plain-text TUI-formatted report (monospace, mobile-friendly)
+# Strategy comparison runs in a separate workflow (daily-strategy-compare.yml)
 # ═══════════════════════════════════════════════════════════════════════════
 
 on:
@@ -34,10 +36,6 @@ on:
     - cron: '15 20,21 * * 1-5'    # Post-close 4:15pm ET (EDT→20:15, EST→21:15)
   workflow_dispatch:
     inputs:
-      run_strategy_compare:
-        description: "Also run strategy comparison backtests"
-        type: boolean
-        default: false
       force_run:
         description: "Override: run even on weekends/holidays"
         type: boolean
@@ -66,7 +64,6 @@ jobs:
     outputs:
       should_run: ${{ steps.market-check.outputs.should_run }}
       should_retrain: ${{ steps.market-check.outputs.should_retrain }}
-      run_strategy_compare: ${{ steps.market-check.outputs.run_strategy_compare }}
       timeframes: ${{ steps.market-check.outputs.timeframes }}
       send_1h: ${{ steps.market-check.outputs.send_1h }}
       send_4h: ${{ steps.market-check.outputs.send_4h }}
@@ -92,7 +89,6 @@ jobs:
       - name: Check market open
         id: market-check
         env:
-          INPUT_RUN_STRATEGY_COMPARE: ${{ inputs.run_strategy_compare || 'false' }}
           INPUT_FORCE_RUN: ${{ inputs.force_run || 'false' }}
         run: |
           python << 'EOF'
@@ -121,7 +117,7 @@ jobs:
 
           # ET time windows:
           #   <5am:         Too early (skip)
-          #   5-5:59am:     First report (1H+4H+1D + strategy comparison)
+          #   5-5:59am:     First report (1H+4H+1D)
           #   7-7:59am:     Premarket report (1H+4H+1D)
           #   10am-12pm:    Intraday hourly (1H only)
           #   1-1:59pm:     4H bar close (1H+4H)
@@ -136,44 +132,37 @@ jobs:
           is_hourly   = (10 <= et_hour < 13) or (14 <= et_hour < 16)
           in_window   = is_first or is_premarket or is_4h_close or is_close or is_hourly
 
-          # Manual dispatch: check workflow_dispatch input for comparison toggle
-          manual_compare = os.environ.get('INPUT_RUN_STRATEGY_COMPARE', 'false') == 'true'
-
           if is_manual:
               should_run = True
               should_retrain = True
               send_1h = "true"
               send_4h = "true"
               send_1d = "true"
-              run_strategy_compare = "true" if manual_compare else "false"
               label_suffix = " [force_run]" if force_run else ""
-              label = f"Manual dispatch{label_suffix} (compare={'on' if manual_compare else 'off'}, market {'open' if is_trading_day else 'closed'})"
+              label = f"Manual dispatch{label_suffix} (market {'open' if is_trading_day else 'closed'})"
           elif not is_trading_day or not in_window:
               should_run = False
               should_retrain = False
               send_1h = "false"
               send_4h = "false"
               send_1d = "false"
-              run_strategy_compare = "false"
               reason = "closed" if not is_trading_day else f"outside window (ET {et_hour}:{et_now.minute:02d})"
               label = f"SKIP: market {reason}"
           elif is_first:
-              # First report: full signals + strategy comparison
+              # First report: full signals
               should_run = True
               should_retrain = True
               send_1h = "true"
               send_4h = "true"
               send_1d = "true"
-              run_strategy_compare = "true"
               label = f"FIRST REPORT ({et_time})"
           elif is_premarket:
-              # Premarket report: full signals, no strategy comparison
+              # Premarket report: full signals
               should_run = True
               should_retrain = False
               send_1h = "true"
               send_4h = "true"
               send_1d = "true"
-              run_strategy_compare = "false"
               label = f"PREMARKET ({et_time})"
           elif is_close:
               # Post-close: full signals, no retrain
@@ -182,7 +171,6 @@ jobs:
               send_1h = "true"
               send_4h = "true"
               send_1d = "true"
-              run_strategy_compare = "false"
               label = f"POST-CLOSE ({et_time})"
           elif is_4h_close:
               # 4H bar close: 1H + 4H
@@ -191,7 +179,6 @@ jobs:
               send_1h = "true"
               send_4h = "true"
               send_1d = "false"
-              run_strategy_compare = "false"
               label = f"4H CLOSE ({et_time})"
           else:
               # Regular hourly: 1H only
@@ -200,7 +187,6 @@ jobs:
               send_1h = "true"
               send_4h = "false"
               send_1d = "false"
-              run_strategy_compare = "false"
               label = f"HOURLY ({et_time})"
 
           # Always generate all timeframes (partial bars are useful)
@@ -212,7 +198,6 @@ jobs:
               f.write(f'send_1h={send_1h}\n')
               f.write(f'send_4h={send_4h}\n')
               f.write(f'send_1d={send_1d}\n')
-              f.write(f'run_strategy_compare={run_strategy_compare}\n')
               f.write(f'timeframes={timeframes}\n')
               f.write(f'et_time={et_time}\n')
               f.write(f'et_date={et_date}\n')
@@ -221,11 +206,11 @@ jobs:
           EOF
 
       - name: Holiday notice
-        if: steps.market-check.outputs.should_run != 'true' && steps.market-check.outputs.run_strategy_compare != 'true'
+        if: steps.market-check.outputs.should_run != 'true'
         run: echo "::notice::Market is closed today. Skipping report generation."
 
   # ═══════════════════════════════════════════════════════════════════════
-  # Job 2: Signal Pipeline — generate report + deploy to gh-pages
+  # Job 2: Signal Pipeline — generate report data (compute-only)
   # ═══════════════════════════════════════════════════════════════════════
   signal-pipeline:
     name: Signal Pipeline
@@ -235,8 +220,6 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -333,18 +316,16 @@ jobs:
           git fetch origin gh-pages --depth=1 2>/dev/null || true
           git show origin/gh-pages:data/score_history.json > out/signals/data/score_history.json 2>/dev/null || echo '{"snapshots":[]}' > out/signals/data/score_history.json
 
-      - name: "Step 3/3: Generate and deploy report"
+      - name: "Step 3/3: Generate signal report"
         run: |
           source .venv/bin/activate
           python -m src.runners.signal_runner --live \
             --universe ${{ env.UNIVERSE }} \
             --timeframes ${{ needs.setup-and-check.outputs.timeframes }} \
             --format package \
-            --html-output out/signals \
-            --deploy github
+            --html-output out/signals
         env:
           LOG_LEVEL: WARNING
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: "Screeners (from cache)"
         continue-on-error: true
@@ -372,128 +353,7 @@ jobs:
           retention-days: 1
 
   # ═══════════════════════════════════════════════════════════════════════
-  # Job 3: Strategy Comparison — parallel to signal-pipeline
-  # ═══════════════════════════════════════════════════════════════════════
-  strategy-compare:
-    name: Strategy Comparison
-    needs: [setup-and-check]
-    if: needs.setup-and-check.outputs.run_strategy_compare == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-
-      - name: Cache Python dependencies
-        uses: actions/cache@v5
-        with:
-          path: |
-            .venv
-            ~/.cache/uv
-            ~/.cache/pip
-          key: ${{ env.CACHE_VERSION }}-deps-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-${{ hashFiles('pyproject.toml', 'uv.lock') }}
-          restore-keys: |
-            ${{ env.CACHE_VERSION }}-deps-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-
-            ${{ env.CACHE_VERSION }}-deps-${{ runner.os }}-
-
-      - name: Cache TA-Lib
-        id: cache-talib
-        uses: actions/cache@v5
-        with:
-          path: ~/ta-lib-install
-          key: talib-0.6.4-${{ runner.os }}-${{ runner.arch }}
-
-      - name: Install TA-Lib
-        run: |
-          if [ -d "$HOME/ta-lib-install/lib" ]; then
-            echo "Restoring TA-Lib from cache..."
-            sudo cp -r $HOME/ta-lib-install/lib/* /usr/lib/
-            sudo cp -r $HOME/ta-lib-install/include/* /usr/include/
-            sudo ldconfig
-          else
-            echo "Building TA-Lib 0.6.4 from source..."
-            sudo apt-get update && sudo apt-get install -y wget build-essential
-            wget https://github.com/ta-lib/ta-lib/releases/download/v0.6.4/ta-lib-0.6.4-src.tar.gz
-            tar -xzf ta-lib-0.6.4-src.tar.gz
-            cd ta-lib-0.6.4 && ./configure --prefix=/usr && make -j$(nproc) && sudo make install
-            sudo ldconfig
-            mkdir -p $HOME/ta-lib-install/lib $HOME/ta-lib-install/include
-            cp -r /usr/lib/libta* $HOME/ta-lib-install/lib/ 2>/dev/null || true
-            cp -r /usr/include/ta-lib $HOME/ta-lib-install/include/ 2>/dev/null || true
-          fi
-
-      - name: Install dependencies
-        run: |
-          .venv/bin/python --version 2>/dev/null || uv venv --clear
-          source .venv/bin/activate
-          uv pip install -e ".[dev,observability]"
-
-      - name: Cache historical data
-        uses: actions/cache@v5
-        with:
-          path: data/historical
-          key: ${{ env.CACHE_VERSION }}-historical-${{ runner.os }}-${{ needs.setup-and-check.outputs.et_day_key }}-${{ hashFiles('config/universe.yaml') }}
-          restore-keys: |
-            ${{ env.CACHE_VERSION }}-historical-${{ runner.os }}-${{ needs.setup-and-check.outputs.et_day_key }}-
-            ${{ env.CACHE_VERSION }}-historical-${{ runner.os }}-
-
-      - name: Run strategy comparison backtests
-        run: |
-          source .venv/bin/activate
-          python -m src.runners.strategy_compare_runner \
-            --universe ${{ env.UNIVERSE }} \
-            --years 3 \
-            --output out/signals/strategies.html \
-            --json-output out/signals/data/strategies.json
-        env:
-          LOG_LEVEL: WARNING
-
-      - name: Upload strategy data artifact
-        uses: actions/upload-artifact@v6
-        with:
-          name: strategy-data
-          path: |
-            out/signals/strategies.html
-            out/signals/data/strategies.json
-          if-no-files-found: warn
-          retention-days: 1
-
-      - name: Deploy strategies.html to gh-pages
-        run: |
-          if [ ! -s "out/signals/strategies.html" ]; then
-            echo "No strategies.html produced (no historical data?). Skipping deploy."
-            exit 0
-          fi
-          git fetch origin gh-pages --depth=1 2>/dev/null || true
-          rm -rf /tmp/strategy-deploy
-          # Clone existing gh-pages content, then overwrite strategies.html
-          git clone --branch gh-pages --single-branch --depth 1 \
-            "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" \
-            /tmp/strategy-deploy 2>/dev/null || \
-            (mkdir -p /tmp/strategy-deploy && cd /tmp/strategy-deploy && git init -b gh-pages)
-          cp out/signals/strategies.html /tmp/strategy-deploy/strategies.html
-          cd /tmp/strategy-deploy && \
-            git add strategies.html && \
-            git diff --cached --quiet || \
-            (git -c user.name="github-actions[bot]" \
-                 -c user.email="github-actions[bot]@users.noreply.github.com" \
-             commit -m "Update strategy comparison $(date +%Y-%m-%d)" && \
-             git push origin gh-pages)
-          rm -rf /tmp/strategy-deploy
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  # ═══════════════════════════════════════════════════════════════════════
-  # Job 4: Notify — render & send emails (rerunnable on SMTP failure)
+  # Job 3: Notify — render & send emails (rerunnable on SMTP failure)
   # ═══════════════════════════════════════════════════════════════════════
   notify:
     name: Send Notifications
@@ -642,19 +502,17 @@ jobs:
           convert_markdown: false
 
   # ═══════════════════════════════════════════════════════════════════════
-  # Job 5: Dashboard — build + deploy to Cloudflare Pages
+  # Job 4: Deploy to GitHub Pages — SPA dashboard at root
   # ═══════════════════════════════════════════════════════════════════════
-  dashboard:
-    name: Cloudflare Dashboard
-    needs: [setup-and-check, signal-pipeline, strategy-compare]
-    # Run when signal-pipeline succeeded; strategy-compare must be success or skipped (not cancelled/failed)
-    if: |
-      always() &&
-      needs.setup-and-check.outputs.should_run == 'true' &&
-      needs.signal-pipeline.result == 'success' &&
-      (needs.strategy-compare.result == 'success' || needs.strategy-compare.result == 'skipped')
+  deploy-gh-pages:
+    name: Deploy to GitHub Pages
+    needs: [setup-and-check, signal-pipeline]
+    if: needs.signal-pipeline.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    concurrency:
+      group: gh-pages-deploy
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v6
 
@@ -721,16 +579,144 @@ jobs:
           name: signal-data
           path: out/signals
 
-      # Strategy data is optional — only produced when run_strategy_compare=true
-      - name: Download strategy data (if available)
-        if: needs.strategy-compare.result == 'success'
+      - name: Build SPA dashboard
+        run: |
+          source .venv/bin/activate
+          python -c "from src.infrastructure.reporting.dashboard import DashboardBuilder; DashboardBuilder().build()"
+
+      - name: Smoke check dashboard artifacts
+        run: |
+          for f in out/site/index.html out/site/assets/app.js out/site/data/summary.json; do
+            if [ ! -s "$f" ]; then
+              echo "ERROR: Missing or empty required file: $f"
+              exit 1
+            fi
+          done
+          echo "Smoke check passed"
+
+      - name: Deploy SPA to gh-pages
+        run: |
+          rm -rf /tmp/gh-pages-deploy
+          git clone --branch gh-pages --single-branch --depth 1 \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" \
+            /tmp/gh-pages-deploy 2>/dev/null || \
+            (mkdir -p /tmp/gh-pages-deploy && cd /tmp/gh-pages-deploy && git init -b gh-pages)
+
+          # Preserve strategy files from separate workflow
+          cp /tmp/gh-pages-deploy/strategies.html /tmp/strategies.html.bak 2>/dev/null || true
+          mkdir -p /tmp/strategies-data-bak
+          cp /tmp/gh-pages-deploy/data/strategies.json /tmp/strategies-data-bak/strategies.json 2>/dev/null || true
+
+          # Clear old content from gh-pages root (old signal reports)
+          cd /tmp/gh-pages-deploy
+          git rm -rf . --quiet 2>/dev/null || true
+
+          # Copy SPA dashboard at root
+          cp -r ${{ github.workspace }}/out/site/* /tmp/gh-pages-deploy/
+
+          # Restore strategy files if they existed
+          cp /tmp/strategies.html.bak /tmp/gh-pages-deploy/strategies.html 2>/dev/null || true
+          mkdir -p /tmp/gh-pages-deploy/data
+          cp /tmp/strategies-data-bak/strategies.json /tmp/gh-pages-deploy/data/strategies.json 2>/dev/null || true
+
+          # Ensure .nojekyll exists
+          touch /tmp/gh-pages-deploy/.nojekyll
+
+          cd /tmp/gh-pages-deploy
+          git add -A
+          git diff --cached --quiet || \
+            (git -c user.name="github-actions[bot]" \
+                 -c user.email="github-actions[bot]@users.noreply.github.com" \
+             commit -m "Deploy SPA dashboard $(date +%Y-%m-%d\ %H:%M)" && \
+             git push origin gh-pages)
+          rm -rf /tmp/gh-pages-deploy /tmp/strategies.html.bak /tmp/strategies-data-bak
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload report artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: signal-report-${{ github.run_id }}
+          path: out/signals/
+          if-no-files-found: warn
+          retention-days: 7
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Job 5: Deploy to Cloudflare Pages — secondary SPA deploy
+  # ═══════════════════════════════════════════════════════════════════════
+  deploy-cloudflare:
+    name: Deploy to Cloudflare
+    needs: [setup-and-check, signal-pipeline]
+    if: needs.signal-pipeline.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Cache Python dependencies
+        uses: actions/cache@v5
+        with:
+          path: |
+            .venv
+            ~/.cache/uv
+            ~/.cache/pip
+          key: ${{ env.CACHE_VERSION }}-deps-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-${{ hashFiles('pyproject.toml', 'uv.lock') }}
+          restore-keys: |
+            ${{ env.CACHE_VERSION }}-deps-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-
+            ${{ env.CACHE_VERSION }}-deps-${{ runner.os }}-
+
+      - name: Cache TA-Lib
+        id: cache-talib
+        uses: actions/cache@v5
+        with:
+          path: ~/ta-lib-install
+          key: talib-0.6.4-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Install TA-Lib
+        run: |
+          if [ -d "$HOME/ta-lib-install/lib" ]; then
+            echo "Restoring TA-Lib from cache..."
+            sudo cp -r $HOME/ta-lib-install/lib/* /usr/lib/
+            sudo cp -r $HOME/ta-lib-install/include/* /usr/include/
+            sudo ldconfig
+          else
+            echo "Building TA-Lib 0.6.4 from source..."
+            sudo apt-get update && sudo apt-get install -y wget build-essential
+            wget https://github.com/ta-lib/ta-lib/releases/download/v0.6.4/ta-lib-0.6.4-src.tar.gz
+            tar -xzf ta-lib-0.6.4-src.tar.gz
+            cd ta-lib-0.6.4 && ./configure --prefix=/usr && make -j$(nproc) && sudo make install
+            sudo ldconfig
+            mkdir -p $HOME/ta-lib-install/lib $HOME/ta-lib-install/include
+            cp -r /usr/lib/libta* $HOME/ta-lib-install/lib/ 2>/dev/null || true
+            cp -r /usr/include/ta-lib $HOME/ta-lib-install/include/ 2>/dev/null || true
+          fi
+
+      - name: Install dependencies
+        run: |
+          .venv/bin/python --version 2>/dev/null || uv venv --clear
+          source .venv/bin/activate
+          uv pip install -e ".[dev,observability]"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Download signal data
         uses: actions/download-artifact@v6
         with:
-          name: strategy-data
+          name: signal-data
           path: out/signals
-          merge-multiple: true
 
-      - name: Build Cloudflare dashboard
+      - name: Build SPA dashboard
         run: |
           source .venv/bin/activate
           python -c "from src.infrastructure.reporting.dashboard import DashboardBuilder; DashboardBuilder().build()"
@@ -751,11 +737,3 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
-      - name: Upload report artifact
-        uses: actions/upload-artifact@v6
-        with:
-          name: signal-report-${{ github.run_id }}
-          path: out/signals/
-          if-no-files-found: warn
-          retention-days: 7
