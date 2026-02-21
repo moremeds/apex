@@ -8,6 +8,7 @@
 
 name = "apex"
 compatibility_date = "2025-02-19"
+pages_build_output_dir = "out/site"
 
 [assets]
 directory = "out/site"
