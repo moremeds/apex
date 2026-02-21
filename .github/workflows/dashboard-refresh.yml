@@ -1,7 +1,7 @@
 name: "Dashboard: Manual Refresh"
 
-# Manual trigger for UI-only changes (no pipeline re-run needed if
-# out/signals/ is already up to date).
+# Manual trigger that regenerates signals (test subset of ~10 symbols)
+# and rebuilds the dashboard. Deploys to preview branch, not production.
 
 on:
   workflow_dispatch:
@@ -100,11 +100,26 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Build and deploy dashboard
+      - name: Build dashboard
         run: |
           source .venv/bin/activate
           python -c "from src.infrastructure.reporting.dashboard import DashboardBuilder; DashboardBuilder().build()"
-          npx wrangler@3 pages deploy out/site/ --project-name apex-dashboard
+
+      - name: Smoke check dashboard artifacts
+        run: |
+          for f in out/site/index.html out/site/assets/app.js out/site/data/summary.json; do
+            if [ ! -s "$f" ]; then
+              echo "ERROR: Missing or empty required file: $f"
+              exit 1
+            fi
+          done
+          echo "Smoke check passed"
+
+      # Deploy to preview branch (not production) — this workflow uses a
+      # 10-symbol test subset, not the full universe. It also does not
+      # prefetch score_history.json (contrast with hourly-signals which does).
+      - name: Deploy to Cloudflare Pages (preview)
+        run: npx wrangler@3 pages deploy out/site/ --project-name apex-dashboard --branch dashboard-preview
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

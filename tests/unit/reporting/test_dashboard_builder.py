@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 from typing import Any, Dict
+from unittest.mock import patch
 
 import pytest
 
@@ -14,6 +16,16 @@ from src.infrastructure.reporting.dashboard.data_transformer import (
     TransformConfig,
     _trim_symbol_data,
 )
+
+
+def _fake_esbuild(*args, **kwargs):
+    """Mock esbuild: rename .ts → .js (simulates transpile-only compilation)."""
+    cmd = args[0] if args else kwargs.get("args", [])
+    ts_files = [f for f in cmd if f.endswith(".ts")]
+    for ts_path in ts_files:
+        p = Path(ts_path)
+        if p.exists():
+            shutil.copy2(p, p.with_suffix(".js"))
 
 
 @pytest.fixture
@@ -287,8 +299,9 @@ class TestScreenerMerge:
         assert screeners["pead"] is None
 
 
+@patch("subprocess.run", side_effect=_fake_esbuild)
 class TestFullBuild:
-    def test_produces_correct_structure(self, source_dir: Path, tmp_path: Path):
+    def test_produces_correct_structure(self, _mock_run, source_dir: Path, tmp_path: Path):
         """Full build produces index.html, assets, data directory."""
         output = tmp_path / "site"
         builder = DashboardBuilder(source_dir=source_dir, max_bars=100)
@@ -306,7 +319,7 @@ class TestFullBuild:
         assert manifest.total_size_bytes > 0
         assert len(manifest.symbols) == 2
 
-    def test_no_ts_files_in_output(self, source_dir: Path, tmp_path: Path):
+    def test_no_ts_files_in_output(self, _mock_run, source_dir: Path, tmp_path: Path):
         """Output dir has .js files (compiled from .ts), no .ts files."""
         output = tmp_path / "site"
         DashboardBuilder(source_dir=source_dir).build(output_dir=output)
@@ -318,7 +331,7 @@ class TestFullBuild:
         assert (output / "assets" / "app.js").exists()
         assert (output / "assets" / "charts.js").exists()
 
-    def test_no_types_or_tsconfig_in_output(self, source_dir: Path, tmp_path: Path):
+    def test_no_types_or_tsconfig_in_output(self, _mock_run, source_dir: Path, tmp_path: Path):
         """types/ directory and tsconfig.json are removed from output."""
         output = tmp_path / "site"
         DashboardBuilder(source_dir=source_dir).build(output_dir=output)
@@ -326,7 +339,7 @@ class TestFullBuild:
         assert not (output / "assets" / "types").exists()
         assert not (output / "assets" / "tsconfig.json").exists()
 
-    def test_html_contains_all_pages(self, source_dir: Path, tmp_path: Path):
+    def test_html_contains_all_pages(self, _mock_run, source_dir: Path, tmp_path: Path):
         """HTML shell contains all 5 page sections and import map."""
         output = tmp_path / "site"
         DashboardBuilder(source_dir=source_dir).build(output_dir=output)
@@ -338,7 +351,7 @@ class TestFullBuild:
         assert "importmap" in html
         assert "lightweight-charts" in html
 
-    def test_overview_has_etf_dashboard_containers(self, source_dir: Path, tmp_path: Path):
+    def test_overview_has_etf_dashboard_containers(self, _mock_run, source_dir: Path, tmp_path: Path):
         """Overview page has ETF dashboard, controls, stats, treemap containers."""
         output = tmp_path / "site"
         DashboardBuilder(source_dir=source_dir).build(output_dir=output)
@@ -349,7 +362,7 @@ class TestFullBuild:
         assert 'id="overview-stats"' in html
         assert 'id="overview-heatmap"' in html
 
-    def test_overview_has_no_movers_alerts(self, source_dir: Path, tmp_path: Path):
+    def test_overview_has_no_movers_alerts(self, _mock_run, source_dir: Path, tmp_path: Path):
         """Overview page does not contain legacy movers/alerts sections."""
         output = tmp_path / "site"
         DashboardBuilder(source_dir=source_dir).build(output_dir=output)
@@ -359,7 +372,7 @@ class TestFullBuild:
         assert "overview-alerts" not in html
         assert "overview-benchmarks" not in html
 
-    def test_signals_has_chart_container(self, source_dir: Path, tmp_path: Path):
+    def test_signals_has_chart_container(self, _mock_run, source_dir: Path, tmp_path: Path):
         """Signals page has LC v5 multi-pane chart wrapper and sections div."""
         output = tmp_path / "site"
         DashboardBuilder(source_dir=source_dir).build(output_dir=output)
@@ -369,7 +382,7 @@ class TestFullBuild:
         assert 'id="signals-chart-main"' in html
         assert 'id="signals-sections"' in html
 
-    def test_html_contains_plotly(self, source_dir: Path, tmp_path: Path):
+    def test_html_contains_plotly(self, _mock_run, source_dir: Path, tmp_path: Path):
         """HTML shell contains Plotly script tag for treemap + backtest charts."""
         output = tmp_path / "site"
         DashboardBuilder(source_dir=source_dir).build(output_dir=output)
@@ -377,7 +390,7 @@ class TestFullBuild:
         html = (output / "index.html").read_text()
         assert "plotly" in html.lower()
 
-    def test_html_contains_backtest_content_container(self, source_dir: Path, tmp_path: Path):
+    def test_html_contains_backtest_content_container(self, _mock_run, source_dir: Path, tmp_path: Path):
         """HTML has backtest-content container for dynamic tab rendering."""
         output = tmp_path / "site"
         DashboardBuilder(source_dir=source_dir).build(output_dir=output)
@@ -386,7 +399,7 @@ class TestFullBuild:
         assert 'id="backtest-content"' in html
         assert 'id="backtest-empty"' in html
 
-    def test_cf_headers_content(self, source_dir: Path, tmp_path: Path):
+    def test_cf_headers_content(self, _mock_run, source_dir: Path, tmp_path: Path):
         """CF _headers file contains correct cache and security headers."""
         output = tmp_path / "site"
         DashboardBuilder(source_dir=source_dir).build(output_dir=output)
@@ -398,8 +411,9 @@ class TestFullBuild:
         assert "X-Frame-Options: DENY" in headers
 
 
+@patch("subprocess.run", side_effect=_fake_esbuild)
 class TestSourceImmutability:
-    def test_source_files_unchanged(self, source_dir: Path, tmp_path: Path):
+    def test_source_files_unchanged(self, _mock_run, source_dir: Path, tmp_path: Path):
         """Source files are not modified during build."""
         # Record file contents before build
         src_data = source_dir / "data" / "AAPL_1d.json"
@@ -410,3 +424,26 @@ class TestSourceImmutability:
 
         # Verify source unchanged
         assert src_data.read_text() == original
+
+
+class TestEsbuildFailFast:
+    """Verify builder raises on esbuild/npx failures instead of silently degrading."""
+
+    def test_raises_on_npx_not_found(self, source_dir: Path, tmp_path: Path):
+        """Builder raises RuntimeError when npx is not installed."""
+        output = tmp_path / "site"
+        with patch("subprocess.run", side_effect=FileNotFoundError("npx")):
+            with pytest.raises(RuntimeError, match="npx not found"):
+                DashboardBuilder(source_dir=source_dir).build(output_dir=output)
+
+    def test_raises_on_esbuild_compile_error(self, source_dir: Path, tmp_path: Path):
+        """Builder raises RuntimeError when esbuild exits non-zero."""
+        import subprocess
+
+        error = subprocess.CalledProcessError(
+            returncode=1, cmd=["npx", "esbuild"], stderr=b"Parse error: unexpected token"
+        )
+        output = tmp_path / "site"
+        with patch("subprocess.run", side_effect=error):
+            with pytest.raises(RuntimeError, match="esbuild compilation failed"):
+                DashboardBuilder(source_dir=source_dir).build(output_dir=output)
