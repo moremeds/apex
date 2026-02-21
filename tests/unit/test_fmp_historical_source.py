@@ -9,8 +9,6 @@ import pandas as pd
 import pytest
 
 from src.infrastructure.adapters.fmp.historical_source_adapter import (
-    _FMP_CHUNK_DAYS,
-    MAX_HISTORY_DAYS,
     FMPHistoricalSourceAdapter,
 )
 

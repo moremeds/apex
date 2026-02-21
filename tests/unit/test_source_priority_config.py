@@ -5,8 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
 
 class TestSourcePriorityConfig:
     def test_config_parses_source_priority(self) -> None:
