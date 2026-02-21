@@ -1,0 +1,13 @@
+/data/*
+  Cache-Control: public, max-age=300
+  X-Content-Type-Options: nosniff
+
+/assets/*
+  Cache-Control: public, max-age=86400, immutable
+  X-Content-Type-Options: nosniff
+
+/index.html
+  Cache-Control: public, max-age=300
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
