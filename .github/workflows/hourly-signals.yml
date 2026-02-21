@@ -469,6 +469,10 @@ jobs:
 
       - name: Deploy strategies.html to gh-pages
         run: |
+          if [ ! -s "out/signals/strategies.html" ]; then
+            echo "No strategies.html produced (no historical data?). Skipping deploy."
+            exit 0
+          fi
           git fetch origin gh-pages --depth=1 2>/dev/null || true
           rm -rf /tmp/strategy-deploy
           # Clone existing gh-pages content, then overwrite strategies.html
