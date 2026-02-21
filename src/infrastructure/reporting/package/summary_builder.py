@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import pandas as pd
@@ -162,12 +163,13 @@ class SummaryBuilder:
         ticker_summaries = []
         for symbol in symbols:
             regime = regime_outputs.get(symbol)
-            # Find DataFrame for this symbol
-            df = None
-            for tf in ["1d", "1h", "5m"]:
-                if (symbol, tf) in data:
-                    df = data[(symbol, tf)]
-                    break
+            # Prefer 1d for data quality assessment, else any available tf
+            df = data.get((symbol, "1d"))
+            if df is None:
+                for (sym, tf), candidate in data.items():
+                    if sym == symbol:
+                        df = candidate
+                        break
 
             ticker_summary = self._build_ticker_summary(symbol, data, regime, timeframes)
 
@@ -259,33 +261,84 @@ class SummaryBuilder:
 
         return summary
 
-    def _compute_daily_change(self, df: pd.DataFrame, symbol: str) -> Optional[float]:
+    def _resolve_latest_close(
+        self,
+        symbol: str,
+        data: Dict[Tuple[str, str], pd.DataFrame],
+    ) -> Tuple[Optional[float], Optional[datetime], Optional[str]]:
         """
-        Compute daily change % from last two closes.
+        Find the most recent valid close across all available timeframes.
 
-        Args:
-            df: DataFrame with OHLCV data
-            symbol: Symbol for logging
+        Iterates all (symbol, tf) keys in data, uses get_last_valid_close() to
+        filter NaN/sentinel/<=0 values, and picks the one with the most recent
+        timestamp.
 
         Returns:
-            Daily change percentage rounded to 2 decimals, or None if insufficient data
+            (close, timestamp, source_timeframe) or (None, None, None)
         """
-        if df is None or df.empty:
-            return None
-        if "close" not in df.columns or len(df) < 2:
+        best_close: Optional[float] = None
+        best_ts: Optional[datetime] = None
+        best_tf: Optional[str] = None
+
+        for (sym, tf), df in data.items():
+            if sym != symbol:
+                continue
+            close_val, close_ts = get_last_valid_close(df, symbol)
+            if close_val <= 0 or close_ts is None:
+                continue
+            if best_ts is None or close_ts > best_ts:
+                best_close = round(close_val, 2)
+                best_ts = close_ts
+                best_tf = tf
+
+        return best_close, best_ts, best_tf
+
+    def _compute_daily_change(
+        self,
+        symbol: str,
+        current_close: Optional[float],
+        current_ts: Optional[datetime],
+        data: Dict[Tuple[str, str], pd.DataFrame],
+    ) -> Optional[float]:
+        """
+        Compute daily change % using trading-date logic.
+
+        Compares the resolved latest close against the appropriate previous
+        day's close from the 1d DataFrame. Uses trading-date comparison
+        (ts.date()) rather than raw timestamps to handle the fact that 1d bars
+        are normalized to midnight UTC.
+
+        Returns:
+            Daily change percentage rounded to 2 decimals, or None
+        """
+        if current_close is None or current_ts is None:
             return None
 
-        prev_close = df["close"].iloc[-2]
-        curr_close = df["close"].iloc[-1]
-
-        # Validate closes
-        if pd.isna(prev_close) or pd.isna(curr_close):
+        # Find the 1d DataFrame for this symbol
+        daily_df = data.get((symbol, "1d"))
+        if daily_df is None or daily_df.empty or "close" not in daily_df.columns:
             return None
-        if prev_close <= 0:
+        if len(daily_df) < 2:
+            return None
+
+        last_1d_date = daily_df.index[-1]
+        if hasattr(last_1d_date, "date"):
+            last_1d_date = last_1d_date.date()
+        current_date = current_ts.date() if hasattr(current_ts, "date") else current_ts
+
+        if current_date > last_1d_date:
+            # Intraday: 1d hasn't updated to today → prev = last 1d close (yesterday)
+            prev_close = daily_df["close"].iloc[-1]
+        else:
+            # EOD or pre-open: 1d includes today → prev = second-to-last 1d close
+            prev_close = daily_df["close"].iloc[-2]
+
+        # Validate prev_close
+        if pd.isna(prev_close) or prev_close <= 0:
             logger.warning(f"[{symbol}] Invalid prev_close for daily_change: {prev_close}")
             return None
 
-        daily_change = ((curr_close - prev_close) / prev_close) * 100
+        daily_change = ((current_close - prev_close) / prev_close) * 100
         return float(round(daily_change, 2))
 
     def _build_ticker_summary(
@@ -307,28 +360,31 @@ class SummaryBuilder:
         - Data quality
         - Turning point prediction
         """
-        # Find the best timeframe data for this symbol (prefer 1d)
-        df = None
-        for tf in ["1d", "1h", "5m"]:
-            if (symbol, tf) in data:
-                df = data[(symbol, tf)]
-                break
+        # Resolve the latest valid close across all timeframes
+        latest_close, latest_ts, source_tf = self._resolve_latest_close(symbol, data)
+
+        # Find the 1d DataFrame for volume extraction and data quality
+        df = data.get((symbol, "1d"))
+        if df is None:
+            # Fallback: pick any available tf for volume/quality
+            for (sym, tf), candidate in data.items():
+                if sym == symbol:
+                    df = candidate
+                    break
 
         summary: Dict[str, Any] = {"symbol": symbol}
 
-        # Compute daily_change_pct, volume, and close from DataFrame (for heatmap dashboard)
-        summary["daily_change_pct"] = self._compute_daily_change(df, symbol)
+        # Centralized close and daily change from resolved latest close
+        summary["close"] = latest_close
+        summary["daily_change_pct"] = self._compute_daily_change(
+            symbol, latest_close, latest_ts, data
+        )
         summary["volume"] = (
             int(df["volume"].iloc[-1])
             if df is not None and "volume" in df.columns and not pd.isna(df["volume"].iloc[-1])
             else None
         )
-        # Close at top level for easy access by heatmap
-        summary["close"] = (
-            round(float(df["close"].iloc[-1]), 2)
-            if df is not None and "close" in df.columns and not pd.isna(df["close"].iloc[-1])
-            else None
-        )
+        summary["price_source_tf"] = source_tf
 
         # Add full regime info if available (1:1 feature parity)
         if regime:

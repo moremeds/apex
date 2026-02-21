@@ -150,6 +150,12 @@ class PackageBuilder:
         # Extract sparklines once for reuse
         sparklines = score_mgr.get_all_sparklines()
 
+        # Prevent stale heatmap: remove old index.html before regeneration
+        stale_index = output_dir / "index.html"
+        if stale_index.exists():
+            stale_index.unlink()
+            logger.debug("Removed stale index.html before heatmap generation")
+
         # Build heatmap landing page (index.html) with sparklines
         build_heatmap(summary, output_dir, sparklines, display_timezone=self._display_timezone)
 

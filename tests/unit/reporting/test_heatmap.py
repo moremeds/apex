@@ -8,9 +8,11 @@ from __future__ import annotations
 import pytest
 
 from src.infrastructure.reporting.heatmap.etf_dashboard import (
+    _build_regime_badge,
     _render_sparkline_svg,
     build_etf_dashboard,
     get_etf_display_name,
+    render_etf_card_html,
 )
 from src.infrastructure.reporting.heatmap.extractors import (
     extract_alignment_score,
@@ -438,3 +440,73 @@ class TestBuildETFDashboard:
         spy_card = dashboard["market_indices"][0]
         assert spy_card.buy_signal_count == 5
         assert spy_card.sell_signal_count == 3
+
+
+# =============================================================================
+# Score Badge Rendering
+# =============================================================================
+
+
+class TestScoreBadgeRendering:
+    """Verify gradient badges for composite scores vs discrete class fallback."""
+
+    def test_score_45_gets_inline_gradient(self) -> None:
+        """Card with composite_score=45 → inline style with gradient color."""
+        card = ETFCardData(
+            symbol="SPY",
+            display_name="S&P 500",
+            category="market_indices",
+            composite_score=45.0,
+            regime="R1",
+        )
+        html = render_etf_card_html(card, "large")
+        # Should have inline style, not hm-regime-r1 class
+        assert "style=" in html
+        assert "rgba(" in html
+        assert "hm-regime-r1" not in html
+
+    def test_score_85_different_color_from_45(self) -> None:
+        """Cards with different scores get different gradient colors."""
+        card_45 = ETFCardData(
+            symbol="SPY", display_name="S&P 500", category="m", composite_score=45.0
+        )
+        card_85 = ETFCardData(
+            symbol="QQQ", display_name="Nasdaq", category="m", composite_score=85.0
+        )
+        _, attrs_45 = _build_regime_badge(card_45)
+        _, attrs_85 = _build_regime_badge(card_85)
+        # Different scores → different inline styles
+        assert attrs_45 != attrs_85
+        # Both should have inline styles
+        assert "rgba(" in attrs_45
+        assert "rgba(" in attrs_85
+
+    def test_no_score_falls_back_to_css_class(self) -> None:
+        """Card with composite_score=None → discrete hm-regime-* CSS class."""
+        card = ETFCardData(
+            symbol="SPY",
+            display_name="S&P 500",
+            category="market_indices",
+            regime="R0",
+            composite_score=None,
+        )
+        html = render_etf_card_html(card, "compact")
+        assert "hm-regime-r0" in html
+        assert "rgba(" not in html
+
+    def test_gradient_badge_in_mini_style(self) -> None:
+        """Gradient badge works in mini card style too."""
+        card = ETFCardData(
+            symbol="GLD", display_name="Gold", category="commodities", composite_score=60.0
+        )
+        html = render_etf_card_html(card, "mini")
+        assert "style=" in html
+        assert "rgba(" in html
+
+    def test_no_regime_no_score(self) -> None:
+        """No regime and no score → hm-regime-unknown class."""
+        card = ETFCardData(
+            symbol="X", display_name="X", category="m", regime=None, composite_score=None
+        )
+        _, attrs = _build_regime_badge(card)
+        assert "hm-regime-unknown" in attrs
