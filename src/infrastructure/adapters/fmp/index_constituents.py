@@ -140,6 +140,87 @@ class FMPIndexConstituentsAdapter:
         )
         return symbols
 
+    def fetch_nq100_proxy(self) -> list[str]:
+        """Fetch NQ100 proxy: NASDAQ constituents sorted by market cap, top 100.
+
+        Named _proxy because FMP's /stable/nasdaq-constituent returns all
+        NASDAQ-listed companies. We approximate NQ100 by sorting by marketCap
+        descending and taking the top 100.
+
+        Returns:
+            List of top 100 NASDAQ symbols by market cap.
+        """
+        data = self._fmp_get(f"{_FMP_BASE}/stable/nasdaq-constituent")
+        if not isinstance(data, list):
+            return []
+
+        items: list[tuple[str, float]] = []
+        for item in data:
+            sym = item.get("symbol")
+            if not sym or not isinstance(sym, str):
+                continue
+            raw_cap = item.get("marketCap")
+            cap = float(raw_cap) if isinstance(raw_cap, (int, float)) else 0.0
+            items.append((sym, cap))
+        items.sort(key=lambda x: x[1], reverse=True)
+        symbols = [sym for sym, _ in items[:100]]
+        logger.info(f"NQ100 proxy: top {len(symbols)} NASDAQ by market cap")
+        return symbols
+
+    def fetch_screener_with_metadata(self, cap_min: float = 100_000_000) -> list[dict[str, Any]]:
+        """Fetch US stocks with full metadata via company-screener.
+
+        Unlike fetch_us_stocks() which returns only symbols, this preserves
+        the full company profile: symbol, name, sector, industry, marketCap,
+        exchange.
+
+        Args:
+            cap_min: Minimum market cap in USD (default $100M).
+
+        Returns:
+            List of dicts with keys: symbol, name, sector, industry,
+            marketCap, exchange.
+        """
+        data = self._fmp_get(
+            f"{_FMP_BASE}/stable/company-screener",
+            params={
+                "marketCapMoreThan": int(cap_min),
+                "country": "US",
+                "isActivelyTrading": True,
+                "limit": 10000,
+            },
+        )
+        if not isinstance(data, list):
+            return []
+
+        result: list[dict[str, Any]] = []
+        for item in data:
+            sym = item.get("symbol")
+            if not sym or not isinstance(sym, str):
+                continue
+            result.append(
+                {
+                    "symbol": sym,
+                    "name": item.get("companyName", ""),
+                    "sector": item.get("sector", ""),
+                    "industry": item.get("industry", ""),
+                    "marketCap": item.get("marketCap", 0),
+                    "exchange": item.get("exchange", ""),
+                }
+            )
+        result.sort(
+            key=lambda x: (
+                float(x.get("marketCap") or 0)
+                if isinstance(x.get("marketCap"), (int, float))
+                else 0
+            ),
+            reverse=True,
+        )
+        logger.info(
+            f"Screener with metadata: {len(result)} US stocks (cap >= ${cap_min / 1e6:.0f}M)"
+        )
+        return result
+
     def fetch_historical_sp500_changes(self) -> list[dict[str, Any]]:
         """Fetch historical S&P 500 additions and removals.
 

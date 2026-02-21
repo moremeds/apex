@@ -340,12 +340,12 @@ class TestFullBuild:
         assert not (output / "assets" / "tsconfig.json").exists()
 
     def test_html_contains_all_pages(self, _mock_run, source_dir: Path, tmp_path: Path):
-        """HTML shell contains all 5 page sections and import map."""
+        """HTML shell contains all 6 page sections and import map."""
         output = tmp_path / "site"
         DashboardBuilder(source_dir=source_dir).build(output_dir=output)
 
         html = (output / "index.html").read_text()
-        for page in ("overview", "signals", "screeners", "regime", "backtest"):
+        for page in ("overview", "signals", "screeners", "regime", "monitor", "backtest"):
             assert f'id="page-{page}"' in html
 
         assert "importmap" in html

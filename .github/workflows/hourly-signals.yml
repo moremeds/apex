@@ -566,7 +566,7 @@ jobs:
         run: |
           .venv/bin/python --version 2>/dev/null || uv venv --clear
           source .venv/bin/activate
-          uv pip install -e ".[dev,observability]"
+          uv pip install -e ".[dev,observability,cloudflare]"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -578,6 +578,28 @@ jobs:
         with:
           name: signal-data
           path: out/signals
+
+      - name: Download R2 monitor data
+        continue-on-error: true
+        run: |
+          source .venv/bin/activate
+          python -c "
+          from src.infrastructure.adapters.r2.client import R2Client
+          import json, pathlib
+          r2 = R2Client()
+          for name in ['data_quality.json', 'universe.json']:
+              data = r2.get_json(f'meta/{name}')
+              if data:
+                  pathlib.Path(f'out/signals/data/{name}').write_text(json.dumps(data))
+                  print(f'Downloaded {name}')
+              else:
+                  print(f'Skipped {name} (not found in R2)')
+          "
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET: apex-data
 
       - name: Build SPA dashboard
         run: |
@@ -703,7 +725,7 @@ jobs:
         run: |
           .venv/bin/python --version 2>/dev/null || uv venv --clear
           source .venv/bin/activate
-          uv pip install -e ".[dev,observability]"
+          uv pip install -e ".[dev,observability,cloudflare]"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -715,6 +737,28 @@ jobs:
         with:
           name: signal-data
           path: out/signals
+
+      - name: Download R2 monitor data
+        continue-on-error: true
+        run: |
+          source .venv/bin/activate
+          python -c "
+          from src.infrastructure.adapters.r2.client import R2Client
+          import json, pathlib
+          r2 = R2Client()
+          for name in ['data_quality.json', 'universe.json']:
+              data = r2.get_json(f'meta/{name}')
+              if data:
+                  pathlib.Path(f'out/signals/data/{name}').write_text(json.dumps(data))
+                  print(f'Downloaded {name}')
+              else:
+                  print(f'Skipped {name} (not found in R2)')
+          "
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET: apex-data
 
       - name: Build SPA dashboard
         run: |

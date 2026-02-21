@@ -116,6 +116,7 @@ def _fetch_yahoo(
 
     interval_map = {
         "1d": "1d",
+        "1w": "1wk",
         "4h": "1h",
         "2h": "1h",
         "1h": "1h",

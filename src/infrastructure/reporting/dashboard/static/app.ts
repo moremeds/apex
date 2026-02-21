@@ -14,7 +14,7 @@ window.APEX = {
   navigateTo: () => {},  // replaced below
 };
 
-const PAGES = ['overview', 'signals', 'screeners', 'regime', 'backtest'];
+const PAGES = ['overview', 'signals', 'screeners', 'regime', 'monitor', 'backtest'];
 const pageModules: Record<string, any> = {};
 const pageInitialized = new Set<string>();
 

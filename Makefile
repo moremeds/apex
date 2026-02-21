@@ -1,7 +1,7 @@
 # APEX Development Makefile
 # Quick commands for common development tasks
 
-.PHONY: install run run-dev run-prod run-demo run-headless lint format type-check dead-code complexity quality test test-all coverage clean help validate-fast validate signals-test dashboard-test dashboard-data dashboard-data-ready dashboard-signal dashboard-signal-qa dashboard-web-dev dashboard-web-preview-deploy signals signals-deploy strategy-compare strategy-verify strategy-compare-quick behavioral behavioral-full behavioral-cases pead pead-test pead-screen
+.PHONY: install run run-dev run-prod run-demo run-headless lint format type-check dead-code complexity quality test test-all coverage clean help validate-fast validate signals-test dashboard-test dashboard-data dashboard-data-ready dashboard-signal dashboard-signal-qa dashboard-web-dev dashboard-web-preview-deploy signals signals-deploy strategy-compare strategy-verify strategy-compare-quick behavioral behavioral-full behavioral-cases pead pead-test pead-screen r2-universe r2-backfill r2-backfill-test r2-delta r2-validate
 
 # Virtual environment - use .venv/bin executables directly
 VENV := .venv/bin
@@ -87,6 +87,13 @@ help:
 	@echo "  make dashboard-web-dev Build + serve with Wrangler Pages dev (:8801)"
 	@echo "  make dashboard-web-preview-deploy Build + deploy preview branch ($(DASHBOARD_PREVIEW_BRANCH))"
 	@echo "  make dashboard-deploy  Build + deploy to Cloudflare Pages"
+	@echo ""
+	@echo "$(GREEN)R2 Data Pipeline:$(RESET)"
+	@echo "  make r2-universe       Build universe (FMP screener → R2 meta/)"
+	@echo "  make r2-backfill       Full backfill (all symbols, 2019-present)"
+	@echo "  make r2-backfill-test  Quick test (5 symbols)"
+	@echo "  make r2-delta          Incremental delta update"
+	@echo "  make r2-validate       Generate data_quality.json only"
 	@echo ""
 	@echo "$(GREEN)Other:$(RESET)"
 	@echo "  make clean          Remove build artifacts"
@@ -599,6 +606,37 @@ dashboard-deploy: dashboard-build   ## Build + deploy to Cloudflare Pages
 	npx wrangler@3 pages deploy out/site/ --project-name apex-dashboard
 
 .PHONY: dashboard-build dashboard-dev dashboard-deploy dashboard-data dashboard-web-dev dashboard-web-preview-deploy
+
+# ═══════════════════════════════════════════════════════════════
+# R2 Data Pipeline
+# ═══════════════════════════════════════════════════════════════
+
+r2-universe:   ## Build universe (FMP screener → R2 meta/)
+	@echo "$(BOLD)Building universe → R2...$(RESET)"
+	$(PYTHON) scripts/r2_universe_builder.py
+	@echo "$(GREEN)✓ Universe uploaded to R2$(RESET)"
+
+r2-backfill:   ## Full backfill (all symbols, 2019-present → R2 Parquet)
+	@echo "$(BOLD)R2 historical backfill (2019-present, all symbols)...$(RESET)"
+	$(PYTHON) scripts/r2_historical_loader.py --backfill
+	@echo "$(GREEN)✓ Backfill complete$(RESET)"
+
+r2-backfill-test:   ## Quick backfill test (5 symbols)
+	@echo "$(BOLD)R2 backfill test (5 symbols)...$(RESET)"
+	$(PYTHON) scripts/r2_historical_loader.py --backfill --symbols AAPL MSFT SPY QQQ NVDA
+	@echo "$(GREEN)✓ Test backfill complete$(RESET)"
+
+r2-delta:   ## Incremental delta update (last-bar + overlap → R2)
+	@echo "$(BOLD)R2 delta update...$(RESET)"
+	$(PYTHON) scripts/r2_historical_loader.py --delta
+	@echo "$(GREEN)✓ Delta update complete$(RESET)"
+
+r2-validate:   ## Generate data_quality.json only (no fetch)
+	@echo "$(BOLD)R2 data quality validation...$(RESET)"
+	$(PYTHON) scripts/r2_historical_loader.py --validate-only
+	@echo "$(GREEN)✓ data_quality.json generated$(RESET)"
+
+.PHONY: r2-universe r2-backfill r2-backfill-test r2-delta r2-validate
 
 # ═══════════════════════════════════════════════════════════════
 # Cleanup
