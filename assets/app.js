@@ -9,7 +9,7 @@ window.APEX = {
   }
   // replaced below
 };
-const PAGES = ["overview", "signals", "screeners", "regime", "backtest"];
+const PAGES = ["overview", "signals", "screeners", "regime", "monitor", "backtest"];
 const pageModules = {};
 const pageInitialized = /* @__PURE__ */ new Set();
 async function fetchJSON(url) {
