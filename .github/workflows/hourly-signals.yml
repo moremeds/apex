@@ -775,7 +775,6 @@ jobs:
           echo "Smoke check passed"
 
       - name: Deploy to Cloudflare Pages
-        continue-on-error: true
         run: npx wrangler@3 pages deploy out/site/ --project-name apex-dashboard
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
