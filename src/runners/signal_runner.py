@@ -299,16 +299,6 @@ async def main() -> None:
             "--train-models, --retrain-models, or --update-market-caps"
         )
 
-    # Validate: --deploy requires --format package
-    if args.deploy and args.format != "package":
-        parser.error("--deploy requires --format package")
-
-    # Warn if using singlefile format (legacy) - validation/heatmap will be skipped
-    if args.format == "singlefile":
-        print(
-            "Note: Using legacy singlefile format. Validation and heatmap require --format package."
-        )
-
     # Set up logging
     level = logging.DEBUG if args.verbose else logging.INFO
     logging.basicConfig(

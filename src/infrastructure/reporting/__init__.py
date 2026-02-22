@@ -2,7 +2,6 @@
 Signal Reporting Package.
 
 Provides HTML report generation for signal analysis:
-- SignalReportGenerator: Interactive HTML with Plotly charts (legacy singlefile)
 - PackageBuilder: Directory-based package with lazy loading (PR-02)
 - SnapshotBuilder: Machine-readable payload snapshot for diffing
 - Description generation for indicators and rules
@@ -29,6 +28,8 @@ from .heatmap.model import (
 
 # Package sub-package
 from .package import PackageBuilder
+from .package.confluence_analyzer import calculate_confluence, derive_indicator_states
+from .package.signal_detection import detect_historical_signals
 
 # Regime reports (simplified)
 from .regime_report import (
@@ -36,15 +37,10 @@ from .regime_report import (
     generate_regime_styles,
 )
 
-# Signal report sub-package
-from .signal_report import SignalReportGenerator
-from .signal_report.confluence_analyzer import calculate_confluence, derive_indicator_states
-from .signal_report.signal_detection import detect_historical_signals
 from .snapshot_builder import SnapshotBuilder, SnapshotDiff
 
 __all__ = [
     # Signal reports
-    "SignalReportGenerator",
     "PackageBuilder",
     "SnapshotBuilder",
     "SnapshotDiff",

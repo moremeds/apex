@@ -44,7 +44,7 @@ def write_data_files(
     Returns:
         List of data file keys (e.g., ["AAPL_1d", "SPY_1d"])
     """
-    from ..signal_report.signal_detection import detect_historical_signals
+    from .signal_detection import detect_historical_signals
 
     files_written = []
 

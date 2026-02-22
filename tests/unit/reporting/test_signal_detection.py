@@ -17,7 +17,7 @@ from src.domain.signals.models import (
     SignalPriority,
     SignalRule,
 )
-from src.infrastructure.reporting.signal_report.signal_detection import (
+from src.infrastructure.reporting.package.signal_detection import (
     _detect_cross_down_signals,
     _detect_cross_up_signals,
     _detect_macd_crosses,

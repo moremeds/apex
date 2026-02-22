@@ -557,7 +557,7 @@ class SignalPipelineProcessor:
         """
         from src.domain.signals.indicators.registry import get_indicator_registry
         from src.domain.signals.rules import ALL_RULES
-        from src.infrastructure.reporting import PackageBuilder, SignalReportGenerator
+        from src.infrastructure.reporting import PackageBuilder
 
         print(f"\nGenerating HTML report...")
         report_started = time.monotonic()
@@ -681,90 +681,77 @@ class SignalPipelineProcessor:
             output = PROJECT_ROOT / output
         report_build_started = time.monotonic()
 
-        if self.config.output_format == "package":
-            # PR-02: Package format with lazy loading
-            from src.application.services.regime_service import RegimeService
+        # Package format with lazy loading
+        from src.application.services.regime_service import RegimeService
 
-            # Calculate regime for each (symbol, timeframe) pair
-            regime_outputs = {}
-            regime_service = RegimeService()
-            market_benchmarks = {"QQQ", "SPY", "IWM", "DIA"}
-            warmup_ideal = regime_service._regime_detector.warmup_periods
-            minimum_bars = regime_service._regime_detector.minimum_bars
+        # Calculate regime for each (symbol, timeframe) pair
+        regime_outputs = {}
+        regime_service = RegimeService()
+        market_benchmarks = {"QQQ", "SPY", "IWM", "DIA"}
+        warmup_ideal = regime_service._regime_detector.warmup_periods
+        minimum_bars = regime_service._regime_detector.minimum_bars
 
-            for (symbol, timeframe), df_for_regime in data.items():
-                bar_count = len(df_for_regime)
+        for (symbol, timeframe), df_for_regime in data.items():
+            bar_count = len(df_for_regime)
 
-                if bar_count >= minimum_bars:
-                    # Calculate regime - note if using reduced data
-                    is_reduced_data = bar_count < warmup_ideal
-                    try:
-                        regime_output = regime_service.calculate_regime(
-                            symbol=symbol,
-                            data=df_for_regime,
-                            params=None,
-                            is_market_level=(symbol in market_benchmarks),
-                            timeframe=timeframe,
-                        )
-                        # Store with timeframe-specific key
-                        key = f"{symbol}_{timeframe}"
-                        regime_outputs[key] = regime_output
-                        # Also store under symbol-only key for 1d (backward compatibility)
-                        if timeframe == "1d":
-                            regime_outputs[symbol] = regime_output
-                        quality_note = " (reduced data)" if is_reduced_data else ""
-                        logger.info(
-                            f"Calculated regime for {key}: {regime_output.final_regime.value} "
-                            f"({regime_output.regime_name}, confidence={regime_output.confidence}){quality_note}"
-                        )
-                    except Exception as e:
-                        logger.warning(f"Failed to calculate regime for {symbol}/{timeframe}: {e}")
-                else:
-                    logger.debug(
-                        f"Insufficient data for {symbol}/{timeframe} regime: {bar_count} bars "
-                        f"(need {minimum_bars} minimum)"
+            if bar_count >= minimum_bars:
+                # Calculate regime - note if using reduced data
+                is_reduced_data = bar_count < warmup_ideal
+                try:
+                    regime_output = regime_service.calculate_regime(
+                        symbol=symbol,
+                        data=df_for_regime,
+                        params=None,
+                        is_market_level=(symbol in market_benchmarks),
+                        timeframe=timeframe,
                     )
+                    # Store with timeframe-specific key
+                    key = f"{symbol}_{timeframe}"
+                    regime_outputs[key] = regime_output
+                    # Also store under symbol-only key for 1d (backward compatibility)
+                    if timeframe == "1d":
+                        regime_outputs[symbol] = regime_output
+                    quality_note = " (reduced data)" if is_reduced_data else ""
+                    logger.info(
+                        f"Calculated regime for {key}: {regime_output.final_regime.value} "
+                        f"({regime_output.regime_name}, confidence={regime_output.confidence}){quality_note}"
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to calculate regime for {symbol}/{timeframe}: {e}")
+            else:
+                logger.debug(
+                    f"Insufficient data for {symbol}/{timeframe} regime: {bar_count} bars "
+                    f"(need {minimum_bars} minimum)"
+                )
 
-            # Count unique symbol/timeframe pairs (excluding backward compat keys)
-            regime_count = len([k for k in regime_outputs.keys() if "_" in k])
-            print(f"  Calculated regime for {regime_count} symbol/timeframe pairs")
+        # Count unique symbol/timeframe pairs (excluding backward compat keys)
+        regime_count = len([k for k in regime_outputs.keys() if "_" in k])
+        print(f"  Calculated regime for {regime_count} symbol/timeframe pairs")
 
-            package_dir = output.with_suffix("")
-            if package_dir.suffix == ".html":
-                package_dir = package_dir.with_suffix("")
+        package_dir = output.with_suffix("")
+        if package_dir.suffix == ".html":
+            package_dir = package_dir.with_suffix("")
 
-            builder = PackageBuilder(theme="dark", with_heatmap=self.config.with_heatmap)
+        builder = PackageBuilder(theme="dark", with_heatmap=self.config.with_heatmap)
 
-            # Check for existing score_history.json (pre-fetched from gh-pages in CI)
-            existing_history = package_dir / "data" / "score_history.json"
-            manifest = builder.build(
-                data=data,
-                indicators=indicators,
-                rules=ALL_RULES,
-                output_dir=package_dir,
-                regime_outputs=regime_outputs,
-                validation_url="validation.html",
-                score_history_path=existing_history if existing_history.exists() else None,
-            )
-            print(f"  Package saved: {package_dir} (v{manifest.version})")
-            print(f"  To view: cd {package_dir} && python -m http.server 8080")
-            print(f"  Then open: http://localhost:8080")
+        # Check for existing score_history.json (pre-fetched from gh-pages in CI)
+        existing_history = package_dir / "data" / "score_history.json"
+        manifest = builder.build(
+            data=data,
+            indicators=indicators,
+            rules=ALL_RULES,
+            output_dir=package_dir,
+            regime_outputs=regime_outputs,
+            validation_url="validation.html",
+            score_history_path=existing_history if existing_history.exists() else None,
+        )
+        print(f"  Package saved: {package_dir} (v{manifest.version})")
+        print(f"  To view: cd {package_dir} && python -m http.server 8080")
+        print(f"  Then open: http://localhost:8080")
 
-            # Deploy to GitHub Pages if requested
-            if self.config.deploy_github:
-                self._deploy_to_github(package_dir)
-        else:
-            # Legacy: Single HTML file
-            output.parent.mkdir(parents=True, exist_ok=True)
-
-            generator = SignalReportGenerator(theme="dark")
-            report_path = generator.generate(
-                data=data,
-                indicators=indicators,
-                rules=ALL_RULES,
-                output_path=output,
-            )
-            print(f"  Report saved: {report_path}")
+        # Deploy to GitHub Pages if requested
+        if self.config.deploy_github:
+            self._deploy_to_github(package_dir)
 
         report_build_seconds = time.monotonic() - report_build_started
         total_seconds = time.monotonic() - report_started
