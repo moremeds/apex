@@ -36,7 +36,6 @@ from .regime_report import (
     build_regime_data_json,
     generate_regime_styles,
 )
-
 from .snapshot_builder import SnapshotBuilder, SnapshotDiff
 
 __all__ = [
