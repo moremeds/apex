@@ -623,22 +623,27 @@ jobs:
             /tmp/gh-pages-deploy 2>/dev/null || \
             (mkdir -p /tmp/gh-pages-deploy && cd /tmp/gh-pages-deploy && git init -b gh-pages)
 
-          # Preserve strategy files from separate workflow
-          cp /tmp/gh-pages-deploy/strategies.html /tmp/strategies.html.bak 2>/dev/null || true
-          mkdir -p /tmp/strategies-data-bak
-          cp /tmp/gh-pages-deploy/data/strategies.json /tmp/strategies-data-bak/strategies.json 2>/dev/null || true
+          # Preserve files from other workflows before clearing root
+          mkdir -p /tmp/gh-pages-preserve
+          cp /tmp/gh-pages-deploy/strategies.html /tmp/gh-pages-preserve/ 2>/dev/null || true
+          cp /tmp/gh-pages-deploy/pead.html /tmp/gh-pages-preserve/ 2>/dev/null || true
+          cp -r /tmp/gh-pages-deploy/nightly /tmp/gh-pages-preserve/nightly 2>/dev/null || true
+          mkdir -p /tmp/gh-pages-preserve/data
+          cp /tmp/gh-pages-deploy/data/strategies.json /tmp/gh-pages-preserve/data/ 2>/dev/null || true
 
-          # Clear old content from gh-pages root (old signal reports)
+          # Clear old content from gh-pages root
           cd /tmp/gh-pages-deploy
           git rm -rf . --quiet 2>/dev/null || true
 
           # Copy SPA dashboard at root
           cp -r ${{ github.workspace }}/out/site/* /tmp/gh-pages-deploy/
 
-          # Restore strategy files if they existed
-          cp /tmp/strategies.html.bak /tmp/gh-pages-deploy/strategies.html 2>/dev/null || true
+          # Restore preserved files from other workflows
+          cp /tmp/gh-pages-preserve/strategies.html /tmp/gh-pages-deploy/ 2>/dev/null || true
+          cp /tmp/gh-pages-preserve/pead.html /tmp/gh-pages-deploy/ 2>/dev/null || true
+          cp -r /tmp/gh-pages-preserve/nightly /tmp/gh-pages-deploy/nightly 2>/dev/null || true
           mkdir -p /tmp/gh-pages-deploy/data
-          cp /tmp/strategies-data-bak/strategies.json /tmp/gh-pages-deploy/data/strategies.json 2>/dev/null || true
+          cp /tmp/gh-pages-preserve/data/strategies.json /tmp/gh-pages-deploy/data/ 2>/dev/null || true
 
           # Ensure .nojekyll exists
           touch /tmp/gh-pages-deploy/.nojekyll
@@ -650,7 +655,7 @@ jobs:
                  -c user.email="github-actions[bot]@users.noreply.github.com" \
              commit -m "Deploy SPA dashboard $(date +%Y-%m-%d\ %H:%M)" && \
              git push origin gh-pages)
-          rm -rf /tmp/gh-pages-deploy /tmp/strategies.html.bak /tmp/strategies-data-bak
+          rm -rf /tmp/gh-pages-deploy /tmp/gh-pages-preserve
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

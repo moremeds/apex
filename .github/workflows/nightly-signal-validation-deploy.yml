@@ -138,7 +138,7 @@ jobs:
             --format package \
             --html-output ${{ env.REPORTS_DIR }}/signal_report
 
-      - name: "Step 6/7: Publish to GitHub Pages"
+      - name: "Step 6/7: Publish to GitHub Pages (nightly/ subdirectory)"
         if: ${{ !inputs.skip_publish && github.ref == 'refs/heads/master' }}
         run: |
           PUBLISH_DIR=${{ env.REPORTS_DIR }}/signal_report
@@ -149,7 +149,6 @@ jobs:
 
           cp ${{ env.REPORTS_DIR }}/validation_summary.html "$PUBLISH_DIR"/validation.html 2>/dev/null || true
           cp ${{ env.REPORTS_DIR }}/*.json "$PUBLISH_DIR"/ 2>/dev/null || true
-          touch "$PUBLISH_DIR"/.nojekyll
 
           git fetch origin gh-pages --depth=1 2>/dev/null || true
           rm -rf /tmp/nightly-deploy
@@ -163,14 +162,18 @@ jobs:
             git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
           fi
 
-          cp -r "$PUBLISH_DIR"/. /tmp/nightly-deploy/ 2>/dev/null || true
+          # Deploy to nightly/ subdirectory — never overwrite SPA root
+          rm -rf /tmp/nightly-deploy/nightly
+          mkdir -p /tmp/nightly-deploy/nightly
+          cp -r "$PUBLISH_DIR"/. /tmp/nightly-deploy/nightly/ 2>/dev/null || true
+          touch /tmp/nightly-deploy/.nojekyll
 
           cd /tmp/nightly-deploy
           git add -A
           if ! git diff --cached --quiet; then
             git -c user.name="github-actions[bot]" \
                 -c user.email="github-actions[bot]@users.noreply.github.com" \
-                commit -m "Deploy nightly validation $(date +%Y-%m-%d)"
+                commit -m "Deploy nightly validation to nightly/ $(date +%Y-%m-%d)"
             git push origin gh-pages
           else
             echo "No changes to publish"
