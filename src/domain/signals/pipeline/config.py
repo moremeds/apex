@@ -106,7 +106,7 @@ class SignalPipelineConfig:
     stats_interval: int = 10
     html_output: Optional[str] = "results/signals"  # Path for HTML report generation
     json_output: bool = False  # Output results as JSON (for --validate-bars)
-    output_format: str = "package"  # "singlefile" (legacy HTML) or "package" (PR-02, default)
+    output_format: str = "package"
     deploy_github: bool = False  # Deploy package to GitHub Pages
     github_repo: Optional[str] = None  # GitHub repo for deployment (e.g., "user/signal-reports")
 
@@ -154,9 +154,6 @@ Examples:
   # Report cache tuning (strict freshness)
   python -m src.runners.signal_runner --live --symbols AAPL \\
       --report-cache-max-age 10 --report-cache-cleanup-max-files 4000
-
-  # Legacy single-file HTML format
-  python -m src.runners.signal_runner --live --symbols AAPL --format singlefile
 
   # Deploy to GitHub Pages
   python -m src.runners.signal_runner --live --symbols AAPL SPY --deploy github
@@ -255,10 +252,9 @@ Examples:
     parser.add_argument(
         "--format",
         type=str,
-        choices=["singlefile", "package"],
         default="package",
         metavar="FORMAT",
-        help="Output format: singlefile (legacy HTML) or package (default, PR-02 lazy loading)",
+        help="Output format (default: package)",
     )
 
     # GitHub Pages deployment

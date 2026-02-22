@@ -145,7 +145,7 @@ class SummaryBuilder:
         """
         from src.domain.signals.schemas import DataQualityReport
 
-        from ..signal_report.confluence_analyzer import calculate_confluence
+        from .confluence_analyzer import calculate_confluence
 
         summary: Dict[str, Any] = {
             "version": PACKAGE_FORMAT_VERSION,
@@ -461,7 +461,7 @@ class SummaryBuilder:
             summary["data_stats"] = None
 
         # Phase 4.4: Add MTF confluence (alignment across 1h, 4h, 1d)
-        from ..signal_report.confluence_analyzer import calculate_mtf_confluence
+        from .confluence_analyzer import calculate_mtf_confluence
 
         tf_tuple = tuple(timeframes) if timeframes else ("1h", "4h", "1d")
         mtf_confluence = calculate_mtf_confluence(data, symbol, tf_tuple)
@@ -578,7 +578,7 @@ class SummaryBuilder:
         """
         from src.domain.signals.rules import ALL_RULES
 
-        from ..signal_report.signal_detection import (
+        from .signal_detection import (
             aggregate_rule_frequency,
             detect_signals_with_frequency,
         )

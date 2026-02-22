@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.infrastructure.reporting.signal_report.confluence_analyzer import (
+from src.infrastructure.reporting.package.confluence_analyzer import (
     _derive_adx_state,
     _derive_bollinger_state,
     _derive_kdj_state,

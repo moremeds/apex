@@ -31,14 +31,6 @@ class TestEntryPointImports:
         builder = PackageBuilder()
         assert builder is not None
 
-    def test_signal_report_generator_import(self) -> None:
-        from src.infrastructure.reporting.signal_report.generator import (
-            SignalReportGenerator,
-        )
-
-        gen = SignalReportGenerator()
-        assert gen is not None
-
     def test_strategy_comparison_builder_import(self) -> None:
         from src.infrastructure.reporting.strategy_comparison.builder import (
             StrategyComparisonBuilder,

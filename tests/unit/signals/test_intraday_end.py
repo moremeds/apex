@@ -367,8 +367,8 @@ class TestDualMacdTimestampFormatting:
 
     def test_daily_bars_show_date_only(self) -> None:
         """Daily timeframe should format as YYYY-MM-DD without time."""
-        from src.infrastructure.reporting.signal_report.dual_macd_section import (
-            compute_dual_macd_history,
+        from src.infrastructure.reporting.package.file_writers import (
+            _compute_dual_macd_history_for_key,
         )
 
         # Build a minimal DataFrame with enough bars for DualMACD warmup
@@ -380,17 +380,16 @@ class TestDualMacdTimestampFormatting:
         )
         df.index.name = "timestamp"
 
-        result = compute_dual_macd_history({("TEST", "1d"): df}, display_timezone="US/Eastern")
-        key = "TEST_1d"
-        if key in result and result[key]:
-            date_str = result[key][0]["date"]
+        result = _compute_dual_macd_history_for_key(df, "1d", "US/Eastern")
+        if result:
+            date_str = result[0]["date"]
             assert len(date_str) == 10, f"Expected YYYY-MM-DD, got '{date_str}'"
             assert ":" not in date_str
 
     def test_intraday_bars_use_display_timezone(self) -> None:
         """Intraday timeframe should convert timestamps to display timezone."""
-        from src.infrastructure.reporting.signal_report.dual_macd_section import (
-            compute_dual_macd_history,
+        from src.infrastructure.reporting.package.file_writers import (
+            _compute_dual_macd_history_for_key,
         )
 
         # Build 1h bars in UTC
@@ -403,10 +402,9 @@ class TestDualMacdTimestampFormatting:
         df.index.name = "timestamp"
 
         # Use Asia/Hong_Kong to verify it's not hardcoded to US/Eastern
-        result = compute_dual_macd_history({("TEST", "1h"): df}, display_timezone="Asia/Hong_Kong")
-        key = "TEST_1h"
-        if key in result and result[key]:
-            date_str = result[key][0]["date"]
+        result = _compute_dual_macd_history_for_key(df, "1h", "Asia/Hong_Kong")
+        if result:
+            date_str = result[0]["date"]
             assert ":" in date_str, f"Expected datetime format, got '{date_str}'"
 
 
