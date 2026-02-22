@@ -322,6 +322,8 @@ jobs:
           python -m src.runners.signal_runner --live \
             --universe ${{ env.UNIVERSE }} \
             --timeframes ${{ needs.setup-and-check.outputs.timeframes }} \
+            --preload-concurrency 5 \
+            --parallel-writes 8 \
             --format package \
             --html-output out/signals
         env:

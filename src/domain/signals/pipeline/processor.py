@@ -322,6 +322,7 @@ class SignalPipelineProcessor:
             preload_config={
                 "lookback_days": 365,
                 "slow_preload_warn_sec": 30,
+                "preload_concurrency": self.config.preload_concurrency,
             },
         )
 
@@ -573,9 +574,16 @@ class SignalPipelineProcessor:
 
         for symbol in self.config.symbols:
             for tf in self.config.timeframes:
-                start = end - timedelta(days=900)
+                max_days = historical_manager.get_max_history_days(tf)
+                start = end - timedelta(days=min(max_days, 900))
                 try:
-                    bars = await historical_manager.ensure_data(symbol, tf, start, end)
+                    # Cache-first: read from Parquet if coverage is complete
+                    bars = None
+                    if historical_manager.has_complete_coverage(symbol, tf, start, end):
+                        bars = historical_manager.get_bars(symbol, tf, start, end)
+                    if not bars:
+                        # Fallback: full ensure_data with gap detection + download
+                        bars = await historical_manager.ensure_data(symbol, tf, start, end)
                     if bars:
                         records = [
                             {
@@ -732,7 +740,11 @@ class SignalPipelineProcessor:
         if package_dir.suffix == ".html":
             package_dir = package_dir.with_suffix("")
 
-        builder = PackageBuilder(theme="dark", with_heatmap=self.config.with_heatmap)
+        builder = PackageBuilder(
+            theme="dark",
+            with_heatmap=self.config.with_heatmap,
+            parallel_writes=self.config.parallel_writes,
+        )
 
         # Check for existing score_history.json (pre-fetched from gh-pages in CI)
         existing_history = package_dir / "data" / "score_history.json"

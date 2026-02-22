@@ -31,6 +31,7 @@ def write_data_files(
     rules: List["SignalRule"],
     data_dir: Path,
     display_timezone: str = "US/Eastern",
+    max_workers: int = 1,
 ) -> List[str]:
     """
     Write individual JSON data files for each symbol/timeframe.
@@ -40,54 +41,115 @@ def write_data_files(
         indicators: List of computed indicators
         rules: List of signal rules
         data_dir: Directory to write data files
+        display_timezone: IANA timezone for display timestamps
+        max_workers: ThreadPool workers (1 = serial, >1 = parallel)
 
     Returns:
         List of data file keys (e.g., ["AAPL_1d", "SPY_1d"])
     """
+    if max_workers > 1:
+        # Pre-warm strategy params cache (file I/O on first call, not thread-safe)
+        from src.domain.strategy.param_loader import get_strategy_params
+
+        for name in ["trend_pulse", "regime_flex", "sector_pulse", "rsi_mean_reversion"]:
+            try:
+                get_strategy_params(name)
+            except Exception:
+                pass
+
+    if max_workers <= 1:
+        return _write_data_files_sequential(data, rules, data_dir, display_timezone)
+    return _write_data_files_parallel(data, rules, data_dir, display_timezone, max_workers)
+
+
+def _write_one_data_file(
+    symbol: str,
+    timeframe: str,
+    df: pd.DataFrame,
+    rules: List["SignalRule"],
+    data_dir: Path,
+    display_timezone: str,
+) -> str:
+    """Write a single symbol/timeframe JSON data file. Thread-safe."""
     from .signal_detection import detect_historical_signals
 
+    key = f"{symbol}_{timeframe}"
+
+    chart_data = df_to_chart_data(df)
+    signals = detect_historical_signals(df, rules, symbol, timeframe)
+    dual_macd_history = _compute_dual_macd_history_for_key(df, timeframe, display_timezone)
+    trend_pulse_history = _compute_trend_pulse_history_for_key(df, timeframe, display_timezone)
+    regime_flex_history = _compute_regime_flex_history(df, timeframe, display_timezone)
+    sector_pulse_history = _compute_sector_pulse_history(symbol, df, timeframe, display_timezone)
+
+    file_data = {
+        "symbol": symbol,
+        "timeframe": timeframe,
+        "generated_at": now_utc().isoformat(),
+        "bar_count": len(df),
+        "chart_data": chart_data,
+        "signals": signals,
+        "dual_macd_history": dual_macd_history,
+        "trend_pulse_history": trend_pulse_history,
+        "regime_flex_history": regime_flex_history,
+        "sector_pulse_history": sector_pulse_history,
+    }
+
+    file_path = data_dir / f"{key}.json"
+    file_path.write_text(
+        json.dumps(file_data, default=str),
+        encoding="utf-8",
+    )
+    return key
+
+
+def _write_data_files_sequential(
+    data: Dict[Tuple[str, str], pd.DataFrame],
+    rules: List["SignalRule"],
+    data_dir: Path,
+    display_timezone: str,
+) -> List[str]:
+    """Sequential write path (original behavior)."""
     files_written = []
-
     for (symbol, timeframe), df in data.items():
-        key = f"{symbol}_{timeframe}"
-
-        # Convert DataFrame to JSON-serializable format
-        chart_data = df_to_chart_data(df)
-
-        # Detect signals for this symbol/timeframe
-        signals = detect_historical_signals(df, rules, symbol, timeframe)
-
-        # Compute DualMACD history for verification table
-        dual_macd_history = _compute_dual_macd_history_for_key(df, timeframe, display_timezone)
-
-        # Compute TrendPulse history for verification table
-        trend_pulse_history = _compute_trend_pulse_history_for_key(df, timeframe, display_timezone)
-
-        # Compute strategy signal histories
-        regime_flex_history = _compute_regime_flex_history(df, timeframe, display_timezone)
-        sector_pulse_history = _compute_sector_pulse_history(
-            symbol, df, timeframe, display_timezone
-        )
-
-        file_data = {
-            "symbol": symbol,
-            "timeframe": timeframe,
-            "generated_at": now_utc().isoformat(),
-            "bar_count": len(df),
-            "chart_data": chart_data,
-            "signals": signals,
-            "dual_macd_history": dual_macd_history,
-            "trend_pulse_history": trend_pulse_history,
-            "regime_flex_history": regime_flex_history,
-            "sector_pulse_history": sector_pulse_history,
-        }
-
-        file_path = data_dir / f"{key}.json"
-        file_path.write_text(
-            json.dumps(file_data, indent=2, default=str),
-            encoding="utf-8",
-        )
+        key = _write_one_data_file(symbol, timeframe, df, rules, data_dir, display_timezone)
         files_written.append(key)
+    return files_written
+
+
+def _write_data_files_parallel(
+    data: Dict[Tuple[str, str], pd.DataFrame],
+    rules: List["SignalRule"],
+    data_dir: Path,
+    display_timezone: str,
+    max_workers: int,
+) -> List[str]:
+    """Parallel write path using ThreadPoolExecutor.
+
+    Raises RuntimeError if any file write fails (fail-fast for CI).
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    files_written: List[str] = []
+    errors: List[str] = []
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {
+            pool.submit(_write_one_data_file, sym, tf, df, rules, data_dir, display_timezone): (
+                sym,
+                tf,
+            )
+            for (sym, tf), df in data.items()
+        }
+        for future in as_completed(futures):
+            sym, tf = futures[future]
+            try:
+                files_written.append(future.result())
+            except Exception as e:
+                logger.error(f"Failed to write data file {sym}/{tf}: {e}")
+                errors.append(f"{sym}/{tf}: {e}")
+
+    if errors:
+        raise RuntimeError(f"Failed to write {len(errors)} data file(s): {'; '.join(errors)}")
 
     return files_written
 
@@ -266,7 +328,7 @@ def write_summary_file(
         Size of summary.json in KB
     """
     summary_path = output_dir / "data" / "summary.json"
-    summary_json = json.dumps(summary, indent=2, default=str)
+    summary_json = json.dumps(summary, default=str)
     summary_path.write_text(summary_json, encoding="utf-8")
     return len(summary_json.encode("utf-8")) / 1024
 
@@ -284,7 +346,7 @@ def write_manifest_file(
     """
     manifest_path = output_dir / "manifest.json"
     manifest_path.write_text(
-        json.dumps(manifest.to_dict(), indent=2),
+        json.dumps(manifest.to_dict()),
         encoding="utf-8",
     )
 
@@ -317,7 +379,7 @@ def write_snapshot_file(
     )
     snapshot_path = output_dir / "snapshots" / "payload_snapshot.json"
     snapshot_path.write_text(
-        json.dumps(snapshot, indent=2, default=str),
+        json.dumps(snapshot, default=str),
         encoding="utf-8",
     )
 
