@@ -1,0 +1,139 @@
+{
+  "version": "m2_v2.0",
+  "generated_at": "2026-02-22T04:49:49.395025+00:00",
+  "mode": "full",
+  "horizon_config": {
+    "horizon_calendar_days": 20,
+    "bars_per_day": {
+      "1d": 1.0
+    },
+    "horizon_bars_by_tf": {
+      "1d": 20
+    }
+  },
+  "labeler_thresholds_by_tf": {
+    "1d": {
+      "version": "v1.0",
+      "trending_forward_return_min": 0.1,
+      "trending_sharpe_min": 1.0,
+      "choppy_volatility_min": 0.25,
+      "choppy_drawdown_max": -0.1
+    },
+    "4h": {
+      "version": "v1.0",
+      "trending_forward_return_min": 0.06,
+      "trending_sharpe_min": 0.8,
+      "choppy_volatility_min": 0.3,
+      "choppy_drawdown_max": -0.08
+    },
+    "2h": {
+      "version": "v1.0",
+      "trending_forward_return_min": 0.04,
+      "trending_sharpe_min": 0.6,
+      "choppy_volatility_min": 0.35,
+      "choppy_drawdown_max": -0.06
+    },
+    "1h": {
+      "version": "v1.0",
+      "trending_forward_return_min": 0.03,
+      "trending_sharpe_min": 0.5,
+      "choppy_volatility_min": 0.4,
+      "choppy_drawdown_max": -0.05
+    }
+  },
+  "split_config": {
+    "outer_folds": 3,
+    "inner_folds": 2,
+    "purge_bars_by_tf": {
+      "1d": 20
+    },
+    "embargo_bars_by_tf": {
+      "1d": 10
+    }
+  },
+  "statistical_result": {
+    "n_trending_symbols": 8,
+    "n_choppy_symbols": 10,
+    "trending_r0_rates": [
+      0.0,
+      0.0,
+      0.09090909090909091,
+      1.0,
+      0.0,
+      0.42105263157894735,
+      0.0,
+      0.037037037037037035
+    ],
+    "choppy_r0_rates": [
+      0.0,
+      0.031746031746031744,
+      0.2328767123287671,
+      0.11403508771929824,
+      0.2430939226519337,
+      0.3,
+      0.23015873015873015,
+      0.24,
+      0.13983050847457626,
+      0.26342710997442453
+    ],
+    "t_statistic": 0.12007977138306816,
+    "p_value": 0.9059148748222312,
+    "effect_size_cohens_d": 0.05695883677242041,
+    "trending_mean": 0.1936248449406344,
+    "trending_ci_lower": 0.015993265993265993,
+    "trending_ci_upper": 0.4391109560517454,
+    "choppy_mean": 0.1795168103053762,
+    "choppy_ci_lower": 0.11096324099904574,
+    "choppy_ci_upper": 0.23942863249535845,
+    "n_bootstrap_samples": 1000,
+    "block_size_bars": 20
+  },
+  "gate_results": [
+    {
+      "gate_name": "cohens_d",
+      "passed": false,
+      "value": 0.05695883677242041,
+      "threshold": 0.8,
+      "message": "Cohen's d: 0.057"
+    },
+    {
+      "gate_name": "p_value",
+      "passed": false,
+      "value": 0.9059148748222312,
+      "threshold": 0.01,
+      "message": "p-value: 0.9059"
+    },
+    {
+      "gate_name": "trending_ci_lower",
+      "passed": false,
+      "value": 0.015993265993265993,
+      "threshold": 0.6,
+      "message": "Trending CI lower: 0.016"
+    },
+    {
+      "gate_name": "choppy_ci_upper",
+      "passed": true,
+      "value": 0.23942863249535845,
+      "threshold": 0.25,
+      "message": "Choppy CI upper: 0.239"
+    }
+  ],
+  "all_gates_passed": false,
+  "universe": {
+    "n_training_symbols": 10,
+    "n_holdout_symbols": 0,
+    "training_symbols": [
+      "SPY",
+      "QQQ",
+      "AAPL",
+      "MSFT",
+      "NVDA",
+      "AMD",
+      "GOOGL",
+      "AMZN",
+      "META",
+      "TSLA"
+    ],
+    "holdout_symbols": []
+  }
+}
