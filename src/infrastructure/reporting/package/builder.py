@@ -72,6 +72,7 @@ class PackageBuilder:
         enforce_budget: bool = False,
         with_heatmap: bool = True,  # Kept for API compatibility, heatmap always generated
         display_timezone: str = "US/Eastern",
+        parallel_writes: int = 1,
     ) -> None:
         """
         Initialize package builder.
@@ -81,11 +82,13 @@ class PackageBuilder:
             enforce_budget: If True, raise SizeBudgetExceeded for over-budget sections
             display_timezone: IANA timezone for display timestamps
             with_heatmap: Ignored - heatmap landing page is always generated
+            parallel_writes: ThreadPool workers for JSON data file writes (1 = serial)
         """
         self.theme = theme
         self._colors = get_theme_colors(theme)
         self._summary_builder = SummaryBuilder(enforce_budget=enforce_budget)
         self._display_timezone = display_timezone
+        self._parallel_writes = parallel_writes
 
     def build(
         self,
@@ -96,6 +99,7 @@ class PackageBuilder:
         regime_outputs: Optional[Dict[str, "RegimeOutput"]] = None,
         validation_url: Optional[str] = None,
         score_history_path: Optional[Path] = None,
+        regime_series: Optional[Dict[str, List[str]]] = None,
     ) -> PackageManifest:
         """
         Build the complete signal package.
@@ -161,8 +165,20 @@ class PackageBuilder:
 
         # Write per-symbol data files
         data_files = write_data_files(
-            data, indicators, rules, data_dir, display_timezone=self._display_timezone
+            data,
+            indicators,
+            rules,
+            data_dir,
+            display_timezone=self._display_timezone,
+            max_workers=self._parallel_writes,
+            regime_series=regime_series,
         )
+
+        # Validate file count matches input
+        expected = len(data)
+        actual = len(data_files)
+        if actual != expected:
+            raise RuntimeError(f"Data file count mismatch: expected {expected}, got {actual}")
 
         # Write indicators.json
         write_indicators_file(indicators, rules, data_dir)

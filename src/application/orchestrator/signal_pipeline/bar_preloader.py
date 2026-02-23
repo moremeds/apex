@@ -10,6 +10,7 @@ Extracted from SignalCoordinator for single responsibility.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from datetime import datetime, timedelta
@@ -88,6 +89,12 @@ class BarPreloader:
         Performs gap detection via DuckDB, downloads missing data from IB/Yahoo,
         stores to Parquet, and injects into IndicatorEngine for warmup.
 
+        Supports concurrent downloads via preload_concurrency config:
+        - concurrency=1 (default): Sequential processing (original behavior)
+        - concurrency>1: Two-phase concurrent processing:
+          Phase 1: 1d and 1h in parallel (no dependency)
+          Phase 2: 4h after 1h completes (resamples from cached 1h data)
+
         Args:
             symbols: List of symbols to preload (e.g., ["AAPL", "TSLA"])
 
@@ -109,7 +116,6 @@ class BarPreloader:
         slow_warn_sec = self._preload_config.get("slow_preload_warn_sec", 30)
         end_dt = now_utc()
 
-        results: Dict[str, int] = {}
         start_time = time.monotonic()
 
         # Build timeframe-specific lookback based on source limits
@@ -129,76 +135,12 @@ class BarPreloader:
             },
         )
 
-        failed_symbols: list[tuple[str, str, str]] = []  # (symbol, timeframe, error)
-
-        for timeframe in self._timeframes:
-            lookback_days = timeframe_lookbacks.get(timeframe, 365)
-            start_dt = end_dt - timedelta(days=lookback_days)
-
-            for symbol in symbols:
-                try:
-                    bars = await self._historical_data_manager.ensure_data(
-                        symbol=symbol,
-                        timeframe=timeframe,
-                        start=start_dt,
-                        end=end_dt,
-                    )
-
-                    if bars:
-                        bar_dicts = [
-                            {
-                                "timestamp": b.bar_start,
-                                "open": b.open,
-                                "high": b.high,
-                                "low": b.low,
-                                "close": b.close,
-                                "volume": b.volume or 0,
-                            }
-                            for b in bars
-                        ]
-                        count = self._indicator_engine.inject_historical_bars(
-                            symbol, timeframe, bar_dicts
-                        )
-                        results[symbol] = results.get(symbol, 0) + count
-
-                        indicators_computed = await self._indicator_engine.compute_on_history(
-                            symbol, timeframe
-                        )
-
-                        logger.debug(
-                            "Preloaded bars for symbol",
-                            extra={
-                                "symbol": symbol,
-                                "timeframe": timeframe,
-                                "bars_injected": count,
-                                "indicators_computed": indicators_computed,
-                                "date_range": f"{bars[0].bar_start} to {bars[-1].bar_start}",
-                            },
-                        )
-                    else:
-                        logger.warning(
-                            "No bars returned for symbol",
-                            extra={"symbol": symbol, "timeframe": timeframe},
-                        )
-                        failed_symbols.append((symbol, timeframe, "No bars returned"))
-
-                except Exception as e:
-                    logger.error(
-                        "Failed to preload bars for symbol (continuing)",
-                        extra={
-                            "symbol": symbol,
-                            "timeframe": timeframe,
-                            "error": str(e),
-                            "error_type": type(e).__name__,
-                        },
-                    )
-                    failed_symbols.append((symbol, timeframe, str(e)))
-
-        # Report all failed symbols at the end
-        if failed_symbols:
-            logger.error(
-                f"Preload failed for {len(failed_symbols)} symbol/timeframe combinations",
-                extra={"failed": [f"{s}/{tf}: {err}" for s, tf, err in failed_symbols]},
+        concurrency = self._preload_config.get("preload_concurrency", 1)
+        if concurrency <= 1:
+            results = await self._preload_sequential(symbols, timeframe_lookbacks, end_dt)
+        else:
+            results = await self._preload_concurrent(
+                symbols, timeframe_lookbacks, end_dt, concurrency
             )
 
         elapsed_sec = time.monotonic() - start_time
@@ -213,9 +155,178 @@ class BarPreloader:
                 "total_bars_injected": sum(results.values()),
                 "elapsed_sec": round(elapsed_sec, 2),
                 "slow_threshold_sec": slow_warn_sec,
+                "concurrency": concurrency,
                 "cache_refreshed_at": self._last_cache_refresh.isoformat(),
             },
         )
+
+        return results
+
+    async def _preload_one(
+        self,
+        symbol: str,
+        timeframe: str,
+        start_dt: datetime,
+        end_dt: datetime,
+    ) -> tuple[str, str, int, Optional[str]]:
+        """
+        Preload bars for a single (symbol, timeframe) pair.
+
+        Returns:
+            (symbol, timeframe, bars_injected, error_msg_or_None)
+        """
+        try:
+            bars = await self._historical_data_manager.ensure_data(
+                symbol=symbol,
+                timeframe=timeframe,
+                start=start_dt,
+                end=end_dt,
+            )
+
+            if bars:
+                bar_dicts = [
+                    {
+                        "timestamp": b.bar_start,
+                        "open": b.open,
+                        "high": b.high,
+                        "low": b.low,
+                        "close": b.close,
+                        "volume": b.volume or 0,
+                    }
+                    for b in bars
+                ]
+                count = self._indicator_engine.inject_historical_bars(symbol, timeframe, bar_dicts)
+                await self._indicator_engine.compute_on_history(symbol, timeframe)
+
+                logger.debug(
+                    "Preloaded bars for symbol",
+                    extra={
+                        "symbol": symbol,
+                        "timeframe": timeframe,
+                        "bars_injected": count,
+                        "date_range": f"{bars[0].bar_start} to {bars[-1].bar_start}",
+                    },
+                )
+                return (symbol, timeframe, count, None)
+            else:
+                logger.warning(
+                    "No bars returned for symbol",
+                    extra={"symbol": symbol, "timeframe": timeframe},
+                )
+                return (symbol, timeframe, 0, "No bars returned")
+
+        except Exception as e:
+            logger.error(
+                "Failed to preload bars for symbol (continuing)",
+                extra={
+                    "symbol": symbol,
+                    "timeframe": timeframe,
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                },
+            )
+            return (symbol, timeframe, 0, str(e))
+
+    async def _preload_sequential(
+        self,
+        symbols: List[str],
+        timeframe_lookbacks: Dict[str, int],
+        end_dt: datetime,
+    ) -> Dict[str, int]:
+        """Original sequential preload path."""
+        results: Dict[str, int] = {}
+        failed_symbols: list[tuple[str, str, str]] = []
+
+        for timeframe in self._timeframes:
+            lookback_days = timeframe_lookbacks.get(timeframe, 365)
+            start_dt = end_dt - timedelta(days=lookback_days)
+
+            for symbol in symbols:
+                sym, tf, count, err = await self._preload_one(symbol, timeframe, start_dt, end_dt)
+                if err:
+                    failed_symbols.append((sym, tf, err))
+                else:
+                    results[sym] = results.get(sym, 0) + count
+
+        if failed_symbols:
+            logger.error(
+                f"Preload failed for {len(failed_symbols)} symbol/timeframe combinations",
+                extra={"failed": [f"{s}/{tf}: {err}" for s, tf, err in failed_symbols]},
+            )
+
+        return results
+
+    async def _preload_concurrent(
+        self,
+        symbols: List[str],
+        timeframe_lookbacks: Dict[str, int],
+        end_dt: datetime,
+        concurrency: int,
+    ) -> Dict[str, int]:
+        """
+        Two-phase concurrent preload.
+
+        Phase 1: 1d and 1h concurrently (no dependency between them)
+        Phase 2: 4h after 1h completes (4h resamples from cached 1h data)
+        """
+        sem = asyncio.Semaphore(concurrency)
+        results: Dict[str, int] = {}
+        failed_symbols: list[tuple[str, str, str]] = []
+
+        async def _bounded_preload(
+            symbol: str, timeframe: str, start_dt: datetime, end_dt: datetime
+        ) -> tuple[str, str, int, Optional[str]]:
+            async with sem:
+                return await self._preload_one(symbol, timeframe, start_dt, end_dt)
+
+        def _collect_results(
+            phase_results: list[tuple[str, str, int, Optional[str]] | BaseException],
+        ) -> None:
+            for r in phase_results:
+                if isinstance(r, BaseException):
+                    logger.error(f"Preload task raised exception: {r}")
+                    continue
+                sym, tf, count, err = r
+                if err:
+                    failed_symbols.append((sym, tf, err))
+                else:
+                    results[sym] = results.get(sym, 0) + count
+
+        # Phase 1: 1d and 1h (no dependency between them)
+        non_4h_tfs = [tf for tf in self._timeframes if tf != "4h"]
+        if non_4h_tfs:
+            phase1_tasks = []
+            for tf in non_4h_tfs:
+                lookback = timeframe_lookbacks.get(tf, 365)
+                start_dt = end_dt - timedelta(days=lookback)
+                for symbol in symbols:
+                    phase1_tasks.append(_bounded_preload(symbol, tf, start_dt, end_dt))
+
+            logger.info(
+                f"Phase 1: {len(phase1_tasks)} tasks across {non_4h_tfs} "
+                f"(concurrency={concurrency})"
+            )
+            phase1_results = await asyncio.gather(*phase1_tasks, return_exceptions=True)
+            _collect_results(phase1_results)
+
+        # Phase 2: 4h after 1h (resamples from cached 1h data)
+        if "4h" in self._timeframes:
+            lookback = timeframe_lookbacks.get("4h", 365)
+            start_dt = end_dt - timedelta(days=lookback)
+            phase2_tasks = [_bounded_preload(symbol, "4h", start_dt, end_dt) for symbol in symbols]
+
+            logger.info(
+                f"Phase 2: {len(phase2_tasks)} tasks for 4h "
+                f"(after 1h complete, concurrency={concurrency})"
+            )
+            phase2_results = await asyncio.gather(*phase2_tasks, return_exceptions=True)
+            _collect_results(phase2_results)
+
+        if failed_symbols:
+            logger.error(
+                f"Preload failed for {len(failed_symbols)} symbol/timeframe combinations",
+                extra={"failed": [f"{s}/{tf}: {err}" for s, tf, err in failed_symbols]},
+            )
 
         return results
 

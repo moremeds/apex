@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import threading
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union, overload
 
 import pandas as pd
 
@@ -76,6 +76,31 @@ class RegimeService:
         self._weekly_veto_states: Dict[str, Dict[str, Any]] = {}
         self._veto_lock = threading.Lock()
 
+    @overload
+    def calculate_regime(
+        self,
+        symbol: str,
+        data: pd.DataFrame,
+        params: Optional[Dict[str, Any]] = ...,
+        is_market_level: bool = ...,
+        iv_data: Optional[pd.Series] = ...,
+        timeframe: str = ...,
+        return_series: Literal[False] = ...,
+    ) -> RegimeOutput: ...
+
+    @overload
+    def calculate_regime(
+        self,
+        symbol: str,
+        data: pd.DataFrame,
+        params: Optional[Dict[str, Any]] = ...,
+        is_market_level: bool = ...,
+        iv_data: Optional[pd.Series] = ...,
+        timeframe: str = ...,
+        *,
+        return_series: Literal[True],
+    ) -> Tuple[RegimeOutput, Optional[List[str]]]: ...
+
     def calculate_regime(
         self,
         symbol: str,
@@ -84,7 +109,8 @@ class RegimeService:
         is_market_level: bool = False,
         iv_data: Optional[pd.Series] = None,
         timeframe: str = "1d",
-    ) -> RegimeOutput:
+        return_series: bool = False,
+    ) -> Union[RegimeOutput, Tuple[RegimeOutput, Optional[List[str]]]]:
         """
         Calculate regime for a single symbol.
 
@@ -95,9 +121,10 @@ class RegimeService:
             is_market_level: Whether this is a market benchmark
             iv_data: Optional VIX/VXN data for IV state (market level only)
             timeframe: Bar interval (e.g., "1d", "1h", "5m")
+            return_series: If True, return (RegimeOutput, regime_series) tuple
 
         Returns:
-            RegimeOutput with classification and details
+            RegimeOutput, or (RegimeOutput, Optional[List[str]]) when return_series=True
         """
         # Use minimum_bars threshold to allow newer tickers (6+ months)
         minimum_bars = self._regime_detector.minimum_bars
@@ -105,12 +132,13 @@ class RegimeService:
             logger.warning(
                 f"Insufficient data for {symbol}: {len(data)} bars < {minimum_bars} minimum required"
             )
-            return RegimeOutput(
+            output = RegimeOutput(
                 symbol=symbol,
                 final_regime=MarketRegime.R1_CHOPPY_EXTENDED,
                 regime_name="Choppy/Extended",
                 confidence=0,
             )
+            return (output, None) if return_series else output
 
         # Calculate regime with error handling
         params = params or {}
@@ -118,12 +146,13 @@ class RegimeService:
             result_df = self._regime_detector.calculate(data, params)
         except Exception as e:
             logger.error(f"Regime calculation failed for {symbol}: {e}", exc_info=True)
-            return RegimeOutput(
+            output = RegimeOutput(
                 symbol=symbol,
                 final_regime=MarketRegime.R1_CHOPPY_EXTENDED,
                 regime_name="Choppy/Extended",
                 confidence=0,
             )
+            return (output, None) if return_series else output
 
         # Get state for last bar
         current = result_df.iloc[-1]
@@ -133,12 +162,13 @@ class RegimeService:
             state = self._regime_detector.get_state(current, previous, params)
         except Exception as e:
             logger.error(f"Get state failed for {symbol}: {e}", exc_info=True)
-            return RegimeOutput(
+            output = RegimeOutput(
                 symbol=symbol,
                 final_regime=MarketRegime.R1_CHOPPY_EXTENDED,
                 regime_name="Choppy/Extended",
                 confidence=0,
             )
+            return (output, None) if return_series else output
 
         # Handle IV state for market level
         if is_market_level and iv_data is not None:
@@ -158,6 +188,13 @@ class RegimeService:
             self._regime_cache[symbol] = output
             self._cache_timestamp = datetime.now()
 
+        if return_series:
+            series: Optional[List[str]] = None
+            if "regime" in result_df.columns:
+                regime_vals = [str(v) for v in result_df["regime"].values]
+                if len(regime_vals) == len(data):
+                    series = regime_vals
+            return output, series
         return output
 
     def get_hierarchical_regime(

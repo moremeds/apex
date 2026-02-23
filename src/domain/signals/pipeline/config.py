@@ -116,8 +116,12 @@ class SignalPipelineConfig:
     # Report-path cache (strict-freshness, report generation only)
     report_cache_enabled: bool = True
     report_cache_dir: Optional[str] = "data/cache/report_frames"
-    report_cache_max_age_minutes: int = 10
+    report_cache_max_age_minutes: int = 60
     report_cache_cleanup_max_files: int = 4000
+
+    # Performance tuning (CI optimization)
+    preload_concurrency: int = 1  # Concurrent symbol downloads during preload (1 = serial)
+    parallel_writes: int = 1  # ThreadPool workers for JSON file writes (1 = serial)
 
     # Model training options
     train_models: bool = False  # Train models before signal generation
@@ -296,9 +300,9 @@ Examples:
     parser.add_argument(
         "--report-cache-max-age",
         type=int,
-        default=10,
+        default=60,
         metavar="MINUTES",
-        help="Maximum age for report cache entries in minutes (default: 10)",
+        help="Maximum age for report cache entries in minutes (default: 60)",
     )
     parser.add_argument(
         "--report-cache-cleanup-max-files",
@@ -326,6 +330,27 @@ Examples:
         "--verbose",
         action="store_true",
         help="Verbose output (show individual signals)",
+    )
+
+    # =========================================================================
+    # Performance Tuning (CI optimization)
+    # =========================================================================
+    perf_group = parser.add_argument_group("Performance Tuning")
+    perf_group.add_argument(
+        "--preload-concurrency",
+        type=int,
+        default=1,
+        metavar="N",
+        help="Concurrent symbol downloads during bar preload (default: 1 = serial). "
+        "Uses asyncio.Semaphore for rate limiting.",
+    )
+    perf_group.add_argument(
+        "--parallel-writes",
+        type=int,
+        default=1,
+        metavar="N",
+        help="ThreadPool workers for JSON data file writes (default: 1 = serial). "
+        "Use 4-8 for CI speedup.",
     )
 
     # =========================================================================
@@ -461,6 +486,9 @@ def parse_config(args: argparse.Namespace) -> SignalPipelineConfig:
         report_cache_dir=args.report_cache_dir,
         report_cache_max_age_minutes=args.report_cache_max_age,
         report_cache_cleanup_max_files=args.report_cache_cleanup_max_files,
+        # Performance tuning
+        preload_concurrency=args.preload_concurrency,
+        parallel_writes=args.parallel_writes,
         # Training options
         train_models=args.train_models,
         retrain_models=args.retrain_models,
