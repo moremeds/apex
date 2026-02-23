@@ -167,19 +167,56 @@ class FMPIndexConstituentsAdapter:
         logger.info(f"NQ100 proxy: top {len(symbols)} NASDAQ by market cap")
         return symbols
 
+    def fetch_all_float_shares(self) -> dict[str, float]:
+        """Fetch float shares for all symbols via bulk endpoint.
+
+        Returns {symbol: floatShares} with guarded parsing.
+        Paginates /stable/shares-float-all (limit=5000 per page).
+        """
+        result: dict[str, float] = {}
+        page = 0
+        limit = 5000
+
+        while True:
+            data = self._fmp_get(
+                f"{_FMP_BASE}/stable/shares-float-all",
+                params={"limit": limit, "page": page},
+            )
+            if not isinstance(data, list) or len(data) == 0:
+                break
+
+            for entry in data:
+                sym = entry.get("symbol")
+                if not sym or not isinstance(sym, str):
+                    continue
+                raw_float = entry.get("floatShares")
+                if raw_float is None or not isinstance(raw_float, (int, float)):
+                    continue
+                float_val = float(raw_float)
+                if float_val > 0:
+                    result[sym] = float_val
+
+            logger.info(f"Float shares page {page}: {len(data)} entries, {len(result)} valid total")
+            if len(data) < limit:
+                break
+            page += 1
+
+        logger.info(f"Float shares: {len(result)} symbols with valid float data")
+        return result
+
     def fetch_screener_with_metadata(self, cap_min: float = 100_000_000) -> list[dict[str, Any]]:
         """Fetch US stocks with full metadata via company-screener.
 
         Unlike fetch_us_stocks() which returns only symbols, this preserves
         the full company profile: symbol, name, sector, industry, marketCap,
-        exchange.
+        exchange, price, volume.
 
         Args:
             cap_min: Minimum market cap in USD (default $100M).
 
         Returns:
             List of dicts with keys: symbol, name, sector, industry,
-            marketCap, exchange.
+            marketCap, exchange, price, volume.
         """
         data = self._fmp_get(
             f"{_FMP_BASE}/stable/company-screener",
@@ -206,6 +243,8 @@ class FMPIndexConstituentsAdapter:
                     "industry": item.get("industry", ""),
                     "marketCap": item.get("marketCap", 0),
                     "exchange": item.get("exchange", ""),
+                    "price": item.get("price", 0),
+                    "volume": item.get("volume", 0),
                 }
             )
         result.sort(

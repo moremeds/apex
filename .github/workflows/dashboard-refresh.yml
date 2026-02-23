@@ -1,7 +1,8 @@
-name: "Dashboard: Manual Refresh"
+name: "Dashboard: Monitor Refresh"
 
-# Manual trigger that regenerates signals (test subset of ~10 symbols)
-# and rebuilds the dashboard. Deploys to preview branch, not production.
+# Manual trigger that rebuilds the monitor page from R2 data
+# (universe.json, data_quality.json) and deploys to production.
+# Does NOT regenerate signals — use hourly-signals for that.
 
 on:
   workflow_dispatch:
@@ -12,14 +13,13 @@ concurrency:
 
 env:
   PYTHON_VERSION: '3.13'
-  UNIVERSE: config/universe.yaml
   CACHE_VERSION: v1
 
 jobs:
-  refresh-dashboard:
-    name: Build & Deploy Dashboard
+  refresh-monitor:
+    name: Refresh Monitor Page
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
 
@@ -73,27 +73,40 @@ jobs:
         run: |
           .venv/bin/python --version 2>/dev/null || uv venv --clear
           source .venv/bin/activate
-          uv pip install -e ".[dev,observability]"
+          uv pip install -e ".[dev,observability,cloudflare]"
 
-      - name: Cache historical data
-        uses: actions/cache@v5
-        with:
-          path: data/historical
-          key: ${{ env.CACHE_VERSION }}-historical-${{ runner.os }}
-          restore-keys: |
-            ${{ env.CACHE_VERSION }}-historical-${{ runner.os }}-
-
-      - name: Generate signal report (test mode)
+      - name: Download R2 monitor data
         run: |
           source .venv/bin/activate
-          python -m src.runners.signal_runner --live \
-            --universe ${{ env.UNIVERSE }} \
-            --timeframes 1d 4h 1h \
-            --format package \
-            --html-output out/signals \
-            --symbols SPY QQQ AAPL NVDA MSFT AMZN GOOGL META TSLA JPM
+          python -c "
+          from src.infrastructure.adapters.r2.client import R2Client
+          import json, pathlib
+          r2 = R2Client()
+          out = pathlib.Path('out/signals/data')
+          out.mkdir(parents=True, exist_ok=True)
+          for name in ['data_quality.json', 'universe.json']:
+              data = r2.get_json(f'meta/{name}')
+              if data:
+                  (out / name).write_text(json.dumps(data))
+                  print(f'Downloaded {name} ({len(json.dumps(data))} bytes)')
+              else:
+                  print(f'ERROR: {name} not found in R2')
+                  raise SystemExit(1)
+          "
         env:
-          LOG_LEVEL: WARNING
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET: apex-data
+
+      - name: Fetch existing signal data from gh-pages
+        continue-on-error: true
+        run: |
+          mkdir -p out/signals/data
+          git fetch origin gh-pages --depth=1 2>/dev/null || true
+          for f in summary.json score_history.json; do
+            git show "origin/gh-pages:data/$f" > "out/signals/data/$f" 2>/dev/null || true
+          done
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -107,7 +120,7 @@ jobs:
 
       - name: Smoke check dashboard artifacts
         run: |
-          for f in out/site/index.html out/site/assets/app.js out/site/data/summary.json; do
+          for f in out/site/index.html out/site/assets/app.js; do
             if [ ! -s "$f" ]; then
               echo "ERROR: Missing or empty required file: $f"
               exit 1
@@ -115,11 +128,8 @@ jobs:
           done
           echo "Smoke check passed"
 
-      # Deploy to preview branch (not production) — this workflow uses a
-      # 10-symbol test subset, not the full universe. It also does not
-      # prefetch score_history.json (contrast with hourly-signals which does).
-      - name: Deploy to Cloudflare Pages (preview)
-        run: npx wrangler@3 pages deploy out/site/ --project-name apex-dashboard --branch dashboard-preview
+      - name: Deploy to Cloudflare Pages
+        run: npx wrangler@3 pages deploy out/site/ --project-name apex-dashboard
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

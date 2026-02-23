@@ -35,13 +35,14 @@ function coverageFormatter(cell: any): string {
   return `<span class="monitor-cov ${cls}">${v.toFixed(1)}%</span>`;
 }
 
-function tierBadge(val: string): string {
-  const cls = val === 'sp500' ? 'sp500' : val === 'nq100' ? 'nq100' : 'screener';
-  return `<span class="tier-badge ${cls}">${val}</span>`;
+function tierBadge(tier: string, tierGroup: string): string {
+  const label = tier.replace(/_/g, ' ');
+  return `<span class="tier-badge ${tierGroup || 'screened'}">${label}</span>`;
 }
 
 function tierFormatter(cell: any): string {
-  return tierBadge(cell.getValue());
+  const row = cell.getRow().getData();
+  return tierBadge(cell.getValue(), row.tier_group || '');
 }
 
 function symbolLinkFormatter(cell: any): string {
@@ -92,6 +93,8 @@ function renderControls(entries: any[]): string {
   // Collect unique sectors and tiers
   const sectors = [...new Set(entries.map((e: any) => e.sector).filter(Boolean))].sort();
 
+  const tierGroups = [...new Set(entries.map((e: any) => e.tier_group).filter(Boolean))].sort();
+
   return `<div class="monitor-controls">
     <input type="text" id="monitor-search" class="dash-input" placeholder="Search symbol...">
     <select id="monitor-tf-filter" class="dash-select">
@@ -103,9 +106,7 @@ function renderControls(entries: any[]): string {
     </select>
     <select id="monitor-tier-filter" class="dash-select">
       <option value="">All Tiers</option>
-      <option value="sp500">SP500</option>
-      <option value="nq100">NQ100</option>
-      <option value="screener">Screener</option>
+      ${tierGroups.map(tg => `<option value="${tg}">${tg}</option>`).join('')}
     </select>
     <select id="monitor-status-filter" class="dash-select">
       <option value="">All Status</option>
@@ -137,7 +138,9 @@ function enrichEntries(entries: any[]): any[] {
     return {
       ...e,
       tier: u?.tier || '',
+      tier_group: u?.tier_group || '',
       sector: u?.sector || '',
+      sectors: u?.sectors || [],
       name: u?.name || '',
       industry: u?.industry || '',
       marketCap: u?.marketCap || 0,
@@ -177,7 +180,7 @@ function renderOverview(container: HTMLElement, entries: any[]): void {
     const filters: any[] = [];
     if (search?.value) filters.push({ field: 'symbol', type: 'like', value: search.value.toUpperCase() });
     if (tfFilter?.value) filters.push({ field: 'timeframe', type: '=', value: tfFilter.value });
-    if (tierFilter?.value) filters.push({ field: 'tier', type: '=', value: tierFilter.value });
+    if (tierFilter?.value) filters.push({ field: 'tier_group', type: '=', value: tierFilter.value });
     if (statusFilter?.value) filters.push({ field: 'status', type: '=', value: statusFilter.value });
     if (sectorFilter?.value) filters.push({ field: 'sector', type: '=', value: sectorFilter.value });
     monitorTable?.setFilter(filters);
@@ -213,7 +216,9 @@ async function renderDrillDown(container: HTMLElement, symbol: string, tf: strin
   const availTFs = [...new Set(symEntries.map((e: any) => e.timeframe))];
 
   // Header
-  const tierStr = uTicker?.tiers?.join('+') || uTicker?.tier || '';
+  const sectorsStr = (uTicker?.sectors || []).join(', ') || uTicker?.sector || '';
+  const tierGroupStr = uTicker?.tier_group || '';
+  const tierStr = tierGroupStr ? `${tierGroupStr}${sectorsStr ? ' | ' + sectorsStr : ''}` : sectorsStr;
   const capVal = Number(uTicker?.marketCap) || 0;
   const capStr = capVal >= 1e12 ? `$${(capVal / 1e12).toFixed(2)}T`
                : capVal >= 1e9  ? `$${(capVal / 1e9).toFixed(1)}B`
@@ -300,11 +305,23 @@ async function renderDrillDown(container: HTMLElement, symbol: string, tf: strin
 
     // Gap Analysis
     if (entry.gaps > 0) {
+      const gaps: any[] = entry.gap_details || [];
+      const totalGaps = entry.gaps || gaps.length;
+      let gapHtml = '';
+      if (gaps.length > 0) {
+        gapHtml = `<table class="detail-table">
+          <tr><th>Start</th><th>End</th></tr>
+          ${gaps.map((g: any) => `<tr><td>${g.start || '\u2014'}</td><td>${g.end || '\u2014'}</td></tr>`).join('')}
+        </table>`;
+        if (gaps.length < totalGaps) {
+          gapHtml += `<p class="text-muted">${gaps.length} of ${totalGaps} gaps shown</p>`;
+        }
+      } else {
+        gapHtml = '<p>Gap details not available in this report.</p>';
+      }
       html += `<details class="collapsible-section">
-        <summary>Gap Analysis (${entry.gaps} gaps)</summary>
-        <div class="section-content">
-          <p>Gap details available in full data_quality report.</p>
-        </div>
+        <summary>Gap Analysis (${totalGaps} gaps)</summary>
+        <div class="section-content">${gapHtml}</div>
       </details>`;
     }
 

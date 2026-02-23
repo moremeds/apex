@@ -107,6 +107,7 @@ class R2Client:
     def _create_client(self) -> Any:
         """Create boto3 S3 client configured for R2."""
         import boto3
+        from botocore.config import Config
 
         return boto3.client(
             "s3",
@@ -114,6 +115,7 @@ class R2Client:
             aws_access_key_id=self._access_key_id,
             aws_secret_access_key=self._secret_access_key,
             region_name="auto",
+            config=Config(max_pool_connections=50),
         )
 
     # ── Parquet operations ──────────────────────────────────────

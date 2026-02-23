@@ -152,10 +152,14 @@ def fetch_and_upload_timeframe(
 ) -> dict[str, int]:
     """Fetch bars for symbols×timeframe and upload to R2.
 
-    For 4h: fetches 1h first, then resamples.
+    Derived timeframes (never fetched directly):
+    - 1w: resampled from 1d bars
+    - 4h: resampled from 1h bars
 
     Returns dict of symbol → bar_count for quality validation (not full DataFrames).
     """
+    if timeframe == "1w":
+        return _handle_1w(r2, symbols, is_delta)
     if timeframe == "4h":
         return _handle_4h(r2, symbols, days, is_delta)
 
@@ -213,6 +217,68 @@ def fetch_and_upload_timeframe(
             time.sleep(1)
 
     return bar_counts
+
+
+def _handle_1w(
+    r2: R2Client,
+    symbols: list[str],
+    is_delta: bool,
+) -> dict[str, int]:
+    """Handle 1w timeframe by resampling from 1d bars.
+
+    Always derives 1w from 1d — never fetches weekly directly.
+    Returns dict of symbol -> bar_count.
+    """
+    logger.info(f"[1w] Deriving from 1d bars for {len(symbols)} symbols")
+
+    bar_counts: dict[str, int] = {}
+
+    for batch_start in range(0, len(symbols), BATCH_SIZE):
+        batch = symbols[batch_start : batch_start + BATCH_SIZE]
+        upload_items: list[tuple[str, pd.DataFrame]] = []
+
+        for sym in batch:
+            df_1d = r2.get_parquet(f"parquet/historical/1d/{sym}.parquet")
+            if df_1d is None or df_1d.empty:
+                continue
+
+            df_1d = normalize_timestamps(df_1d, "1d")
+            df_1w = _resample_df_to_1w(df_1d)
+
+            if df_1w.empty:
+                continue
+
+            if is_delta:
+                existing = r2.get_parquet(f"parquet/historical/1w/{sym}.parquet")
+                if existing is not None and not existing.empty:
+                    existing = normalize_timestamps(existing, "1w")
+                    df_1w = pd.concat([existing, df_1w])
+
+            df_1w = dedupe_and_sort(df_1w)
+            bar_counts[sym] = len(df_1w)
+            upload_items.append((f"parquet/historical/1w/{sym}.parquet", df_1w))
+
+        if upload_items:
+            failed = r2.put_parquet_batch(upload_items, workers=20)
+            logger.info(f"[1w] Uploaded {len(upload_items) - len(failed)} Parquet files")
+
+    return bar_counts
+
+
+def _resample_df_to_1w(df_1d: pd.DataFrame) -> pd.DataFrame:
+    """Resample 1d DataFrame to 1w (weekly) bars."""
+    if df_1d.empty:
+        return df_1d
+
+    ohlcv_cols = {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
+    available_agg = {k: v for k, v in ohlcv_cols.items() if k in df_1d.columns}
+
+    if not available_agg:
+        return pd.DataFrame()
+
+    # Resample to weekly, anchored on Monday (W-FRI = week ending Friday)
+    df_1w = df_1d.resample("W-FRI").agg(available_agg).dropna(subset=["close"])
+    return df_1w
 
 
 def _handle_4h(
@@ -512,8 +578,8 @@ def main() -> None:
         days = 7 + DELTA_OVERLAP_DAYS  # Delta: last week + overlap
         logger.info(f"Delta mode: {days} days with {DELTA_OVERLAP_DAYS}d overlap")
 
-    # Process each timeframe (4h must be after 1h)
-    timeframe_order = [tf for tf in ["1d", "1w", "1h", "4h"] if tf in args.timeframes]
+    # Process each timeframe (1w derived from 1d, 4h derived from 1h)
+    timeframe_order = [tf for tf in ["1d", "1h", "1w", "4h"] if tf in args.timeframes]
     all_bar_counts: dict[tuple[str, str], int] = {}
 
     for tf in timeframe_order:
