@@ -8,6 +8,7 @@ Extracted from signal_runner.py for better modularity.
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import os
 import shutil
 import signal
@@ -684,17 +685,35 @@ class SignalPipelineProcessor:
 
         indicator_signature = report_cache.indicator_signature(indicators)
         indicator_compute_started = time.monotonic()
+
+        # Phase 1: Check cache, collect uncached pairs
+        uncached: Dict[Tuple[str, str], pd.DataFrame] = {}
         for data_key in list(data.keys()):
             symbol, timeframe = data_key
             base_df = data[data_key]
             cached_df = report_cache.load(symbol, timeframe, base_df, indicator_signature)
             if cached_df is not None:
                 data[data_key] = cached_df
-                continue
+            else:
+                uncached[data_key] = base_df
 
-            enriched_df = self._compute_indicators_on_df(base_df, indicators)
-            data[data_key] = enriched_df
-            report_cache.save(symbol, timeframe, base_df, indicator_signature, enriched_df)
+        # Phase 2: Parallel indicator compute (TA-Lib C extensions release GIL)
+        if uncached:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+                futures = {
+                    pool.submit(self._compute_indicators_on_df, base_df, indicators): (
+                        dk,
+                        base_df,
+                    )
+                    for dk, base_df in uncached.items()
+                }
+                for future in concurrent.futures.as_completed(futures):
+                    dk, base_df = futures[future]
+                    enriched_df = future.result()
+                    data[dk] = enriched_df
+                    sym, tf = dk
+                    report_cache.save(sym, tf, base_df, indicator_signature, enriched_df)
+
         indicator_compute_seconds = time.monotonic() - indicator_compute_started
 
         # Generate report based on format
@@ -706,45 +725,60 @@ class SignalPipelineProcessor:
         # Package format with lazy loading
         from src.application.services.regime_service import RegimeService
 
-        # Calculate regime for each (symbol, timeframe) pair
-        regime_outputs = {}
+        # Calculate regime for each (symbol, timeframe) pair — parallel (Fix B+C)
+        regime_outputs: Dict[str, Any] = {}
+        regime_series_dict: Dict[str, List[str]] = {}
         regime_service = RegimeService()
         market_benchmarks = {"QQQ", "SPY", "IWM", "DIA"}
         warmup_ideal = regime_service._regime_detector.warmup_periods
         minimum_bars = regime_service._regime_detector.minimum_bars
 
-        for (symbol, timeframe), df_for_regime in data.items():
-            bar_count = len(df_for_regime)
+        def _compute_regime_pair(
+            sym: str, tf: str, df_r: pd.DataFrame
+        ) -> Tuple[str, str, Any, Optional[List[str]]]:
+            result = regime_service.calculate_regime(
+                symbol=sym,
+                data=df_r,
+                params=None,
+                is_market_level=(sym in market_benchmarks),
+                timeframe=tf,
+                return_series=True,
+            )
+            r_output, r_series = result  # type: ignore[misc]
+            return sym, tf, r_output, r_series
 
-            if bar_count >= minimum_bars:
-                # Calculate regime - note if using reduced data
-                is_reduced_data = bar_count < warmup_ideal
+        eligible_pairs = [
+            (sym, tf, df_r) for (sym, tf), df_r in data.items() if len(df_r) >= minimum_bars
+        ]
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+            regime_futures = {
+                pool.submit(_compute_regime_pair, sym, tf, df_r): (sym, tf)
+                for sym, tf, df_r in eligible_pairs
+            }
+            for future in concurrent.futures.as_completed(regime_futures):
+                r_sym, r_tf = regime_futures[future]
                 try:
-                    regime_output = regime_service.calculate_regime(
-                        symbol=symbol,
-                        data=df_for_regime,
-                        params=None,
-                        is_market_level=(symbol in market_benchmarks),
-                        timeframe=timeframe,
-                    )
-                    # Store with timeframe-specific key
-                    key = f"{symbol}_{timeframe}"
+                    _, _, regime_output, series = future.result()
+                    key = f"{r_sym}_{r_tf}"
                     regime_outputs[key] = regime_output
-                    # Also store under symbol-only key for 1d (backward compatibility)
-                    if timeframe == "1d":
-                        regime_outputs[symbol] = regime_output
-                    quality_note = " (reduced data)" if is_reduced_data else ""
+                    if r_tf == "1d":
+                        regime_outputs[r_sym] = regime_output
+                    if series:
+                        regime_series_dict[key] = series
+                    is_reduced = len(data[(r_sym, r_tf)]) < warmup_ideal
+                    quality_note = " (reduced data)" if is_reduced else ""
                     logger.info(
                         f"Calculated regime for {key}: {regime_output.final_regime.value} "
-                        f"({regime_output.regime_name}, confidence={regime_output.confidence}){quality_note}"
+                        f"({regime_output.regime_name}, confidence={regime_output.confidence})"
+                        f"{quality_note}"
                     )
                 except Exception as e:
-                    logger.warning(f"Failed to calculate regime for {symbol}/{timeframe}: {e}")
-            else:
-                logger.debug(
-                    f"Insufficient data for {symbol}/{timeframe} regime: {bar_count} bars "
-                    f"(need {minimum_bars} minimum)"
-                )
+                    logger.warning(f"Failed to calculate regime for {r_sym}/{r_tf}: {e}")
+
+        skipped_regime = len(data) - len(eligible_pairs)
+        if skipped_regime:
+            logger.debug(f"Skipped {skipped_regime} pairs with insufficient data for regime")
 
         # Count unique symbol/timeframe pairs (excluding backward compat keys)
         regime_count = len([k for k in regime_outputs.keys() if "_" in k])
@@ -770,6 +804,7 @@ class SignalPipelineProcessor:
             regime_outputs=regime_outputs,
             validation_url="validation.html",
             score_history_path=existing_history if existing_history.exists() else None,
+            regime_series=regime_series_dict,
         )
         print(f"  Package saved: {package_dir} (v{manifest.version})")
         print(f"  To view: cd {package_dir} && python -m http.server 8080")

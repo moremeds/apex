@@ -32,6 +32,7 @@ def write_data_files(
     data_dir: Path,
     display_timezone: str = "US/Eastern",
     max_workers: int = 1,
+    regime_series: Optional[Dict[str, List[str]]] = None,
 ) -> List[str]:
     """
     Write individual JSON data files for each symbol/timeframe.
@@ -47,6 +48,7 @@ def write_data_files(
         data_dir: Directory to write data files
         display_timezone: IANA timezone for display timestamps
         max_workers: ThreadPool workers (1 = serial, >1 = parallel)
+        regime_series: Pre-computed regime series per key (skips recompute)
 
     Returns:
         List of data file keys (e.g., ["AAPL_1d", "SPY_1d"])
@@ -61,7 +63,7 @@ def write_data_files(
             pass
 
     # Phase 1: Pre-compute all history data once (CPU-bound, sequential)
-    history_cache = _precompute_all_history(data, display_timezone)
+    history_cache = _precompute_all_history(data, display_timezone, regime_series)
 
     # Phase 2: Write files (I/O-bound, optionally parallel)
     if max_workers <= 1:
@@ -78,11 +80,16 @@ HistoryCache = Dict[str, Dict[str, List[Dict[str, Any]]]]
 def _precompute_all_history(
     data: Dict[Tuple[str, str], pd.DataFrame],
     display_timezone: str,
+    regime_series: Optional[Dict[str, List[str]]] = None,
 ) -> HistoryCache:
     """Pre-compute indicator history for all symbol/timeframe pairs.
 
     Creates indicator instances once and reuses them across all DataFrames,
     avoiding ~435 redundant constructor calls per indicator type.
+
+    Args:
+        regime_series: Pre-computed regime series from processor (Fix B).
+            When available, skips the expensive _compute_regime_series() call.
 
     Returns:
         Dict mapping "SYMBOL_TF" keys to their pre-computed history dicts.
@@ -96,8 +103,11 @@ def _precompute_all_history(
     for (symbol, timeframe), df in data.items():
         key = f"{symbol}_{timeframe}"
 
-        # Compute regime series ONCE, share between regime_flex and sector_pulse
-        regime_values = _compute_regime_series(regime_detector, df)
+        # Use pre-computed regime if available (Fix B), skip expensive recompute
+        if regime_series and key in regime_series:
+            regime_values: Optional[List[str]] = regime_series[key]
+        else:
+            regime_values = _compute_regime_series(regime_detector, df)
 
         cache[key] = {
             "dual_macd": _compute_dual_macd_with_instance(

@@ -99,6 +99,7 @@ class PackageBuilder:
         regime_outputs: Optional[Dict[str, "RegimeOutput"]] = None,
         validation_url: Optional[str] = None,
         score_history_path: Optional[Path] = None,
+        regime_series: Optional[Dict[str, List[str]]] = None,
     ) -> PackageManifest:
         """
         Build the complete signal package.
@@ -170,6 +171,7 @@ class PackageBuilder:
             data_dir,
             display_timezone=self._display_timezone,
             max_workers=self._parallel_writes,
+            regime_series=regime_series,
         )
 
         # Validate file count matches input
