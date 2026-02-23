@@ -683,8 +683,74 @@ class SignalPipelineProcessor:
         if cleaned_count > 0:
             logger.info(f"Report cache cleanup removed {cleaned_count} stale files")
 
-        indicator_signature = report_cache.indicator_signature(indicators)
         indicator_compute_started = time.monotonic()
+        self._enrich_data_with_indicators(data, indicators, report_cache)
+        indicator_compute_seconds = time.monotonic() - indicator_compute_started
+
+        # Generate report based on format
+        output = Path(output_path)
+        if not output.is_absolute():
+            output = PROJECT_ROOT / output
+        report_build_started = time.monotonic()
+
+        # Calculate regime for each (symbol, timeframe) pair — parallel
+        regime_outputs, regime_series_dict = self._compute_regimes_parallel(data)
+
+        package_dir = output.with_suffix("")
+        if package_dir.suffix == ".html":
+            package_dir = package_dir.with_suffix("")
+
+        builder = PackageBuilder(
+            theme="dark",
+            with_heatmap=self.config.with_heatmap,
+            parallel_writes=self.config.parallel_writes,
+        )
+
+        # Check for existing score_history.json (pre-fetched from gh-pages in CI)
+        existing_history = package_dir / "data" / "score_history.json"
+        manifest = builder.build(
+            data=data,
+            indicators=indicators,
+            rules=ALL_RULES,
+            output_dir=package_dir,
+            regime_outputs=regime_outputs,
+            validation_url="validation.html",
+            score_history_path=existing_history if existing_history.exists() else None,
+            regime_series=regime_series_dict,
+        )
+        print(f"  Package saved: {package_dir} (v{manifest.version})")
+        print(f"  To view: cd {package_dir} && python -m http.server 8080")
+        print(f"  Then open: http://localhost:8080")
+
+        # Deploy to GitHub Pages if requested
+        if self.config.deploy_github:
+            self._deploy_to_github(package_dir)
+
+        report_build_seconds = time.monotonic() - report_build_started
+        total_seconds = time.monotonic() - report_started
+        print("\nReport timing:")
+        print(f"  historical_load_seconds: {historical_load_seconds:.2f}")
+        print(f"  indicator_compute_seconds: {indicator_compute_seconds:.2f}")
+        print(f"  report_build_seconds: {report_build_seconds:.2f}")
+        print(
+            "  report_cache_hits/misses/hit_rate: "
+            f"{report_cache.hits}/{report_cache.misses}/{report_cache.hit_rate:.1%}"
+        )
+        print(f"  report_total_seconds: {total_seconds:.2f}")
+
+    def _enrich_data_with_indicators(
+        self,
+        data: Dict[Tuple[str, str], pd.DataFrame],
+        indicators: List[Any],
+        report_cache: "ReportFrameCache",
+    ) -> None:
+        """
+        Compute indicators on DataFrames, using cache and parallel execution.
+
+        Mutates `data` in place: uncached pairs are enriched via
+        ThreadPoolExecutor (TA-Lib C extensions release the GIL).
+        """
+        indicator_signature = report_cache.indicator_signature(indicators)
 
         # Phase 1: Check cache, collect uncached pairs
         uncached: Dict[Tuple[str, str], pd.DataFrame] = {}
@@ -714,18 +780,19 @@ class SignalPipelineProcessor:
                     sym, tf = dk
                     report_cache.save(sym, tf, base_df, indicator_signature, enriched_df)
 
-        indicator_compute_seconds = time.monotonic() - indicator_compute_started
+    def _compute_regimes_parallel(
+        self,
+        data: Dict[Tuple[str, str], pd.DataFrame],
+    ) -> Tuple[Dict[str, Any], Dict[str, List[str]]]:
+        """
+        Calculate regime for each (symbol, timeframe) pair in parallel.
 
-        # Generate report based on format
-        output = Path(output_path)
-        if not output.is_absolute():
-            output = PROJECT_ROOT / output
-        report_build_started = time.monotonic()
-
-        # Package format with lazy loading
+        Returns:
+            (regime_outputs, regime_series_dict) — regime classifications
+            and per-bar regime series for chart history.
+        """
         from src.application.services.regime_service import RegimeService
 
-        # Calculate regime for each (symbol, timeframe) pair — parallel (Fix B+C)
         regime_outputs: Dict[str, Any] = {}
         regime_series_dict: Dict[str, List[str]] = {}
         regime_service = RegimeService()
@@ -780,51 +847,10 @@ class SignalPipelineProcessor:
         if skipped_regime:
             logger.debug(f"Skipped {skipped_regime} pairs with insufficient data for regime")
 
-        # Count unique symbol/timeframe pairs (excluding backward compat keys)
         regime_count = len([k for k in regime_outputs.keys() if "_" in k])
         print(f"  Calculated regime for {regime_count} symbol/timeframe pairs")
 
-        package_dir = output.with_suffix("")
-        if package_dir.suffix == ".html":
-            package_dir = package_dir.with_suffix("")
-
-        builder = PackageBuilder(
-            theme="dark",
-            with_heatmap=self.config.with_heatmap,
-            parallel_writes=self.config.parallel_writes,
-        )
-
-        # Check for existing score_history.json (pre-fetched from gh-pages in CI)
-        existing_history = package_dir / "data" / "score_history.json"
-        manifest = builder.build(
-            data=data,
-            indicators=indicators,
-            rules=ALL_RULES,
-            output_dir=package_dir,
-            regime_outputs=regime_outputs,
-            validation_url="validation.html",
-            score_history_path=existing_history if existing_history.exists() else None,
-            regime_series=regime_series_dict,
-        )
-        print(f"  Package saved: {package_dir} (v{manifest.version})")
-        print(f"  To view: cd {package_dir} && python -m http.server 8080")
-        print(f"  Then open: http://localhost:8080")
-
-        # Deploy to GitHub Pages if requested
-        if self.config.deploy_github:
-            self._deploy_to_github(package_dir)
-
-        report_build_seconds = time.monotonic() - report_build_started
-        total_seconds = time.monotonic() - report_started
-        print("\nReport timing:")
-        print(f"  historical_load_seconds: {historical_load_seconds:.2f}")
-        print(f"  indicator_compute_seconds: {indicator_compute_seconds:.2f}")
-        print(f"  report_build_seconds: {report_build_seconds:.2f}")
-        print(
-            "  report_cache_hits/misses/hit_rate: "
-            f"{report_cache.hits}/{report_cache.misses}/{report_cache.hit_rate:.1%}"
-        )
-        print(f"  report_total_seconds: {total_seconds:.2f}")
+        return regime_outputs, regime_series_dict
 
     def _deploy_to_github(self, package_path: Path) -> None:
         """
