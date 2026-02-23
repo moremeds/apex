@@ -1,0 +1,203 @@
+name: "R2: Daily Pipeline + Monitor"
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Combined pipeline: universe screening → historical OHLCV → monitor deploy
+#
+# Daily 2am EST: rebuild universe, delta-load market data, deploy dashboard
+# Weekly Sunday: also refresh float shares cache (economics data)
+# Manual: supports delta/backfill/validate + dashboard-only
+# ═══════════════════════════════════════════════════════════════════════════
+
+on:
+  schedule:
+    # Daily 2am EST = 7am UTC (Mon-Sat captures previous trading day)
+    - cron: '0 7 * * 1-6'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Pipeline mode"
+        type: choice
+        options:
+          - delta
+          - backfill
+          - validate
+          - dashboard-only
+        default: delta
+      symbols:
+        description: "Specific symbols (space-separated, empty = all)"
+        type: string
+        default: ''
+      force_float_refresh:
+        description: "Force refresh float shares cache"
+        type: boolean
+        default: false
+
+concurrency:
+  group: r2-daily-pipeline
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: '3.13'
+  CACHE_VERSION: v1
+
+jobs:
+  pipeline:
+    name: R2 Pipeline + Monitor
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Cache Python dependencies
+        uses: actions/cache@v5
+        with:
+          path: |
+            .venv
+            ~/.cache/uv
+            ~/.cache/pip
+          key: ${{ env.CACHE_VERSION }}-r2-deps-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-${{ hashFiles('pyproject.toml', 'uv.lock') }}
+          restore-keys: |
+            ${{ env.CACHE_VERSION }}-r2-deps-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-
+
+      - name: Cache TA-Lib
+        id: cache-talib
+        uses: actions/cache@v5
+        with:
+          path: ~/ta-lib-install
+          key: talib-0.6.4-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Install TA-Lib
+        run: |
+          if [ -d "$HOME/ta-lib-install/lib" ]; then
+            echo "Restoring TA-Lib from cache..."
+            sudo cp -r $HOME/ta-lib-install/lib/* /usr/lib/
+            sudo cp -r $HOME/ta-lib-install/include/* /usr/include/
+            sudo ldconfig
+          else
+            echo "Building TA-Lib 0.6.4 from source..."
+            sudo apt-get update && sudo apt-get install -y wget build-essential
+            wget https://github.com/ta-lib/ta-lib/releases/download/v0.6.4/ta-lib-0.6.4-src.tar.gz
+            tar -xzf ta-lib-0.6.4-src.tar.gz
+            cd ta-lib-0.6.4 && ./configure --prefix=/usr && make -j$(nproc) && sudo make install
+            sudo ldconfig
+            mkdir -p $HOME/ta-lib-install/lib $HOME/ta-lib-install/include
+            cp -r /usr/lib/libta* $HOME/ta-lib-install/lib/ 2>/dev/null || true
+            cp -r /usr/include/ta-lib $HOME/ta-lib-install/include/ 2>/dev/null || true
+          fi
+
+      - name: Install dependencies
+        run: |
+          .venv/bin/python --version 2>/dev/null || uv venv --clear
+          source .venv/bin/activate
+          uv pip install -e ".[dev,observability,cloudflare]"
+
+      # ── Stage 1: Universe Build ──────────────────────────────────────
+      - name: Build universe
+        if: inputs.mode != 'validate' && inputs.mode != 'dashboard-only'
+        run: |
+          source .venv/bin/activate
+
+          # Weekly (Saturday = day 6) or manual: refresh float shares cache
+          DOW=$(date -u +%w)
+          FLOAT_FLAG=""
+          if [ "$DOW" = "6" ] || [ "${{ inputs.force_float_refresh }}" = "true" ]; then
+            echo "Weekly float cache refresh (day=$DOW)"
+            FLOAT_FLAG="--force-float-refresh"
+          fi
+
+          python scripts/r2_universe_builder.py $FLOAT_FLAG
+        env:
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET: apex-data
+
+      # ── Stage 2: Historical Loader ───────────────────────────────────
+      - name: Run historical loader
+        if: inputs.mode != 'dashboard-only'
+        run: |
+          source .venv/bin/activate
+          MODE="${{ inputs.mode || 'delta' }}"
+          SYMBOLS="${{ inputs.symbols }}"
+          case "$MODE" in
+            delta)    CMD="--delta" ;;
+            backfill) CMD="--backfill" ;;
+            validate) CMD="--validate-only" ;;
+          esac
+          [ -n "$SYMBOLS" ] && CMD="$CMD --symbols $SYMBOLS"
+          echo "Running: python scripts/r2_historical_loader.py $CMD"
+          python scripts/r2_historical_loader.py $CMD
+        env:
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET: apex-data
+
+      # ── Stage 3: Monitor Dashboard ──────────────────────────────────
+      - name: Download R2 monitor data
+        run: |
+          source .venv/bin/activate
+          python -c "
+          from src.infrastructure.adapters.r2.client import R2Client
+          import json, pathlib
+          r2 = R2Client()
+          out = pathlib.Path('out/signals/data')
+          out.mkdir(parents=True, exist_ok=True)
+          for name in ['data_quality.json', 'universe.json']:
+              data = r2.get_json(f'meta/{name}')
+              if data:
+                  (out / name).write_text(json.dumps(data))
+                  print(f'Downloaded {name} ({len(json.dumps(data))} bytes)')
+              else:
+                  print(f'WARNING: {name} not found in R2')
+          "
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET: apex-data
+
+      - name: Fetch existing signal data from gh-pages
+        continue-on-error: true
+        run: |
+          mkdir -p out/signals/data
+          git fetch origin gh-pages --depth=1 2>/dev/null || true
+          for f in summary.json score_history.json; do
+            git show "origin/gh-pages:data/$f" > "out/signals/data/$f" 2>/dev/null || true
+          done
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build dashboard
+        run: |
+          source .venv/bin/activate
+          python -c "from src.infrastructure.reporting.dashboard import DashboardBuilder; DashboardBuilder().build()"
+
+      - name: Smoke check dashboard artifacts
+        run: |
+          for f in out/site/index.html out/site/assets/app.js; do
+            if [ ! -s "$f" ]; then
+              echo "ERROR: Missing or empty required file: $f"
+              exit 1
+            fi
+          done
+          echo "Smoke check passed"
+
+      - name: Deploy to Cloudflare Pages
+        run: npx wrangler@3 pages deploy out/site/ --project-name apex-dashboard
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

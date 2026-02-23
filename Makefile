@@ -89,7 +89,7 @@ help:
 	@echo "  make dashboard-deploy  Build + deploy to Cloudflare Pages"
 	@echo ""
 	@echo "$(GREEN)R2 Data Pipeline:$(RESET)"
-	@echo "  make r2-universe       Build universe (FMP screener → R2 meta/)"
+	@echo "  make r2-universe       Screen universe (FMP → filter → ~500 symbols → R2)"
 	@echo "  make r2-backfill       Full backfill (all symbols, 2019-present)"
 	@echo "  make r2-backfill-test  Quick test (5 symbols)"
 	@echo "  make r2-delta          Incremental delta update"

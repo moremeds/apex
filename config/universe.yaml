@@ -375,6 +375,17 @@ provider:
   cache_market_caps: true
 
 # =============================================================================
+# R2 Screening Parameters
+# =============================================================================
+r2_screening:
+  min_market_cap: 500_000_000
+  min_daily_dollar_volume: 5_000_000
+  min_turnover_rate: 0.01
+  sort_by: dollar_volume
+  float_cache_days: 7
+  turnover_miss_threshold: 0.5  # Disable turnover filter if >50% symbols lack float data
+
+# =============================================================================
 # Generation Metadata
 # =============================================================================
 metadata:

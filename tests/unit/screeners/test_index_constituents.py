@@ -111,3 +111,96 @@ class TestGetCombinedUniverseFallback:
             result = adapter.get_combined_universe(indices=["sp500", "nasdaq"])
         mock_fallback.assert_not_called()
         assert "AAPL" in result
+
+
+class TestFetchAllFloatShares:
+    def test_single_page(self, adapter: FMPIndexConstituentsAdapter) -> None:
+        """Single page of valid entries returns correct dict."""
+        mock_data = [
+            {"symbol": "AAPL", "floatShares": 15_000_000_000.0},
+            {"symbol": "MSFT", "floatShares": 7_400_000_000},
+        ]
+        with patch.object(adapter, "_fmp_get", return_value=mock_data):
+            result = adapter.fetch_all_float_shares()
+        assert result == {"AAPL": 15_000_000_000.0, "MSFT": 7_400_000_000.0}
+
+    def test_pagination(self, adapter: FMPIndexConstituentsAdapter) -> None:
+        """When first page returns limit (5000) entries, fetches second page."""
+        page_1 = [{"symbol": f"S{i}", "floatShares": float(i + 1)} for i in range(5000)]
+        page_2 = [
+            {"symbol": "LAST1", "floatShares": 100.0},
+            {"symbol": "LAST2", "floatShares": 200.0},
+        ]
+        with patch.object(adapter, "_fmp_get", side_effect=[page_1, page_2]):
+            result = adapter.fetch_all_float_shares()
+        # All 5000 from page 1 + 2 from page 2
+        assert len(result) == 5002
+        assert result["S0"] == 1.0
+        assert result["S4999"] == 5000.0
+        assert result["LAST1"] == 100.0
+        assert result["LAST2"] == 200.0
+
+    def test_malformed_entries(self, adapter: FMPIndexConstituentsAdapter) -> None:
+        """Only valid entries with string symbol and positive numeric floatShares survive."""
+        mock_data = [
+            {"symbol": "GOOD", "floatShares": 1_000_000.0},  # valid
+            {"floatShares": 500_000.0},  # missing symbol
+            {"symbol": "NO_FLOAT"},  # missing floatShares
+            {"symbol": "ZERO", "floatShares": 0},  # zero floatShares
+            {"symbol": "NEG", "floatShares": -100.0},  # negative floatShares
+            {"symbol": "STR", "floatShares": "not_a_number"},  # non-numeric floatShares
+            {"symbol": "ALSO_GOOD", "floatShares": 42},  # int is fine
+        ]
+        with patch.object(adapter, "_fmp_get", return_value=mock_data):
+            result = adapter.fetch_all_float_shares()
+        assert result == {"GOOD": 1_000_000.0, "ALSO_GOOD": 42.0}
+
+    def test_empty_response(self, adapter: FMPIndexConstituentsAdapter) -> None:
+        """Empty list from API returns empty dict."""
+        with patch.object(adapter, "_fmp_get", return_value=[]):
+            result = adapter.fetch_all_float_shares()
+        assert result == {}
+
+    def test_error_response(self, adapter: FMPIndexConstituentsAdapter) -> None:
+        """Non-list response (e.g. error dict) returns empty dict."""
+        with patch.object(adapter, "_fmp_get", return_value={"error": "forbidden"}):
+            result = adapter.fetch_all_float_shares()
+        assert result == {}
+
+
+class TestFetchScreenerWithMetadata:
+    def test_returns_price_and_volume(self, adapter: FMPIndexConstituentsAdapter) -> None:
+        """Verify price and volume fields are included in screener results."""
+        mock_data = [
+            {
+                "symbol": "AAPL",
+                "companyName": "Apple Inc.",
+                "sector": "Technology",
+                "industry": "Consumer Electronics",
+                "marketCap": 3_000_000_000_000,
+                "exchange": "NASDAQ",
+                "price": 182.50,
+                "volume": 55_000_000,
+            },
+            {
+                "symbol": "MSFT",
+                "companyName": "Microsoft",
+                "sector": "Technology",
+                "industry": "Software",
+                "marketCap": 2_800_000_000_000,
+                "exchange": "NASDAQ",
+                "price": 415.25,
+                "volume": 22_000_000,
+            },
+        ]
+        with patch.object(adapter, "_fmp_get", return_value=mock_data):
+            result = adapter.fetch_screener_with_metadata()
+        assert len(result) == 2
+        aapl = result[0]
+        assert aapl["symbol"] == "AAPL"
+        assert aapl["price"] == 182.50
+        assert aapl["volume"] == 55_000_000
+        msft = result[1]
+        assert msft["symbol"] == "MSFT"
+        assert msft["price"] == 415.25
+        assert msft["volume"] == 22_000_000
