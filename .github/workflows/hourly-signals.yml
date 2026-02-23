@@ -419,7 +419,7 @@ jobs:
           uv pip install -e ".[dev,observability]"
 
       - name: Download signal data
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           name: signal-data
           path: out/signals
@@ -568,12 +568,12 @@ jobs:
           uv pip install -e ".[dev,observability,cloudflare]"
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '20'
 
       - name: Download signal data
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           name: signal-data
           path: out/signals
@@ -649,7 +649,7 @@ jobs:
           fetch-depth: 0
 
       - name: Download dashboard site
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           name: dashboard-site
           path: out/site
@@ -709,13 +709,13 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Download dashboard site
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           name: dashboard-site
           path: out/site
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '20'
 
