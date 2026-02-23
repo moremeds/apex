@@ -226,6 +226,8 @@ validate:
 		--universe config/universe.yaml \
 		--subset pr_validation \
 		--timeframes 1d 4h 1h \
+		--preload-concurrency 5 \
+		--parallel-writes 8 \
 		--format package \
 		--html-output reports/validation/signal_report
 	@echo "Step 2/3: Running quality gates (G1-G10)..."
@@ -292,6 +294,7 @@ signals-test:
 	$(PYTHON) -m src.runners.signal_runner --live \
 		--symbols SPY QQQ XLB GLD TLT UVXY AAPL NVDA JPM XOM UNH HD DIS TSLA AMD META SLV SNDK MU ORCL\
 		--timeframes 1d 1h 4h\
+		--preload-concurrency 5 --parallel-writes 8 \
 		--format package \
 		--html-output /tmp/signal_test
 	@echo ""
@@ -328,6 +331,8 @@ dashboard-signal:  ## Generate signal report (full universe, no deploy)
 	$(PYTHON) -m src.runners.signal_runner --live \
 		--universe config/universe.yaml \
 		--timeframes 1d 1h 4h \
+		--preload-concurrency 5 \
+		--parallel-writes 8 \
 		--format package \
 		--html-output out/signals
 	@echo "$(GREEN)✓ Signals ready in out/signals/$(RESET)"
@@ -359,6 +364,8 @@ dashboard-data:
 	$(PYTHON) -m src.runners.signal_runner --live \
 		--symbols SPY QQQ XLB GLD TLT UVXY AAPL NVDA JPM XOM UNH HD DIS TSLA AMD META SLV IWM DIA MU \
 		--timeframes 1d 1h 4h \
+		--preload-concurrency 5 \
+		--parallel-writes 8 \
 		--format package \
 		--html-output out/signals
 	@echo ""
@@ -391,6 +398,7 @@ signals:
 	$(PYTHON) -m src.runners.signal_runner --live \
 		--universe config/universe.yaml \
 		--timeframes 1d 4h 1h \
+		--preload-concurrency 5 --parallel-writes 8 \
 		--format package \
 		--html-output out/signals
 	@echo "$(GREEN)✓ Report: out/signals/index.html$(RESET)"
@@ -411,6 +419,7 @@ signals-deploy:
 	$(PYTHON) -m src.runners.signal_runner --live \
 		--universe config/universe.yaml \
 		--timeframes 1d 4h 1h \
+		--preload-concurrency 5 --parallel-writes 8 \
 		--format package \
 		--html-output out/signals \
 		--deploy github
@@ -443,6 +452,7 @@ signals-deploy-quick:
 	$(PYTHON) -m src.runners.signal_runner --live \
 		--universe config/universe.yaml \
 		--timeframes 1d 4h 1h \
+		--preload-concurrency 5 --parallel-writes 8 \
 		--format package \
 		--html-output out/signals \
 		--deploy github

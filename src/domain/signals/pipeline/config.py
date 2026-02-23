@@ -116,7 +116,7 @@ class SignalPipelineConfig:
     # Report-path cache (strict-freshness, report generation only)
     report_cache_enabled: bool = True
     report_cache_dir: Optional[str] = "data/cache/report_frames"
-    report_cache_max_age_minutes: int = 10
+    report_cache_max_age_minutes: int = 60
     report_cache_cleanup_max_files: int = 4000
 
     # Performance tuning (CI optimization)
@@ -300,9 +300,9 @@ Examples:
     parser.add_argument(
         "--report-cache-max-age",
         type=int,
-        default=10,
+        default=60,
         metavar="MINUTES",
-        help="Maximum age for report cache entries in minutes (default: 10)",
+        help="Maximum age for report cache entries in minutes (default: 60)",
     )
     parser.add_argument(
         "--report-cache-cleanup-max-files",

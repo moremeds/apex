@@ -36,6 +36,10 @@ def write_data_files(
     """
     Write individual JSON data files for each symbol/timeframe.
 
+    Pre-computes all indicator history data once (CPU-bound), then writes
+    files in parallel (I/O-bound). This avoids creating 435 duplicate
+    indicator instances and recomputing 40+ indicators per file.
+
     Args:
         data: Dict mapping (symbol, timeframe) to DataFrame
         indicators: List of computed indicators
@@ -47,19 +51,69 @@ def write_data_files(
     Returns:
         List of data file keys (e.g., ["AAPL_1d", "SPY_1d"])
     """
-    if max_workers > 1:
-        # Pre-warm strategy params cache (file I/O on first call, not thread-safe)
-        from src.domain.strategy.param_loader import get_strategy_params
+    # Pre-warm strategy params cache (file I/O, not thread-safe)
+    from src.domain.strategy.param_loader import get_strategy_params
 
-        for name in ["trend_pulse", "regime_flex", "sector_pulse", "rsi_mean_reversion"]:
-            try:
-                get_strategy_params(name)
-            except Exception:
-                pass
+    for name in ["trend_pulse", "regime_flex", "sector_pulse", "rsi_mean_reversion"]:
+        try:
+            get_strategy_params(name)
+        except Exception:
+            pass
 
+    # Phase 1: Pre-compute all history data once (CPU-bound, sequential)
+    history_cache = _precompute_all_history(data, display_timezone)
+
+    # Phase 2: Write files (I/O-bound, optionally parallel)
     if max_workers <= 1:
-        return _write_data_files_sequential(data, rules, data_dir, display_timezone)
-    return _write_data_files_parallel(data, rules, data_dir, display_timezone, max_workers)
+        return _write_data_files_sequential(data, rules, data_dir, display_timezone, history_cache)
+    return _write_data_files_parallel(
+        data, rules, data_dir, display_timezone, max_workers, history_cache
+    )
+
+
+# Type alias for pre-computed history data per key
+HistoryCache = Dict[str, Dict[str, List[Dict[str, Any]]]]
+
+
+def _precompute_all_history(
+    data: Dict[Tuple[str, str], pd.DataFrame],
+    display_timezone: str,
+) -> HistoryCache:
+    """Pre-compute indicator history for all symbol/timeframe pairs.
+
+    Creates indicator instances once and reuses them across all DataFrames,
+    avoiding ~435 redundant constructor calls per indicator type.
+
+    Returns:
+        Dict mapping "SYMBOL_TF" keys to their pre-computed history dicts.
+    """
+    # Create indicator instances once (constructors load YAML params etc.)
+    dual_macd = _create_dual_macd_indicator()
+    trend_pulse = _create_trend_pulse_indicator()
+    regime_detector = _create_regime_detector()
+
+    cache: HistoryCache = {}
+    for (symbol, timeframe), df in data.items():
+        key = f"{symbol}_{timeframe}"
+
+        # Compute regime series ONCE, share between regime_flex and sector_pulse
+        regime_values = _compute_regime_series(regime_detector, df)
+
+        cache[key] = {
+            "dual_macd": _compute_dual_macd_with_instance(
+                dual_macd, df, timeframe, display_timezone
+            ),
+            "trend_pulse": _compute_trend_pulse_with_instance(
+                trend_pulse, df, timeframe, display_timezone
+            ),
+            "regime_flex": _build_regime_flex_history(
+                regime_values, df, timeframe, display_timezone
+            ),
+            "sector_pulse": _build_sector_pulse_history(
+                regime_values, symbol, df, timeframe, display_timezone
+            ),
+        }
+    return cache
 
 
 def _write_one_data_file(
@@ -69,6 +123,7 @@ def _write_one_data_file(
     rules: List["SignalRule"],
     data_dir: Path,
     display_timezone: str,
+    history_cache: Optional[HistoryCache] = None,
 ) -> str:
     """Write a single symbol/timeframe JSON data file. Thread-safe."""
     from .signal_detection import detect_historical_signals
@@ -77,10 +132,21 @@ def _write_one_data_file(
 
     chart_data = df_to_chart_data(df)
     signals = detect_historical_signals(df, rules, symbol, timeframe)
-    dual_macd_history = _compute_dual_macd_history_for_key(df, timeframe, display_timezone)
-    trend_pulse_history = _compute_trend_pulse_history_for_key(df, timeframe, display_timezone)
-    regime_flex_history = _compute_regime_flex_history(df, timeframe, display_timezone)
-    sector_pulse_history = _compute_sector_pulse_history(symbol, df, timeframe, display_timezone)
+
+    # Use pre-computed history if available, otherwise compute on-the-fly
+    if history_cache and key in history_cache:
+        precomputed = history_cache[key]
+        dual_macd_history = precomputed["dual_macd"]
+        trend_pulse_history = precomputed["trend_pulse"]
+        regime_flex_history = precomputed["regime_flex"]
+        sector_pulse_history = precomputed["sector_pulse"]
+    else:
+        dual_macd_history = _compute_dual_macd_history_for_key(df, timeframe, display_timezone)
+        trend_pulse_history = _compute_trend_pulse_history_for_key(df, timeframe, display_timezone)
+        regime_flex_history = _compute_regime_flex_history(df, timeframe, display_timezone)
+        sector_pulse_history = _compute_sector_pulse_history(
+            symbol, df, timeframe, display_timezone
+        )
 
     file_data = {
         "symbol": symbol,
@@ -108,11 +174,14 @@ def _write_data_files_sequential(
     rules: List["SignalRule"],
     data_dir: Path,
     display_timezone: str,
+    history_cache: Optional[HistoryCache] = None,
 ) -> List[str]:
     """Sequential write path (original behavior)."""
     files_written = []
     for (symbol, timeframe), df in data.items():
-        key = _write_one_data_file(symbol, timeframe, df, rules, data_dir, display_timezone)
+        key = _write_one_data_file(
+            symbol, timeframe, df, rules, data_dir, display_timezone, history_cache
+        )
         files_written.append(key)
     return files_written
 
@@ -123,8 +192,12 @@ def _write_data_files_parallel(
     data_dir: Path,
     display_timezone: str,
     max_workers: int,
+    history_cache: Optional[HistoryCache] = None,
 ) -> List[str]:
     """Parallel write path using ThreadPoolExecutor.
+
+    History data is pre-computed before this function is called, so threads
+    only do signal detection + JSON serialization + file I/O (all thread-safe).
 
     Raises RuntimeError if any file write fails (fail-fast for CI).
     """
@@ -134,10 +207,16 @@ def _write_data_files_parallel(
     errors: List[str] = []
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = {
-            pool.submit(_write_one_data_file, sym, tf, df, rules, data_dir, display_timezone): (
+            pool.submit(
+                _write_one_data_file,
                 sym,
                 tf,
-            )
+                df,
+                rules,
+                data_dir,
+                display_timezone,
+                history_cache,
+            ): (sym, tf)
             for (sym, tf), df in data.items()
         }
         for future in as_completed(futures):
@@ -382,6 +461,272 @@ def write_snapshot_file(
         json.dumps(snapshot, default=str),
         encoding="utf-8",
     )
+
+
+# -------------------------------------------------------------------------
+# Indicator instance factories (create once, reuse across all files)
+# -------------------------------------------------------------------------
+
+
+def _create_dual_macd_indicator() -> Any:
+    """Create a DualMACDIndicator instance, or None if import fails."""
+    try:
+        from src.domain.signals.indicators.momentum.dual_macd import DualMACDIndicator
+
+        return DualMACDIndicator()
+    except Exception as e:
+        logger.warning(f"Failed to create DualMACDIndicator: {e}")
+        return None
+
+
+def _create_trend_pulse_indicator() -> Any:
+    """Create a TrendPulseIndicator instance, or None if import fails."""
+    try:
+        from src.domain.signals.indicators.trend.trend_pulse import TrendPulseIndicator
+
+        return TrendPulseIndicator()
+    except Exception as e:
+        logger.warning(f"Failed to create TrendPulseIndicator: {e}")
+        return None
+
+
+def _create_regime_detector() -> Any:
+    """Create a RegimeDetectorIndicator instance, or None if import fails."""
+    try:
+        from src.domain.signals.indicators.regime.regime_detector import (
+            RegimeDetectorIndicator,
+        )
+
+        return RegimeDetectorIndicator()
+    except Exception as e:
+        logger.warning(f"Failed to create RegimeDetectorIndicator: {e}")
+        return None
+
+
+# -------------------------------------------------------------------------
+# Instance-based compute functions (reuse pre-created indicator instances)
+# -------------------------------------------------------------------------
+
+
+def _compute_dual_macd_with_instance(
+    indicator: Any,
+    df: pd.DataFrame,
+    timeframe: str,
+    display_timezone: str,
+) -> List[Dict[str, Any]]:
+    """Compute DualMACD history reusing a pre-created indicator instance."""
+    if indicator is None:
+        return []
+    try:
+        if len(df) < indicator.warmup_periods:
+            return []
+
+        close_df = df[["close"]].copy()
+        result = indicator.calculate(close_df, indicator.default_params)
+        if result.empty:
+            return []
+
+        last_n = 60
+        start_idx = max(0, len(result) - last_n)
+        rows: List[Dict[str, Any]] = []
+
+        for i in range(start_idx, len(result)):
+            current = result.iloc[i]
+            previous = result.iloc[i - 1] if i > 0 else None
+            state = indicator._get_state(current, previous, indicator.default_params)
+            ts = result.index[i]
+            date_str = _format_timestamp(ts, timeframe, display_timezone)
+            rows.append({"date": date_str, **state})
+
+        rows.reverse()
+        return rows
+    except Exception as e:
+        logger.warning(f"Failed to compute DualMACD history: {e}")
+        return []
+
+
+def _compute_trend_pulse_with_instance(
+    indicator: Any,
+    df: pd.DataFrame,
+    timeframe: str,
+    display_timezone: str,
+) -> List[Dict[str, Any]]:
+    """Compute TrendPulse history reusing a pre-created indicator instance."""
+    if indicator is None:
+        return []
+    try:
+        params = indicator.default_params
+        ema_periods = params.get("ema_periods", (14, 25, 99, 144, 453))
+        min_bars = max(ema_periods[-1] + 50, 200)
+        if len(df) < min_bars:
+            return []
+
+        required = ["high", "low", "close"]
+        if not all(c in df.columns for c in required):
+            return []
+
+        hlc_df = df[required].copy()
+        result = indicator.calculate(hlc_df, params)
+        if result.empty:
+            return []
+
+        last_n = 60
+        start_idx = max(0, len(result) - last_n)
+        rows: List[Dict[str, Any]] = []
+
+        for i in range(start_idx, len(result)):
+            current = result.iloc[i]
+            previous = result.iloc[i - 1] if i > 0 else None
+            state = indicator._get_state(current, previous, params)
+            ts = result.index[i]
+            date_str = _format_timestamp(ts, timeframe, display_timezone)
+            rows.append({"date": date_str, **state})
+
+        rows.reverse()
+        return rows
+    except Exception as e:
+        logger.warning(f"Failed to compute TrendPulse history: {e}")
+        return []
+
+
+def _compute_regime_series(
+    detector: Any,
+    df: pd.DataFrame,
+) -> Optional[List[str]]:
+    """Compute regime classification once for all bars.
+
+    Returns list of regime strings (e.g., ["R0", "R1", ...]) or None if
+    computation fails or data is insufficient.
+    """
+    if detector is None or len(df) < 130:
+        return None
+
+    required = ["high", "low", "close"]
+    if not all(c in df.columns for c in required):
+        return None
+
+    try:
+        result = detector.calculate(df[required].copy(), detector.default_params)
+        if not result.empty and "regime" in result.columns:
+            values = [str(v) for v in result["regime"].values]
+            if len(values) == len(df):
+                return values
+    except Exception as e:
+        logger.warning(f"Failed to compute regime series: {e}")
+
+    return None
+
+
+def _build_regime_flex_history(
+    regime_values: Optional[List[str]],
+    df: pd.DataFrame,
+    timeframe: str,
+    display_timezone: str,
+) -> List[Dict[str, Any]]:
+    """Build RegimeFlex history from pre-computed regime values."""
+    if regime_values is None:
+        return []
+
+    try:
+        from src.domain.strategy.param_loader import get_strategy_params
+
+        params = get_strategy_params("regime_flex")
+        r0_pct = params.get("r0_gross_pct", 1.0)
+        r1_pct = params.get("r1_gross_pct", 0.6)
+        r3_pct = params.get("r3_gross_pct", 0.3)
+        exposure_map: Dict[str, float] = {
+            "R0": r0_pct,
+            "R1": r1_pct,
+            "R2": 0.0,
+            "R3": r3_pct,
+        }
+
+        last_n = 60
+        start_idx = max(0, len(df) - last_n)
+        rows: List[Dict[str, Any]] = []
+        prev_exposure: Optional[float] = None
+
+        for i in range(start_idx, len(df)):
+            regime = regime_values[i]
+            target_exposure = exposure_map.get(regime, 0.0)
+
+            if prev_exposure is None:
+                sig = "HOLD"
+            elif target_exposure > prev_exposure:
+                sig = "BUY"
+            elif target_exposure < prev_exposure:
+                sig = "SELL"
+            else:
+                sig = "HOLD"
+
+            prev_exposure = target_exposure
+            ts = df.index[i]
+            date_str = _format_timestamp(ts, timeframe, display_timezone)
+            rows.append(
+                {
+                    "date": date_str,
+                    "regime": regime,
+                    "target_exposure": round(target_exposure * 100, 1),
+                    "signal": sig,
+                }
+            )
+
+        rows.reverse()
+        return rows
+    except Exception as e:
+        logger.warning(f"Failed to build RegimeFlex history: {e}")
+        return []
+
+
+def _build_sector_pulse_history(
+    regime_values: Optional[List[str]],
+    symbol: str,
+    df: pd.DataFrame,
+    timeframe: str,
+    display_timezone: str,
+) -> List[Dict[str, Any]]:
+    """Build SectorPulse history from pre-computed regime values."""
+    try:
+        if len(df) < 130:
+            return []
+
+        required = ["high", "low", "close"]
+        if not all(c in df.columns for c in required):
+            return []
+
+        close = df["close"]
+        momentum = close.pct_change(20) * 100
+
+        # Use pre-computed regime or fall back to placeholder
+        effective_regime = regime_values if regime_values is not None else ["--"] * len(df)
+
+        last_n = 60
+        start_idx = max(0, len(df) - last_n)
+        rows: List[Dict[str, Any]] = []
+
+        for i in range(start_idx, len(df)):
+            mom_val = float(momentum.iloc[i]) if not pd.isna(momentum.iloc[i]) else 0.0
+            regime = effective_regime[i] if i < len(effective_regime) else "--"
+            ts = df.index[i]
+            date_str = _format_timestamp(ts, timeframe, display_timezone)
+            rows.append(
+                {
+                    "date": date_str,
+                    "momentum_score": round(mom_val, 2),
+                    "regime": regime,
+                }
+            )
+
+        rows.reverse()
+        return rows
+    except Exception as e:
+        logger.warning(f"Failed to build SectorPulse history: {e}")
+        return []
+
+
+# -------------------------------------------------------------------------
+# Legacy per-call compute functions (used when history_cache is not provided)
+# -------------------------------------------------------------------------
 
 
 def _compute_dual_macd_history_for_key(

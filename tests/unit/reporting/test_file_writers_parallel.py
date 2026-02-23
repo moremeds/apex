@@ -69,6 +69,14 @@ def _patch_history_fns():
     )
 
 
+def _patch_precompute():
+    """Context manager that stubs out the pre-compute phase."""
+    return patch(
+        "src.infrastructure.reporting.package.file_writers._precompute_all_history",
+        return_value={},
+    )
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -83,7 +91,7 @@ class TestSequentialWrites:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             data_dir = Path(tmpdir)
-            with _patch_history_fns():
+            with _patch_precompute(), patch(_GET_STRATEGY_PARAMS, return_value={}):
                 keys = write_data_files(
                     data=data,
                     indicators=[],
@@ -106,7 +114,7 @@ class TestParallelWrites:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             data_dir = Path(tmpdir)
-            with _patch_history_fns(), patch(_GET_STRATEGY_PARAMS, return_value={}):
+            with _patch_precompute(), patch(_GET_STRATEGY_PARAMS, return_value={}):
                 keys = write_data_files(
                     data=data,
                     indicators=[],
@@ -130,7 +138,7 @@ class TestSequentialParallelParity:
         par_dir = tempfile.mkdtemp()
 
         # Sequential run
-        with _patch_history_fns():
+        with _patch_precompute(), patch(_GET_STRATEGY_PARAMS, return_value={}):
             seq_keys = write_data_files(
                 data=data,
                 indicators=[],
@@ -140,7 +148,7 @@ class TestSequentialParallelParity:
             )
 
         # Parallel run
-        with _patch_history_fns(), patch(_GET_STRATEGY_PARAMS, return_value={}):
+        with _patch_precompute(), patch(_GET_STRATEGY_PARAMS, return_value={}):
             par_keys = write_data_files(
                 data=data,
                 indicators=[],
@@ -166,7 +174,7 @@ class TestJsonFormat:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             data_dir = Path(tmpdir)
-            with _patch_history_fns():
+            with _patch_precompute(), patch(_GET_STRATEGY_PARAMS, return_value={}):
                 write_data_files(
                     data=data,
                     indicators=[],
@@ -198,15 +206,15 @@ class TestParallelErrorHandling:
 
         original_write_one = _write_one_data_file
 
-        def _failing_write_one(symbol, timeframe, df, rules, data_dir, tz):
+        def _failing_write_one(symbol, timeframe, df, rules, data_dir, tz, history_cache=None):
             if symbol == "BAD":
                 raise RuntimeError("Simulated write failure for BAD")
-            return original_write_one(symbol, timeframe, df, rules, data_dir, tz)
+            return original_write_one(symbol, timeframe, df, rules, data_dir, tz, history_cache)
 
         with tempfile.TemporaryDirectory() as tmpdir:
             data_dir = Path(tmpdir)
             with (
-                _patch_history_fns(),
+                _patch_precompute(),
                 patch(
                     "src.infrastructure.reporting.package.file_writers._write_one_data_file",
                     side_effect=_failing_write_one,
@@ -223,17 +231,17 @@ class TestParallelErrorHandling:
                 )
 
 
-class TestParallelPrewarmsStrategyCache:
-    """Parallel mode must pre-warm get_strategy_params before spawning threads."""
+class TestPrewarmsStrategyCache:
+    """write_data_files must pre-warm get_strategy_params before computing history."""
 
-    def test_parallel_prewarms_strategy_cache(self) -> None:
+    def test_prewarms_strategy_cache(self) -> None:
         data = _make_test_data(["AAPL"])
 
         mock_get_params = MagicMock(return_value={})
 
         with tempfile.TemporaryDirectory() as tmpdir:
             data_dir = Path(tmpdir)
-            with _patch_history_fns(), patch(_GET_STRATEGY_PARAMS, mock_get_params):
+            with _patch_precompute(), patch(_GET_STRATEGY_PARAMS, mock_get_params):
                 write_data_files(
                     data=data,
                     indicators=[],
@@ -249,25 +257,27 @@ class TestParallelPrewarmsStrategyCache:
             called_names
         ), f"Expected pre-warm for {expected_names}, got {called_names}"
 
-    def test_sequential_does_not_prewarm(self) -> None:
-        """Sequential mode (max_workers=1) should NOT call get_strategy_params for pre-warming."""
+    def test_prewarm_happens_for_all_modes(self) -> None:
+        """Both sequential and parallel modes pre-warm strategy params."""
         data = _make_test_data(["AAPL"])
 
         mock_get_params = MagicMock(return_value={})
 
         with tempfile.TemporaryDirectory() as tmpdir:
             data_dir = Path(tmpdir)
-            with _patch_history_fns(), patch(_GET_STRATEGY_PARAMS, mock_get_params):
+            with _patch_precompute(), patch(_GET_STRATEGY_PARAMS, mock_get_params):
                 write_data_files(
                     data=data,
                     indicators=[],
                     rules=[],
                     data_dir=data_dir,
-                    max_workers=1,
+                    max_workers=1,  # Sequential
                 )
 
-        # Sequential path never enters the pre-warm block.
-        mock_get_params.assert_not_called()
+        # Pre-warm happens even in sequential mode now
+        expected_names = {"trend_pulse", "regime_flex", "sector_pulse", "rsi_mean_reversion"}
+        called_names = {call.args[0] for call in mock_get_params.call_args_list}
+        assert expected_names.issubset(called_names)
 
 
 class TestWriteOneDataFile:
@@ -315,3 +325,25 @@ class TestWriteOneDataFile:
                 "sector_pulse_history",
             }
             assert set(payload.keys()) == expected_keys
+
+    def test_write_one_data_file_uses_history_cache(self) -> None:
+        """When history_cache is provided, pre-computed data is used."""
+        df = _make_test_df(50)
+        cache = {
+            "TEST_1d": {
+                "dual_macd": [{"date": "2024-01-01", "state": "test"}],
+                "trend_pulse": [{"date": "2024-01-01", "pulse": "up"}],
+                "regime_flex": [{"date": "2024-01-01", "regime": "R0"}],
+                "sector_pulse": [{"date": "2024-01-01", "momentum": 5.0}],
+            }
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+            _write_one_data_file("TEST", "1d", df, [], data_dir, "US/Eastern", cache)
+
+            payload = json.loads((data_dir / "TEST_1d.json").read_text(encoding="utf-8"))
+            assert payload["dual_macd_history"] == cache["TEST_1d"]["dual_macd"]
+            assert payload["trend_pulse_history"] == cache["TEST_1d"]["trend_pulse"]
+            assert payload["regime_flex_history"] == cache["TEST_1d"]["regime_flex"]
+            assert payload["sector_pulse_history"] == cache["TEST_1d"]["sector_pulse"]

@@ -577,12 +577,26 @@ class SignalPipelineProcessor:
                 max_days = historical_manager.get_max_history_days(tf)
                 start = end - timedelta(days=min(max_days, 900))
                 try:
-                    # Cache-first: read from Parquet if coverage is complete
-                    bars = None
-                    if historical_manager.has_complete_coverage(symbol, tf, start, end):
-                        bars = historical_manager.get_bars(symbol, tf, start, end)
+                    # Parquet-first: fast local read, no DuckDB gap detection.
+                    # Preload already populated the cache; get_bars() reads it directly.
+                    bars = historical_manager.get_bars(symbol, tf, start, end)
+
+                    # Freshness guard: reject stale data from partial preload failures.
+                    # If the last bar is >5 days behind the requested end, the Parquet
+                    # file is likely stale/incomplete — fall back to full download.
+                    if bars:
+                        last_ts = pd.Timestamp(bars[-1].timestamp)
+                        if last_ts.tzinfo is None:
+                            last_ts = last_ts.tz_localize("UTC")
+                        staleness_days = (end - last_ts).days
+                        if staleness_days > 5:
+                            logger.info(
+                                f"[{symbol}/{tf}] Parquet data stale "
+                                f"({staleness_days}d old), re-downloading"
+                            )
+                            bars = None  # Force fallback
+
                     if not bars:
-                        # Fallback: full ensure_data with gap detection + download
                         bars = await historical_manager.ensure_data(symbol, tf, start, end)
                     if bars:
                         records = [
