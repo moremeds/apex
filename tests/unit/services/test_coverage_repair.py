@@ -8,15 +8,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from src.domain.interfaces.historical_source import DateRange
+from src.services.historical_data_manager import HistoricalDataManager
 
 
 class TestCoverageAutoRepair:
     """Test the coverage auto-repair logic in HistoricalDataManager.ensure_data()."""
 
-    def _make_manager(self) -> MagicMock:
+    def _make_manager(self) -> HistoricalDataManager:
         """Create a mock HistoricalDataManager with the ensure_data repair logic."""
-        from src.services.historical_data_manager import HistoricalDataManager
-
         with patch.object(HistoricalDataManager, "_init_sources"):
             manager = HistoricalDataManager.__new__(HistoricalDataManager)
             manager._base_dir = MagicMock()
