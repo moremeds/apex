@@ -1,6 +1,6 @@
 {
   "version": "m2_v2.0",
-  "generated_at": "2026-02-24T04:53:05.139141+00:00",
+  "generated_at": "2026-02-25T04:53:34.048475+00:00",
   "mode": "full",
   "horizon_config": {
     "horizon_calendar_days": 20,
@@ -67,24 +67,24 @@
     "choppy_r0_rates": [
       0.0,
       0.031746031746031744,
-      0.23129251700680273,
-      0.11504424778761062,
-      0.23822714681440443,
-      0.29562982005141386,
-      0.23107569721115537,
-      0.24087591240875914,
-      0.14468085106382977,
-      0.2641025641025641
+      0.22972972972972974,
+      0.11403508771929824,
+      0.23756906077348067,
+      0.29743589743589743,
+      0.23015873015873015,
+      0.24,
+      0.1440677966101695,
+      0.26342710997442453
     ],
-    "t_statistic": 0.12232504394060383,
-    "p_value": 0.9041648674873556,
-    "effect_size_cohens_d": 0.05802386305987303,
+    "t_statistic": 0.12616089114446055,
+    "p_value": 0.9011763218238061,
+    "effect_size_cohens_d": 0.05984336514795936,
     "trending_mean": 0.1936248449406344,
     "trending_ci_lower": 0.015993265993265993,
     "trending_ci_upper": 0.4391109560517454,
-    "choppy_mean": 0.17926747881925714,
-    "choppy_ci_lower": 0.11191681131742039,
-    "choppy_ci_upper": 0.23840004248333807,
+    "choppy_mean": 0.17881694441477622,
+    "choppy_ci_lower": 0.11138969557644643,
+    "choppy_ci_upper": 0.23817758867290417,
     "n_bootstrap_samples": 1000,
     "block_size_bars": 20
   },
@@ -92,16 +92,16 @@
     {
       "gate_name": "cohens_d",
       "passed": false,
-      "value": 0.05802386305987303,
+      "value": 0.05984336514795936,
       "threshold": 0.8,
-      "message": "Cohen's d: 0.058"
+      "message": "Cohen's d: 0.060"
     },
     {
       "gate_name": "p_value",
       "passed": false,
-      "value": 0.9041648674873556,
+      "value": 0.9011763218238061,
       "threshold": 0.01,
-      "message": "p-value: 0.9042"
+      "message": "p-value: 0.9012"
     },
     {
       "gate_name": "trending_ci_lower",
@@ -113,7 +113,7 @@
     {
       "gate_name": "choppy_ci_upper",
       "passed": true,
-      "value": 0.23840004248333807,
+      "value": 0.23817758867290417,
       "threshold": 0.25,
       "message": "Choppy CI upper: 0.238"
     }

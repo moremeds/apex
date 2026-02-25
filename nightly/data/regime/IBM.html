@@ -26,13 +26,13 @@
             <div style="display: flex; align-items: center; gap: 20px;">
                 <div style="text-align: center;">
                     <div style="font-size: 32px; font-weight: 700; color: #ef4444; line-height: 1;">
-                        0
+                        1
                     </div>
                     <div style="font-size: 11px; color: #94a3b8;">score</div>
                 </div>
                 
                 <div style="font-size: 12px; color: #94a3b8; text-align: right;">
-                    2026-02-22 19:00 EST
+                    2026-02-23 19:00 EST
                 </div>
             </div>
         </div>
@@ -71,7 +71,7 @@
         ">
             <div style="text-align: center;">
                 <div style="font-size: 48px; font-weight: 700; color: #ef4444; line-height: 1;">
-                    0
+                    1
                 </div>
                 <div style="font-size: 14px; color: #94a3b8; margin-top: 4px;">out of 100</div>
             </div>
@@ -101,7 +101,7 @@
         <!-- R0 zone (70-100) -->
         <div style="position: absolute; left: 70%; top: 0; width: 30%; height: 100%; background: rgba(16, 185, 129, 0.3);"></div>
         <!-- Score marker -->
-        <div style="position: absolute; left: 0%; top: 0; transform: translateX(-50%); width: 4px; height: 100%; background: #ef4444; box-shadow: 0 0 8px #ef4444;"></div>
+        <div style="position: absolute; left: 1.2419354838709673%; top: 0; transform: translateX(-50%); width: 4px; height: 100%; background: #ef4444; box-shadow: 0 0 8px #ef4444;"></div>
         <!-- Zone labels -->
         <div style="position: absolute; left: 15%; top: 50%; transform: translate(-50%, -50%); font-size: 10px; color: #94a3b8;">R2</div>
         <div style="position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font-size: 10px; color: #94a3b8;">R1</div>
@@ -112,6 +112,222 @@
 
         <!-- Component breakdown -->
         
+    <div class="component-breakdown" style="
+        margin-top: 16px;
+        padding: 16px;
+        background: #1e293b;
+        border: 1px solid #334155;
+        border-radius: 8px;
+        color: #e2e8f0;
+    ">
+        <div style="font-weight: 600; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
+            <span>Component Scores</span>
+            <span style="font-size: 12px; color: #94a3b8;">Percentile Rank (0-100)</span>
+        </div>
+        <div class="component-header" style="
+            display: grid;
+            grid-template-columns: 120px 80px 60px 80px 1fr;
+            gap: 12px;
+            font-size: 11px;
+            color: #94a3b8;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #334155;
+        ">
+            <div>Factor</div>
+            <div style="text-align: center;">Score</div>
+            <div style="text-align: center;">Weight</div>
+            <div style="text-align: center;">Contrib</div>
+            <div>Distribution</div>
+        </div>
+        
+        <div class="component-row" style="
+            display: grid;
+            grid-template-columns: 120px 80px 60px 80px 1fr;
+            gap: 12px;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid #334155;
+        ">
+            <div style="display: flex; align-items: center; gap: 6px;">
+                <span>📈</span>
+                <span style="font-weight: 500;">Trend (Long)</span>
+            </div>
+            <div style="text-align: center; color: #ef4444; font-weight: 600;">
+                0
+            </div>
+            <div style="text-align: center; color: #94a3b8;">
+                ×13%
+            </div>
+            <div style="text-align: center; font-weight: 500;">
+                +0.0
+            </div>
+            <div style="position: relative; height: 8px; background: #334155; border-radius: 4px; overflow: hidden;">
+                <div style="
+                    position: absolute;
+                    left: 0;
+                    top: 0;
+                    height: 100%;
+                    width: 0%;
+                    background: #ef4444;
+                    border-radius: 4px;
+                    transition: width 0.3s;
+                "></div>
+            </div>
+        </div>
+        
+        <div class="component-row" style="
+            display: grid;
+            grid-template-columns: 120px 80px 60px 80px 1fr;
+            gap: 12px;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid #334155;
+        ">
+            <div style="display: flex; align-items: center; gap: 6px;">
+                <span>🔥</span>
+                <span style="font-weight: 500;">Trend (Short)</span>
+            </div>
+            <div style="text-align: center; color: #ef4444; font-weight: 600;">
+                0
+            </div>
+            <div style="text-align: center; color: #94a3b8;">
+                ×10%
+            </div>
+            <div style="text-align: center; font-weight: 500;">
+                +0.0
+            </div>
+            <div style="position: relative; height: 8px; background: #334155; border-radius: 4px; overflow: hidden;">
+                <div style="
+                    position: absolute;
+                    left: 0;
+                    top: 0;
+                    height: 100%;
+                    width: 0%;
+                    background: #ef4444;
+                    border-radius: 4px;
+                    transition: width 0.3s;
+                "></div>
+            </div>
+        </div>
+        
+        <div class="component-row" style="
+            display: grid;
+            grid-template-columns: 120px 80px 60px 80px 1fr;
+            gap: 12px;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid #334155;
+        ">
+            <div style="display: flex; align-items: center; gap: 6px;">
+                <span>💪</span>
+                <span style="font-weight: 500;">RSI Momentum</span>
+            </div>
+            <div style="text-align: center; color: #ef4444; font-weight: 600;">
+                2
+            </div>
+            <div style="text-align: center; color: #94a3b8;">
+                ×35%
+            </div>
+            <div style="text-align: center; font-weight: 500;">
+                +0.6
+            </div>
+            <div style="position: relative; height: 8px; background: #334155; border-radius: 4px; overflow: hidden;">
+                <div style="
+                    position: absolute;
+                    left: 0;
+                    top: 0;
+                    height: 100%;
+                    width: 1.6129032258064515%;
+                    background: #ef4444;
+                    border-radius: 4px;
+                    transition: width 0.3s;
+                "></div>
+            </div>
+        </div>
+        
+        <div class="component-row" style="
+            display: grid;
+            grid-template-columns: 120px 80px 60px 80px 1fr;
+            gap: 12px;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid #334155;
+        ">
+            <div style="display: flex; align-items: center; gap: 6px;">
+                <span>📊</span>
+                <span style="font-weight: 500;">Volatility</span>
+            </div>
+            <div style="text-align: center; color: #ef4444; font-weight: 600;">
+                98 → 2
+            </div>
+            <div style="text-align: center; color: #94a3b8;">
+                ×22%
+            </div>
+            <div style="text-align: center; font-weight: 500;">
+                +0.4
+            </div>
+            <div style="position: relative; height: 8px; background: #334155; border-radius: 4px; overflow: hidden;">
+                <div style="
+                    position: absolute;
+                    left: 0;
+                    top: 0;
+                    height: 100%;
+                    width: 98.38709677419355%;
+                    background: #ef4444;
+                    border-radius: 4px;
+                    transition: width 0.3s;
+                "></div>
+            </div>
+        </div>
+        
+        <div class="component-row" style="
+            display: grid;
+            grid-template-columns: 120px 80px 60px 80px 1fr;
+            gap: 12px;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid #334155;
+        ">
+            <div style="display: flex; align-items: center; gap: 6px;">
+                <span>🌐</span>
+                <span style="font-weight: 500;">Breadth</span>
+            </div>
+            <div style="text-align: center; color: #ef4444; font-weight: 600;">
+                2
+            </div>
+            <div style="text-align: center; color: #94a3b8;">
+                ×20%
+            </div>
+            <div style="text-align: center; font-weight: 500;">
+                +0.3
+            </div>
+            <div style="position: relative; height: 8px; background: #334155; border-radius: 4px; overflow: hidden;">
+                <div style="
+                    position: absolute;
+                    left: 0;
+                    top: 0;
+                    height: 100%;
+                    width: 1.6129032258064515%;
+                    background: #ef4444;
+                    border-radius: 4px;
+                    transition: width 0.3s;
+                "></div>
+            </div>
+        </div>
+        
+        
+    <div style="margin-top: 12px; padding: 10px; background: #334155; border-radius: 6px;">
+        <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">COMPOSITE FORMULA</div>
+        <code style="font-size: 10px; color: #e2e8f0;">
+            Score = 0.13×Trend + 0.10×TrendShort + 0.35×RSI + 0.22×(1-Vol) + 0.20×Breadth
+        </code>
+        <div style="font-size: 11px; color: #94a3b8; margin-top: 8px;">
+            • Score ≥70 → R0 (Healthy) | Score 30-70 → R1 (Choppy) | Score ≤30 → R2 (Risk-Off)
+        </div>
+    </div>
+    
+    </div>
+    
     </div>
     
     <div class="report-section " id="components-section">
@@ -232,14 +448,14 @@
                 <span>🚀</span>
                 <span style="font-weight: 500; font-size: 13px; color: #e2e8f0;">Momentum</span>
             </div>
-            <div style="text-align: center; color: #d82626; font-weight: 600; font-size: 14px;">
-                0
+            <div style="text-align: center; color: #d82a26; font-weight: 600; font-size: 14px;">
+                2
             </div>
             <div style="text-align: center; color: #94a3b8; font-size: 12px;">
                 ×35%
             </div>
             <div style="text-align: center; font-weight: 500; font-size: 13px; color: #e2e8f0;">
-                +0.0
+                +0.6
             </div>
             <div style="position: relative; height: 8px; background: #334155; border-radius: 4px; overflow: hidden;">
                 <div style="
@@ -247,8 +463,8 @@
                     left: 0;
                     top: 0;
                     height: 100%;
-                    width: 0%;
-                    background: #d82626;
+                    width: 1.6129032258064515%;
+                    background: #d82a26;
                     border-radius: 4px;
                 "></div>
             </div>
@@ -266,14 +482,14 @@
                 <span>📉</span>
                 <span style="font-weight: 500; font-size: 13px; color: #e2e8f0;">Volatility</span>
             </div>
-            <div style="text-align: center; color: #26d826; font-weight: 600; font-size: 14px;">
-                100
+            <div style="text-align: center; color: #d82a26; font-weight: 600; font-size: 14px;">
+                2
             </div>
             <div style="text-align: center; color: #94a3b8; font-size: 12px;">
                 ×22%
             </div>
             <div style="text-align: center; font-weight: 500; font-size: 13px; color: #e2e8f0;">
-                +22.0
+                +0.4
             </div>
             <div style="position: relative; height: 8px; background: #334155; border-radius: 4px; overflow: hidden;">
                 <div style="
@@ -281,8 +497,8 @@
                     left: 0;
                     top: 0;
                     height: 100%;
-                    width: 100%;
-                    background: #26d826;
+                    width: 1.6129032258064502%;
+                    background: #d82a26;
                     border-radius: 4px;
                 "></div>
             </div>
@@ -300,14 +516,14 @@
                 <span>🌐</span>
                 <span style="font-weight: 500; font-size: 13px; color: #e2e8f0;">Breadth</span>
             </div>
-            <div style="text-align: center; color: #d82626; font-weight: 600; font-size: 14px;">
-                0
+            <div style="text-align: center; color: #d82a26; font-weight: 600; font-size: 14px;">
+                2
             </div>
             <div style="text-align: center; color: #94a3b8; font-size: 12px;">
                 ×20%
             </div>
             <div style="text-align: center; font-weight: 500; font-size: 13px; color: #e2e8f0;">
-                +0.0
+                +0.3
             </div>
             <div style="position: relative; height: 8px; background: #334155; border-radius: 4px; overflow: hidden;">
                 <div style="
@@ -315,8 +531,8 @@
                     left: 0;
                     top: 0;
                     height: 100%;
-                    width: 0%;
-                    background: #d82626;
+                    width: 1.6129032258064515%;
+                    background: #d82a26;
                     border-radius: 4px;
                 "></div>
             </div>
@@ -334,8 +550,8 @@
             <div style="font-weight: 600; font-size: 14px; color: #e2e8f0;">
                 Composite Score
             </div>
-            <div style="text-align: center; color: #d82626; font-weight: 700; font-size: 16px;">
-                0
+            <div style="text-align: center; color: #d82926; font-weight: 700; font-size: 16px;">
+                1
             </div>
             <div style="text-align: center; color: #94a3b8; font-size: 12px;">
                 =
@@ -349,8 +565,8 @@
                     left: 0;
                     top: 0;
                     height: 100%;
-                    width: 0%;
-                    background: #d82626;
+                    width: 1.2419354838709673%;
+                    background: #d82926;
                     border-radius: 5px;
                 "></div>
             </div>
@@ -400,7 +616,7 @@
         </div>
         <div style="font-size: 11px; color: #94a3b8;">
             <div>
-                <strong style="color: #e2e8f0;">RSI (0)</strong><br>
+                <strong style="color: #e2e8f0;">RSI (2)</strong><br>
                 <code style="font-size: 10px;">RSI(14)</code> → pctl (63d)
             </div>
         </div>
@@ -418,12 +634,12 @@
         </div>
         <div style="font-size: 11px; color: #94a3b8;">
             <div style="margin-bottom: 6px;">
-                <strong style="color: #e2e8f0;">Score: 100</strong><br>
+                <strong style="color: #e2e8f0;">Score: 2</strong><br>
                 <code style="font-size: 10px;">1 - pctl(ATR14/price)</code>
             </div>
             <div style="margin-bottom: 6px;">
-                Raw ATR pctl: 0<br>
-                Inverted: 100
+                Raw ATR pctl: 98<br>
+                Inverted: 2
             </div>
             <div style="font-size: 10px; font-style: italic;">
                 High vol → lower score
@@ -443,7 +659,7 @@
         </div>
         <div style="font-size: 11px; color: #94a3b8;">
             <div style="margin-bottom: 6px;">
-                <strong style="color: #e2e8f0;">Score: 0</strong><br>
+                <strong style="color: #e2e8f0;">Score: 2</strong><br>
                 <code style="font-size: 10px;">pctl(ret20d - SPY)</code>
             </div>
             <div style="margin-bottom: 6px;">
@@ -487,7 +703,7 @@
             <div class="tp-meta-row">
                 <span class="label">Model:</span>
                 <span class="tp-version">turning_point@1.0</span>
-                <span class="tp-inference fast">(0.46ms)</span>
+                <span class="tp-inference slow">(8.47ms)</span>
             </div>
         </div>
 
@@ -503,18 +719,18 @@
             <div class="feature-list">
         
                 <div class="feature-item">
-                    <span class="feature-name">atr_pct_63</span>
-                    <span class="feature-contrib" style="color: #dc2626">-34.549</span>
+                    <span class="feature-name">rsi_14</span>
+                    <span class="feature-contrib" style="color: #16a34a">+33.821</span>
                 </div>
             
                 <div class="feature-item">
-                    <span class="feature-name">rsi_14</span>
-                    <span class="feature-contrib" style="color: #16a34a">+34.034</span>
+                    <span class="feature-name">atr_pct_63</span>
+                    <span class="feature-contrib" style="color: #dc2626">-32.115</span>
                 </div>
             
                 <div class="feature-item">
                     <span class="feature-name">price_vs_ma50</span>
-                    <span class="feature-contrib" style="color: #16a34a">+23.382</span>
+                    <span class="feature-contrib" style="color: #16a34a">+19.281</span>
                 </div>
             </div></div>
         
