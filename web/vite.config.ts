@@ -10,6 +10,18 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          plotly: ["plotly.js", "react-plotly.js"],
+          charts: ["lightweight-charts"],
+          vendor: ["react", "react-dom", "react-router-dom"],
+          tanstack: ["@tanstack/react-query", "@tanstack/react-table"],
+        },
+      },
+    },
+  },
   server: {
     proxy: {
       "/api": "http://localhost:8080",
