@@ -10,6 +10,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from src.server.routes.monitor import create_monitor_router
+from src.server.routes.screeners import create_screeners_router
+from src.server.routes.symbols import create_symbols_router
 from src.server.routes.ws import create_ws_router
 from src.server.ws_hub import WebSocketHub
 
@@ -42,8 +45,11 @@ def create_app() -> FastAPI:
             "ws_clients": hub.client_count,
         }
 
-    # WebSocket route
+    # Routes — adapters/pipeline/r2 wired in Task 2.8 (startup orchestration)
     app.include_router(create_ws_router(hub))
+    app.include_router(create_symbols_router())
+    app.include_router(create_screeners_router())
+    app.include_router(create_monitor_router(hub=hub))
 
     # Static file mount for production (web/dist/) — must be LAST
     dist_path = Path("web/dist")
