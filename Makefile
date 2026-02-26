@@ -678,8 +678,10 @@ live:   ## Start full live dashboard (backend :8080 + frontend :5174)
 	@echo "  Frontend: http://localhost:5174"
 	@echo "  Press Ctrl+C to stop both"
 	@echo ""
-	@# Kill stale processes on port 8080 if any
+	@# Kill stale processes on ports 8080/5174 if any
 	@lsof -ti:8080 | xargs kill -9 2>/dev/null || true
+	@lsof -ti:5174 | xargs kill -9 2>/dev/null || true
+	@sleep 1
 	@# Ensure web dependencies are installed
 	@if [ ! -d web/node_modules ]; then \
 		echo "Installing web dependencies..." && \
@@ -687,14 +689,20 @@ live:   ## Start full live dashboard (backend :8080 + frontend :5174)
 	fi
 	@trap 'kill 0' EXIT; \
 		PYTHONPATH=. $(PYTHON) -m uvicorn src.server.main:app --port 8080 & \
-		echo "Waiting for backend to be ready..." && \
-		for i in $$(seq 1 30); do \
+		echo "Waiting for backend to be ready (up to 45s)..." && \
+		READY=0 && \
+		for i in $$(seq 1 45); do \
 			if curl -sf http://localhost:8080/api/health > /dev/null 2>&1; then \
-				echo "Backend ready!"; \
+				echo "Backend ready! ($$i s)"; \
+				READY=1; \
 				break; \
 			fi; \
 			sleep 1; \
 		done && \
+		if [ "$$READY" = "0" ]; then \
+			echo "$(YELLOW)ERROR: Backend failed to start within 45s$(RESET)"; \
+			exit 1; \
+		fi && \
 		cd web && npm run dev -- --port 5174
 
 server-dev:   ## Start backend only (dev mode, auto-reload, :8080)
