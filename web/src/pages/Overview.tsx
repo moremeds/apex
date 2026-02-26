@@ -2,7 +2,7 @@ import { useMemo, useState, useCallback } from "react"
 import { useNavigate } from "react-router-dom"
 import type Plotly from "plotly.js"
 import Plot from "react-plotly.js"
-import { useSymbols, useSummary, useScoreHistory } from "@/lib/api"
+import { useSymbols, useSummary, useScoreHistory, useUniverse } from "@/lib/api"
 import { useMarketStore } from "@/stores/market"
 
 // ── ETF Configuration (mirrors static dashboard model.py) ────────────────────
@@ -114,6 +114,7 @@ export function Overview() {
   const { data: symbolsData } = useSymbols()
   const { data: summaryRaw } = useSummary()
   const { data: scoreHistoryRaw } = useScoreHistory()
+  const { data: universeRaw } = useUniverse()
   const quotes = useMarketStore((s) => s.quotes)
   const signals = useMarketStore((s) => s.signals)
 
@@ -128,13 +129,32 @@ export function Overview() {
     regime_counts?: Record<string, number>
   } | undefined
 
+  // Parse universe for sector + market cap enrichment
+  const universeMap = useMemo(() => {
+    const map: Record<string, { sector?: string; marketCap?: number }> = {}
+    const udata = universeRaw as {
+      tickers?: { symbol: string; sector?: string; marketCap?: number }[]
+    } | undefined
+    for (const t of udata?.tickers ?? []) {
+      map[t.symbol] = { sector: t.sector, marketCap: t.marketCap }
+    }
+    return map
+  }, [universeRaw])
+
+  // Build tickerMap from summary, enriched with universe sector + market cap
   const tickerMap = useMemo(() => {
     const map: Record<string, TickerData> = {}
     for (const t of summary?.tickers ?? []) {
-      if (t.symbol) map[t.symbol] = t
+      if (!t.symbol) continue
+      const uni = universeMap[t.symbol]
+      map[t.symbol] = {
+        ...t,
+        sector: t.sector ?? uni?.sector,
+        market_cap: t.market_cap ?? uni?.marketCap,
+      }
     }
     return map
-  }, [summary])
+  }, [summary, universeMap])
 
   // Parse score history for sparklines
   const sparklines = useMemo(() => {
@@ -197,11 +217,11 @@ export function Overview() {
   const treemapData = useMemo(() => {
     if (treemapSymbols.length === 0) return null
 
-    const labels: string[] = ["Universe"]
-    const parents: string[] = [""]
-    const values: number[] = [0]
-    const colors: string[] = [""]
-    const texts: string[] = [""]
+    const labels: string[] = []
+    const parents: string[] = []
+    const values: number[] = []
+    const colors: string[] = []
+    const texts: string[] = []
 
     // Group by sector
     const sectors = new Map<string, string[]>()
@@ -211,13 +231,12 @@ export function Overview() {
       sectors.get(sector)!.push(sym)
     }
 
-    for (const [sector, syms] of sectors) {
-      labels.push(sector)
-      parents.push("Universe")
-      values.push(0)
-      colors.push("")
-      texts.push("")
+    // Build stock entries first (to compute sector totals for branchvalues="total")
+    const sectorTotals = new Map<string, number>()
+    const stockEntries: { sym: string; sector: string; size: number; color: string; text: string }[] = []
 
+    for (const [sector, syms] of sectors) {
+      let sectorTotal = 0
       for (const sym of syms) {
         const td = tickerMap[sym]
         const price = getPrice(sym) ?? 1
@@ -234,12 +253,37 @@ export function Overview() {
         else if (colorBy === "daily_change") color = getDailyChangeColor(td?.daily_change_pct ?? null)
         else color = getAlignmentColor(td?.alignment_score ?? null)
 
-        labels.push(sym)
-        parents.push(sector)
-        values.push(size)
-        colors.push(color)
-        texts.push(`${sym}<br>$${price.toFixed(2)}<br>${td?.daily_change_pct != null ? `${td.daily_change_pct >= 0 ? "+" : ""}${td.daily_change_pct.toFixed(2)}%` : ""}`)
+        const text = `${sym}<br>$${price.toFixed(2)}<br>${td?.daily_change_pct != null ? `${td.daily_change_pct >= 0 ? "+" : ""}${td.daily_change_pct.toFixed(2)}%` : ""}`
+        stockEntries.push({ sym, sector, size, color, text })
+        sectorTotal += size
       }
+      sectorTotals.set(sector, sectorTotal)
+    }
+
+    // Root node (value = sum of all sectors)
+    const rootTotal = Array.from(sectorTotals.values()).reduce((a, b) => a + b, 0)
+    labels.push("Universe")
+    parents.push("")
+    values.push(rootTotal)
+    colors.push("")
+    texts.push("")
+
+    // Sector nodes (value = sum of their stocks)
+    for (const [sector] of sectors) {
+      labels.push(sector)
+      parents.push("Universe")
+      values.push(sectorTotals.get(sector)!)
+      colors.push("")
+      texts.push("")
+    }
+
+    // Stock leaf nodes
+    for (const entry of stockEntries) {
+      labels.push(entry.sym)
+      parents.push(entry.sector)
+      values.push(entry.size)
+      colors.push(entry.color)
+      texts.push(entry.text)
     }
 
     return { labels, parents, values, colors, texts }
@@ -375,7 +419,7 @@ export function Overview() {
                     colors: treemapData.colors,
                     line: { color: "#0d1520", width: 1.5 },
                   },
-                  branchvalues: "remainder" as const,
+                  branchvalues: "total" as const,
                   textfont: { color: "#c0cad8", size: 12 },
                   pathbar: { visible: false },
                 } as unknown as Plotly.Data,
