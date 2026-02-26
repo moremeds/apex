@@ -55,6 +55,12 @@ def _fetch_static_sync(filename: str) -> Any | None:
 class _CachedProxy:
     """TTL cache with R2 primary + GitHub Pages fallback."""
 
+    # R2 stores these files under meta/ prefix; GitHub Pages uses bare filenames
+    _R2_KEY_MAP: dict[str, str] = {
+        "universe.json": "meta/universe.json",
+        "data_quality.json": "meta/data_quality.json",
+    }
+
     def __init__(self, r2_client: Any, ttl_sec: int = 300):
         self._r2 = r2_client
         self._ttl = ttl_sec
@@ -91,11 +97,12 @@ class _CachedProxy:
             if now < expires_at:
                 return data
 
-        # 2. R2
+        # 2. R2 (some files live under meta/ prefix in R2)
         r2 = r2_override or self._r2
+        r2_key = self._R2_KEY_MAP.get(key, key)
         if r2 is not None:
             try:
-                data = r2.get_json(key)
+                data = r2.get_json(r2_key)
                 if data is not None:
                     self._cache[key] = (now + self._ttl, data)
                     return data

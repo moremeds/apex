@@ -70,15 +70,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     lb_enabled = config.providers.get("longbridge")
     has_lb_creds = bool(os.environ.get("LONGPORT_APP_KEY"))
 
-    # ── R2 client (optional — only if credentials available) ──
-    has_r2_creds = bool(os.environ.get("R2_ACCESS_KEY_ID"))
-    if has_r2_creds:
-        try:
-            from src.infrastructure.adapters.r2.client import R2Client
-            r2_client = R2Client()
-            logger.info("R2 client initialized")
-        except Exception:
-            logger.exception("Failed to initialize R2 client")
+    # ── R2 client (optional — tries env vars then config/secrets.yaml) ──
+    try:
+        from src.infrastructure.adapters.r2.client import R2Client
+        r2_client = R2Client()
+        logger.info("R2 client initialized")
+    except (ValueError, ImportError):
+        logger.info("R2 client not available (no credentials)")
+    except Exception:
+        logger.exception("Failed to initialize R2 client")
 
     # ── Longbridge connection (deferred — SDK takes ~13s to connect) ──
     async def _connect_longbridge():

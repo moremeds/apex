@@ -109,10 +109,10 @@ def create_monitor_router(
         r2 = _get_r2_client(request)
         data = None
 
-        # Try R2 first
+        # Try R2 first (stored under meta/ prefix)
         if r2 is not None:
             try:
-                data = r2.get_json("data_quality.json")
+                data = r2.get_json("meta/data_quality.json")
             except Exception as e:
                 logger.error("R2 fetch data_quality.json failed: %s", e)
 
