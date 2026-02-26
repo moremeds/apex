@@ -1,7 +1,7 @@
 {
   "version": "m2_v2.0",
   "mode": "holdout",
-  "generated_at": "2026-02-25T04:53:37.707212+00:00",
+  "generated_at": "2026-02-26T04:51:37.908716+00:00",
   "holdout_symbols": [
     "IWM",
     "DIA",
@@ -10,7 +10,7 @@
     "XLE"
   ],
   "n_symbols": 5,
-  "trending_r0_rate": 0.07692307692307693,
+  "trending_r0_rate": 0.08148148148148147,
   "choppy_r0_rate": 0.01951219512195122,
   "causality_passed": false
 }
