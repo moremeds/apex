@@ -71,6 +71,13 @@ dev = [
 
 ]
 
+server = [
+    "fastapi>=0.115.0",        # Async web framework for live dashboard
+    "uvicorn[standard]>=0.34.0",  # ASGI server with websocket support
+    "longport>=1.0.0",         # Longbridge SDK for real-time market data
+    "websockets>=14.0",        # WebSocket library (uvicorn[standard] dep)
+]
+
 cloudflare = [
     "boto3>=1.35",             # S3-compatible client for Cloudflare R2
 ]

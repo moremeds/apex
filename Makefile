@@ -1,7 +1,7 @@
 # APEX Development Makefile
 # Quick commands for common development tasks
 
-.PHONY: install run run-dev run-prod run-demo run-headless lint format type-check dead-code complexity quality test test-all coverage clean help validate-fast validate signals-test dashboard-test dashboard-data dashboard-data-ready dashboard-signal dashboard-signal-qa dashboard-web-dev dashboard-web-preview-deploy signals signals-deploy strategy-compare strategy-verify strategy-compare-quick behavioral behavioral-full behavioral-cases pead pead-test pead-screen r2-universe r2-backfill r2-backfill-test r2-delta r2-validate
+.PHONY: install run run-dev run-prod run-demo run-headless lint format type-check dead-code complexity quality test test-all coverage clean help validate-fast validate signals-test dashboard-test dashboard-data dashboard-data-ready dashboard-signal dashboard-signal-qa dashboard-web-dev dashboard-web-preview-deploy signals signals-deploy strategy-compare strategy-verify strategy-compare-quick behavioral behavioral-full behavioral-cases pead pead-test pead-screen r2-universe r2-backfill r2-backfill-test r2-delta r2-validate server-dev server web-dev web-build tunnel
 
 # Virtual environment - use .venv/bin executables directly
 VENV := .venv/bin
@@ -94,6 +94,13 @@ help:
 	@echo "  make r2-backfill-test  Quick test (5 symbols)"
 	@echo "  make r2-delta          Incremental delta update"
 	@echo "  make r2-validate       Generate data_quality.json only"
+	@echo ""
+	@echo "$(GREEN)Live Dashboard:$(RESET)"
+	@echo "  make server-dev        Start FastAPI server (dev, auto-reload, :8080)"
+	@echo "  make server            Start FastAPI server (production, :8080)"
+	@echo "  make web-dev           Start React dev server (:5173)"
+	@echo "  make web-build         Build React frontend for production"
+	@echo "  make tunnel            Start Cloudflare Tunnel"
 	@echo ""
 	@echo "$(GREEN)Other:$(RESET)"
 	@echo "  make clean          Remove build artifacts"
@@ -615,7 +622,7 @@ dashboard-dev: dashboard-build   ## Build + serve locally (:8801)
 dashboard-deploy: dashboard-build   ## Build + deploy to Cloudflare Pages
 	npx wrangler@3 pages deploy out/site/ --project-name apex-dashboard
 
-.PHONY: dashboard-build dashboard-dev dashboard-deploy dashboard-data dashboard-web-dev dashboard-web-preview-deploy
+.PHONY: dashboard-build dashboard-dev dashboard-deploy dashboard-data dashboard-web-dev dashboard-web-preview-deploy live
 
 # ═══════════════════════════════════════════════════════════════
 # R2 Data Pipeline
@@ -660,3 +667,43 @@ clean:
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 	find . -type f -name "*.pyc" -delete 2>/dev/null || true
 	@echo "$(GREEN)✓ Cleanup complete$(RESET)"
+
+# ── Live Dashboard ──────────────────────────────────────────
+
+live:   ## Start full live dashboard (backend :8080 + frontend :5174)
+	@echo "$(BOLD)Starting APEX Live Dashboard...$(RESET)"
+	@echo "  Backend:  http://localhost:8080"
+	@echo "  Frontend: http://localhost:5174"
+	@echo "  Press Ctrl+C to stop both"
+	@echo ""
+	@trap 'kill 0' EXIT; \
+		PYTHONPATH=. $(PYTHON) -m uvicorn src.server.main:app --port 8080 & \
+		echo "Waiting for backend to be ready..." && \
+		for i in $$(seq 1 30); do \
+			if curl -sf http://localhost:8080/api/health > /dev/null 2>&1; then \
+				echo "Backend ready!"; \
+				break; \
+			fi; \
+			sleep 1; \
+		done && \
+		cd web && npx vite --port 5174
+
+server-dev:   ## Start backend only (dev mode, auto-reload, :8080)
+	@echo "$(BOLD)Starting APEX server (dev mode, auto-reload)...$(RESET)"
+	PYTHONPATH=. $(PYTHON) -m uvicorn src.server.main:app --reload --port 8080
+
+server:   ## Start backend only (production, :8080)
+	@echo "$(BOLD)Starting APEX server (production)...$(RESET)"
+	PYTHONPATH=. $(PYTHON) -m uvicorn src.server.main:app --port 8080
+
+web-dev:   ## Start frontend only (dev mode, :5174)
+	@echo "$(BOLD)Starting frontend dev server...$(RESET)"
+	cd web && npm run dev
+
+web-build:   ## Build frontend for production
+	@echo "$(BOLD)Building frontend for production...$(RESET)"
+	cd web && npm run build
+
+tunnel:   ## Start Cloudflare Tunnel
+	@echo "$(BOLD)Starting Cloudflare Tunnel...$(RESET)"
+	cloudflared tunnel run apex
