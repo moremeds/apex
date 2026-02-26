@@ -1,7 +1,7 @@
 # APEX Development Makefile
 # Quick commands for common development tasks
 
-.PHONY: install run run-dev run-prod run-demo run-headless lint format type-check dead-code complexity quality test test-all coverage clean help validate-fast validate signals-test dashboard-test dashboard-data dashboard-data-ready dashboard-signal dashboard-signal-qa dashboard-web-dev dashboard-web-preview-deploy signals signals-deploy strategy-compare strategy-verify strategy-compare-quick behavioral behavioral-full behavioral-cases pead pead-test pead-screen r2-universe r2-backfill r2-backfill-test r2-delta r2-validate server-dev server web-dev web-build tunnel
+.PHONY: install run run-dev run-prod run-demo run-headless lint format type-check dead-code complexity quality test test-all coverage clean help validate-fast validate signals-test dashboard-test dashboard-data dashboard-data-ready dashboard-signal dashboard-signal-qa dashboard-web-dev dashboard-web-preview-deploy signals signals-deploy strategy-compare strategy-verify strategy-compare-quick behavioral behavioral-full behavioral-cases pead pead-test pead-screen r2-universe r2-backfill r2-backfill-test r2-delta r2-validate server-dev server web-install web-dev web-build live tunnel
 
 # Virtual environment - use .venv/bin executables directly
 VENV := .venv/bin
@@ -112,7 +112,9 @@ help:
 install:
 	@echo "$(BOLD)Installing dependencies with uv...$(RESET)"
 	uv venv
-	. .venv/bin/activate && uv pip install -e ".[dev,observability]"
+	. .venv/bin/activate && uv pip install -e ".[dev,observability,server,cloudflare]"
+	@echo "$(BOLD)Installing web frontend dependencies...$(RESET)"
+	cd web && npm install
 	@echo "$(GREEN)✓ Installation complete. Run 'source .venv/bin/activate' to activate.$(RESET)"
 
 # ═══════════════════════════════════════════════════════════════
@@ -363,8 +365,8 @@ dashboard-data: dashboard-signal  ## Full data pipeline (signals + screeners + s
 		--json-output out/signals/data/strategies.json
 	@echo "$(GREEN)✓ Dashboard data ready$(RESET)"
 
-# Dashboard data-only pipeline: generate package inputs without serving/deploying
-dashboard-data:
+# Dashboard data-only pipeline: generate package inputs without serving/deploying (20 symbols)
+dashboard-data-quick:
 	@echo "$(BOLD)Dashboard data pipeline (20 symbols, no serve/deploy)...$(RESET)"
 	@echo ""
 	@echo "Step 1/4: Signal generation..."
@@ -676,6 +678,13 @@ live:   ## Start full live dashboard (backend :8080 + frontend :5174)
 	@echo "  Frontend: http://localhost:5174"
 	@echo "  Press Ctrl+C to stop both"
 	@echo ""
+	@# Kill stale processes on port 8080 if any
+	@lsof -ti:8080 | xargs kill -9 2>/dev/null || true
+	@# Ensure web dependencies are installed
+	@if [ ! -d web/node_modules ]; then \
+		echo "Installing web dependencies..." && \
+		cd web && npm install; \
+	fi
 	@trap 'kill 0' EXIT; \
 		PYTHONPATH=. $(PYTHON) -m uvicorn src.server.main:app --port 8080 & \
 		echo "Waiting for backend to be ready..." && \
@@ -686,7 +695,7 @@ live:   ## Start full live dashboard (backend :8080 + frontend :5174)
 			fi; \
 			sleep 1; \
 		done && \
-		cd web && npx vite --port 5174
+		cd web && npm run dev -- --port 5174
 
 server-dev:   ## Start backend only (dev mode, auto-reload, :8080)
 	@echo "$(BOLD)Starting APEX server (dev mode, auto-reload)...$(RESET)"
@@ -696,12 +705,19 @@ server:   ## Start backend only (production, :8080)
 	@echo "$(BOLD)Starting APEX server (production)...$(RESET)"
 	PYTHONPATH=. $(PYTHON) -m uvicorn src.server.main:app --port 8080
 
+web-install:   ## Install web frontend dependencies
+	@echo "$(BOLD)Installing web frontend dependencies...$(RESET)"
+	cd web && npm install
+	@echo "$(GREEN)✓ Web dependencies installed$(RESET)"
+
 web-dev:   ## Start frontend only (dev mode, :5174)
 	@echo "$(BOLD)Starting frontend dev server...$(RESET)"
+	@if [ ! -d web/node_modules ]; then echo "Run 'make web-install' first" && exit 1; fi
 	cd web && npm run dev
 
 web-build:   ## Build frontend for production
 	@echo "$(BOLD)Building frontend for production...$(RESET)"
+	@if [ ! -d web/node_modules ]; then echo "Run 'make web-install' first" && exit 1; fi
 	cd web && npm run build
 
 tunnel:   ## Start Cloudflare Tunnel
