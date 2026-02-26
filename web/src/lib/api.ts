@@ -65,6 +65,12 @@ export const api = {
   backtest: () => fetchJson<Record<string, unknown>>("/api/backtest"),
   monitor: () => fetchJson<MonitorResponse>("/api/monitor"),
   dataQuality: () => fetchJson<Record<string, unknown>>("/api/monitor/data-quality"),
+  signalData: (symbol: string, tf = "1d") =>
+    fetchJson<Record<string, unknown>>(`/api/signal-data/${symbol}?tf=${tf}`),
+  summary: () => fetchJson<Record<string, unknown>>("/api/summary"),
+  scoreHistory: () => fetchJson<Record<string, unknown>>("/api/score-history"),
+  indicators: () => fetchJson<Record<string, unknown>>("/api/indicators"),
+  universe: () => fetchJson<Record<string, unknown>>("/api/universe"),
 }
 
 // ── Query hooks ────────────────────────────────────────
@@ -99,4 +105,29 @@ export function useDataQuality() {
     queryFn: api.dataQuality,
     staleTime: 5 * 60_000,
   })
+}
+
+export function useSignalData(symbol: string, tf = "1d") {
+  return useQuery({
+    queryKey: ["signal-data", symbol, tf],
+    queryFn: () => api.signalData(symbol, tf),
+    enabled: !!symbol,
+    staleTime: 5 * 60_000,
+  })
+}
+
+export function useSummary() {
+  return useQuery({ queryKey: ["summary"], queryFn: api.summary, staleTime: 5 * 60_000 })
+}
+
+export function useScoreHistory() {
+  return useQuery({ queryKey: ["score-history"], queryFn: api.scoreHistory, staleTime: 5 * 60_000 })
+}
+
+export function useIndicators() {
+  return useQuery({ queryKey: ["indicators"], queryFn: api.indicators, staleTime: 5 * 60_000 })
+}
+
+export function useUniverse() {
+  return useQuery({ queryKey: ["universe"], queryFn: api.universe, staleTime: 5 * 60_000 })
 }

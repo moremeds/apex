@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from "react"
+import { useEffect, useCallback } from "react"
 import { useMarketStore } from "@/stores/market"
 import type { WsCommand, WsMessage } from "@/lib/ws"
 
@@ -6,91 +6,94 @@ const WS_URL = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.h
 const RECONNECT_BASE_MS = 1000
 const RECONNECT_MAX_MS = 30_000
 
-export function useWebSocket() {
-  const wsRef = useRef<WebSocket | null>(null)
-  const reconnectTimer = useRef<ReturnType<typeof setTimeout>>()
-  const attemptRef = useRef(0)
+// Module-level singleton — only one WS connection regardless of how many
+// components call useWebSocket()
+let ws: WebSocket | null = null
+let reconnectTimer: ReturnType<typeof setTimeout> | undefined
+let attempt = 0
+let refCount = 0
 
-  const setWsStatus = useMarketStore((s) => s.setWsStatus)
-  const updateQuote = useMarketStore((s) => s.updateQuote)
-  const appendBar = useMarketStore((s) => s.appendBar)
-  const addSignal = useMarketStore((s) => s.addSignal)
-  const setProviders = useMarketStore((s) => s.setProviders)
+function doConnect() {
+  if (ws?.readyState === WebSocket.OPEN || ws?.readyState === WebSocket.CONNECTING) return
 
-  const dispatch = useCallback(
-    (msg: WsMessage) => {
+  const store = useMarketStore.getState()
+  store.setWsStatus("connecting")
+
+  const socket = new WebSocket(WS_URL)
+  ws = socket
+
+  socket.onopen = () => {
+    useMarketStore.getState().setWsStatus("connected")
+    attempt = 0
+  }
+
+  socket.onmessage = (event) => {
+    try {
+      const msg = JSON.parse(event.data) as WsMessage
+      const s = useMarketStore.getState()
       switch (msg.type) {
         case "quote":
-          updateQuote(msg.symbol, msg.data)
+          s.updateQuote(msg.symbol, msg.data)
           break
         case "bar":
-          appendBar(msg.symbol, msg.timeframe, msg.data)
+          s.appendBar(msg.symbol, msg.timeframe, msg.data)
+          break
+        case "indicator":
+          s.updateIndicator(msg.symbol, msg.timeframe, msg.name, msg.value)
           break
         case "signal":
-          addSignal(msg.data)
+          s.addSignal(msg.data)
           break
         case "status":
-          setProviders(msg.providers)
+          s.setProviders(msg.providers)
           break
       }
-    },
-    [updateQuote, appendBar, addSignal, setProviders],
-  )
-
-  const connect = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) return
-
-    setWsStatus("connecting")
-    const ws = new WebSocket(WS_URL)
-    wsRef.current = ws
-
-    ws.onopen = () => {
-      setWsStatus("connected")
-      attemptRef.current = 0
+    } catch {
+      // ignore malformed messages
     }
+  }
 
-    ws.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data) as WsMessage
-        dispatch(msg)
-      } catch {
-        // ignore malformed messages
-      }
+  socket.onclose = () => {
+    useMarketStore.getState().setWsStatus("disconnected")
+    ws = null
+    if (refCount > 0) {
+      const delay = Math.min(RECONNECT_BASE_MS * 2 ** attempt, RECONNECT_MAX_MS)
+      attempt++
+      reconnectTimer = setTimeout(doConnect, delay)
     }
+  }
 
-    ws.onclose = () => {
-      setWsStatus("disconnected")
-      wsRef.current = null
-      // Exponential backoff
-      const delay = Math.min(
-        RECONNECT_BASE_MS * 2 ** attemptRef.current,
-        RECONNECT_MAX_MS,
-      )
-      attemptRef.current++
-      reconnectTimer.current = setTimeout(connect, delay)
-    }
+  socket.onerror = () => {
+    socket.close()
+  }
+}
 
-    ws.onerror = () => {
-      ws.close()
-    }
-  }, [dispatch, setWsStatus])
+function doDisconnect() {
+  clearTimeout(reconnectTimer)
+  reconnectTimer = undefined
+  ws?.close()
+  ws = null
+}
 
-  const send = useCallback(
-    (cmd: WsCommand) => {
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify(cmd))
-      }
-    },
-    [],
-  )
-
+export function useWebSocket() {
   useEffect(() => {
-    connect()
-    return () => {
-      clearTimeout(reconnectTimer.current)
-      wsRef.current?.close()
+    refCount++
+    if (refCount === 1) {
+      doConnect()
     }
-  }, [connect])
+    return () => {
+      refCount--
+      if (refCount === 0) {
+        doDisconnect()
+      }
+    }
+  }, [])
+
+  const send = useCallback((cmd: WsCommand) => {
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(cmd))
+    }
+  }, [])
 
   return { send, status: useMarketStore((s) => s.wsStatus) }
 }

@@ -1,12 +1,14 @@
 import { NavLink, Outlet } from "react-router-dom"
 import { useMarketStore } from "@/stores/market"
+import { useWebSocket } from "@/hooks/useWebSocket"
 
 const navItems = [
   { to: "/", label: "Overview", end: true },
   { to: "/signals", label: "Signals" },
   { to: "/screeners", label: "Screeners" },
-  { to: "/backtest", label: "Backtest" },
+  { to: "/regime", label: "Regime" },
   { to: "/monitor", label: "Monitor" },
+  { to: "/backtest", label: "Backtest" },
 ]
 
 function WsIndicator() {
@@ -26,44 +28,49 @@ function WsIndicator() {
 }
 
 export function Layout() {
+  useWebSocket()
+
   return (
-    <div className="flex h-screen overflow-hidden">
-      {/* Sidebar */}
-      <aside className="flex w-48 flex-col border-r border-border bg-card">
-        <div className="border-b border-border px-4 py-3">
-          <h1 className="text-sm font-bold tracking-wider text-primary">
-            APEX
-          </h1>
-          <p className="text-[10px] text-muted-foreground">Live Dashboard</p>
-        </div>
+    <div className="flex min-h-screen flex-col">
+      {/* Top nav bar */}
+      <header className="fixed inset-x-0 top-0 z-50 border-b border-border bg-card">
+        <div className="flex h-12 items-center justify-between px-6">
+          {/* Left: brand + nav links */}
+          <div className="flex items-center gap-8">
+            <span className="text-sm font-bold tracking-wider text-primary">
+              APEX
+            </span>
 
-        <nav className="flex-1 space-y-0.5 px-2 py-2">
-          {navItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end}
-              className={({ isActive }) =>
-                `block rounded-md px-3 py-1.5 text-sm transition-colors ${
-                  isActive
-                    ? "bg-accent text-accent-foreground"
-                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-                }`
-              }
-            >
-              {item.label}
-            </NavLink>
-          ))}
-        </nav>
+            <nav className="flex items-center gap-1">
+              {navItems.map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  end={item.end}
+                  className={({ isActive }) =>
+                    `relative px-3 py-3 text-sm transition-colors ${
+                      isActive
+                        ? "text-foreground after:absolute after:inset-x-1 after:bottom-0 after:h-0.5 after:rounded-full after:bg-primary"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`
+                  }
+                >
+                  {item.label}
+                </NavLink>
+              ))}
+            </nav>
+          </div>
 
-        <div className="border-t border-border px-4 py-3">
+          {/* Right: WS status */}
           <WsIndicator />
         </div>
-      </aside>
+      </header>
 
       {/* Main content */}
-      <main className="flex-1 overflow-auto p-6">
-        <Outlet />
+      <main className="flex-1 pt-12">
+        <div className="p-6">
+          <Outlet />
+        </div>
       </main>
     </div>
   )

@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react"
+import { useState } from "react"
 import {
   useReactTable,
   getCoreRowModel,
@@ -11,7 +11,8 @@ import {
 
 interface DataTableProps<T> {
   data: T[]
-  columns: ColumnDef<T, unknown>[]
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  columns: ColumnDef<T, any>[]
   searchPlaceholder?: string
 }
 

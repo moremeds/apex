@@ -1,6 +1,8 @@
 import { useEffect, useRef } from "react"
 import {
   createChart,
+  CandlestickSeries,
+  HistogramSeries,
   type IChartApi,
   type ISeriesApi,
   type CandlestickData,
@@ -30,20 +32,20 @@ export function CandlestickChart({ bars, liveBars, height = 400 }: Props) {
 
     const chart = createChart(containerRef.current, {
       layout: {
-        background: { type: ColorType.Solid, color: "transparent" },
-        textColor: "#a3a3a3",
+        background: { type: ColorType.Solid, color: "#0d1520" },
+        textColor: "#8899aa",
       },
       grid: {
-        vertLines: { color: "rgba(255,255,255,0.03)" },
-        horzLines: { color: "rgba(255,255,255,0.03)" },
+        vertLines: { color: "rgba(100,140,180,0.06)" },
+        horzLines: { color: "rgba(100,140,180,0.06)" },
       },
       crosshair: { mode: CrosshairMode.Normal },
-      timeScale: { borderColor: "rgba(255,255,255,0.1)" },
-      rightPriceScale: { borderColor: "rgba(255,255,255,0.1)" },
+      timeScale: { borderColor: "rgba(100,140,180,0.15)" },
+      rightPriceScale: { borderColor: "rgba(100,140,180,0.15)" },
       height,
     })
 
-    const candleSeries = chart.addCandlestickSeries({
+    const candleSeries = chart.addSeries(CandlestickSeries, {
       upColor: "#22c55e",
       downColor: "#ef4444",
       borderUpColor: "#22c55e",
@@ -52,7 +54,7 @@ export function CandlestickChart({ bars, liveBars, height = 400 }: Props) {
       wickDownColor: "#ef4444",
     })
 
-    const volumeSeries = chart.addHistogramSeries({
+    const volumeSeries = chart.addSeries(HistogramSeries, {
       priceFormat: { type: "volume" },
       priceScaleId: "volume",
     })

@@ -10,8 +10,9 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncGenerator
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.server.config import load_server_config
@@ -215,10 +216,20 @@ def create_app(config_path: str = "config/server.yaml") -> FastAPI:
     app.include_router(create_screeners_router())
     app.include_router(create_monitor_router(hub=hub_placeholder))
 
-    # Static file mount for production (web/dist/) — must be LAST
+    # SPA catch-all: serve index.html for any non-API, non-WS GET request.
+    # This enables direct navigation to /signals, /monitor, etc.
     dist_path = Path("web/dist")
     if dist_path.is_dir():
-        app.mount("/", StaticFiles(directory=str(dist_path), html=True), name="static")
+        index_html = dist_path / "index.html"
+
+        @app.get("/{full_path:path}")
+        async def spa_catchall(request: Request, full_path: str):
+            # Serve actual static files (JS, CSS, images) if they exist
+            static_file = dist_path / full_path
+            if static_file.is_file() and not full_path.startswith("api/"):
+                return FileResponse(static_file)
+            # Otherwise serve index.html for client-side routing
+            return FileResponse(index_html)
 
     return app
 
@@ -250,10 +261,18 @@ def create_test_app() -> FastAPI:
     app.include_router(create_symbols_router())
     app.include_router(create_screeners_router())
     app.include_router(create_monitor_router(hub=hub))
+    app.include_router(create_data_proxy_router())
 
     dist_path = Path("web/dist")
     if dist_path.is_dir():
-        app.mount("/", StaticFiles(directory=str(dist_path), html=True), name="static")
+        index_html = dist_path / "index.html"
+
+        @app.get("/{full_path:path}")
+        async def spa_catchall_test(request: Request, full_path: str):
+            static_file = dist_path / full_path
+            if static_file.is_file() and not full_path.startswith("api/"):
+                return FileResponse(static_file)
+            return FileResponse(index_html)
 
     return app
 

@@ -622,7 +622,7 @@ dashboard-dev: dashboard-build   ## Build + serve locally (:8801)
 dashboard-deploy: dashboard-build   ## Build + deploy to Cloudflare Pages
 	npx wrangler@3 pages deploy out/site/ --project-name apex-dashboard
 
-.PHONY: dashboard-build dashboard-dev dashboard-deploy dashboard-data dashboard-web-dev dashboard-web-preview-deploy
+.PHONY: dashboard-build dashboard-dev dashboard-deploy dashboard-data dashboard-web-dev dashboard-web-preview-deploy live
 
 # ═══════════════════════════════════════════════════════════════
 # R2 Data Pipeline
@@ -670,22 +670,40 @@ clean:
 
 # ── Live Dashboard ──────────────────────────────────────────
 
-server-dev:
+live:   ## Start full live dashboard (backend :8080 + frontend :5174)
+	@echo "$(BOLD)Starting APEX Live Dashboard...$(RESET)"
+	@echo "  Backend:  http://localhost:8080"
+	@echo "  Frontend: http://localhost:5174"
+	@echo "  Press Ctrl+C to stop both"
+	@echo ""
+	@trap 'kill 0' EXIT; \
+		PYTHONPATH=. $(PYTHON) -m uvicorn src.server.main:app --port 8080 & \
+		echo "Waiting for backend to be ready..." && \
+		for i in $$(seq 1 30); do \
+			if curl -sf http://localhost:8080/api/health > /dev/null 2>&1; then \
+				echo "Backend ready!"; \
+				break; \
+			fi; \
+			sleep 1; \
+		done && \
+		cd web && npx vite --port 5174
+
+server-dev:   ## Start backend only (dev mode, auto-reload, :8080)
 	@echo "$(BOLD)Starting APEX server (dev mode, auto-reload)...$(RESET)"
 	PYTHONPATH=. $(PYTHON) -m uvicorn src.server.main:app --reload --port 8080
 
-server:
+server:   ## Start backend only (production, :8080)
 	@echo "$(BOLD)Starting APEX server (production)...$(RESET)"
 	PYTHONPATH=. $(PYTHON) -m uvicorn src.server.main:app --port 8080
 
-web-dev:
+web-dev:   ## Start frontend only (dev mode, :5174)
 	@echo "$(BOLD)Starting frontend dev server...$(RESET)"
 	cd web && npm run dev
 
-web-build:
+web-build:   ## Build frontend for production
 	@echo "$(BOLD)Building frontend for production...$(RESET)"
 	cd web && npm run build
 
-tunnel:
+tunnel:   ## Start Cloudflare Tunnel
 	@echo "$(BOLD)Starting Cloudflare Tunnel...$(RESET)"
 	cloudflared tunnel run apex
