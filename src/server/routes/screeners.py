@@ -28,6 +28,7 @@ _STATIC_DATA_URL = "https://moremeds.github.io/apex/data"
 _ssl_ctx = ssl.create_default_context()
 try:
     import certifi
+
     _ssl_ctx.load_verify_locations(certifi.where())
 except ImportError:
     # Fallback: disable verification for GitHub Pages (public, read-only)
@@ -155,9 +156,7 @@ def create_screeners_router(r2_client: Any = None, cache_ttl: int = 300) -> APIR
         return data if isinstance(data, dict) else {"data": data}
 
     @router.get("/signal-data/{symbol}")
-    async def get_signal_data(
-        symbol: str, request: Request, tf: str = Query(default="1d")
-    ) -> dict:
+    async def get_signal_data(symbol: str, request: Request, tf: str = Query(default="1d")) -> dict:
         """Per-symbol signal data (R2 → static fallback)."""
         key = f"{symbol}_{tf}.json"
         data = await proxy.get_with_fallback(key, _r2_from_request(request))

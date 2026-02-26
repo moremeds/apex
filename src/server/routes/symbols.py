@@ -69,8 +69,14 @@ def create_symbols_router(
 
         now = datetime.now(timezone.utc)
         tf_minutes = {
-            "1m": 1, "5m": 5, "15m": 15, "30m": 30,
-            "1h": 60, "4h": 240, "1d": 1440, "1w": 10080,
+            "1m": 1,
+            "5m": 5,
+            "15m": 15,
+            "30m": 30,
+            "1h": 60,
+            "4h": 240,
+            "1d": 1440,
+            "1w": 10080,
         }
         minutes_back = tf_minutes.get(tf, 1440) * bars * 1.5
         start = now - timedelta(minutes=minutes_back)
@@ -83,11 +89,16 @@ def create_symbols_router(
 
         result_bars = []
         for b in bar_data_list[-bars:]:
-            result_bars.append({
-                "t": b.timestamp.isoformat() if b.timestamp else None,
-                "o": b.open, "h": b.high, "l": b.low, "c": b.close,
-                "v": b.volume,
-            })
+            result_bars.append(
+                {
+                    "t": b.timestamp.isoformat() if b.timestamp else None,
+                    "o": b.open,
+                    "h": b.high,
+                    "l": b.low,
+                    "c": b.close,
+                    "v": b.volume,
+                }
+            )
 
         return {
             "symbol": symbol,

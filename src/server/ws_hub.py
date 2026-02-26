@@ -69,9 +69,7 @@ class WebSocketHub:
         msg = {"type": "signal", "symbol": symbol, **signal}
         await self._send_to_symbol_subscribers(symbol, msg)
 
-    async def broadcast_indicator(
-        self, symbol: str, tf: str, name: str, value: Any
-    ) -> None:
+    async def broadcast_indicator(self, symbol: str, tf: str, name: str, value: Any) -> None:
         """Send indicator update to clients subscribed to this symbol."""
         msg = {"type": "indicator", "symbol": symbol, "tf": tf, "name": name, "value": value}
         await self._send_to_symbol_subscribers(symbol, msg)

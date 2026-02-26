@@ -21,6 +21,7 @@ _STATIC_DATA_URL = "https://moremeds.github.io/apex/data"
 _ssl_ctx = ssl.create_default_context()
 try:
     import certifi
+
     _ssl_ctx.load_verify_locations(certifi.where())
 except ImportError:
     _ssl_ctx.check_hostname = False
@@ -36,6 +37,7 @@ def _fetch_static_dq_sync() -> Any | None:
             return json.loads(resp.read().decode("utf-8"))
     except Exception:
         return None
+
 
 _server_start_time = time.monotonic()
 
@@ -75,12 +77,14 @@ def create_monitor_router(
         if qa is not None:
             connected = qa.is_connected()
             subscribed = qa.get_subscribed_symbols()
-            providers.append({
-                "name": "longbridge",
-                "connected": connected,
-                "symbols": len(subscribed),
-                "subscribed_symbols": subscribed[:20],
-            })
+            providers.append(
+                {
+                    "name": "longbridge",
+                    "connected": connected,
+                    "symbols": len(subscribed),
+                    "subscribed_symbols": subscribed[:20],
+                }
+            )
 
         h = _get_hub(request)
         ws_clients = h.client_count if h else 0

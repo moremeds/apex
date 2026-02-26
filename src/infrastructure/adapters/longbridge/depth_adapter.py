@@ -52,9 +52,7 @@ class LongbridgeDepthAdapter:
         await asyncio.to_thread(self._ctx.unsubscribe, lb_symbols, [SubType.Depth])
         self._subscribed -= set(symbols)
 
-    def set_depth_callback(
-        self, callback: Optional[Callable[[DepthSnapshot], None]]
-    ) -> None:
+    def set_depth_callback(self, callback: Optional[Callable[[DepthSnapshot], None]]) -> None:
         self._callback = callback
 
     def get_latest_depth(self, symbol: str) -> Optional[DepthSnapshot]:

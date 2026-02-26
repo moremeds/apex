@@ -73,6 +73,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # ── R2 client (optional — tries env vars then config/secrets.yaml) ──
     try:
         from src.infrastructure.adapters.r2.client import R2Client
+
         r2_client = R2Client()
         logger.info("R2 client initialized")
     except (ValueError, ImportError):
@@ -132,9 +133,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await pipeline.start()
 
     # ── Periodic flush task ──
-    flush_task = asyncio.create_task(
-        _periodic_flush(persistence, config.r2_flush_interval_sec)
-    )
+    flush_task = asyncio.create_task(_periodic_flush(persistence, config.r2_flush_interval_sec))
 
     # ── Store refs on app.state for routes ──
     app.state.hub = hub

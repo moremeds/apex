@@ -53,6 +53,7 @@ class ServerPersistence:
     def __init__(self, duckdb_path: str = "data/server.duckdb") -> None:
         # Ensure parent directory exists
         from pathlib import Path
+
         Path(duckdb_path).parent.mkdir(parents=True, exist_ok=True)
         self._db = duckdb.connect(duckdb_path)
         self._db.execute(_SCHEMA_SQL)
@@ -67,13 +68,15 @@ class ServerPersistence:
     def buffer_tick(self, tick: QuoteTick) -> None:
         """Buffer a tick for batch flush."""
         with self._lock:
-            self._tick_buffer.append((
-                tick.symbol,
-                tick.last,
-                tick.volume,
-                tick.source,
-                tick.timestamp,
-            ))
+            self._tick_buffer.append(
+                (
+                    tick.symbol,
+                    tick.last,
+                    tick.volume,
+                    tick.source,
+                    tick.timestamp,
+                )
+            )
 
     def flush_to_duckdb(self) -> int:
         """Flush buffered ticks to DuckDB. Returns number flushed."""
@@ -91,8 +94,14 @@ class ServerPersistence:
         return len(batch)
 
     def insert_bar(
-        self, symbol: str, tf: str,
-        o: float, h: float, l: float, c: float, v: int,
+        self,
+        symbol: str,
+        tf: str,
+        o: float,
+        h: float,
+        l: float,
+        c: float,
+        v: int,
         ts: datetime,
     ) -> None:
         """Insert a completed bar."""
@@ -102,8 +111,12 @@ class ServerPersistence:
         )
 
     def insert_signal(
-        self, symbol: str, rule: str, direction: str,
-        strength: float, ts: datetime,
+        self,
+        symbol: str,
+        rule: str,
+        direction: str,
+        strength: float,
+        ts: datetime,
     ) -> None:
         """Insert a trading signal."""
         self._db.execute(
@@ -122,7 +135,10 @@ class ServerPersistence:
         return [dict(zip(cols, row)) for row in result.fetchall()]
 
     def query_bars(
-        self, symbol: str, tf: str, limit: int = 500,
+        self,
+        symbol: str,
+        tf: str,
+        limit: int = 500,
     ) -> List[Dict[str, Any]]:
         """Query recent bars for a symbol and timeframe."""
         result = self._db.execute(
@@ -134,7 +150,9 @@ class ServerPersistence:
         return [dict(zip(cols, row)) for row in result.fetchall()]
 
     def query_signals(
-        self, symbol: str = None, limit: int = 100,
+        self,
+        symbol: str = None,
+        limit: int = 100,
     ) -> List[Dict[str, Any]]:
         """Query recent signals, optionally filtered by symbol."""
         if symbol:

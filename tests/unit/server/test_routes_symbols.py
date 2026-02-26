@@ -46,12 +46,16 @@ def _make_historical_adapter(bars_map: dict = None):
     adapter.get_supported_timeframes.return_value = ["1m", "5m", "1h", "4h", "1d"]
 
     if bars_map:
+
         async def fetch_bars(symbol, tf, start, end):
             return bars_map.get((symbol, tf), [])
+
         adapter.fetch_bars = fetch_bars
     else:
+
         async def fetch_bars_empty(symbol, tf, start, end):
             return []
+
         adapter.fetch_bars = fetch_bars_empty
 
     return adapter
@@ -134,8 +138,12 @@ class TestHistoryEndpoint:
     def test_history_limits_bars(self):
         bars = [
             BarData(
-                symbol="AAPL", timeframe="1d",
-                open=180.0 + i, high=181.0 + i, low=179.0 + i, close=180.5 + i,
+                symbol="AAPL",
+                timeframe="1d",
+                open=180.0 + i,
+                high=181.0 + i,
+                low=179.0 + i,
+                close=180.5 + i,
                 volume=1000,
                 timestamp=datetime(2026, 1, i + 1, tzinfo=timezone.utc),
             )
