@@ -124,3 +124,4 @@ coverage.xml
 /design_mockups.html
 /landing_page.png
 /package-lock.json
+.worktrees/
