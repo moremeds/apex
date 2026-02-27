@@ -1,11 +1,8 @@
 """Tests for WebSocket route — /ws endpoint with subscribe/unsubscribe."""
 
 import asyncio
-import json
 
-import pytest
 from fastapi.testclient import TestClient
-from starlette.testclient import TestClient as StarletteTestClient
 
 from src.server.ws_hub import WebSocketHub
 
@@ -26,7 +23,7 @@ def test_ws_connect_and_disconnect():
     """Client can connect and disconnect cleanly."""
     app, hub = _make_app_with_hub()
     client = TestClient(app)
-    with client.websocket_connect("/ws") as ws:
+    with client.websocket_connect("/ws"):
         assert hub.client_count == 1
     # After context exit, client should be disconnected
     assert hub.client_count == 0
@@ -43,6 +40,7 @@ def test_ws_subscribe_command():
         # We can't easily check subscriptions since we don't have the ws ref,
         # but we can broadcast and see if we receive it
         import time
+
         time.sleep(0.05)
 
 
@@ -54,6 +52,7 @@ def test_ws_receives_broadcast():
         ws.send_json({"cmd": "subscribe", "symbols": ["AAPL"]})
         # Small delay for subscribe to process
         import time
+
         time.sleep(0.05)
 
         # Broadcast a quote from the hub (in a background thread)
@@ -61,9 +60,7 @@ def test_ws_receives_broadcast():
 
         def broadcast():
             loop = asyncio.new_event_loop()
-            loop.run_until_complete(
-                hub.broadcast_quote("AAPL", {"price": 185.5, "volume": 1000})
-            )
+            loop.run_until_complete(hub.broadcast_quote("AAPL", {"price": 185.5, "volume": 1000}))
             loop.close()
 
         t = threading.Thread(target=broadcast)
@@ -84,6 +81,7 @@ def test_ws_no_message_for_unsubscribed():
     with client.websocket_connect("/ws") as ws:
         ws.send_json({"cmd": "subscribe", "symbols": ["SPY"]})
         import time
+
         time.sleep(0.05)
 
         # Broadcast for AAPL — client subscribed to SPY only
@@ -91,9 +89,7 @@ def test_ws_no_message_for_unsubscribed():
 
         def broadcast():
             loop = asyncio.new_event_loop()
-            loop.run_until_complete(
-                hub.broadcast_quote("AAPL", {"price": 185.5})
-            )
+            loop.run_until_complete(hub.broadcast_quote("AAPL", {"price": 185.5}))
             loop.close()
 
         t = threading.Thread(target=broadcast)
@@ -103,9 +99,7 @@ def test_ws_no_message_for_unsubscribed():
         # Broadcast for SPY — should arrive
         def broadcast_spy():
             loop = asyncio.new_event_loop()
-            loop.run_until_complete(
-                hub.broadcast_quote("SPY", {"price": 600.0})
-            )
+            loop.run_until_complete(hub.broadcast_quote("SPY", {"price": 600.0}))
             loop.close()
 
         t2 = threading.Thread(target=broadcast_spy)

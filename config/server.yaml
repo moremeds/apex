@@ -12,19 +12,9 @@ providers:
     sub_types: [quote, depth]
 
 symbols:
-  core:
-    - AAPL.US
-    - SPY.US
-    - QQQ.US
-    - MSFT.US
-    - NVDA.US
-    - AMZN.US
-    - GOOG.US
-    - META.US
-    - TSLA.US
-    - AMD.US
+  universe_path: config/universe.yaml
   from_screener: true
-  max_total: 100
+  max_total: 200
 
 persistence:
   duckdb_path: data/server.duckdb

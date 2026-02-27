@@ -350,6 +350,7 @@ class IndicatorEngine:
         # PERF: Create DataFrame ONCE and share across all indicator threads
         df = pd.DataFrame(bars)
         if "timestamp" in df.columns:
+            df["timestamp"] = pd.to_datetime(df["timestamp"])
             df = df.set_index("timestamp")
         bar_count = len(df)
 
@@ -475,6 +476,7 @@ class IndicatorEngine:
         # This avoids creating 40 DataFrames (one per indicator) per bar close
         df = pd.DataFrame(bars)
         if "timestamp" in df.columns:
+            df["timestamp"] = pd.to_datetime(df["timestamp"])
             df = df.set_index("timestamp")
         bar_count = len(df)
 

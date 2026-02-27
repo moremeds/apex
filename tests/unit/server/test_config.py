@@ -1,6 +1,6 @@
 """Tests for server config loader."""
 
-from src.server.config import ProviderConfig, ServerConfig, load_server_config
+from src.server.config import load_server_config
 
 
 def test_load_default_config():
@@ -9,7 +9,7 @@ def test_load_default_config():
     assert cfg.port == 8080
     assert cfg.duckdb_path == "data/server.duckdb"
     assert cfg.r2_flush_interval_sec == 300
-    assert cfg.max_symbols == 100
+    assert cfg.max_symbols == 200
 
 
 def test_config_timeframes():
@@ -31,10 +31,9 @@ def test_config_provider_sub_types():
     assert "depth" in lb.sub_types
 
 
-def test_config_core_symbols():
+def test_config_universe_path():
     cfg = load_server_config("config/server.yaml")
-    assert len(cfg.core_symbols) > 0
-    assert "AAPL.US" in cfg.core_symbols
+    assert cfg.universe_path == "config/universe.yaml"
 
 
 def test_config_indicators():

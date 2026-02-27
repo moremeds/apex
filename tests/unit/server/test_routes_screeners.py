@@ -1,9 +1,7 @@
 """Tests for /api/screeners and /api/backtest routes (R2 proxy)."""
 
-import time
 from unittest.mock import MagicMock
 
-import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -36,13 +34,15 @@ class TestScreenersEndpoint:
         assert resp.status_code == 200
         assert resp.json()["momentum"][0]["symbol"] == "AAPL"
 
-    def test_503_when_no_data(self):
+    def test_503_when_no_data(self, monkeypatch):
+        monkeypatch.setattr("src.server.routes.screeners._fetch_static_sync", lambda _: None)
         r2 = _make_r2_client({})
         client = _make_app(r2_client=r2)
         resp = client.get("/api/screeners")
         assert resp.status_code == 503
 
-    def test_503_when_no_r2_client(self):
+    def test_503_when_no_r2_client(self, monkeypatch):
+        monkeypatch.setattr("src.server.routes.screeners._fetch_static_sync", lambda _: None)
         client = _make_app()
         resp = client.get("/api/screeners")
         assert resp.status_code == 503

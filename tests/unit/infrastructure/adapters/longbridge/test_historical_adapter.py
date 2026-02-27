@@ -1,6 +1,5 @@
 """Tests for Longbridge HistoricalAdapter — mock-based tests for adapter logic."""
 
-import asyncio
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
 

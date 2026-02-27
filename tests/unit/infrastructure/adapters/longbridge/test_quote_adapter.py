@@ -2,7 +2,7 @@
 
 import asyncio
 from datetime import datetime, timezone
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -83,7 +83,7 @@ def test_subscribe_tracks_symbols(adapter):
     mock_ctx = MagicMock()
     adapter._ctx = mock_ctx
 
-    asyncio.get_event_loop().run_until_complete(adapter.subscribe_quotes(["AAPL", "SPY"]))
+    asyncio.run(adapter.subscribe_quotes(["AAPL", "SPY"]))
     assert set(adapter.get_subscribed_symbols()) == {"AAPL", "SPY"}
     mock_ctx.subscribe.assert_called_once()
 
@@ -94,7 +94,7 @@ def test_unsubscribe_removes_symbols(adapter):
     adapter._ctx = mock_ctx
     adapter._subscribed = {"AAPL", "SPY", "QQQ"}
 
-    asyncio.get_event_loop().run_until_complete(adapter.unsubscribe_quotes(["AAPL"]))
+    asyncio.run(adapter.unsubscribe_quotes(["AAPL"]))
     assert "AAPL" not in adapter.get_subscribed_symbols()
     assert "SPY" in adapter.get_subscribed_symbols()
 

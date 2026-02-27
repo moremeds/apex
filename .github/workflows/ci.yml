@@ -127,7 +127,7 @@ jobs:
         run: |
           uv venv
           source .venv/bin/activate
-          uv pip install -e ".[dev]" types-PyYAML types-pytz
+          uv pip install -e ".[dev,server]" types-PyYAML types-pytz
 
       - name: Run mypy
         run: |
@@ -240,7 +240,7 @@ jobs:
           fi
 
       - name: Install dependencies
-        run: uv pip install --system -e ".[dev,observability]"
+        run: uv pip install --system -e ".[dev,observability,server]"
 
       - name: Run unit tests with coverage
         run: |
@@ -308,7 +308,7 @@ jobs:
           fi
 
       - name: Install dependencies
-        run: uv pip install --system -e ".[dev,observability]"
+        run: uv pip install --system -e ".[dev,observability,server]"
 
       - name: Run integration tests
         run: |

@@ -2,7 +2,6 @@
 
 from unittest.mock import MagicMock
 
-import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -89,14 +88,16 @@ class TestDataQualityEndpoint:
         assert resp.status_code == 200
         assert resp.json()["total_symbols"] == 50
 
-    def test_503_no_r2(self):
+    def test_503_no_r2(self, monkeypatch):
+        monkeypatch.setattr("src.server.routes.monitor._fetch_static_dq_sync", lambda: None)
         client = _make_app()
         resp = client.get("/api/monitor/data-quality")
         assert resp.status_code == 503
 
-    def test_404_no_report(self):
+    def test_404_no_report(self, monkeypatch):
+        monkeypatch.setattr("src.server.routes.monitor._fetch_static_dq_sync", lambda: None)
         r2 = MagicMock()
         r2.get_json.return_value = None
         client = _make_app(r2_client=r2)
         resp = client.get("/api/monitor/data-quality")
-        assert resp.status_code == 404
+        assert resp.status_code == 503

@@ -1,7 +1,5 @@
 """Tests for WebSocket Hub — fan-out to per-symbol subscribed clients."""
 
-import asyncio
-import json
 from typing import Any, List
 
 import pytest
@@ -100,7 +98,9 @@ async def test_subscribe_command():
     hub = WebSocketHub()
     ws = MockWebSocket()
     hub.connect(ws)
-    await hub.handle_command(ws, {"cmd": "subscribe", "symbols": ["AAPL", "SPY"], "types": ["quote"]})
+    await hub.handle_command(
+        ws, {"cmd": "subscribe", "symbols": ["AAPL", "SPY"], "types": ["quote"]}
+    )
     assert hub.get_subscriptions(ws) == {"AAPL", "SPY"}
 
 
@@ -109,7 +109,9 @@ async def test_unsubscribe_command():
     hub = WebSocketHub()
     ws = MockWebSocket()
     hub.connect(ws)
-    await hub.handle_command(ws, {"cmd": "subscribe", "symbols": ["AAPL", "SPY"], "types": ["quote"]})
+    await hub.handle_command(
+        ws, {"cmd": "subscribe", "symbols": ["AAPL", "SPY"], "types": ["quote"]}
+    )
     await hub.handle_command(ws, {"cmd": "unsubscribe", "symbols": ["AAPL"]})
     assert hub.get_subscriptions(ws) == {"SPY"}
 

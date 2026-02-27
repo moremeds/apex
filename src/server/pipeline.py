@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Coroutine, Dict, List, Optional
 
 from src.domain.events.domain_events import (
     BarCloseEvent,
@@ -108,19 +108,38 @@ class ServerPipeline:
         """Inject historical bars for indicator warmup."""
         bar_dicts = []
         for b in bars:
-            bar_dicts.append({
-                "symbol": b.symbol if hasattr(b, "symbol") else symbol,
-                "timeframe": b.timeframe if hasattr(b, "timeframe") else tf,
-                "open": b.open,
-                "high": b.high,
-                "low": b.low,
-                "close": b.close,
-                "volume": b.volume,
-                "timestamp": b.timestamp,
-            })
+            bar_dicts.append(
+                {
+                    "symbol": b.symbol if hasattr(b, "symbol") else symbol,
+                    "timeframe": b.timeframe if hasattr(b, "timeframe") else tf,
+                    "open": b.open,
+                    "high": b.high,
+                    "low": b.low,
+                    "close": b.close,
+                    "volume": b.volume,
+                    "timestamp": b.timestamp,
+                }
+            )
         if bar_dicts:
             self._indicator_engine.inject_historical_bars(symbol, tf, bar_dicts)
             logger.info("Injected %d historical bars for %s/%s", len(bar_dicts), symbol, tf)
+
+    def get_regime_states(self, timeframe: str = "1d") -> Dict[str, Dict[str, Any]]:
+        """Get regime state for all symbols from indicator engine cache.
+
+        Returns dict mapping symbol -> {regime, regime_name, confidence}.
+        """
+        results: Dict[str, Dict[str, Any]] = {}
+        states = self._indicator_engine.get_all_indicator_states(timeframe=timeframe)
+        for (sym, tf, ind), state in states.items():
+            if ind == "regime_detector" and state:
+                regime = state.get("regime", "R1")
+                results[sym] = {
+                    "regime": regime,
+                    "regime_name": state.get("regime_name", "Unknown"),
+                    "confidence": state.get("confidence", 50),
+                }
+        return results
 
     # ── Event handlers (bridge events → WS hub) ────────────
 
@@ -134,9 +153,7 @@ class ServerPipeline:
             "v": event.volume,
             "ts": event.timestamp.isoformat() if event.timestamp else None,
         }
-        self._schedule_async(
-            self._hub.broadcast_bar(event.symbol, event.timeframe, bar_dict)
-        )
+        self._schedule_async(self._hub.broadcast_bar(event.symbol, event.timeframe, bar_dict))
 
     def _on_indicator_update(self, event: IndicatorUpdateEvent) -> None:
         """Forward indicator update to WebSocket hub."""
@@ -154,11 +171,9 @@ class ServerPipeline:
             "strength": event.strength,
             "ts": event.timestamp.isoformat() if event.timestamp else None,
         }
-        self._schedule_async(
-            self._hub.broadcast_signal(event.symbol, signal_dict)
-        )
+        self._schedule_async(self._hub.broadcast_signal(event.symbol, signal_dict))
 
-    def _schedule_async(self, coro) -> None:
+    def _schedule_async(self, coro: Coroutine[Any, Any, Any]) -> None:
         """Schedule a coroutine on the event loop (thread-safe)."""
         if self._loop and self._loop.is_running():
             asyncio.run_coroutine_threadsafe(coro, self._loop)
