@@ -1,5 +1,7 @@
 """Tests for WebSocket route — /ws endpoint with subscribe/unsubscribe."""
 
+import asyncio
+
 from fastapi.testclient import TestClient
 
 from src.server.ws_hub import WebSocketHub
