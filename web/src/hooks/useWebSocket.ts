@@ -58,6 +58,9 @@ function doConnect() {
         case "status":
           s.setProviders(msg.providers)
           break
+        case "advisor":
+          s.updateAdvisor(msg.market_context, msg.premium ?? [], msg.equity ?? [])
+          break
       }
     } catch {
       // ignore malformed messages

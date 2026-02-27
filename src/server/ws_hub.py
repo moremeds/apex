@@ -86,6 +86,18 @@ class WebSocketHub:
         for ws in dead:
             self.disconnect(ws)
 
+    async def broadcast_advisor(self, advice: dict) -> None:
+        """Send advisor update to ALL connected clients."""
+        msg = {"type": "advisor", **advice}
+        dead: list = []
+        for ws in list(self._clients):
+            try:
+                await ws.send_json(msg)
+            except Exception:
+                dead.append(ws)
+        for ws in dead:
+            self.disconnect(ws)
+
     # ── Internal ────────────────────────────────────────────
 
     async def _send_to_symbol_subscribers(self, symbol: str, msg: dict) -> None:

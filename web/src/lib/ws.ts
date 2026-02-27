@@ -13,6 +13,7 @@ export type WsMessage =
   | { type: "indicator"; symbol: string; timeframe: string; name: string; value: number }
   | { type: "signal"; data: SignalData }
   | { type: "status"; providers: ProviderStatus[] }
+  | { type: "advisor"; market_context: AdvisorMarketContext; premium: PremiumAdvice[]; equity: EquityAdvice[] }
 
 export interface QuoteData {
   last: number
@@ -45,4 +46,52 @@ export interface ProviderStatus {
   connected: boolean
   symbols: number
   subscribed_symbols?: string[]
+}
+
+export interface AdvisorMarketContext {
+  regime: string
+  regime_name: string
+  regime_confidence: number
+  vix: number
+  vix_percentile: number
+  vrp_zscore: number
+  term_structure_ratio: number
+  term_structure_state: string
+  timestamp: string
+}
+
+export interface PremiumAdvice {
+  symbol: string
+  action: string
+  strategy: string | null
+  display_name: string | null
+  confidence: number
+  legs: LegSpec[]
+  vrp_zscore: number
+  iv_percentile: number
+  term_structure_ratio: number
+  regime: string
+  earnings_warning: string | null
+  reasoning: string[]
+}
+
+export interface LegSpec {
+  side: string
+  option_type: string
+  target_delta: number
+  target_dte: number
+  estimated_strike: number
+}
+
+export interface EquityAdvice {
+  symbol: string
+  sector: string
+  action: string
+  confidence: number
+  regime: string
+  signal_summary: Record<string, number>
+  top_signals: { rule: string; direction: string; strength: number }[]
+  trend_pulse: Record<string, unknown> | null
+  key_levels: Record<string, number>
+  reasoning: string[]
 }

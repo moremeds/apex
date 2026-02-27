@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from threading import RLock
 from typing import Any, Coroutine, Dict, List, Optional
 
 from src.domain.events.domain_events import (
@@ -66,6 +67,12 @@ class ServerPipeline:
         # Async event loop reference (set on start)
         self._loop: Optional[asyncio.AbstractEventLoop] = None
 
+        # Signal buffer for advisor (maps symbol -> list of recent signal dicts)
+        # Replaces broken get_evaluation_history() approach
+        self._signal_buffer: Dict[str, List[Dict[str, Any]]] = {}
+        self._signal_buffer_lock = RLock()
+        self._advisor_service: Any = None
+
     async def start(self) -> None:
         """Start the pipeline — subscribe to events and start engines."""
         if self._started:
@@ -103,6 +110,21 @@ class ServerPipeline:
         """Feed a tick into all BarAggregators."""
         for agg in self._aggregators.values():
             agg.on_tick(tick)
+
+    def set_advisor_service(self, svc: Any) -> None:
+        """Set the advisor service (called after bootstrap)."""
+        self._advisor_service = svc
+
+    def get_recent_signals(self, symbol: str | None = None) -> list[dict]:
+        """Get recent signals for advisor consumption.
+
+        Signals are collected from TradingSignalEvent with direction mapped
+        from SignalDirection (buy/sell/alert) to advisor labels (bullish/bearish/neutral).
+        """
+        with self._signal_buffer_lock:
+            if symbol:
+                return list(self._signal_buffer.get(symbol, []))
+            return [sig for sigs in self._signal_buffer.values() for sig in sigs]
 
     def inject_history(self, symbol: str, tf: str, bars: list) -> None:
         """Inject historical bars for indicator warmup."""
@@ -144,7 +166,7 @@ class ServerPipeline:
     # ── Event handlers (bridge events → WS hub) ────────────
 
     def _on_bar_close(self, event: BarCloseEvent) -> None:
-        """Forward bar close to WebSocket hub."""
+        """Forward bar close to WebSocket hub. Trigger advisor on daily close."""
         bar_dict = {
             "o": event.open,
             "h": event.high,
@@ -155,6 +177,20 @@ class ServerPipeline:
         }
         self._schedule_async(self._hub.broadcast_bar(event.symbol, event.timeframe, bar_dict))
 
+        # Trigger advisor recomputation on daily bar close, offloaded to thread
+        if event.timeframe == "1d" and self._advisor_service:
+            import concurrent.futures
+
+            def _compute_and_broadcast():
+                try:
+                    advice = self._advisor_service.compute_all()
+                    serialized = _serialize_advice(advice)
+                    self._schedule_async(self._hub.broadcast_advisor(serialized))
+                except Exception:
+                    logger.exception("Advisor broadcast failed")
+
+            concurrent.futures.ThreadPoolExecutor(max_workers=1).submit(_compute_and_broadcast)
+
     def _on_indicator_update(self, event: IndicatorUpdateEvent) -> None:
         """Forward indicator update to WebSocket hub."""
         self._schedule_async(
@@ -164,7 +200,7 @@ class ServerPipeline:
         )
 
     def _on_trading_signal(self, event: TradingSignalEvent) -> None:
-        """Forward trading signal to WebSocket hub."""
+        """Forward trading signal to WebSocket hub + buffer for advisor."""
         signal_dict = {
             "rule": event.indicator,
             "direction": event.direction,
@@ -173,6 +209,21 @@ class ServerPipeline:
         }
         self._schedule_async(self._hub.broadcast_signal(event.symbol, signal_dict))
 
+        # Buffer for advisor — map direction for advisor consumption
+        direction_map = {"buy": "bullish", "sell": "bearish", "alert": "neutral"}
+        advisor_sig = {
+            "rule": event.indicator,
+            "direction": direction_map.get(event.direction, "neutral"),
+            "strength": event.strength,
+        }
+        with self._signal_buffer_lock:
+            if event.symbol not in self._signal_buffer:
+                self._signal_buffer[event.symbol] = []
+            self._signal_buffer[event.symbol].append(advisor_sig)
+            # Keep only latest 50 signals per symbol
+            if len(self._signal_buffer[event.symbol]) > 50:
+                self._signal_buffer[event.symbol] = self._signal_buffer[event.symbol][-50:]
+
     def _schedule_async(self, coro: Coroutine[Any, Any, Any]) -> None:
         """Schedule a coroutine on the event loop (thread-safe)."""
         if self._loop and self._loop.is_running():
@@ -180,3 +231,14 @@ class ServerPipeline:
         else:
             # No loop available — close the coroutine to avoid warnings
             coro.close()
+
+
+def _serialize_advice(obj: Any) -> Any:
+    """Recursively convert dataclasses to dicts for JSON serialization."""
+    if hasattr(obj, "__dataclass_fields__"):
+        return {k: _serialize_advice(v) for k, v in obj.__dict__.items()}
+    if isinstance(obj, dict):
+        return {k: _serialize_advice(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_serialize_advice(v) for v in obj]
+    return obj
