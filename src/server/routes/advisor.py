@@ -37,7 +37,7 @@ def create_advisor_router(advisor_service: Optional[Any] = None) -> APIRouter:
         if action:
             result["equity"] = [e for e in result["equity"] if e.get("action") == action]
 
-        return result
+        return dict(result)
 
     @router.get("/advisor/{symbol}")
     async def get_symbol_advice(request: Request, symbol: str) -> dict[str, Any]:
@@ -47,7 +47,7 @@ def create_advisor_router(advisor_service: Optional[Any] = None) -> APIRouter:
             raise HTTPException(status_code=503, detail="Advisor service not available")
 
         result = svc.compute_symbol(symbol.upper())
-        return _serialize(result)
+        return dict(_serialize(result))
 
     return router
 
