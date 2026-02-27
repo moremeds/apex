@@ -19,6 +19,7 @@ from src.domain.services.regime.universe_loader import load_universe
 from src.server.config import load_server_config
 from src.server.persistence import ServerPersistence
 from src.server.pipeline import ServerPipeline
+from src.server.routes.advisor import create_advisor_router
 from src.server.routes.monitor import create_monitor_router
 from src.server.routes.screeners import create_screeners_router
 from src.server.routes.symbols import create_symbols_router
@@ -218,6 +219,77 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
         logger.info("Bootstrap: %d symbol/tf pairs warmed in %.1fs", warmed, _time.monotonic() - t0)
 
+        # ── Fetch VIX + VIX3M for advisor ──
+        from datetime import datetime, timedelta, timezone
+
+        import pandas as pd
+
+        vix_data: dict[str, Any] = {}
+        for vix_sym in ("^VIX", "^VIX3M"):
+            try:
+                from src.infrastructure.adapters.yahoo.historical_adapter import (
+                    YahooHistoricalAdapter,
+                )
+
+                yahoo = YahooHistoricalAdapter()
+                end = datetime.now(timezone.utc)
+                start = end - timedelta(days=400)
+                bars = await yahoo.fetch_bars(vix_sym, "1d", start, end)
+                if bars:
+                    vix_data[vix_sym] = pd.Series(
+                        [b.close for b in bars],
+                        index=pd.DatetimeIndex([b.timestamp for b in bars]),
+                    )
+                    logger.info("Fetched %d bars for %s", len(bars), vix_sym)
+            except Exception:
+                logger.debug("Failed to fetch %s for advisor", vix_sym)
+        app.state.vix_data = vix_data
+
+        # ── Create AdvisorService ──
+        from src.domain.services.advisor.advisor_service import AdvisorService
+
+        etf_syms = ["SPY", "QQQ", "IWM", "DIA", "GLD", "SLV", "TLT"]
+
+        # Build sector map from universe
+        sector_map: dict[str, str] = {}
+        if universe:
+            sector_names = getattr(universe, "sector_names", {})
+            for sym in all_symbols:
+                sector_etf = universe.get_sector_for_symbol(sym)
+                if sector_etf and sector_etf in sector_names:
+                    sector_map[sym] = sector_names[sector_etf]
+                elif sector_etf:
+                    sector_map[sym] = sector_etf
+
+        def _get_vix():
+            vd = getattr(app.state, "vix_data", {})
+            return vd.get("^VIX"), vd.get("^VIX3M")
+
+        def _get_underlying(sym):
+            engine = pipeline._indicator_engine
+            bar_deque = engine._history.get((sym, "1d"))
+            if bar_deque and len(bar_deque) > 0:
+                closes = pd.Series(
+                    [b["close"] for b in bar_deque],
+                    index=pd.DatetimeIndex([b["timestamp"] for b in bar_deque]),
+                )
+                return closes
+            return None
+
+        advisor_svc = AdvisorService(
+            get_regime_states=pipeline.get_regime_states,
+            get_indicator_states=pipeline._indicator_engine.get_all_indicator_states,
+            get_vix_data=_get_vix,
+            get_underlying_close=_get_underlying,
+            get_recent_signals=pipeline.get_recent_signals,
+            etf_symbols=etf_syms,
+            universe_symbols=all_symbols,
+            sector_map=sector_map,
+        )
+        app.state.advisor_service = advisor_svc
+        pipeline.set_advisor_service(advisor_svc)
+        logger.info("AdvisorService created and wired to pipeline")
+
     bootstrap_task = asyncio.create_task(_bootstrap_pipeline())
 
     # ── Periodic flush task ──
@@ -309,6 +381,7 @@ def create_app(config_path: str = "config/server.yaml") -> FastAPI:
     app.include_router(create_symbols_router())
     app.include_router(create_screeners_router())
     app.include_router(create_monitor_router(hub=hub_placeholder))
+    app.include_router(create_advisor_router())
 
     # SPA catch-all: serve index.html for any non-API, non-WS GET request.
     # This enables direct navigation to /signals, /monitor, etc.
@@ -355,6 +428,7 @@ def create_test_app() -> FastAPI:
     app.include_router(create_symbols_router())
     app.include_router(create_screeners_router())
     app.include_router(create_monitor_router(hub=hub))
+    app.include_router(create_advisor_router())
 
     dist_path = Path("web/dist")
     if dist_path.is_dir():

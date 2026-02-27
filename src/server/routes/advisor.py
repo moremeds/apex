@@ -1,8 +1,8 @@
 """REST routes for /api/advisor (trading advisor).
 
-Follows the factory function pattern from other route modules
-(screeners.py, monitor.py, symbols.py): dependencies injected via
-constructor args, NOT via app.state.
+Follows the factory function pattern from other route modules.
+At request time, prefers ``request.app.state.advisor_service`` (set by
+lifespan bootstrap) over the constructor arg (used in tests).
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 
 logger = logging.getLogger(__name__)
 
@@ -20,14 +20,16 @@ def create_advisor_router(advisor_service: Optional[Any] = None) -> APIRouter:
 
     @router.get("/advisor")
     async def get_all_advice(
+        request: Request,
         sector: str = Query(default=None),
         action: str = Query(default=None),
     ) -> dict[str, Any]:
         """Get advisor recommendations for all symbols."""
-        if advisor_service is None:
+        svc = getattr(request.app.state, "advisor_service", None) or advisor_service
+        if svc is None:
             raise HTTPException(status_code=503, detail="Advisor service not available")
 
-        result = advisor_service.compute_all()
+        result = svc.compute_all()
         result = _serialize(result)
 
         if sector:
@@ -38,12 +40,13 @@ def create_advisor_router(advisor_service: Optional[Any] = None) -> APIRouter:
         return result
 
     @router.get("/advisor/{symbol}")
-    async def get_symbol_advice(symbol: str) -> dict[str, Any]:
+    async def get_symbol_advice(request: Request, symbol: str) -> dict[str, Any]:
         """Get advisor recommendation for a single symbol."""
-        if advisor_service is None:
+        svc = getattr(request.app.state, "advisor_service", None) or advisor_service
+        if svc is None:
             raise HTTPException(status_code=503, detail="Advisor service not available")
 
-        result = advisor_service.compute_symbol(symbol.upper())
+        result = svc.compute_symbol(symbol.upper())
         return _serialize(result)
 
     return router
