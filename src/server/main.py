@@ -8,13 +8,13 @@ import os
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import AsyncGenerator
+from typing import Any, AsyncGenerator
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
 
+from src.domain.events.domain_events import QuoteTick
 from src.domain.services.regime.universe_loader import load_universe
 from src.server.config import load_server_config
 from src.server.persistence import ServerPersistence
@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 _start_time = time.monotonic()
 
 
-def _tick_to_dict(tick) -> dict:
+def _tick_to_dict(tick: QuoteTick) -> dict[str, Any]:
     """Convert QuoteTick to JSON-serializable dict for WS broadcast."""
     return {
         "last": tick.last,
@@ -77,6 +77,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # ── R2 client (optional — tries env vars then config/secrets.yaml) ──
     try:
         from src.infrastructure.adapters.r2.client import R2Client
+
         r2_client = R2Client()
         logger.info("R2 client initialized")
     except (ValueError, ImportError):
@@ -106,7 +107,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             logger.exception("Failed to load screener symbols from R2")
 
     # ── Longbridge connection (deferred — SDK takes ~13s to connect) ──
-    async def _connect_longbridge():
+    async def _connect_longbridge() -> None:
         nonlocal quote_adapter, historical_adapter
         try:
             from src.infrastructure.adapters.longbridge.historical_adapter import (
@@ -127,7 +128,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             # Wire tick callback
             loop = asyncio.get_running_loop()
 
-            def on_tick(tick):
+            def on_tick(tick: Any) -> None:
                 pipeline.on_tick(tick)
                 persistence.buffer_tick(tick)
                 coro = hub.broadcast_quote(tick.symbol, _tick_to_dict(tick))
@@ -156,7 +157,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await pipeline.start()
 
     # ── R2 history bootstrap (warm up indicators from historical data) ──
-    async def _bootstrap_pipeline():
+    async def _bootstrap_pipeline() -> None:
         """Warm up indicators from R2 history after Longbridge connects."""
         if lb_task:
             try:
@@ -191,14 +192,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                             # (regime detector benchmark data is tz-naive)
                             if ts is not None and hasattr(ts, "tzinfo") and ts.tzinfo is not None:
                                 ts = ts.replace(tzinfo=None)
-                            bar_dicts.append({
-                                "timestamp": ts,
-                                "open": float(row.get("open", 0)),
-                                "high": float(row.get("high", 0)),
-                                "low": float(row.get("low", 0)),
-                                "close": float(row.get("close", 0)),
-                                "volume": int(row.get("volume", 0)) if row.get("volume") else 0,
-                            })
+                            bar_dicts.append(
+                                {
+                                    "timestamp": ts,
+                                    "open": float(row.get("open", 0)),
+                                    "high": float(row.get("high", 0)),
+                                    "low": float(row.get("low", 0)),
+                                    "close": float(row.get("close", 0)),
+                                    "volume": int(row.get("volume", 0)) if row.get("volume") else 0,
+                                }
+                            )
                         n = pipeline._indicator_engine.inject_historical_bars(symbol, tf, bar_dicts)
                         if n > 0:
                             warmed += 1
@@ -218,9 +221,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     bootstrap_task = asyncio.create_task(_bootstrap_pipeline())
 
     # ── Periodic flush task ──
-    flush_task = asyncio.create_task(
-        _periodic_flush(persistence, config.r2_flush_interval_sec)
-    )
+    flush_task = asyncio.create_task(_periodic_flush(persistence, config.r2_flush_interval_sec))
 
     # ── Store refs on app.state for routes ──
     app.state.hub = hub
@@ -316,7 +317,7 @@ def create_app(config_path: str = "config/server.yaml") -> FastAPI:
         index_html = dist_path / "index.html"
 
         @app.get("/{full_path:path}")
-        async def spa_catchall(request: Request, full_path: str):
+        async def spa_catchall(request: Request, full_path: str) -> FileResponse:
             # Serve actual static files (JS, CSS, images) if they exist
             static_file = dist_path / full_path
             if static_file.is_file() and not full_path.startswith("api/"):
@@ -360,7 +361,7 @@ def create_test_app() -> FastAPI:
         index_html = dist_path / "index.html"
 
         @app.get("/{full_path:path}")
-        async def spa_catchall_test(request: Request, full_path: str):
+        async def spa_catchall_test(request: Request, full_path: str) -> FileResponse:
             static_file = dist_path / full_path
             if static_file.is_file() and not full_path.startswith("api/"):
                 return FileResponse(static_file)
