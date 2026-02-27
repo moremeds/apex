@@ -9,6 +9,7 @@ const navItems = [
   { to: "/regime", label: "Regime" },
   { to: "/monitor", label: "Monitor" },
   { to: "/backtest", label: "Backtest" },
+  { to: "/advisor", label: "Advisor" },
 ]
 
 function WsIndicator() {

@@ -7,6 +7,7 @@ import { Screeners } from "@/pages/Screeners"
 import { Regime } from "@/pages/Regime"
 import { Backtest } from "@/pages/Backtest"
 import { Monitor } from "@/pages/Monitor"
+import { Advisor } from "@/pages/Advisor"
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -29,6 +30,7 @@ function App() {
             <Route path="regime" element={<Regime />} />
             <Route path="backtest" element={<Backtest />} />
             <Route path="monitor" element={<Monitor />} />
+            <Route path="advisor" element={<Advisor />} />
           </Route>
         </Routes>
       </BrowserRouter>
