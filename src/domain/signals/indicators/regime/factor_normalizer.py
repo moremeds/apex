@@ -180,10 +180,12 @@ def compute_normalized_factors(
         asset_ret = pd.Series(close).pct_change(20).values
         # Normalize benchmark index timezone to match df.index
         bench_close = benchmark_df["close"].copy()
-        if bench_close.index.tz is not None and df.index.tz is None:
+        df_tz = getattr(df.index, "tz", None)
+        bench_tz = getattr(bench_close.index, "tz", None)
+        if bench_tz is not None and df_tz is None:
             bench_close.index = bench_close.index.tz_localize(None)
-        elif bench_close.index.tz is None and df.index.tz is not None:
-            bench_close.index = bench_close.index.tz_localize(df.index.tz)
+        elif bench_tz is None and df_tz is not None:
+            bench_close.index = bench_close.index.tz_localize(df_tz)
         bench_ret = bench_close.pct_change(20).reindex(df.index, method="ffill").values
         breadth = normalizer.compute_breadth_factor(asset_ret, bench_ret)
         breadth = pd.Series(breadth, index=df.index, name="breadth")

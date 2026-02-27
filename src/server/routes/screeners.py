@@ -167,11 +167,52 @@ def create_screeners_router(r2_client: Any = None, cache_ttl: int = 300) -> APIR
 
     @router.get("/summary")
     async def get_summary(request: Request) -> dict:
-        """Summary.json — ETF data, regime, generated_at (R2 → static fallback)."""
+        """Summary.json — ETF data, regime, generated_at (R2 → static fallback).
+
+        Overlays live regime data from pipeline if available.
+        """
         data = await proxy.get_with_fallback("summary.json", _r2_from_request(request))
         if data is None:
             raise HTTPException(status_code=503, detail="Summary data not available")
-        return data if isinstance(data, dict) else {"data": data}
+        if not isinstance(data, dict):
+            data = {"data": data}
+
+        # Overlay live prices from quote adapter
+        qa = getattr(request.app.state, "quote_adapter", None)
+        if qa is not None:
+            try:
+                for ticker in data.get("tickers", []):
+                    sym = ticker.get("symbol", "")
+                    quote = qa.get_latest_quote(sym) if hasattr(qa, "get_latest_quote") else None
+                    if quote and hasattr(quote, "last") and quote.last:
+                        ticker["close"] = quote.last
+                        if hasattr(quote, "timestamp") and quote.timestamp:
+                            ticker["timestamp"] = quote.timestamp.isoformat()
+            except Exception:
+                pass
+
+        # Overlay live regime from pipeline indicator engine
+        pipeline = getattr(request.app.state, "pipeline", None)
+        if pipeline is not None:
+            try:
+                regimes = pipeline.get_regime_states("1d")
+                if regimes:
+                    for ticker in data.get("tickers", []):
+                        sym = ticker.get("symbol", "")
+                        if sym in regimes:
+                            ticker["regime"] = regimes[sym]["regime"]
+                            ticker["regime_name"] = regimes[sym]["regime_name"]
+                            ticker["confidence"] = regimes[sym]["confidence"]
+                    # Also overlay market benchmarks
+                    market = data.get("market", {})
+                    for bench_sym, bench_data in market.get("benchmarks", {}).items():
+                        if bench_sym in regimes:
+                            bench_data["regime"] = regimes[bench_sym]["regime"]
+                            bench_data["confidence"] = regimes[bench_sym]["confidence"]
+            except Exception:
+                pass  # Fall back to cached regime data
+
+        return data
 
     @router.get("/score-history")
     async def get_score_history(request: Request) -> dict:

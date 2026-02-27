@@ -122,6 +122,23 @@ class ServerPipeline:
             self._indicator_engine.inject_historical_bars(symbol, tf, bar_dicts)
             logger.info("Injected %d historical bars for %s/%s", len(bar_dicts), symbol, tf)
 
+    def get_regime_states(self, timeframe: str = "1d") -> Dict[str, Dict[str, Any]]:
+        """Get regime state for all symbols from indicator engine cache.
+
+        Returns dict mapping symbol -> {regime, regime_name, confidence}.
+        """
+        results: Dict[str, Dict[str, Any]] = {}
+        states = self._indicator_engine.get_all_indicator_states(timeframe=timeframe)
+        for (sym, tf, ind), state in states.items():
+            if ind == "regime_detector" and state:
+                regime = state.get("regime", "R1")
+                results[sym] = {
+                    "regime": regime,
+                    "regime_name": state.get("regime_name", "Unknown"),
+                    "confidence": state.get("confidence", 50),
+                }
+        return results
+
     # ── Event handlers (bridge events → WS hub) ────────────
 
     def _on_bar_close(self, event: BarCloseEvent) -> None:

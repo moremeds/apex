@@ -29,7 +29,7 @@ class ServerConfig:
     providers: Dict[str, ProviderConfig] = field(default_factory=dict)
 
     # Symbols
-    core_symbols: List[str] = field(default_factory=list)
+    universe_path: str = "config/universe.yaml"
     from_screener: bool = True
     max_symbols: int = 100
 
@@ -67,7 +67,7 @@ def load_server_config(path: str = "config/server.yaml") -> ServerConfig:
         host=server.get("host", "0.0.0.0"),
         port=server.get("port", 8080),
         providers=providers,
-        core_symbols=symbols.get("core", []),
+        universe_path=symbols.get("universe_path", "config/universe.yaml"),
         from_screener=symbols.get("from_screener", True),
         max_symbols=symbols.get("max_total", 100),
         duckdb_path=persistence.get("duckdb_path", "data/server.duckdb"),

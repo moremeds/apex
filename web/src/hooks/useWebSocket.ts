@@ -25,6 +25,17 @@ function doConnect() {
   socket.onopen = () => {
     useMarketStore.getState().setWsStatus("connected")
     attempt = 0
+
+    // Auto-subscribe to all symbols for live price updates
+    fetch("/api/symbols")
+      .then((r) => r.json())
+      .then((data: { symbols?: Record<string, unknown> }) => {
+        const syms = Object.keys(data.symbols ?? {})
+        if (syms.length > 0 && socket.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({ cmd: "subscribe", symbols: syms }))
+        }
+      })
+      .catch(() => {})
   }
 
   socket.onmessage = (event) => {
