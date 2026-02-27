@@ -6,7 +6,7 @@ import asyncio
 import logging
 import threading
 from datetime import datetime, timezone
-from typing import Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from src.domain.events.domain_events import QuoteTick
 
@@ -24,7 +24,7 @@ class LongbridgeQuoteAdapter:
     """
 
     def __init__(self, default_market: str = "US") -> None:
-        self._ctx = None
+        self._ctx: Any = None
         self._connected = False
         self._callback: Optional[Callable[[QuoteTick], None]] = None
         self._quotes: Dict[str, QuoteTick] = {}
@@ -111,11 +111,11 @@ class LongbridgeQuoteAdapter:
 
     # ── SDK callbacks ───────────────────────────────────────
 
-    def _on_sdk_quote_batch(self, symbol: str, event) -> None:
+    def _on_sdk_quote_batch(self, symbol: str, event: Any) -> None:
         """Called by SDK for batch push — event is a PushQuote."""
         self._on_sdk_quote(symbol, event)
 
-    def _on_sdk_quote(self, symbol: str, quote) -> None:
+    def _on_sdk_quote(self, symbol: str, quote: Any) -> None:
         """Normalize SDK quote to QuoteTick and dispatch."""
         tick = self._sdk_quote_to_tick(symbol, quote)
         with self._lock:
@@ -126,7 +126,7 @@ class LongbridgeQuoteAdapter:
             except Exception:
                 logger.exception("Error in quote callback for %s", tick.symbol)
 
-    def _sdk_quote_to_tick(self, symbol: str, q) -> QuoteTick:
+    def _sdk_quote_to_tick(self, symbol: str, q: Any) -> QuoteTick:
         """Convert SDK quote object to domain QuoteTick."""
         internal_symbol = self._to_internal_symbol(symbol)
         ts = getattr(q, "timestamp", None)

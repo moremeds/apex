@@ -6,7 +6,7 @@ import asyncio
 import logging
 import threading
 from datetime import datetime, timezone
-from typing import Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from src.domain.interfaces.depth_provider import DepthLevel, DepthSnapshot
 
@@ -22,7 +22,7 @@ class LongbridgeDepthAdapter:
     """
 
     def __init__(self, default_market: str = "US") -> None:
-        self._ctx = None
+        self._ctx: Any = None
         self._connected = False
         self._callback: Optional[Callable[[DepthSnapshot], None]] = None
         self._depth: Dict[str, DepthSnapshot] = {}
@@ -52,9 +52,7 @@ class LongbridgeDepthAdapter:
         await asyncio.to_thread(self._ctx.unsubscribe, lb_symbols, [SubType.Depth])
         self._subscribed -= set(symbols)
 
-    def set_depth_callback(
-        self, callback: Optional[Callable[[DepthSnapshot], None]]
-    ) -> None:
+    def set_depth_callback(self, callback: Optional[Callable[[DepthSnapshot], None]]) -> None:
         self._callback = callback
 
     def get_latest_depth(self, symbol: str) -> Optional[DepthSnapshot]:
@@ -63,7 +61,7 @@ class LongbridgeDepthAdapter:
 
     # ── Attach to shared QuoteContext ───────────────────────
 
-    def attach_context(self, ctx, connected: bool = True) -> None:
+    def attach_context(self, ctx: Any, connected: bool = True) -> None:
         """Attach to an existing QuoteContext (shared with QuoteAdapter)."""
         self._ctx = ctx
         self._connected = connected
@@ -71,7 +69,7 @@ class LongbridgeDepthAdapter:
 
     # ── SDK callback ────────────────────────────────────────
 
-    def _on_sdk_depth(self, symbol: str, event) -> None:
+    def _on_sdk_depth(self, symbol: str, event: Any) -> None:
         """Called by SDK on depth push."""
         internal = self._to_internal_symbol(symbol)
         bids = tuple(

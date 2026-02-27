@@ -39,9 +39,7 @@ class DepthProvider(Protocol):
         """Unsubscribe from depth updates."""
         ...
 
-    def set_depth_callback(
-        self, callback: Optional[Callable[[DepthSnapshot], None]]
-    ) -> None:
+    def set_depth_callback(self, callback: Optional[Callable[[DepthSnapshot], None]]) -> None:
         """Set callback for incoming depth snapshots."""
         ...
 

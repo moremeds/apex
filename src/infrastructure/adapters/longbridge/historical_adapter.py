@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import List
+from typing import Any, List
 
 from src.domain.events.domain_events import BarData
 
@@ -44,7 +44,7 @@ class LongbridgeHistoricalAdapter:
     """
 
     def __init__(self, default_market: str = "US") -> None:
-        self._ctx = None
+        self._ctx: Any = None
         self._connected = False
         self._default_market = default_market
 
