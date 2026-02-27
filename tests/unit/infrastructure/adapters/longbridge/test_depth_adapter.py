@@ -1,6 +1,5 @@
 """Tests for Longbridge DepthAdapter — mock-based tests."""
 
-from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
 import pytest
