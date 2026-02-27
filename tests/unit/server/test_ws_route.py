@@ -1,11 +1,6 @@
 """Tests for WebSocket route — /ws endpoint with subscribe/unsubscribe."""
 
-import asyncio
-import json
-
-import pytest
 from fastapi.testclient import TestClient
-from starlette.testclient import TestClient as StarletteTestClient
 
 from src.server.ws_hub import WebSocketHub
 
@@ -26,7 +21,7 @@ def test_ws_connect_and_disconnect():
     """Client can connect and disconnect cleanly."""
     app, hub = _make_app_with_hub()
     client = TestClient(app)
-    with client.websocket_connect("/ws") as ws:
+    with client.websocket_connect("/ws"):
         assert hub.client_count == 1
     # After context exit, client should be disconnected
     assert hub.client_count == 0

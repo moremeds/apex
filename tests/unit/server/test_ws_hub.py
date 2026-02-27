@@ -1,7 +1,5 @@
 """Tests for WebSocket Hub — fan-out to per-symbol subscribed clients."""
 
-import asyncio
-import json
 from typing import Any, List
 
 import pytest

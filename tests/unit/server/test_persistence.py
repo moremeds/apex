@@ -1,7 +1,6 @@
 """Tests for DuckDB persistence — tick/bar/signal buffering + flush."""
 
 from datetime import datetime, timezone
-from unittest.mock import MagicMock
 
 import pytest
 

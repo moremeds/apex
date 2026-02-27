@@ -1,6 +1,6 @@
 """Tests for server config loader."""
 
-from src.server.config import ProviderConfig, ServerConfig, load_server_config
+from src.server.config import load_server_config
 
 
 def test_load_default_config():

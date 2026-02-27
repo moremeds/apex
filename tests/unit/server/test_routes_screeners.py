@@ -1,9 +1,7 @@
 """Tests for /api/screeners and /api/backtest routes (R2 proxy)."""
 
-import time
 from unittest.mock import MagicMock
 
-import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 

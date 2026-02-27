@@ -1,9 +1,8 @@
 """Tests for /api/symbols and /api/history/{symbol} routes."""
 
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
-import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
