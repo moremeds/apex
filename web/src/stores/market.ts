@@ -1,5 +1,5 @@
 import { create } from "zustand"
-import type { QuoteData, OHLCV, SignalData, ProviderStatus } from "@/lib/ws"
+import type { QuoteData, OHLCV, SignalData, ProviderStatus, AdvisorMarketContext, PremiumAdvice, EquityAdvice } from "@/lib/ws"
 
 const MAX_SIGNALS = 200
 
@@ -13,6 +13,9 @@ interface MarketState {
   signals: SignalData[]
   providers: ProviderStatus[]
   wsStatus: "connecting" | "connected" | "disconnected"
+  advisorContext: AdvisorMarketContext | null
+  advisorPremium: PremiumAdvice[]
+  advisorEquity: EquityAdvice[]
 
   updateQuote: (symbol: string, quote: QuoteData) => void
   appendBar: (symbol: string, tf: string, bar: OHLCV) => void
@@ -20,6 +23,7 @@ interface MarketState {
   addSignal: (signal: SignalData) => void
   setProviders: (providers: ProviderStatus[]) => void
   setWsStatus: (status: MarketState["wsStatus"]) => void
+  updateAdvisor: (ctx: AdvisorMarketContext, premium: PremiumAdvice[], equity: EquityAdvice[]) => void
 }
 
 export const useMarketStore = create<MarketState>((set) => ({
@@ -29,6 +33,9 @@ export const useMarketStore = create<MarketState>((set) => ({
   signals: [],
   providers: [],
   wsStatus: "disconnected",
+  advisorContext: null,
+  advisorPremium: [],
+  advisorEquity: [],
 
   updateQuote: (symbol, quote) =>
     set((state) => ({
@@ -73,4 +80,6 @@ export const useMarketStore = create<MarketState>((set) => ({
   setProviders: (providers) => set({ providers }),
 
   setWsStatus: (wsStatus) => set({ wsStatus }),
+
+  updateAdvisor: (ctx, premium, equity) => set({ advisorContext: ctx, advisorPremium: premium, advisorEquity: equity }),
 }))

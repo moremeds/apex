@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
+import type { AdvisorMarketContext, PremiumAdvice, EquityAdvice } from "./ws"
 
 async function fetchJson<T>(url: string): Promise<T> {
   const res = await fetch(url)
@@ -7,6 +8,13 @@ async function fetchJson<T>(url: string): Promise<T> {
 }
 
 // ── Types ──────────────────────────────────────────────
+
+export interface AdvisorResponse {
+  market_context: AdvisorMarketContext
+  premium: PremiumAdvice[]
+  equity: EquityAdvice[]
+  timestamp: string
+}
 
 export interface SymbolsResponse {
   symbols: Record<string, SymbolInfo>
@@ -71,6 +79,8 @@ export const api = {
   scoreHistory: () => fetchJson<Record<string, unknown>>("/api/score-history"),
   indicators: () => fetchJson<Record<string, unknown>>("/api/indicators"),
   universe: () => fetchJson<Record<string, unknown>>("/api/universe"),
+  advisor: () => fetchJson<AdvisorResponse>("/api/advisor"),
+  advisorSymbol: (symbol: string) => fetchJson<Record<string, unknown>>(`/api/advisor/${symbol}`),
 }
 
 // ── Query hooks ────────────────────────────────────────
@@ -130,4 +140,8 @@ export function useIndicators() {
 
 export function useUniverse() {
   return useQuery({ queryKey: ["universe"], queryFn: api.universe, staleTime: 5 * 60_000 })
+}
+
+export function useAdvisor() {
+  return useQuery({ queryKey: ["advisor"], queryFn: api.advisor, staleTime: 30_000 })
 }
