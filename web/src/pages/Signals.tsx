@@ -5,7 +5,6 @@ import {
   CandlestickSeries,
   LineSeries,
   HistogramSeries,
-  createSeriesMarkers,
   type IChartApi,
   type Time,
 } from "lightweight-charts"
@@ -385,22 +384,6 @@ function MultiPaneChart({ chartData, signals }: { chartData: ChartData; signals:
         value: chartData.volume[i] ?? 0,
         color: chartData.close[i] >= chartData.open[i] ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)",
       })))
-    }
-
-    // Signal markers (buy/sell arrows)
-    if (signals?.length > 0) {
-      const markers = signals
-        .filter((s) => s.timestamp)
-        .map((s) => ({
-          time: toUnix(s.timestamp) as Time,
-          position: (s.direction === "buy" ? "belowBar" : "aboveBar") as "belowBar" | "aboveBar",
-          color: s.direction === "buy" ? "#10b981" : "#f43f5e",
-          shape: "circle" as const,
-          text: s.rule?.replace(/_/g, " ") ?? (s.direction === "buy" ? "BUY" : "SELL"),
-          size: 1,
-        }))
-        .sort((a, b) => (a.time as number) - (b.time as number))
-      try { createSeriesMarkers(candles, markers) } catch { /* v5 compat */ }
     }
 
     // === RSI Chart ===

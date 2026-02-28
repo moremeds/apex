@@ -127,7 +127,7 @@ export function useSignalData(symbol: string, tf = "1d") {
 }
 
 export function useSummary() {
-  return useQuery({ queryKey: ["summary"], queryFn: api.summary, staleTime: 5 * 60_000 })
+  return useQuery({ queryKey: ["summary"], queryFn: api.summary, staleTime: 30_000, refetchInterval: 60_000 })
 }
 
 export function useScoreHistory() {

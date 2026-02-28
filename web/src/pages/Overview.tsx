@@ -89,9 +89,11 @@ function getAlignmentColor(score: number | null): string {
 
 interface TickerData {
   symbol: string
+  close?: number
   last_close?: number
   daily_change_pct?: number
   trending_score?: number
+  composite_score_avg?: number
   regime?: string
   alignment_score?: number
   market_cap?: number
@@ -104,7 +106,7 @@ interface ScoreSnapshot {
   scores: Record<string, number>
 }
 
-type ColorBy = "trending" | "daily_change" | "alignment"
+type ColorBy = "trending" | "daily_change" | "alignment" | "regime"
 type SizeBy = "market_cap" | "volume" | "equal"
 
 // ── Main Component ───────────────────────────────────────────────────────────
@@ -175,16 +177,24 @@ export function Overview() {
   // Regime counts
   const regimeCounts = summary?.regime_counts ?? { R0: 0, R1: 0, R2: 0, R3: 0 }
 
-  // Get price for a symbol (live quote → summary → symbolsData)
+  // Get price for a symbol (live quote → summary close/last_close → symbolsData)
   const getPrice = useCallback(
     (sym: string) =>
-      quotes[sym]?.last ?? tickerMap[sym]?.last_close ?? (symbolsData?.symbols?.[sym] as { last?: number })?.last,
+      quotes[sym]?.last ?? tickerMap[sym]?.last_close ?? tickerMap[sym]?.close ?? (symbolsData?.symbols?.[sym] as { last?: number })?.last,
     [quotes, tickerMap, symbolsData],
   )
 
   const getChange = useCallback(
-    (sym: string) => tickerMap[sym]?.daily_change_pct ?? null,
-    [tickerMap],
+    (sym: string) => {
+      // If we have a live quote, compute change from summary's previous close
+      const livePrice = quotes[sym]?.last
+      const prevClose = tickerMap[sym]?.close ?? tickerMap[sym]?.last_close
+      if (livePrice && prevClose && prevClose > 0) {
+        return Math.round(((livePrice - prevClose) / prevClose) * 100 * 100) / 100
+      }
+      return tickerMap[sym]?.daily_change_pct ?? null
+    },
+    [quotes, tickerMap],
   )
 
   const getRegime = useCallback(
@@ -251,6 +261,7 @@ export function Overview() {
         let color: string
         if (colorBy === "trending") color = getScoreGradientColor(td?.trending_score ?? 50)
         else if (colorBy === "daily_change") color = getDailyChangeColor(td?.daily_change_pct ?? null)
+        else if (colorBy === "regime") color = getScoreGradientColor(td?.composite_score_avg ?? 50)
         else color = getAlignmentColor(td?.alignment_score ?? null)
 
         const text = `${sym}<br>$${price.toFixed(2)}<br>${td?.daily_change_pct != null ? `${td.daily_change_pct >= 0 ? "+" : ""}${td.daily_change_pct.toFixed(2)}%` : ""}`
@@ -384,6 +395,7 @@ export function Overview() {
             <option value="trending">Trending Score</option>
             <option value="daily_change">Daily Change</option>
             <option value="alignment">Alignment Score</option>
+            <option value="regime">Regime</option>
           </select>
         </label>
         <label className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -417,7 +429,7 @@ export function Overview() {
                   textinfo: "label",
                   marker: {
                     colors: treemapData.colors,
-                    line: { color: "#0d1520", width: 1.5 },
+                    line: { color: "#1a2332", width: 0.5 },
                   },
                   branchvalues: "total" as const,
                   textfont: { color: "#c0cad8", size: 12 },

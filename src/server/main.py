@@ -7,6 +7,7 @@ import logging
 import os
 import time
 from contextlib import asynccontextmanager
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, AsyncGenerator
 
@@ -52,6 +53,68 @@ async def _periodic_flush(persistence: ServerPersistence, interval_sec: int) -> 
                 logger.info("Periodic flush: %d ticks → DuckDB", count)
         except Exception:
             logger.exception("Periodic flush failed")
+
+
+async def _fill_data_gap(engine: Any, symbols: list[str], tf: str = "1d") -> int:
+    """Fill gap between R2-bootstrapped history and today using FMP/Yahoo waterfall.
+
+    Checks the latest bar timestamp in indicator engine history vs today,
+    uses BarCountCalculator to find missing trading days, then fetches
+    via load_bars() and injects into the engine.
+    """
+    from src.domain.services.bar_count_calculator import BarCountCalculator
+    from src.services.bar_loader import load_bars
+
+    cal = BarCountCalculator("NYSE")
+    today = date.today()
+    filled = 0
+
+    for sym in symbols:
+        bar_deque = engine._history.get((sym, tf))
+        if not bar_deque:
+            continue
+
+        latest_ts = bar_deque[-1].get("timestamp")
+        if latest_ts is None:
+            continue
+        latest_date = latest_ts.date() if hasattr(latest_ts, "date") else latest_ts
+
+        missing_days = cal.get_trading_days(latest_date + timedelta(days=1), today)
+        if not missing_days:
+            continue
+
+        try:
+            import pandas as pd
+
+            result = await asyncio.to_thread(
+                load_bars, [sym], tf, (today - latest_date).days + 1, today
+            )
+            df = result.get(sym)
+            if df is not None and not df.empty:
+                df = df[df.index > pd.Timestamp(latest_ts)]
+                if not df.empty:
+                    bar_dicts = []
+                    for idx, row in df.iterrows():
+                        ts = idx.to_pydatetime() if hasattr(idx, "to_pydatetime") else idx
+                        if hasattr(ts, "tzinfo") and ts.tzinfo is not None:
+                            ts = ts.replace(tzinfo=None)
+                        bar_dicts.append(
+                            {
+                                "timestamp": ts,
+                                "open": float(row.get("open", 0)),
+                                "high": float(row.get("high", 0)),
+                                "low": float(row.get("low", 0)),
+                                "close": float(row.get("close", 0)),
+                                "volume": int(row.get("volume", 0)) if row.get("volume") else 0,
+                            }
+                        )
+                    n = engine.inject_historical_bars(sym, tf, bar_dicts)
+                    if n > 0:
+                        filled += n
+        except Exception:
+            pass  # Skip failed symbols silently
+
+    return filled
 
 
 @asynccontextmanager
@@ -185,8 +248,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                         if len(df) > 500:
                             df = df.tail(500)
                         bar_dicts = []
-                        for _, row in df.iterrows():
-                            ts = row.get("timestamp") or row.get("date")
+                        for idx, row in df.iterrows():
+                            ts = row.get("timestamp") or row.get("date") or idx
                             if hasattr(ts, "to_pydatetime"):
                                 ts = ts.to_pydatetime()
                             # Strip timezone to match yfinance convention
@@ -218,6 +281,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                     pass
 
         logger.info("Bootstrap: %d symbol/tf pairs warmed in %.1fs", warmed, _time.monotonic() - t0)
+
+        # ── Fill gap between R2 EOD and today via FMP/Yahoo ──
+        try:
+            gap_count = await _fill_data_gap(
+                engine=pipeline._indicator_engine,
+                symbols=all_symbols[:50],
+                tf="1d",
+            )
+            if gap_count > 0:
+                logger.info("Gap fill: %d new bars injected from FMP/Yahoo", gap_count)
+        except Exception:
+            logger.exception("Gap fill failed")
 
         # ── Fetch VIX + VIX3M for advisor ──
         from datetime import datetime, timedelta, timezone
