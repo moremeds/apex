@@ -8,7 +8,6 @@ from fastapi.testclient import TestClient
 from src.domain.services.advisor.models import (
     EquityAdvice,
     MarketContext,
-    PremiumAdvice,
 )
 from src.server.routes.advisor import create_advisor_router
 
