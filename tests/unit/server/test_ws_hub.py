@@ -30,10 +30,12 @@ async def test_broadcast_quote_to_subscribed():
     await hub.handle_command(ws1, {"cmd": "subscribe", "symbols": ["AAPL"], "types": ["quote"]})
     await hub.handle_command(ws2, {"cmd": "subscribe", "symbols": ["SPY"], "types": ["quote"]})
 
-    await hub.broadcast_quote("AAPL", {"price": 185.5, "volume": 1000})
+    await hub.broadcast_quote("AAPL", {"last": 185.5, "volume": 1000})
     assert len(ws1.sent) == 1
     assert ws1.sent[0]["type"] == "quote"
     assert ws1.sent[0]["symbol"] == "AAPL"
+    # Quote data nested under "data" key (matches frontend WsMessage type)
+    assert ws1.sent[0]["data"]["last"] == 185.5
     assert len(ws2.sent) == 0  # not subscribed to AAPL
 
 
@@ -44,11 +46,13 @@ async def test_broadcast_bar():
     hub.connect(ws)
     await hub.handle_command(ws, {"cmd": "subscribe", "symbols": ["AAPL"], "types": ["quote"]})
 
-    bar = {"o": 184.0, "h": 186.0, "l": 183.5, "c": 185.5, "v": 50000, "ts": 1234567890}
+    bar = {"t": "2024-01-01T00:00:00", "o": 184.0, "h": 186.0, "l": 183.5, "c": 185.5, "v": 50000}
     await hub.broadcast_bar("AAPL", "1d", bar)
     assert len(ws.sent) == 1
     assert ws.sent[0]["type"] == "bar"
-    assert ws.sent[0]["tf"] == "1d"
+    # Uses "timeframe" (not "tf") and "data" wrapper (matches frontend WsMessage type)
+    assert ws.sent[0]["timeframe"] == "1d"
+    assert ws.sent[0]["data"]["o"] == 184.0
 
 
 @pytest.mark.asyncio
@@ -58,9 +62,14 @@ async def test_broadcast_signal():
     hub.connect(ws)
     await hub.handle_command(ws, {"cmd": "subscribe", "symbols": ["AAPL"], "types": ["quote"]})
 
-    await hub.broadcast_signal("AAPL", {"rule": "rsi_oversold", "direction": "long", "ts": 123})
+    await hub.broadcast_signal(
+        "AAPL", {"rule": "rsi_oversold", "direction": "bullish", "strength": 0.8, "timestamp": "123"}
+    )
     assert len(ws.sent) == 1
     assert ws.sent[0]["type"] == "signal"
+    # Signal data nested under "data" key with symbol injected (matches frontend WsMessage type)
+    assert ws.sent[0]["data"]["symbol"] == "AAPL"
+    assert ws.sent[0]["data"]["rule"] == "rsi_oversold"
 
 
 @pytest.mark.asyncio
@@ -73,6 +82,8 @@ async def test_broadcast_indicator():
     await hub.broadcast_indicator("AAPL", "1d", "rsi", 65.3)
     assert len(ws.sent) == 1
     assert ws.sent[0]["type"] == "indicator"
+    # Uses "timeframe" (not "tf") — matches frontend WsMessage type
+    assert ws.sent[0]["timeframe"] == "1d"
     assert ws.sent[0]["name"] == "rsi"
     assert ws.sent[0]["value"] == 65.3
 
@@ -128,15 +139,20 @@ async def test_disconnect_removes_client():
 
 @pytest.mark.asyncio
 async def test_dead_client_cleanup():
-    """If send_json raises, the client should be removed."""
+    """If send_json raises repeatedly, the client should be removed."""
     hub = WebSocketHub()
     ws = MockWebSocket()
     ws.closed = True  # Will raise on send
     hub.connect(ws)
     await hub.handle_command(ws, {"cmd": "subscribe", "symbols": ["AAPL"], "types": ["quote"]})
 
-    await hub.broadcast_quote("AAPL", {"price": 185.5})
-    # Dead client should have been cleaned up
+    # Client tolerates up to _max_send_failures-1 consecutive failures
+    for _ in range(hub._max_send_failures - 1):
+        await hub.broadcast_quote("AAPL", {"last": 185.5})
+        assert hub.client_count == 1  # still connected
+
+    # One more failure tips it over
+    await hub.broadcast_quote("AAPL", {"last": 185.5})
     assert hub.client_count == 0
 
 

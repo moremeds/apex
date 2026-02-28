@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS ticks (
     source VARCHAR,
     ts TIMESTAMPTZ
 );
+CREATE INDEX IF NOT EXISTS idx_ticks_symbol_ts ON ticks (symbol, ts);
 
 CREATE TABLE IF NOT EXISTS bars (
     symbol VARCHAR,
@@ -32,6 +33,7 @@ CREATE TABLE IF NOT EXISTS bars (
     v BIGINT,
     ts TIMESTAMPTZ
 );
+CREATE INDEX IF NOT EXISTS idx_bars_symbol_tf_ts ON bars (symbol, tf, ts);
 
 CREATE TABLE IF NOT EXISTS signals (
     symbol VARCHAR,
@@ -40,6 +42,7 @@ CREATE TABLE IF NOT EXISTS signals (
     strength DOUBLE,
     ts TIMESTAMPTZ
 );
+CREATE INDEX IF NOT EXISTS idx_signals_symbol_ts ON signals (symbol, ts);
 """
 
 
@@ -49,6 +52,9 @@ class ServerPersistence:
     Buffers ticks in memory, periodically flushes to DuckDB.
     Bars and signals are written directly (lower volume).
     """
+
+    # Maximum ticks to buffer before auto-flush to prevent unbounded memory growth
+    MAX_BUFFER_SIZE = 50_000
 
     def __init__(self, duckdb_path: str = "data/server.duckdb") -> None:
         # Ensure parent directory exists
@@ -66,7 +72,7 @@ class ServerPersistence:
             return len(self._tick_buffer)
 
     def buffer_tick(self, tick: QuoteTick) -> None:
-        """Buffer a tick for batch flush."""
+        """Buffer a tick for batch flush. Auto-flushes if buffer exceeds cap."""
         with self._lock:
             self._tick_buffer.append(
                 (
@@ -77,6 +83,10 @@ class ServerPersistence:
                     tick.timestamp,
                 )
             )
+            needs_flush = len(self._tick_buffer) >= self.MAX_BUFFER_SIZE
+
+        if needs_flush:
+            self.flush_to_duckdb()
 
     def flush_to_duckdb(self) -> int:
         """Flush buffered ticks to DuckDB. Returns number flushed."""

@@ -56,7 +56,7 @@ def create_monitor_router(
     router = APIRouter(prefix="/api/monitor")
 
     def _get_hub(request: Request) -> Any:
-        return hub or getattr(request.app.state, "hub", None)
+        return getattr(request.app.state, "hub", None) or hub
 
     def _get_pipeline(request: Request) -> Any:
         return pipeline or getattr(request.app.state, "pipeline", None)

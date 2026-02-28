@@ -2,6 +2,7 @@ import { create } from "zustand"
 import type { QuoteData, OHLCV, SignalData, ProviderStatus, AdvisorMarketContext, PremiumAdvice, EquityAdvice } from "@/lib/ws"
 
 const MAX_SIGNALS = 200
+const MAX_BARS_PER_TF = 500
 
 /** Indicator values keyed by symbol → timeframe → indicator_name → value */
 type IndicatorMap = Record<string, Record<string, Record<string, number>>>
@@ -46,12 +47,13 @@ export const useMarketStore = create<MarketState>((set) => ({
     set((state) => {
       const symbolBars = state.bars[symbol] ?? {}
       const tfBars = symbolBars[tf] ?? []
+      const updated = [...tfBars, bar]
       return {
         bars: {
           ...state.bars,
           [symbol]: {
             ...symbolBars,
-            [tf]: [...tfBars, bar],
+            [tf]: updated.length > MAX_BARS_PER_TF ? updated.slice(-MAX_BARS_PER_TF) : updated,
           },
         },
       }

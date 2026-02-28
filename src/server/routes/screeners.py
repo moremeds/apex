@@ -9,6 +9,7 @@ Data resolution order:
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import logging
 import ssl
@@ -165,12 +166,15 @@ def create_screeners_router(r2_client: Any = None, cache_ttl: int = 300) -> APIR
         if not isinstance(data, dict):
             data = {"data": data}
 
+        # Deep-copy before mutation to avoid contaminating the cache
+        data = copy.deepcopy(data)
+
         # Extend chart with fresh bars from indicator engine
         pipeline_obj = getattr(request.app.state, "pipeline", None)
         chart_data = data.get("chart_data")
         if pipeline_obj is not None and chart_data and chart_data.get("timestamps"):
             engine = pipeline_obj._indicator_engine
-            bar_deque = engine._history.get((symbol, tf))
+            bar_deque = engine.get_history(symbol, tf)
             if bar_deque:
                 last_ts_str = chart_data["timestamps"][-1]
                 from datetime import datetime
@@ -198,7 +202,7 @@ def create_screeners_router(r2_client: Any = None, cache_ttl: int = 300) -> APIR
                         chart_data["close"].append(bar["close"])
                         chart_data["volume"].append(bar["volume"])
                         # Append null for all indicator sub-arrays
-                        for section_key in ("overlays", "rsi", "macd", "oscillators", "volume_ind"):
+                        for section_key in ("overlays", "rsi", "macd", "oscillators", "volume_ind", "dual_macd", "price_levels"):
                             section = chart_data.get(section_key, {})
                             if isinstance(section, dict):
                                 for _ind_name, ind_data in section.items():
@@ -225,19 +229,26 @@ def create_screeners_router(r2_client: Any = None, cache_ttl: int = 300) -> APIR
         if not isinstance(data, dict):
             data = {"data": data}
 
-        # Overlay prices from R2-bootstrapped + gap-filled indicator engine
+        # Deep-copy before mutation to avoid contaminating the cache
+        data = copy.deepcopy(data)
+
+        # Overlay prices from R2-bootstrapped + gap-filled indicator engine.
+        # Track prev_close per symbol for correct daily_change_pct computation.
         pipeline = getattr(request.app.state, "pipeline", None)
+        prev_close_map: dict[str, float] = {}
         if pipeline is not None:
             try:
                 engine = pipeline._indicator_engine
                 for ticker in data.get("tickers", []):
                     sym = ticker.get("symbol", "")
-                    bar_deque = engine._history.get((sym, "1d"))
+                    bar_deque = engine.get_history(sym, "1d")
                     if bar_deque and len(bar_deque) >= 2:
                         latest = bar_deque[-1]
                         prev = bar_deque[-2]
                         latest_close = latest["close"]
                         prev_close = prev["close"]
+                        if prev_close > 0:
+                            prev_close_map[sym] = prev_close
                         if latest_close > 0 and prev_close > 0:
                             ticker["close"] = latest_close
                             ticker["daily_change_pct"] = round(
@@ -246,8 +257,8 @@ def create_screeners_router(r2_client: Any = None, cache_ttl: int = 300) -> APIR
             except Exception:
                 pass
 
-        # Overlay live prices from quote adapter (takes precedence over R2)
-        # Only during market hours — on weekends/holidays Longbridge returns stale data
+        # Overlay live prices from quote adapter (takes precedence over R2).
+        # Only during market hours — on weekends/holidays Longbridge returns stale data.
         from datetime import datetime, timezone
 
         qa = getattr(request.app.state, "quote_adapter", None)
@@ -262,9 +273,10 @@ def create_screeners_router(r2_client: Any = None, cache_ttl: int = 300) -> APIR
                             qa.get_latest_quote(sym) if hasattr(qa, "get_latest_quote") else None
                         )
                         if quote and hasattr(quote, "last") and quote.last:
-                            prev_close = ticker.get("close") or ticker.get("last_close")
+                            # Use prev_close from bar history (not from ticker dict,
+                            # which may already be overlaid with today's close)
+                            prev_close = prev_close_map.get(sym)
                             ticker["close"] = quote.last
-                            # Recompute daily change from live price vs previous close
                             if prev_close and prev_close > 0:
                                 ticker["daily_change_pct"] = round(
                                     ((quote.last - prev_close) / prev_close) * 100, 2
@@ -274,33 +286,30 @@ def create_screeners_router(r2_client: Any = None, cache_ttl: int = 300) -> APIR
                 except Exception:
                     pass
 
-        # Overlay live regime from pipeline indicator engine
+        # Overlay live regime from pipeline indicator engine.
+        # get_regime_states() now includes composite_score — avoids a second
+        # expensive get_all_indicator_states() call per request.
         if pipeline is not None:
             try:
                 regimes = pipeline.get_regime_states("1d")
-                # Also get raw indicator states for composite_score
-                ind_states = pipeline._indicator_engine.get_all_indicator_states(timeframe="1d")
-                score_map: dict[str, float] = {}
-                for (sym, _tf, ind), state in ind_states.items():
-                    if ind == "regime_detector" and state:
-                        cs = state.get("composite_score")
-                        if cs is not None:
-                            score_map[sym] = cs
                 if regimes:
                     for ticker in data.get("tickers", []):
                         sym = ticker.get("symbol", "")
-                        if sym in regimes:
-                            ticker["regime"] = regimes[sym]["regime"]
-                            ticker["regime_name"] = regimes[sym]["regime_name"]
-                            ticker["confidence"] = regimes[sym]["confidence"]
-                        if sym in score_map:
-                            ticker["composite_score_avg"] = round(score_map[sym], 1)
+                        r = regimes.get(sym)
+                        if r:
+                            ticker["regime"] = r["regime"]
+                            ticker["regime_name"] = r["regime_name"]
+                            ticker["confidence"] = r["confidence"]
+                            cs = r.get("composite_score")
+                            if cs is not None:
+                                ticker["composite_score_avg"] = round(cs, 1)
                     # Also overlay market benchmarks
                     market = data.get("market", {})
                     for bench_sym, bench_data in market.get("benchmarks", {}).items():
-                        if bench_sym in regimes:
-                            bench_data["regime"] = regimes[bench_sym]["regime"]
-                            bench_data["confidence"] = regimes[bench_sym]["confidence"]
+                        r = regimes.get(bench_sym)
+                        if r:
+                            bench_data["regime"] = r["regime"]
+                            bench_data["confidence"] = r["confidence"]
             except Exception:
                 pass  # Fall back to cached regime data
 

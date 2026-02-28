@@ -159,10 +159,16 @@ export function Signals() {
   const [symbol, setSymbol] = useState(searchParams.get("symbol") ?? "")
   const [tf, setTf] = useState(searchParams.get("tf") ?? "1d")
 
-  const symbolList = useMemo(
-    () => Object.keys(symbolsData?.symbols ?? {}).sort(),
-    [symbolsData],
-  )
+  const symbolList = useMemo(() => {
+    // Prefer live symbols (from Longbridge quote adapter)
+    const liveSyms = Object.keys(symbolsData?.symbols ?? {})
+    if (liveSyms.length > 0) return liveSyms.sort()
+    // Fallback: summary tickers (from R2/static — always available)
+    const summarySyms = ((summaryData as any)?.tickers ?? [])
+      .map((t: any) => t.symbol)
+      .filter(Boolean) as string[]
+    return summarySyms.sort()
+  }, [symbolsData, summaryData])
 
   // Auto-select first symbol
   useEffect(() => {
@@ -174,11 +180,10 @@ export function Signals() {
     if (symbol) setSearchParams({ symbol, tf }, { replace: true })
   }, [symbol, tf, setSearchParams])
 
-  // WS subscribe
+  // WS subscribe — additive only, don't unsubscribe (global socket manages all symbols)
   useEffect(() => {
     if (!symbol) return
     send({ cmd: "subscribe", symbols: [symbol], types: ["quote", "bar", "indicator", "signal"] })
-    return () => { send({ cmd: "unsubscribe", symbols: [symbol] }) }
   }, [symbol, send])
 
   // R2 signal data (primary source)

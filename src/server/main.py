@@ -13,7 +13,7 @@ from typing import Any, AsyncGenerator
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 
 from src.domain.events.domain_events import QuoteTick
 from src.domain.services.regime.universe_loader import load_universe
@@ -70,7 +70,7 @@ async def _fill_data_gap(engine: Any, symbols: list[str], tf: str = "1d") -> int
     filled = 0
 
     for sym in symbols:
-        bar_deque = engine._history.get((sym, tf))
+        bar_deque = engine.get_history(sym, tf)
         if not bar_deque:
             continue
 
@@ -112,7 +112,7 @@ async def _fill_data_gap(engine: Any, symbols: list[str], tf: str = "1d") -> int
                     if n > 0:
                         filled += n
         except Exception:
-            pass  # Skip failed symbols silently
+            logger.warning("Gap fill failed for %s/%s", sym, tf, exc_info=True)
 
     return filled
 
@@ -278,7 +278,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 try:
                     await pipeline._indicator_engine.compute_on_history(symbol, tf)
                 except Exception:
-                    pass
+                    logger.debug("Compute on history failed for %s/%s", symbol, tf, exc_info=True)
 
         logger.info("Bootstrap: %d symbol/tf pairs warmed in %.1fs", warmed, _time.monotonic() - t0)
 
@@ -286,11 +286,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         try:
             gap_count = await _fill_data_gap(
                 engine=pipeline._indicator_engine,
-                symbols=all_symbols[:50],
+                symbols=all_symbols,
                 tf="1d",
             )
             if gap_count > 0:
                 logger.info("Gap fill: %d new bars injected from FMP/Yahoo", gap_count)
+                # Recompute indicators/regimes on the freshly-injected bars
+                recomputed = 0
+                for symbol in all_symbols:
+                    try:
+                        await pipeline._indicator_engine.compute_on_history(symbol, "1d")
+                        recomputed += 1
+                    except Exception:
+                        logger.debug("Gap fill recompute failed for %s", symbol, exc_info=True)
+                logger.info("Gap fill recompute: %d symbols updated", recomputed)
         except Exception:
             logger.exception("Gap fill failed")
 
@@ -345,13 +354,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             vd = getattr(app.state, "vix_data", {})
             if sym in vd:
                 return vd[sym]
-            # Fall back to indicator engine bar history
+            # Fall back to indicator engine bar history (thread-safe access)
             engine = pipeline._indicator_engine
-            bar_deque = engine._history.get((sym, "1d"))
-            if bar_deque and len(bar_deque) > 0:
+            bar_list = engine.get_history(sym, "1d")
+            if bar_list and len(bar_list) > 0:
                 closes = pd.Series(
-                    [b["close"] for b in bar_deque],
-                    index=pd.DatetimeIndex([b["timestamp"] for b in bar_deque]),
+                    [b["close"] for b in bar_list],
+                    index=pd.DatetimeIndex([b["timestamp"] for b in bar_list]),
                 )
                 return closes
             return None
@@ -454,13 +463,12 @@ def create_app(config_path: str = "config/server.yaml") -> FastAPI:
             "ws_clients": hub.client_count if hub else 0,
         }
 
-    # Routes — dependencies resolved lazily from app.state
-    # This allows the lifespan to wire real adapters after startup
-    hub_placeholder = WebSocketHub()  # used before lifespan runs (e.g., tests)
-    app.include_router(create_ws_router(hub_placeholder))
+    # Routes — all dependencies resolved lazily from app.state at request time.
+    # This allows the lifespan to wire real adapters after startup.
+    app.include_router(create_ws_router())
     app.include_router(create_symbols_router())
     app.include_router(create_screeners_router())
-    app.include_router(create_monitor_router(hub=hub_placeholder))
+    app.include_router(create_monitor_router())
     app.include_router(create_advisor_router())
 
     # SPA catch-all: serve index.html for any non-API, non-WS GET request.
@@ -469,12 +477,16 @@ def create_app(config_path: str = "config/server.yaml") -> FastAPI:
     if dist_path.is_dir():
         index_html = dist_path / "index.html"
 
-        @app.get("/{full_path:path}")
-        async def spa_catchall(request: Request, full_path: str) -> FileResponse:
+        @app.get("/{full_path:path}", response_model=None)
+        async def spa_catchall(request: Request, full_path: str) -> Response:
             # Serve actual static files (JS, CSS, images) if they exist
             static_file = dist_path / full_path
             if static_file.is_file() and not full_path.startswith("api/"):
                 return FileResponse(static_file)
+            # If the path has a file extension but doesn't exist, return 404
+            # (prevents serving index.html for missing .js/.css/etc.)
+            if "." in full_path.split("/")[-1]:
+                return JSONResponse({"detail": "Not found"}, status_code=404)
             # Otherwise serve index.html for client-side routing
             return FileResponse(index_html)
 
@@ -504,21 +516,23 @@ def create_test_app() -> FastAPI:
             "ws_clients": hub.client_count,
         }
 
-    app.include_router(create_ws_router(hub))
+    app.include_router(create_ws_router())
     app.include_router(create_symbols_router())
     app.include_router(create_screeners_router())
-    app.include_router(create_monitor_router(hub=hub))
+    app.include_router(create_monitor_router())
     app.include_router(create_advisor_router())
 
     dist_path = Path("web/dist")
     if dist_path.is_dir():
         index_html = dist_path / "index.html"
 
-        @app.get("/{full_path:path}")
-        async def spa_catchall_test(request: Request, full_path: str) -> FileResponse:
+        @app.get("/{full_path:path}", response_model=None)
+        async def spa_catchall_test(request: Request, full_path: str) -> Response:
             static_file = dist_path / full_path
             if static_file.is_file() and not full_path.startswith("api/"):
                 return FileResponse(static_file)
+            if "." in full_path.split("/")[-1]:
+                return JSONResponse({"detail": "Not found"}, status_code=404)
             return FileResponse(index_html)
 
     return app

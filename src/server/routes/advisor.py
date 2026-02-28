@@ -7,6 +7,7 @@ lifespan bootstrap) over the constructor arg (used in tests).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Optional
 
@@ -29,7 +30,8 @@ def create_advisor_router(advisor_service: Optional[Any] = None) -> APIRouter:
         if svc is None:
             raise HTTPException(status_code=503, detail="Advisor service not available")
 
-        result = svc.compute_all()
+        # compute_all() is CPU-bound — run in thread to avoid blocking the event loop
+        result = await asyncio.to_thread(svc.compute_all)
         result = _serialize(result)
 
         if sector:
@@ -46,7 +48,7 @@ def create_advisor_router(advisor_service: Optional[Any] = None) -> APIRouter:
         if svc is None:
             raise HTTPException(status_code=503, detail="Advisor service not available")
 
-        result = svc.compute_symbol(symbol.upper())
+        result = await asyncio.to_thread(svc.compute_symbol, symbol.upper())
         return dict(_serialize(result))
 
     return router
