@@ -181,7 +181,7 @@ class ServerPipeline:
         if event.timeframe == "1d" and self._advisor_service:
             import concurrent.futures
 
-            def _compute_and_broadcast():
+            def _compute_and_broadcast() -> None:
                 try:
                     advice = self._advisor_service.compute_all()
                     serialized = _serialize_advice(advice)

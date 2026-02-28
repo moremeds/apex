@@ -261,11 +261,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 elif sector_etf:
                     sector_map[sym] = sector_etf
 
-        def _get_vix():
+        def _get_vix() -> tuple[pd.Series | None, pd.Series | None]:
             vd = getattr(app.state, "vix_data", {})
             return vd.get("^VIX"), vd.get("^VIX3M")
 
-        def _get_underlying(sym):
+        def _get_underlying(sym: str) -> pd.Series | None:
             # Prefer Yahoo-fetched data (longer history for VRP z-score)
             vd = getattr(app.state, "vix_data", {})
             if sym in vd:

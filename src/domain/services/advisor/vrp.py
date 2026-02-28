@@ -46,9 +46,7 @@ def compute_vrp(
             return bare.normalize()
         return idx
 
-    if isinstance(vix_close.index, pd.DatetimeIndex) and isinstance(
-        rv30.index, pd.DatetimeIndex
-    ):
+    if isinstance(vix_close.index, pd.DatetimeIndex) and isinstance(rv30.index, pd.DatetimeIndex):
         vix_by_date = vix_close.copy()
         vix_by_date.index = _to_date_index(vix_close.index)
         rv30_by_date = rv30.copy()
@@ -73,9 +71,7 @@ def compute_vrp(
                 float((current_vrp - vrp_mean_val) / vrp_std_val) if vrp_std_val > 0 else 0.0
             )
             vix_tail = vix_close.iloc[-usable:]
-            iv_pctile_partial = float(
-                (vix_tail < vix_close.iloc[-1]).sum() / len(vix_tail) * 100
-            )
+            iv_pctile_partial = float((vix_tail < vix_close.iloc[-1]).sum() / len(vix_tail) * 100)
             return VRPResult(
                 iv30=float(vix_close.iloc[-1]),
                 rv30=float(rv30.dropna().iloc[-1]) if len(rv30.dropna()) > 0 else 0.0,
