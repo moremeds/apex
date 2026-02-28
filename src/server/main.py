@@ -225,7 +225,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         import pandas as pd
 
         vix_data: dict[str, Any] = {}
-        for vix_sym in ("^VIX", "^VIX3M"):
+        for vix_sym in ("^VIX", "^VIX3M", "SPY"):
             try:
                 from src.infrastructure.adapters.yahoo.historical_adapter import (
                     YahooHistoricalAdapter,
@@ -266,6 +266,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             return vd.get("^VIX"), vd.get("^VIX3M")
 
         def _get_underlying(sym):
+            # Prefer Yahoo-fetched data (longer history for VRP z-score)
+            vd = getattr(app.state, "vix_data", {})
+            if sym in vd:
+                return vd[sym]
+            # Fall back to indicator engine bar history
             engine = pipeline._indicator_engine
             bar_deque = engine._history.get((sym, "1d"))
             if bar_deque and len(bar_deque) > 0:

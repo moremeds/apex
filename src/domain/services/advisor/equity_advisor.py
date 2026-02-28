@@ -26,17 +26,23 @@ class EquityAdvisor:
         indicator_state: dict,
     ) -> EquityAdvice:
         if not active_signals:
+            # Extract key levels even when no signals are active
+            tp = self._extract_trend_pulse(indicator_state)
+            kl = self._extract_key_levels(indicator_state)
+            reasoning = ["No active signals — awaiting market data"]
+            if regime in ("R2", "R3"):
+                reasoning.append(f"Regime {regime}: elevated caution")
             return EquityAdvice(
                 symbol=symbol,
                 sector=sector,
                 action="HOLD",
-                confidence=5,
+                confidence=0,
                 regime=regime,
                 signal_summary={"bullish": 0, "bearish": 0, "neutral": 0},
                 top_signals=[],
-                trend_pulse=None,
-                key_levels={},
-                reasoning=["No active signals"],
+                trend_pulse=tp,
+                key_levels=kl,
+                reasoning=reasoning,
             )
 
         # Score each signal

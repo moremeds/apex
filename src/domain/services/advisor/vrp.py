@@ -39,8 +39,24 @@ def compute_vrp(
     log_returns = np.log(underlying_close / underlying_close.shift(1)).dropna()
     rv30 = log_returns.rolling(rv_window).std() * math.sqrt(252) * 100
 
-    # Align series
-    vrp = vix_close - rv30
+    # Align by date — strip timezone info and normalize to date-only
+    def _to_date_index(idx: pd.Index) -> pd.Index:
+        if isinstance(idx, pd.DatetimeIndex):
+            bare = idx.tz_localize(None) if idx.tz is not None else idx
+            return bare.normalize()
+        return idx
+
+    if isinstance(vix_close.index, pd.DatetimeIndex) and isinstance(
+        rv30.index, pd.DatetimeIndex
+    ):
+        vix_by_date = vix_close.copy()
+        vix_by_date.index = _to_date_index(vix_close.index)
+        rv30_by_date = rv30.copy()
+        rv30_by_date.index = _to_date_index(rv30.index)
+        common = vix_by_date.index.intersection(rv30_by_date.index)
+        vrp = vix_by_date.loc[common] - rv30_by_date.loc[common]
+    else:
+        vrp = vix_close - rv30
     vrp = vrp.dropna()
 
     if len(vrp) == 0:
@@ -48,6 +64,25 @@ def compute_vrp(
 
     if len(vrp) < zscore_window:
         current_vrp = vrp.iloc[-1]
+        # Use whatever window we have (min 30) for z-score instead of returning 0
+        usable = len(vrp)
+        if usable >= 30:
+            vrp_mean_val = vrp.mean()
+            vrp_std_val = vrp.std()
+            zscore_partial = (
+                float((current_vrp - vrp_mean_val) / vrp_std_val) if vrp_std_val > 0 else 0.0
+            )
+            vix_tail = vix_close.iloc[-usable:]
+            iv_pctile_partial = float(
+                (vix_tail < vix_close.iloc[-1]).sum() / len(vix_tail) * 100
+            )
+            return VRPResult(
+                iv30=float(vix_close.iloc[-1]),
+                rv30=float(rv30.dropna().iloc[-1]) if len(rv30.dropna()) > 0 else 0.0,
+                vrp=float(current_vrp),
+                vrp_zscore=zscore_partial,
+                iv_percentile=iv_pctile_partial,
+            )
         return VRPResult(
             iv30=float(vix_close.iloc[-1]),
             rv30=float(rv30.dropna().iloc[-1]) if len(rv30.dropna()) > 0 else 0.0,
