@@ -1,13 +1,13 @@
 {
   "version": "m2_v2.0",
   "mode": "optimize",
-  "generated_at": "2026-02-28T04:16:22.712811+00:00",
+  "generated_at": "2026-03-01T04:54:23.958102+00:00",
   "best_params": {
     "ma50_period": 47,
     "ma200_period": 218,
     "atr_period": 22,
-    "vol_high_short_pct": 82,
-    "chop_high_pct": 63
+    "vol_high_short_pct": 70,
+    "chop_high_pct": 75
   },
   "nested_cv_result": {
     "n_outer_folds": 3,
@@ -33,7 +33,7 @@
           "vol_high_short_pct": 82,
           "chop_high_pct": 63
         },
-        "inner_cv_score": 0.04275184275184275,
+        "inner_cv_score": 0.05540037243947858,
         "n_symbol_metrics": 8
       },
       {
@@ -42,10 +42,10 @@
           "ma50_period": 47,
           "ma200_period": 218,
           "atr_period": 22,
-          "vol_high_short_pct": 82,
-          "chop_high_pct": 63
+          "vol_high_short_pct": 70,
+          "chop_high_pct": 75
         },
-        "inner_cv_score": 0.16968666131044974,
+        "inner_cv_score": 0.17105278152902897,
         "n_symbol_metrics": 8
       }
     ],
