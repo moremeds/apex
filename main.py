@@ -2,14 +2,15 @@
 Live Risk Management System - Main Entry Point
 
 Usage:
-    python orchestrator.py --env dev          # Development mode
-    python orchestrator.py --env prod         # Production mode
-    python orchestrator.py --config custom.yaml  # Custom config file
+    python main.py --env dev          # Development mode
+    python main.py --env prod         # Production mode
+    python main.py --config custom.yaml  # Custom config file
 """
 
 from __future__ import annotations
 import asyncio
 import argparse
+import logging
 import os
 import sys
 from pathlib import Path
@@ -36,10 +37,10 @@ def parse_args() -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python orchestrator.py --env dev              # Run in development mode (monitor)
-  python orchestrator.py --mode monitor         # Explicit monitor mode
-  python orchestrator.py --mode backtest --spec config/backtest/ma_cross.yaml
-  python orchestrator.py --mode backtest --engine backtrader --strategy ma_cross
+  python main.py --env dev              # Run in development mode (monitor)
+  python main.py --mode monitor         # Explicit monitor mode
+  python main.py --mode backtest --spec config/backtest/ma_cross.yaml
+  python main.py --mode backtest --engine backtrader --strategy ma_cross
         """
     )
 
@@ -406,28 +407,30 @@ async def run_backtest(args: argparse.Namespace) -> int:
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
 
+    logger = logging.getLogger(__name__)
+
     # Validate required args (if not using spec file)
     if not args.spec:
         if not args.strategy:
-            print("Error: --strategy or --spec required for backtest mode")
-            print(f"Available strategies: {list_strategies()}")
+            logger.error("--strategy or --spec required for backtest mode")
+            logger.info("Available strategies: %s", list_strategies())
             return 1
         if not args.symbols:
-            print("Error: --symbols required for backtest mode")
+            logger.error("--symbols required for backtest mode")
             return 1
         if not args.start or not args.end:
-            print("Error: --start and --end required for backtest mode")
+            logger.error("--start and --end required for backtest mode")
             return 1
 
     try:
         # Handle engine selection
         if args.engine == "backtrader":
             if not BACKTRADER_AVAILABLE:
-                print("Error: backtrader not installed. Run: pip install backtrader")
-                print("Falling back to apex engine.")
+                logger.error("backtrader not installed. Run: pip install backtrader")
+                logger.info("Falling back to apex engine.")
                 runner = BacktestRunner.from_args(args)
             else:
-                print("Using Backtrader engine")
+                logger.info("Using Backtrader engine")
                 runner = BacktraderRunner.from_args(args)
         else:
             # Default: apex engine
@@ -436,10 +439,7 @@ async def run_backtest(args: argparse.Namespace) -> int:
         result = await runner.run()
         return 0 if result.is_profitable else 1
     except Exception as e:
-        print(f"Backtest failed: {e}")
-        if args.verbose:
-            import traceback
-            traceback.print_exc()
+        logger.exception("Backtest failed: %s", e)
         return 1
 
 
@@ -464,13 +464,15 @@ async def run_trading(args: argparse.Namespace) -> int:
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
 
+    logger = logging.getLogger(__name__)
+
     # Validate required args
     if not args.strategy:
-        print("Error: --strategy required for trading mode")
-        print(f"Available strategies: {list_strategies()}")
+        logger.error("--strategy required for trading mode")
+        logger.info("Available strategies: %s", list_strategies())
         return 1
     if not args.symbols:
-        print("Error: --symbols required for trading mode")
+        logger.error("--symbols required for trading mode")
         return 1
 
     try:
@@ -485,10 +487,7 @@ async def run_trading(args: argparse.Namespace) -> int:
         )
         return await runner.run()
     except Exception as e:
-        print(f"Trading failed: {e}")
-        if args.verbose:
-            import traceback
-            traceback.print_exc()
+        logger.exception("Trading failed: %s", e)
         return 1
 
 
@@ -528,10 +527,9 @@ def main() -> None:
             # Default: monitor mode
             asyncio.run(runner(args))
     except KeyboardInterrupt:
-        print("Shutdown requested")
         sys.exit(0)
     except Exception as e:
-        print(f"Fatal error: {e}")
+        logging.getLogger(__name__).exception("Fatal error: %s", e)
         sys.exit(1)
 
 

@@ -1,7 +1,7 @@
 """
 Textual Dashboard Wrapper.
 
-for easy integration with orchestrator.py.
+for easy integration with main.py.
 
 IMPORTANT: Textual must run in the main thread. This wrapper uses a queue-based
 approach where updates are posted to a queue and processed by the Textual app.

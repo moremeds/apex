@@ -76,6 +76,9 @@ class ServerPipeline:
         self._signal_buffer_lock = RLock()
         self._advisor_service: Any = None
 
+        # Persistence reference (set from main.py after construction)
+        self._persistence: Any = None
+
         # Shared executor for advisor (avoids creating a new one per event)
         self._advisor_executor = ThreadPoolExecutor(max_workers=1)
         # Debounce: only recompute advisor once per daily cycle, not per-symbol
@@ -210,6 +213,23 @@ class ServerPipeline:
                     logger.exception("Advisor broadcast failed")
 
             self._advisor_executor.submit(_compute_and_broadcast)
+
+        # Save score snapshot to DuckDB on daily bar close
+        if event.timeframe == "1d" and self._persistence:
+            try:
+                regime_states = self._indicator_engine.get_all_indicator_states(timeframe="1d")
+                for (sym, tf, ind), state in regime_states.items():
+                    if ind == "regime_detector" and sym == event.symbol and state:
+                        self._persistence.save_score_snapshot(
+                            event.symbol,
+                            event.timestamp,
+                            state.get("composite_score", 0.0),
+                            state.get("trend_state", "unknown"),
+                            state.get("regime", "R0"),
+                        )
+                        break
+            except Exception:
+                logger.debug("Score snapshot save failed for %s", event.symbol, exc_info=True)
 
     def _on_indicator_update(self, event: IndicatorUpdateEvent) -> None:
         """Forward indicator update to WebSocket hub."""

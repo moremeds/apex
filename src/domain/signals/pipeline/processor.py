@@ -1,23 +1,17 @@
 """
 Signal Pipeline Processor.
 
-Handles live and backfill signal processing, report generation, and GitHub deployment.
-Extracted from signal_runner.py for better modularity.
+Handles live and backfill signal processing.
 """
 
 from __future__ import annotations
 
 import asyncio
-import concurrent.futures
-import os
-import shutil
 import signal
-import subprocess
-import tempfile
 import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, cast
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, cast
 
 import pandas as pd
 
@@ -25,12 +19,10 @@ from src.application.services.ta_signal_service import TASignalService
 from src.domain.events.event_types import EventType
 from src.domain.events.priority_event_bus import PriorityEventBus
 from src.domain.services.bar_count_calculator import BarCountCalculator
-from src.domain.signals.data.quality_validator import DataQualityValidator
 from src.utils.logging_setup import get_logger
 from src.utils.timezone import DisplayTimezone, now_utc
 
 from .config import SignalPipelineConfig
-from .report_cache import ReportFrameCache
 
 # Project root for resolving relative paths (works regardless of cwd)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
@@ -55,17 +47,23 @@ class SignalPipelineProcessor:
     - Deploy to GitHub Pages
     """
 
-    def __init__(self, config: SignalPipelineConfig) -> None:
+    def __init__(
+        self,
+        config: SignalPipelineConfig,
+        persistence: Any = None,
+    ) -> None:
         """
         Initialize processor.
 
         Args:
             config: Pipeline configuration.
+            persistence: SignalPersistencePort implementation (injected).
+                         If None and config.with_persistence, creation is skipped.
         """
         self.config = config
         self._event_bus: Optional[PriorityEventBus] = None
         self._service: Optional[TASignalService] = None
-        self._persistence = None
+        self._persistence = persistence
         self._running = False
         self._signal_count = 0
         self._display_tz: Optional[DisplayTimezone] = None
@@ -87,9 +85,7 @@ class SignalPipelineProcessor:
         self._event_bus = PriorityEventBus()
         await self._event_bus.start()
 
-        # Setup persistence if requested
-        if self.config.with_persistence:
-            self._persistence = await self._create_persistence()
+        # Persistence is injected via constructor (if needed)
 
         # Create TASignalService
         self._service = TASignalService(
@@ -114,22 +110,6 @@ class SignalPipelineProcessor:
             await self._event_bus.stop()
 
         logger.info(f"SignalPipelineProcessor stopped: signals_received={self._signal_count}")
-
-    async def _create_persistence(self) -> Any:
-        """Create persistence layer if database is available."""
-        try:
-            from config.config_manager import ConfigManager
-            from src.infrastructure.persistence.database import get_database
-            from src.infrastructure.persistence.repositories.ta_signal_repository import (
-                TASignalRepository,
-            )
-
-            config = ConfigManager().load()
-            db = await get_database(config.database)
-            return TASignalRepository(db)
-        except Exception as e:
-            logger.warning(f"Could not initialize persistence: {e}")
-            return None
 
     def _on_signal(self, payload: Any) -> None:
         """Handle trading signal event."""
@@ -242,10 +222,6 @@ class SignalPipelineProcessor:
         self._print_stats()
         print(f"  historical_preload_seconds: {preload_seconds:.2f}")
 
-        # Generate report if requested
-        if self.config.html_output:
-            await self._generate_html_report(historical_manager, self.config.html_output)
-
         return 0
 
     def _print_banner(self) -> None:
@@ -258,8 +234,15 @@ class SignalPipelineProcessor:
         print(f"Persistence: {'enabled' if self.config.with_persistence else 'disabled'}")
         print("=" * 60)
 
-    async def _create_historical_manager(self) -> "HistoricalDataManager":
-        """Create and configure historical data manager with config-driven source priority."""
+    async def _create_historical_manager(
+        self, ib_adapter: Any = None
+    ) -> "HistoricalDataManager":
+        """Create and configure historical data manager with config-driven source priority.
+
+        Args:
+            ib_adapter: Optional pre-configured IB historical adapter (injected from
+                        application layer to avoid domain→infrastructure import).
+        """
         from src.services.historical_data_manager import HistoricalDataManager
 
         # Read source priority from config
@@ -280,32 +263,16 @@ class SignalPipelineProcessor:
             source_priority=source_priority,
         )
 
-        # Only try IB if it's in the effective priority
-        if "ib" in source_priority:
+        # Use injected IB adapter if provided
+        if ib_adapter and "ib" in source_priority:
             try:
-                from src.infrastructure.adapters.ib.historical_adapter import IbHistoricalAdapter
-
-                ib_config = config.ibkr
-
-                if ib_config.enabled:
-                    ib_adapter = IbHistoricalAdapter(
-                        host=ib_config.host,
-                        port=ib_config.port,
-                        client_id=(
-                            ib_config.client_ids.historical_pool[0]
-                            if ib_config.client_ids.historical_pool
-                            else 3
-                        ),
-                    )
-                    await ib_adapter.connect()
-                    historical_manager.set_ib_source(ib_adapter)
-                    print(
-                        f"Connected to IB at {ib_config.host}:{ib_config.port} for historical data"
-                    )
+                await ib_adapter.connect()
+                historical_manager.set_ib_source(ib_adapter)
+                logger.info("IB historical adapter connected")
             except Exception as e:
                 logger.warning(f"IB not available: {e}")
 
-        print(f"Historical data sources: {source_priority}")
+        logger.info("Historical data sources: %s", source_priority)
 
         return historical_manager
 
@@ -504,27 +471,8 @@ class SignalPipelineProcessor:
             source_priority=source_priority,
         )
 
-        # Only try IB if it's in the effective priority
-        if "ib" in source_priority:
-            try:
-                from src.infrastructure.adapters.ib.historical_adapter import IbHistoricalAdapter
-
-                ib_config = config.ibkr
-
-                if ib_config.enabled:
-                    ib_adapter = IbHistoricalAdapter(
-                        host=ib_config.host,
-                        port=ib_config.port,
-                        client_id=(
-                            ib_config.client_ids.historical_pool[0]
-                            if ib_config.client_ids.historical_pool
-                            else 3
-                        ),
-                    )
-                    await ib_adapter.connect()
-                    manager.set_ib_source(ib_adapter)
-            except Exception as e:
-                logger.warning(f"IB not available for backfill: {e}")
+        # IB adapter should be injected from the application layer if needed
+        # (domain code does not import infrastructure adapters directly)
 
         bars = await manager.ensure_data(
             symbol=symbol,
@@ -540,449 +488,6 @@ class SignalPipelineProcessor:
             )
 
         return [bar.to_dict() for bar in bars]
-
-    # -------------------------------------------------------------------------
-    # HTML Report Generation
-    # -------------------------------------------------------------------------
-
-    async def _generate_html_report(
-        self,
-        historical_manager: Any,
-        output_path: str,
-    ) -> None:
-        """
-        Generate HTML report with charts for all symbols/timeframes.
-
-        Args:
-            historical_manager: HistoricalDataManager instance.
-            output_path: Path to save the HTML report.
-        """
-        from src.domain.signals.indicators.registry import get_indicator_registry
-        from src.domain.signals.rules import ALL_RULES
-        from src.infrastructure.reporting import PackageBuilder
-
-        print(f"\nGenerating HTML report...")
-        report_started = time.monotonic()
-
-        # Load historical data into DataFrames
-        data: Dict[Tuple[str, str], pd.DataFrame] = {}
-        end = self._get_intraday_end()
-        historical_load_started = time.monotonic()
-
-        # PR-A: Data quality validator for sentinel/holiday filtering
-        validator = DataQualityValidator()
-        quality_issues: Dict[str, List[str]] = {}  # Track quality issues per symbol
-
-        for symbol in self.config.symbols:
-            for tf in self.config.timeframes:
-                max_days = historical_manager.get_max_history_days(tf)
-                start = end - timedelta(days=min(max_days, 900))
-                try:
-                    # Parquet-first: fast local read, no DuckDB gap detection.
-                    # Preload already populated the cache; get_bars() reads it directly.
-                    bars = historical_manager.get_bars(symbol, tf, start, end)
-
-                    # Freshness guard: reject stale data from partial preload failures.
-                    # If the last bar is >5 days behind the requested end, the Parquet
-                    # file is likely stale/incomplete — fall back to full download.
-                    if bars:
-                        last_ts = pd.Timestamp(bars[-1].timestamp)
-                        if last_ts.tzinfo is None:
-                            last_ts = last_ts.tz_localize("UTC")
-                        staleness_days = (end - last_ts).days
-                        if staleness_days > 5:
-                            logger.info(
-                                f"[{symbol}/{tf}] Parquet data stale "
-                                f"({staleness_days}d old), re-downloading"
-                            )
-                            bars = None  # Force fallback
-
-                    if not bars:
-                        bars = await historical_manager.ensure_data(symbol, tf, start, end)
-                    if bars:
-                        records = [
-                            {
-                                "timestamp": getattr(b, "bar_start", None) or b.timestamp,
-                                "open": b.open,
-                                "high": b.high,
-                                "low": b.low,
-                                "close": b.close,
-                                "volume": b.volume,
-                            }
-                            for b in bars
-                        ]
-                        df = pd.DataFrame(records)
-                        df.set_index("timestamp", inplace=True)
-
-                        # Daily bars: normalize timestamps to midnight UTC and
-                        # drop duplicates so FMP/Yahoo bars for the same date
-                        # don't produce two entries with different closes.
-                        if tf in ("1d", "1w") and isinstance(df.index, pd.DatetimeIndex):
-                            df.index = df.index.normalize()
-                            df = df[~df.index.duplicated(keep="last")]
-
-                        # PR-A: Validate and clean data (filter sentinels, holidays, etc.)
-                        df_clean, quality_result = validator.validate_and_clean(
-                            df=df,
-                            symbol=symbol,
-                            timeframe=tf,
-                        )
-
-                        # Track quality issues for reporting
-                        issues = []
-                        if quality_result.sentinel_counts:
-                            sentinel_total = sum(quality_result.sentinel_counts.values())
-                            issues.append(f"sentinels={sentinel_total}")
-                        if quality_result.dropped_bar_count > 0:
-                            issues.append(f"dropped={quality_result.dropped_bar_count}")
-                        if issues:
-                            quality_issues[f"{symbol}/{tf}"] = issues
-                            logger.warning(f"[{symbol}/{tf}] Data quality: {', '.join(issues)}")
-
-                        # Use cleaned data, limited to last 600 bars
-                        # (TrendPulse EMA-453 needs ~503 bars to converge)
-                        df_clean = df_clean.tail(600)
-                        data[(symbol, tf)] = df_clean
-                except Exception as e:
-                    logger.warning(f"Failed to load {symbol}/{tf} for report: {e}")
-
-        historical_load_seconds = time.monotonic() - historical_load_started
-
-        # Log quality summary
-        if quality_issues:
-            print(f"  Data quality warnings: {len(quality_issues)} symbol/timeframes")
-            for key, issues in list(quality_issues.items())[:5]:  # Show first 5
-                print(f"    {key}: {', '.join(issues)}")
-
-        if not data:
-            print("  No data available for HTML report")
-            return
-
-        # Get indicators
-        indicators = []
-        if self._service and self._service._indicator_engine:
-            indicators = list(self._service._indicator_engine._indicators)
-        if not indicators:
-            logger.info("Indicator engine empty, loading from registry")
-            registry = get_indicator_registry()
-            indicators = registry.get_all()
-            logger.info(f"Loaded {len(indicators)} indicators from registry")
-
-        # Compute indicators on DataFrames (with strict-freshness report cache)
-        cache_dir = Path(self.config.report_cache_dir or "data/cache/report_frames")
-        if not cache_dir.is_absolute():
-            cache_dir = PROJECT_ROOT / cache_dir
-
-        report_cache = ReportFrameCache(
-            cache_dir=cache_dir,
-            max_age_minutes=self.config.report_cache_max_age_minutes,
-            cleanup_max_files=self.config.report_cache_cleanup_max_files,
-            enabled=self.config.report_cache_enabled,
-        )
-        cleaned_count = report_cache.cleanup()
-        if cleaned_count > 0:
-            logger.info(f"Report cache cleanup removed {cleaned_count} stale files")
-
-        indicator_compute_started = time.monotonic()
-        self._enrich_data_with_indicators(data, indicators, report_cache)
-        indicator_compute_seconds = time.monotonic() - indicator_compute_started
-
-        # Generate report based on format
-        output = Path(output_path)
-        if not output.is_absolute():
-            output = PROJECT_ROOT / output
-        report_build_started = time.monotonic()
-
-        # Calculate regime for each (symbol, timeframe) pair — parallel
-        regime_outputs, regime_series_dict = self._compute_regimes_parallel(data)
-
-        package_dir = output.with_suffix("")
-        if package_dir.suffix == ".html":
-            package_dir = package_dir.with_suffix("")
-
-        builder = PackageBuilder(
-            theme="dark",
-            with_heatmap=self.config.with_heatmap,
-            parallel_writes=self.config.parallel_writes,
-        )
-
-        # Check for existing score_history.json (pre-fetched from gh-pages in CI)
-        existing_history = package_dir / "data" / "score_history.json"
-        manifest = builder.build(
-            data=data,
-            indicators=indicators,
-            rules=ALL_RULES,
-            output_dir=package_dir,
-            regime_outputs=regime_outputs,
-            validation_url="validation.html",
-            score_history_path=existing_history if existing_history.exists() else None,
-            regime_series=regime_series_dict,
-        )
-        print(f"  Package saved: {package_dir} (v{manifest.version})")
-        print(f"  To view: cd {package_dir} && python -m http.server 8080")
-        print(f"  Then open: http://localhost:8080")
-
-        # Deploy to GitHub Pages if requested
-        if self.config.deploy_github:
-            self._deploy_to_github(package_dir)
-
-        report_build_seconds = time.monotonic() - report_build_started
-        total_seconds = time.monotonic() - report_started
-        print("\nReport timing:")
-        print(f"  historical_load_seconds: {historical_load_seconds:.2f}")
-        print(f"  indicator_compute_seconds: {indicator_compute_seconds:.2f}")
-        print(f"  report_build_seconds: {report_build_seconds:.2f}")
-        print(
-            "  report_cache_hits/misses/hit_rate: "
-            f"{report_cache.hits}/{report_cache.misses}/{report_cache.hit_rate:.1%}"
-        )
-        print(f"  report_total_seconds: {total_seconds:.2f}")
-
-    def _enrich_data_with_indicators(
-        self,
-        data: Dict[Tuple[str, str], pd.DataFrame],
-        indicators: List[Any],
-        report_cache: "ReportFrameCache",
-    ) -> None:
-        """
-        Compute indicators on DataFrames, using cache and parallel execution.
-
-        Mutates `data` in place: uncached pairs are enriched via
-        ThreadPoolExecutor (TA-Lib C extensions release the GIL).
-        """
-        indicator_signature = report_cache.indicator_signature(indicators)
-
-        # Phase 1: Check cache, collect uncached pairs
-        uncached: Dict[Tuple[str, str], pd.DataFrame] = {}
-        for data_key in list(data.keys()):
-            symbol, timeframe = data_key
-            base_df = data[data_key]
-            cached_df = report_cache.load(symbol, timeframe, base_df, indicator_signature)
-            if cached_df is not None:
-                data[data_key] = cached_df
-            else:
-                uncached[data_key] = base_df
-
-        # Phase 2: Parallel indicator compute (TA-Lib C extensions release GIL)
-        if uncached:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
-                futures = {
-                    pool.submit(self._compute_indicators_on_df, base_df, indicators): (
-                        dk,
-                        base_df,
-                    )
-                    for dk, base_df in uncached.items()
-                }
-                for future in concurrent.futures.as_completed(futures):
-                    dk, base_df = futures[future]
-                    enriched_df = future.result()
-                    data[dk] = enriched_df
-                    sym, tf = dk
-                    report_cache.save(sym, tf, base_df, indicator_signature, enriched_df)
-
-    def _compute_regimes_parallel(
-        self,
-        data: Dict[Tuple[str, str], pd.DataFrame],
-    ) -> Tuple[Dict[str, Any], Dict[str, List[str]]]:
-        """
-        Calculate regime for each (symbol, timeframe) pair in parallel.
-
-        Returns:
-            (regime_outputs, regime_series_dict) — regime classifications
-            and per-bar regime series for chart history.
-        """
-        from src.application.services.regime_service import RegimeService
-
-        regime_outputs: Dict[str, Any] = {}
-        regime_series_dict: Dict[str, List[str]] = {}
-        regime_service = RegimeService()
-        market_benchmarks = {"QQQ", "SPY", "IWM", "DIA"}
-        warmup_ideal = regime_service._regime_detector.warmup_periods
-        minimum_bars = regime_service._regime_detector.minimum_bars
-
-        def _compute_regime_pair(
-            sym: str, tf: str, df_r: pd.DataFrame
-        ) -> Tuple[str, str, Any, Optional[List[str]]]:
-            result = regime_service.calculate_regime(
-                symbol=sym,
-                data=df_r,
-                params=None,
-                is_market_level=(sym in market_benchmarks),
-                timeframe=tf,
-                return_series=True,
-            )
-            r_output, r_series = result  # type: ignore[misc]
-            return sym, tf, r_output, r_series
-
-        eligible_pairs = [
-            (sym, tf, df_r) for (sym, tf), df_r in data.items() if len(df_r) >= minimum_bars
-        ]
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
-            regime_futures = {
-                pool.submit(_compute_regime_pair, sym, tf, df_r): (sym, tf)
-                for sym, tf, df_r in eligible_pairs
-            }
-            for future in concurrent.futures.as_completed(regime_futures):
-                r_sym, r_tf = regime_futures[future]
-                try:
-                    _, _, regime_output, series = future.result()
-                    key = f"{r_sym}_{r_tf}"
-                    regime_outputs[key] = regime_output
-                    if r_tf == "1d":
-                        regime_outputs[r_sym] = regime_output
-                    if series:
-                        regime_series_dict[key] = series
-                    is_reduced = len(data[(r_sym, r_tf)]) < warmup_ideal
-                    quality_note = " (reduced data)" if is_reduced else ""
-                    logger.info(
-                        f"Calculated regime for {key}: {regime_output.final_regime.value} "
-                        f"({regime_output.regime_name}, confidence={regime_output.confidence})"
-                        f"{quality_note}"
-                    )
-                except Exception as e:
-                    logger.warning(f"Failed to calculate regime for {r_sym}/{r_tf}: {e}")
-
-        skipped_regime = len(data) - len(eligible_pairs)
-        if skipped_regime:
-            logger.debug(f"Skipped {skipped_regime} pairs with insufficient data for regime")
-
-        regime_count = len([k for k in regime_outputs.keys() if "_" in k])
-        print(f"  Calculated regime for {regime_count} symbol/timeframe pairs")
-
-        return regime_outputs, regime_series_dict
-
-    def _deploy_to_github(self, package_path: Path) -> None:
-        """
-        Deploy package to GitHub Pages.
-
-        Uses GITHUB_TOKEN for authentication in CI environments.
-        """
-        repo = self.config.github_repo
-        github_token = os.environ.get("GITHUB_TOKEN")
-
-        if repo:
-            if github_token:
-                repo_url = f"https://x-access-token:{github_token}@github.com/{repo}.git"
-            else:
-                repo_url = f"https://github.com/{repo}.git"
-            pages_url = f"https://{repo.split('/')[0]}.github.io/{repo.split('/')[1]}/"
-        else:
-            try:
-                result = subprocess.run(
-                    ["git", "remote", "get-url", "origin"],
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                    cwd=package_path.parent.parent,
-                )
-                repo_url = result.stdout.strip()
-                if "github.com" in repo_url:
-                    if repo_url.startswith("git@"):
-                        repo = repo_url.split(":")[1].replace(".git", "")
-                    else:
-                        repo = "/".join(repo_url.split("/")[-2:]).replace(".git", "")
-                    if github_token and not repo_url.startswith("git@"):
-                        repo_url = f"https://x-access-token:{github_token}@github.com/{repo}.git"
-                    pages_url = f"https://{repo.split('/')[0]}.github.io/{repo.split('/')[1]}/"
-                else:
-                    pages_url = "(check your repo settings)"
-            except subprocess.CalledProcessError:
-                logger.error("Could not determine git remote. Use --github-repo to specify.")
-                return
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            deploy_dir = Path(tmpdir) / "deploy"
-            shutil.copytree(package_path, deploy_dir)
-
-            try:
-                subprocess.run(["git", "init"], cwd=deploy_dir, check=True, capture_output=True)
-                # Configure git user identity (required in CI environments)
-                subprocess.run(
-                    ["git", "config", "user.name", "github-actions[bot]"],
-                    cwd=deploy_dir,
-                    check=True,
-                    capture_output=True,
-                )
-                subprocess.run(
-                    ["git", "config", "user.email", "github-actions[bot]@users.noreply.github.com"],
-                    cwd=deploy_dir,
-                    check=True,
-                    capture_output=True,
-                )
-                subprocess.run(
-                    ["git", "checkout", "-b", "gh-pages"],
-                    cwd=deploy_dir,
-                    check=True,
-                    capture_output=True,
-                )
-                subprocess.run(["git", "add", "."], cwd=deploy_dir, check=True, capture_output=True)
-
-                commit_msg = f"Deploy signal report - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
-
-                subprocess.run(
-                    ["git", "commit", "-m", commit_msg],
-                    cwd=deploy_dir,
-                    check=True,
-                    capture_output=True,
-                )
-
-                print(f"Deploying to GitHub Pages: {pages_url}")
-                subprocess.run(
-                    ["git", "push", "-f", repo_url, "gh-pages"],
-                    cwd=deploy_dir,
-                    check=True,
-                    capture_output=True,
-                )
-
-                print(f"Successfully deployed to GitHub Pages: {pages_url}")
-                logger.info(f"Deployed to GitHub Pages: {pages_url}")
-
-            except subprocess.CalledProcessError as e:
-                stderr = e.stderr.decode() if isinstance(e.stderr, bytes) else (e.stderr or "")
-                stdout = e.stdout.decode() if isinstance(e.stdout, bytes) else (e.stdout or "")
-                error_msg = stderr or stdout or "Unknown error"
-                logger.error(f"GitHub Pages deployment failed: {error_msg}")
-                print(f"GitHub Pages deployment failed: {error_msg}")
-
-    def _compute_indicators_on_df(
-        self,
-        df: pd.DataFrame,
-        indicators: List[Any],
-    ) -> pd.DataFrame:
-        """
-        Compute all indicators on a DataFrame and merge columns.
-
-        Each indicator's columns are prefixed with indicator name.
-        """
-        indicator_dfs = []
-        computed_count = 0
-        skipped_count = 0
-
-        for indicator in indicators:
-            if len(df) < indicator.warmup_periods:
-                logger.warning(
-                    f"Skipping {indicator.name}: need {indicator.warmup_periods} bars, "
-                    f"have {len(df)}"
-                )
-                skipped_count += 1
-                continue
-            try:
-                ind_df = indicator.calculate(df, indicator.default_params)
-                prefixed = ind_df.add_prefix(f"{indicator.name}_")
-                indicator_dfs.append(prefixed)
-                computed_count += 1
-            except Exception as e:
-                logger.warning(f"Failed to compute {indicator.name}: {e}")
-
-        logger.info(
-            f"Computed {computed_count} indicators, skipped {skipped_count} "
-            f"(insufficient warmup)"
-        )
-
-        if indicator_dfs:
-            return pd.concat([df] + indicator_dfs, axis=1)
-        return df.copy()
 
     @property
     def service(self) -> Optional[TASignalService]:

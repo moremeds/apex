@@ -425,15 +425,6 @@ def run_optimization(
     result_path = _save_study_results(study, strategy_name, output_dir)
     print(f"\nResults saved to {result_path}")
 
-    # Step 6b: Build experiment tracking page
-    try:
-        from src.infrastructure.reporting.experiment_tracker.builder import build_experiment_page
-
-        tracker_path = build_experiment_page(optimization_dir=output_dir)
-        logger.info(f"Experiment tracker updated: {tracker_path}")
-    except Exception as e:
-        logger.debug(f"Experiment tracker build skipped: {e}")
-
     # Step 7: Optionally update YAML
     if update_yaml:
         # Merge best params with current (best params override, keep non-optimized params)

@@ -3,61 +3,25 @@
 Data resolution order:
 1. In-memory cache (5 min TTL)
 2. R2 (Cloudflare storage) if credentials configured
-3. GitHub Pages static site fallback (always available)
 """
 
 from __future__ import annotations
 
 import asyncio
 import copy
-import json
 import logging
-import ssl
 import time
-import urllib.error
-import urllib.request
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
 logger = logging.getLogger(__name__)
 
-# GitHub Pages static site — always-available fallback
-_STATIC_DATA_URL = "https://moremeds.github.io/apex/data"
-
-
-_ssl_ctx = ssl.create_default_context()
-try:
-    import certifi
-
-    _ssl_ctx.load_verify_locations(certifi.where())
-except ImportError:
-    # Fallback: disable verification for GitHub Pages (public, read-only)
-    _ssl_ctx.check_hostname = False
-    _ssl_ctx.verify_mode = ssl.CERT_NONE
-
-
-def _fetch_static_sync(filename: str) -> Any | None:
-    """Fetch JSON from GitHub Pages static site (sync, run in thread)."""
-    url = f"{_STATIC_DATA_URL}/{filename}"
-    req = urllib.request.Request(url, headers={"User-Agent": "APEX-Dashboard/1.0"})
-    try:
-        with urllib.request.urlopen(req, timeout=15, context=_ssl_ctx) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        if e.code == 404:
-            return None
-        logger.error("Static fetch failed for %s: HTTP %d", filename, e.code)
-        return None
-    except Exception as e:
-        logger.error("Static fetch failed for %s: %s", filename, e)
-        return None
-
 
 class _CachedProxy:
-    """TTL cache with R2 primary + GitHub Pages fallback."""
+    """TTL cache with R2 as the sole data source."""
 
-    # R2 stores these files under meta/ prefix; GitHub Pages uses bare filenames
+    # R2 stores these files under meta/ prefix
     _R2_KEY_MAP: dict[str, str] = {
         "universe.json": "meta/universe.json",
         "data_quality.json": "meta/data_quality.json",
@@ -90,8 +54,23 @@ class _CachedProxy:
 
         return None
 
+    def set_cache(self, key: str, data: Any) -> None:
+        """Inject data into cache with standard TTL."""
+        self._cache[key] = (time.monotonic() + self._ttl, data)
+
+    def merge_cache(self, key: str, partial: dict) -> None:
+        """Merge partial data into existing cached dict.
+
+        Useful for updating only the 'momentum' section of screeners.json
+        without overwriting the 'pead' section.
+        """
+        existing = self.get(key) or {}
+        if not isinstance(existing, dict):
+            existing = {}
+        self.set_cache(key, {**existing, **partial})
+
     async def get_with_fallback(self, key: str, r2_override: Any = None) -> Any:
-        """Try cache → R2 → GitHub Pages static site."""
+        """Try cache → R2 → stale cache."""
         # 1. Cache
         now = time.monotonic()
         if key in self._cache:
@@ -104,45 +83,42 @@ class _CachedProxy:
         r2_key = self._R2_KEY_MAP.get(key, key)
         if r2 is not None:
             try:
-                data = r2.get_json(r2_key)
+                data = await asyncio.to_thread(r2.get_json, r2_key)
                 if data is not None:
                     self._cache[key] = (now + self._ttl, data)
                     return data
             except Exception as e:
                 logger.error("R2 fetch failed for %s: %s", key, e)
 
-        # 3. GitHub Pages fallback
-        try:
-            data = await asyncio.to_thread(_fetch_static_sync, key)
-            if data is not None:
-                self._cache[key] = (now + self._ttl, data)
-                return data
-        except Exception as e:
-            logger.error("Static fallback failed for %s: %s", key, e)
-
-        # 4. Stale cache as last resort
+        # 3. Stale cache as last resort
         if key in self._cache:
             return self._cache[key][1]
 
         return None
 
 
-def create_screeners_router(r2_client: Any = None, cache_ttl: int = 300) -> APIRouter:
+def create_screeners_router(
+    r2_client: Any = None,
+    cache_ttl: int = 300,
+    proxy: _CachedProxy | None = None,
+) -> APIRouter:
     """Create router for screener and backtest proxy endpoints.
 
     Args:
         r2_client: R2Client instance for fetching JSON from Cloudflare R2.
         cache_ttl: Cache TTL in seconds (default 5 minutes).
+        proxy: Optional pre-created proxy (for sharing with jobs route via app.state).
     """
     router = APIRouter(prefix="/api")
-    proxy = _CachedProxy(r2_client, ttl_sec=cache_ttl)
+    if proxy is None:
+        proxy = _CachedProxy(r2_client, ttl_sec=cache_ttl)
 
     def _r2_from_request(request: Request) -> Any:
         return getattr(request.app.state, "r2_client", None)
 
     @router.get("/screeners")
     async def get_screeners(request: Request) -> dict:
-        """Get screener results (R2 → static fallback)."""
+        """Get screener results (R2 with cache)."""
         data = await proxy.get_with_fallback("screeners.json", _r2_from_request(request))
         if data is None:
             raise HTTPException(status_code=503, detail="Screener data not available")
@@ -150,7 +126,7 @@ def create_screeners_router(r2_client: Any = None, cache_ttl: int = 300) -> APIR
 
     @router.get("/backtest")
     async def get_backtest(request: Request) -> dict:
-        """Get strategy comparison results (R2 → static fallback)."""
+        """Get strategy comparison results (R2 with cache)."""
         data = await proxy.get_with_fallback("strategies.json", _r2_from_request(request))
         if data is None:
             raise HTTPException(status_code=503, detail="Backtest data not available")
@@ -158,7 +134,7 @@ def create_screeners_router(r2_client: Any = None, cache_ttl: int = 300) -> APIR
 
     @router.get("/signal-data/{symbol}")
     async def get_signal_data(symbol: str, request: Request, tf: str = Query(default="1d")) -> dict:
-        """Per-symbol signal data (R2 → static fallback), extended with fresh bars."""
+        """Per-symbol signal data (R2 with cache), extended with fresh bars."""
         key = f"{symbol}_{tf}.json"
         data = await proxy.get_with_fallback(key, _r2_from_request(request))
         if data is None:
@@ -219,7 +195,7 @@ def create_screeners_router(r2_client: Any = None, cache_ttl: int = 300) -> APIR
 
     @router.get("/summary")
     async def get_summary(request: Request) -> dict:
-        """Summary.json — ETF data, regime, generated_at (R2 → static fallback).
+        """Summary.json — ETF data, regime, generated_at (R2 with cache).
 
         Overlays live regime data from pipeline if available.
         """
@@ -326,7 +302,15 @@ def create_screeners_router(r2_client: Any = None, cache_ttl: int = 300) -> APIR
 
     @router.get("/score-history")
     async def get_score_history(request: Request) -> dict:
-        """Score history for sparklines (R2 → static fallback)."""
+        """Score history for sparklines (DuckDB live → R2 fallback)."""
+        persistence = getattr(request.app.state, "persistence", None)
+        if persistence:
+            try:
+                data = await asyncio.to_thread(persistence.get_score_history)
+                if data and data.get("snapshots"):
+                    return data
+            except Exception:
+                logger.debug("DuckDB score history failed, falling back to R2", exc_info=True)
         data = await proxy.get_with_fallback("score_history.json", _r2_from_request(request))
         if data is None:
             raise HTTPException(status_code=503, detail="Score history not available")
@@ -334,7 +318,7 @@ def create_screeners_router(r2_client: Any = None, cache_ttl: int = 300) -> APIR
 
     @router.get("/indicators")
     async def get_indicators(request: Request) -> dict:
-        """Indicator definitions + rules (R2 → static fallback)."""
+        """Indicator definitions + rules (R2 with cache)."""
         data = await proxy.get_with_fallback("indicators.json", _r2_from_request(request))
         if data is None:
             raise HTTPException(status_code=503, detail="Indicators data not available")
@@ -342,7 +326,7 @@ def create_screeners_router(r2_client: Any = None, cache_ttl: int = 300) -> APIR
 
     @router.get("/universe")
     async def get_universe(request: Request) -> dict:
-        """Universe.json — tier, sector enrichment (R2 → static fallback)."""
+        """Universe.json — tier, sector enrichment (R2 with cache)."""
         data = await proxy.get_with_fallback("universe.json", _r2_from_request(request))
         if data is None:
             raise HTTPException(status_code=503, detail="Universe data not available")

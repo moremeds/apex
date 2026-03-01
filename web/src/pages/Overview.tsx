@@ -177,18 +177,18 @@ export function Overview() {
   // Regime counts
   const regimeCounts = summary?.regime_counts ?? { R0: 0, R1: 0, R2: 0, R3: 0 }
 
-  // Get price for a symbol (live quote → summary close/last_close → symbolsData)
+  // Get price for a symbol (live quote → summary close → last_close → symbolsData)
   const getPrice = useCallback(
     (sym: string) =>
-      quotes[sym]?.last ?? tickerMap[sym]?.last_close ?? tickerMap[sym]?.close ?? (symbolsData?.symbols?.[sym] as { last?: number })?.last,
+      quotes[sym]?.last ?? tickerMap[sym]?.close ?? tickerMap[sym]?.last_close ?? (symbolsData?.symbols?.[sym] as { last?: number })?.last,
     [quotes, tickerMap, symbolsData],
   )
 
   const getChange = useCallback(
     (sym: string) => {
-      // If we have a live quote, compute change from summary's previous close
+      // If we have a live quote, compute change from previous close (last_close)
       const livePrice = quotes[sym]?.last
-      const prevClose = tickerMap[sym]?.close ?? tickerMap[sym]?.last_close
+      const prevClose = tickerMap[sym]?.last_close ?? tickerMap[sym]?.close
       if (livePrice && prevClose && prevClose > 0) {
         return Math.round(((livePrice - prevClose) / prevClose) * 100 * 100) / 100
       }

@@ -30,7 +30,7 @@ uv pip install -e .
 # 3. Start IBKR TWS or Gateway
 
 # 4. Run APEX
-python orchestrator.py --env dev
+python main.py --env dev
 
 # 5. (Optional) Load historical data
 python scripts/history_loader.py --broker futu --days 30
@@ -44,7 +44,7 @@ python scripts/history_loader.py --broker futu --days 30
 
 | Requirement | Version | Notes |
 |-------------|---------|-------|
-| Python | 3.10+ | 3.14 recommended |
+| Python | 3.13+ | Required by pyproject.toml |
 | PostgreSQL | 14+ | Optional, for persistence |
 | TimescaleDB | 2.x | Optional, for time-series |
 | IBKR TWS/Gateway | Latest | Required for market data |
@@ -199,7 +199,7 @@ display:
 ### Main Command
 
 ```bash
-python orchestrator.py [OPTIONS]
+python main.py [OPTIONS]
 ```
 
 ### Command Line Options
@@ -217,28 +217,28 @@ python orchestrator.py [OPTIONS]
 
 ```bash
 # Development mode (default)
-python orchestrator.py --env dev
+python main.py --env dev
 
 # Production mode
-python orchestrator.py --env prod
+python main.py --env prod
 
 # Demo mode (offline, sample positions)
-python orchestrator.py --env demo
+python main.py --env demo
 
 # Headless mode (no dashboard)
-python orchestrator.py --no-dashboard
+python main.py --no-dashboard
 
 # Custom config file
-python orchestrator.py --config /path/to/custom.yaml
+python main.py --config /path/to/custom.yaml
 
 # Verbose logging
-python orchestrator.py -v
+python main.py -v
 
 # Disable metrics endpoint
-python orchestrator.py --metrics-port 0
+python main.py --metrics-port 0
 
 # Full example with multiple options
-python orchestrator.py --env prod --log-level DEBUG --metrics-port 9090
+python main.py --env prod --log-level DEBUG --metrics-port 9090
 ```
 
 ### Environment Modes
@@ -592,7 +592,7 @@ The TUI displays real-time risk metrics with 5 different views.
 
 ```bash
 # Start with production config
-python orchestrator.py --env prod
+python main.py --env prod
 
 # In another terminal, check metrics
 curl http://localhost:8000/metrics
@@ -604,7 +604,7 @@ curl http://localhost:8000/metrics
 # Connect to TWS Paper (port 7497)
 # Edit config/base.yaml: port: 7497
 
-python orchestrator.py --env dev -v
+python main.py --env dev -v
 ```
 
 ### 3. Backfill Historical Data
@@ -621,31 +621,31 @@ python scripts/history_loader.py --broker all --days 1
 
 ```bash
 # Run with sample positions (no live connection)
-python orchestrator.py --env demo
+python main.py --env demo
 ```
 
 ### 5. Headless Server Mode
 
 ```bash
 # Run without TUI, expose metrics only
-python orchestrator.py --env prod --no-dashboard --metrics-port 9090
+python main.py --env prod --no-dashboard --metrics-port 9090
 ```
 
 ### 6. Debug Connection Issues
 
 ```bash
 # Verbose logging to diagnose issues
-python orchestrator.py -v --log-level DEBUG
+python main.py -v --log-level DEBUG
 ```
 
 ### 7. Multiple Environments
 
 ```bash
 # Terminal 1: Paper trading
-python orchestrator.py --env dev --metrics-port 8001
+python main.py --env dev --metrics-port 8001
 
 # Terminal 2: Production (different port)
-python orchestrator.py --env prod --metrics-port 8002
+python main.py --env prod --metrics-port 8002
 ```
 
 ---

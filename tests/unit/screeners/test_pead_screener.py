@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import date
 
+import pytest
+
 from src.domain.screeners.pead.config import PEADConfig
 from src.domain.screeners.pead.models import LiquidityTier
 from src.domain.screeners.pead.scorer import (
@@ -111,10 +113,10 @@ class TestPEADConfig:
         assert cfg.filters.min_sue == 3.0
         assert cfg.filters.min_volume_ratio == 2.0  # default kept
 
-    def test_unknown_keys_ignored(self) -> None:
-        """Unknown keys in YAML don't cause errors."""
-        cfg = PEADConfig.from_dict({"filters": {"min_sue": 2.0, "unknown_key": 99}})
-        assert cfg.filters.min_sue == 2.0
+    def test_unknown_keys_rejected(self) -> None:
+        """Unknown keys in YAML raise ValueError."""
+        with pytest.raises(ValueError, match="unknown"):
+            PEADConfig.from_dict({"filters": {"min_sue": 2.0, "unknown_key": 99}})
 
     def test_screener_accepts_dict(self) -> None:
         """PEADScreener.__init__ still accepts raw dict for backward compat."""

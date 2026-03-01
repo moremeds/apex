@@ -4,11 +4,8 @@ name: "Daily: Momentum Screener"
 # Quantitative momentum screen: 12-1 momentum + FIP composite ranking.
 #
 # Pipeline:
-#   Step 1: Fetch regime data from gh-pages (for regime-gated sizing)
-#   Step 2: Update universe + OHLCV from FMP/yfinance
-#   Step 3: Screen + email (runner handles email via shared email_sender)
-#
-# Email sent by Python runner (not workflow action) — works locally too.
+#   Step 1: Update universe + OHLCV from FMP/yfinance
+#   Step 2: Screen and generate watchlist JSON
 # ═══════════════════════════════════════════════════════════════════════════
 
 on:
@@ -90,34 +87,42 @@ jobs:
 
       # === PIPELINE ===
 
-      - name: Fetch regime data from gh-pages
-        continue-on-error: true
+      - name: Fetch regime data from R2
         run: |
-          mkdir -p out/signals/data
-          git fetch origin gh-pages --depth=1 2>/dev/null || true
-          git show origin/gh-pages:data/summary.json > out/signals/data/summary.json 2>/dev/null || echo '{}' > out/signals/data/summary.json
-          echo "Regime data fetched ($(wc -c < out/signals/data/summary.json) bytes)"
+          source .venv/bin/activate
+          python -c "
+          import json, os, sys
+          try:
+              from src.infrastructure.adapters.r2.client import R2Client
+              client = R2Client()
+              data = client.get_json('signals/data/summary.json')
+              if data:
+                  os.makedirs('out/signals/data', exist_ok=True)
+                  with open('out/signals/data/summary.json', 'w') as f:
+                      json.dump(data, f)
+                  print(f'Fetched summary.json ({len(data.get(\"tickers\", []))} tickers)')
+              else:
+                  print('WARNING: summary.json not found in R2 — regime will default to R1')
+          except Exception as e:
+              print(f'WARNING: R2 fetch failed ({e}) — regime will default to R1')
+          "
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
 
       - name: Run momentum screener
         run: |
           source .venv/bin/activate
-          python -m src.runners.momentum_runner --update \
-            --html out/momentum/report.html \
-            --signals-dir out/signals
+          python -m src.runners.momentum_runner
         env:
           FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
-          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
-          SMTP_PORT: ${{ secrets.SMTP_PORT || 587 }}
-          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
-          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
-          SIGNAL_REPORT_RECIPIENTS: ${{ secrets.SIGNAL_REPORT_RECIPIENTS }}
 
       - name: Upload report artifact
         uses: actions/upload-artifact@v6
         with:
           name: momentum-${{ github.run_id }}
-          path: |
-            out/momentum/data/momentum_watchlist.json
-            out/momentum/report.html
+          path: out/momentum/data/momentum_watchlist.json
           if-no-files-found: warn
           retention-days: 7

@@ -7,6 +7,12 @@ async function fetchJson<T>(url: string): Promise<T> {
   return res.json() as Promise<T>
 }
 
+async function postJson<T>(url: string): Promise<T> {
+  const res = await fetch(url, { method: "POST" })
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+  return res.json() as Promise<T>
+}
+
 // ── Types ──────────────────────────────────────────────
 
 export interface AdvisorResponse {
@@ -62,6 +68,15 @@ export interface ProviderInfo {
   subscribed_symbols: string[]
 }
 
+export interface JobState {
+  id: string
+  name: string
+  status: "pending" | "running" | "completed" | "failed"
+  started_at: string | null
+  completed_at: string | null
+  error: string | null
+}
+
 // ── API functions ──────────────────────────────────────
 
 export const api = {
@@ -81,6 +96,8 @@ export const api = {
   universe: () => fetchJson<Record<string, unknown>>("/api/universe"),
   advisor: () => fetchJson<AdvisorResponse>("/api/advisor"),
   advisorSymbol: (symbol: string) => fetchJson<Record<string, unknown>>(`/api/advisor/${symbol}`),
+  triggerJob: (name: string) => postJson<{ job_id: string; status: string }>(`/api/jobs/${name}`),
+  jobStatus: () => fetchJson<{ jobs: JobState[] }>("/api/jobs/status"),
 }
 
 // ── Query hooks ────────────────────────────────────────

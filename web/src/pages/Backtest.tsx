@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react"
 import Plot from "react-plotly.js"
 import { useBacktest } from "@/lib/api"
+import { useJobTrigger } from "@/hooks/useJobTrigger"
 
 type Tab = "overview" | "metrics" | "per-stock" | "sector" | "regime" | "regime-analysis" | "symbol-map" | "trades"
 
@@ -70,6 +71,7 @@ const DIVERGING_COLORSCALE: [number, string][] = [
 export function Backtest() {
   const [tab, setTab] = useState<Tab>("overview")
   const { data: raw, isLoading, error } = useBacktest()
+  const backtestJob = useJobTrigger("strategy-compare", [["backtest"]])
 
   const bundle = raw as BacktestBundle | undefined
   const strategies = useMemo(() => {
@@ -85,9 +87,12 @@ export function Backtest() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h2 className="text-lg font-semibold">{bundle?.title ?? "Backtest"}</h2>
-        {bundle?.period && <p className="text-xs text-muted-foreground">{bundle.period}</p>}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-semibold">{bundle?.title ?? "Backtest"}</h2>
+          {bundle?.period && <p className="text-xs text-muted-foreground">{bundle.period}</p>}
+        </div>
+        <BacktestTriggerButton job={backtestJob} />
       </div>
 
       <div className="flex flex-wrap gap-1 rounded-lg bg-secondary p-1">
@@ -540,6 +545,40 @@ function TradesTab({ strategies }: { strategies: StrategyData[] }) {
         <EmptyState text="No trades data available" />
       )}
     </div>
+  )
+}
+
+// ── Trigger button ──
+
+function BacktestTriggerButton({ job }: { job: ReturnType<typeof useJobTrigger> }) {
+  const isRunning = job.phase === "running"
+  const isDone = job.phase === "completed"
+  const isFailed = job.phase === "failed"
+
+  return (
+    <button
+      onClick={job.trigger}
+      disabled={isRunning}
+      className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs transition-colors ${
+        isDone
+          ? "border-emerald-700 bg-emerald-900/30 text-emerald-400"
+          : isFailed
+            ? "border-red-700 bg-red-900/30 text-red-400"
+            : isRunning
+              ? "border-border bg-card text-muted-foreground opacity-70"
+              : "border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground"
+      }`}
+      title={job.error ?? undefined}
+    >
+      {isRunning && (
+        <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+        </svg>
+      )}
+      {isDone && <span>&#10003;</span>}
+      {isFailed ? "Failed" : isRunning ? "Running..." : isDone ? "Done" : "Run Backtest"}
+    </button>
   )
 }
 

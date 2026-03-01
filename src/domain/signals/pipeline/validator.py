@@ -3,8 +3,6 @@ Bar Validator.
 
 Validates bar counts and generates BarValidationReport for PR-01 compliance.
 Solves the "350 vs 252" mystery by providing full transparency on bar counts.
-
-Extracted from signal_runner.py for better modularity.
 """
 
 from __future__ import annotations
@@ -107,31 +105,10 @@ class BarValidator:
             source_priority=source_priority,
         )
 
-        # Only try IB if it's in the effective priority
-        ib_adapter = None
-        if "ib" in source_priority:
-            try:
-                from src.infrastructure.adapters.ib.historical_adapter import IbHistoricalAdapter
+        # IB adapter should be injected from the application layer if needed
+        # (domain code does not import infrastructure adapters directly)
 
-                ib_config = config.ibkr
-
-                if ib_config.enabled:
-                    ib_adapter = IbHistoricalAdapter(
-                        host=ib_config.host,
-                        port=ib_config.port,
-                        client_id=(
-                            ib_config.client_ids.historical_pool[0]
-                            if ib_config.client_ids.historical_pool
-                            else 3
-                        ),
-                    )
-                    await ib_adapter.connect()
-                    historical_manager.set_ib_source(ib_adapter)
-                    print(f"Connected to IB at {ib_config.host}:{ib_config.port}")
-            except Exception as e:
-                logger.warning(f"IB not available: {e}")
-
-        print(f"Historical data sources: {source_priority}")
+        logger.info("Historical data sources: %s", source_priority)
 
         reports: List[BarValidationReport] = []
 

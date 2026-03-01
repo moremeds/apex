@@ -43,6 +43,16 @@ CREATE TABLE IF NOT EXISTS signals (
     ts TIMESTAMPTZ
 );
 CREATE INDEX IF NOT EXISTS idx_signals_symbol_ts ON signals (symbol, ts);
+
+CREATE TABLE IF NOT EXISTS score_history (
+    symbol VARCHAR,
+    ts TIMESTAMP,
+    score DOUBLE,
+    trend_state VARCHAR,
+    regime VARCHAR,
+    PRIMARY KEY (symbol, ts)
+);
+CREATE INDEX IF NOT EXISTS idx_score_history_ts ON score_history(ts);
 """
 
 
@@ -179,6 +189,42 @@ class ServerPersistence:
             )
         cols = [desc[0] for desc in result.description]
         return [dict(zip(cols, row)) for row in result.fetchall()]
+
+    def save_score_snapshot(
+        self, symbol: str, ts: datetime, score: float, trend_state: str, regime: str
+    ) -> None:
+        """Insert or replace a score snapshot (for sparklines)."""
+        with self._lock:
+            self._db.execute(
+                "INSERT OR REPLACE INTO score_history VALUES (?, ?, ?, ?, ?)",
+                [symbol, ts, score, trend_state, regime],
+            )
+
+    def get_score_history(self, days: int = 30) -> Dict[str, Any]:
+        """Get score history grouped by timestamp for sparklines.
+
+        Returns {"snapshots": [{"scores": {"AAPL": 72.5, ...}}, ...]}
+        to match the frontend Overview.tsx contract (ScoreSnapshot[]).
+        """
+        from collections import OrderedDict
+        from datetime import timedelta, timezone
+
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        rows = self._db.execute(
+            "SELECT symbol, ts, score "
+            "FROM score_history WHERE ts >= ? ORDER BY ts",
+            [cutoff],
+        ).fetchall()
+        # Group by timestamp → {ts: {symbol: score}}
+        by_ts: OrderedDict[str, Dict[str, float]] = OrderedDict()
+        for symbol, ts, score in rows:
+            ts_key = ts.isoformat() if hasattr(ts, "isoformat") else str(ts)
+            if ts_key not in by_ts:
+                by_ts[ts_key] = {}
+            by_ts[ts_key][symbol] = round(score, 1) if score is not None else 0.0
+        # Convert to array of snapshots
+        snapshots = [{"scores": scores} for scores in by_ts.values()]
+        return {"snapshots": snapshots}
 
     def close(self) -> None:
         """Flush remaining ticks and close DuckDB connection."""

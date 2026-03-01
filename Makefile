@@ -1,7 +1,7 @@
 # APEX Development Makefile
 # Quick commands for common development tasks
 
-.PHONY: install run run-dev run-prod run-demo run-headless lint format type-check dead-code complexity quality test test-all coverage clean help validate-fast validate signals-test dashboard-test dashboard-data dashboard-data-ready dashboard-signal dashboard-signal-qa dashboard-web-dev dashboard-web-preview-deploy signals signals-deploy strategy-compare strategy-verify strategy-compare-quick behavioral behavioral-full behavioral-cases pead pead-test pead-screen r2-universe r2-backfill r2-backfill-test r2-delta r2-validate server-dev server web-install web-dev web-build live tunnel
+.PHONY: install run run-dev run-prod run-demo run-headless lint format type-check dead-code complexity quality test test-all coverage clean help validate-fast strategy-compare strategy-verify strategy-compare-quick pead pead-test pead-screen momentum momentum-update momentum-backtest momentum-test r2-universe r2-backfill r2-backfill-test r2-delta r2-validate r2-market-caps server-dev server web-install web-dev web-build live tunnel jobs-momentum jobs-pead jobs-strategy-compare
 
 # Virtual environment - use .venv/bin executables directly
 VENV := .venv/bin
@@ -13,9 +13,6 @@ BOLD := $(shell tput bold)
 RESET := $(shell tput sgr0)
 GREEN := $(shell tput setaf 2)
 YELLOW := $(shell tput setaf 3)
-
-# Dashboard preview branch for Cloudflare Pages (non-production)
-DASHBOARD_PREVIEW_BRANCH ?= dashboard-preview
 
 help:
 	@echo "$(BOLD)APEX Development Commands$(RESET)"
@@ -42,51 +39,20 @@ help:
 	@echo ""
 	@echo "$(GREEN)Validation:$(RESET)"
 	@echo "  make validate-fast  PR gate (fast, 10 symbols)"
-	@echo "  make validate       Full validation suite"
-	@echo ""
-	@echo "$(GREEN)Signal Pipeline:$(RESET)"
-	@echo "  make signals-test      Quick test (20 symbols) + strategy comparison + HTTP server"
-	@echo "  make signals           Full production run (all features)"
-	@echo "  make signals-deploy    Deploy to GitHub Pages"
-	@echo "  make strategy-compare  Run strategy backtests + comparison dashboard"
+	@echo "  make strategy-compare  Run strategy backtests + comparison"
 	@echo "  make strategy-compare-quick  Quick compare (3 symbols, 1yr)"
 	@echo "  make strategy-verify   Full strategy verification (tests + compare + lint)"
 	@echo ""
-	@echo "$(GREEN)Behavioral Gate:$(RESET)"
-	@echo "  make behavioral       Quick test (default params) + serve"
-	@echo ""
-	@echo "$(GREEN)TrendPulse:$(RESET)"
-	@echo "  make tp-validate      Full 3-stage validation (36 symbols)"
-	@echo "  make tp-holdout       Holdout only (faster)"
-	@echo "  make tp-optimize      Phase 1 Optuna optimization"
-	@echo "  make tp-universe      Full universe backtest + HTML report"
-	@echo "  make tp-universe-quick  Quick test (12 symbols)"
-	@echo "  make behavioral-full  Optuna optimization + walk-forward + serve"
-	@echo "  make behavioral-cases Predefined case studies + serve"
-	@echo ""
 	@echo "$(GREEN)PEAD Screener:$(RESET)"
-	@echo "  make pead           Full pipeline (caps + earnings + attention + screen + track + stats)"
+	@echo "  make pead           Full pipeline (earnings + attention + screen + track + stats)"
 	@echo "  make pead-test      Run PEAD unit tests"
 	@echo "  make pead-screen    Screen from cache (still tracks + resolves by default)"
 	@echo ""
 	@echo "$(GREEN)Momentum Screener:$(RESET)"
-	@echo "  make quantitative-moment          Refresh + screen + email (alias: momentum)"
-	@echo "  make quantitative-moment-update   Same as above (refresh is now default)"
-	@echo "  make quantitative-moment-backtest Walk-forward backtest + ablation + HTML"
+	@echo "  make momentum                     Refresh + screen"
+	@echo "  make quantitative-moment          Alias for momentum"
+	@echo "  make quantitative-moment-backtest Walk-forward backtest + ablation"
 	@echo "  make quantitative-moment-test     Run unit tests"
-	@echo ""
-	@echo "$(GREEN)Dashboard Data Pipeline:$(RESET)"
-	@echo "  make dashboard-data-ready  Validate & backfill OHLCV data coverage"
-	@echo "  make dashboard-signal      Generate signal report (full universe)"
-	@echo "  make dashboard-signal-qa   Run quality gates (G1-G15)"
-	@echo "  make dashboard-data        Full pipeline (signals + screeners + backtests)"
-	@echo ""
-	@echo "$(GREEN)Dashboard Web Build & Deploy:$(RESET)"
-	@echo "  make dashboard-build   Build CF dashboard from pipeline output"
-	@echo "  make dashboard-dev     Build + serve locally (:8801)"
-	@echo "  make dashboard-web-dev Build + serve with Wrangler Pages dev (:8801)"
-	@echo "  make dashboard-web-preview-deploy Build + deploy preview branch ($(DASHBOARD_PREVIEW_BRANCH))"
-	@echo "  make dashboard-deploy  Build + deploy to Cloudflare Pages"
 	@echo ""
 	@echo "$(GREEN)R2 Data Pipeline:$(RESET)"
 	@echo "  make r2-universe       Screen universe (FMP → filter → ~500 symbols → R2)"
@@ -94,6 +60,12 @@ help:
 	@echo "  make r2-backfill-test  Quick test (5 symbols)"
 	@echo "  make r2-delta          Incremental delta update"
 	@echo "  make r2-validate       Generate data_quality.json only"
+	@echo "  make r2-market-caps    Update market caps → R2"
+	@echo ""
+	@echo "$(GREEN)Compute Jobs (API triggers):$(RESET)"
+	@echo "  make jobs-momentum          Run momentum screener"
+	@echo "  make jobs-pead              Run PEAD screener"
+	@echo "  make jobs-strategy-compare  Run strategy comparison backtest"
 	@echo ""
 	@echo "$(GREEN)Live Dashboard:$(RESET)"
 	@echo "  make server-dev        Start FastAPI server (dev, auto-reload, :8080)"
@@ -226,29 +198,8 @@ validate-fast:
 		--timeframes 1d --folds 2 --no-optuna \
 		--output reports/validation/fast
 
-# Full validation suite (signal report + quality gates + turning points)
-# Uses unified config/universe.yaml
-validate:
-	@echo "$(BOLD)Running full validation suite...$(RESET)"
-	@echo "Step 1/3: Generating signal report..."
-	$(PYTHON) -m src.runners.signal_runner --live \
-		--universe config/universe.yaml \
-		--subset pr_validation \
-		--timeframes 1d 4h 1h \
-		--preload-concurrency 5 \
-		--parallel-writes 8 \
-		--format package \
-		--html-output reports/validation/signal_report
-	@echo "Step 2/3: Running quality gates (G1-G10)..."
-	$(PYTHON) scripts/validate_gates.py --all \
-		--package reports/validation/signal_report -v
-	@echo "Step 3/3: Validating turning points..."
-	$(PYTHON) scripts/validate_turning_points.py \
-		--config tests/fixtures/turning_point_samples.yaml --all
-	@echo "$(GREEN)✓ All validation checks complete$(RESET)"
-
 # ═══════════════════════════════════════════════════════════════
-# Signal Pipeline
+# Strategy Comparison
 # ═══════════════════════════════════════════════════════════════
 
 # Standalone strategy comparison (all strategies x universe symbols)
@@ -257,9 +208,8 @@ strategy-compare:
 	$(PYTHON) -m src.runners.strategy_compare_runner \
 		--universe config/universe.yaml \
 		--years 3 \
-		--output out/signals/strategies.html \
 		--json-output out/signals/data/strategies.json
-	@echo "$(GREEN)✓ Dashboard: out/signals/strategies.html$(RESET)"
+	@echo "$(GREEN)✓ JSON: out/signals/data/strategies.json$(RESET)"
 
 # Quick strategy comparison (3 symbols, 3yr — needs 260+ bars for warmup)
 strategy-compare-quick:
@@ -267,8 +217,8 @@ strategy-compare-quick:
 	$(PYTHON) -m src.runners.strategy_compare_runner \
 		--symbols SPY AAPL NVDA \
 		--years 3 \
-		--output /tmp/strategies_quick.html
-	@echo "$(GREEN)✓ Dashboard: /tmp/strategies_quick.html$(RESET)"
+		--json-output /tmp/strategies_quick.json
+	@echo "$(GREEN)✓ JSON: /tmp/strategies_quick.json$(RESET)"
 
 # Full strategy verification — run after adding/modifying any strategy
 # SOP: tests → type check → quick compare → inspect output
@@ -292,272 +242,27 @@ strategy-verify:
 	$(PYTHON) -m src.runners.strategy_compare_runner \
 		--symbols SPY AAPL NVDA \
 		--years 3 \
-		--output /tmp/strategies_verify.html
+		--json-output /tmp/strategies_verify.json
 	@echo ""
 	@echo "$(GREEN)═══ All strategy verification checks passed ═══$(RESET)"
-	@echo "$(GREEN)✓ Dashboard: /tmp/strategies_verify.html$(RESET)"
-
-# Quick test with 12 diverse symbols + HTTP server
-signals-test:
-	@echo "$(BOLD)Quick signal test (20 symbols)...$(RESET)"
-	$(PYTHON) -m src.runners.signal_runner --live \
-		--symbols SPY QQQ XLB GLD TLT UVXY AAPL NVDA JPM XOM UNH HD DIS TSLA AMD META SLV SNDK MU ORCL\
-		--timeframes 1d 1h 4h\
-		--preload-concurrency 5 --parallel-writes 8 \
-		--format package \
-		--html-output /tmp/signal_test
-	@echo ""
-	@echo "$(BOLD)Running strategy comparison backtests...$(RESET)"
-	$(PYTHON) -m src.runners.strategy_compare_runner \
-		--symbols SPY QQQ AAPL NVDA JPM XOM UNH HD DIS TSLA \
-		--years 3 \
-		--output /tmp/signal_test/strategies.html
-	@echo ""
-	@echo "$(GREEN)Starting HTTP server at http://localhost:8800$(RESET)"
-	@echo "$(YELLOW)Press Ctrl+C to stop$(RESET)"
-	cd /tmp/signal_test && python3 -m http.server 8800
-
-# DEPRECATED: Use 'make dashboard-data && make dashboard-dev' instead.
-dashboard-test: dashboard-data dashboard-build
-	@lsof -ti:8801 | xargs kill -9 2>/dev/null || true
-	@echo "$(BOLD)Serving dashboard at http://localhost:8801$(RESET)"
-	@open http://localhost:8801 &
-	python3 -m http.server 8801 --directory out/site
-
-dashboard-data-ready:  ## Validate & backfill OHLCV data coverage
-	@echo "$(BOLD)Validating data coverage...$(RESET)"
-	$(PYTHON) scripts/historical_data_loader.py validate --timeframes 1d,4h,1h
-	@echo ""
-	@echo "$(BOLD)Backfilling gaps (if any)...$(RESET)"
-	$(PYTHON) scripts/historical_data_loader.py backfill --timeframes 1d,4h,1h --source fmp
-	@echo ""
-	@echo "$(BOLD)Generating coverage report...$(RESET)"
-	$(PYTHON) scripts/historical_data_loader.py report --output out/coverage/coverage_report.html
-	@echo "$(GREEN)✓ Data ready$(RESET)"
-
-dashboard-signal:  ## Generate signal report (full universe, no deploy)
-	@echo "$(BOLD)Generating signals (full universe)...$(RESET)"
-	$(PYTHON) -m src.runners.signal_runner --live \
-		--universe config/universe.yaml \
-		--timeframes 1d 1h 4h \
-		--preload-concurrency 5 \
-		--parallel-writes 8 \
-		--format package \
-		--html-output out/signals
-	@echo "$(GREEN)✓ Signals ready in out/signals/$(RESET)"
-
-dashboard-signal-qa:  ## Run signal quality gates (G1-G15)
-	@echo "$(BOLD)Running quality gates...$(RESET)"
-	$(PYTHON) scripts/validate_gates.py --all --package out/signals
-	@echo "$(GREEN)✓ QA gates passed$(RESET)"
-
-dashboard-data: dashboard-signal  ## Full data pipeline (signals + screeners + strategy compare)
-	@echo ""
-	@echo "Step 2/3: Screeners (optional)..."
-	$(PYTHON) -m src.runners.momentum_runner --screen --no-refresh || true
-	$(PYTHON) -m src.runners.pead_runner --screen || true
-	@echo ""
-	@echo "Step 3/3: Strategy comparison..."
-	$(PYTHON) -m src.runners.strategy_compare_runner \
-		--universe config/universe.yaml \
-		--years 3 \
-		--output out/signals/strategies.html \
-		--json-output out/signals/data/strategies.json
-	@echo "$(GREEN)✓ Dashboard data ready$(RESET)"
-
-# Dashboard data-only pipeline: generate package inputs without serving/deploying (20 symbols)
-dashboard-data-quick:
-	@echo "$(BOLD)Dashboard data pipeline (20 symbols, no serve/deploy)...$(RESET)"
-	@echo ""
-	@echo "Step 1/4: Signal generation..."
-	$(PYTHON) -m src.runners.signal_runner --live \
-		--symbols SPY QQQ XLB GLD TLT UVXY AAPL NVDA JPM XOM UNH HD DIS TSLA AMD META SLV IWM DIA MU \
-		--timeframes 1d 1h 4h \
-		--preload-concurrency 5 \
-		--parallel-writes 8 \
-		--format package \
-		--html-output out/signals
-	@echo ""
-	@echo "Step 2/4: Momentum screener (optional, from cache if available)..."
-	$(PYTHON) -m src.runners.momentum_runner --screen --no-refresh || true
-	@echo ""
-	@echo "Step 3/4: PEAD screener (optional, from cache if available)..."
-	$(PYTHON) -m src.runners.pead_runner --screen || true
-	@echo ""
-	@echo "Step 4/4: Strategy comparison backtests..."
-	$(PYTHON) -m src.runners.strategy_compare_runner \
-		--symbols SPY QQQ AAPL NVDA JPM XOM UNH HD DIS TSLA \
-		--years 3 \
-		--output out/signals/strategies.html \
-		--json-output out/signals/data/strategies.json
-	@echo ""
-	@echo "$(GREEN)✓ Dashboard data ready in out/signals/$(RESET)"
-
-# Full production run with ALL features (update-caps, retrain, heatmap, validate)
-# Uses unified config/universe.yaml for all operations
-signals:
-	@echo "$(BOLD)Full signal pipeline...$(RESET)"
-	@echo "Step 1/3: Updating market caps..."
-	$(PYTHON) -m src.runners.signal_runner --update-market-caps \
-		--universe config/universe.yaml
-	@echo "Step 2/3: Retraining models (full universe)..."
-	$(PYTHON) -m src.runners.signal_runner --retrain-models \
-		--universe config/universe.yaml
-	@echo "Step 3/3: Generating report..."
-	$(PYTHON) -m src.runners.signal_runner --live \
-		--universe config/universe.yaml \
-		--timeframes 1d 4h 1h \
-		--preload-concurrency 5 --parallel-writes 8 \
-		--format package \
-		--html-output out/signals
-	@echo "$(GREEN)✓ Report: out/signals/index.html$(RESET)"
-	@echo "$(GREEN)✓ Heatmap: out/signals/heatmap.html$(RESET)"
-	@echo "$(BOLD)Serving at http://localhost:8800 — Ctrl+C to stop$(RESET)"
-	@cd out/signals && python3 -m http.server 8800
-
-# Deploy to GitHub Pages (full pipeline + deploy in one command)
-signals-deploy:
-	@echo "$(BOLD)Generating and deploying signal report to GitHub Pages...$(RESET)"
-	@echo "Step 1/3: Updating market caps..."
-	$(PYTHON) -m src.runners.signal_runner --update-market-caps \
-		--universe config/universe.yaml
-	@echo "Step 2/3: Retraining models (full universe)..."
-	$(PYTHON) -m src.runners.signal_runner --retrain-models \
-		--universe config/universe.yaml
-	@echo "Step 3/3: Generating report and deploying..."
-	$(PYTHON) -m src.runners.signal_runner --live \
-		--universe config/universe.yaml \
-		--timeframes 1d 4h 1h \
-		--preload-concurrency 5 --parallel-writes 8 \
-		--format package \
-		--html-output out/signals \
-		--deploy github
-	@echo "$(GREEN)✓ Report deployed to GitHub Pages$(RESET)"
-
-# Deploy existing out/signals directory (no regeneration)
-signals-push:
-	@echo "$(BOLD)Deploying existing out/signals to GitHub Pages...$(RESET)"
-	@test -d out/signals || (echo "$(RED)Error: out/signals not found. Run 'make signals' first.$(RESET)" && exit 1)
-	$(eval REMOTE_URL := $(shell git remote get-url origin))
-	@rm -rf /tmp/gh-pages-deploy
-	@cp -r out/signals /tmp/gh-pages-deploy
-	@cd /tmp/gh-pages-deploy && \
-		git init -b gh-pages && \
-		git add -A && \
-		git commit -m "Deploy signal report $$(date +%Y-%m-%d_%H-%M)" && \
-		git remote add origin $(REMOTE_URL) && \
-		git push -f origin gh-pages
-	@rm -rf /tmp/gh-pages-deploy
-	@echo "$(GREEN)✓ Deployed to GitHub Pages$(RESET)"
-
-
-# Quick deploy (skip retraining - use existing models)
-signals-deploy-quick:
-	@echo "$(BOLD)Quick deploy (skip retraining)...$(RESET)"
-	@echo "Step 1/2: Updating market caps..."
-	$(PYTHON) -m src.runners.signal_runner --update-market-caps \
-		--universe config/universe.yaml
-	@echo "Step 2/2: Generating report and deploying..."
-	$(PYTHON) -m src.runners.signal_runner --live \
-		--universe config/universe.yaml \
-		--timeframes 1d 4h 1h \
-		--preload-concurrency 5 --parallel-writes 8 \
-		--format package \
-		--html-output out/signals \
-		--deploy github
-	@echo "$(GREEN)✓ Report deployed to GitHub Pages$(RESET)"
-
-# ═══════════════════════════════════════════════════════════════
-# Behavioral Gate Validation
-# ═══════════════════════════════════════════════════════════════
-
-# Quick test: default params, universe quick_test, 2018-2025, then serve
-behavioral:
-	@echo "$(BOLD)Behavioral gate test (quick_test subset, 2018-2025)...$(RESET)"
-	$(PYTHON) -m src.backtest.runner --behavioral \
-		--start 2018-01-01 --end 2025-12-31
-	@echo "$(GREEN)✓ Report: out/behavioral/$(RESET)"
-	@echo "$(BOLD)Serving at http://localhost:8081$(RESET)"
-	@echo "$(YELLOW)Press Ctrl+C to stop$(RESET)"
-	@cd out/behavioral && python3 -m http.server 8081
-
-# Predefined case studies (market episodes)
-behavioral-cases:
-	@echo "$(BOLD)Running predefined behavioral case studies...$(RESET)"
-	$(PYTHON) -m src.backtest.runner --behavioral-cases
-	@echo "$(GREEN)✓ Reports: out/behavioral/$(RESET)"
-	@echo "$(BOLD)Serving at http://localhost:8081$(RESET)"
-	@echo "$(YELLOW)Press Ctrl+C to stop$(RESET)"
-	@cd out/behavioral && python3 -m http.server 8081
-
-# Full pipeline: Optuna optimization + walk-forward + auto-clustering
-behavioral-full:
-	@echo "$(BOLD)Full behavioral gate optimization pipeline...$(RESET)"
-	$(PYTHON) -m src.backtest.runner --behavioral --cluster \
-		--spec config/backtest/dual_macd_behavioral.yaml
-	@echo "$(GREEN)✓ Reports: out/behavioral/$(RESET)"
-	@echo "$(GREEN)✓ Cluster candidate: config/gate_policy_clusters.yaml$(RESET)"
-	@echo "$(BOLD)Serving at http://localhost:8081$(RESET)"
-	@echo "$(YELLOW)Press Ctrl+C to stop$(RESET)"
-	@cd out/behavioral && python3 -m http.server 8081
-
-# ═══════════════════════════════════════════════════════════════
-# TrendPulse v2.2 Validation
-# ═══════════════════════════════════════════════════════════════
-
-tp-validate:
-	@echo "$(BOLD)TrendPulse v2.2 — Full 3-stage validation (36 symbols)$(RESET)"
-	$(PYTHON) scripts/trend_pulse_validate.py
-
-tp-holdout:
-	@echo "$(BOLD)TrendPulse v2.2 — Holdout only$(RESET)"
-	$(PYTHON) scripts/trend_pulse_validate.py --skip-full
-
-tp-optimize:
-	@echo "$(BOLD)TrendPulse v2.2 — Phase 1 Optuna optimization$(RESET)"
-	$(PYTHON) -m src.backtest.runner \
-		--spec config/backtest/examples/trend_pulse_phase1.yaml
-
-tp-universe:
-	@echo "$(BOLD)TrendPulse v2.2 — Full universe backtest + HTML report$(RESET)"
-	$(PYTHON) scripts/trend_pulse_universe.py
-	@echo "$(GREEN)✓ Report: out/trend_pulse/universe_report.html$(RESET)"
-
-tp-universe-quick:
-	@echo "$(BOLD)TrendPulse v2.2 — Quick test (12 symbols)$(RESET)"
-	$(PYTHON) scripts/trend_pulse_universe.py --subset quick_test \
-		--output out/trend_pulse/quick_report.html
-	@echo "$(GREEN)✓ Report: out/trend_pulse/quick_report.html$(RESET)"
-
-.PHONY: tp-validate tp-holdout tp-optimize tp-universe tp-universe-quick
+	@echo "$(GREEN)✓ JSON: /tmp/strategies_verify.json$(RESET)"
 
 # ═══════════════════════════════════════════════════════════════
 # PEAD Earnings Drift Screener
 # ═══════════════════════════════════════════════════════════════
 
-# Full pipeline: caps → earnings → attention → screen → track → resolve → stats → HTML
+# Full pipeline: earnings → attention → screen → track → resolve → stats
 pead:
 	@echo "$(BOLD)PEAD Earnings Drift Screen — Full Pipeline$(RESET)"
-	@echo ""
-	@echo "$(BOLD)Step 1/2: Updating market caps...$(RESET)"
-	$(PYTHON) -m src.runners.signal_runner --update-market-caps \
-		--universe config/universe.yaml
-	@echo ""
-	@echo "$(BOLD)Step 2/2: Full PEAD run (earnings + attention + screen + track + stats)...$(RESET)"
 	$(PYTHON) -m src.runners.pead_runner --full \
-		--universe config/universe.yaml \
-		--html-output out/pead/pead.html
-	@echo ""
+		--universe config/universe.yaml
 	@echo "$(GREEN)✓ Candidates: out/pead/data/pead_candidates.json$(RESET)"
 	@echo "$(GREEN)✓ Tracker:    data/cache/pead_tracker.json$(RESET)"
-	@echo "$(GREEN)✓ HTML report: out/pead/pead.html$(RESET)"
 
 # Screen from cached earnings (no FMP fetch — still tracks + resolves by default)
 pead-screen:
 	@echo "$(BOLD)PEAD Screen (from cache)...$(RESET)"
-	$(PYTHON) -m src.runners.pead_runner --screen \
-		--html-output out/pead/pead.html
-	@echo "$(GREEN)✓ HTML report: out/pead/pead.html$(RESET)"
+	$(PYTHON) -m src.runners.pead_runner --screen
 
 # Run PEAD unit tests
 pead-test:
@@ -573,8 +278,7 @@ pead-test:
 # Always-fresh: refresh universe + incremental OHLCV + screen
 momentum:
 	@echo "$(BOLD)Momentum Screen (refresh + screen)...$(RESET)"
-	$(PYTHON) -m src.runners.momentum_runner --html out/momentum/report.html
-	@echo "$(GREEN)✓ HTML report: out/momentum/report.html$(RESET)"
+	$(PYTHON) -m src.runners.momentum_runner
 
 # Alias: momentum-update is now identical to momentum (refresh is default)
 momentum-update: momentum
@@ -599,32 +303,6 @@ quantitative-moment-backtest: momentum-backtest
 quantitative-moment-test: momentum-test
 
 .PHONY: quantitative-moment quantitative-moment-update quantitative-moment-backtest quantitative-moment-test
-
-# ═══════════════════════════════════════════════════════════════
-# Cloudflare Dashboard
-# ═══════════════════════════════════════════════════════════════
-
-dashboard-build:   ## Build CF dashboard from existing pipeline output
-	@echo "$(BOLD)Building Cloudflare dashboard...$(RESET)"
-	$(PYTHON) -c "from src.infrastructure.reporting.dashboard import DashboardBuilder; DashboardBuilder().build()"
-	@echo "$(GREEN)✓ Dashboard built → out/site/$(RESET)"
-
-dashboard-web-dev: dashboard-build   ## Build + serve with Wrangler Pages dev (:8801)
-	@echo "$(BOLD)Serving dashboard (Wrangler Pages dev) at http://localhost:8801$(RESET)"
-	npx wrangler@3 pages dev out/site --port 8801
-
-dashboard-web-preview-deploy: dashboard-build   ## Build + deploy to Cloudflare preview branch
-	@echo "$(BOLD)Deploying dashboard preview branch '$(DASHBOARD_PREVIEW_BRANCH)'...$(RESET)"
-	npx wrangler@3 pages deploy out/site/ --project-name apex-dashboard --branch $(DASHBOARD_PREVIEW_BRANCH)
-
-dashboard-dev: dashboard-build   ## Build + serve locally (:8801)
-	@echo "$(BOLD)Serving dashboard at http://localhost:8801$(RESET)"
-	python3 -m http.server 8801 --directory out/site
-
-dashboard-deploy: dashboard-build   ## Build + deploy to Cloudflare Pages
-	npx wrangler@3 pages deploy out/site/ --project-name apex-dashboard
-
-.PHONY: dashboard-build dashboard-dev dashboard-deploy dashboard-data dashboard-web-dev dashboard-web-preview-deploy live
 
 # ═══════════════════════════════════════════════════════════════
 # R2 Data Pipeline
@@ -655,7 +333,30 @@ r2-validate:   ## Generate data_quality.json only (no fetch)
 	$(PYTHON) scripts/r2_historical_loader.py --validate-only
 	@echo "$(GREEN)✓ data_quality.json generated$(RESET)"
 
-.PHONY: r2-universe r2-backfill r2-backfill-test r2-delta r2-validate
+r2-market-caps:   ## Update market caps → R2 meta/market_caps.json
+	@echo "$(BOLD)Updating market caps → R2...$(RESET)"
+	$(PYTHON) scripts/r2_market_caps.py
+	@echo "$(GREEN)✓ Market caps uploaded to R2$(RESET)"
+
+.PHONY: r2-universe r2-backfill r2-backfill-test r2-delta r2-validate r2-market-caps
+
+# ═══════════════════════════════════════════════════════════════
+# Compute Jobs (same runners as /api/jobs/ endpoints)
+# ═══════════════════════════════════════════════════════════════
+
+jobs-momentum:   ## Run momentum screener
+	@echo "$(BOLD)Running momentum screener...$(RESET)"
+	$(PYTHON) -m src.runners.momentum_runner
+
+jobs-pead:   ## Run PEAD screener
+	@echo "$(BOLD)Running PEAD screener...$(RESET)"
+	$(PYTHON) -m src.runners.pead_runner --full
+
+jobs-strategy-compare:   ## Run strategy comparison backtest
+	@echo "$(BOLD)Running strategy comparison...$(RESET)"
+	$(PYTHON) -m src.runners.strategy_compare_runner \
+		--symbols SPY QQQ AAPL \
+		--years 3
 
 # ═══════════════════════════════════════════════════════════════
 # Cleanup

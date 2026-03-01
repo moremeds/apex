@@ -487,6 +487,6 @@ class TestConfig:
         # Other defaults preserved
         assert config.scoring.momentum_weight == 0.5
 
-    def test_unknown_keys_ignored(self) -> None:
-        config = MomentumConfig.from_dict({"unknown_section": {"foo": "bar"}})
-        assert config.scoring.top_n == 30  # Default preserved
+    def test_unknown_keys_rejected(self) -> None:
+        with pytest.raises(ValueError, match="unknown"):
+            MomentumConfig.from_dict({"unknown_section": {"foo": "bar"}})

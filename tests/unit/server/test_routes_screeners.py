@@ -34,15 +34,13 @@ class TestScreenersEndpoint:
         assert resp.status_code == 200
         assert resp.json()["momentum"][0]["symbol"] == "AAPL"
 
-    def test_503_when_no_data(self, monkeypatch):
-        monkeypatch.setattr("src.server.routes.screeners._fetch_static_sync", lambda _: None)
+    def test_503_when_no_data(self):
         r2 = _make_r2_client({})
         client = _make_app(r2_client=r2)
         resp = client.get("/api/screeners")
         assert resp.status_code == 503
 
-    def test_503_when_no_r2_client(self, monkeypatch):
-        monkeypatch.setattr("src.server.routes.screeners._fetch_static_sync", lambda _: None)
+    def test_503_when_no_r2_client(self):
         client = _make_app()
         resp = client.get("/api/screeners")
         assert resp.status_code == 503
@@ -54,6 +52,51 @@ class TestScreenersEndpoint:
         resp = client.get("/api/screeners")
         assert resp.status_code == 200
         assert "data" in resp.json()
+
+
+class TestCacheInjectionServesData:
+    """Verify the full loop: inject into cache → GET /api/screeners returns it."""
+
+    def test_injected_momentum_served_by_screeners_endpoint(self):
+        """set_cache → GET /api/screeners returns injected data."""
+        proxy = _CachedProxy(None, ttl_sec=60)
+        app = FastAPI()
+        app.include_router(create_screeners_router(proxy=proxy))
+
+        # Inject momentum data (simulating job completion callback)
+        proxy.merge_cache("screeners.json", {
+            "momentum": {"candidates": [{"symbol": "AAPL"}], "universe_size": 100}
+        })
+
+        client = TestClient(app)
+        resp = client.get("/api/screeners")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["momentum"]["candidates"][0]["symbol"] == "AAPL"
+        assert data["momentum"]["universe_size"] == 100
+
+    def test_merge_preserves_other_section(self):
+        """Injecting momentum preserves existing pead data."""
+        proxy = _CachedProxy(None, ttl_sec=60)
+        app = FastAPI()
+        app.include_router(create_screeners_router(proxy=proxy))
+
+        # Pre-populate with pead data
+        proxy.set_cache("screeners.json", {
+            "pead": {"candidates": [{"symbol": "NVDA"}]}
+        })
+
+        # Inject momentum — pead should survive
+        proxy.merge_cache("screeners.json", {
+            "momentum": {"candidates": [{"symbol": "AAPL"}]}
+        })
+
+        client = TestClient(app)
+        resp = client.get("/api/screeners")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["momentum"]["candidates"][0]["symbol"] == "AAPL"
+        assert data["pead"]["candidates"][0]["symbol"] == "NVDA"
 
 
 class TestBacktestEndpoint:
@@ -88,6 +131,25 @@ class TestCachedProxy:
     def test_returns_none_without_r2(self):
         proxy = _CachedProxy(None, ttl_sec=60)
         assert proxy.get("anything") is None
+
+    def test_set_cache_injects_data(self):
+        proxy = _CachedProxy(None, ttl_sec=60)
+        proxy.set_cache("key.json", {"injected": True})
+        assert proxy.get("key.json") == {"injected": True}
+
+    def test_merge_cache_preserves_existing(self):
+        proxy = _CachedProxy(None, ttl_sec=60)
+        proxy.set_cache("screeners.json", {"momentum": {"old": 1}, "pead": {"data": 2}})
+        proxy.merge_cache("screeners.json", {"momentum": {"new": 3}})
+        result = proxy.get("screeners.json")
+        assert result["momentum"] == {"new": 3}
+        assert result["pead"] == {"data": 2}
+
+    def test_merge_cache_creates_if_missing(self):
+        proxy = _CachedProxy(None, ttl_sec=60)
+        proxy.merge_cache("screeners.json", {"momentum": {"data": 1}})
+        result = proxy.get("screeners.json")
+        assert result == {"momentum": {"data": 1}}
 
     def test_returns_stale_on_error(self):
         r2 = MagicMock()

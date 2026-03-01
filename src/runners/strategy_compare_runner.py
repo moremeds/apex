@@ -2,7 +2,7 @@
 Strategy Comparison Runner.
 
 Downloads daily OHLCV data and runs ALL strategies through BacktestEngine
-(event-driven), then generates a comparison dashboard (strategies.html).
+(event-driven), then writes a strategies.json with comparison metrics.
 
 All 6 strategies (Tier 1 + Tier 2) use the same engine for apples-to-apples
 comparison. VectorBT is NOT used here — it stays for Optuna optimization only.
@@ -10,15 +10,15 @@ comparison. VectorBT is NOT used here — it stays for Optuna optimization only.
 Usage:
     # With explicit symbols
     python -m src.runners.strategy_compare_runner \
-        --symbols SPY QQQ AAPL NVDA --output out/signals/strategies.html
+        --symbols SPY QQQ AAPL NVDA
 
     # With universe config (loads all symbols from YAML)
     python -m src.runners.strategy_compare_runner \
-        --universe config/universe.yaml --output out/signals/strategies.html
+        --universe config/universe.yaml
 
-    # With custom lookback period
+    # With custom lookback period and output path
     python -m src.runners.strategy_compare_runner \
-        --symbols SPY QQQ AAPL --years 2 --output /tmp/signal_test/strategies.html
+        --symbols SPY QQQ AAPL --years 2 --json-output /tmp/strategies.json
 """
 
 from __future__ import annotations
@@ -552,7 +552,7 @@ def _extract_metrics(
     Extract metrics from BacktestResult into the dashboard-compatible dict.
 
     Maps BacktestResult fields to the same structure that _aggregate_results
-    and StrategyComparisonBuilder expect.
+    expects for JSON output.
     """
     perf = result.performance
     risk = result.risk
@@ -880,34 +880,29 @@ def _load_sector_map(universe_path: str) -> Dict[str, List[str]]:
 
 def run_comparison(
     symbols: List[str],
-    output_path: str,
     years: int = 3,
     strategies: List[str] | None = None,
     universe_path: str | None = None,
     realism_tier: str = "A",
-    json_output: str | None = None,
+    json_output: str = "out/signals/strategies.json",
 ) -> str:
     """
-    Run strategy comparison and generate HTML dashboard.
+    Run strategy comparison and write JSON metrics.
 
     All strategies run through BacktestEngine (event-driven) for consistent
     metrics. No VectorBT in the comparison path.
 
     Args:
         symbols: List of ticker symbols.
-        output_path: Path for strategies.html output.
         years: Lookback period in years.
         strategies: Strategy names to compare (default: all registered).
         universe_path: Path to universe YAML (for sector mapping).
         realism_tier: Execution realism level ("A" = immediate fill, "B" = next-bar-open).
+        json_output: Path for strategies.json output.
 
     Returns:
-        Path to generated HTML file.
+        Path to generated JSON file.
     """
-    from src.infrastructure.reporting.strategy_comparison.builder import (
-        StrategyComparisonBuilder,
-        StrategyMetrics,
-    )
 
     end_date = date.today() - timedelta(days=1)
     start_date = end_date - timedelta(days=365 * years)
@@ -945,7 +940,7 @@ def run_comparison(
 
     if not all_data:
         print("ERROR: No data available for any symbol")
-        return output_path
+        return json_output
 
     # Compute regime series from SPY (or first available symbol)
     regime_symbol = "SPY" if "SPY" in all_data else list(all_data.keys())[0]
@@ -956,20 +951,15 @@ def run_comparison(
         count = regime_counts.get(r, 0)
         print(f"  {r}: {count} days ({count / len(regime_series) * 100:.0f}%)")
 
-    # Run each strategy
-    builder = StrategyComparisonBuilder(
-        title="APEX Strategy Comparison Dashboard",
-        universe_name=f"{len(all_data)} symbols",
-        period=f"{start_date} to {end_date}",
-    )
-    builder.set_symbols(list(all_data.keys()))
+    # Run each strategy — collect metrics into a dict for JSON output
+    comparison_symbols = list(all_data.keys())
+    comparison_strategies: Dict[str, Dict[str, Any]] = {}
 
     # Load sector map for sector-level aggregation
     if universe_path:
         sector_map = _load_sector_map(universe_path)
     else:
         sector_map = {"all": list(all_data.keys())}
-    builder.set_sector_map(sector_map)
 
     # Skip noise tiers — LEGACY strategies are unmaintained, DEMO is for teaching
     skip_tiers = {"LEGACY", "DEMO"}
@@ -1068,62 +1058,67 @@ def run_comparison(
             total_params = 0
             effective_params = 0
 
-        metrics = StrategyMetrics(
-            name=strat_name,
-            tier=tier,
-            sharpe=agg["sharpe"],
-            sortino=agg["sortino"],
-            calmar=agg["calmar"],
-            total_return=agg["total_return"],
-            max_drawdown=agg["max_drawdown"],
-            win_rate=agg["win_rate"],
-            profit_factor=agg["profit_factor"],
-            trade_count=agg["trade_count"],
-            equity_curve=agg["equity_curve"],
-            drawdown_curve=agg["drawdown_curve"],
-            per_symbol_sharpe=agg["per_symbol_sharpe"],
-            per_regime_sharpe=agg["per_regime_sharpe"],
-            per_regime_return=agg["per_regime_return"],
-            per_regime_trades=agg["per_regime_trades"],
-            per_regime_wr=agg["per_regime_wr"],
-            per_regime_pf=agg["per_regime_pf"],
-            per_regime_avg_hold=agg["per_regime_avg_hold"],
-            stress_results=agg["stress_results"],
-            monthly_returns=agg["monthly_returns"],
-            rolling_sharpe=agg["rolling_sharpe"],
-            per_symbol_metrics=agg["per_symbol_metrics"],
-            effective_params=effective_params,
-            total_params=total_params,
-        )
-        builder.add_strategy(strat_name, metrics)
+        comparison_strategies[strat_name] = {
+            "name": strat_name,
+            "tier": tier,
+            "sharpe": round(agg["sharpe"], 3),
+            "sortino": round(agg["sortino"], 3),
+            "calmar": round(agg["calmar"], 3),
+            "total_return": round(agg["total_return"], 4),
+            "max_drawdown": round(agg["max_drawdown"], 4),
+            "win_rate": round(agg["win_rate"], 3),
+            "profit_factor": round(agg["profit_factor"], 3),
+            "trade_count": agg["trade_count"],
+            "avg_trade_pnl": 0.0,
+            "equity_curve": agg["equity_curve"],
+            "drawdown_curve": agg["drawdown_curve"],
+            "monthly_returns": agg["monthly_returns"],
+            "per_symbol_sharpe": agg["per_symbol_sharpe"],
+            "per_regime_sharpe": agg["per_regime_sharpe"],
+            "per_regime_return": agg["per_regime_return"],
+            "per_regime_trades": agg["per_regime_trades"],
+            "per_regime_wr": agg["per_regime_wr"],
+            "per_regime_pf": agg["per_regime_pf"],
+            "per_regime_avg_hold": agg["per_regime_avg_hold"],
+            "stress_results": agg["stress_results"],
+            "rolling_sharpe": agg["rolling_sharpe"],
+            "per_symbol_metrics": agg["per_symbol_metrics"],
+            "effective_params": effective_params,
+            "total_params": total_params,
+        }
         print(
             f"  => Avg Sharpe={agg['sharpe']:.2f} "
             f"Return={agg['total_return']:+.1%} "
             f"MaxDD={agg['max_drawdown']:.1%}"
         )
 
-    # Build dashboard
-    result_path = builder.build(output_path)
-    print(f"\nDashboard written to {result_path}")
+    # Write JSON output
+    import json
+    from pathlib import Path
 
-    # Write JSON for CF dashboard if requested
-    if json_output:
-        import json
-        from pathlib import Path
+    json_data = {
+        "title": "APEX Strategy Comparison Dashboard",
+        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "universe_name": f"{len(all_data)} symbols",
+        "period": f"{start_date} to {end_date}",
+        "strategy_count": len(comparison_strategies),
+        "symbols": comparison_symbols,
+        "strategies": comparison_strategies,
+        "sector_map": sector_map,
+    }
 
-        json_data = builder.to_json_data()
-        json_path = Path(json_output)
-        json_path.parent.mkdir(parents=True, exist_ok=True)
-        json_path.write_text(json.dumps(json_data, default=str), encoding="utf-8")
-        print(f"Strategy JSON written to {json_path}")
+    json_path = Path(json_output)
+    json_path.parent.mkdir(parents=True, exist_ok=True)
+    json_path.write_text(json.dumps(json_data, default=str), encoding="utf-8")
+    print(f"\nStrategy JSON written to {json_path}")
 
-    return result_path
+    return str(json_path)
 
 
 def main() -> None:
     """CLI entry point."""
     parser = argparse.ArgumentParser(
-        description="Run strategy comparison and generate dashboard",
+        description="Run strategy comparison and generate JSON metrics",
     )
     parser.add_argument(
         "--symbols",
@@ -1134,11 +1129,6 @@ def main() -> None:
     parser.add_argument(
         "--universe",
         help="Path to universe YAML config (mutually exclusive with --symbols)",
-    )
-    parser.add_argument(
-        "--output",
-        default="out/signals/strategies.html",
-        help="Output path for comparison dashboard",
     )
     parser.add_argument(
         "--years",
@@ -1159,8 +1149,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--json-output",
-        default=None,
-        help="Also write strategy metrics as JSON (for CF dashboard)",
+        default="out/signals/strategies.json",
+        help="Output path for strategy metrics JSON (default: out/signals/strategies.json)",
     )
     parser.add_argument("-v", "--verbose", action="store_true")
 
@@ -1190,7 +1180,6 @@ def main() -> None:
 
     run_comparison(
         symbols=symbols,
-        output_path=args.output,
         years=args.years,
         strategies=args.strategies,
         universe_path=args.universe,

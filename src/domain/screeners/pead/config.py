@@ -109,9 +109,21 @@ class PEADConfig:
             raw = yaml.safe_load(f) or {}
         return cls.from_dict(raw)
 
+    _VALID_SECTIONS = {
+        "filters", "trade_params", "regime_rules", "liquidity_tiers",
+        "quality_thresholds", "multi_quarter_sue", "attention_filter",
+        "version", "description", "data_source",  # metadata fields
+    }
+
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> PEADConfig:
         """Build typed config from raw dict, using defaults for missing keys."""
+        unknown_sections = set(raw.keys()) - cls._VALID_SECTIONS
+        if unknown_sections:
+            raise ValueError(
+                f"PEADConfig: unknown top-level sections {unknown_sections}. "
+                f"Valid sections: {sorted(cls._VALID_SECTIONS)}"
+            )
         return cls(
             filters=_build_dataclass(PEADFilters, raw.get("filters", {})),
             trade_params=_build_dataclass(PEADTradeParams, raw.get("trade_params", {})),
@@ -130,9 +142,15 @@ class PEADConfig:
 
 
 def _build_dataclass(cls: type, data: dict[str, Any]) -> Any:
-    """Build a dataclass from dict, ignoring unknown keys."""
+    """Build a dataclass from dict, rejecting unknown keys."""
     import dataclasses
 
     field_names = {f.name for f in dataclasses.fields(cls)}
+    unknown = set((data or {}).keys()) - field_names
+    if unknown:
+        raise ValueError(
+            f"{cls.__name__}: unknown config keys {unknown}. "
+            f"Valid keys: {sorted(field_names)}"
+        )
     filtered = {k: v for k, v in (data or {}).items() if k in field_names}
     return cls(**filtered)

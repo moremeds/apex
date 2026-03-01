@@ -7,11 +7,9 @@ last Parquet date, so repeat runs are fast.
 Usage:
     python -m src.runners.momentum_runner                           # refresh + screen
     python -m src.runners.momentum_runner --no-refresh              # screen from cache only
-    python -m src.runners.momentum_runner --no-email                # skip email
     python -m src.runners.momentum_runner --no-earnings             # skip earnings blackout filter
-    python -m src.runners.momentum_runner --backtest                # walk-forward + ablation + HTML
+    python -m src.runners.momentum_runner --backtest                # walk-forward + ablation + JSON
     python -m src.runners.momentum_runner --include-recent-ipos     # adaptive momentum
-    python -m src.runners.momentum_runner --html out/momentum/report.html
 """
 
 from __future__ import annotations
@@ -148,10 +146,8 @@ def cmd_update(config: Any) -> list[str]:
 def cmd_screen(
     config: Any,
     *,
-    html_output: str | None = None,
     signals_dir: str | None = None,
     include_recent_ipos: bool = False,
-    send_email_flag: bool = True,
     no_earnings: bool = False,
     no_refresh: bool = False,
 ) -> Any:
@@ -305,31 +301,8 @@ def cmd_screen(
         print(f"0 momentum candidates (regime: {regime} - {regime_label(regime)})")
 
     # [6/6] Write results
-    output_dir = Path(html_output).parent if html_output else PROJECT_ROOT / "out" / "momentum"
+    output_dir = PROJECT_ROOT / "out" / "momentum"
     _write_watchlist_json(result, output_dir, data_as_of=data_as_of)
-
-    # Write HTML
-    if html_output:
-        from src.infrastructure.reporting.momentum.builder import MomentumReportBuilder
-
-        builder = MomentumReportBuilder()
-        html_path = builder.build(result, html_output)
-        logger.info(f"Momentum HTML report: {html_path}")
-
-    # Send email
-    if send_email_flag:
-        if result.candidates:
-            from src.infrastructure.reporting.email_momentum_renderer import (
-                render_momentum_email_text,
-            )
-            from src.utils.email_sender import send_email
-
-            watchlist_path = output_dir / "data" / "momentum_watchlist.json"
-            body = render_momentum_email_text(watchlist_path)
-            subject = f"APEX Momentum — {len(result.candidates)} candidates — {today.isoformat()}"
-            send_email(subject, body)
-        else:
-            print("0 candidates — email skipped.")
 
     return result
 
@@ -505,17 +478,16 @@ def _print_backtest_summary(
     }
 
 
-def cmd_backtest(config: Any, html_output: str | None = None) -> None:
-    """Walk-forward momentum backtest + ablation + HTML report.
+def cmd_backtest(config: Any) -> None:
+    """Walk-forward momentum backtest + ablation + JSON output.
 
     Loads cached data once, then:
     1. Runs full walk-forward simulation (M+FIP+Filters config)
     2. Runs 3 ablation configs (M-only / M+FIP / M+FIP+Filters)
-    3. Writes JSON results and always generates an HTML report
+    3. Writes JSON results
     """
     from src.domain.screeners.momentum.config import MomentumFilters, ScoringConfig
     from src.domain.screeners.momentum.screener import MomentumScreener
-    from src.infrastructure.reporting.momentum.templates import render_backtest_html
     from src.services.momentum_data_service import MomentumDataService
 
     svc = MomentumDataService()
@@ -666,13 +638,8 @@ def cmd_backtest(config: Any, html_output: str | None = None) -> None:
         )
     print("=" * 72)
 
-    # ── Write JSON + HTML ─────────────────────────────────────────────
-    output_path = (
-        Path(html_output) if html_output else PROJECT_ROOT / "out" / "momentum" / "backtest.html"
-    )
-    output_dir = output_path.parent
-    output_dir.mkdir(parents=True, exist_ok=True)
-    data_dir = output_dir / "data"
+    # ── Write JSON ─────────────────────────────────────────────────────
+    data_dir = PROJECT_ROOT / "out" / "momentum" / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
 
     bt_data = {
@@ -696,11 +663,6 @@ def cmd_backtest(config: Any, html_output: str | None = None) -> None:
     logger.info(f"Backtest JSON: {data_dir / 'momentum_backtest.json'}")
     logger.info(f"Ablation JSON: {data_dir / 'momentum_ablation.json'}")
 
-    # Always generate HTML
-    html_content = render_backtest_html({"backtest": bt_data, "ablation": abl_data})
-    output_path.write_text(html_content)
-    logger.info(f"Backtest HTML report: {output_path}")
-
 
 def main() -> None:
     parser = argparse.ArgumentParser(
@@ -714,16 +676,14 @@ def main() -> None:
     parser.add_argument(
         "--backtest",
         action="store_true",
-        help="Run walk-forward backtest + ablation comparison (always produces HTML)",
+        help="Run walk-forward backtest + ablation comparison",
     )
     parser.add_argument(
         "--include-recent-ipos",
         action="store_true",
         help="Use adaptive momentum for stocks with 6-11 month history",
     )
-    parser.add_argument("--html", type=str, default=None, help="Output HTML report path")
     parser.add_argument("--signals-dir", type=str, default=None, help="Signal pipeline output dir")
-    parser.add_argument("--no-email", action="store_true", help="Skip email notification")
     parser.add_argument("--no-earnings", action="store_true", help="Skip earnings blackout filter")
     parser.add_argument(
         "--no-refresh",
@@ -738,14 +698,12 @@ def main() -> None:
         cmd_update(config)
 
     if args.backtest:
-        cmd_backtest(config, html_output=args.html)
+        cmd_backtest(config)
     else:
         cmd_screen(
             config,
-            html_output=args.html,
             signals_dir=args.signals_dir,
             include_recent_ipos=args.include_recent_ipos,
-            send_email_flag=not args.no_email,
             no_earnings=args.no_earnings,
             # --update already fetched OHLCV; skip redundant refresh
             no_refresh=args.no_refresh or args.update,

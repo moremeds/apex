@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom"
 import { createColumnHelper } from "@tanstack/react-table"
 import { useScreeners } from "@/lib/api"
 import { DataTable } from "@/components/DataTable"
+import { useJobTrigger } from "@/hooks/useJobTrigger"
 
 type Tab = "momentum" | "pead"
 
@@ -271,6 +272,8 @@ export function Screeners() {
   const { data, isLoading, error } = useScreeners()
   const momColumns = useMomColumns()
   const peadColumns = usePeadColumns()
+  const momJob = useJobTrigger("momentum", [["screeners"]])
+  const peadJob = useJobTrigger("pead", [["screeners"]])
 
   const momRaw = useMemo(
     () =>
@@ -329,7 +332,7 @@ export function Screeners() {
     <div className="space-y-4">
       <h2 className="text-lg font-semibold">Screeners</h2>
 
-      {/* Tabs + Export */}
+      {/* Tabs + Actions */}
       <div className="flex items-center justify-between">
         <div className="flex gap-1 rounded-lg bg-secondary p-1">
           {(["momentum", "pead"] as const).map((t) => (
@@ -346,12 +349,16 @@ export function Screeners() {
             </button>
           ))}
         </div>
-        <button
-          onClick={handleExport}
-          className="rounded-md border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-        >
-          Export CSV
-        </button>
+        <div className="flex items-center gap-2">
+          <JobButton label="Run Momentum" job={momJob} />
+          <JobButton label="Run PEAD" job={peadJob} />
+          <button
+            onClick={handleExport}
+            className="rounded-md border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            Export CSV
+          </button>
+        </div>
       </div>
 
       {tab === "momentum" ? (
@@ -399,6 +406,50 @@ export function Screeners() {
         </div>
       )}
     </div>
+  )
+}
+
+// ── Job Button ───────────────────────────────────
+
+function JobButton({
+  label,
+  job,
+}: {
+  label: string
+  job: ReturnType<typeof useJobTrigger>
+}) {
+  const isRunning = job.phase === "running"
+  const isDone = job.phase === "completed"
+  const isFailed = job.phase === "failed"
+
+  return (
+    <button
+      onClick={job.trigger}
+      disabled={isRunning}
+      className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs transition-colors ${
+        isDone
+          ? "border-emerald-700 bg-emerald-900/30 text-emerald-400"
+          : isFailed
+            ? "border-red-700 bg-red-900/30 text-red-400"
+            : isRunning
+              ? "border-border bg-card text-muted-foreground opacity-70"
+              : "border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground"
+      }`}
+      title={job.error ?? undefined}
+    >
+      {isRunning && <Spinner />}
+      {isDone && <span>&#10003;</span>}
+      {isFailed ? "Failed" : isRunning ? "Running..." : isDone ? "Done" : label}
+    </button>
+  )
+}
+
+function Spinner() {
+  return (
+    <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+    </svg>
   )
 }
 

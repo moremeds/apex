@@ -22,8 +22,9 @@ from src.server.persistence import ServerPersistence
 from src.server.pipeline import ServerPipeline
 from src.server.routes.advisor import create_advisor_router
 from src.server.routes.monitor import create_monitor_router
-from src.server.routes.screeners import create_screeners_router
+from src.server.routes.screeners import _CachedProxy, create_screeners_router
 from src.server.routes.symbols import create_symbols_router
+from src.server.routes.jobs import create_jobs_router
 from src.server.routes.ws import create_ws_router
 from src.server.ws_hub import WebSocketHub
 
@@ -129,6 +130,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     hub = WebSocketHub()
     persistence = ServerPersistence(config.duckdb_path)
     pipeline = ServerPipeline(hub=hub, timeframes=config.timeframes, config=config)
+    pipeline._persistence = persistence
 
     # ── Longbridge adapter (optional — only if enabled + env vars present) ──
     quote_adapter = None
@@ -384,6 +386,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # ── Periodic flush task ──
     flush_task = asyncio.create_task(_periodic_flush(persistence, config.r2_flush_interval_sec))
 
+    # ── Wire R2 into the screener cache (created in create_app) ──
+    if hasattr(app.state, "screener_cache"):
+        app.state.screener_cache._r2 = r2_client
+
     # ── Store refs on app.state for routes ──
     app.state.hub = hub
     app.state.pipeline = pipeline
@@ -463,13 +469,19 @@ def create_app(config_path: str = "config/server.yaml") -> FastAPI:
             "ws_clients": hub.client_count if hub else 0,
         }
 
+    # Screener cache — created early so jobs route can inject computed results.
+    # R2 client wired later in lifespan() once credentials are resolved.
+    screener_cache = _CachedProxy(r2_client=None)
+    app.state.screener_cache = screener_cache
+
     # Routes — all dependencies resolved lazily from app.state at request time.
     # This allows the lifespan to wire real adapters after startup.
     app.include_router(create_ws_router())
     app.include_router(create_symbols_router())
-    app.include_router(create_screeners_router())
+    app.include_router(create_screeners_router(proxy=screener_cache))
     app.include_router(create_monitor_router())
     app.include_router(create_advisor_router())
+    app.include_router(create_jobs_router())
 
     # SPA catch-all: serve index.html for any non-API, non-WS GET request.
     # This enables direct navigation to /signals, /monitor, etc.
@@ -516,11 +528,15 @@ def create_test_app() -> FastAPI:
             "ws_clients": hub.client_count,
         }
 
+    screener_cache = _CachedProxy(r2_client=None)
+    app.state.screener_cache = screener_cache
+
     app.include_router(create_ws_router())
     app.include_router(create_symbols_router())
-    app.include_router(create_screeners_router())
+    app.include_router(create_screeners_router(proxy=screener_cache))
     app.include_router(create_monitor_router())
     app.include_router(create_advisor_router())
+    app.include_router(create_jobs_router())
 
     dist_path = Path("web/dist")
     if dist_path.is_dir():

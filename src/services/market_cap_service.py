@@ -9,10 +9,10 @@ Core Principles:
 3. Graceful degradation - Missing caps return 0 with cap_missing=true
 
 Usage:
-    # Update cache (run separately, e.g., daily cron)
-    python -m src.runners.signal_runner update-market-caps --universe config/universe.yaml
+    # Update cache (run separately, e.g., via R2 daily pipeline)
+    python scripts/r2_market_caps.py
 
-    # Read cache (during report generation)
+    # Read cache
     service = MarketCapService()
     caps = service.get_market_caps(["AAPL", "MSFT", "GOOG"])
 """
