@@ -7,7 +7,7 @@ import logging
 import os
 import time
 from contextlib import asynccontextmanager
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, AsyncGenerator
 
@@ -116,6 +116,83 @@ async def _fill_data_gap(engine: Any, symbols: list[str], tf: str = "1d") -> int
             logger.warning("Gap fill failed for %s/%s", sym, tf, exc_info=True)
 
     return filled
+
+
+def _compute_and_persist_summary(
+    pipeline: ServerPipeline, persistence: ServerPersistence, universe: Any
+) -> dict | None:
+    """Build summary from pipeline indicator state and persist to DuckDB."""
+    engine = pipeline._indicator_engine
+    all_states = engine.get_all_indicator_states(timeframe="1d")
+    regime_data: dict[str, dict] = {}
+    for (sym, tf, ind), state in all_states.items():
+        if ind == "regime_detector" and state:
+            regime_data[sym] = state
+    if not regime_data:
+        logger.info("No regime data available for summary computation")
+        return None
+
+    tickers = []
+    for symbol, state in regime_data.items():
+        bar_deque = engine.get_history(symbol, "1d")
+        close, daily_change_pct = 0.0, 0.0
+        if bar_deque and len(bar_deque) >= 2:
+            close = bar_deque[-1]["close"]
+            prev = bar_deque[-2]["close"]
+            if prev > 0:
+                daily_change_pct = round(((close - prev) / prev) * 100, 2)
+
+        sector = ""
+        if universe:
+            # Try universe.get_sector_for_symbol or sector_names
+            sector_etf = (
+                universe.get_sector_for_symbol(symbol)
+                if hasattr(universe, "get_sector_for_symbol")
+                else ""
+            )
+            if sector_etf:
+                sector_names = getattr(universe, "sector_names", {})
+                sector = sector_names.get(sector_etf, sector_etf)
+
+        # Include component_states for Signals page RegimeSection
+        comp_states: dict = {}
+        cs = state.get("component_states")
+        if cs and hasattr(cs, "to_dict"):
+            comp_states = cs.to_dict()
+        elif isinstance(cs, dict):
+            comp_states = cs
+
+        tickers.append(
+            {
+                "symbol": symbol,
+                "close": close,
+                "daily_change_pct": daily_change_pct,
+                "regime": state.get("regime", "R1"),
+                "regime_name": state.get("regime_name", "Unknown"),
+                "confidence": state.get("confidence", 50),
+                "composite_score_avg": round(state.get("composite_score", 0), 1),
+                "sector": sector,
+                "component_states": comp_states,
+            }
+        )
+
+    summary = {"tickers": tickers, "generated_at": datetime.now().isoformat()}
+    persistence.save_summary(summary)
+    logger.info("Computed and persisted summary for %d tickers", len(tickers))
+
+    # Seed score_history table so /api/score-history returns data
+    now = datetime.now(timezone.utc)
+    for ticker in tickers:
+        persistence.save_score_snapshot(
+            symbol=ticker["symbol"],
+            ts=now,
+            score=ticker.get("composite_score_avg", 0),
+            trend_state=ticker.get("regime_name", "Unknown"),
+            regime=ticker.get("regime", "R1"),
+        )
+    logger.info("Saved score snapshots for %d tickers", len(tickers))
+
+    return summary
 
 
 @asynccontextmanager
@@ -271,6 +348,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                         n = pipeline._indicator_engine.inject_historical_bars(symbol, tf, bar_dicts)
                         if n > 0:
                             warmed += 1
+                            persistence.bulk_insert_bars(symbol, tf, bar_dicts)
                 except Exception as e:
                     logger.debug("Bootstrap skip %s/%s: %s", symbol, tf, e)
 
@@ -304,6 +382,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 logger.info("Gap fill recompute: %d symbols updated", recomputed)
         except Exception:
             logger.exception("Gap fill failed")
+
+        # ── Compute and persist summary from pipeline state ──
+        _compute_and_persist_summary(pipeline, persistence, universe)
 
         # ── Fetch VIX + VIX3M for advisor ──
         from datetime import datetime, timedelta, timezone

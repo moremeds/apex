@@ -220,7 +220,7 @@ export function Signals() {
     return summary?.confluence?.[`${symbol}_${tf}`]
   }, [summaryData, symbol, tf])
 
-  const isLoading = sdLoading || histLoading
+  const isLoading = histLoading  // signal-data computed on-demand, don't block
 
   return (
     <div className="space-y-4">

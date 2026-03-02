@@ -79,6 +79,63 @@ def create_monitor_router(
             },
         }
 
+    @router.get("/r2-freshness")
+    async def get_r2_freshness(request: Request) -> dict:
+        """Check R2 data freshness — last modified timestamps for key files."""
+        from datetime import datetime, timezone
+
+        r2 = _get_r2_client(request)
+        persistence_obj = getattr(request.app.state, "persistence", None)
+
+        items: list[dict] = []
+        key_files = [
+            ("summary.json", "Summary"),
+            ("screeners.json", "Screeners"),
+            ("strategies.json", "Backtest"),
+            ("meta/universe.json", "Universe"),
+            ("meta/data_quality.json", "Data Quality"),
+            ("meta/market_caps.json", "Market Caps"),
+        ]
+        for key, label in key_files:
+            item: dict = {"key": key, "label": label, "last_modified": None, "status": "unknown"}
+            if r2 is not None:
+                try:
+                    lm = await asyncio.to_thread(
+                        lambda k=key: r2.get_last_modified(k) if hasattr(r2, "get_last_modified") else None
+                    )
+                    if lm:
+                        item["last_modified"] = lm.isoformat() if hasattr(lm, "isoformat") else str(lm)
+                        # Check staleness: > 48h = stale, > 7d = critical
+                        age = (datetime.now(timezone.utc) - lm).total_seconds() if hasattr(lm, "tzinfo") and lm.tzinfo else None
+                        if age is not None:
+                            if age < 48 * 3600:
+                                item["status"] = "fresh"
+                            elif age < 7 * 24 * 3600:
+                                item["status"] = "stale"
+                            else:
+                                item["status"] = "critical"
+                except Exception as e:
+                    item["status"] = "error"
+                    item["error"] = str(e)
+            items.append(item)
+
+        # DuckDB summary freshness
+        duckdb_summary = {"available": False, "ticker_count": 0}
+        if persistence_obj:
+            try:
+                summary = await asyncio.to_thread(persistence_obj.get_summary)
+                if summary and summary.get("tickers"):
+                    duckdb_summary["available"] = True
+                    duckdb_summary["ticker_count"] = len(summary["tickers"])
+            except Exception:
+                pass
+
+        return {
+            "r2_available": r2 is not None,
+            "files": items,
+            "duckdb_summary": duckdb_summary,
+        }
+
     @router.get("/data-quality")
     async def get_data_quality(request: Request) -> dict:
         """Get data quality report (R2 only)."""

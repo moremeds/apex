@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react"
 import { useNavigate } from "react-router-dom"
-import { useMonitor, useDataQuality, useUniverse } from "@/lib/api"
+import { useMonitor, useDataQuality, useUniverse, useR2Freshness } from "@/lib/api"
 import { useMarketStore } from "@/stores/market"
 import type { ProviderStatus } from "@/lib/ws"
 
@@ -47,6 +47,7 @@ export function Monitor() {
   const navigate = useNavigate()
   const { data: monitor } = useMonitor()
   const { data: dq, isLoading: dqLoading } = useDataQuality()
+  const { data: freshness } = useR2Freshness()
   const { data: universeRaw } = useUniverse()
 
   const wsProviders = useMarketStore((s) => s.providers)
@@ -227,6 +228,41 @@ export function Monitor() {
         )}
       </section>
 
+      {/* ── R2 Data Freshness ── */}
+      <section>
+        <h2 className="mb-3 text-base font-semibold uppercase tracking-wider text-muted-foreground">
+          Data Freshness
+        </h2>
+        {freshness ? (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <span className={`inline-block h-2 w-2 rounded-full ${(freshness as { r2_available?: boolean }).r2_available ? "bg-emerald-500" : "bg-red-500"}`} />
+              R2 {(freshness as { r2_available?: boolean }).r2_available ? "Connected" : "Not Available"}
+              {(freshness as { duckdb_summary?: { available?: boolean; ticker_count?: number } }).duckdb_summary?.available && (
+                <span className="ml-4">
+                  DuckDB Summary: {(freshness as { duckdb_summary?: { ticker_count?: number } }).duckdb_summary?.ticker_count ?? 0} tickers
+                </span>
+              )}
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              {((freshness as { files?: { key: string; label: string; last_modified?: string; status?: string }[] }).files ?? []).map((f) => (
+                <div key={f.key} className="rounded-lg border border-border bg-card px-4 py-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium">{f.label}</span>
+                    <FreshnessBadge status={f.status ?? "unknown"} />
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {f.last_modified ? new Date(f.last_modified).toLocaleString() : "No data"}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">Loading freshness data...</p>
+        )}
+      </section>
+
       {/* ── Data Quality ── */}
       <section>
         <h2 className="mb-3 text-base font-semibold uppercase tracking-wider text-muted-foreground">
@@ -370,6 +406,21 @@ export function Monitor() {
 }
 
 // ── Sub-components ───────────────────────────────────────────────────────────
+
+function FreshnessBadge({ status }: { status: string }) {
+  const colors: Record<string, string> = {
+    fresh: "bg-emerald-900/50 text-emerald-400",
+    stale: "bg-amber-900/50 text-amber-400",
+    critical: "bg-red-900/50 text-red-400",
+    error: "bg-red-900/50 text-red-400",
+    unknown: "bg-secondary text-muted-foreground",
+  }
+  return (
+    <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${colors[status] ?? colors.unknown}`}>
+      {status}
+    </span>
+  )
+}
 
 function MetricCard({ label, value, color }: { label: string; value: string | number; color?: string }) {
   return (

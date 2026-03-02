@@ -4,7 +4,6 @@ import { Layout } from "@/components/Layout"
 import { Overview } from "@/pages/Overview"
 import { Signals } from "@/pages/Signals"
 import { Screeners } from "@/pages/Screeners"
-import { Regime } from "@/pages/Regime"
 import { Backtest } from "@/pages/Backtest"
 import { Monitor } from "@/pages/Monitor"
 import { Advisor } from "@/pages/Advisor"
@@ -27,7 +26,6 @@ function App() {
             <Route index element={<Overview />} />
             <Route path="signals" element={<Signals />} />
             <Route path="screeners" element={<Screeners />} />
-            <Route path="regime" element={<Regime />} />
             <Route path="backtest" element={<Backtest />} />
             <Route path="monitor" element={<Monitor />} />
             <Route path="advisor" element={<Advisor />} />

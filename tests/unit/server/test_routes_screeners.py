@@ -34,16 +34,18 @@ class TestScreenersEndpoint:
         assert resp.status_code == 200
         assert resp.json()["momentum"][0]["symbol"] == "AAPL"
 
-    def test_503_when_no_data(self):
+    def test_200_empty_when_no_data(self):
         r2 = _make_r2_client({})
         client = _make_app(r2_client=r2)
         resp = client.get("/api/screeners")
-        assert resp.status_code == 503
+        assert resp.status_code == 200
+        assert resp.json() == {}
 
-    def test_503_when_no_r2_client(self):
+    def test_200_empty_when_no_r2_client(self):
         client = _make_app()
         resp = client.get("/api/screeners")
-        assert resp.status_code == 503
+        assert resp.status_code == 200
+        assert resp.json() == {}
 
     def test_wraps_list_in_dict(self):
         """If R2 returns a list, it should be wrapped."""
@@ -108,11 +110,12 @@ class TestBacktestEndpoint:
         assert resp.status_code == 200
         assert resp.json()["strategies"][0]["name"] == "trend_pulse"
 
-    def test_503_when_no_data(self):
+    def test_200_empty_when_no_data(self):
         r2 = _make_r2_client({})
         client = _make_app(r2_client=r2)
         resp = client.get("/api/backtest")
-        assert resp.status_code == 503
+        assert resp.status_code == 200
+        assert resp.json() == {}
 
 
 class TestCachedProxy:

@@ -121,7 +121,7 @@ def create_screeners_router(
         """Get screener results (R2 with cache)."""
         data = await proxy.get_with_fallback("screeners.json", _r2_from_request(request))
         if data is None:
-            raise HTTPException(status_code=503, detail="Screener data not available")
+            return {}
         return data if isinstance(data, dict) else {"data": data}
 
     @router.get("/backtest")
@@ -129,14 +129,42 @@ def create_screeners_router(
         """Get strategy comparison results (R2 with cache)."""
         data = await proxy.get_with_fallback("strategies.json", _r2_from_request(request))
         if data is None:
-            raise HTTPException(status_code=503, detail="Backtest data not available")
+            return {}
         return data if isinstance(data, dict) else {"data": data}
 
     @router.get("/signal-data/{symbol}")
     async def get_signal_data(symbol: str, request: Request, tf: str = Query(default="1d")) -> dict:
-        """Per-symbol signal data (R2 with cache), extended with fresh bars."""
+        """Per-symbol signal data with on-demand indicator computation.
+
+        Data resolution: cache → compute from engine → DuckDB bars → R2 fallback.
+        """
         key = f"{symbol}_{tf}.json"
-        data = await proxy.get_with_fallback(key, _r2_from_request(request))
+        data = proxy.get(key)
+
+        # Compute from indicator engine (bars already bootstrapped from R2)
+        if data is None:
+            pipeline_obj = getattr(request.app.state, "pipeline", None)
+            if pipeline_obj:
+                data = await asyncio.to_thread(
+                    _compute_signal_data, pipeline_obj, symbol, tf
+                )
+                if data:
+                    proxy.set_cache(key, data)
+
+        # DuckDB bars fallback (if engine not ready yet)
+        if data is None:
+            persistence = getattr(request.app.state, "persistence", None)
+            if persistence:
+                bars = await asyncio.to_thread(persistence.query_bars, symbol, tf, 500)
+                if bars:
+                    data = _compute_signal_data_from_bars(bars, symbol, tf)
+                    if data:
+                        proxy.set_cache(key, data)
+
+        # Legacy R2 fallback
+        if data is None:
+            data = await proxy.get_with_fallback(key, _r2_from_request(request))
+
         if data is None:
             raise HTTPException(status_code=404, detail=f"No signal data for {symbol}/{tf}")
         if not isinstance(data, dict):
@@ -197,9 +225,25 @@ def create_screeners_router(
     async def get_summary(request: Request) -> dict:
         """Summary.json — ETF data, regime, generated_at (R2 with cache).
 
+        Data resolution: cache → DuckDB → R2 fallback.
         Overlays live regime data from pipeline if available.
         """
-        data = await proxy.get_with_fallback("summary.json", _r2_from_request(request))
+        data = proxy.get("summary.json")
+
+        # Try DuckDB summary (persisted during bootstrap)
+        if data is None:
+            persistence = getattr(request.app.state, "persistence", None)
+            if persistence:
+                try:
+                    data = await asyncio.to_thread(persistence.get_summary)
+                    if data:
+                        proxy.set_cache("summary.json", data)
+                except Exception:
+                    logger.debug("DuckDB summary read failed", exc_info=True)
+
+        # R2 fallback
+        if data is None:
+            data = await proxy.get_with_fallback("summary.json", _r2_from_request(request))
         if data is None:
             raise HTTPException(status_code=503, detail="Summary data not available")
         if not isinstance(data, dict):
@@ -318,8 +362,24 @@ def create_screeners_router(
 
     @router.get("/indicators")
     async def get_indicators(request: Request) -> dict:
-        """Indicator definitions + rules (R2 with cache)."""
-        data = await proxy.get_with_fallback("indicators.json", _r2_from_request(request))
+        """Indicator definitions + rules.
+
+        Data resolution: cache → compute from engine → R2 fallback → 503.
+        """
+        data = proxy.get("indicators.json")
+
+        # Compute from engine if no cache
+        if data is None:
+            pipeline = getattr(request.app.state, "pipeline", None)
+            if pipeline:
+                data = await asyncio.to_thread(_build_indicators_metadata, pipeline)
+                if data:
+                    proxy.set_cache("indicators.json", data)
+
+        # R2 fallback
+        if data is None:
+            data = await proxy.get_with_fallback("indicators.json", _r2_from_request(request))
+
         if data is None:
             raise HTTPException(status_code=503, detail="Indicators data not available")
         return data if isinstance(data, dict) else {"data": data}
@@ -333,3 +393,181 @@ def create_screeners_router(
         return data if isinstance(data, dict) else {"data": data}
 
     return router
+
+
+def _format_ts(ts: Any) -> str:
+    """Format a timestamp to ISO string."""
+    if hasattr(ts, "isoformat"):
+        return ts.isoformat()
+    return str(ts)
+
+
+def _compute_signal_data(pipeline: Any, symbol: str, tf: str) -> dict | None:
+    """Compute signal chart data from indicator engine bars + all indicators."""
+    import pandas as pd
+
+    engine = pipeline._indicator_engine
+    bar_deque = engine.get_history(symbol, tf)
+    if not bar_deque or len(bar_deque) < 10:
+        return None
+
+    df = pd.DataFrame(bar_deque)
+
+    # Build base chart_data with OHLCV
+    timestamps = [_format_ts(b["timestamp"]) for b in bar_deque]
+    chart_data: dict[str, Any] = {
+        "timestamps": timestamps,
+        "open": df["open"].tolist(),
+        "high": df["high"].tolist(),
+        "low": df["low"].tolist(),
+        "close": df["close"].tolist(),
+        "volume": df["volume"].tolist(),
+        "overlays": {},
+        "rsi": {},
+        "macd": {},
+        "dual_macd": {},
+        "oscillators": {},
+        "volume_ind": {},
+        "price_levels": {},
+    }
+
+    # Run ALL registered indicators on the bar DataFrame
+    for indicator in engine._indicators:
+        try:
+            if len(df) < indicator.warmup_periods:
+                continue
+            result_df = indicator.calculate(df, indicator.default_params)
+            if result_df is None or result_df.empty:
+                continue
+            ind_name = indicator.name
+            for col in result_df.columns:
+                if col in ("open", "high", "low", "close", "volume", "timestamp"):
+                    continue
+                values = [None if pd.isna(v) else round(float(v), 4) for v in result_df[col]]
+                full_key = f"{ind_name}_{col}"
+                _place_indicator_in_chart(chart_data, ind_name, full_key, values)
+        except Exception:
+            continue
+
+    return {
+        "symbol": symbol,
+        "timeframe": tf,
+        "bar_count": len(bar_deque),
+        "chart_data": chart_data,
+        "signals": [],
+    }
+
+
+def _compute_signal_data_from_bars(
+    bars: list[dict], symbol: str, tf: str
+) -> dict | None:
+    """Compute signal data from DuckDB bar rows (fallback when engine empty)."""
+    if not bars or len(bars) < 10:
+        return None
+
+    timestamps = [_format_ts(b.get("ts") or b.get("timestamp", "")) for b in bars]
+    chart_data: dict[str, Any] = {
+        "timestamps": timestamps,
+        "open": [b.get("o", b.get("open", 0)) for b in bars],
+        "high": [b.get("h", b.get("high", 0)) for b in bars],
+        "low": [b.get("l", b.get("low", 0)) for b in bars],
+        "close": [b.get("c", b.get("close", 0)) for b in bars],
+        "volume": [b.get("v", b.get("volume", 0)) for b in bars],
+        "overlays": {},
+        "rsi": {},
+        "macd": {},
+        "dual_macd": {},
+        "oscillators": {},
+        "volume_ind": {},
+        "price_levels": {},
+    }
+    return {
+        "symbol": symbol,
+        "timeframe": tf,
+        "bar_count": len(bars),
+        "chart_data": chart_data,
+        "signals": [],
+    }
+
+
+def _place_indicator_in_chart(
+    chart_data: dict, ind_name: str, full_key: str, values: list
+) -> None:
+    """Route indicator values to the right chart section."""
+    if ind_name in ("ema", "sma", "bollinger", "supertrend", "ichimoku", "keltner"):
+        chart_data["overlays"][full_key] = values
+    elif ind_name == "rsi":
+        chart_data["rsi"][full_key] = values
+    elif ind_name == "macd":
+        chart_data["macd"][full_key] = values
+    elif ind_name == "dual_macd":
+        chart_data["dual_macd"][full_key] = values
+    elif ind_name in ("atr", "adx", "stochastic", "cci", "williams_r", "awesome"):
+        chart_data["oscillators"][full_key] = values
+    elif ind_name in ("obv", "mfi", "vwap", "cmf"):
+        chart_data["volume_ind"][full_key] = values
+    else:
+        chart_data["oscillators"][full_key] = values
+
+
+def _build_indicators_metadata(pipeline: Any) -> dict | None:
+    """Build indicator metadata from registered indicators in the engine.
+
+    Returns format expected by IndicatorsSection:
+    {"categories": [{"name": "Overlay", "indicators": [{"name", "description", "params", "warmup_periods", "rules"}]}]}
+    """
+    engine = pipeline._indicator_engine
+    if not hasattr(engine, "_indicators") or not engine._indicators:
+        return None
+
+    _OVERLAY = {"ema", "sma", "bollinger", "supertrend", "ichimoku", "keltner", "vwap"}
+    _OSCILLATOR = {
+        "rsi", "macd", "dual_macd", "stochastic", "cci", "williams_r",
+        "awesome", "rsi_harmonics", "kdj", "momentum", "roc", "aroon",
+        "trix", "vortex", "zerolag",
+    }
+    _VOLUME = {"obv", "mfi", "cmf", "cvd", "ad", "volume_ratio"}
+    _TREND = {"adx", "regime_detector"}
+    _VOLATILITY = {"atr", "bollinger", "squeeze", "hvol", "chaikin_vol"}
+    _PATTERN = {"fibonacci", "pivot", "candlestick", "chart_patterns", "support_resistance"}
+
+    def _classify(name: str) -> str:
+        if name in _OVERLAY:
+            return "Overlay"
+        if name in _OSCILLATOR:
+            return "Oscillator"
+        if name in _VOLUME:
+            return "Volume"
+        if name in _TREND:
+            return "Trend"
+        if name in _VOLATILITY:
+            return "Volatility"
+        if name in _PATTERN:
+            return "Pattern"
+        return "Other"
+
+    categories_map: dict[str, list] = {}
+    for ind in engine._indicators:
+        name = getattr(ind, "name", str(ind))
+        params = getattr(ind, "default_params", {})
+        warmup = getattr(ind, "warmup_periods", 0)
+        cat = _classify(name)
+
+        if cat not in categories_map:
+            categories_map[cat] = []
+        categories_map[cat].append({
+            "name": name,
+            "description": f"{name} indicator",
+            "params": {k: v for k, v in params.items() if not k.startswith("_")},
+            "warmup_periods": warmup,
+            "rules": [],
+        })
+
+    category_order = ["Overlay", "Oscillator", "Volume", "Trend", "Volatility", "Pattern", "Other"]
+    categories = [
+        {"name": cat_name, "indicators": categories_map[cat_name]}
+        for cat_name in category_order
+        if cat_name in categories_map
+    ]
+
+    return {"categories": categories}

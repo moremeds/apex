@@ -70,7 +70,7 @@ const DIVERGING_COLORSCALE: [number, string][] = [
 
 export function Backtest() {
   const [tab, setTab] = useState<Tab>("overview")
-  const { data: raw, isLoading, error } = useBacktest()
+  const { data: raw } = useBacktest()
   const backtestJob = useJobTrigger("strategy-compare", [["backtest"]])
 
   const bundle = raw as BacktestBundle | undefined
@@ -78,12 +78,6 @@ export function Backtest() {
     if (!bundle?.strategies) return []
     return Object.values(bundle.strategies)
   }, [bundle])
-
-  if (isLoading) return <p className="text-sm text-muted-foreground">Loading backtest data...</p>
-  if (error) return <p className="text-sm text-red-400">Failed to load backtest: {(error as Error).message}</p>
-  if (strategies.length === 0) {
-    return <p className="text-sm text-muted-foreground">No backtest data available. R2 strategies.json may not be configured.</p>
-  }
 
   return (
     <div className="space-y-4">

@@ -140,6 +140,7 @@ export function useSignalData(symbol: string, tf = "1d") {
     queryFn: () => api.signalData(symbol, tf),
     enabled: !!symbol,
     staleTime: 5 * 60_000,
+    retry: false,
   })
 }
 
@@ -157,6 +158,14 @@ export function useIndicators() {
 
 export function useUniverse() {
   return useQuery({ queryKey: ["universe"], queryFn: api.universe, staleTime: 5 * 60_000 })
+}
+
+export function useR2Freshness() {
+  return useQuery({
+    queryKey: ["r2-freshness"],
+    queryFn: () => fetchJson<Record<string, unknown>>("/api/monitor/r2-freshness"),
+    staleTime: 5 * 60_000,
+  })
 }
 
 export function useAdvisor() {

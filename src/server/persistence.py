@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS bars (
     ts TIMESTAMPTZ
 );
 CREATE INDEX IF NOT EXISTS idx_bars_symbol_tf_ts ON bars (symbol, tf, ts);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_bars_unique ON bars (symbol, tf, ts);
 
 CREATE TABLE IF NOT EXISTS signals (
     symbol VARCHAR,
@@ -43,6 +44,19 @@ CREATE TABLE IF NOT EXISTS signals (
     ts TIMESTAMPTZ
 );
 CREATE INDEX IF NOT EXISTS idx_signals_symbol_ts ON signals (symbol, ts);
+
+CREATE TABLE IF NOT EXISTS summary (
+    symbol VARCHAR PRIMARY KEY,
+    close DOUBLE,
+    daily_change_pct DOUBLE,
+    regime VARCHAR,
+    regime_name VARCHAR,
+    confidence INTEGER,
+    composite_score DOUBLE,
+    sector VARCHAR,
+    component_states VARCHAR,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 
 CREATE TABLE IF NOT EXISTS score_history (
     symbol VARCHAR,
@@ -112,6 +126,95 @@ class ServerPersistence:
         )
         logger.debug("Flushed %d ticks to DuckDB", len(batch))
         return len(batch)
+
+    def bulk_insert_bars(self, symbol: str, tf: str, bars: list[dict]) -> int:
+        """Bulk insert historical bars. Skips duplicates via INSERT OR IGNORE."""
+        if not bars:
+            return 0
+        with self._lock:
+            self._db.executemany(
+                "INSERT OR IGNORE INTO bars (symbol, tf, o, h, l, c, v, ts) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (
+                        symbol,
+                        tf,
+                        b["open"],
+                        b["high"],
+                        b["low"],
+                        b["close"],
+                        b["volume"],
+                        b["timestamp"],
+                    )
+                    for b in bars
+                ],
+            )
+        return len(bars)
+
+    def save_summary(self, summary: dict) -> None:
+        """Persist summary tickers to DuckDB."""
+        import json
+
+        tickers = summary.get("tickers", [])
+        if not tickers:
+            return
+        with self._lock:
+            self._db.execute("DELETE FROM summary")
+            self._db.executemany(
+                "INSERT INTO summary (symbol, close, daily_change_pct, regime, "
+                "regime_name, confidence, composite_score, sector, component_states) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (
+                        t["symbol"],
+                        t.get("close", 0.0),
+                        t.get("daily_change_pct", 0.0),
+                        t.get("regime", "R1"),
+                        t.get("regime_name", "Unknown"),
+                        t.get("confidence", 50),
+                        t.get("composite_score_avg", 0.0),
+                        t.get("sector", ""),
+                        json.dumps(t.get("component_states", {})),
+                    )
+                    for t in tickers
+                ],
+            )
+        logger.info("Saved summary for %d tickers to DuckDB", len(tickers))
+
+    def get_summary(self) -> Optional[Dict[str, Any]]:
+        """Read summary from DuckDB. Returns dict matching API format or None."""
+        import json
+
+        with self._lock:
+            result = self._db.execute(
+                "SELECT symbol, close, daily_change_pct, regime, regime_name, "
+                "confidence, composite_score, sector, component_states FROM summary"
+            )
+            rows = result.fetchall()
+        if not rows:
+            return None
+        tickers = []
+        for row in rows:
+            comp_states = {}
+            if row[8]:
+                try:
+                    comp_states = json.loads(row[8])
+                except Exception:
+                    pass
+            tickers.append(
+                {
+                    "symbol": row[0],
+                    "close": row[1],
+                    "daily_change_pct": row[2],
+                    "regime": row[3],
+                    "regime_name": row[4],
+                    "confidence": row[5],
+                    "composite_score_avg": row[6],
+                    "sector": row[7],
+                    "component_states": comp_states,
+                }
+            )
+        return {"tickers": tickers, "source": "duckdb"}
 
     def insert_bar(
         self,

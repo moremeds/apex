@@ -6,7 +6,6 @@ const navItems = [
   { to: "/", label: "Overview", end: true },
   { to: "/signals", label: "Signals" },
   { to: "/screeners", label: "Screeners" },
-  { to: "/regime", label: "Regime" },
   { to: "/monitor", label: "Monitor" },
   { to: "/backtest", label: "Backtest" },
   { to: "/advisor", label: "Advisor" },

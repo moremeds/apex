@@ -269,7 +269,7 @@ function PeadSummary({ data }: { data: PeadRow[] }) {
 
 export function Screeners() {
   const [tab, setTab] = useState<Tab>("momentum")
-  const { data, isLoading, error } = useScreeners()
+  const { data } = useScreeners()
   const momColumns = useMomColumns()
   const peadColumns = usePeadColumns()
   const momJob = useJobTrigger("momentum", [["screeners"]])
@@ -300,19 +300,6 @@ export function Screeners() {
       )?.candidates ?? [],
     [data],
   )
-
-  if (isLoading) {
-    return (
-      <p className="text-sm text-muted-foreground">Loading screener data...</p>
-    )
-  }
-  if (error) {
-    return (
-      <p className="text-sm text-red-400">
-        Failed to load screeners: {(error as Error).message}
-      </p>
-    )
-  }
 
   const handleExport = () => {
     if (tab === "momentum") {
