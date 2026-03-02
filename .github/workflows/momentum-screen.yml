@@ -113,7 +113,7 @@ jobs:
           SIGNAL_REPORT_RECIPIENTS: ${{ secrets.SIGNAL_REPORT_RECIPIENTS }}
 
       - name: Upload report artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: momentum-${{ github.run_id }}
           path: |

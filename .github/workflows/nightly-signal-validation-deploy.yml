@@ -198,7 +198,7 @@ jobs:
           fi
 
       - name: Upload Validation Reports
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: nightly-validation-${{ github.run_number }}
@@ -291,7 +291,7 @@ jobs:
 
       - name: Upload verification and coverage artifacts
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: nightly-verification-${{ github.run_number }}
           path: |

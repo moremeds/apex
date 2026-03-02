@@ -347,7 +347,7 @@ jobs:
           echo "Signal output smoke check passed"
 
       - name: Upload signal data artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: signal-data
           path: out/signals/
@@ -419,7 +419,7 @@ jobs:
           uv pip install -e ".[dev,observability]"
 
       - name: Download signal data
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: signal-data
           path: out/signals
@@ -458,7 +458,7 @@ jobs:
       - name: "Send email: 1H"
         if: needs.setup-and-check.outputs.send_1h == 'true'
         continue-on-error: true
-        uses: dawidd6/action-send-mail@v9
+        uses: dawidd6/action-send-mail@v11
         with:
           server_address: ${{ secrets.SMTP_SERVER }}
           server_port: ${{ secrets.SMTP_PORT || 587 }}
@@ -474,7 +474,7 @@ jobs:
       - name: "Send email: 4H"
         if: needs.setup-and-check.outputs.send_4h == 'true'
         continue-on-error: true
-        uses: dawidd6/action-send-mail@v9
+        uses: dawidd6/action-send-mail@v11
         with:
           server_address: ${{ secrets.SMTP_SERVER }}
           server_port: ${{ secrets.SMTP_PORT || 587 }}
@@ -490,7 +490,7 @@ jobs:
       - name: "Send email: 1D"
         if: needs.setup-and-check.outputs.send_1d == 'true'
         continue-on-error: true
-        uses: dawidd6/action-send-mail@v9
+        uses: dawidd6/action-send-mail@v11
         with:
           server_address: ${{ secrets.SMTP_SERVER }}
           server_port: ${{ secrets.SMTP_PORT || 587 }}
@@ -573,7 +573,7 @@ jobs:
           node-version: '20'
 
       - name: Download signal data
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: signal-data
           path: out/signals
@@ -616,7 +616,7 @@ jobs:
           echo "Smoke check passed"
 
       - name: Upload dashboard site artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: dashboard-site
           path: out/site/
@@ -624,7 +624,7 @@ jobs:
           retention-days: 1
 
       - name: Upload report artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: signal-report-${{ github.run_id }}
           path: out/signals/
@@ -649,7 +649,7 @@ jobs:
           fetch-depth: 0
 
       - name: Download dashboard site
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: dashboard-site
           path: out/site
@@ -709,7 +709,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Download dashboard site
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: dashboard-site
           path: out/site

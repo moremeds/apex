@@ -150,7 +150,7 @@ jobs:
           "
 
       - name: Upload Fast Validation Report
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: fast-validation-report
@@ -242,7 +242,7 @@ jobs:
           "
 
       - name: Upload Gate Report
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: signal-gates-report
@@ -253,7 +253,7 @@ jobs:
           retention-days: 7
 
       - name: Upload Signal Package (on success)
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         if: success()
         with:
           name: signal-package
