@@ -253,7 +253,8 @@ def create_screeners_router(
         data = copy.deepcopy(data)
 
         # Overlay prices from R2-bootstrapped + gap-filled indicator engine.
-        # Track prev_close per symbol for correct daily_change_pct computation.
+        from src.server.main import _get_prev_close
+
         pipeline = getattr(request.app.state, "pipeline", None)
         prev_close_map: dict[str, float] = {}
         if pipeline is not None:
@@ -262,18 +263,17 @@ def create_screeners_router(
                 for ticker in data.get("tickers", []):
                     sym = ticker.get("symbol", "")
                     bar_deque = engine.get_history(sym, "1d")
-                    if bar_deque and len(bar_deque) >= 2:
-                        latest = bar_deque[-1]
-                        prev = bar_deque[-2]
-                        latest_close = latest["close"]
-                        prev_close = prev["close"]
-                        if prev_close > 0:
-                            prev_close_map[sym] = prev_close
-                        if latest_close > 0 and prev_close > 0:
-                            ticker["close"] = latest_close
-                            ticker["daily_change_pct"] = round(
-                                ((latest_close - prev_close) / prev_close) * 100, 2
-                            )
+                    close = bar_deque[-1]["close"] if bar_deque else 0.0
+                    prev_close = _get_prev_close(engine, sym)
+
+                    if prev_close and prev_close > 0:
+                        prev_close_map[sym] = prev_close
+                        ticker["prev_close"] = prev_close
+                    if close > 0 and prev_close and prev_close > 0:
+                        ticker["close"] = close
+                        ticker["daily_change_pct"] = round(
+                            ((close - prev_close) / prev_close) * 100, 2
+                        )
             except Exception:
                 pass
 
@@ -293,11 +293,11 @@ def create_screeners_router(
                             qa.get_latest_quote(sym) if hasattr(qa, "get_latest_quote") else None
                         )
                         if quote and hasattr(quote, "last") and quote.last:
-                            # Use prev_close from bar history (not from ticker dict,
-                            # which may already be overlaid with today's close)
+                            # Use prev_close from bar history (correct last trading day close)
                             prev_close = prev_close_map.get(sym)
                             ticker["close"] = quote.last
                             if prev_close and prev_close > 0:
+                                ticker["prev_close"] = prev_close
                                 ticker["daily_change_pct"] = round(
                                     ((quote.last - prev_close) / prev_close) * 100, 2
                                 )
@@ -405,6 +405,7 @@ def _format_ts(ts: Any) -> str:
 def _compute_signal_data(pipeline: Any, symbol: str, tf: str) -> dict | None:
     """Compute signal chart data from indicator engine bars + all indicators."""
     import pandas as pd
+    from src.server.pipeline import STRATEGY_INDICATORS, _map_regime_to_flex
 
     engine = pipeline._indicator_engine
     bar_deque = engine.get_history(symbol, tf)
@@ -431,6 +432,11 @@ def _compute_signal_data(pipeline: Any, symbol: str, tf: str) -> dict | None:
         "price_levels": {},
     }
 
+    # Strategy history accumulators
+    dual_macd_history: list[dict] = []
+    trend_pulse_history: list[dict] = []
+    regime_flex_history: list[dict] = []
+
     # Run ALL registered indicators on the bar DataFrame
     for indicator in engine._indicators:
         try:
@@ -446,15 +452,59 @@ def _compute_signal_data(pipeline: Any, symbol: str, tf: str) -> dict | None:
                 values = [None if pd.isna(v) else round(float(v), 4) for v in result_df[col]]
                 full_key = f"{ind_name}_{col}"
                 _place_indicator_in_chart(chart_data, ind_name, full_key, values)
+
+            # Extract per-bar strategy states for history tables
+            if ind_name in STRATEGY_INDICATORS:
+                warmup = max(indicator.warmup_periods, 1)
+                for i in range(warmup, len(result_df)):
+                    try:
+                        current = result_df.iloc[i]
+                        previous = result_df.iloc[i - 1]
+                        state = indicator.get_state(current, previous, indicator.default_params)
+                        if not state:
+                            continue
+                        ts = bar_deque[i].get("timestamp")
+                        date_str = _format_ts(ts) if ts else ""
+                        state["date"] = date_str
+
+                        if ind_name == "dual_macd":
+                            dual_macd_history.append(state)
+                        elif ind_name == "trend_pulse":
+                            trend_pulse_history.append(state)
+                        elif ind_name == "regime_detector":
+                            regime_flex_history.append(_map_regime_to_flex(state))
+                    except Exception:
+                        continue
         except Exception:
             continue
+
+    # Query persisted signals
+    signals: list[dict] = []
+    persistence = getattr(pipeline, "_persistence", None)
+    if persistence:
+        try:
+            raw = persistence.query_signals(symbol=symbol, timeframe=tf, limit=200)
+            signals = [
+                {
+                    "timestamp": _format_ts(s.get("ts", "")),
+                    "rule": s.get("rule", ""),
+                    "direction": s.get("direction", ""),
+                    "indicator": s.get("indicator", ""),
+                }
+                for s in raw
+            ]
+        except Exception:
+            pass
 
     return {
         "symbol": symbol,
         "timeframe": tf,
         "bar_count": len(bar_deque),
         "chart_data": chart_data,
-        "signals": [],
+        "signals": signals,
+        "dual_macd_history": list(reversed(dual_macd_history[-50:])),
+        "trend_pulse_history": list(reversed(trend_pulse_history[-50:])),
+        "regime_flex_history": list(reversed(regime_flex_history[-50:])),
     }
 
 

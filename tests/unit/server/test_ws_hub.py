@@ -165,3 +165,68 @@ async def test_connect_with_no_subscriptions():
     # Broadcasting should not fail
     await hub.broadcast_quote("AAPL", {"price": 185.5})
     assert len(ws.sent) == 0
+
+
+# ── broadcast_strategy_state tests ────────────────────
+
+
+@pytest.mark.asyncio
+async def test_broadcast_strategy_state_to_subscribed_clients():
+    """strategy_state messages only reach clients subscribed to that symbol."""
+    hub = WebSocketHub()
+    ws1 = MockWebSocket()
+    ws2 = MockWebSocket()
+    hub.connect(ws1)
+    hub.connect(ws2)
+    await hub.handle_command(ws1, {"cmd": "subscribe", "symbols": ["AAPL"]})
+    await hub.handle_command(ws2, {"cmd": "subscribe", "symbols": ["MSFT"]})
+
+    state = {"date": "2026-03-02", "slow_histogram": 0.45, "trend_state": "BULLISH"}
+    await hub.broadcast_strategy_state("AAPL", "1d", "dual_macd", state)
+
+    assert len(ws1.sent) == 1
+    assert ws1.sent[0]["type"] == "strategy_state"
+    assert ws1.sent[0]["symbol"] == "AAPL"
+    assert ws1.sent[0]["timeframe"] == "1d"
+    assert ws1.sent[0]["indicator"] == "dual_macd"
+    assert ws1.sent[0]["state"]["slow_histogram"] == 0.45
+    assert len(ws2.sent) == 0  # not subscribed to AAPL
+
+
+@pytest.mark.asyncio
+async def test_broadcast_strategy_state_message_shape():
+    """Verify the exact message shape matches frontend WsMessage type."""
+    hub = WebSocketHub()
+    ws = MockWebSocket()
+    hub.connect(ws)
+    await hub.handle_command(ws, {"cmd": "subscribe", "symbols": ["SPY"]})
+
+    state = {"date": "2026-03-02", "regime": "R0", "target_exposure": 1.0, "signal": "NONE"}
+    await hub.broadcast_strategy_state("SPY", "1d", "regime_detector", state)
+
+    msg = ws.sent[0]
+    assert msg == {
+        "type": "strategy_state",
+        "symbol": "SPY",
+        "timeframe": "1d",
+        "indicator": "regime_detector",
+        "state": {"date": "2026-03-02", "regime": "R0", "target_exposure": 1.0, "signal": "NONE"},
+    }
+
+
+@pytest.mark.asyncio
+async def test_broadcast_strategy_state_dead_client_cleanup():
+    """Dead client is disconnected after max_send_failures consecutive failures."""
+    hub = WebSocketHub()
+    ws = MockWebSocket()
+    ws.closed = True  # Will raise on send
+    hub.connect(ws)
+    await hub.handle_command(ws, {"cmd": "subscribe", "symbols": ["AAPL"]})
+
+    state = {"date": "2026-03-02", "slow_histogram": 0.1}
+    for _ in range(hub._max_send_failures - 1):
+        await hub.broadcast_strategy_state("AAPL", "1d", "dual_macd", state)
+        assert hub.client_count == 1
+
+    await hub.broadcast_strategy_state("AAPL", "1d", "dual_macd", state)
+    assert hub.client_count == 0

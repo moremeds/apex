@@ -48,6 +48,7 @@ CREATE INDEX IF NOT EXISTS idx_signals_symbol_ts ON signals (symbol, ts);
 CREATE TABLE IF NOT EXISTS summary (
     symbol VARCHAR PRIMARY KEY,
     close DOUBLE,
+    prev_close DOUBLE DEFAULT 0,
     daily_change_pct DOUBLE,
     regime VARCHAR,
     regime_name VARCHAR,
@@ -87,8 +88,48 @@ class ServerPersistence:
         Path(duckdb_path).parent.mkdir(parents=True, exist_ok=True)
         self._db = duckdb.connect(duckdb_path)
         self._db.execute(_SCHEMA_SQL)
+        self._migrate_signals_columns()
+        self._migrate_summary_prev_close()
         self._tick_buffer: List[tuple] = []
         self._lock = threading.Lock()
+
+    def _migrate_signals_columns(self) -> None:
+        """Add timeframe/indicator columns and index to signals table if missing."""
+        try:
+            cols = {
+                row[0]
+                for row in self._db.execute(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_name = 'signals'"
+                ).fetchall()
+            }
+            if "timeframe" not in cols:
+                self._db.execute("ALTER TABLE signals ADD COLUMN timeframe VARCHAR DEFAULT ''")
+            if "indicator" not in cols:
+                self._db.execute("ALTER TABLE signals ADD COLUMN indicator VARCHAR DEFAULT ''")
+            # Index creation is safe now — columns are guaranteed to exist
+            self._db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_signals_symbol_tf ON signals (symbol, timeframe)"
+            )
+        except Exception:
+            logger.debug("Signals column migration skipped", exc_info=True)
+
+    def _migrate_summary_prev_close(self) -> None:
+        """Add prev_close column to summary table if missing (for existing DBs)."""
+        try:
+            cols = {
+                row[0]
+                for row in self._db.execute(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_name = 'summary'"
+                ).fetchall()
+            }
+            if "prev_close" not in cols:
+                self._db.execute(
+                    "ALTER TABLE summary ADD COLUMN prev_close DOUBLE DEFAULT 0"
+                )
+        except Exception:
+            logger.debug("Summary prev_close migration skipped", exc_info=True)
 
     @property
     def pending_tick_count(self) -> int:
@@ -119,11 +160,10 @@ class ServerPersistence:
                 return 0
             batch = self._tick_buffer.copy()
             self._tick_buffer.clear()
-
-        self._db.executemany(
-            "INSERT INTO ticks (symbol, price, volume, source, ts) VALUES (?, ?, ?, ?, ?)",
-            batch,
-        )
+            self._db.executemany(
+                "INSERT INTO ticks (symbol, price, volume, source, ts) VALUES (?, ?, ?, ?, ?)",
+                batch,
+            )
         logger.debug("Flushed %d ticks to DuckDB", len(batch))
         return len(batch)
 
@@ -161,13 +201,14 @@ class ServerPersistence:
         with self._lock:
             self._db.execute("DELETE FROM summary")
             self._db.executemany(
-                "INSERT INTO summary (symbol, close, daily_change_pct, regime, "
+                "INSERT INTO summary (symbol, close, prev_close, daily_change_pct, regime, "
                 "regime_name, confidence, composite_score, sector, component_states) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 [
                     (
                         t["symbol"],
                         t.get("close", 0.0),
+                        t.get("prev_close", 0.0),
                         t.get("daily_change_pct", 0.0),
                         t.get("regime", "R1"),
                         t.get("regime_name", "Unknown"),
@@ -187,7 +228,7 @@ class ServerPersistence:
 
         with self._lock:
             result = self._db.execute(
-                "SELECT symbol, close, daily_change_pct, regime, regime_name, "
+                "SELECT symbol, close, prev_close, daily_change_pct, regime, regime_name, "
                 "confidence, composite_score, sector, component_states FROM summary"
             )
             rows = result.fetchall()
@@ -196,21 +237,22 @@ class ServerPersistence:
         tickers = []
         for row in rows:
             comp_states = {}
-            if row[8]:
+            if row[9]:
                 try:
-                    comp_states = json.loads(row[8])
+                    comp_states = json.loads(row[9])
                 except Exception:
                     pass
             tickers.append(
                 {
                     "symbol": row[0],
                     "close": row[1],
-                    "daily_change_pct": row[2],
-                    "regime": row[3],
-                    "regime_name": row[4],
-                    "confidence": row[5],
-                    "composite_score_avg": row[6],
-                    "sector": row[7],
+                    "prev_close": row[2],
+                    "daily_change_pct": row[3],
+                    "regime": row[4],
+                    "regime_name": row[5],
+                    "confidence": row[6],
+                    "composite_score_avg": row[7],
+                    "sector": row[8],
                     "component_states": comp_states,
                 }
             )
@@ -228,10 +270,11 @@ class ServerPersistence:
         ts: datetime,
     ) -> None:
         """Insert a completed bar."""
-        self._db.execute(
-            "INSERT INTO bars (symbol, tf, o, h, l, c, v, ts) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            [symbol, tf, o, h, l, c, v, ts],
-        )
+        with self._lock:
+            self._db.execute(
+                "INSERT INTO bars (symbol, tf, o, h, l, c, v, ts) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                [symbol, tf, o, h, l, c, v, ts],
+            )
 
     def insert_signal(
         self,
@@ -240,22 +283,28 @@ class ServerPersistence:
         direction: str,
         strength: float,
         ts: datetime,
+        timeframe: str = "",
+        indicator: str = "",
     ) -> None:
         """Insert a trading signal."""
-        self._db.execute(
-            "INSERT INTO signals (symbol, rule, direction, strength, ts) VALUES (?, ?, ?, ?, ?)",
-            [symbol, rule, direction, strength, ts],
-        )
+        with self._lock:
+            self._db.execute(
+                "INSERT INTO signals (symbol, rule, direction, strength, timeframe, indicator, ts) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                [symbol, rule, direction, strength, timeframe, indicator, ts],
+            )
 
     def query_ticks(self, symbol: str, limit: int = 100) -> List[Dict[str, Any]]:
         """Query recent ticks for a symbol."""
-        result = self._db.execute(
-            "SELECT symbol, price, volume, source, ts FROM ticks "
-            "WHERE symbol = ? ORDER BY ts ASC LIMIT ?",
-            [symbol, limit],
-        )
-        cols = [desc[0] for desc in result.description]
-        return [dict(zip(cols, row)) for row in result.fetchall()]
+        with self._lock:
+            result = self._db.execute(
+                "SELECT symbol, price, volume, source, ts FROM ticks "
+                "WHERE symbol = ? ORDER BY ts ASC LIMIT ?",
+                [symbol, limit],
+            )
+            cols = [desc[0] for desc in result.description]
+            rows = result.fetchall()
+        return [dict(zip(cols, row)) for row in rows]
 
     def query_bars(
         self,
@@ -264,34 +313,42 @@ class ServerPersistence:
         limit: int = 500,
     ) -> List[Dict[str, Any]]:
         """Query recent bars for a symbol and timeframe."""
-        result = self._db.execute(
-            "SELECT symbol, tf, o, h, l, c, v, ts FROM bars "
-            "WHERE symbol = ? AND tf = ? ORDER BY ts ASC LIMIT ?",
-            [symbol, tf, limit],
-        )
-        cols = [desc[0] for desc in result.description]
-        return [dict(zip(cols, row)) for row in result.fetchall()]
+        with self._lock:
+            result = self._db.execute(
+                "SELECT symbol, tf, o, h, l, c, v, ts FROM bars "
+                "WHERE symbol = ? AND tf = ? ORDER BY ts ASC LIMIT ?",
+                [symbol, tf, limit],
+            )
+            cols = [desc[0] for desc in result.description]
+            rows = result.fetchall()
+        return [dict(zip(cols, row)) for row in rows]
 
     def query_signals(
         self,
         symbol: Optional[str] = None,
+        timeframe: Optional[str] = None,
         limit: int = 100,
     ) -> List[Dict[str, Any]]:
-        """Query recent signals, optionally filtered by symbol."""
+        """Query recent signals, optionally filtered by symbol and timeframe."""
+        conditions = []
+        params: list = []
         if symbol:
+            conditions.append("symbol = ?")
+            params.append(symbol)
+        if timeframe:
+            conditions.append("timeframe = ?")
+            params.append(timeframe)
+        where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+        params.append(limit)
+        with self._lock:
             result = self._db.execute(
-                "SELECT symbol, rule, direction, strength, ts FROM signals "
-                "WHERE symbol = ? ORDER BY ts DESC LIMIT ?",
-                [symbol, limit],
+                f"SELECT symbol, rule, direction, strength, timeframe, indicator, ts "
+                f"FROM signals{where} ORDER BY ts DESC LIMIT ?",
+                params,
             )
-        else:
-            result = self._db.execute(
-                "SELECT symbol, rule, direction, strength, ts FROM signals "
-                "ORDER BY ts DESC LIMIT ?",
-                [limit],
-            )
-        cols = [desc[0] for desc in result.description]
-        return [dict(zip(cols, row)) for row in result.fetchall()]
+            cols = [desc[0] for desc in result.description]
+            rows = result.fetchall()
+        return [dict(zip(cols, row)) for row in rows]
 
     def save_score_snapshot(
         self, symbol: str, ts: datetime, score: float, trend_state: str, regime: str
@@ -313,11 +370,12 @@ class ServerPersistence:
         from datetime import timedelta, timezone
 
         cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-        rows = self._db.execute(
-            "SELECT symbol, ts, score "
-            "FROM score_history WHERE ts >= ? ORDER BY ts",
-            [cutoff],
-        ).fetchall()
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT symbol, ts, score "
+                "FROM score_history WHERE ts >= ? ORDER BY ts",
+                [cutoff],
+            ).fetchall()
         # Group by timestamp → {ts: {symbol: score}}
         by_ts: OrderedDict[str, Dict[str, float]] = OrderedDict()
         for symbol, ts, score in rows:

@@ -1,11 +1,20 @@
 """Tests for /api/screeners and /api/backtest routes (R2 proxy)."""
 
-from unittest.mock import MagicMock
+from collections import deque
+from datetime import datetime, timezone
+from unittest.mock import MagicMock, PropertyMock
+
+import pandas as pd
+import pytest
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from src.server.routes.screeners import _CachedProxy, create_screeners_router
+from src.server.routes.screeners import (
+    _CachedProxy,
+    _compute_signal_data,
+    create_screeners_router,
+)
 
 
 def _make_app(r2_client=None, cache_ttl=300):
@@ -174,3 +183,216 @@ class TestCachedProxy:
         # Second call: R2 fails, returns stale cache
         result2 = proxy.get("key.json")
         assert result2 == {"fresh": True}
+
+
+# ── Helpers for _compute_signal_data tests ────────────
+
+
+def _make_mock_indicator(name: str, warmup: int = 5, is_strategy: bool = False):
+    """Create a mock indicator with calculate() and get_state()."""
+    ind = MagicMock()
+    ind.name = name
+    ind.warmup_periods = warmup
+    ind.default_params = {}
+
+    def calculate(df, params):
+        """Return a DataFrame with one synthetic column."""
+        result = pd.DataFrame(index=df.index)
+        result[f"{name}_value"] = range(len(df))
+        return result
+
+    ind.calculate = MagicMock(side_effect=calculate)
+
+    if is_strategy:
+        def get_state(current, previous, params):
+            """Return a state dict matching the indicator type."""
+            if name == "dual_macd":
+                return {
+                    "slow_histogram": float(current.get(f"{name}_value", 0)),
+                    "fast_histogram": 0.1,
+                    "slow_hist_delta": 0.05,
+                    "fast_hist_delta": 0.02,
+                    "trend_state": "BULLISH",
+                    "tactical_signal": "HOLD",
+                    "momentum_balance": 0.6,
+                    "confidence": 0.8,
+                }
+            elif name == "trend_pulse":
+                return {
+                    "swing_signal": "BUY",
+                    "entry_ok": True,
+                    "macd_bullish": True,
+                    "adx_strong": True,
+                    "score": 85.0,
+                    "confidence": 0.9,
+                }
+            elif name == "regime_detector":
+                return {
+                    "regime": "R0",
+                    "regime_changed": False,
+                    "previous_regime": "R0",
+                    "confidence": 80,
+                    "composite_score": 75.0,
+                }
+            return {"value": float(current.get(f"{name}_value", 0))}
+
+        ind.get_state = MagicMock(side_effect=get_state)
+    else:
+        ind.get_state = MagicMock(return_value={})
+
+    return ind
+
+
+def _make_mock_pipeline(
+    bar_count: int = 60,
+    indicators: list | None = None,
+    persistence=None,
+):
+    """Create a mock pipeline with indicator engine and optional persistence."""
+    pipeline = MagicMock()
+
+    # Generate synthetic bar history
+    bars = deque()
+    base_ts = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    for i in range(bar_count):
+        bars.append({
+            "symbol": "SPY",
+            "timeframe": "1d",
+            "open": 500.0 + i,
+            "high": 502.0 + i,
+            "low": 499.0 + i,
+            "close": 501.0 + i,
+            "volume": 1000000 + i * 1000,
+            "timestamp": base_ts.replace(day=min(i + 1, 28)),
+        })
+
+    engine = MagicMock()
+    engine.get_history = MagicMock(return_value=bars)
+    engine._indicators = indicators or []
+    pipeline._indicator_engine = engine
+    pipeline._persistence = persistence
+    return pipeline
+
+
+# ── _compute_signal_data strategy history tests ────────
+
+
+class TestComputeSignalDataStrategyHistories:
+    def test_signal_data_includes_strategy_histories(self):
+        """_compute_signal_data returns all 3 strategy history arrays."""
+        indicators = [
+            _make_mock_indicator("dual_macd", warmup=5, is_strategy=True),
+            _make_mock_indicator("trend_pulse", warmup=5, is_strategy=True),
+            _make_mock_indicator("regime_detector", warmup=5, is_strategy=True),
+            _make_mock_indicator("rsi", warmup=5, is_strategy=False),
+        ]
+        pipeline = _make_mock_pipeline(bar_count=60, indicators=indicators)
+        result = _compute_signal_data(pipeline, "SPY", "1d")
+
+        assert result is not None
+        assert "dual_macd_history" in result
+        assert "trend_pulse_history" in result
+        assert "regime_flex_history" in result
+        assert len(result["dual_macd_history"]) > 0
+        assert len(result["trend_pulse_history"]) > 0
+        assert len(result["regime_flex_history"]) > 0
+
+    def test_dual_macd_history_shape(self):
+        """DualMACD history rows have expected keys and types."""
+        indicators = [
+            _make_mock_indicator("dual_macd", warmup=5, is_strategy=True),
+        ]
+        pipeline = _make_mock_pipeline(bar_count=60, indicators=indicators)
+        result = _compute_signal_data(pipeline, "SPY", "1d")
+
+        assert result is not None
+        history = result["dual_macd_history"]
+        assert len(history) > 0
+        row = history[0]
+        assert "date" in row
+        assert "slow_histogram" in row
+        assert "trend_state" in row
+        assert isinstance(row["slow_histogram"], float)
+        assert isinstance(row["trend_state"], str)
+
+    def test_regime_flex_history_mapping(self):
+        """Regime history rows use short codes and correct exposure values."""
+        indicators = [
+            _make_mock_indicator("regime_detector", warmup=5, is_strategy=True),
+        ]
+        pipeline = _make_mock_pipeline(bar_count=60, indicators=indicators)
+        result = _compute_signal_data(pipeline, "SPY", "1d")
+
+        assert result is not None
+        history = result["regime_flex_history"]
+        assert len(history) > 0
+        row = history[0]
+        assert "date" in row
+        assert "regime" in row
+        assert "target_exposure" in row
+        assert "signal" in row
+        assert row["regime"] in ("R0", "R1", "R2", "R3")
+        assert row["target_exposure"] in (0.0, 0.25, 0.5, 1.0)
+
+    def test_signal_data_includes_persisted_signals(self):
+        """Persisted signals from DuckDB appear in result."""
+        from src.server.persistence import ServerPersistence
+
+        persistence = ServerPersistence(duckdb_path=":memory:")
+        base = datetime(2026, 3, 1, 14, 0, tzinfo=timezone.utc)
+        for i in range(5):
+            persistence.insert_signal(
+                symbol="SPY",
+                rule=f"rule_{i}",
+                direction="bullish",
+                strength=0.8,
+                timeframe="1d",
+                indicator="rsi",
+                ts=base.replace(minute=i),
+            )
+
+        pipeline = _make_mock_pipeline(bar_count=60, persistence=persistence)
+        result = _compute_signal_data(pipeline, "SPY", "1d")
+
+        assert result is not None
+        assert len(result["signals"]) == 5
+        sig = result["signals"][0]
+        assert "timestamp" in sig
+        assert "rule" in sig
+        assert "direction" in sig
+        assert "indicator" in sig
+        persistence.close()
+
+    def test_history_limited_to_50_rows(self):
+        """Strategy histories are capped at 50 entries (newest first)."""
+        indicators = [
+            _make_mock_indicator("dual_macd", warmup=2, is_strategy=True),
+        ]
+        # 200 bars → ~198 state rows after warmup, but capped to 50
+        pipeline = _make_mock_pipeline(bar_count=200, indicators=indicators)
+        result = _compute_signal_data(pipeline, "SPY", "1d")
+
+        assert result is not None
+        history = result["dual_macd_history"]
+        assert len(history) <= 50
+
+    def test_each_history_row_has_date(self):
+        """Every strategy history row includes a date field."""
+        indicators = [
+            _make_mock_indicator("dual_macd", warmup=5, is_strategy=True),
+            _make_mock_indicator("trend_pulse", warmup=5, is_strategy=True),
+            _make_mock_indicator("regime_detector", warmup=5, is_strategy=True),
+        ]
+        pipeline = _make_mock_pipeline(bar_count=60, indicators=indicators)
+        result = _compute_signal_data(pipeline, "SPY", "1d")
+
+        assert result is not None
+        for key in ("dual_macd_history", "trend_pulse_history", "regime_flex_history"):
+            for row in result[key]:
+                assert "date" in row, f"Missing 'date' in {key} row: {row}"
+
+    def test_too_few_bars_returns_none(self):
+        """Fewer than 10 bars returns None (not enough data)."""
+        pipeline = _make_mock_pipeline(bar_count=5)
+        result = _compute_signal_data(pipeline, "SPY", "1d")
+        assert result is None

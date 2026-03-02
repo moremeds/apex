@@ -3,9 +3,13 @@ import type { QuoteData, OHLCV, SignalData, ProviderStatus, AdvisorMarketContext
 
 const MAX_SIGNALS = 200
 const MAX_BARS_PER_TF = 500
+const MAX_STRATEGY_STATES = 500
 
 /** Indicator values keyed by symbol → timeframe → indicator_name → value */
 type IndicatorMap = Record<string, Record<string, Record<string, number>>>
+
+/** Strategy states keyed by symbol → timeframe → indicator → state[] */
+type StrategyStateMap = Record<string, Record<string, Record<string, Record<string, unknown>[]>>>
 
 interface MarketState {
   quotes: Record<string, QuoteData>
@@ -17,6 +21,7 @@ interface MarketState {
   advisorContext: AdvisorMarketContext | null
   advisorPremium: PremiumAdvice[]
   advisorEquity: EquityAdvice[]
+  strategyStates: StrategyStateMap
 
   updateQuote: (symbol: string, quote: QuoteData) => void
   appendBar: (symbol: string, tf: string, bar: OHLCV) => void
@@ -25,6 +30,7 @@ interface MarketState {
   setProviders: (providers: ProviderStatus[]) => void
   setWsStatus: (status: MarketState["wsStatus"]) => void
   updateAdvisor: (ctx: AdvisorMarketContext, premium: PremiumAdvice[], equity: EquityAdvice[]) => void
+  appendStrategyState: (symbol: string, tf: string, indicator: string, state: Record<string, unknown>) => void
 }
 
 export const useMarketStore = create<MarketState>((set) => ({
@@ -37,6 +43,7 @@ export const useMarketStore = create<MarketState>((set) => ({
   advisorContext: null,
   advisorPremium: [],
   advisorEquity: [],
+  strategyStates: {},
 
   updateQuote: (symbol, quote) =>
     set((state) => ({
@@ -84,4 +91,26 @@ export const useMarketStore = create<MarketState>((set) => ({
   setWsStatus: (wsStatus) => set({ wsStatus }),
 
   updateAdvisor: (ctx, premium, equity) => set({ advisorContext: ctx, advisorPremium: premium, advisorEquity: equity }),
+
+  appendStrategyState: (symbol, tf, indicator, state) =>
+    set((s) => {
+      const symStates = s.strategyStates[symbol] ?? {}
+      const tfStates = symStates[tf] ?? {}
+      const indStates = tfStates[indicator] ?? []
+      const updated = [...indStates, state]
+      return {
+        strategyStates: {
+          ...s.strategyStates,
+          [symbol]: {
+            ...symStates,
+            [tf]: {
+              ...tfStates,
+              [indicator]: updated.length > MAX_STRATEGY_STATES
+                ? updated.slice(-MAX_STRATEGY_STATES)
+                : updated,
+            },
+          },
+        },
+      }
+    }),
 }))

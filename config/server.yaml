@@ -21,5 +21,5 @@ persistence:
   r2_flush_interval_sec: 300
 
 pipeline:
-  timeframes: ["1m", "5m", "1h", "1d"]
+  timeframes: ["30m", "1h", "4h", "1d"]
   indicators: ["rsi", "dual_macd", "supertrend", "bollinger"]

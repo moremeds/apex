@@ -56,6 +56,24 @@ async def _periodic_flush(persistence: ServerPersistence, interval_sec: int) -> 
             logger.exception("Periodic flush failed")
 
 
+def _get_prev_close(engine: Any, symbol: str) -> float | None:
+    """Get previous trading day's close from 1d bar history.
+
+    If the latest 1d bar is today's bar, prev_close is bar[-2].
+    Otherwise the latest bar IS the previous close (weekend/holiday).
+    """
+    bar_deque = engine.get_history(symbol, "1d")
+    if not bar_deque or len(bar_deque) < 2:
+        return None
+    today = date.today()
+    latest = bar_deque[-1]
+    latest_ts = latest.get("timestamp")
+    latest_date = latest_ts.date() if hasattr(latest_ts, "date") else latest_ts
+    if latest_date == today:
+        return bar_deque[-2]["close"]
+    return latest["close"]
+
+
 async def _fill_data_gap(engine: Any, symbols: list[str], tf: str = "1d") -> int:
     """Fill gap between R2-bootstrapped history and today using FMP/Yahoo waterfall.
 
@@ -132,15 +150,15 @@ def _compute_and_persist_summary(
         logger.info("No regime data available for summary computation")
         return None
 
+    today = date.today()
     tickers = []
     for symbol, state in regime_data.items():
         bar_deque = engine.get_history(symbol, "1d")
-        close, daily_change_pct = 0.0, 0.0
-        if bar_deque and len(bar_deque) >= 2:
-            close = bar_deque[-1]["close"]
-            prev = bar_deque[-2]["close"]
-            if prev > 0:
-                daily_change_pct = round(((close - prev) / prev) * 100, 2)
+        close = bar_deque[-1]["close"] if bar_deque else 0.0
+        prev_close = _get_prev_close(engine, symbol) or 0.0
+        daily_change_pct = 0.0
+        if prev_close > 0:
+            daily_change_pct = round(((close - prev_close) / prev_close) * 100, 2)
 
         sector = ""
         if universe:
@@ -166,6 +184,7 @@ def _compute_and_persist_summary(
             {
                 "symbol": symbol,
                 "close": close,
+                "prev_close": prev_close,
                 "daily_change_pct": daily_change_pct,
                 "regime": state.get("regime", "R1"),
                 "regime_name": state.get("regime_name", "Unknown"),
@@ -274,7 +293,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             def on_tick(tick: Any) -> None:
                 pipeline.on_tick(tick)
                 persistence.buffer_tick(tick)
-                coro = hub.broadcast_quote(tick.symbol, _tick_to_dict(tick))
+                tick_dict = _tick_to_dict(tick)
+                pc = _get_prev_close(pipeline._indicator_engine, tick.symbol)
+                if pc is not None:
+                    tick_dict["prev_close"] = pc
+                coro = hub.broadcast_quote(tick.symbol, tick_dict)
                 asyncio.run_coroutine_threadsafe(coro, loop)
 
             qa.set_quote_callback(on_tick)
@@ -316,7 +339,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
         t0 = _time.monotonic()
         warmed = 0
-        warmup_tfs = [tf for tf in config.timeframes if tf in {"1d", "1h", "4h"}]
+        warmup_tfs = config.timeframes  # Bootstrap all configured timeframes (R2 has 30m data)
 
         for tf in warmup_tfs:
             for symbol in all_symbols:
@@ -642,4 +665,11 @@ if __name__ == "__main__":
     import uvicorn
 
     logging.basicConfig(level=logging.INFO)
-    uvicorn.run("src.server.main:app", host="0.0.0.0", port=8080, reload=True)
+    uvicorn.run(
+        "src.server.main:app",
+        host="0.0.0.0",
+        port=8080,
+        reload=True,
+        ws_ping_interval=60,
+        ws_ping_timeout=60,
+    )

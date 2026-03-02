@@ -38,7 +38,7 @@ class ServerConfig:
     r2_flush_interval_sec: int = 300
 
     # Pipeline
-    timeframes: List[str] = field(default_factory=lambda: ["1m", "5m", "1h", "1d"])
+    timeframes: List[str] = field(default_factory=lambda: ["30m", "1h", "4h", "1d"])
     indicators: List[str] = field(
         default_factory=lambda: ["rsi", "dual_macd", "supertrend", "bollinger"]
     )
@@ -72,6 +72,6 @@ def load_server_config(path: str = "config/server.yaml") -> ServerConfig:
         max_symbols=symbols.get("max_total", 100),
         duckdb_path=persistence.get("duckdb_path", "data/server.duckdb"),
         r2_flush_interval_sec=persistence.get("r2_flush_interval_sec", 300),
-        timeframes=pipeline.get("timeframes", ["1m", "5m", "1h", "1d"]),
+        timeframes=pipeline.get("timeframes", ["30m", "1h", "4h", "1d"]),
         indicators=pipeline.get("indicators", []),
     )

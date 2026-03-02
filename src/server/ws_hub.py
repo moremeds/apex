@@ -97,6 +97,23 @@ class WebSocketHub:
         msg = {"type": "indicator", "symbol": symbol, "timeframe": tf, "name": name, "value": value}
         await self._send_to_symbol_subscribers(symbol, msg)
 
+    async def broadcast_strategy_state(
+        self, symbol: str, tf: str, indicator: str, state: dict
+    ) -> None:
+        """Send enriched strategy state to subscribers.
+
+        Frontend expects: {type, symbol, timeframe, indicator, state: {...}}
+        Fired on bar close for strategy indicators (dual_macd, trend_pulse, regime_detector).
+        """
+        msg = {
+            "type": "strategy_state",
+            "symbol": symbol,
+            "timeframe": tf,
+            "indicator": indicator,
+            "state": state,
+        }
+        await self._send_to_symbol_subscribers(symbol, msg)
+
     async def broadcast_status(self, providers: list) -> None:
         """Send provider status to ALL connected clients."""
         msg = {"type": "status", "providers": providers}

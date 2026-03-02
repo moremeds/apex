@@ -14,6 +14,7 @@ export type WsMessage =
   | { type: "signal"; data: SignalData }
   | { type: "status"; providers: ProviderStatus[] }
   | { type: "advisor"; market_context: AdvisorMarketContext; premium: PremiumAdvice[]; equity: EquityAdvice[] }
+  | { type: "strategy_state"; symbol: string; timeframe: string; indicator: string; state: Record<string, unknown> }
 
 export interface QuoteData {
   last: number
@@ -21,6 +22,7 @@ export interface QuoteData {
   ask: number
   volume: number
   ts: string
+  prev_close?: number
 }
 
 export interface OHLCV {

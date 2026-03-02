@@ -96,6 +96,9 @@ function doConnect() {
         case "advisor":
           s.updateAdvisor(msg.market_context, msg.premium ?? [], msg.equity ?? [])
           break
+        case "strategy_state":
+          s.appendStrategyState(msg.symbol, msg.timeframe, msg.indicator, msg.state)
+          break
       }
     } catch {
       // ignore malformed messages

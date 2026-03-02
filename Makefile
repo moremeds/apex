@@ -389,7 +389,7 @@ live:   ## Start full live dashboard (backend :8080 + frontend :5174)
 		cd web && npm install; \
 	fi
 	@trap 'kill 0' EXIT; \
-		PYTHONPATH=. $(PYTHON) -m uvicorn src.server.main:app --port 8080 & \
+		PYTHONPATH=. $(PYTHON) -m uvicorn src.server.main:app --port 8080 --ws-ping-interval 60 --ws-ping-timeout 60 & \
 		echo "Waiting for backend to be ready (up to 45s)..." && \
 		READY=0 && \
 		for i in $$(seq 1 45); do \
@@ -408,11 +408,11 @@ live:   ## Start full live dashboard (backend :8080 + frontend :5174)
 
 server-dev:   ## Start backend only (dev mode, auto-reload, :8080)
 	@echo "$(BOLD)Starting APEX server (dev mode, auto-reload)...$(RESET)"
-	PYTHONPATH=. $(PYTHON) -m uvicorn src.server.main:app --reload --port 8080
+	PYTHONPATH=. $(PYTHON) -m uvicorn src.server.main:app --reload --port 8080 --ws-ping-interval 60 --ws-ping-timeout 60
 
 server:   ## Start backend only (production, :8080)
 	@echo "$(BOLD)Starting APEX server (production)...$(RESET)"
-	PYTHONPATH=. $(PYTHON) -m uvicorn src.server.main:app --port 8080
+	PYTHONPATH=. $(PYTHON) -m uvicorn src.server.main:app --port 8080 --ws-ping-interval 60 --ws-ping-timeout 60
 
 web-install:   ## Install web frontend dependencies
 	@echo "$(BOLD)Installing web frontend dependencies...$(RESET)"

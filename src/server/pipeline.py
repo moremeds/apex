@@ -24,6 +24,28 @@ from src.domain.signals.rule_engine import RuleEngine, RuleRegistry
 
 logger = logging.getLogger(__name__)
 
+# Strategy indicators whose full state dict should be broadcast via WS
+STRATEGY_INDICATORS = {"dual_macd", "trend_pulse", "regime_detector"}
+
+# Regime short-code → target exposure for RegimeFlex mapping
+_REGIME_EXPOSURE = {"R0": 1.0, "R1": 0.5, "R2": 0.0, "R3": 0.25}
+
+
+def _map_regime_to_flex(state: dict) -> dict:
+    """Map regime_detector state → RegimeFlexRow format for frontend."""
+    regime_full = state.get("regime", "R1_CHOPPY_EXTENDED")
+    regime_short = regime_full.split("_")[0] if "_" in str(regime_full) else str(regime_full)
+    signal = "NONE"
+    if state.get("regime_changed"):
+        prev = (state.get("previous_regime") or "").split("_")[0]
+        signal = f"{prev}→{regime_short}"
+    return {
+        "date": state.get("date", ""),
+        "regime": regime_short,
+        "target_exposure": _REGIME_EXPOSURE.get(regime_short, 0.5),
+        "signal": signal,
+    }
+
 
 class ServerPipeline:
     """
@@ -238,6 +260,17 @@ class ServerPipeline:
                 event.symbol, event.timeframe, event.indicator, event.value
             )
         )
+        # For strategy indicators, also broadcast the full state dict
+        if event.indicator in STRATEGY_INDICATORS and event.state:
+            state = dict(event.state)
+            state["date"] = event.timestamp.isoformat() if event.timestamp else ""
+            if event.indicator == "regime_detector":
+                state = _map_regime_to_flex(state)
+            self._schedule_async(
+                self._hub.broadcast_strategy_state(
+                    event.symbol, event.timeframe, event.indicator, state
+                )
+            )
 
     def _on_trading_signal(self, event: TradingSignalEvent) -> None:
         """Forward trading signal to WebSocket hub + buffer for advisor."""
@@ -266,6 +299,21 @@ class ServerPipeline:
             "timestamp": event.timestamp.isoformat() if event.timestamp else None,
         }
         self._schedule_async(self._hub.broadcast_signal(event.symbol, signal_dict))
+
+        # Persist signal to DuckDB
+        if self._persistence and event.timestamp:
+            try:
+                self._persistence.insert_signal(
+                    symbol=event.symbol,
+                    rule=event.trigger_rule if hasattr(event, "trigger_rule") and event.trigger_rule else event.indicator,
+                    direction=ws_direction,
+                    strength=event.strength,
+                    timeframe=event.timeframe if hasattr(event, "timeframe") else "",
+                    indicator=event.indicator,
+                    ts=event.timestamp,
+                )
+            except Exception:
+                logger.debug("Signal persistence failed for %s", event.symbol, exc_info=True)
 
         # Buffer for advisor
         advisor_sig = {

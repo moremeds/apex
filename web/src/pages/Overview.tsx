@@ -90,6 +90,7 @@ function getAlignmentColor(score: number | null): string {
 interface TickerData {
   symbol: string
   close?: number
+  prev_close?: number
   last_close?: number
   daily_change_pct?: number
   trending_score?: number
@@ -186,9 +187,9 @@ export function Overview() {
 
   const getChange = useCallback(
     (sym: string) => {
-      // If we have a live quote, compute change from previous close (last_close)
+      // Prefer live WS prev_close (attached per tick), fall back to REST summary
+      const prevClose = quotes[sym]?.prev_close ?? tickerMap[sym]?.prev_close
       const livePrice = quotes[sym]?.last
-      const prevClose = tickerMap[sym]?.last_close ?? tickerMap[sym]?.close
       if (livePrice && prevClose && prevClose > 0) {
         return Math.round(((livePrice - prevClose) / prevClose) * 100 * 100) / 100
       }
