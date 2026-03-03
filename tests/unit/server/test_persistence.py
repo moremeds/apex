@@ -268,14 +268,23 @@ class TestConcurrentAccess:
             for i in range(n):
                 try:
                     store.insert_bar(
-                        sym, "1d", 100 + i, 101 + i, 99 + i, 100.5 + i,
+                        sym,
+                        "1d",
+                        100 + i,
+                        101 + i,
+                        99 + i,
+                        100.5 + i,
                         1000 * (i + 1),
                         datetime(2026, 1, 1 + (i % 28), tzinfo=timezone.utc),
                     )
                     store.insert_signal(
-                        sym, "rsi", "bullish", 0.5 + i * 0.01,
+                        sym,
+                        "rsi",
+                        "bullish",
+                        0.5 + i * 0.01,
                         datetime(2026, 1, 1 + (i % 28), 14, i % 60, tzinfo=timezone.utc),
-                        timeframe="1d", indicator="rsi",
+                        timeframe="1d",
+                        indicator="rsi",
                     )
                 except Exception as exc:
                     errors.append(exc)
@@ -308,11 +317,15 @@ class TestConcurrentAccess:
         def buffer_ticks(n: int) -> None:
             for i in range(n):
                 try:
-                    store.buffer_tick(QuoteTick(
-                        symbol="AAPL", last=180 + i * 0.01, volume=100,
-                        source="test",
-                        timestamp=datetime(2026, 1, 1, 10, 0, i % 60, tzinfo=timezone.utc),
-                    ))
+                    store.buffer_tick(
+                        QuoteTick(
+                            symbol="AAPL",
+                            last=180 + i * 0.01,
+                            volume=100,
+                            source="test",
+                            timestamp=datetime(2026, 1, 1, 10, 0, i % 60, tzinfo=timezone.utc),
+                        )
+                    )
                 except Exception as exc:
                     errors.append(exc)
 

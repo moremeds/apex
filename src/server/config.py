@@ -67,7 +67,7 @@ def load_server_config(path: str = "config/server.yaml") -> ServerConfig:
     }
 
     return ServerConfig(
-        host=server.get("host", "0.0.0.0"),
+        host=server.get("host", "0.0.0.0"),  # nosec B104 — intentional server bind
         port=server.get("port", 8080),
         providers=providers,
         universe_path=symbols.get("universe_path", "config/universe.yaml"),

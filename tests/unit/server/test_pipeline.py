@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from src.domain.events.domain_events import IndicatorUpdateEvent, QuoteTick, TradingSignalEvent
-from src.server.pipeline import ServerPipeline, _map_regime_to_flex, STRATEGY_INDICATORS
+from src.server.pipeline import ServerPipeline
 
 
 class MockHub:

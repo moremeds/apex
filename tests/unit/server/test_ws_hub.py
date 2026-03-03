@@ -63,7 +63,8 @@ async def test_broadcast_signal():
     await hub.handle_command(ws, {"cmd": "subscribe", "symbols": ["AAPL"], "types": ["quote"]})
 
     await hub.broadcast_signal(
-        "AAPL", {"rule": "rsi_oversold", "direction": "bullish", "strength": 0.8, "timestamp": "123"}
+        "AAPL",
+        {"rule": "rsi_oversold", "direction": "bullish", "strength": 0.8, "timestamp": "123"},
     )
     assert len(ws.sent) == 1
     assert ws.sent[0]["type"] == "signal"

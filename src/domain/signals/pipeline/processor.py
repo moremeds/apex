@@ -234,9 +234,7 @@ class SignalPipelineProcessor:
         print(f"Persistence: {'enabled' if self.config.with_persistence else 'disabled'}")
         print("=" * 60)
 
-    async def _create_historical_manager(
-        self, ib_adapter: Any = None
-    ) -> "HistoricalDataManager":
+    async def _create_historical_manager(self, ib_adapter: Any = None) -> "HistoricalDataManager":
         """Create and configure historical data manager with config-driven source priority.
 
         Args:

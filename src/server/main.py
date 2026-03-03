@@ -21,11 +21,11 @@ from src.server.config import load_server_config
 from src.server.persistence import ServerPersistence
 from src.server.pipeline import ServerPipeline
 from src.server.routes.advisor import create_advisor_router
+from src.server.routes.jobs import create_jobs_router
 from src.server.routes.monitor import create_monitor_router
 from src.server.routes.portfolio import create_portfolio_router
 from src.server.routes.screeners import _CachedProxy, create_screeners_router
 from src.server.routes.symbols import create_symbols_router
-from src.server.routes.jobs import create_jobs_router
 from src.server.routes.ws import create_ws_router
 from src.server.ws_hub import WebSocketHub
 
@@ -151,7 +151,6 @@ def _compute_and_persist_summary(
         logger.info("No regime data available for summary computation")
         return None
 
-    today = date.today()
     tickers = []
     for symbol, state in regime_data.items():
         bar_deque = engine.get_history(symbol, "1d")
@@ -330,7 +329,7 @@ def _wire_portfolio_events(container: Any, hub: WebSocketHub, pipeline: Any) -> 
             ask=event.ask,
             volume=None,
             source=getattr(event, "source", "ib"),
-            timestamp=getattr(event, "timestamp", None),
+            timestamp=getattr(event, "timestamp", None) or datetime.now(timezone.utc),
         )
         pipeline.on_tick(tick)
 
@@ -817,7 +816,7 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     uvicorn.run(
         "src.server.main:app",
-        host="0.0.0.0",
+        host="0.0.0.0",  # nosec B104 — intentional server bind
         port=8080,
         reload=True,
         ws_ping_interval=60,

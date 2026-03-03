@@ -125,9 +125,7 @@ class ServerPersistence:
                 ).fetchall()
             }
             if "prev_close" not in cols:
-                self._db.execute(
-                    "ALTER TABLE summary ADD COLUMN prev_close DOUBLE DEFAULT 0"
-                )
+                self._db.execute("ALTER TABLE summary ADD COLUMN prev_close DOUBLE DEFAULT 0")
         except Exception:
             logger.debug("Summary prev_close migration skipped", exc_info=True)
 
@@ -342,7 +340,7 @@ class ServerPersistence:
         params.append(limit)
         with self._lock:
             result = self._db.execute(
-                f"SELECT symbol, rule, direction, strength, timeframe, indicator, ts "
+                f"SELECT symbol, rule, direction, strength, timeframe, indicator, ts "  # nosec B608 — where clause is built from validated params, not user input
                 f"FROM signals{where} ORDER BY ts DESC LIMIT ?",
                 params,
             )
@@ -372,8 +370,7 @@ class ServerPersistence:
         cutoff = datetime.now(timezone.utc) - timedelta(days=days)
         with self._lock:
             rows = self._db.execute(
-                "SELECT symbol, ts, score "
-                "FROM score_history WHERE ts >= ? ORDER BY ts",
+                "SELECT symbol, ts, score " "FROM score_history WHERE ts >= ? ORDER BY ts",
                 [cutoff],
             ).fetchall()
         # Group by timestamp → {ts: {symbol: score}}

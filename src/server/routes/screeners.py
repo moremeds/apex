@@ -145,9 +145,7 @@ def create_screeners_router(
         if data is None:
             pipeline_obj = getattr(request.app.state, "pipeline", None)
             if pipeline_obj:
-                data = await asyncio.to_thread(
-                    _compute_signal_data, pipeline_obj, symbol, tf
-                )
+                data = await asyncio.to_thread(_compute_signal_data, pipeline_obj, symbol, tf)
                 if data:
                     proxy.set_cache(key, data)
 
@@ -192,7 +190,8 @@ def create_screeners_router(
 
                 if last_ts is not None:
                     new_bars = [
-                        b for b in bar_deque
+                        b
+                        for b in bar_deque
                         if b.get("timestamp") is not None and b["timestamp"] > last_ts
                     ]
                     for bar in new_bars:
@@ -206,7 +205,15 @@ def create_screeners_router(
                         chart_data["close"].append(bar["close"])
                         chart_data["volume"].append(bar["volume"])
                         # Append null for all indicator sub-arrays
-                        for section_key in ("overlays", "rsi", "macd", "oscillators", "volume_ind", "dual_macd", "price_levels"):
+                        for section_key in (
+                            "overlays",
+                            "rsi",
+                            "macd",
+                            "oscillators",
+                            "volume_ind",
+                            "dual_macd",
+                            "price_levels",
+                        ):
                             section = chart_data.get(section_key, {})
                             if isinstance(section, dict):
                                 for _ind_name, ind_data in section.items():
@@ -405,6 +412,7 @@ def _format_ts(ts: Any) -> str:
 def _compute_signal_data(pipeline: Any, symbol: str, tf: str) -> dict | None:
     """Compute signal chart data from indicator engine bars + all indicators."""
     import pandas as pd
+
     from src.server.pipeline import STRATEGY_INDICATORS, _map_regime_to_flex
 
     engine = pipeline._indicator_engine
@@ -508,9 +516,7 @@ def _compute_signal_data(pipeline: Any, symbol: str, tf: str) -> dict | None:
     }
 
 
-def _compute_signal_data_from_bars(
-    bars: list[dict], symbol: str, tf: str
-) -> dict | None:
+def _compute_signal_data_from_bars(bars: list[dict], symbol: str, tf: str) -> dict | None:
     """Compute signal data from DuckDB bar rows (fallback when engine empty)."""
     if not bars or len(bars) < 10:
         return None
@@ -540,9 +546,7 @@ def _compute_signal_data_from_bars(
     }
 
 
-def _place_indicator_in_chart(
-    chart_data: dict, ind_name: str, full_key: str, values: list
-) -> None:
+def _place_indicator_in_chart(chart_data: dict, ind_name: str, full_key: str, values: list) -> None:
     """Route indicator values to the right chart section."""
     if ind_name in ("ema", "sma", "bollinger", "supertrend", "ichimoku", "keltner"):
         chart_data["overlays"][full_key] = values
@@ -572,9 +576,21 @@ def _build_indicators_metadata(pipeline: Any) -> dict | None:
 
     _OVERLAY = {"ema", "sma", "bollinger", "supertrend", "ichimoku", "keltner", "vwap"}
     _OSCILLATOR = {
-        "rsi", "macd", "dual_macd", "stochastic", "cci", "williams_r",
-        "awesome", "rsi_harmonics", "kdj", "momentum", "roc", "aroon",
-        "trix", "vortex", "zerolag",
+        "rsi",
+        "macd",
+        "dual_macd",
+        "stochastic",
+        "cci",
+        "williams_r",
+        "awesome",
+        "rsi_harmonics",
+        "kdj",
+        "momentum",
+        "roc",
+        "aroon",
+        "trix",
+        "vortex",
+        "zerolag",
     }
     _VOLUME = {"obv", "mfi", "cmf", "cvd", "ad", "volume_ratio"}
     _TREND = {"adx", "regime_detector"}
@@ -605,13 +621,15 @@ def _build_indicators_metadata(pipeline: Any) -> dict | None:
 
         if cat not in categories_map:
             categories_map[cat] = []
-        categories_map[cat].append({
-            "name": name,
-            "description": f"{name} indicator",
-            "params": {k: v for k, v in params.items() if not k.startswith("_")},
-            "warmup_periods": warmup,
-            "rules": [],
-        })
+        categories_map[cat].append(
+            {
+                "name": name,
+                "description": f"{name} indicator",
+                "params": {k: v for k, v in params.items() if not k.startswith("_")},
+                "warmup_periods": warmup,
+                "rules": [],
+            }
+        )
 
     category_order = ["Overlay", "Oscillator", "Volume", "Trend", "Volatility", "Pattern", "Other"]
     categories = [

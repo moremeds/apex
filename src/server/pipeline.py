@@ -15,12 +15,12 @@ from src.domain.events.domain_events import (
     QuoteTick,
     TradingSignalEvent,
 )
-from src.server.routes.advisor import _serialize as _serialize_advice
 from src.domain.events.event_types import EventType
 from src.domain.events.priority_event_bus import PriorityEventBus
 from src.domain.signals.data.bar_aggregator import BarAggregator
 from src.domain.signals.indicator_engine import IndicatorEngine
 from src.domain.signals.rule_engine import RuleEngine, RuleRegistry
+from src.server.routes.advisor import _serialize as _serialize_advice
 
 logger = logging.getLogger(__name__)
 
@@ -305,7 +305,11 @@ class ServerPipeline:
             try:
                 self._persistence.insert_signal(
                     symbol=event.symbol,
-                    rule=event.trigger_rule if hasattr(event, "trigger_rule") and event.trigger_rule else event.indicator,
+                    rule=(
+                        event.trigger_rule
+                        if hasattr(event, "trigger_rule") and event.trigger_rule
+                        else event.indicator
+                    ),
                     direction=ws_direction,
                     strength=event.strength,
                     timeframe=event.timeframe if hasattr(event, "timeframe") else "",

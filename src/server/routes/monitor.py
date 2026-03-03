@@ -100,13 +100,19 @@ def create_monitor_router(
             item: dict = {"key": key, "label": label, "last_modified": None, "status": "unknown"}
             if r2 is not None:
                 try:
-                    lm = await asyncio.to_thread(
-                        lambda k=key: r2.get_last_modified(k) if hasattr(r2, "get_last_modified") else None
-                    )
+
+                    def _get_lm(k: str = key) -> object:
+                        return r2.get_last_modified(k) if hasattr(r2, "get_last_modified") else None
+
+                    lm = await asyncio.to_thread(_get_lm)
                     if lm:
-                        item["last_modified"] = lm.isoformat() if hasattr(lm, "isoformat") else str(lm)
+                        item["last_modified"] = (
+                            lm.isoformat() if hasattr(lm, "isoformat") else str(lm)
+                        )
                         # Check staleness: > 48h = stale, > 7d = critical
-                        age = (datetime.now(timezone.utc) - lm).total_seconds() if hasattr(lm, "tzinfo") and lm.tzinfo else None
+                        age = None
+                        if isinstance(lm, datetime) and lm.tzinfo:
+                            age = (datetime.now(timezone.utc) - lm).total_seconds()
                         if age is not None:
                             if age < 48 * 3600:
                                 item["status"] = "fresh"

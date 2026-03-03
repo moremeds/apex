@@ -6,8 +6,7 @@ Handles model training for turning point prediction.
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Any, List, Optional
 
 from src.utils.logging_setup import get_logger
 
@@ -154,7 +153,7 @@ class TurningPointTrainer:
         print(f"  Eval only:       {effective_eval_only}")
         print(f"  Dry run:         {self.config.dry_run}")
         print(f"  Code signature:  {self.config.training_code_signature}")
-        print(f"  Output dir:      {model_dir}")
+        print(f"  Output dir:      (default)")
         print()
 
         try:

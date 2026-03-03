@@ -110,9 +110,16 @@ class PEADConfig:
         return cls.from_dict(raw)
 
     _VALID_SECTIONS = {
-        "filters", "trade_params", "regime_rules", "liquidity_tiers",
-        "quality_thresholds", "multi_quarter_sue", "attention_filter",
-        "version", "description", "data_source",  # metadata fields
+        "filters",
+        "trade_params",
+        "regime_rules",
+        "liquidity_tiers",
+        "quality_thresholds",
+        "multi_quarter_sue",
+        "attention_filter",
+        "version",
+        "description",
+        "data_source",  # metadata fields
     }
 
     @classmethod
@@ -149,8 +156,7 @@ def _build_dataclass(cls: type, data: dict[str, Any]) -> Any:
     unknown = set((data or {}).keys()) - field_names
     if unknown:
         raise ValueError(
-            f"{cls.__name__}: unknown config keys {unknown}. "
-            f"Valid keys: {sorted(field_names)}"
+            f"{cls.__name__}: unknown config keys {unknown}. " f"Valid keys: {sorted(field_names)}"
         )
     filtered = {k: v for k, v in (data or {}).items() if k in field_names}
     return cls(**filtered)

@@ -72,8 +72,14 @@ def create_symbols_router(
                 try:
                     now = datetime.now(timezone.utc)
                     tf_minutes = {
-                        "1m": 1, "5m": 5, "15m": 15, "30m": 30,
-                        "1h": 60, "4h": 240, "1d": 1440, "1w": 10080,
+                        "1m": 1,
+                        "5m": 5,
+                        "15m": 15,
+                        "30m": 30,
+                        "1h": 60,
+                        "4h": 240,
+                        "1d": 1440,
+                        "1w": 10080,
                     }
                     minutes_back = tf_minutes.get(tf, 1440) * bars * 1.5
                     start = now - timedelta(minutes=minutes_back)
@@ -81,13 +87,24 @@ def create_symbols_router(
                     result_bars = [
                         {
                             "t": b.timestamp.isoformat() if b.timestamp else None,
-                            "o": b.open, "h": b.high, "l": b.low, "c": b.close, "v": b.volume,
+                            "o": b.open,
+                            "h": b.high,
+                            "l": b.low,
+                            "c": b.close,
+                            "v": b.volume,
                         }
                         for b in bar_data_list[-bars:]
                     ]
-                    return {"symbol": symbol, "timeframe": tf, "bars": result_bars, "count": len(result_bars)}
+                    return {
+                        "symbol": symbol,
+                        "timeframe": tf,
+                        "bars": result_bars,
+                        "count": len(result_bars),
+                    }
                 except Exception as e:
-                    logger.warning("Longbridge history failed for %s/%s: %s, trying fallbacks", symbol, tf, e)
+                    logger.warning(
+                        "Longbridge history failed for %s/%s: %s, trying fallbacks", symbol, tf, e
+                    )
 
         # 2. Fallback: indicator engine bars (bootstrapped from R2)
         pipeline = getattr(request.app.state, "pipeline", None)
@@ -97,12 +114,25 @@ def create_symbols_router(
             if bar_deque and len(bar_deque) > 0:
                 result_bars = [
                     {
-                        "t": b["timestamp"].isoformat() if hasattr(b["timestamp"], "isoformat") else str(b["timestamp"]),
-                        "o": b["open"], "h": b["high"], "l": b["low"], "c": b["close"], "v": b["volume"],
+                        "t": (
+                            b["timestamp"].isoformat()
+                            if hasattr(b["timestamp"], "isoformat")
+                            else str(b["timestamp"])
+                        ),
+                        "o": b["open"],
+                        "h": b["high"],
+                        "l": b["low"],
+                        "c": b["close"],
+                        "v": b["volume"],
                     }
                     for b in bar_deque[-bars:]
                 ]
-                return {"symbol": symbol, "timeframe": tf, "bars": result_bars, "count": len(result_bars)}
+                return {
+                    "symbol": symbol,
+                    "timeframe": tf,
+                    "bars": result_bars,
+                    "count": len(result_bars),
+                }
 
         # 3. Fallback: DuckDB bars
         persistence = getattr(request.app.state, "persistence", None)
@@ -111,12 +141,25 @@ def create_symbols_router(
             if db_bars:
                 result_bars = [
                     {
-                        "t": b["ts"].isoformat() if hasattr(b.get("ts"), "isoformat") else str(b.get("ts", "")),
-                        "o": b["o"], "h": b["h"], "l": b["l"], "c": b["c"], "v": b["v"],
+                        "t": (
+                            b["ts"].isoformat()
+                            if hasattr(b.get("ts"), "isoformat")
+                            else str(b.get("ts", ""))
+                        ),
+                        "o": b["o"],
+                        "h": b["h"],
+                        "l": b["l"],
+                        "c": b["c"],
+                        "v": b["v"],
                     }
                     for b in db_bars
                 ]
-                return {"symbol": symbol, "timeframe": tf, "bars": result_bars, "count": len(result_bars)}
+                return {
+                    "symbol": symbol,
+                    "timeframe": tf,
+                    "bars": result_bars,
+                    "count": len(result_bars),
+                }
 
         if unsupported_tf:
             raise HTTPException(

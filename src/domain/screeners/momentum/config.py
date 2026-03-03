@@ -123,9 +123,16 @@ class MomentumConfig:
         return cls.from_dict(raw)
 
     _VALID_SECTIONS = {
-        "universe", "data_source", "filters", "scoring",
-        "regime_rules", "liquidity_tiers", "quality_thresholds", "backtest",
-        "version", "description",  # metadata fields
+        "universe",
+        "data_source",
+        "filters",
+        "scoring",
+        "regime_rules",
+        "liquidity_tiers",
+        "quality_thresholds",
+        "backtest",
+        "version",
+        "description",  # metadata fields
     }
 
     @classmethod
@@ -172,8 +179,7 @@ def _build_dataclass(cls: type, data: dict[str, Any]) -> Any:
     unknown = set((data or {}).keys()) - field_names
     if unknown:
         raise ValueError(
-            f"{cls.__name__}: unknown config keys {unknown}. "
-            f"Valid keys: {sorted(field_names)}"
+            f"{cls.__name__}: unknown config keys {unknown}. " f"Valid keys: {sorted(field_names)}"
         )
     filtered = {k: v for k, v in (data or {}).items() if k in field_names}
     return cls(**filtered)

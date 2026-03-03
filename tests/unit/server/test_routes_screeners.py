@@ -2,11 +2,9 @@
 
 from collections import deque
 from datetime import datetime, timezone
-from unittest.mock import MagicMock, PropertyMock
+from unittest.mock import MagicMock
 
 import pandas as pd
-import pytest
-
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -75,9 +73,10 @@ class TestCacheInjectionServesData:
         app.include_router(create_screeners_router(proxy=proxy))
 
         # Inject momentum data (simulating job completion callback)
-        proxy.merge_cache("screeners.json", {
-            "momentum": {"candidates": [{"symbol": "AAPL"}], "universe_size": 100}
-        })
+        proxy.merge_cache(
+            "screeners.json",
+            {"momentum": {"candidates": [{"symbol": "AAPL"}], "universe_size": 100}},
+        )
 
         client = TestClient(app)
         resp = client.get("/api/screeners")
@@ -93,14 +92,10 @@ class TestCacheInjectionServesData:
         app.include_router(create_screeners_router(proxy=proxy))
 
         # Pre-populate with pead data
-        proxy.set_cache("screeners.json", {
-            "pead": {"candidates": [{"symbol": "NVDA"}]}
-        })
+        proxy.set_cache("screeners.json", {"pead": {"candidates": [{"symbol": "NVDA"}]}})
 
         # Inject momentum — pead should survive
-        proxy.merge_cache("screeners.json", {
-            "momentum": {"candidates": [{"symbol": "AAPL"}]}
-        })
+        proxy.merge_cache("screeners.json", {"momentum": {"candidates": [{"symbol": "AAPL"}]}})
 
         client = TestClient(app)
         resp = client.get("/api/screeners")
@@ -204,6 +199,7 @@ def _make_mock_indicator(name: str, warmup: int = 5, is_strategy: bool = False):
     ind.calculate = MagicMock(side_effect=calculate)
 
     if is_strategy:
+
         def get_state(current, previous, params):
             """Return a state dict matching the indicator type."""
             if name == "dual_macd":
@@ -255,16 +251,18 @@ def _make_mock_pipeline(
     bars = deque()
     base_ts = datetime(2026, 1, 1, tzinfo=timezone.utc)
     for i in range(bar_count):
-        bars.append({
-            "symbol": "SPY",
-            "timeframe": "1d",
-            "open": 500.0 + i,
-            "high": 502.0 + i,
-            "low": 499.0 + i,
-            "close": 501.0 + i,
-            "volume": 1000000 + i * 1000,
-            "timestamp": base_ts.replace(day=min(i + 1, 28)),
-        })
+        bars.append(
+            {
+                "symbol": "SPY",
+                "timeframe": "1d",
+                "open": 500.0 + i,
+                "high": 502.0 + i,
+                "low": 499.0 + i,
+                "close": 501.0 + i,
+                "volume": 1000000 + i * 1000,
+                "timestamp": base_ts.replace(day=min(i + 1, 28)),
+            }
+        )
 
     engine = MagicMock()
     engine.get_history = MagicMock(return_value=bars)

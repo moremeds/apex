@@ -87,12 +87,14 @@ def serialize_snapshot(
     broker_status: List[Dict[str, Any]] = []
     if broker_manager is not None:
         for name, adapter in broker_manager._adapters.items():
-            broker_status.append({
-                "name": name,
-                "connected": adapter.is_connected(),
-                "position_count": 0,
-                "last_error": None,
-            })
+            broker_status.append(
+                {
+                    "name": name,
+                    "connected": adapter.is_connected(),
+                    "position_count": 0,
+                    "last_error": None,
+                }
+            )
 
     pnl = {
         "unrealized": snapshot.total_unrealized_pnl if snapshot else 0.0,
@@ -184,11 +186,13 @@ def create_portfolio_router(container: Any = None) -> APIRouter:
 
         brokers: List[Dict[str, Any]] = []
         for name, adapter in c.broker_manager._adapters.items():
-            brokers.append({
-                "name": name,
-                "connected": adapter.is_connected(),
-                "last_error": None,
-            })
+            brokers.append(
+                {
+                    "name": name,
+                    "connected": adapter.is_connected(),
+                    "last_error": None,
+                }
+            )
 
         return {"brokers": brokers, "portfolio_enabled": True}
 

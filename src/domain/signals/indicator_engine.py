@@ -200,9 +200,7 @@ class IndicatorEngine:
             result[key] = state
         return result
 
-    def get_history(
-        self, symbol: str, timeframe: str
-    ) -> list[dict[str, Any]] | None:
+    def get_history(self, symbol: str, timeframe: str) -> list[dict[str, Any]] | None:
         """Thread-safe access to bar history for a symbol/timeframe.
 
         Returns a snapshot (list copy) of the deque, or None if no history.

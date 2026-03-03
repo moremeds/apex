@@ -85,7 +85,11 @@ class LongbridgeTradeAdapter:
         for bal in balances:
             # Sum across currencies, preferring USD
             total_cash += float(bal.total_cash)
-            available_cash += float(bal.max_finance_amount) if hasattr(bal, "max_finance_amount") else float(bal.total_cash)
+            available_cash += (
+                float(bal.max_finance_amount)
+                if hasattr(bal, "max_finance_amount")
+                else float(bal.total_cash)
+            )
             if account_id is None and hasattr(bal, "currency"):
                 account_id = str(getattr(bal, "account_id", "longbridge"))
 
