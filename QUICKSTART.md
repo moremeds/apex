@@ -49,13 +49,13 @@ ibkr:
 
 ```bash
 # Development mode
-python orchestrator.py --env dev
+python main.py --env dev
 
 # Production mode
-python orchestrator.py --env prod
+python main.py --env prod
 
 # Headless mode (no dashboard)
-python orchestrator.py --no-dashboard
+python main.py --no-dashboard
 ```
 
 ## 🧪 Testing
@@ -178,7 +178,7 @@ If imports fail, make sure you're using the venv Python:
 source .venv/bin/activate
 
 # Or use venv Python directly
-.venv/bin/python orchestrator.py
+.venv/bin/python main.py
 ```
 
 ### IBKR Connection Issues

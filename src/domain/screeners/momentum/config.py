@@ -122,9 +122,28 @@ class MomentumConfig:
             raw = yaml.safe_load(f) or {}
         return cls.from_dict(raw)
 
+    _VALID_SECTIONS = {
+        "universe",
+        "data_source",
+        "filters",
+        "scoring",
+        "regime_rules",
+        "liquidity_tiers",
+        "quality_thresholds",
+        "backtest",
+        "version",
+        "description",  # metadata fields
+    }
+
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> MomentumConfig:
         """Build typed config from raw dict, using defaults for missing keys."""
+        unknown_sections = set(raw.keys()) - cls._VALID_SECTIONS
+        if unknown_sections:
+            raise ValueError(
+                f"MomentumConfig: unknown top-level sections {unknown_sections}. "
+                f"Valid sections: {sorted(cls._VALID_SECTIONS)}"
+            )
         universe_raw = raw.get("universe", {})
         rp = universe_raw.get("russell_proxy", {})
         universe = _build_dataclass(
@@ -155,7 +174,12 @@ class MomentumConfig:
 
 
 def _build_dataclass(cls: type, data: dict[str, Any]) -> Any:
-    """Build a dataclass from dict, ignoring unknown keys."""
+    """Build a dataclass from dict, rejecting unknown keys."""
     field_names = {f.name for f in dataclasses.fields(cls)}
+    unknown = set((data or {}).keys()) - field_names
+    if unknown:
+        raise ValueError(
+            f"{cls.__name__}: unknown config keys {unknown}. " f"Valid keys: {sorted(field_names)}"
+        )
     filtered = {k: v for k, v in (data or {}).items() if k in field_names}
     return cls(**filtered)

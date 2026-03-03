@@ -1,9 +1,0 @@
-# Cloudflare Pages configuration
-#
-# Used by `wrangler pages deploy` in CI.
-# The [build] command is NOT used in CI — GH Actions builds the SPA via
-# DashboardBuilder, then deploys the output directory.
-
-name = "apex"
-compatibility_date = "2025-02-19"
-pages_build_output_dir = "out/site"

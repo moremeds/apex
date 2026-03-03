@@ -146,7 +146,9 @@ class IndicatorStore:
         """
         # Hash params for consistent key regardless of dict ordering
         params_str = str(sorted(params.items()))
-        params_hash = hashlib.md5(params_str.encode()).hexdigest()[:8]
+        params_hash = hashlib.md5(params_str.encode(), usedforsecurity=False).hexdigest()[
+            :8
+        ]  # nosec B324
 
         return f"{symbol}:{indicator}:{timeframe}:{as_of_date.isoformat()}:{params_hash}"
 

@@ -152,11 +152,11 @@ jobs:
         run: uv pip install --system bandit safety
 
       - name: Run bandit security linter
-        run: bandit -r src/ -ll -ii --exit-zero
+        run: bandit -r src/ -ll -ii
 
       - name: Check dependencies for vulnerabilities
-        continue-on-error: false  # Best-effort until safety is properly configured
-        run: safety check --full-report || true
+        continue-on-error: true  # Best-effort — safety requires paid API key for full accuracy
+        run: safety check --full-report
 
   verify:
     name: Signal & Regime Verification
@@ -199,7 +199,7 @@ jobs:
   unit-tests:
     name: Unit Tests
     runs-on: ubuntu-latest
-    needs: [verify]  # type-check and security are best-effort
+    needs: [lint, verify, security]
     continue-on-error: false  # Pre-existing test failures - fix incrementally
     steps:
       - uses: actions/checkout@v6

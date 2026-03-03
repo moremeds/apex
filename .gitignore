@@ -103,9 +103,7 @@ coverage.xml
 *.tmp
 *.temp
 /scripts/fonts/
-/AGENTS.md
 /GEMINI.md
-/docs/
 /results/
 /.claude/
 /data/equity.csv
@@ -125,3 +123,4 @@ coverage.xml
 /landing_page.png
 /package-lock.json
 .worktrees/
+/docs/

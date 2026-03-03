@@ -119,7 +119,7 @@ class BarValidationReport:
     how many bars were requested, loaded, trimmed, and validated.
 
     Usage:
-        $ python -m src.runners.signal_runner --symbols AAPL --validate-bars
+        $ python -m src.domain.signals.pipeline --symbols AAPL --validate-bars
 
         BarValidationReport:
           requested_bars: 550  (calendar days)

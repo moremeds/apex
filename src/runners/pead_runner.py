@@ -6,8 +6,8 @@ flags to skip individual steps.
 
 Usage:
     python -m src.runners.pead_runner --update-earnings --universe config/universe.yaml
-    python -m src.runners.pead_runner --screen --html-output out/signals/pead.html
-    python -m src.runners.pead_runner --full --universe config/universe.yaml --html-output out/pead/pead.html
+    python -m src.runners.pead_runner --screen
+    python -m src.runners.pead_runner --full --universe config/universe.yaml
     python -m src.runners.pead_runner --screen --no-attention --no-track
 """
 
@@ -66,7 +66,7 @@ def _read_current_regime(signals_dir: Path, fallback: str = _REGIME_FALLBACK) ->
         logger.warning(
             f"No summary.json at {summary_path}. "
             f"Defaulting to {fallback} (fail-closed). "
-            "Ensure hourly-signals runs before PEAD, or fetch from gh-pages."
+            "Ensure R2 pipeline has run to populate summary data."
         )
         return fallback
 
@@ -153,7 +153,6 @@ def cmd_update_earnings(symbols: list[str], lookback_days: int = 10) -> None:
 
 
 def cmd_screen(
-    html_output: str | None = None,
     signals_dir: str | None = None,
     regime_fallback: str = _REGIME_FALLBACK,
 ) -> Any:
@@ -230,16 +229,8 @@ def cmd_screen(
         print(f"0 PEAD candidates. ({result.screened_count} screened, regime: {regime})")
 
     # Write JSON
-    output_dir = Path(html_output).parent if html_output else PROJECT_ROOT / "out" / "pead"
+    output_dir = PROJECT_ROOT / "out" / "pead"
     _write_candidates_json(result, output_dir)
-
-    # Write HTML if requested
-    if html_output:
-        from src.infrastructure.reporting.pead.builder import PEADReportBuilder
-
-        builder = PEADReportBuilder()
-        html_path = builder.build(result, html_output)
-        logger.info(f"PEAD HTML report: {html_path}")
 
     return result
 
@@ -350,7 +341,6 @@ def main() -> None:
         "--universe", type=str, default="config/universe.yaml", help="Universe YAML path"
     )
     parser.add_argument("--lookback-days", type=int, default=10, help="Calendar days to look back")
-    parser.add_argument("--html-output", type=str, default=None, help="Output HTML path")
     parser.add_argument("--signals-dir", type=str, default=None, help="Signal pipeline output dir")
     parser.add_argument(
         "--regime-fallback",
@@ -402,7 +392,6 @@ def main() -> None:
     result = None
     if args.screen or args.full:
         result = cmd_screen(
-            html_output=args.html_output,
             signals_dir=args.signals_dir,
             regime_fallback=args.regime_fallback,
         )

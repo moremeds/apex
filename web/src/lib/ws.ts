@@ -14,6 +14,10 @@ export type WsMessage =
   | { type: "signal"; data: SignalData }
   | { type: "status"; providers: ProviderStatus[] }
   | { type: "advisor"; market_context: AdvisorMarketContext; premium: PremiumAdvice[]; equity: EquityAdvice[] }
+  | { type: "strategy_state"; symbol: string; timeframe: string; indicator: string; state: Record<string, unknown> }
+  | { type: "portfolio"; positions: PositionData[]; account: AccountData | null; greeks: PortfolioGreeks; pnl: PortfolioPnl; broker_status: BrokerStatusData[]; position_count: number; timestamp: string | null }
+  | { type: "position_delta"; symbol: string; underlying: string; new_mark_price: number; pnl_change: number; daily_pnl_change: number; delta_change: number; gamma_change: number; vega_change: number; theta_change: number }
+  | { type: "account_update"; account_id: string; net_liquidation: number; total_cash: number; buying_power: number; margin_used: number; margin_available: number; unrealized_pnl: number; realized_pnl: number; daily_pnl: number }
 
 export interface QuoteData {
   last: number
@@ -21,6 +25,7 @@ export interface QuoteData {
   ask: number
   volume: number
   ts: string
+  prev_close?: number
 }
 
 export interface OHLCV {
@@ -94,4 +99,71 @@ export interface EquityAdvice {
   trend_pulse: Record<string, unknown> | null
   key_levels: Record<string, number>
   reasoning: string[]
+}
+
+// ── Portfolio types ──────────────────────────────────────
+
+export interface PositionData {
+  symbol: string
+  underlying: string
+  asset_type: string
+  quantity: number
+  avg_price: number
+  multiplier: number
+  mark_price: number | null
+  market_value: number | null
+  unrealized_pnl: number | null
+  daily_pnl: number | null
+  delta: number | null
+  gamma: number | null
+  vega: number | null
+  theta: number | null
+  iv: number | null
+  delta_dollars: number | null
+  notional: number | null
+  expiry: string | null
+  strike: number | null
+  right: string | null
+  days_to_expiry: number | null
+  source: string
+  account_id: string | null
+  has_market_data: boolean
+  has_greeks: boolean
+  is_stale: boolean
+}
+
+export interface AccountData {
+  net_liquidation: number
+  total_cash: number
+  buying_power: number
+  margin_used: number
+  margin_available: number
+  maintenance_margin: number
+  init_margin_req: number
+  excess_liquidity: number
+  unrealized_pnl: number
+  realized_pnl: number
+  margin_utilization: number
+  account_id: string | null
+  timestamp: string | null
+}
+
+export interface PortfolioGreeks {
+  delta: number
+  gamma: number
+  vega: number
+  theta: number
+}
+
+export interface PortfolioPnl {
+  unrealized: number
+  daily: number
+  net_liquidation: number
+}
+
+export interface BrokerStatusData {
+  name: string
+  connected: boolean
+  position_count: number
+  last_error: string | null
 }

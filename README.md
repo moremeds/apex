@@ -31,25 +31,17 @@ make test                 # Unit tests
 make test-all             # All tests
 make coverage             # Tests with HTML coverage
 
-# Signal Pipeline
-make signals-test         # Quick test (20 symbols) + HTTP server
-make signals              # Full pipeline (caps, retrain, report)
-make signals-deploy       # Deploy to GitHub Pages
+# Live Dashboard
+make live                 # Backend :8080 + Frontend :5174
+make server-dev           # Backend only (dev, auto-reload)
 
-# Backtesting
-make behavioral           # Behavioral gate test + serve
-make behavioral-full      # Optuna optimization + walk-forward + serve
-make behavioral-cases     # Predefined case studies
-
-# TrendPulse Validation
-make tp-validate          # Full 3-stage validation (36 symbols)
-make tp-holdout           # Holdout only (faster)
-make tp-optimize          # Phase 1 Optuna optimization
-make tp-universe          # Full universe backtest + HTML report
+# Screeners
+make momentum             # Momentum screener
+make pead                 # PEAD earnings drift screener
 
 # Validation
 make validate-fast        # PR gate validation
-make validate             # Full validation suite
+make strategy-verify      # Full strategy verification
 
 # Help
 make help                 # Show all available commands
@@ -337,53 +329,16 @@ python -m src.backtest.runner --strategy trend_pulse --symbols AAPL \
     --start 2024-01-01 --end 2024-06-30 --coverage-mode check
 ```
 
-### Signal Runner
+### Screeners
 
 ```bash
-# Makefile shortcuts (preferred)
-make signals-test         # Quick test (20 symbols) + HTTP server
-make signals              # Full pipeline (update caps, retrain, report)
-make signals-deploy       # Deploy to GitHub Pages
-make signals-deploy-quick # Deploy without retraining
-make signals-serve        # Serve existing report at localhost:8080
-make signals-push         # Push existing out/signals to gh-pages
+# Momentum
+make momentum                     # Refresh + screen
+make quantitative-moment-backtest # Walk-forward backtest + ablation
 
-# Direct runner commands
-python -m src.runners.signal_runner --live --symbols AAPL TSLA QQQ
-python -m src.runners.signal_runner --live --symbols AAPL --timeframes 1m 5m 1h 1d
-python -m src.runners.signal_runner --live --symbols AAPL --html-output report.html
-python -m src.runners.signal_runner --backfill --symbols AAPL --days 365
-python -m src.runners.signal_runner --live --symbols AAPL --with-persistence
-python -m src.runners.signal_runner --live --universe config/universe.yaml
-python -m src.runners.signal_runner --retrain-models --universe config/universe.yaml
-python -m src.runners.signal_runner --update-market-caps --universe config/universe.yaml
-```
-
-### History Loader
-
-```bash
-# Load broker history
-python scripts/history_loader.py --broker ib --days 30
-python scripts/history_loader.py --broker futu --days 30 --market US
-python scripts/history_loader.py --broker all --dry-run
-python scripts/history_loader.py --broker ib --from-date 2024-01-01 --to-date 2024-06-30
-```
-
-### TrendPulse Validation
-
-```bash
-# Makefile shortcuts
-make tp-validate          # Full 3-stage validation (36 symbols)
-make tp-holdout           # Holdout only (faster)
-make tp-optimize          # Phase 1 Optuna optimization
-make tp-universe          # Full universe backtest + HTML report
-make tp-universe-quick    # Quick test (12 symbols)
-
-# Direct runner commands
-python scripts/trend_pulse_validate.py
-python scripts/trend_pulse_validate.py --skip-full
-python scripts/trend_pulse_universe.py
-python scripts/trend_pulse_universe.py --subset quick_test
+# PEAD
+make pead                         # Full pipeline
+make pead-screen                  # Screen from cache
 ```
 
 ### Validation Runner (Regime Detector)
@@ -444,21 +399,6 @@ class MyStrategy(Strategy):
 
 See [docs/STRATEGY_GUIDE.md](docs/STRATEGY_GUIDE.md) for complete documentation.
 
-### Behavioral Gate Validation
-
-The behavioral gate system validates strategies against historical market episodes (crashes, rallies, choppy periods):
-
-```bash
-# Quick behavioral test with default parameters
-make behavioral
-
-# Full pipeline: Optuna optimization + walk-forward + clustering
-make behavioral-full
-
-# Predefined case studies (market episodes)
-make behavioral-cases
-```
-
 ### Backtest Module Structure
 
 ```
@@ -503,12 +443,6 @@ APEX includes a comprehensive signal pipeline with 47+ indicators powered by TA-
 ### TrendPulse Indicator
 
 A hybrid multi-factor trend scoring indicator that combines multiple trend signals:
-
-```bash
-# Validate TrendPulse parameters
-make tp-validate          # Full 3-stage validation
-make tp-universe          # Full universe backtest + HTML report
-```
 
 ### Regime Detector (4-Regime Market Classification)
 

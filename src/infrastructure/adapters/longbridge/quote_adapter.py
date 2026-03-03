@@ -133,9 +133,23 @@ class LongbridgeQuoteAdapter:
         if isinstance(ts, datetime) and ts.tzinfo is None:
             ts = ts.replace(tzinfo=timezone.utc)
 
+        # Extract bid/ask from Longbridge PushQuote depth data if available
+        bid = None
+        ask = None
+        if hasattr(q, "brokers") and q.brokers:
+            # brokers is a list of BrokerQueue with bid/ask
+            pass  # Depth data not in PushQuote
+        # Try direct bid/ask fields (available in some SDK versions)
+        if hasattr(q, "bid") and q.bid is not None:
+            bid = float(q.bid)
+        if hasattr(q, "ask") and q.ask is not None:
+            ask = float(q.ask)
+
         return QuoteTick(
             symbol=internal_symbol,
             last=float(q.last_done) if hasattr(q, "last_done") else None,
+            bid=bid,
+            ask=ask,
             volume=int(q.volume) if hasattr(q, "volume") and q.volume else None,
             source="longbridge",
             timestamp=ts or datetime.now(timezone.utc),

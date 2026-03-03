@@ -1,11 +1,11 @@
-name: "R2: Daily Pipeline + Monitor"
+name: "R2: Daily Pipeline"
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Combined pipeline: universe screening → historical OHLCV → monitor deploy
+# R2 data pipeline: universe screening → historical OHLCV delta load
 #
-# Daily 2am EST: rebuild universe, delta-load market data, deploy dashboard
+# Daily 2am EST: rebuild universe, delta-load market data
 # Weekly Sunday: also refresh float shares cache (economics data)
-# Manual: supports delta/backfill/validate + dashboard-only
+# Manual: supports delta/backfill/validate
 # ═══════════════════════════════════════════════════════════════════════════
 
 on:
@@ -21,7 +21,6 @@ on:
           - delta
           - backfill
           - validate
-          - dashboard-only
         default: delta
       symbols:
         description: "Specific symbols (space-separated, empty = all)"
@@ -42,7 +41,7 @@ env:
 
 jobs:
   pipeline:
-    name: R2 Pipeline + Monitor
+    name: R2 Pipeline
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -100,7 +99,7 @@ jobs:
 
       # ── Stage 1: Universe Build ──────────────────────────────────────
       - name: Build universe
-        if: inputs.mode != 'validate' && inputs.mode != 'dashboard-only'
+        if: inputs.mode != 'validate'
         run: |
           source .venv/bin/activate
 
@@ -122,7 +121,6 @@ jobs:
 
       # ── Stage 2: Historical Loader ───────────────────────────────────
       - name: Run historical loader
-        if: inputs.mode != 'dashboard-only'
         run: |
           source .venv/bin/activate
           MODE="${{ inputs.mode || 'delta' }}"
@@ -142,61 +140,14 @@ jobs:
           R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
           R2_BUCKET: apex-data
 
-      # ── Stage 3: Monitor Dashboard ──────────────────────────────────
-      - name: Download R2 monitor data
+      # ── Stage 3: Market Cap Update ────────────────────────────────────
+      - name: Update market caps
+        if: inputs.mode != 'validate'
         run: |
           source .venv/bin/activate
-          python -c "
-          from src.infrastructure.adapters.r2.client import R2Client
-          import json, pathlib
-          r2 = R2Client()
-          out = pathlib.Path('out/signals/data')
-          out.mkdir(parents=True, exist_ok=True)
-          for name in ['data_quality.json', 'universe.json']:
-              data = r2.get_json(f'meta/{name}')
-              if data:
-                  (out / name).write_text(json.dumps(data))
-                  print(f'Downloaded {name} ({len(json.dumps(data))} bytes)')
-              else:
-                  print(f'WARNING: {name} not found in R2')
-          "
+          python scripts/r2_market_caps.py
         env:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
           R2_BUCKET: apex-data
-
-      - name: Fetch existing signal data from gh-pages
-        continue-on-error: true
-        run: |
-          mkdir -p out/signals/data
-          git fetch origin gh-pages --depth=1 2>/dev/null || true
-          for f in summary.json score_history.json; do
-            git show "origin/gh-pages:data/$f" > "out/signals/data/$f" 2>/dev/null || true
-          done
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: '20'
-
-      - name: Build dashboard
-        run: |
-          source .venv/bin/activate
-          python -c "from src.infrastructure.reporting.dashboard import DashboardBuilder; DashboardBuilder().build()"
-
-      - name: Smoke check dashboard artifacts
-        run: |
-          for f in out/site/index.html out/site/assets/app.js; do
-            if [ ! -s "$f" ]; then
-              echo "ERROR: Missing or empty required file: $f"
-              exit 1
-            fi
-          done
-          echo "Smoke check passed"
-
-      - name: Deploy to Cloudflare Pages
-        run: npx wrangler@3 pages deploy out/site/ --project-name apex-dashboard
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

@@ -272,7 +272,9 @@ class DatabaseManager:
         if not path.exists():
             raise FileNotFoundError(f"Parquet file not found: {path}")
 
-        result = self.conn.execute(f"INSERT INTO {table} SELECT * FROM read_parquet('{path}')")
+        result = self.conn.execute(
+            f"INSERT INTO {table} SELECT * FROM read_parquet('{path}')"  # nosec B608
+        )
         row = result.fetchone() if result else None
         count: int = int(row[0]) if row else 0
         logger.info(f"Imported {count} records from {path} to {table}")

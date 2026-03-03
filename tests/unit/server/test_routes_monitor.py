@@ -88,14 +88,12 @@ class TestDataQualityEndpoint:
         assert resp.status_code == 200
         assert resp.json()["total_symbols"] == 50
 
-    def test_503_no_r2(self, monkeypatch):
-        monkeypatch.setattr("src.server.routes.monitor._fetch_static_dq_sync", lambda: None)
+    def test_503_no_r2(self):
         client = _make_app()
         resp = client.get("/api/monitor/data-quality")
         assert resp.status_code == 503
 
-    def test_404_no_report(self, monkeypatch):
-        monkeypatch.setattr("src.server.routes.monitor._fetch_static_dq_sync", lambda: None)
+    def test_503_r2_returns_none(self):
         r2 = MagicMock()
         r2.get_json.return_value = None
         client = _make_app(r2_client=r2)

@@ -5,7 +5,6 @@ import {
   CandlestickSeries,
   LineSeries,
   HistogramSeries,
-  createSeriesMarkers,
   type IChartApi,
   type Time,
 } from "lightweight-charts"
@@ -104,8 +103,9 @@ interface ConfluenceData {
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const TIMEFRAMES = ["1h", "4h", "1d"] as const
+const TIMEFRAMES = ["30m", "1h", "4h", "1d"] as const
 const EMPTY_OHLCV: OHLCV[] = []
+const EMPTY_STATES: Record<string, Record<string, unknown>[]> = {}
 
 const DARK_CHART = {
   layout: { background: { color: "#0c0f14" }, textColor: "#94a3b8", fontSize: 11 },
@@ -148,6 +148,20 @@ function fmtSigned(val: number | undefined, decimals: number): string {
   return `${val >= 0 ? "+" : ""}${val.toFixed(decimals)}`
 }
 
+/** Merge historical + live arrays, dedup by date field, most recent first. */
+function mergeByDate<T extends { date: string }>(historical: T[], live: T[]): T[] {
+  if (!live.length) return historical
+  const seen = new Set(historical.map((r) => r.date))
+  const merged = [...historical]
+  for (const row of live) {
+    if (!seen.has(row.date)) {
+      merged.unshift(row)  // live rows are newer → prepend
+      seen.add(row.date)
+    }
+  }
+  return merged
+}
+
 // ── Main Component ───────────────────────────────────────────────────────────
 
 export function Signals() {
@@ -160,10 +174,16 @@ export function Signals() {
   const [symbol, setSymbol] = useState(searchParams.get("symbol") ?? "")
   const [tf, setTf] = useState(searchParams.get("tf") ?? "1d")
 
-  const symbolList = useMemo(
-    () => Object.keys(symbolsData?.symbols ?? {}).sort(),
-    [symbolsData],
-  )
+  const symbolList = useMemo(() => {
+    // Prefer live symbols (from Longbridge quote adapter)
+    const liveSyms = Object.keys(symbolsData?.symbols ?? {})
+    if (liveSyms.length > 0) return liveSyms.sort()
+    // Fallback: summary tickers (from R2/static — always available)
+    const summarySyms = ((summaryData as any)?.tickers ?? [])
+      .map((t: any) => t.symbol)
+      .filter(Boolean) as string[]
+    return summarySyms.sort()
+  }, [symbolsData, summaryData])
 
   // Auto-select first symbol
   useEffect(() => {
@@ -175,11 +195,10 @@ export function Signals() {
     if (symbol) setSearchParams({ symbol, tf }, { replace: true })
   }, [symbol, tf, setSearchParams])
 
-  // WS subscribe
+  // WS subscribe — additive only, don't unsubscribe (global socket manages all symbols)
   useEffect(() => {
     if (!symbol) return
     send({ cmd: "subscribe", symbols: [symbol], types: ["quote", "bar", "indicator", "signal"] })
-    return () => { send({ cmd: "unsubscribe", symbols: [symbol] }) }
   }, [symbol, send])
 
   // R2 signal data (primary source)
@@ -216,7 +235,29 @@ export function Signals() {
     return summary?.confluence?.[`${symbol}_${tf}`]
   }, [summaryData, symbol, tf])
 
-  const isLoading = sdLoading || histLoading
+  // Live strategy states from WS (accumulated per bar close)
+  const liveStates = useMarketStore((s) => s.strategyStates[symbol]?.[tf] ?? EMPTY_STATES)
+
+  // Merge historical (REST) + live (WS) strategy states, dedup by date
+  const mergedDualMacd = useMemo((): DualMACDRow[] => {
+    const historical = sd?.dual_macd_history ?? []
+    const live = (liveStates.dual_macd ?? []) as DualMACDRow[]
+    return mergeByDate(historical, live)
+  }, [sd?.dual_macd_history, liveStates.dual_macd])
+
+  const mergedTrendPulse = useMemo((): TrendPulseRow[] => {
+    const historical = sd?.trend_pulse_history ?? []
+    const live = (liveStates.trend_pulse ?? []) as TrendPulseRow[]
+    return mergeByDate(historical, live)
+  }, [sd?.trend_pulse_history, liveStates.trend_pulse])
+
+  const mergedRegimeFlex = useMemo((): RegimeFlexRow[] => {
+    const historical = sd?.regime_flex_history ?? []
+    const live = (liveStates.regime_detector ?? []) as RegimeFlexRow[]
+    return mergeByDate(historical, live)
+  }, [sd?.regime_flex_history, liveStates.regime_detector])
+
+  const isLoading = histLoading  // signal-data computed on-demand, don't block
 
   return (
     <div className="space-y-4">
@@ -248,11 +289,19 @@ export function Signals() {
         </div>
 
         {quote && (
-          <div className="ml-auto text-sm">
+          <div className="ml-auto flex items-baseline gap-2 text-sm">
             <span className="text-muted-foreground">Last: </span>
             <span className="font-medium">${quote.last.toFixed(2)}</span>
+            {quote.prev_close != null && quote.prev_close > 0 && (() => {
+              const chg = ((quote.last - quote.prev_close!) / quote.prev_close!) * 100
+              return (
+                <span className="font-medium" style={{ color: chg >= 0 ? "#10b981" : "#ef4444" }}>
+                  {chg >= 0 ? "+" : ""}{chg.toFixed(2)}%
+                </span>
+              )
+            })()}
             {quote.bid != null && quote.ask != null && (
-              <span className="ml-2 text-muted-foreground">
+              <span className="text-muted-foreground">
                 {quote.bid.toFixed(2)} / {quote.ask.toFixed(2)}
               </span>
             )}
@@ -288,12 +337,12 @@ export function Signals() {
           <ConfluenceSection confluence={confluence} signals={allSignals} chartData={sd?.chart_data} tf={tf} />
         </Collapsible>
 
-        <Collapsible title={`DualMACD${sd?.dual_macd_history?.length ? ` (${sd.dual_macd_history.length} bars)` : ""}`}>
-          <DualMACDSection rows={sd?.dual_macd_history ?? []} />
+        <Collapsible title={`DualMACD${mergedDualMacd.length ? ` (${mergedDualMacd.length} bars)` : ""}`}>
+          <DualMACDSection rows={mergedDualMacd} />
         </Collapsible>
 
-        <Collapsible title={`TrendPulse${sd?.trend_pulse_history?.length ? ` (${sd.trend_pulse_history.length} bars)` : ""}`}>
-          <TrendPulseSection rows={sd?.trend_pulse_history ?? []} />
+        <Collapsible title={`TrendPulse${mergedTrendPulse.length ? ` (${mergedTrendPulse.length} bars)` : ""}`}>
+          <TrendPulseSection rows={mergedTrendPulse} />
         </Collapsible>
 
         <Collapsible title="Regime Analysis">
@@ -304,8 +353,8 @@ export function Signals() {
           <SignalHistorySection signals={allSignals} />
         </Collapsible>
 
-        <Collapsible title={`RegimeFlex Strategy${sd?.regime_flex_history?.length ? ` (${sd.regime_flex_history.length} bars)` : ""}`}>
-          <RegimeFlexSection rows={sd?.regime_flex_history ?? []} />
+        <Collapsible title={`RegimeFlex Strategy${mergedRegimeFlex.length ? ` (${mergedRegimeFlex.length} bars)` : ""}`}>
+          <RegimeFlexSection rows={mergedRegimeFlex} />
         </Collapsible>
 
         <Collapsible title={`SectorPulse Strategy${sd?.sector_pulse_history?.length ? ` (${sd.sector_pulse_history.length} bars)` : ""}`}>
@@ -385,22 +434,6 @@ function MultiPaneChart({ chartData, signals }: { chartData: ChartData; signals:
         value: chartData.volume[i] ?? 0,
         color: chartData.close[i] >= chartData.open[i] ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)",
       })))
-    }
-
-    // Signal markers (buy/sell arrows)
-    if (signals?.length > 0) {
-      const markers = signals
-        .filter((s) => s.timestamp)
-        .map((s) => ({
-          time: toUnix(s.timestamp) as Time,
-          position: (s.direction === "buy" ? "belowBar" : "aboveBar") as "belowBar" | "aboveBar",
-          color: s.direction === "buy" ? "#10b981" : "#f43f5e",
-          shape: "circle" as const,
-          text: s.rule?.replace(/_/g, " ") ?? (s.direction === "buy" ? "BUY" : "SELL"),
-          size: 1,
-        }))
-        .sort((a, b) => (a.time as number) - (b.time as number))
-      try { createSeriesMarkers(candles, markers) } catch { /* v5 compat */ }
     }
 
     // === RSI Chart ===

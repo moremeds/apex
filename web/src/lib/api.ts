@@ -1,8 +1,14 @@
 import { useQuery } from "@tanstack/react-query"
-import type { AdvisorMarketContext, PremiumAdvice, EquityAdvice } from "./ws"
+import type { AdvisorMarketContext, PremiumAdvice, EquityAdvice, PositionData, AccountData, PortfolioGreeks, PortfolioPnl, BrokerStatusData } from "./ws"
 
 async function fetchJson<T>(url: string): Promise<T> {
   const res = await fetch(url)
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+  return res.json() as Promise<T>
+}
+
+async function postJson<T>(url: string): Promise<T> {
+  const res = await fetch(url, { method: "POST" })
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
   return res.json() as Promise<T>
 }
@@ -62,6 +68,26 @@ export interface ProviderInfo {
   subscribed_symbols: string[]
 }
 
+export interface JobState {
+  id: string
+  name: string
+  status: "pending" | "running" | "completed" | "failed"
+  started_at: string | null
+  completed_at: string | null
+  error: string | null
+}
+
+export interface PortfolioSnapshotResponse {
+  positions: PositionData[]
+  account: AccountData | null
+  greeks: PortfolioGreeks
+  pnl: PortfolioPnl
+  broker_status: BrokerStatusData[]
+  position_count: number
+  timestamp: string | null
+  portfolio_enabled: boolean
+}
+
 // ── API functions ──────────────────────────────────────
 
 export const api = {
@@ -81,6 +107,14 @@ export const api = {
   universe: () => fetchJson<Record<string, unknown>>("/api/universe"),
   advisor: () => fetchJson<AdvisorResponse>("/api/advisor"),
   advisorSymbol: (symbol: string) => fetchJson<Record<string, unknown>>(`/api/advisor/${symbol}`),
+  triggerJob: (name: string) => postJson<{ job_id: string; status: string }>(`/api/jobs/${name}`),
+  jobStatus: () => fetchJson<{ jobs: JobState[] }>("/api/jobs/status"),
+
+  // Portfolio
+  portfolioSnapshot: () => fetchJson<PortfolioSnapshotResponse>("/api/portfolio/snapshot"),
+  portfolioPositions: () => fetchJson<{ positions: PositionData[]; portfolio_enabled: boolean }>("/api/portfolio/positions"),
+  portfolioAccount: () => fetchJson<{ account: AccountData | null; portfolio_enabled: boolean }>("/api/portfolio/account"),
+  portfolioBrokerStatus: () => fetchJson<{ brokers: BrokerStatusData[]; portfolio_enabled: boolean }>("/api/portfolio/broker-status"),
 }
 
 // ── Query hooks ────────────────────────────────────────
@@ -123,11 +157,12 @@ export function useSignalData(symbol: string, tf = "1d") {
     queryFn: () => api.signalData(symbol, tf),
     enabled: !!symbol,
     staleTime: 5 * 60_000,
+    retry: false,
   })
 }
 
 export function useSummary() {
-  return useQuery({ queryKey: ["summary"], queryFn: api.summary, staleTime: 5 * 60_000 })
+  return useQuery({ queryKey: ["summary"], queryFn: api.summary, staleTime: 30_000, refetchInterval: 60_000 })
 }
 
 export function useScoreHistory() {
@@ -142,6 +177,22 @@ export function useUniverse() {
   return useQuery({ queryKey: ["universe"], queryFn: api.universe, staleTime: 5 * 60_000 })
 }
 
+export function useR2Freshness() {
+  return useQuery({
+    queryKey: ["r2-freshness"],
+    queryFn: () => fetchJson<Record<string, unknown>>("/api/monitor/r2-freshness"),
+    staleTime: 5 * 60_000,
+  })
+}
+
 export function useAdvisor() {
   return useQuery({ queryKey: ["advisor"], queryFn: api.advisor, staleTime: 30_000 })
+}
+
+export function usePortfolioSnapshot() {
+  return useQuery({
+    queryKey: ["portfolio-snapshot"],
+    queryFn: api.portfolioSnapshot,
+    refetchInterval: 5_000,
+  })
 }

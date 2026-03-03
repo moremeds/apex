@@ -200,6 +200,17 @@ class IndicatorEngine:
             result[key] = state
         return result
 
+    def get_history(self, symbol: str, timeframe: str) -> list[dict[str, Any]] | None:
+        """Thread-safe access to bar history for a symbol/timeframe.
+
+        Returns a snapshot (list copy) of the deque, or None if no history.
+        Callers should use this instead of accessing ``_history`` directly.
+        """
+        bar_key: BarKey = (symbol, timeframe)
+        with self._get_lock(bar_key):
+            deq = self._history.get(bar_key)
+            return list(deq) if deq else None
+
     def start(self) -> None:
         """Start the engine by subscribing to BAR_CLOSE events."""
         if self._started:

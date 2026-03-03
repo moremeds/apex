@@ -1,12 +1,7 @@
 """
 End-to-end tests for the signal pipeline validation workflow.
 
-Tests the full flow: signal_runner --validate → validate_gates.py → pass/fail
-
-These tests verify that:
-1. signal_runner can generate a report package
-2. validate_gates.py can check the package against quality gates
-3. The --validate flag properly integrates both steps
+Tests validate_gates.py quality gate checks against generated packages.
 """
 
 from __future__ import annotations
@@ -214,30 +209,6 @@ class TestSignalPipelineE2E:
         assert result.returncode == 1
         assert "missing" in result.stdout.lower() or "FAIL" in result.stdout
 
-    def test_signal_runner_no_validate_flag_exists(self) -> None:
-        """
-        Test that --no-validate flag is recognized by the CLI.
-
-        Validation is automatic with --format package, and --no-validate skips it.
-        """
-        result = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "src.runners.signal_runner",
-                "--help",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-
-        # Should show new report/cache controls
-        assert result.returncode == 0
-        assert "--no-validate" in result.stdout
-        assert "--no-report-cache" in result.stdout
-        assert "--training-code-signature" in result.stdout
-
     def test_makefile_targets_exist(self) -> None:
         """Test that new Makefile targets are defined."""
         makefile_path = Path("Makefile")
@@ -265,7 +236,7 @@ class TestValidateGatesImport:
 
     def test_import_run_all_gates(self) -> None:
         """Test that run_all_gates function is importable."""
-        # This tests that the import path works from signal_runner
+        # This tests that the validate_gates import path works
         try:
             from scripts.validate_gates import ValidationReport, run_all_gates
 

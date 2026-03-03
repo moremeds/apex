@@ -4,9 +4,9 @@ import { useWebSocket } from "@/hooks/useWebSocket"
 
 const navItems = [
   { to: "/", label: "Overview", end: true },
+  { to: "/portfolio", label: "Portfolio" },
   { to: "/signals", label: "Signals" },
   { to: "/screeners", label: "Screeners" },
-  { to: "/regime", label: "Regime" },
   { to: "/monitor", label: "Monitor" },
   { to: "/backtest", label: "Backtest" },
   { to: "/advisor", label: "Advisor" },

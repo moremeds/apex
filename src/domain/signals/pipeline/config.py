@@ -2,7 +2,6 @@
 Signal Pipeline Configuration.
 
 Contains the configuration dataclass and argument parser for the signal pipeline.
-Extracted from signal_runner.py for better modularity.
 """
 
 from __future__ import annotations
@@ -95,33 +94,16 @@ class SignalPipelineConfig:
     update_market_caps: bool = False  # Update market cap cache from yfinance
     universe_path: Optional[str] = None  # Path to universe.yaml for market cap symbols
 
-    # Heatmap generation (PR-C) - default True for package format
-    with_heatmap: bool = True  # Generate heatmap landing page
-
     # Persistence
     with_persistence: bool = False
 
     # Output
     verbose: bool = False
     stats_interval: int = 10
-    html_output: Optional[str] = "results/signals"  # Path for HTML report generation
     json_output: bool = False  # Output results as JSON (for --validate-bars)
-    output_format: str = "package"
-    deploy_github: bool = False  # Deploy package to GitHub Pages
-    github_repo: Optional[str] = None  # GitHub repo for deployment (e.g., "user/signal-reports")
-
-    # Post-generation validation (M3 integration) - default True for package format
-    validate: bool = True  # Run quality gates (G1-G15) after report generation
-
-    # Report-path cache (strict-freshness, report generation only)
-    report_cache_enabled: bool = True
-    report_cache_dir: Optional[str] = "data/cache/report_frames"
-    report_cache_max_age_minutes: int = 60
-    report_cache_cleanup_max_files: int = 4000
 
     # Performance tuning (CI optimization)
     preload_concurrency: int = 1  # Concurrent symbol downloads during preload (1 = serial)
-    parallel_writes: int = 1  # ThreadPool workers for JSON file writes (1 = serial)
 
     # Model training options
     train_models: bool = False  # Train models before signal generation
@@ -143,37 +125,21 @@ def create_argument_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Full report with heatmap + validation (default: results/signals/)
-  python -m src.runners.signal_runner --live --symbols AAPL TSLA QQQ
-
-  # Custom output path
-  python -m src.runners.signal_runner --live --symbols AAPL --html-output /tmp/my_report
-
-  # Skip validation (faster)
-  python -m src.runners.signal_runner --live --symbols AAPL --no-validate
-
-  # Skip heatmap
-  python -m src.runners.signal_runner --live --symbols AAPL --no-heatmap
-
-  # Report cache tuning (strict freshness)
-  python -m src.runners.signal_runner --live --symbols AAPL \\
-      --report-cache-max-age 10 --report-cache-cleanup-max-files 4000
-
-  # Deploy to GitHub Pages
-  python -m src.runners.signal_runner --live --symbols AAPL SPY --deploy github
+  # Live signal processing
+  python -m src.domain.signals.pipeline --live --symbols AAPL TSLA QQQ
 
   # Train models before generating signals
-  python -m src.runners.signal_runner --live --symbols AAPL --train-models \\
+  python -m src.domain.signals.pipeline --live --symbols AAPL --train-models \\
       --model-symbols SPY QQQ AAPL
 
-  # Validate bar counts (PR-01)
-  python -m src.runners.signal_runner --validate-bars --symbols AAPL SPY
+  # Validate bar counts
+  python -m src.domain.signals.pipeline --validate-bars --symbols AAPL SPY
 
-  # Update market cap cache (run periodically for accurate heatmap)
-  python -m src.runners.signal_runner --update-market-caps --universe config/universe.yaml
+  # Update market cap cache
+  python -m src.domain.signals.pipeline --update-market-caps --universe config/universe.yaml
 
   # Backfill historical signals
-  python -m src.runners.signal_runner --backfill --symbols AAPL --days 365
+  python -m src.domain.signals.pipeline --backfill --symbols AAPL --days 365
         """,
     )
 
@@ -235,81 +201,10 @@ Examples:
         help="Enable database persistence for signals",
     )
 
-    # HTML report generation (default: enabled)
-    parser.add_argument(
-        "--no-html",
-        action="store_true",
-        help="Skip HTML report generation",
-    )
-    parser.add_argument(
-        "--html-output",
-        type=str,
-        default="results/signals",
-        metavar="PATH",
-        help="HTML report output path (default: results/signals)",
-    )
     parser.add_argument(
         "--json",
         action="store_true",
         help="Output results as JSON (for --validate-bars mode)",
-    )
-    parser.add_argument(
-        "--format",
-        type=str,
-        default="package",
-        metavar="FORMAT",
-        help="Output format (default: package)",
-    )
-
-    # GitHub Pages deployment
-    parser.add_argument(
-        "--deploy",
-        type=str,
-        choices=["github"],
-        metavar="TARGET",
-        help="Deploy package to target (github = GitHub Pages)",
-    )
-    parser.add_argument(
-        "--github-repo",
-        type=str,
-        metavar="REPO",
-        help="GitHub repo for deployment (e.g., 'user/signal-reports'). If not set, uses current repo's gh-pages branch.",
-    )
-    parser.add_argument(
-        "--no-validate",
-        action="store_true",
-        help="Skip quality gates (G1-G15) after report generation.",
-    )
-    parser.add_argument(
-        "--no-heatmap",
-        action="store_true",
-        help="Skip heatmap landing page generation.",
-    )
-    parser.add_argument(
-        "--no-report-cache",
-        action="store_true",
-        help="Disable report-path DataFrame cache for indicator computation.",
-    )
-    parser.add_argument(
-        "--report-cache-dir",
-        type=str,
-        default="data/cache/report_frames",
-        metavar="DIR",
-        help="Report cache directory for enriched DataFrames (default: data/cache/report_frames)",
-    )
-    parser.add_argument(
-        "--report-cache-max-age",
-        type=int,
-        default=60,
-        metavar="MINUTES",
-        help="Maximum age for report cache entries in minutes (default: 60)",
-    )
-    parser.add_argument(
-        "--report-cache-cleanup-max-files",
-        type=int,
-        default=4000,
-        metavar="N",
-        help="Maximum report cache files after cleanup (default: 4000)",
     )
 
     # General options
@@ -344,15 +239,6 @@ Examples:
         help="Concurrent symbol downloads during bar preload (default: 1 = serial). "
         "Uses asyncio.Semaphore for rate limiting.",
     )
-    perf_group.add_argument(
-        "--parallel-writes",
-        type=int,
-        default=1,
-        metavar="N",
-        help="ThreadPool workers for JSON data file writes (default: 1 = serial). "
-        "Use 4-8 for CI speedup.",
-    )
-
     # =========================================================================
     # Model Training Options
     # =========================================================================
@@ -472,23 +358,12 @@ def parse_config(args: argparse.Namespace) -> SignalPipelineConfig:
         validate_bars=args.validate_bars,
         update_market_caps=args.update_market_caps,
         universe_path=args.universe,
-        with_heatmap=not args.no_heatmap,
         with_persistence=args.with_persistence,
         verbose=args.verbose,
         stats_interval=args.stats_interval,
-        html_output=None if args.no_html else args.html_output,
         json_output=args.json,
-        output_format=args.format,
-        deploy_github=args.deploy == "github",
-        github_repo=args.github_repo,
-        validate=not args.no_validate,
-        report_cache_enabled=not args.no_report_cache,
-        report_cache_dir=args.report_cache_dir,
-        report_cache_max_age_minutes=args.report_cache_max_age,
-        report_cache_cleanup_max_files=args.report_cache_cleanup_max_files,
         # Performance tuning
         preload_concurrency=args.preload_concurrency,
-        parallel_writes=args.parallel_writes,
         # Training options
         train_models=args.train_models,
         retrain_models=args.retrain_models,

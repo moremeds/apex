@@ -466,7 +466,7 @@ class TurningPointModel:
         - New format (TurningPointModel): Saved directly by FileModelRegistry
         """
         with open(path, "rb") as f:
-            data = pickle.load(f)
+            data = pickle.load(f)  # nosec B301
 
         # Handle new format: FileModelRegistry saves TurningPointModel directly
         if isinstance(data, cls):

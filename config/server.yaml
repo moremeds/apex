@@ -1,6 +1,9 @@
 # APEX Live Dashboard Server Configuration
 # Single source of truth for server runtime settings.
 
+# Shared broker/risk/portfolio config (same as TUI)
+base_config: config/base.yaml
+
 server:
   host: 0.0.0.0
   port: 8080
@@ -21,5 +24,5 @@ persistence:
   r2_flush_interval_sec: 300
 
 pipeline:
-  timeframes: ["1m", "5m", "1h", "1d"]
+  timeframes: ["30m", "1h", "4h", "1d"]
   indicators: ["rsi", "dual_macd", "supertrend", "bollinger"]

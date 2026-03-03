@@ -22,7 +22,7 @@ class ServerConfig:
     """Top-level server configuration."""
 
     # Server
-    host: str = "0.0.0.0"
+    host: str = "0.0.0.0"  # nosec B104
     port: int = 8080
 
     # Providers
@@ -38,10 +38,13 @@ class ServerConfig:
     r2_flush_interval_sec: int = 300
 
     # Pipeline
-    timeframes: List[str] = field(default_factory=lambda: ["1m", "5m", "1h", "1d"])
+    timeframes: List[str] = field(default_factory=lambda: ["30m", "1h", "4h", "1d"])
     indicators: List[str] = field(
         default_factory=lambda: ["rsi", "dual_macd", "supertrend", "bollinger"]
     )
+
+    # Shared base config path (for AppContainer/broker/risk integration)
+    base_config_path: str = "config/base.yaml"
 
 
 def load_server_config(path: str = "config/server.yaml") -> ServerConfig:
@@ -64,7 +67,7 @@ def load_server_config(path: str = "config/server.yaml") -> ServerConfig:
     }
 
     return ServerConfig(
-        host=server.get("host", "0.0.0.0"),
+        host=server.get("host", "0.0.0.0"),  # nosec B104
         port=server.get("port", 8080),
         providers=providers,
         universe_path=symbols.get("universe_path", "config/universe.yaml"),
@@ -72,6 +75,7 @@ def load_server_config(path: str = "config/server.yaml") -> ServerConfig:
         max_symbols=symbols.get("max_total", 100),
         duckdb_path=persistence.get("duckdb_path", "data/server.duckdb"),
         r2_flush_interval_sec=persistence.get("r2_flush_interval_sec", 300),
-        timeframes=pipeline.get("timeframes", ["1m", "5m", "1h", "1d"]),
+        timeframes=pipeline.get("timeframes", ["30m", "1h", "4h", "1d"]),
         indicators=pipeline.get("indicators", []),
+        base_config_path=raw.get("base_config", "config/base.yaml"),
     )

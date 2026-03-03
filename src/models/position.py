@@ -26,6 +26,7 @@ class PositionSource(Enum):
 
     IB = "IB"  # Interactive Brokers
     FUTU = "FUTU"  # Futu OpenD
+    LONGBRIDGE = "LONGBRIDGE"  # LongBridge (LongPort)
     MANUAL = "MANUAL"  # Manual YAML file
     CACHED = "CACHED"  # Previous snapshot
 

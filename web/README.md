@@ -1,73 +1,53 @@
-# React + TypeScript + Vite
+# APEX Live Dashboard — Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React + TypeScript + Vite frontend for the APEX live trading dashboard.
 
-Currently, two official plugins are available:
+## Architecture
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- **React 19** with TypeScript strict mode
+- **Vite** for dev server and bundling
+- **TanStack Query** for API data fetching with caching
+- **Zustand** for WebSocket-driven market state
+- **Tailwind CSS** for styling
+- **Plotly.js** for treemaps and charts
+- **lightweight-charts** for candlestick/indicator charts
 
-## React Compiler
+## Pages
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+| Route | Component | Description |
+|-------|-----------|-------------|
+| `/` | `Overview.tsx` | ETF dashboard cards, regime counts, stock universe treemap |
+| `/signals` | `Signals.tsx` | Per-symbol candlestick charts with technical indicators |
+| `/advisor` | `Advisor.tsx` | Trading advisor with equity signals, VRP, and premium strategies |
+| `/monitor` | `Monitor.tsx` | Live WebSocket feed monitor |
 
-## Expanding the ESLint configuration
+## Development
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+```bash
+# Install dependencies
+npm install
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+# Dev server (proxies API to localhost:8000)
+npm run dev
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+# Type check
+npx tsc --noEmit
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+# Build for production
+npm run build
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## API Integration
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+The frontend connects to the FastAPI backend:
+- REST endpoints at `/api/*` (summary, symbols, screeners, jobs)
+- WebSocket at `/ws` for live quotes, bars, indicators, and signals
+- API hooks in `src/lib/api.ts`, WebSocket hook in `src/hooks/useWebSocket.ts`
+- Market state store in `src/stores/market.ts` (Zustand)
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+## Running with Backend
+
+```bash
+# From project root — starts both backend and frontend
+make live
 ```

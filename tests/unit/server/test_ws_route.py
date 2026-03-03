@@ -15,7 +15,8 @@ def _make_app_with_hub():
 
     hub = WebSocketHub()
     app = FastAPI()
-    app.include_router(create_ws_router(hub))
+    app.state.hub = hub
+    app.include_router(create_ws_router())
     return app, hub
 
 
@@ -71,7 +72,7 @@ def test_ws_receives_broadcast():
         msg = ws.receive_json()
         assert msg["type"] == "quote"
         assert msg["symbol"] == "AAPL"
-        assert msg["price"] == 185.5
+        assert msg["data"]["price"] == 185.5
 
 
 def test_ws_no_message_for_unsubscribed():

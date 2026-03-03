@@ -11,22 +11,31 @@ from src.server.ws_hub import WebSocketHub
 logger = logging.getLogger(__name__)
 
 
-def create_ws_router(hub: WebSocketHub) -> APIRouter:
-    """Create a router with /ws endpoint bound to the given hub."""
+def create_ws_router(hub: WebSocketHub | None = None) -> APIRouter:
+    """Create a router with /ws endpoint.
+
+    The hub is resolved at request time from ``app.state.hub`` (set by lifespan).
+    The *hub* parameter is only used as a fallback for unit tests that don't
+    run the lifespan.
+    """
     router = APIRouter()
 
     @router.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket) -> None:
+        active_hub: WebSocketHub = getattr(websocket.app.state, "hub", None) or hub  # type: ignore[assignment]
+        if active_hub is None:
+            await websocket.close(code=1011, reason="Hub not available")
+            return
         await websocket.accept()
-        hub.connect(websocket)
+        active_hub.connect(websocket)
         try:
             while True:
                 data = await websocket.receive_json()
-                await hub.handle_command(websocket, data)
+                await active_hub.handle_command(websocket, data)
         except WebSocketDisconnect:
-            hub.disconnect(websocket)
+            active_hub.disconnect(websocket)
         except Exception:
             logger.exception("WebSocket error")
-            hub.disconnect(websocket)
+            active_hub.disconnect(websocket)
 
     return router

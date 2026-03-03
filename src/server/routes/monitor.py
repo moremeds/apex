@@ -3,41 +3,13 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
-import ssl
 import time
-import urllib.error
-import urllib.request
 from typing import Any, List
 
 from fastapi import APIRouter, HTTPException, Request
 
 logger = logging.getLogger(__name__)
-
-_STATIC_DATA_URL = "https://moremeds.github.io/apex/data"
-
-
-_ssl_ctx = ssl.create_default_context()
-try:
-    import certifi
-
-    _ssl_ctx.load_verify_locations(certifi.where())
-except ImportError:
-    _ssl_ctx.check_hostname = False
-    _ssl_ctx.verify_mode = ssl.CERT_NONE
-
-
-def _fetch_static_dq_sync() -> Any | None:
-    """Fetch data_quality.json from GitHub Pages (sync, for asyncio.to_thread)."""
-    url = f"{_STATIC_DATA_URL}/data_quality.json"
-    req = urllib.request.Request(url, headers={"User-Agent": "APEX-Dashboard/1.0"})
-    try:
-        with urllib.request.urlopen(req, timeout=15, context=_ssl_ctx) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except Exception:
-        return None
-
 
 _server_start_time = time.monotonic()
 
@@ -56,7 +28,7 @@ def create_monitor_router(
     router = APIRouter(prefix="/api/monitor")
 
     def _get_hub(request: Request) -> Any:
-        return hub or getattr(request.app.state, "hub", None)
+        return getattr(request.app.state, "hub", None) or hub
 
     def _get_pipeline(request: Request) -> Any:
         return pipeline or getattr(request.app.state, "pipeline", None)
@@ -107,25 +79,80 @@ def create_monitor_router(
             },
         }
 
+    @router.get("/r2-freshness")
+    async def get_r2_freshness(request: Request) -> dict:
+        """Check R2 data freshness — last modified timestamps for key files."""
+        from datetime import datetime, timezone
+
+        r2 = _get_r2_client(request)
+        persistence_obj = getattr(request.app.state, "persistence", None)
+
+        items: list[dict] = []
+        key_files = [
+            ("summary.json", "Summary"),
+            ("screeners.json", "Screeners"),
+            ("strategies.json", "Backtest"),
+            ("meta/universe.json", "Universe"),
+            ("meta/data_quality.json", "Data Quality"),
+            ("meta/market_caps.json", "Market Caps"),
+        ]
+        for key, label in key_files:
+            item: dict = {"key": key, "label": label, "last_modified": None, "status": "unknown"}
+            if r2 is not None:
+                try:
+
+                    def _get_lm(k: str = key) -> object:
+                        return r2.get_last_modified(k) if hasattr(r2, "get_last_modified") else None
+
+                    lm = await asyncio.to_thread(_get_lm)
+                    if lm:
+                        item["last_modified"] = (
+                            lm.isoformat() if hasattr(lm, "isoformat") else str(lm)
+                        )
+                        # Check staleness: > 48h = stale, > 7d = critical
+                        age = None
+                        if isinstance(lm, datetime) and lm.tzinfo:
+                            age = (datetime.now(timezone.utc) - lm).total_seconds()
+                        if age is not None:
+                            if age < 48 * 3600:
+                                item["status"] = "fresh"
+                            elif age < 7 * 24 * 3600:
+                                item["status"] = "stale"
+                            else:
+                                item["status"] = "critical"
+                except Exception as e:
+                    item["status"] = "error"
+                    item["error"] = str(e)
+            items.append(item)
+
+        # DuckDB summary freshness
+        duckdb_summary = {"available": False, "ticker_count": 0}
+        if persistence_obj:
+            try:
+                summary = await asyncio.to_thread(persistence_obj.get_summary)
+                if summary and summary.get("tickers"):
+                    duckdb_summary["available"] = True
+                    duckdb_summary["ticker_count"] = len(summary["tickers"])
+            except Exception:
+                pass
+
+        return {
+            "r2_available": r2 is not None,
+            "files": items,
+            "duckdb_summary": duckdb_summary,
+        }
+
     @router.get("/data-quality")
     async def get_data_quality(request: Request) -> dict:
-        """Get data quality report (R2 → static fallback)."""
+        """Get data quality report (R2 only)."""
         r2 = _get_r2_client(request)
         data = None
 
-        # Try R2 first (stored under meta/ prefix)
         if r2 is not None:
             try:
-                data = r2.get_json("meta/data_quality.json")
+                data = await asyncio.to_thread(r2.get_json, "meta/data_quality.json")
             except Exception as e:
                 logger.error("R2 fetch data_quality.json failed: %s", e)
-
-        # Fallback to GitHub Pages
-        if data is None:
-            try:
-                data = await asyncio.to_thread(_fetch_static_dq_sync)
-            except Exception as e:
-                logger.error("Static fallback for data_quality.json failed: %s", e)
 
         if data is None:
             raise HTTPException(status_code=503, detail="Data quality report not available")

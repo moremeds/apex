@@ -2,13 +2,11 @@
 Turning Point Trainer.
 
 Handles model training for turning point prediction.
-Extracted from signal_runner.py for better modularity.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Any, List, Optional
 
 from src.utils.logging_setup import get_logger
 
@@ -72,14 +70,23 @@ class TurningPointTrainer:
         exit_code = await trainer.train()
     """
 
-    def __init__(self, config: SignalPipelineConfig) -> None:
+    def __init__(
+        self,
+        config: SignalPipelineConfig,
+        model_registry: Any = None,
+        experiment_tracker: Any = None,
+    ) -> None:
         """
         Initialize trainer.
 
         Args:
             config: Pipeline configuration.
+            model_registry: ModelRegistryPort implementation (injected).
+            experiment_tracker: ExperimentTrackerPort implementation (injected).
         """
         self.config = config
+        self._model_registry = model_registry
+        self._experiment_tracker = experiment_tracker
         self.last_result: Optional["TrainingRunResult"] = None
 
     async def train(self) -> int:
@@ -93,18 +100,9 @@ class TurningPointTrainer:
         from src.application.services.turning_point_training_service import (
             TurningPointTrainingService,
         )
-        from src.infrastructure.adapters.file_experiment_tracker import (
-            FileExperimentTracker,
-        )
-        from src.infrastructure.adapters.file_model_registry import FileModelRegistry
 
-        # Determine model output directory
-        model_dir = Path(self.config.model_output_dir or "models/turning_point")
-        experiment_dir = Path("experiments/turning_point")
-
-        # Create registry and tracker
-        registry = FileModelRegistry(model_dir)
-        tracker = FileExperimentTracker(experiment_dir)
+        registry = self._model_registry
+        tracker = self._experiment_tracker
 
         # Create training service
         service = TurningPointTrainingService(
@@ -155,7 +153,7 @@ class TurningPointTrainer:
         print(f"  Eval only:       {effective_eval_only}")
         print(f"  Dry run:         {self.config.dry_run}")
         print(f"  Code signature:  {self.config.training_code_signature}")
-        print(f"  Output dir:      {model_dir}")
+        print(f"  Output dir:      (default)")
         print()
 
         try:

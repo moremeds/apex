@@ -2,7 +2,6 @@
 Technical Analysis Signal Service - Decoupled Signal Pipeline.
 
 Orchestrates the full signal pipeline with optional persistence:
-- Can run standalone via signal_runner.py (for validation)
 - Can be wired into Orchestrator (production mode)
 - Can be split into microservices later (future optionality)
 
@@ -35,9 +34,8 @@ class TASignalService:
     Technical Analysis Signal Service - Orchestrates the full signal pipeline.
 
     Can run:
-    1. Standalone via signal_runner.py (for validation)
-    2. Wired into Orchestrator (production mode)
-    3. As separate microservice (future)
+    1. Wired into Orchestrator (production mode)
+    2. As separate microservice (future)
 
     Pipeline: TICK → BAR → INDICATOR → RULE → SIGNAL → PERSISTENCE → NOTIFY
 
