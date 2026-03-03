@@ -340,7 +340,7 @@ class ServerPersistence:
         params.append(limit)
         with self._lock:
             result = self._db.execute(
-                f"SELECT symbol, rule, direction, strength, timeframe, indicator, ts "  # nosec B608 — where clause is built from validated params, not user input
+                f"SELECT symbol, rule, direction, strength, timeframe, indicator, ts "  # nosec B608
                 f"FROM signals{where} ORDER BY ts DESC LIMIT ?",
                 params,
             )

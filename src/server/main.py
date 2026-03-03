@@ -816,7 +816,7 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     uvicorn.run(
         "src.server.main:app",
-        host="0.0.0.0",  # nosec B104 — intentional server bind
+        host="0.0.0.0",  # nosec B104
         port=8080,
         reload=True,
         ws_ping_interval=60,

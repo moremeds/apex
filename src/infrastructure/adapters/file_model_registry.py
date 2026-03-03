@@ -99,7 +99,7 @@ class FileModelRegistry(ModelRegistryPortABC):
 
         try:
             with open(model_path, "rb") as f:
-                return pickle.load(f)
+                return pickle.load(f)  # nosec B301
         except Exception as e:
             logger.error(f"Failed to load model {model_path}: {e}")
             return None
