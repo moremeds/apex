@@ -7,6 +7,7 @@ import { Screeners } from "@/pages/Screeners"
 import { Backtest } from "@/pages/Backtest"
 import { Monitor } from "@/pages/Monitor"
 import { Advisor } from "@/pages/Advisor"
+import { Portfolio } from "@/pages/Portfolio"
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -29,6 +30,7 @@ function App() {
             <Route path="backtest" element={<Backtest />} />
             <Route path="monitor" element={<Monitor />} />
             <Route path="advisor" element={<Advisor />} />
+            <Route path="portfolio" element={<Portfolio />} />
           </Route>
         </Routes>
       </BrowserRouter>

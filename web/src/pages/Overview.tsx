@@ -1,5 +1,5 @@
 import { useMemo, useState, useCallback } from "react"
-import { useNavigate } from "react-router-dom"
+import { useNavigate, Link } from "react-router-dom"
 import type Plotly from "plotly.js"
 import Plot from "react-plotly.js"
 import { useSymbols, useSummary, useScoreHistory, useUniverse } from "@/lib/api"
@@ -336,6 +336,9 @@ export function Overview() {
         )}
       </div>
 
+      {/* Portfolio Widget (only shown when connected) */}
+      <PortfolioWidget />
+
       {/* ETF Dashboard Cards */}
       {CATEGORY_ORDER.map((catKey) => {
         const cat = ETF_CONFIG[catKey]
@@ -457,6 +460,63 @@ export function Overview() {
         </div>
       ) : null}
     </div>
+  )
+}
+
+// ── Portfolio Widget (compact, on Overview) ──────────────────────────────────
+
+function PortfolioWidget() {
+  const enabled = useMarketStore((s) => s.portfolioEnabled)
+  const pnl = useMarketStore((s) => s.portfolioPnl)
+  const greeks = useMarketStore((s) => s.portfolioGreeks)
+  const posCount = useMarketStore((s) => s.positions.length)
+
+  if (!enabled || posCount === 0) return null
+
+  const fmtPnl = (v: number) => {
+    const s = v >= 0 ? "+" : ""
+    return `${s}$${v.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
+  }
+  const pnlClr = (v: number) => (v > 0 ? "text-emerald-400" : v < 0 ? "text-red-400" : "text-muted-foreground")
+
+  return (
+    <section>
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
+          Portfolio
+        </h3>
+        <Link to="/portfolio" className="text-[10px] text-primary hover:underline">
+          View All →
+        </Link>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <div className="rounded-lg border border-border bg-card p-3">
+          <div className="text-[10px] text-muted-foreground">Net Liq</div>
+          <div className="text-sm font-mono font-semibold">
+            ${(pnl.net_liquidation).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+          </div>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-3">
+          <div className="text-[10px] text-muted-foreground">Unrealized P&L</div>
+          <div className={`text-sm font-mono font-semibold ${pnlClr(pnl.unrealized)}`}>
+            {fmtPnl(pnl.unrealized)}
+          </div>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-3">
+          <div className="text-[10px] text-muted-foreground">Daily P&L</div>
+          <div className={`text-sm font-mono font-semibold ${pnlClr(pnl.daily)}`}>
+            {fmtPnl(pnl.daily)}
+          </div>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-3">
+          <div className="text-[10px] text-muted-foreground">Positions</div>
+          <div className="text-sm font-mono font-semibold">{posCount}</div>
+          <div className="text-[9px] text-muted-foreground">
+            Δ {greeks.delta.toFixed(1)} · θ {greeks.theta.toFixed(1)}
+          </div>
+        </div>
+      </div>
+    </section>
   )
 }
 

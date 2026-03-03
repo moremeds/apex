@@ -1,6 +1,9 @@
 # APEX Live Dashboard Server Configuration
 # Single source of truth for server runtime settings.
 
+# Shared broker/risk/portfolio config (same as TUI)
+base_config: config/base.yaml
+
 server:
   host: 0.0.0.0
   port: 8080

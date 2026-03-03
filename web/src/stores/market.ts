@@ -1,5 +1,9 @@
 import { create } from "zustand"
-import type { QuoteData, OHLCV, SignalData, ProviderStatus, AdvisorMarketContext, PremiumAdvice, EquityAdvice } from "@/lib/ws"
+import type {
+  QuoteData, OHLCV, SignalData, ProviderStatus,
+  AdvisorMarketContext, PremiumAdvice, EquityAdvice,
+  PositionData, AccountData, PortfolioGreeks, PortfolioPnl, BrokerStatusData,
+} from "@/lib/ws"
 
 const MAX_SIGNALS = 200
 const MAX_BARS_PER_TF = 500
@@ -23,6 +27,14 @@ interface MarketState {
   advisorEquity: EquityAdvice[]
   strategyStates: StrategyStateMap
 
+  // Portfolio state
+  positions: PositionData[]
+  account: AccountData | null
+  brokerStatus: BrokerStatusData[]
+  portfolioGreeks: PortfolioGreeks
+  portfolioPnl: PortfolioPnl
+  portfolioEnabled: boolean
+
   updateQuote: (symbol: string, quote: QuoteData) => void
   appendBar: (symbol: string, tf: string, bar: OHLCV) => void
   updateIndicator: (symbol: string, tf: string, name: string, value: number) => void
@@ -31,6 +43,26 @@ interface MarketState {
   setWsStatus: (status: MarketState["wsStatus"]) => void
   updateAdvisor: (ctx: AdvisorMarketContext, premium: PremiumAdvice[], equity: EquityAdvice[]) => void
   appendStrategyState: (symbol: string, tf: string, indicator: string, state: Record<string, unknown>) => void
+
+  // Portfolio actions
+  updatePortfolioSnapshot: (
+    positions: PositionData[],
+    account: AccountData | null,
+    greeks: PortfolioGreeks,
+    pnl: PortfolioPnl,
+    brokerStatus: BrokerStatusData[],
+  ) => void
+  applyPositionDelta: (delta: {
+    symbol: string
+    new_mark_price: number
+    pnl_change: number
+    daily_pnl_change: number
+    delta_change: number
+    gamma_change: number
+    vega_change: number
+    theta_change: number
+  }) => void
+  updateAccount: (account: Partial<AccountData>) => void
 }
 
 export const useMarketStore = create<MarketState>((set) => ({
@@ -44,6 +76,14 @@ export const useMarketStore = create<MarketState>((set) => ({
   advisorPremium: [],
   advisorEquity: [],
   strategyStates: {},
+
+  // Portfolio initial state
+  positions: [],
+  account: null,
+  brokerStatus: [],
+  portfolioGreeks: { delta: 0, gamma: 0, vega: 0, theta: 0 },
+  portfolioPnl: { unrealized: 0, daily: 0, net_liquidation: 0 },
+  portfolioEnabled: false,
 
   updateQuote: (symbol, quote) =>
     set((state) => ({
@@ -113,4 +153,55 @@ export const useMarketStore = create<MarketState>((set) => ({
         },
       }
     }),
+
+  // Portfolio actions
+  updatePortfolioSnapshot: (positions, account, greeks, pnl, brokerStatus) =>
+    set({
+      positions,
+      account,
+      portfolioGreeks: greeks,
+      portfolioPnl: pnl,
+      brokerStatus,
+      portfolioEnabled: true,
+    }),
+
+  applyPositionDelta: (delta) =>
+    set((state) => {
+      // Apply incremental update to matching position
+      const positions = state.positions.map((p) => {
+        if (p.symbol !== delta.symbol) return p
+        return {
+          ...p,
+          mark_price: delta.new_mark_price,
+          unrealized_pnl: (p.unrealized_pnl ?? 0) + delta.pnl_change,
+          daily_pnl: (p.daily_pnl ?? 0) + delta.daily_pnl_change,
+          delta: (p.delta ?? 0) + delta.delta_change,
+          gamma: (p.gamma ?? 0) + delta.gamma_change,
+          vega: (p.vega ?? 0) + delta.vega_change,
+          theta: (p.theta ?? 0) + delta.theta_change,
+        }
+      })
+
+      // Update aggregated Greeks
+      const portfolioGreeks = {
+        delta: state.portfolioGreeks.delta + delta.delta_change,
+        gamma: state.portfolioGreeks.gamma + delta.gamma_change,
+        vega: state.portfolioGreeks.vega + delta.vega_change,
+        theta: state.portfolioGreeks.theta + delta.theta_change,
+      }
+
+      // Update aggregated P&L
+      const portfolioPnl = {
+        ...state.portfolioPnl,
+        unrealized: state.portfolioPnl.unrealized + delta.pnl_change,
+        daily: state.portfolioPnl.daily + delta.daily_pnl_change,
+      }
+
+      return { positions, portfolioGreeks, portfolioPnl }
+    }),
+
+  updateAccount: (partial) =>
+    set((state) => ({
+      account: state.account ? { ...state.account, ...partial } : null,
+    })),
 }))

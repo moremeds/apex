@@ -99,6 +99,21 @@ function doConnect() {
         case "strategy_state":
           s.appendStrategyState(msg.symbol, msg.timeframe, msg.indicator, msg.state)
           break
+        case "portfolio":
+          s.updatePortfolioSnapshot(
+            msg.positions,
+            msg.account,
+            msg.greeks,
+            msg.pnl,
+            msg.broker_status,
+          )
+          break
+        case "position_delta":
+          s.applyPositionDelta(msg)
+          break
+        case "account_update":
+          s.updateAccount(msg)
+          break
       }
     } catch {
       // ignore malformed messages

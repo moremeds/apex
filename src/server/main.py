@@ -22,6 +22,7 @@ from src.server.persistence import ServerPersistence
 from src.server.pipeline import ServerPipeline
 from src.server.routes.advisor import create_advisor_router
 from src.server.routes.monitor import create_monitor_router
+from src.server.routes.portfolio import create_portfolio_router
 from src.server.routes.screeners import _CachedProxy, create_screeners_router
 from src.server.routes.symbols import create_symbols_router
 from src.server.routes.jobs import create_jobs_router
@@ -214,6 +215,134 @@ def _compute_and_persist_summary(
     return summary
 
 
+async def _init_app_container(config: Any) -> Any:
+    """Initialize AppContainer from base.yaml config (same as TUI).
+
+    Returns the container or None if initialization fails.
+    """
+    try:
+        from config.config_manager import ConfigManager
+        from src.application.bootstrap import AppContainer
+        from src.utils import StructuredLogger
+
+        base_config_path = config.base_config_path
+        if not Path(base_config_path).exists():
+            logger.warning("Base config not found at %s — skipping AppContainer", base_config_path)
+            return None
+
+        # Load base config using the same ConfigManager the TUI uses
+        config_dir = str(Path(base_config_path).parent)
+        cm = ConfigManager(config_dir=config_dir, env="dev")
+        app_config = cm.load()
+
+        container = AppContainer(
+            config=app_config,
+            env="server",
+            metrics_port=0,  # Disable Prometheus in server context
+            no_dashboard=True,
+        )
+
+        slog = StructuredLogger(logger)
+        await container.initialize(slog)
+        await container.start()
+
+        logger.info("AppContainer initialized and started (brokers wiring complete)")
+        return container
+    except Exception:
+        logger.exception("Failed to initialize AppContainer — portfolio features disabled")
+        return None
+
+
+def _wire_portfolio_events(container: Any, hub: WebSocketHub, pipeline: Any) -> None:
+    """Subscribe to AppContainer events and bridge to WebSocket broadcasts."""
+    from src.domain.events.event_types import EventType
+
+    loop = asyncio.get_running_loop()
+    event_bus = container.event_bus
+
+    # SNAPSHOT_READY → broadcast full portfolio snapshot (1Hz)
+    def on_snapshot_ready(event: Any) -> None:
+        snapshot = None
+        if container.orchestrator:
+            snapshot = container.orchestrator.get_latest_snapshot()
+
+        account = None
+        if container.account_store:
+            account = container.account_store.get()
+
+        coro = hub.broadcast_portfolio_snapshot(
+            snapshot=snapshot,
+            account=account,
+            broker_manager=container.broker_manager,
+        )
+        asyncio.run_coroutine_threadsafe(coro, loop)
+
+    event_bus.subscribe(EventType.SNAPSHOT_READY, on_snapshot_ready)
+
+    # POSITION_DELTA → broadcast incremental position update (per-tick)
+    def on_position_delta(event: Any) -> None:
+        delta_dict = {
+            "symbol": event.symbol,
+            "underlying": event.underlying,
+            "new_mark_price": event.new_mark_price,
+            "pnl_change": event.pnl_change,
+            "daily_pnl_change": event.daily_pnl_change,
+            "delta_change": event.delta_change,
+            "gamma_change": event.gamma_change,
+            "vega_change": event.vega_change,
+            "theta_change": event.theta_change,
+            "notional_change": event.notional_change,
+            "delta_dollars_change": getattr(event, "delta_dollars_change", 0.0),
+            "underlying_price": getattr(event, "underlying_price", 0.0),
+            "is_reliable": getattr(event, "is_reliable", True),
+        }
+        coro = hub.broadcast_portfolio_delta(delta_dict)
+        asyncio.run_coroutine_threadsafe(coro, loop)
+
+    event_bus.subscribe(EventType.POSITION_DELTA, on_position_delta)
+
+    # ACCOUNT_UPDATED → broadcast account changes
+    def on_account_updated(event: Any) -> None:
+        account_dict = {
+            "account_id": getattr(event, "account_id", ""),
+            "net_liquidation": event.net_liquidation,
+            "total_cash": event.total_cash,
+            "buying_power": event.buying_power,
+            "margin_used": event.margin_used,
+            "margin_available": event.margin_available,
+            "unrealized_pnl": event.unrealized_pnl,
+            "realized_pnl": event.realized_pnl,
+            "daily_pnl": getattr(event, "daily_pnl", 0.0),
+            "position_count": getattr(event, "position_count", 0),
+        }
+        coro = hub.broadcast_account_update(account_dict)
+        asyncio.run_coroutine_threadsafe(coro, loop)
+
+    event_bus.subscribe(EventType.ACCOUNT_UPDATED, on_account_updated)
+
+    # MARKET_DATA_TICK → also feed into ServerPipeline for unified data
+    def on_market_tick(event: Any) -> None:
+        # Bridge IB ticks into signal pipeline (bars → indicators → signals)
+        tick = QuoteTick(
+            symbol=event.symbol,
+            last=event.last,
+            bid=event.bid,
+            ask=event.ask,
+            volume=None,
+            source=getattr(event, "source", "ib"),
+            timestamp=getattr(event, "timestamp", None),
+        )
+        pipeline.on_tick(tick)
+
+        # Also broadcast as quote to WS clients
+        coro = hub.broadcast_quote(tick.symbol, _tick_to_dict(tick))
+        asyncio.run_coroutine_threadsafe(coro, loop)
+
+    event_bus.subscribe(EventType.MARKET_DATA_TICK, on_market_tick)
+
+    logger.info("Portfolio events wired to WebSocket hub")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifecycle — startup and shutdown orchestration."""
@@ -267,6 +396,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             all_symbols = sorted(all_symbols)[: config.max_symbols]
         except Exception:
             logger.exception("Failed to load screener symbols from R2")
+
+    # ── AppContainer (portfolio/risk/broker stack — optional) ──
+    container = await _init_app_container(config)
+    if container is not None:
+        _wire_portfolio_events(container, hub, pipeline)
 
     # ── Longbridge connection (deferred — SDK takes ~13s to connect) ──
     async def _connect_longbridge() -> None:
@@ -501,13 +635,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.quote_adapter = quote_adapter
     app.state.historical_adapter = historical_adapter
     app.state.r2_client = r2_client
+    app.state.container = container
 
     logger.info(
-        "APEX Live Dashboard started (symbols=%d, timeframes=%s, longbridge=%s, r2=%s)",
+        "APEX Live Dashboard started (symbols=%d, timeframes=%s, longbridge=%s, r2=%s, portfolio=%s)",
         len(all_symbols),
         config.timeframes,
         quote_adapter is not None,
         r2_client is not None,
+        container is not None,
     )
 
     yield
@@ -538,6 +674,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     if quote_adapter is not None:
         await quote_adapter.disconnect()
 
+    # Cleanup AppContainer (reverse order — orchestrator, brokers, etc.)
+    if container is not None:
+        try:
+            await container.cleanup()
+            logger.info("AppContainer cleaned up")
+        except Exception:
+            logger.exception("AppContainer cleanup error")
+
     persistence.close()
     logger.info("APEX Live Dashboard stopped")
 
@@ -567,10 +711,12 @@ def create_app(config_path: str = "config/server.yaml") -> FastAPI:
     @app.get("/api/health")
     async def health() -> dict:
         hub = getattr(app.state, "hub", None)
+        container = getattr(app.state, "container", None)
         return {
             "status": "ok",
             "uptime": round(time.monotonic() - _start_time, 1),
             "ws_clients": hub.client_count if hub else 0,
+            "portfolio_enabled": container is not None,
         }
 
     # Screener cache — created early so jobs route can inject computed results.
@@ -586,6 +732,7 @@ def create_app(config_path: str = "config/server.yaml") -> FastAPI:
     app.include_router(create_monitor_router())
     app.include_router(create_advisor_router())
     app.include_router(create_jobs_router())
+    app.include_router(create_portfolio_router())
 
     # SPA catch-all: serve index.html for any non-API, non-WS GET request.
     # This enables direct navigation to /signals, /monitor, etc.
@@ -623,6 +770,7 @@ def create_test_app() -> FastAPI:
 
     hub = WebSocketHub()
     app.state.hub = hub
+    app.state.container = None
 
     @app.get("/api/health")
     async def health() -> dict:
@@ -630,6 +778,7 @@ def create_test_app() -> FastAPI:
             "status": "ok",
             "uptime": round(time.monotonic() - _start_time, 1),
             "ws_clients": hub.client_count,
+            "portfolio_enabled": False,
         }
 
     screener_cache = _CachedProxy(r2_client=None)
@@ -641,6 +790,7 @@ def create_test_app() -> FastAPI:
     app.include_router(create_monitor_router())
     app.include_router(create_advisor_router())
     app.include_router(create_jobs_router())
+    app.include_router(create_portfolio_router())
 
     dist_path = Path("web/dist")
     if dist_path.is_dir():

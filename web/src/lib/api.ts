@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
-import type { AdvisorMarketContext, PremiumAdvice, EquityAdvice } from "./ws"
+import type { AdvisorMarketContext, PremiumAdvice, EquityAdvice, PositionData, AccountData, PortfolioGreeks, PortfolioPnl, BrokerStatusData } from "./ws"
 
 async function fetchJson<T>(url: string): Promise<T> {
   const res = await fetch(url)
@@ -77,6 +77,17 @@ export interface JobState {
   error: string | null
 }
 
+export interface PortfolioSnapshotResponse {
+  positions: PositionData[]
+  account: AccountData | null
+  greeks: PortfolioGreeks
+  pnl: PortfolioPnl
+  broker_status: BrokerStatusData[]
+  position_count: number
+  timestamp: string | null
+  portfolio_enabled: boolean
+}
+
 // ── API functions ──────────────────────────────────────
 
 export const api = {
@@ -98,6 +109,12 @@ export const api = {
   advisorSymbol: (symbol: string) => fetchJson<Record<string, unknown>>(`/api/advisor/${symbol}`),
   triggerJob: (name: string) => postJson<{ job_id: string; status: string }>(`/api/jobs/${name}`),
   jobStatus: () => fetchJson<{ jobs: JobState[] }>("/api/jobs/status"),
+
+  // Portfolio
+  portfolioSnapshot: () => fetchJson<PortfolioSnapshotResponse>("/api/portfolio/snapshot"),
+  portfolioPositions: () => fetchJson<{ positions: PositionData[]; portfolio_enabled: boolean }>("/api/portfolio/positions"),
+  portfolioAccount: () => fetchJson<{ account: AccountData | null; portfolio_enabled: boolean }>("/api/portfolio/account"),
+  portfolioBrokerStatus: () => fetchJson<{ brokers: BrokerStatusData[]; portfolio_enabled: boolean }>("/api/portfolio/broker-status"),
 }
 
 // ── Query hooks ────────────────────────────────────────
@@ -170,4 +187,12 @@ export function useR2Freshness() {
 
 export function useAdvisor() {
   return useQuery({ queryKey: ["advisor"], queryFn: api.advisor, staleTime: 30_000 })
+}
+
+export function usePortfolioSnapshot() {
+  return useQuery({
+    queryKey: ["portfolio-snapshot"],
+    queryFn: api.portfolioSnapshot,
+    refetchInterval: 5_000,
+  })
 }

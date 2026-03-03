@@ -117,18 +117,40 @@ class WebSocketHub:
     async def broadcast_status(self, providers: list) -> None:
         """Send provider status to ALL connected clients."""
         msg = {"type": "status", "providers": providers}
-        dead: list = []
-        for ws in list(self._clients):
-            try:
-                await ws.send_json(msg)
-            except Exception:
-                dead.append(ws)
-        for ws in dead:
-            self.disconnect(ws)
+        await self._send_to_all_clients(msg)
 
     async def broadcast_advisor(self, advice: dict) -> None:
         """Send advisor update to ALL connected clients."""
         msg = {"type": "advisor", **advice}
+        await self._send_to_all_clients(msg)
+
+    async def broadcast_portfolio_snapshot(
+        self,
+        snapshot: Any = None,
+        account: Any = None,
+        broker_manager: Any = None,
+    ) -> None:
+        """Broadcast full portfolio snapshot (1Hz from SnapshotCoordinator)."""
+        from src.server.routes.portfolio import serialize_snapshot
+
+        msg = serialize_snapshot(snapshot, account, broker_manager)
+        msg["type"] = "portfolio"
+        await self._send_to_all_clients(msg)
+
+    async def broadcast_portfolio_delta(self, delta: dict) -> None:
+        """Broadcast position delta (per-tick from DeltaPublisher)."""
+        msg = {"type": "position_delta", **delta}
+        await self._send_to_all_clients(msg)
+
+    async def broadcast_account_update(self, account: dict) -> None:
+        """Broadcast account balance change."""
+        msg = {"type": "account_update", **account}
+        await self._send_to_all_clients(msg)
+
+    # ── Internal ────────────────────────────────────────────
+
+    async def _send_to_all_clients(self, msg: dict) -> None:
+        """Send message to ALL connected clients."""
         dead: list = []
         for ws in list(self._clients):
             try:
@@ -137,8 +159,6 @@ class WebSocketHub:
                 dead.append(ws)
         for ws in dead:
             self.disconnect(ws)
-
-    # ── Internal ────────────────────────────────────────────
 
     async def _send_to_symbol_subscribers(self, symbol: str, msg: dict) -> None:
         """Send message to all clients subscribed to the given symbol.

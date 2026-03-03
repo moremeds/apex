@@ -43,6 +43,9 @@ class ServerConfig:
         default_factory=lambda: ["rsi", "dual_macd", "supertrend", "bollinger"]
     )
 
+    # Shared base config path (for AppContainer/broker/risk integration)
+    base_config_path: str = "config/base.yaml"
+
 
 def load_server_config(path: str = "config/server.yaml") -> ServerConfig:
     """Load server config from YAML file."""
@@ -74,4 +77,5 @@ def load_server_config(path: str = "config/server.yaml") -> ServerConfig:
         r2_flush_interval_sec=persistence.get("r2_flush_interval_sec", 300),
         timeframes=pipeline.get("timeframes", ["30m", "1h", "4h", "1d"]),
         indicators=pipeline.get("indicators", []),
+        base_config_path=raw.get("base_config", "config/base.yaml"),
     )
