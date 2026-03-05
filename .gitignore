@@ -124,3 +124,9 @@ coverage.xml
 /package-lock.json
 .worktrees/
 /docs/
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+!.env.example
