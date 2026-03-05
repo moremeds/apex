@@ -80,12 +80,16 @@ class AppContainer:
         env: Environment name (dev, prod, demo).
         metrics_port: Port for Prometheus metrics (0 to disable).
         no_dashboard: Whether to run in headless mode.
+        shared_event_bus: Optional shared event bus (for server mode).
+        shared_signal_engine: Optional shared SignalEngine (for server mode).
     """
 
     config: Any  # Config object from ConfigManager
     env: str
     metrics_port: int = 8000
     no_dashboard: bool = False
+    shared_event_bus: Optional[PriorityEventBus] = None
+    shared_signal_engine: Optional[Any] = None
 
     # Core infrastructure (created during initialize)
     event_bus: Optional[PriorityEventBus] = field(default=None, init=False)
@@ -187,9 +191,13 @@ class AppContainer:
             self._logger.info(category, message, extra or {})
 
     def _create_event_bus(self) -> None:
-        """Phase 1a: Create priority event bus."""
-        self.event_bus = PriorityEventBus()
-        self._log(LogCategory.SYSTEM, "PriorityEventBus created (dual-lane)")
+        """Phase 1a: Create or reuse priority event bus."""
+        if self.shared_event_bus is not None:
+            self.event_bus = self.shared_event_bus
+            self._log(LogCategory.SYSTEM, "PriorityEventBus reused (shared)")
+        else:
+            self.event_bus = PriorityEventBus()
+            self._log(LogCategory.SYSTEM, "PriorityEventBus created (dual-lane)")
 
     def _create_observability(self) -> None:
         """Phase 1b: Create observability components (optional)."""
@@ -509,6 +517,7 @@ class AppContainer:
             historical_data_manager=self.historical_data_manager,
             signal_persistence=self.signal_repo,
             delta_publisher=self.delta_publisher,
+            signal_engine=self.shared_signal_engine,
         )
 
         self._log(LogCategory.SYSTEM, "Orchestrator created")

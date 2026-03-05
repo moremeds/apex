@@ -107,10 +107,9 @@ def create_symbols_router(
                     )
 
         # 2. Fallback: indicator engine bars (bootstrapped from R2)
-        pipeline = getattr(request.app.state, "pipeline", None)
-        if pipeline:
-            engine = pipeline._indicator_engine
-            bar_deque = engine.get_history(symbol, tf)
+        signal_engine = getattr(request.app.state, "signal_engine", None)
+        if signal_engine:
+            bar_deque = signal_engine.get_history(symbol, tf)
             if bar_deque and len(bar_deque) > 0:
                 result_bars = [
                     {

@@ -16,7 +16,7 @@ _server_start_time = time.monotonic()
 
 def create_monitor_router(
     hub: Any = None,
-    pipeline: Any = None,
+    signal_engine: Any = None,
     quote_adapter: Any = None,
     r2_client: Any = None,
 ) -> APIRouter:
@@ -30,8 +30,8 @@ def create_monitor_router(
     def _get_hub(request: Request) -> Any:
         return getattr(request.app.state, "hub", None) or hub
 
-    def _get_pipeline(request: Request) -> Any:
-        return pipeline or getattr(request.app.state, "pipeline", None)
+    def _get_signal_engine(request: Request) -> Any:
+        return signal_engine or getattr(request.app.state, "signal_engine", None)
 
     def _get_quote_adapter(request: Request) -> Any:
         return quote_adapter or getattr(request.app.state, "quote_adapter", None)
@@ -61,12 +61,12 @@ def create_monitor_router(
         h = _get_hub(request)
         ws_clients = h.client_count if h else 0
 
-        p = _get_pipeline(request)
-        pipeline_running = False
+        se = _get_signal_engine(request)
+        engine_running = False
         timeframes: List[str] = []
-        if p is not None:
-            pipeline_running = getattr(p, "_started", False)
-            timeframes = getattr(p, "_timeframes", [])
+        if se is not None:
+            engine_running = getattr(se, "_started", False)
+            timeframes = getattr(se, "_timeframes", [])
 
         return {
             "status": "ok",
@@ -74,7 +74,7 @@ def create_monitor_router(
             "providers": providers,
             "ws_clients": ws_clients,
             "pipeline": {
-                "running": pipeline_running,
+                "running": engine_running,
                 "timeframes": timeframes,
             },
         }

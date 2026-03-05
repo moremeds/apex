@@ -22,11 +22,11 @@ def _make_quote_adapter(connected=True, symbols=None):
     return adapter
 
 
-def _make_pipeline(started=True, timeframes=None):
-    pipeline = MagicMock()
-    pipeline._started = started
-    pipeline._timeframes = timeframes or ["1m", "1d"]
-    return pipeline
+def _make_signal_engine(started=True, timeframes=None):
+    engine = MagicMock()
+    engine._started = started
+    engine._timeframes = timeframes or ["1m", "1d"]
+    return engine
 
 
 class TestMonitorEndpoint:
@@ -58,9 +58,9 @@ class TestMonitorEndpoint:
         resp = client.get("/api/monitor")
         assert resp.json()["ws_clients"] == 2
 
-    def test_pipeline_status(self):
-        pipeline = _make_pipeline(started=True, timeframes=["1m", "5m", "1d"])
-        client = _make_app(pipeline=pipeline)
+    def test_signal_engine_status(self):
+        engine = _make_signal_engine(started=True, timeframes=["1m", "5m", "1d"])
+        client = _make_app(signal_engine=engine)
         resp = client.get("/api/monitor")
         data = resp.json()
         assert data["pipeline"]["running"] is True
@@ -69,8 +69,8 @@ class TestMonitorEndpoint:
     def test_full_status(self):
         hub = WebSocketHub()
         adapter = _make_quote_adapter(connected=True, symbols=["AAPL"])
-        pipeline = _make_pipeline(started=True)
-        client = _make_app(hub=hub, quote_adapter=adapter, pipeline=pipeline)
+        engine = _make_signal_engine(started=True)
+        client = _make_app(hub=hub, quote_adapter=adapter, signal_engine=engine)
         resp = client.get("/api/monitor")
         data = resp.json()
         assert data["status"] == "ok"

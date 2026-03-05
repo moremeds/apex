@@ -45,6 +45,7 @@ from .models import (
     TradingSignal,
 )
 from .rule_engine import RuleEngine, RuleRegistry
+from .signal_engine import SignalEngine
 
 __all__ = [
     # Models
@@ -61,6 +62,7 @@ __all__ = [
     "IndicatorEngine",
     "RuleEngine",
     "RuleRegistry",
+    "SignalEngine",
     "ConfluenceCalculator",
     # Data pipeline
     "BarBuilder",

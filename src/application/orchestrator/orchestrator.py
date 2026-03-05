@@ -82,6 +82,7 @@ class Orchestrator:
         historical_data_manager: Optional[Any] = None,
         signal_persistence: Optional["SignalPersistencePort"] = None,
         delta_publisher: Optional[Any] = None,
+        signal_engine: Optional[Any] = None,
     ):
         # Core dependencies
         self.broker_manager = broker_manager
@@ -148,6 +149,7 @@ class Orchestrator:
             preload_config=signals_config.get("preload", {}),
             persistence=signal_persistence,
             exclude_options=signals_config.get("exclude_options", True),
+            signal_engine=signal_engine,
         )
 
         # State

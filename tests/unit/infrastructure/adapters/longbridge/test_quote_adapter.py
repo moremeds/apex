@@ -28,6 +28,7 @@ def test_not_connected_initially(adapter):
 def test_set_quote_callback(adapter):
     cb = MagicMock()
     adapter.set_quote_callback(cb)
+    adapter._connected = True  # Simulate connected state
 
     # Simulate SDK pushing a quote — build a mock PushQuote
     mock_quote = MagicMock()
@@ -53,6 +54,7 @@ def test_set_quote_callback(adapter):
 
 def test_set_quote_callback_none(adapter):
     adapter.set_quote_callback(None)
+    adapter._connected = True  # Simulate connected state
     # Should not crash when quote arrives with no callback
     mock_quote = MagicMock()
     mock_quote.symbol = "AAPL.US"
@@ -100,6 +102,7 @@ def test_unsubscribe_removes_symbols(adapter):
 
 
 def test_get_latest_quote(adapter):
+    adapter._connected = True  # Simulate connected state for _on_sdk_quote
     mock_quote = MagicMock()
     mock_quote.symbol = "AAPL.US"
     mock_quote.last_done = 185.50
