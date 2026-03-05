@@ -47,6 +47,7 @@ class LongbridgeQuoteAdapter:
     async def disconnect(self) -> None:
         """Disconnect from Longbridge."""
         self._connected = False
+        self._callback = None  # Prevent stale callback invocation from SDK thread
         self._ctx = None
         logger.info("Longbridge QuoteContext disconnected")
 
@@ -117,6 +118,8 @@ class LongbridgeQuoteAdapter:
 
     def _on_sdk_quote(self, symbol: str, quote: Any) -> None:
         """Normalize SDK quote to QuoteTick and dispatch."""
+        if not self._connected:
+            return
         tick = self._sdk_quote_to_tick(symbol, quote)
         with self._lock:
             self._quotes[tick.symbol] = tick

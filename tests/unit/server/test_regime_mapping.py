@@ -1,28 +1,28 @@
-"""Tests for _map_regime_to_flex() — regime_detector state → RegimeFlexRow mapping."""
+"""Tests for map_regime_to_flex() — regime_detector state → RegimeFlexRow mapping."""
 
-from src.server.pipeline import _map_regime_to_flex
+from src.server.signal_helpers import map_regime_to_flex
 
 
 class TestMapRegimeToFlex:
     def test_short_codes(self):
         """Short regime codes (R0-R3) map to correct exposure."""
-        result = _map_regime_to_flex({"regime": "R0", "regime_changed": False})
+        result = map_regime_to_flex({"regime": "R0", "regime_changed": False})
         assert result["regime"] == "R0"
         assert result["target_exposure"] == 1.0
         assert result["signal"] == "NONE"
 
-        result = _map_regime_to_flex({"regime": "R1", "regime_changed": False})
+        result = map_regime_to_flex({"regime": "R1", "regime_changed": False})
         assert result["target_exposure"] == 0.5
 
-        result = _map_regime_to_flex({"regime": "R2", "regime_changed": False})
+        result = map_regime_to_flex({"regime": "R2", "regime_changed": False})
         assert result["target_exposure"] == 0.0
 
-        result = _map_regime_to_flex({"regime": "R3", "regime_changed": False})
+        result = map_regime_to_flex({"regime": "R3", "regime_changed": False})
         assert result["target_exposure"] == 0.25
 
     def test_regime_transition_signal(self):
         """When regime_changed=True, signal shows transition."""
-        result = _map_regime_to_flex(
+        result = map_regime_to_flex(
             {
                 "regime": "R2",
                 "regime_changed": True,
@@ -35,13 +35,13 @@ class TestMapRegimeToFlex:
 
     def test_unknown_regime_defaults_to_half_exposure(self):
         """Unknown regime code falls back to 0.5 exposure."""
-        result = _map_regime_to_flex({"regime": "X9"})
+        result = map_regime_to_flex({"regime": "X9"})
         assert result["regime"] == "X9"
         assert result["target_exposure"] == 0.5
 
     def test_full_enum_name_handled(self):
         """Full enum names like R1_CHOPPY_EXTENDED are split to short code."""
-        result = _map_regime_to_flex(
+        result = map_regime_to_flex(
             {
                 "regime": "R1_CHOPPY_EXTENDED",
                 "regime_changed": False,
@@ -53,7 +53,7 @@ class TestMapRegimeToFlex:
 
     def test_transition_with_full_enum_names(self):
         """Transition signal with full enum names extracts short codes."""
-        result = _map_regime_to_flex(
+        result = map_regime_to_flex(
             {
                 "regime": "R0_HEALTHY_UPTREND",
                 "regime_changed": True,
@@ -65,7 +65,7 @@ class TestMapRegimeToFlex:
 
     def test_date_passthrough(self):
         """Date field from state is preserved."""
-        result = _map_regime_to_flex(
+        result = map_regime_to_flex(
             {
                 "regime": "R0",
                 "regime_changed": False,
@@ -76,12 +76,12 @@ class TestMapRegimeToFlex:
 
     def test_missing_date_defaults_empty(self):
         """Missing date field defaults to empty string."""
-        result = _map_regime_to_flex({"regime": "R0"})
+        result = map_regime_to_flex({"regime": "R0"})
         assert result["date"] == ""
 
     def test_missing_previous_regime_on_change(self):
         """Missing previous_regime with regime_changed=True produces arrow from empty."""
-        result = _map_regime_to_flex(
+        result = map_regime_to_flex(
             {
                 "regime": "R0",
                 "regime_changed": True,

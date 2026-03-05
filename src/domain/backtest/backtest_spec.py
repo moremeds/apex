@@ -249,7 +249,7 @@ class BacktestSpec:
 
     def to_yaml(self) -> str:
         """Convert to YAML string."""
-        return yaml.dump(self.to_dict(), default_flow_style=False)
+        return str(yaml.dump(self.to_dict(), default_flow_style=False))
 
     def save_yaml(self, path: str) -> None:
         """Save spec to YAML file."""

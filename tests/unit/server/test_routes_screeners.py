@@ -239,13 +239,13 @@ def _make_mock_indicator(name: str, warmup: int = 5, is_strategy: bool = False):
     return ind
 
 
-def _make_mock_pipeline(
+def _make_mock_signal_engine(
     bar_count: int = 60,
     indicators: list | None = None,
     persistence=None,
 ):
-    """Create a mock pipeline with indicator engine and optional persistence."""
-    pipeline = MagicMock()
+    """Create a mock signal engine with indicator engine and optional persistence."""
+    signal_engine = MagicMock()
 
     # Generate synthetic bar history
     bars = deque()
@@ -267,9 +267,9 @@ def _make_mock_pipeline(
     engine = MagicMock()
     engine.get_history = MagicMock(return_value=bars)
     engine._indicators = indicators or []
-    pipeline._indicator_engine = engine
-    pipeline._persistence = persistence
-    return pipeline
+    signal_engine.indicator_engine = engine
+    signal_engine._persistence = persistence
+    return signal_engine
 
 
 # ── _compute_signal_data strategy history tests ────────
@@ -284,8 +284,8 @@ class TestComputeSignalDataStrategyHistories:
             _make_mock_indicator("regime_detector", warmup=5, is_strategy=True),
             _make_mock_indicator("rsi", warmup=5, is_strategy=False),
         ]
-        pipeline = _make_mock_pipeline(bar_count=60, indicators=indicators)
-        result = _compute_signal_data(pipeline, "SPY", "1d")
+        se = _make_mock_signal_engine(bar_count=60, indicators=indicators)
+        result = _compute_signal_data(se, "SPY", "1d")
 
         assert result is not None
         assert "dual_macd_history" in result
@@ -300,8 +300,8 @@ class TestComputeSignalDataStrategyHistories:
         indicators = [
             _make_mock_indicator("dual_macd", warmup=5, is_strategy=True),
         ]
-        pipeline = _make_mock_pipeline(bar_count=60, indicators=indicators)
-        result = _compute_signal_data(pipeline, "SPY", "1d")
+        se = _make_mock_signal_engine(bar_count=60, indicators=indicators)
+        result = _compute_signal_data(se, "SPY", "1d")
 
         assert result is not None
         history = result["dual_macd_history"]
@@ -318,8 +318,8 @@ class TestComputeSignalDataStrategyHistories:
         indicators = [
             _make_mock_indicator("regime_detector", warmup=5, is_strategy=True),
         ]
-        pipeline = _make_mock_pipeline(bar_count=60, indicators=indicators)
-        result = _compute_signal_data(pipeline, "SPY", "1d")
+        se = _make_mock_signal_engine(bar_count=60, indicators=indicators)
+        result = _compute_signal_data(se, "SPY", "1d")
 
         assert result is not None
         history = result["regime_flex_history"]
@@ -349,8 +349,8 @@ class TestComputeSignalDataStrategyHistories:
                 ts=base.replace(minute=i),
             )
 
-        pipeline = _make_mock_pipeline(bar_count=60, persistence=persistence)
-        result = _compute_signal_data(pipeline, "SPY", "1d")
+        se = _make_mock_signal_engine(bar_count=60, persistence=persistence)
+        result = _compute_signal_data(se, "SPY", "1d", persistence=persistence)
 
         assert result is not None
         assert len(result["signals"]) == 5
@@ -367,8 +367,8 @@ class TestComputeSignalDataStrategyHistories:
             _make_mock_indicator("dual_macd", warmup=2, is_strategy=True),
         ]
         # 200 bars → ~198 state rows after warmup, but capped to 50
-        pipeline = _make_mock_pipeline(bar_count=200, indicators=indicators)
-        result = _compute_signal_data(pipeline, "SPY", "1d")
+        se = _make_mock_signal_engine(bar_count=200, indicators=indicators)
+        result = _compute_signal_data(se, "SPY", "1d")
 
         assert result is not None
         history = result["dual_macd_history"]
@@ -381,8 +381,8 @@ class TestComputeSignalDataStrategyHistories:
             _make_mock_indicator("trend_pulse", warmup=5, is_strategy=True),
             _make_mock_indicator("regime_detector", warmup=5, is_strategy=True),
         ]
-        pipeline = _make_mock_pipeline(bar_count=60, indicators=indicators)
-        result = _compute_signal_data(pipeline, "SPY", "1d")
+        se = _make_mock_signal_engine(bar_count=60, indicators=indicators)
+        result = _compute_signal_data(se, "SPY", "1d")
 
         assert result is not None
         for key in ("dual_macd_history", "trend_pulse_history", "regime_flex_history"):
@@ -391,6 +391,6 @@ class TestComputeSignalDataStrategyHistories:
 
     def test_too_few_bars_returns_none(self):
         """Fewer than 10 bars returns None (not enough data)."""
-        pipeline = _make_mock_pipeline(bar_count=5)
-        result = _compute_signal_data(pipeline, "SPY", "1d")
+        se = _make_mock_signal_engine(bar_count=5)
+        result = _compute_signal_data(se, "SPY", "1d")
         assert result is None

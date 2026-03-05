@@ -1,4 +1,4 @@
-"""Tests for ServerPipeline — wires tick → bar → indicator → signal → WS hub."""
+"""Tests for WebBridge — bridges domain events to WS hub, DuckDB, and Advisor."""
 
 import asyncio
 from datetime import datetime, timezone
@@ -7,7 +7,8 @@ from unittest.mock import MagicMock
 import pytest
 
 from src.domain.events.domain_events import IndicatorUpdateEvent, QuoteTick, TradingSignalEvent
-from src.server.pipeline import ServerPipeline
+from src.domain.signals.signal_engine import SignalEngine
+from src.server.web_bridge import WebBridge
 
 
 class MockHub:
@@ -34,6 +35,22 @@ class MockHub:
         self.last_strategy_state_args = (symbol, tf, indicator, state)
 
 
+class MockEventBus:
+    """Simple mock event bus for WebBridge tests."""
+
+    def __init__(self):
+        self.subscriptions = {}
+
+    def subscribe(self, event_type, callback):
+        self.subscriptions.setdefault(event_type, []).append(callback)
+
+    def unsubscribe(self, event_type, callback):
+        if event_type in self.subscriptions:
+            self.subscriptions[event_type] = [
+                cb for cb in self.subscriptions[event_type] if cb is not callback
+            ]
+
+
 def make_tick(symbol: str, price: float, ts: datetime) -> QuoteTick:
     return QuoteTick(
         symbol=symbol,
@@ -44,71 +61,70 @@ def make_tick(symbol: str, price: float, ts: datetime) -> QuoteTick:
     )
 
 
-def test_pipeline_creates():
-    hub = MockHub()
-    pipeline = ServerPipeline(hub=hub, timeframes=["1m"])
-    assert pipeline is not None
-    assert len(pipeline._aggregators) == 1
+# ── SignalEngine creation tests ─────────────────────────────
 
 
-@pytest.mark.asyncio
-async def test_pipeline_on_tick_feeds_aggregators():
-    hub = MockHub()
-    pipeline = ServerPipeline(hub=hub, timeframes=["1m", "5m"])
-    await pipeline.start()
+def test_signal_engine_creates():
+    bus = MockEventBus()
+    engine = SignalEngine(event_bus=bus, timeframes=["1m"])
+    engine.start()
+    assert engine.is_started
+    assert len(engine._aggregators) == 1
+    engine.stop()
+
+
+def test_signal_engine_on_tick_feeds_aggregators():
+    bus = MockEventBus()
+    engine = SignalEngine(event_bus=bus, timeframes=["1m", "5m"])
+    engine.start()
 
     tick = make_tick("AAPL", 185.5, datetime(2026, 2, 25, 14, 30, 0, tzinfo=timezone.utc))
-    pipeline.on_tick(tick)
-    # Pipeline should have aggregators for each timeframe
-    assert len(pipeline._aggregators) == 2
+    engine.on_tick(tick)
+    assert len(engine._aggregators) == 2
 
-    await pipeline.stop()
+    engine.stop()
 
 
-@pytest.mark.asyncio
-async def test_pipeline_start_stop():
+def test_signal_engine_start_stop():
+    bus = MockEventBus()
+    engine = SignalEngine(event_bus=bus, timeframes=["1m"])
+    engine.start()
+    assert engine.is_started
+    engine.stop()
+    assert not engine.is_started
+
+
+# ── WebBridge indicator broadcast tests ─────────────────────
+
+
+def test_web_bridge_creates():
+    bus = MockEventBus()
+    engine = MagicMock(spec=SignalEngine)
     hub = MockHub()
-    pipeline = ServerPipeline(hub=hub, timeframes=["1m"])
-    await pipeline.start()
-    assert pipeline._started
-    await pipeline.stop()
-    assert not pipeline._started
+    bridge = WebBridge(event_bus=bus, signal_engine=engine, hub=hub, persistence=None)
+    assert bridge is not None
 
 
-@pytest.mark.asyncio
-async def test_pipeline_bar_close_triggers_broadcast():
-    """When enough ticks close a bar, the hub should get a broadcast."""
+def test_web_bridge_start_stop():
+    bus = MockEventBus()
+    engine = MagicMock(spec=SignalEngine)
     hub = MockHub()
-    pipeline = ServerPipeline(hub=hub, timeframes=["1m"])
-    await pipeline.start()
-
-    # Generate ticks spanning a full minute to close a bar
-    base = datetime(2026, 2, 25, 14, 30, 0, tzinfo=timezone.utc)
-    for i in range(5):
-        tick = make_tick("AAPL", 185.0 + i * 0.1, base.replace(second=i * 12))
-        pipeline.on_tick(tick)
-
-    # Now send a tick in the NEXT minute to close the first bar
-    next_min = base.replace(minute=31, second=0)
-    pipeline.on_tick(make_tick("AAPL", 186.0, next_min))
-
-    # Give the async event bus time to process events and schedule broadcasts
-    await asyncio.sleep(0.5)
-
-    assert hub.bars_broadcast >= 1
-
-    await pipeline.stop()
-
-
-# ── Strategy state broadcasting tests ────────────────
+    bridge = WebBridge(event_bus=bus, signal_engine=engine, hub=hub, persistence=None)
+    bridge.start()
+    assert bridge._started
+    bridge.stop()
+    assert not bridge._started
 
 
 @pytest.mark.asyncio
 async def test_strategy_indicator_broadcasts_state():
     """Strategy indicators (dual_macd etc.) broadcast their full state dict."""
     hub = MockHub()
-    pipeline = ServerPipeline(hub=hub, timeframes=["1d"])
-    await pipeline.start()
+    bus = MockEventBus()
+    engine = MagicMock(spec=SignalEngine)
+    loop = asyncio.get_running_loop()
+    bridge = WebBridge(event_bus=bus, signal_engine=engine, hub=hub, persistence=None, loop=loop)
+    bridge.start()
 
     event = IndicatorUpdateEvent(
         symbol="AAPL",
@@ -118,12 +134,12 @@ async def test_strategy_indicator_broadcasts_state():
         state={"slow_histogram": 0.5, "trend_state": "BULLISH"},
         timestamp=datetime(2026, 3, 2, 16, 0, tzinfo=timezone.utc),
     )
-    pipeline._on_indicator_update(event)
+    bridge._on_indicator_update(event)
 
-    # Let the scheduled coroutine execute
+    # Let the scheduled coroutines execute
     await asyncio.sleep(0.3)
 
-    assert hub.indicators_broadcast == 1  # always broadcasts indicator value
+    assert hub.indicators_broadcast == 1
     assert hub.strategy_states_broadcast == 1
     sym, tf, ind, state = hub.last_strategy_state_args
     assert sym == "AAPL"
@@ -132,15 +148,18 @@ async def test_strategy_indicator_broadcasts_state():
     assert state["slow_histogram"] == 0.5
     assert state["date"] == "2026-03-02T16:00:00+00:00"
 
-    await pipeline.stop()
+    bridge.stop()
 
 
 @pytest.mark.asyncio
 async def test_non_strategy_indicator_skips_state_broadcast():
     """Non-strategy indicators (rsi, ema) do NOT broadcast strategy_state."""
     hub = MockHub()
-    pipeline = ServerPipeline(hub=hub, timeframes=["1d"])
-    await pipeline.start()
+    bus = MockEventBus()
+    engine = MagicMock(spec=SignalEngine)
+    loop = asyncio.get_running_loop()
+    bridge = WebBridge(event_bus=bus, signal_engine=engine, hub=hub, persistence=None, loop=loop)
+    bridge.start()
 
     event = IndicatorUpdateEvent(
         symbol="AAPL",
@@ -150,21 +169,24 @@ async def test_non_strategy_indicator_skips_state_broadcast():
         state={"value": 65.0},
         timestamp=datetime(2026, 3, 2, 16, 0, tzinfo=timezone.utc),
     )
-    pipeline._on_indicator_update(event)
+    bridge._on_indicator_update(event)
     await asyncio.sleep(0.3)
 
     assert hub.indicators_broadcast == 1
-    assert hub.strategy_states_broadcast == 0  # rsi is NOT a strategy indicator
+    assert hub.strategy_states_broadcast == 0
 
-    await pipeline.stop()
+    bridge.stop()
 
 
 @pytest.mark.asyncio
 async def test_regime_detector_maps_to_flex_format():
-    """regime_detector state is mapped to RegimeFlexRow via _map_regime_to_flex."""
+    """regime_detector state is mapped to RegimeFlexRow via map_regime_to_flex."""
     hub = MockHub()
-    pipeline = ServerPipeline(hub=hub, timeframes=["1d"])
-    await pipeline.start()
+    bus = MockEventBus()
+    engine = MagicMock(spec=SignalEngine)
+    loop = asyncio.get_running_loop()
+    bridge = WebBridge(event_bus=bus, signal_engine=engine, hub=hub, persistence=None, loop=loop)
+    bridge.start()
 
     event = IndicatorUpdateEvent(
         symbol="SPY",
@@ -180,43 +202,45 @@ async def test_regime_detector_maps_to_flex_format():
         },
         timestamp=datetime(2026, 3, 2, 16, 0, tzinfo=timezone.utc),
     )
-    pipeline._on_indicator_update(event)
+    bridge._on_indicator_update(event)
     await asyncio.sleep(0.3)
 
     assert hub.strategy_states_broadcast == 1
     _, _, ind, state = hub.last_strategy_state_args
     assert ind == "regime_detector"
-    # Mapped to flex format (not raw regime_detector state)
     assert state["regime"] == "R0"
     assert state["target_exposure"] == 1.0
     assert state["signal"] == "R1→R0"
     assert "date" in state
 
-    await pipeline.stop()
+    bridge.stop()
 
 
 @pytest.mark.asyncio
 async def test_empty_state_skips_strategy_broadcast():
     """Empty state dict (falsy) should NOT trigger strategy_state broadcast."""
     hub = MockHub()
-    pipeline = ServerPipeline(hub=hub, timeframes=["1d"])
-    await pipeline.start()
+    bus = MockEventBus()
+    engine = MagicMock(spec=SignalEngine)
+    loop = asyncio.get_running_loop()
+    bridge = WebBridge(event_bus=bus, signal_engine=engine, hub=hub, persistence=None, loop=loop)
+    bridge.start()
 
     event = IndicatorUpdateEvent(
         symbol="AAPL",
         timeframe="1d",
         indicator="dual_macd",
         value=0.0,
-        state={},  # empty dict is falsy
+        state={},
         timestamp=datetime(2026, 3, 2, 16, 0, tzinfo=timezone.utc),
     )
-    pipeline._on_indicator_update(event)
+    bridge._on_indicator_update(event)
     await asyncio.sleep(0.3)
 
     assert hub.indicators_broadcast == 1
     assert hub.strategy_states_broadcast == 0
 
-    await pipeline.stop()
+    bridge.stop()
 
 
 # ── Signal persistence tests ────────────────
@@ -228,10 +252,14 @@ async def test_trading_signal_persists_to_duckdb():
     from src.server.persistence import ServerPersistence
 
     hub = MockHub()
-    pipeline = ServerPipeline(hub=hub, timeframes=["1d"])
+    bus = MockEventBus()
+    engine = MagicMock(spec=SignalEngine)
     persistence = ServerPersistence(duckdb_path=":memory:")
-    pipeline._persistence = persistence
-    await pipeline.start()
+    loop = asyncio.get_running_loop()
+    bridge = WebBridge(
+        event_bus=bus, signal_engine=engine, hub=hub, persistence=persistence, loop=loop
+    )
+    bridge.start()
 
     event = TradingSignalEvent(
         symbol="AAPL",
@@ -242,30 +270,34 @@ async def test_trading_signal_persists_to_duckdb():
         trigger_rule="rsi_oversold",
         timestamp=datetime(2026, 3, 2, 16, 0, tzinfo=timezone.utc),
     )
-    pipeline._on_trading_signal(event)
+    bridge._on_trading_signal(event)
     await asyncio.sleep(0.3)
 
     signals = persistence.query_signals(symbol="AAPL")
     assert len(signals) == 1
     assert signals[0]["rule"] == "rsi_oversold"
-    assert signals[0]["direction"] == "bullish"  # mapped from "buy"
+    assert signals[0]["direction"] == "bullish"
     assert signals[0]["timeframe"] == "1d"
     assert signals[0]["indicator"] == "rsi"
 
     persistence.close()
-    await pipeline.stop()
+    bridge.stop()
 
 
 @pytest.mark.asyncio
 async def test_trading_signal_persistence_failure_logs_not_crashes():
     """If persistence raises, signal processing continues without crashing."""
     hub = MockHub()
-    pipeline = ServerPipeline(hub=hub, timeframes=["1d"])
+    bus = MockEventBus()
+    engine = MagicMock(spec=SignalEngine)
 
     mock_persistence = MagicMock()
     mock_persistence.insert_signal.side_effect = RuntimeError("DB write failed")
-    pipeline._persistence = mock_persistence
-    await pipeline.start()
+    loop = asyncio.get_running_loop()
+    bridge = WebBridge(
+        event_bus=bus, signal_engine=engine, hub=hub, persistence=mock_persistence, loop=loop
+    )
+    bridge.start()
 
     event = TradingSignalEvent(
         symbol="AAPL",
@@ -276,13 +308,10 @@ async def test_trading_signal_persistence_failure_logs_not_crashes():
         trigger_rule="macd_cross_down",
         timestamp=datetime(2026, 3, 2, 16, 0, tzinfo=timezone.utc),
     )
-    # Should not raise
-    pipeline._on_trading_signal(event)
+    bridge._on_trading_signal(event)
     await asyncio.sleep(0.3)
 
-    # Signal was still broadcast to WS hub despite persistence failure
     assert hub.signals_broadcast == 1
-    # Signal was still buffered for advisor
-    assert len(pipeline._signal_buffer.get("AAPL", [])) == 1
+    assert len(bridge._signal_buffer.get("AAPL", [])) == 1
 
-    await pipeline.stop()
+    bridge.stop()

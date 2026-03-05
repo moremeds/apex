@@ -143,19 +143,22 @@ def create_screeners_router(
 
         # Compute from indicator engine (bars already bootstrapped from R2)
         if data is None:
-            pipeline_obj = getattr(request.app.state, "pipeline", None)
-            if pipeline_obj:
-                data = await asyncio.to_thread(_compute_signal_data, pipeline_obj, symbol, tf)
+            signal_engine_obj = getattr(request.app.state, "signal_engine", None)
+            persistence_obj = getattr(request.app.state, "persistence", None)
+            if signal_engine_obj:
+                data = await asyncio.to_thread(
+                    _compute_signal_data, signal_engine_obj, symbol, tf, persistence_obj
+                )
                 if data:
                     proxy.set_cache(key, data)
 
         # DuckDB bars fallback (if engine not ready yet)
         if data is None:
-            persistence = getattr(request.app.state, "persistence", None)
-            if persistence:
-                bars = await asyncio.to_thread(persistence.query_bars, symbol, tf, 500)
+            persistence_obj = getattr(request.app.state, "persistence", None)
+            if persistence_obj:
+                bars = await asyncio.to_thread(persistence_obj.query_bars, symbol, tf, 500)
                 if bars:
-                    data = _compute_signal_data_from_bars(bars, symbol, tf)
+                    data = _compute_signal_data_from_bars(bars, symbol, tf, persistence_obj)
                     if data:
                         proxy.set_cache(key, data)
 
@@ -172,11 +175,10 @@ def create_screeners_router(
         data = copy.deepcopy(data)
 
         # Extend chart with fresh bars from indicator engine
-        pipeline_obj = getattr(request.app.state, "pipeline", None)
+        signal_engine_obj = getattr(request.app.state, "signal_engine", None)
         chart_data = data.get("chart_data")
-        if pipeline_obj is not None and chart_data and chart_data.get("timestamps"):
-            engine = pipeline_obj._indicator_engine
-            bar_deque = engine.get_history(symbol, tf)
+        if signal_engine_obj is not None and chart_data and chart_data.get("timestamps"):
+            bar_deque = signal_engine_obj.get_history(symbol, tf)
             if bar_deque:
                 last_ts_str = chart_data["timestamps"][-1]
                 from datetime import datetime
@@ -262,16 +264,16 @@ def create_screeners_router(
         # Overlay prices from R2-bootstrapped + gap-filled indicator engine.
         from src.server.main import _get_prev_close
 
-        pipeline = getattr(request.app.state, "pipeline", None)
+        se = getattr(request.app.state, "signal_engine", None)
         prev_close_map: dict[str, float] = {}
-        if pipeline is not None:
+        if se is not None:
             try:
-                engine = pipeline._indicator_engine
+                ie = se.indicator_engine
                 for ticker in data.get("tickers", []):
                     sym = ticker.get("symbol", "")
-                    bar_deque = engine.get_history(sym, "1d")
+                    bar_deque = ie.get_history(sym, "1d")
                     close = bar_deque[-1]["close"] if bar_deque else 0.0
-                    prev_close = _get_prev_close(engine, sym)
+                    prev_close = _get_prev_close(ie, sym)
 
                     if prev_close and prev_close > 0:
                         prev_close_map[sym] = prev_close
@@ -313,12 +315,12 @@ def create_screeners_router(
                 except Exception:
                     pass
 
-        # Overlay live regime from pipeline indicator engine.
+        # Overlay live regime from signal engine indicator cache.
         # get_regime_states() now includes composite_score — avoids a second
         # expensive get_all_indicator_states() call per request.
-        if pipeline is not None:
+        if se is not None:
             try:
-                regimes = pipeline.get_regime_states("1d")
+                regimes = se.get_regime_states("1d")
                 if regimes:
                     for ticker in data.get("tickers", []):
                         sym = ticker.get("symbol", "")
@@ -377,9 +379,9 @@ def create_screeners_router(
 
         # Compute from engine if no cache
         if data is None:
-            pipeline = getattr(request.app.state, "pipeline", None)
-            if pipeline:
-                data = await asyncio.to_thread(_build_indicators_metadata, pipeline)
+            se = getattr(request.app.state, "signal_engine", None)
+            if se:
+                data = await asyncio.to_thread(_build_indicators_metadata, se)
                 if data:
                     proxy.set_cache("indicators.json", data)
 
@@ -409,13 +411,15 @@ def _format_ts(ts: Any) -> str:
     return str(ts)
 
 
-def _compute_signal_data(pipeline: Any, symbol: str, tf: str) -> dict | None:
+def _compute_signal_data(
+    signal_engine: Any, symbol: str, tf: str, persistence: Any = None
+) -> dict | None:
     """Compute signal chart data from indicator engine bars + all indicators."""
     import pandas as pd
 
-    from src.server.pipeline import STRATEGY_INDICATORS, _map_regime_to_flex
+    from src.server.signal_helpers import STRATEGY_INDICATORS, map_regime_to_flex
 
-    engine = pipeline._indicator_engine
+    engine = signal_engine.indicator_engine
     bar_deque = engine.get_history(symbol, tf)
     if not bar_deque or len(bar_deque) < 10:
         return None
@@ -480,7 +484,7 @@ def _compute_signal_data(pipeline: Any, symbol: str, tf: str) -> dict | None:
                         elif ind_name == "trend_pulse":
                             trend_pulse_history.append(state)
                         elif ind_name == "regime_detector":
-                            regime_flex_history.append(_map_regime_to_flex(state))
+                            regime_flex_history.append(map_regime_to_flex(state))
                     except Exception:
                         continue
         except Exception:
@@ -488,7 +492,6 @@ def _compute_signal_data(pipeline: Any, symbol: str, tf: str) -> dict | None:
 
     # Query persisted signals
     signals: list[dict] = []
-    persistence = getattr(pipeline, "_persistence", None)
     if persistence:
         try:
             raw = persistence.query_signals(symbol=symbol, timeframe=tf, limit=200)
@@ -516,7 +519,9 @@ def _compute_signal_data(pipeline: Any, symbol: str, tf: str) -> dict | None:
     }
 
 
-def _compute_signal_data_from_bars(bars: list[dict], symbol: str, tf: str) -> dict | None:
+def _compute_signal_data_from_bars(
+    bars: list[dict], symbol: str, tf: str, persistence: Any = None
+) -> dict | None:
     """Compute signal data from DuckDB bar rows (fallback when engine empty)."""
     if not bars or len(bars) < 10:
         return None
@@ -537,12 +542,33 @@ def _compute_signal_data_from_bars(bars: list[dict], symbol: str, tf: str) -> di
         "volume_ind": {},
         "price_levels": {},
     }
+
+    # Query persisted signals from DuckDB
+    signals: list[dict] = []
+    if persistence:
+        try:
+            raw = persistence.query_signals(symbol=symbol, timeframe=tf, limit=200)
+            signals = [
+                {
+                    "timestamp": _format_ts(s.get("ts", "")),
+                    "rule": s.get("rule", ""),
+                    "direction": s.get("direction", ""),
+                    "indicator": s.get("indicator", ""),
+                }
+                for s in raw
+            ]
+        except Exception:
+            pass
+
     return {
         "symbol": symbol,
         "timeframe": tf,
         "bar_count": len(bars),
         "chart_data": chart_data,
-        "signals": [],
+        "signals": signals,
+        "dual_macd_history": [],
+        "trend_pulse_history": [],
+        "regime_flex_history": [],
     }
 
 
@@ -564,13 +590,13 @@ def _place_indicator_in_chart(chart_data: dict, ind_name: str, full_key: str, va
         chart_data["oscillators"][full_key] = values
 
 
-def _build_indicators_metadata(pipeline: Any) -> dict | None:
+def _build_indicators_metadata(signal_engine: Any) -> dict | None:
     """Build indicator metadata from registered indicators in the engine.
 
     Returns format expected by IndicatorsSection:
     {"categories": [{"name": "Overlay", "indicators": [{"name", "description", "params", "warmup_periods", "rules"}]}]}
     """
-    engine = pipeline._indicator_engine
+    engine = signal_engine.indicator_engine
     if not hasattr(engine, "_indicators") or not engine._indicators:
         return None
 
