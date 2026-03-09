@@ -120,7 +120,7 @@ jobs:
           FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
 
       - name: Upload report artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: momentum-${{ github.run_id }}
           path: out/momentum/data/momentum_watchlist.json
