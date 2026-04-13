@@ -14,7 +14,7 @@ dependencies = [
     "ib-async>=2.0.1",         # Interactive Brokers API client (maintained fork of ib_insync)
     "pyyaml>=6.0.1",           # YAML configuration parsing
     "pytz>=2024.1",            # Timezone handling for market hours
-    "yfinance>=0.2.36",        # Yahoo Finance for fallback market data and beta values
+    "yfinance>=1.2.2",        # Yahoo Finance for fallback market data and beta values
 
     # TUI and database
     "textual>=6.11.0",         # TUI framework for terminal dashboard
