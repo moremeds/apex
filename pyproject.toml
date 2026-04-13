@@ -80,7 +80,7 @@ server = [
 ]
 
 cloudflare = [
-    "boto3>=1.35",             # S3-compatible client for Cloudflare R2
+    "boto3>=1.42.88",             # S3-compatible client for Cloudflare R2
 ]
 
 observability = [
