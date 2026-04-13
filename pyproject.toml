@@ -17,7 +17,7 @@ dependencies = [
     "yfinance>=0.2.36",        # Yahoo Finance for fallback market data and beta values
 
     # TUI and database
-    "textual>=6.11.0",         # TUI framework for terminal dashboard
+    "textual>=8.2.3",         # TUI framework for terminal dashboard
     "asyncpg>=0.31.0",         # PostgreSQL async driver for persistence
     "tenacity>=8.2.0",         # Retry logic for database operations
 
