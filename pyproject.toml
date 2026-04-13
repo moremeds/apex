@@ -36,7 +36,7 @@ dependencies = [
 
     # Trading and backtesting
     "backtrader>=1.9.78.123",  # Backtesting framework
-    "futu-api>=9.4.5408",      # Futu OpenD broker integration
+    "futu-api>=10.2.6218",      # Futu OpenD broker integration
     "TA-Lib>=0.6.8",           # Technical analysis indicators
     "vectorbt>=0.28.2",        # Vectorized backtesting and analysis
 
