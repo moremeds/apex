@@ -17,7 +17,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import json
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -303,6 +303,20 @@ def cmd_screen(
     # [6/6] Write results
     output_dir = PROJECT_ROOT / "out" / "momentum"
     _write_watchlist_json(result, output_dir, data_as_of=data_as_of)
+
+    # Optional: publish to PostgreSQL
+    from src.runners._pg_publish import publish_screener_results
+
+    run_id = f"momentum-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+    pg_results = [
+        {
+            "symbol": c.signal.symbol,
+            "score": c.signal.momentum_12_1,
+            "metadata": {"fip": c.signal.fip, "rank": c.rank, "regime": c.regime},
+        }
+        for c in result.candidates
+    ]
+    publish_screener_results(run_id, "momentum", pg_results)
 
     return result
 

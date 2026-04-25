@@ -371,64 +371,18 @@ clean:
 	find . -type f -name "*.pyc" -delete 2>/dev/null || true
 	@echo "$(GREEN)✓ Cleanup complete$(RESET)"
 
-# ── Live Dashboard ──────────────────────────────────────────
+# ── Signal Service ────────────────────────────────────────────
 
-live:   ## Start full live dashboard (backend :8080 + frontend :5174)
-	@echo "$(BOLD)Starting APEX Live Dashboard...$(RESET)"
-	@echo "  Backend:  http://localhost:8080"
-	@echo "  Frontend: http://localhost:5174"
-	@echo "  Press Ctrl+C to stop both"
-	@echo ""
-	@# Kill stale processes on ports 8080/5174 if any
-	@lsof -ti:8080 | xargs kill -9 2>/dev/null || true
-	@lsof -ti:5174 | xargs kill -9 2>/dev/null || true
-	@sleep 1
-	@# Ensure web dependencies are installed
-	@if [ ! -d web/node_modules ]; then \
-		echo "Installing web dependencies..." && \
-		cd web && npm install; \
-	fi
-	@trap 'kill 0' EXIT; \
-		PYTHONPATH=. $(PYTHON) -m uvicorn src.server.main:app --port 8080 --ws-ping-interval 60 --ws-ping-timeout 60 & \
-		echo "Waiting for backend to be ready (up to 45s)..." && \
-		READY=0 && \
-		for i in $$(seq 1 45); do \
-			if curl -sf http://localhost:8080/api/health > /dev/null 2>&1; then \
-				echo "Backend ready! ($$i s)"; \
-				READY=1; \
-				break; \
-			fi; \
-			sleep 1; \
-		done && \
-		if [ "$$READY" = "0" ]; then \
-			echo "$(YELLOW)ERROR: Backend failed to start within 45s$(RESET)"; \
-			exit 1; \
-		fi && \
-		cd web && npm run dev -- --port 5174
+signal-service:   ## Start signal service daemon (IB → signals → PostgreSQL)
+	@echo "$(BOLD)Starting APEX Signal Service...$(RESET)"
+	PYTHONPATH=. $(PYTHON) -m src.services.signal_service
 
-server-dev:   ## Start backend only (dev mode, auto-reload, :8080)
-	@echo "$(BOLD)Starting APEX server (dev mode, auto-reload)...$(RESET)"
-	PYTHONPATH=. $(PYTHON) -m uvicorn src.server.main:app --reload --port 8080 --ws-ping-interval 60 --ws-ping-timeout 60
+db-init:   ## Create PostgreSQL schema
+	@echo "$(BOLD)Initializing database schema...$(RESET)"
+	PYTHONPATH=. $(PYTHON) -m src.infrastructure.persistence.pg_schema --init
+	@echo "$(GREEN)✓ Schema initialized$(RESET)"
 
-server:   ## Start backend only (production, :8080)
-	@echo "$(BOLD)Starting APEX server (production)...$(RESET)"
-	PYTHONPATH=. $(PYTHON) -m uvicorn src.server.main:app --port 8080 --ws-ping-interval 60 --ws-ping-timeout 60
-
-web-install:   ## Install web frontend dependencies
-	@echo "$(BOLD)Installing web frontend dependencies...$(RESET)"
-	cd web && npm install
-	@echo "$(GREEN)✓ Web dependencies installed$(RESET)"
-
-web-dev:   ## Start frontend only (dev mode, :5174)
-	@echo "$(BOLD)Starting frontend dev server...$(RESET)"
-	@if [ ! -d web/node_modules ]; then echo "Run 'make web-install' first" && exit 1; fi
-	cd web && npm run dev
-
-web-build:   ## Build frontend for production
-	@echo "$(BOLD)Building frontend for production...$(RESET)"
-	@if [ ! -d web/node_modules ]; then echo "Run 'make web-install' first" && exit 1; fi
-	cd web && npm run build
-
-tunnel:   ## Start Cloudflare Tunnel
-	@echo "$(BOLD)Starting Cloudflare Tunnel...$(RESET)"
-	cloudflared tunnel run apex
+db-reset:   ## Drop and recreate PostgreSQL schema
+	@echo "$(BOLD)Resetting database schema...$(RESET)"
+	PYTHONPATH=. $(PYTHON) -m src.infrastructure.persistence.pg_schema --reset
+	@echo "$(GREEN)✓ Schema reset$(RESET)"

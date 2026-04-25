@@ -16,7 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -181,7 +181,9 @@ def cmd_screen(
     attention_data: dict[str, str | None] | None = None
     if config.attention_filter.enabled:
         try:
-            from src.infrastructure.adapters.earnings.attention_adapter import AttentionAdapter
+            from src.infrastructure.adapters.earnings.attention_adapter import (
+                AttentionAdapter,
+            )
 
             adapter = AttentionAdapter()
             attention_data = {}
@@ -232,6 +234,23 @@ def cmd_screen(
     output_dir = PROJECT_ROOT / "out" / "pead"
     _write_candidates_json(result, output_dir)
 
+    # Optional: publish to PostgreSQL
+    from src.runners._pg_publish import publish_screener_results
+
+    run_id = f"pead-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+    pg_results = [
+        {
+            "symbol": c.symbol,
+            "score": c.surprise.sue_score,
+            "metadata": {
+                "report_date": c.surprise.report_date.isoformat(),
+                "earnings_day_gap": c.surprise.earnings_day_gap,
+            },
+        }
+        for c in result.candidates
+    ]
+    publish_screener_results(run_id, "pead", pg_results)
+
     return result
 
 
@@ -242,7 +261,9 @@ def cmd_update_attention() -> None:
     Requires optional ``pytrends`` dependency.
     """
     try:
-        from src.infrastructure.adapters.earnings.attention_adapter import AttentionAdapter
+        from src.infrastructure.adapters.earnings.attention_adapter import (
+            AttentionAdapter,
+        )
     except ImportError:
         print("Attention filter requires pytrends: pip install pytrends")
         return
@@ -318,7 +339,7 @@ def cmd_tracker_stats() -> None:
             pnl = data.get("avg_pnl_pct")
             print(
                 (
-                    f"  {label:10s} n={data['total']:3d}  " f"WR={wr:.1%} "
+                    f"  {label:10s} n={data['total']:3d}  WR={wr:.1%} "
                     if wr is not None
                     else f"  {label:10s} n={data['total']:3d}  "
                 ),
@@ -338,7 +359,10 @@ def main() -> None:
     parser.add_argument("--screen", action="store_true", help="Run PEAD screening from cache")
     parser.add_argument("--full", action="store_true", help="Update + screen in one step")
     parser.add_argument(
-        "--universe", type=str, default="config/universe.yaml", help="Universe YAML path"
+        "--universe",
+        type=str,
+        default="config/universe.yaml",
+        help="Universe YAML path",
     )
     parser.add_argument("--lookback-days", type=int, default=10, help="Calendar days to look back")
     parser.add_argument("--signals-dir", type=str, default=None, help="Signal pipeline output dir")

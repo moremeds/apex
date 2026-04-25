@@ -8,8 +8,9 @@ Usage:
 """
 
 from __future__ import annotations
-import asyncio
+
 import argparse
+import asyncio
 import logging
 import os
 import sys
@@ -21,13 +22,11 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 os.chdir(PROJECT_ROOT)
 
 from config.config_manager import ConfigManager
-from src.services import HistoricalDataService, TAService
 from src.application import AppContainer
-from src.tui import TerminalDashboard
-from src.models.risk_snapshot import RiskSnapshot
+from src.services import HistoricalDataService, TAService
 from src.utils import StructuredLogger, flush_all_loggers, set_log_timezone
-from src.utils.structured_logger import LogCategory
 from src.utils.logging_setup import setup_category_logging
+from src.utils.structured_logger import LogCategory
 
 
 def parse_args() -> argparse.Namespace:
@@ -41,7 +40,7 @@ Examples:
   python main.py --mode monitor         # Explicit monitor mode
   python main.py --mode backtest --spec config/backtest/ma_cross.yaml
   python main.py --mode backtest --engine backtrader --strategy ma_cross
-        """
+        """,
     )
 
     # Mode selection
@@ -50,7 +49,7 @@ Examples:
         type=str,
         default="monitor",
         choices=["monitor", "backtest", "trading"],
-        help="Operational mode: monitor (default), backtest, or trading"
+        help="Operational mode: monitor (default), backtest, or trading",
     )
 
     parser.add_argument(
@@ -58,32 +57,27 @@ Examples:
         type=str,
         default="dev",
         choices=["dev", "prod", "demo"],
-        help="Environment to run in (default: dev). Use 'demo' for offline mode with sample positions."
+        help="Environment to run in (default: dev). Use 'demo' for offline mode with sample positions.",
     )
 
     parser.add_argument(
         "--config",
         type=str,
-        help="Path to custom config file (overrides env-based loading)"
-    )
-
-    parser.add_argument(
-        "--no-dashboard",
-        action="store_true",
-        help="Disable terminal dashboard (headless mode)"
+        help="Path to custom config file (overrides env-based loading)",
     )
 
     parser.add_argument(
         "--metrics-port",
         type=int,
         default=8000,
-        help="Port for Prometheus /metrics endpoint (default: 8000, 0 to disable)"
+        help="Port for Prometheus /metrics endpoint (default: 8000, 0 to disable)",
     )
 
     parser.add_argument(
-        "--verbose", "-v",
+        "--verbose",
+        "-v",
         action="store_true",
-        help="Enable verbose logging (DEBUG level for all categories)"
+        help="Enable verbose logging (DEBUG level for all categories)",
     )
 
     parser.add_argument(
@@ -91,7 +85,7 @@ Examples:
         type=str,
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-        help="Set log level (default: INFO, ignored if --verbose is set)"
+        help="Set log level (default: INFO, ignored if --verbose is set)",
     )
 
     # Backtest mode options
@@ -101,38 +95,30 @@ Examples:
         type=str,
         default="apex",
         choices=["apex", "backtrader"],
-        help="Backtest engine: apex (default) or backtrader"
+        help="Backtest engine: apex (default) or backtrader",
     )
     backtest_group.add_argument(
         "--spec",
         type=str,
-        help="Path to backtest spec YAML file (e.g., config/backtest/ma_cross.yaml)"
+        help="Path to backtest spec YAML file (e.g., config/backtest/ma_cross.yaml)",
     )
     backtest_group.add_argument(
-        "--strategy",
-        type=str,
-        help="Strategy name (if not using --spec)"
+        "--strategy", type=str, help="Strategy name (if not using --spec)"
     )
     backtest_group.add_argument(
-        "--symbols",
-        type=str,
-        help="Comma-separated symbols (if not using --spec)"
+        "--symbols", type=str, help="Comma-separated symbols (if not using --spec)"
     )
     backtest_group.add_argument(
-        "--start",
-        type=str,
-        help="Start date YYYY-MM-DD (if not using --spec)"
+        "--start", type=str, help="Start date YYYY-MM-DD (if not using --spec)"
     )
     backtest_group.add_argument(
-        "--end",
-        type=str,
-        help="End date YYYY-MM-DD (if not using --spec)"
+        "--end", type=str, help="End date YYYY-MM-DD (if not using --spec)"
     )
     backtest_group.add_argument(
         "--capital",
         type=float,
         default=100000.0,
-        help="Initial capital (default: 100000)"
+        help="Initial capital (default: 100000)",
     )
 
     # Trading mode options
@@ -140,7 +126,7 @@ Examples:
     trading_group.add_argument(
         "--dry-run",
         action="store_true",
-        help="Paper trading mode (log orders but don't execute)"
+        help="Paper trading mode (log orders but don't execute)",
     )
 
     return parser.parse_args()
@@ -164,7 +150,7 @@ async def main_async(args: argparse.Namespace) -> None:
         env=args.env,
         log_dir="./logs",
         level=args.log_level,
-        console=args.no_dashboard,
+        console=True,
         verbose=args.verbose,
     )
     system_logger = category_loggers["system"]
@@ -176,7 +162,7 @@ async def main_async(args: argparse.Namespace) -> None:
     system_structured.info(
         LogCategory.SYSTEM,
         "Starting Live Risk Management System",
-        {"env": args.env, "log_timezone": log_tz}
+        {"env": args.env, "log_timezone": log_tz},
     )
 
     # Create application container (composition root)
@@ -184,107 +170,34 @@ async def main_async(args: argparse.Namespace) -> None:
         config=config,
         env=args.env,
         metrics_port=args.metrics_port,
-        no_dashboard=args.no_dashboard,
+        no_dashboard=True,
     )
 
-    dashboard = None
     historical_service = None
     ta_service = None
 
     try:
-        # Initialize all services via container
         await container.initialize(system_structured)
-
-        # Initialize dashboard (if not disabled)
-        if not args.no_dashboard:
-            dashboard_config = config.raw.get("dashboard", {})
-            dashboard_config["display_tz"] = config.display.timezone if config.display else "Asia/Hong_Kong"
-            dashboard = TerminalDashboard(
-                config=dashboard_config,
-                env=args.env,
-            )
-
-        # Wire dashboard to container services
-        if dashboard:
-            event_loop = asyncio.get_event_loop()
-            dashboard.set_event_bus(container.event_bus, event_loop)
-            dashboard.set_coverage_store(container.coverage_store)
-            if container.signal_repo:
-                dashboard.set_signal_persistence(container.signal_repo)
-
-        # Start container services
         await container.start()
 
-        # Debug: Check health components after start
         initial_health = container.health_monitor.get_all_health()
         system_structured.info(
             LogCategory.SYSTEM,
             f"Health components after start: {len(initial_health)}",
-            {"components": [h.component_name for h in initial_health]}
+            {"components": [h.component_name for h in initial_health]},
         )
-
-        # Set trading universe for dashboard
-        if dashboard:
-            positions = container.position_store.get_all()
-            underlyings = {
-                pos.underlying if pos.underlying else pos.symbol
-                for pos in positions if pos.underlying or pos.symbol
-            }
-
-            if underlyings:
-                universe_symbols = list(underlyings)
-            else:
-                universe_symbols = ["AAPL", "TSLA", "NVDA", "AMD", "MSFT", "GOOGL", "AMZN", "META"]
-                system_structured.info(LogCategory.DATA, "No positions found, using sample symbols")
-
-            dashboard.set_trading_universe(universe_symbols)
-            system_structured.info(
-                LogCategory.DATA,
-                f"Trading universe set: {len(universe_symbols)} symbols",
-                {"symbols": universe_symbols[:10]}
-            )
-
-        # Wire signal introspection adapter for Tab 7 (Intro) live pipeline visibility
-        if dashboard and container.orchestrator:
-            try:
-                coordinator = container.orchestrator.signal_coordinator
-                if coordinator and coordinator._indicator_engine and coordinator._rule_engine:
-                    from src.infrastructure.adapters.signal_introspection_adapter import (
-                        SignalIntrospectionAdapter,
-                    )
-                    introspection = SignalIntrospectionAdapter(
-                        signal_coordinator=coordinator,
-                        indicator_engine=coordinator._indicator_engine,
-                        rule_engine=coordinator._rule_engine,
-                    )
-                    introspection.start()
-                    dashboard.set_signal_introspection(introspection)
-                    system_structured.info(
-                        LogCategory.SYSTEM,
-                        "Signal introspection adapter wired to dashboard",
-                    )
-                else:
-                    system_structured.warning(
-                        LogCategory.SYSTEM,
-                        "Signal pipeline not fully initialized, skipping introspection wiring",
-                    )
-            except Exception as e:
-                system_structured.error(
-                    LogCategory.SYSTEM,
-                    f"Failed to wire signal introspection: {e}",
-                )
 
         # Background task: Connect historical IB and pre-fetch daily bars
         prefetch_task = None
         if container.ib_pool:
+
             async def connect_historical_and_prefetch():
-                """Background task to connect historical IB and pre-fetch bars."""
                 try:
                     await container.ib_pool.connect_historical()
                     system_structured.info(
                         LogCategory.SYSTEM,
                         "IB historical connection established",
-                        {"client_id": config.ibkr.client_ids.historical_pool[0]}
+                        {"client_id": config.ibkr.client_ids.historical_pool[0]},
                     )
 
                     nonlocal historical_service, ta_service
@@ -295,17 +208,11 @@ async def main_async(args: argparse.Namespace) -> None:
                     )
                     ta_service = TAService(historical_service)
 
-                    if dashboard:
-                        event_loop = asyncio.get_event_loop()
-                        dashboard.set_ta_service(
-                            ta_service, event_loop, historical_service, container.event_bus
-                        )
-
-                    # Pre-fetch daily bars for positions
                     positions = container.position_store.get_all()
                     underlyings = {
                         pos.underlying if pos.underlying else pos.symbol
-                        for pos in positions if pos.underlying or pos.symbol
+                        for pos in positions
+                        if pos.underlying or pos.symbol
                     }
 
                     if underlyings:
@@ -313,66 +220,27 @@ async def main_async(args: argparse.Namespace) -> None:
                         system_structured.info(
                             LogCategory.DATA,
                             f"Pre-fetching 60d daily bars for {len(symbols)} symbols",
-                            {"symbols": symbols[:10]}
+                            {"symbols": symbols[:10]},
                         )
-                        await historical_service.prefetch_daily_bars(symbols, lookback_days=60)
-                        system_structured.info(LogCategory.DATA, "Daily bars pre-fetch complete")
+                        await historical_service.prefetch_daily_bars(
+                            symbols, lookback_days=60
+                        )
+                        system_structured.info(
+                            LogCategory.DATA, "Daily bars pre-fetch complete"
+                        )
                 except Exception as e:
-                    system_structured.warning(LogCategory.SYSTEM, f"Historical data setup failed: {e}")
+                    system_structured.warning(
+                        LogCategory.SYSTEM, f"Historical data setup failed: {e}"
+                    )
 
             prefetch_task = asyncio.create_task(connect_historical_and_prefetch())
 
-        # Update loop - feeds data from orchestrator to dashboard
-        update_task = None
-        if dashboard:
-            async def update_loop():
-                """Background task that feeds orchestrator data to dashboard queue."""
-                while dashboard.running:
-                    try:
-                        snapshot = await container.orchestrator.wait_for_snapshot(timeout=3.0)
-                        health = container.health_monitor.get_all_health()
-
-                        if snapshot:
-                            risk_signals = container.orchestrator.get_latest_risk_signals()
-                            market_alerts = container.orchestrator.get_latest_market_alerts()
-                            dashboard.update(snapshot, risk_signals, health, market_alerts)
-                            data_structured.info(
-                                LogCategory.DATA,
-                                "Risk snapshot refreshed",
-                                {"positions": snapshot.total_positions, "position_risks": len(snapshot.position_risks)}
-                            )
-                        else:
-                            preview = container.orchestrator.get_positions_preview()
-                            if preview and preview.total_positions > 0:
-                                dashboard.update(preview, [], health, [])
-                            else:
-                                dashboard.update(RiskSnapshot(), [], health, [])
-                    except asyncio.CancelledError:
-                        break
-                    except Exception as e:
-                        system_structured.warning(LogCategory.SYSTEM, f"Update loop error: {e}")
-                        await asyncio.sleep(1)
-
-            update_task = asyncio.create_task(update_loop())
-
-            try:
-                await dashboard.run_async()
-            except KeyboardInterrupt:
-                system_structured.info(LogCategory.SYSTEM, "Received shutdown signal")
-            finally:
-                if update_task:
-                    update_task.cancel()
-                    try:
-                        await update_task
-                    except asyncio.CancelledError:
-                        pass
-        else:
-            # Headless mode
-            try:
-                while True:
-                    await asyncio.sleep(1)
-            except KeyboardInterrupt:
-                system_structured.info(LogCategory.SYSTEM, "Received shutdown signal")
+        # Headless mode — run until interrupted
+        try:
+            while True:
+                await asyncio.sleep(1)
+        except KeyboardInterrupt:
+            system_structured.info(LogCategory.SYSTEM, "Received shutdown signal")
 
         system_structured.info(LogCategory.SYSTEM, "System shutdown complete")
 
@@ -380,8 +248,6 @@ async def main_async(args: argparse.Namespace) -> None:
         system_structured.error(LogCategory.SYSTEM, "Fatal error", {"error": str(e)})
         system_logger.exception("Fatal error:")
     finally:
-        if dashboard:
-            dashboard.stop()
         await container.cleanup()
         flush_all_loggers()
 
@@ -396,11 +262,17 @@ async def run_backtest(args: argparse.Namespace) -> int:
     Returns:
         Exit code (0 for success/profitable, 1 for failure/unprofitable).
     """
-    from src.runners.backtest_runner import BacktestRunner, BacktraderRunner, BACKTRADER_AVAILABLE
-    from src.domain.strategy.registry import list_strategies
-
     # Configure logging
     import logging
+
+    from src.runners.backtest_runner import (
+        BACKTRADER_AVAILABLE,
+        BacktestRunner,
+        BacktraderRunner,
+    )
+
+    from src.domain.strategy.registry import list_strategies
+
     level = logging.DEBUG if args.verbose else logging.INFO
     logging.basicConfig(
         level=level,
@@ -453,11 +325,12 @@ async def run_trading(args: argparse.Namespace) -> int:
     Returns:
         Exit code.
     """
-    from src.runners.trading_runner import TradingRunner
-    from src.domain.strategy.registry import list_strategies
-
     # Configure logging
     import logging
+
+    from src.domain.strategy.registry import list_strategies
+    from src.runners.trading_runner import TradingRunner
+
     level = logging.DEBUG if args.verbose else logging.INFO
     logging.basicConfig(
         level=level,
