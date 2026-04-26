@@ -39,9 +39,7 @@ async def _on_bar_close(
             event.timestamp,
         )
     except Exception:
-        logger.warning(
-            "Bar insert failed for %s/%s", event.symbol, event.timeframe, exc_info=True
-        )
+        logger.warning("Bar insert failed for %s/%s", event.symbol, event.timeframe, exc_info=True)
 
     if event.timeframe == "1d" and signal_engine:
         try:
@@ -114,11 +112,7 @@ async def _bootstrap_from_r2(
                         ts = row.get("timestamp") or row.get("date") or idx
                         if hasattr(ts, "to_pydatetime"):
                             ts = ts.to_pydatetime()
-                        if (
-                            ts is not None
-                            and hasattr(ts, "tzinfo")
-                            and ts.tzinfo is not None
-                        ):
+                        if ts is not None and hasattr(ts, "tzinfo") and ts.tzinfo is not None:
                             ts = ts.replace(tzinfo=None)
                         bar_dicts.append(
                             {
@@ -127,11 +121,7 @@ async def _bootstrap_from_r2(
                                 "high": float(row.get("high", 0)),
                                 "low": float(row.get("low", 0)),
                                 "close": float(row.get("close", 0)),
-                                "volume": (
-                                    int(row.get("volume", 0))
-                                    if row.get("volume")
-                                    else 0
-                                ),
+                                "volume": (int(row.get("volume", 0)) if row.get("volume") else 0),
                             }
                         )
                     n = ie.inject_historical_bars(symbol, tf, bar_dicts)
@@ -145,13 +135,9 @@ async def _bootstrap_from_r2(
             try:
                 await ie.compute_on_history(symbol, tf)
             except Exception:
-                logger.debug(
-                    "Compute on history failed for %s/%s", symbol, tf, exc_info=True
-                )
+                logger.debug("Compute on history failed for %s/%s", symbol, tf, exc_info=True)
 
-    logger.info(
-        "Bootstrap: %d symbol/tf pairs warmed in %.1fs", warmed, _time.monotonic() - t0
-    )
+    logger.info("Bootstrap: %d symbol/tf pairs warmed in %.1fs", warmed, _time.monotonic() - t0)
     return warmed
 
 
@@ -196,11 +182,7 @@ async def _fill_data_gap(
                 if not df.empty:
                     bar_dicts = []
                     for idx, row in df.iterrows():
-                        ts = (
-                            idx.to_pydatetime()
-                            if hasattr(idx, "to_pydatetime")
-                            else idx
-                        )
+                        ts = idx.to_pydatetime() if hasattr(idx, "to_pydatetime") else idx
                         if hasattr(ts, "tzinfo") and ts.tzinfo is not None:
                             ts = ts.replace(tzinfo=None)
                         bar_dicts.append(
@@ -210,11 +192,7 @@ async def _fill_data_gap(
                                 "high": float(row.get("high", 0)),
                                 "low": float(row.get("low", 0)),
                                 "close": float(row.get("close", 0)),
-                                "volume": (
-                                    int(row.get("volume", 0))
-                                    if row.get("volume")
-                                    else 0
-                                ),
+                                "volume": (int(row.get("volume", 0)) if row.get("volume") else 0),
                             }
                         )
                     n = engine.inject_historical_bars(sym, tf, bar_dicts)
@@ -231,9 +209,7 @@ async def _fill_data_gap(
 
 async def run_signal_service() -> None:
     """Main entry point for the signal service daemon."""
-    logging.basicConfig(
-        level=logging.INFO, format="%(levelname)s:%(name)s: %(message)s"
-    )
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s: %(message)s")
 
     project_root = Path(__file__).resolve().parent.parent.parent
     os.chdir(project_root)
@@ -290,17 +266,13 @@ async def run_signal_service() -> None:
         from src.infrastructure.adapters.ib.live_adapter import IbLiveAdapter
 
         ib_port = config.ibkr.port if hasattr(config, "ibkr") and config.ibkr else 4001
-        ib_host = (
-            config.ibkr.host if hasattr(config, "ibkr") and config.ibkr else "127.0.0.1"
-        )
+        ib_host = config.ibkr.host if hasattr(config, "ibkr") and config.ibkr else "127.0.0.1"
         ib_adapter = IbLiveAdapter(host=ib_host, port=ib_port, client_id=20)
         await ib_adapter.connect()
         ib_adapter.set_quote_callback(signal_engine.on_tick)
         logger.info("IB Gateway connected (%s:%d)", ib_host, ib_port)
     except Exception:
-        logger.warning(
-            "IB Gateway not available — running without live ticks", exc_info=True
-        )
+        logger.warning("IB Gateway not available — running without live ticks", exc_info=True)
 
     from src.domain.services.regime.universe_loader import load_universe
 

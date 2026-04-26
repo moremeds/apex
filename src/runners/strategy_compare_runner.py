@@ -225,12 +225,8 @@ async def _run_strategy_event_driven(
     regime_provider = SeriesRegimeProvider(regime_series)
 
     # Configure BacktestEngine
-    start_date = (
-        data.index[0].date() if hasattr(data.index[0], "date") else data.index[0]
-    )
-    end_date = (
-        data.index[-1].date() if hasattr(data.index[-1], "date") else data.index[-1]
-    )
+    start_date = data.index[0].date() if hasattr(data.index[0], "date") else data.index[0]
+    end_date = data.index[-1].date() if hasattr(data.index[-1], "date") else data.index[-1]
 
     config = BacktestConfig(
         start_date=start_date,
@@ -416,9 +412,7 @@ async def _run_portfolio_strategy(
     try:
         result = await engine.run()
     except Exception as e:
-        logger.warning(
-            f"BacktestEngine failed for portfolio strategy {strategy_name}: {e}"
-        )
+        logger.warning(f"BacktestEngine failed for portfolio strategy {strategy_name}: {e}")
         return {}
 
     return _extract_metrics(result, regime_series, init_cash)
@@ -594,11 +588,7 @@ def _extract_metrics(
 
     total_return = perf.total_return
     sharpe = risk.sharpe_ratio
-    max_dd = (
-        -(risk.max_drawdown / 100.0)
-        if risk.max_drawdown > 0
-        else risk.max_drawdown / 100.0
-    )
+    max_dd = -(risk.max_drawdown / 100.0) if risk.max_drawdown > 0 else risk.max_drawdown / 100.0
     win_rate = (trades.win_rate / 100.0) if trades.win_rate > 1 else trades.win_rate
     total_trades = trades.total_trades
 
@@ -606,8 +596,8 @@ def _extract_metrics(
     per_regime_sharpe, per_regime_return = _calc_per_regime_metrics(
         returns_list, equity_index, regime_series
     )
-    per_regime_trades, per_regime_wr, per_regime_pf, per_regime_avg_hold = (
-        _calc_per_regime_trades(result.trade_log, regime_series)
+    per_regime_trades, per_regime_wr, per_regime_pf, per_regime_avg_hold = _calc_per_regime_trades(
+        result.trade_log, regime_series
     )
     stress_results = _calc_stress_results(equity_values, equity_index)
     rolling_sharpe = _calc_rolling_sharpe(returns_list, equity_index)
@@ -676,9 +666,7 @@ def _aggregate_equity_curves(
             if eq_vals and eq_vals[0] > 0:
                 base = eq_vals[0]
                 idx = pd.Index([pd.Timestamp(t, unit="s") for t in eq_idx])
-                norm_series[sym] = pd.Series(
-                    [(v / base) * 100 for v in eq_vals], index=idx
-                )
+                norm_series[sym] = pd.Series([(v / base) * 100 for v in eq_vals], index=idx)
     if norm_series:
         combined = pd.DataFrame(norm_series)
         combined = combined.ffill().bfill()
@@ -740,8 +728,7 @@ def _aggregate_regime_trades(
                     m["per_regime_trades"].get(regime_label, 0),
                 )
                 for m in valid.values()
-                if "per_regime_wr" in m
-                and m.get("per_regime_trades", {}).get(regime_label, 0) > 0
+                if "per_regime_wr" in m and m.get("per_regime_trades", {}).get(regime_label, 0) > 0
             ]
             if wr_vals:
                 w_sum = sum(wr * n for wr, n in wr_vals)
@@ -753,8 +740,7 @@ def _aggregate_regime_trades(
                     m["per_regime_trades"].get(regime_label, 0),
                 )
                 for m in valid.values()
-                if "per_regime_pf" in m
-                and m.get("per_regime_trades", {}).get(regime_label, 0) > 0
+                if "per_regime_pf" in m and m.get("per_regime_trades", {}).get(regime_label, 0) > 0
             ]
             if pf_vals:
                 w_sum = sum(pf * n for pf, n in pf_vals)
@@ -859,8 +845,8 @@ def _aggregate_results(
         for s, m in valid.items()
     }
     per_regime_sharpe, per_regime_return = _aggregate_regime_metrics(valid)
-    per_regime_trades, per_regime_wr, per_regime_pf, per_regime_avg_hold = (
-        _aggregate_regime_trades(valid)
+    per_regime_trades, per_regime_wr, per_regime_pf, per_regime_avg_hold = _aggregate_regime_trades(
+        valid
     )
     stress_results = _aggregate_stress(valid)
     monthly_returns, rolling_sharpe = _aggregate_time_series(valid)
@@ -947,9 +933,7 @@ def run_comparison(
 
     strategy_names = strategies or list(STRATEGY_REGISTRY.keys())
 
-    print(
-        f"Strategy comparison: {len(strategy_names)} strategies x {len(symbols)} symbols"
-    )
+    print(f"Strategy comparison: {len(strategy_names)} strategies x {len(symbols)} symbols")
     print(f"Period: {start_date} to {end_date} ({years}yr)")
     print(f"Engine: BacktestEngine (event-driven, all strategies)")
     print(
@@ -1024,9 +1008,7 @@ def run_comparison(
             continue
 
         if is_portfolio:
-            print(
-                f"\nRunning {strat_name} (portfolio mode, {len(all_data)} symbols)..."
-            )
+            print(f"\nRunning {strat_name} (portfolio mode, {len(all_data)} symbols)...")
             portfolio_result = asyncio.run(
                 _run_portfolio_strategy(
                     strategy_name=strat_name,
