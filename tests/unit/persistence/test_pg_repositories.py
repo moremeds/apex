@@ -11,8 +11,8 @@ from datetime import datetime, timezone
 import pytest
 
 pytestmark = pytest.mark.skipif(
-    not os.environ.get("APEX_PG_URL") and not os.environ.get("CI"),
-    reason="No APEX_PG_URL set — skip PG tests locally unless CI",
+    not os.environ.get("APEX_PG_URL"),
+    reason="No APEX_PG_URL set — these tests require a live Postgres instance",
 )
 
 
@@ -105,7 +105,9 @@ class TestBarRepository:
 class TestSignalRepository:
     async def test_insert_and_query_signal(self, repo):
         ts = datetime(2025, 1, 15, 16, 0, tzinfo=timezone.utc)
-        await repo.insert_signal("AAPL", "rsi_oversold", "bullish", 0.8, ts, "1d", "rsi")
+        await repo.insert_signal(
+            "AAPL", "rsi_oversold", "bullish", 0.8, ts, "1d", "rsi"
+        )
         rows = await repo.query_signals(symbol="AAPL", limit=10)
         assert len(rows) == 1
         assert rows[0]["rule"] == "rsi_oversold"
