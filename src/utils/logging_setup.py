@@ -115,8 +115,6 @@ MODULE_ROUTING: List[tuple[str, str]] = [
     ("src.infrastructure.monitoring", "system"),
     # Application layer
     ("src.application", "system"),
-    # TUI
-    ("src.tui", "system"),
     # Models (rarely log, but route to data)
     ("src.models", "data"),
     # Default fallback
@@ -562,7 +560,8 @@ def setup_logging(config: LoggingConfig, logger_name: Optional[str] = None) -> l
         formatter = JSONFormatter()
     else:
         formatter = logging.Formatter(
-            "%(asctime)s - %(name)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
         )
 
     # Console handler

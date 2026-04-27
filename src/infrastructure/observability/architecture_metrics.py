@@ -250,42 +250,42 @@ class ArchitectureMetrics:
         ArchitectureMetrics._pool_stats = stats
 
     # Observable gauge callbacks
-    def _get_scheduler_pending(self, options: Any) -> Any:
+    def _get_scheduler_pending(self, _options: Any) -> Any:
         yield ArchitectureMetrics._scheduler_stats.get("pending_requests", 0)
 
-    def _get_scheduler_concurrent(self, options: Any) -> Any:
+    def _get_scheduler_concurrent(self, _options: Any) -> Any:
         yield ArchitectureMetrics._scheduler_stats.get("concurrent_active", 0)
 
-    def _get_scheduler_tokens(self, options: Any) -> Any:
+    def _get_scheduler_tokens(self, _options: Any) -> Any:
         yield ArchitectureMetrics._scheduler_stats.get("available_tokens", 0)
 
-    def _get_router_lines(self, options: Any) -> Any:
+    def _get_router_lines(self, _options: Any) -> Any:
         yield ArchitectureMetrics._router_stats.get("active_lines", 0)
 
-    def _get_router_available(self, options: Any) -> Any:
+    def _get_router_available(self, _options: Any) -> Any:
         yield ArchitectureMetrics._router_stats.get("available_lines", 0)
 
-    def _get_indicator_entries(self, options: Any) -> Any:
+    def _get_indicator_entries(self, _options: Any) -> Any:
         yield ArchitectureMetrics._indicator_stats.get("entries", 0)
 
-    def _get_indicator_hit_rate(self, options: Any) -> Any:
+    def _get_indicator_hit_rate(self, _options: Any) -> Any:
         rate_str = ArchitectureMetrics._indicator_stats.get("hit_rate", "0.0%")
         try:
             yield float(rate_str.replace("%", ""))
         except ValueError:
             yield 0.0
 
-    def _get_pool_connected(self, options: Any) -> Any:
+    def _get_pool_connected(self, _options: Any) -> Any:
         yield 1 if ArchitectureMetrics._pool_stats.get("connected", False) else 0
 
-    def _get_pool_monitoring(self, options: Any) -> Any:
+    def _get_pool_monitoring(self, _options: Any) -> Any:
         mon = ArchitectureMetrics._pool_stats.get("monitoring", {})
         yield 1 if mon.get("connected", False) else 0
 
-    def _get_pool_historical(self, options: Any) -> Any:
+    def _get_pool_historical(self, _options: Any) -> Any:
         hist = ArchitectureMetrics._pool_stats.get("historical", {})
         yield 1 if hist.get("connected", False) else 0
 
-    def _get_pool_execution(self, options: Any) -> Any:
+    def _get_pool_execution(self, _options: Any) -> Any:
         exec_ = ArchitectureMetrics._pool_stats.get("execution", {})
         yield 1 if exec_.get("connected", False) else 0

@@ -11,8 +11,8 @@ from datetime import datetime, timezone
 import pytest
 
 pytestmark = pytest.mark.skipif(
-    not os.environ.get("APEX_PG_URL") and not os.environ.get("CI"),
-    reason="No APEX_PG_URL set — skip PG tests locally unless CI",
+    not os.environ.get("APEX_PG_URL"),
+    reason="No APEX_PG_URL set — these tests require a live Postgres instance",
 )
 
 

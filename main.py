@@ -1,10 +1,15 @@
 """
-Live Risk Management System - Main Entry Point
+APEX Signal Server — Main Entry Point.
 
-Usage:
-    python main.py --env dev          # Development mode
-    python main.py --env prod         # Production mode
-    python main.py --config custom.yaml  # Custom config file
+Services:
+    python main.py --service signal   # Signal service daemon (IB → PG)
+    python main.py --service api      # REST API server (:8322)
+    python main.py --service all      # Both services (dev convenience)
+
+Legacy modes (backward compatible):
+    python main.py --mode backtest --strategy trend_pulse --symbols SPY \
+        --start 2025-01-01 --end 2025-06-30
+    python main.py --mode trading --strategy trend_pulse --symbols SPY
 """
 
 from __future__ import annotations
@@ -16,394 +21,138 @@ import os
 import sys
 from pathlib import Path
 
-# Change to project root directory (where main.py is located)
-# This ensures config files are found regardless of where script is invoked from
 PROJECT_ROOT = Path(__file__).resolve().parent
 os.chdir(PROJECT_ROOT)
-
-from config.config_manager import ConfigManager
-from src.application import AppContainer
-from src.services import HistoricalDataService, TAService
-from src.utils import StructuredLogger, flush_all_loggers, set_log_timezone
-from src.utils.logging_setup import setup_category_logging
-from src.utils.structured_logger import LogCategory
 
 
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description="Live Risk Management System",
+        description="APEX Signal Server",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Examples:
-  python main.py --env dev              # Run in development mode (monitor)
-  python main.py --mode monitor         # Explicit monitor mode
-  python main.py --mode backtest --spec config/backtest/ma_cross.yaml
-  python main.py --mode backtest --engine backtrader --strategy ma_cross
+Services:
+  python main.py --service signal     Signal daemon (IB ticks → PG)
+  python main.py --service api        REST API server (:8322)
+  python main.py --service all        Both services (dev)
+
+Legacy:
+  python main.py --mode backtest --spec config/backtest/trend_pulse_validate.yaml
+  python main.py --mode trading --strategy trend_pulse --symbols SPY
         """,
     )
 
-    # Mode selection
+    parser.add_argument(
+        "--service",
+        type=str,
+        default="all",
+        choices=["signal", "api", "all"],
+        help="Service to run: signal, api, or all (default: all)",
+    )
+
     parser.add_argument(
         "--mode",
         type=str,
-        default="monitor",
-        choices=["monitor", "backtest", "trading"],
-        help="Operational mode: monitor (default), backtest, or trading",
+        default=None,
+        choices=["backtest", "trading"],
+        help="Legacy mode (backtest or trading) — bypasses --service",
     )
 
-    parser.add_argument(
-        "--env",
-        type=str,
-        default="dev",
-        choices=["dev", "prod", "demo"],
-        help="Environment to run in (default: dev). Use 'demo' for offline mode with sample positions.",
-    )
+    parser.add_argument("--env", type=str, default="dev", choices=["dev", "prod"])
+    parser.add_argument("--verbose", "-v", action="store_true")
+    parser.add_argument("--log-level", type=str, default="INFO")
 
-    parser.add_argument(
-        "--config",
-        type=str,
-        help="Path to custom config file (overrides env-based loading)",
+    bt = parser.add_argument_group("Backtest")
+    bt.add_argument(
+        "--engine", type=str, default="apex", choices=["apex", "backtrader"]
     )
+    bt.add_argument("--spec", type=str)
+    bt.add_argument("--strategy", type=str)
+    bt.add_argument("--symbols", type=str)
+    bt.add_argument("--start", type=str)
+    bt.add_argument("--end", type=str)
+    bt.add_argument("--capital", type=float, default=100_000.0)
 
-    parser.add_argument(
-        "--metrics-port",
-        type=int,
-        default=8000,
-        help="Port for Prometheus /metrics endpoint (default: 8000, 0 to disable)",
-    )
-
-    parser.add_argument(
-        "--verbose",
-        "-v",
-        action="store_true",
-        help="Enable verbose logging (DEBUG level for all categories)",
-    )
-
-    parser.add_argument(
-        "--log-level",
-        type=str,
-        default="INFO",
-        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-        help="Set log level (default: INFO, ignored if --verbose is set)",
-    )
-
-    # Backtest mode options
-    backtest_group = parser.add_argument_group("Backtest Mode")
-    backtest_group.add_argument(
-        "--engine",
-        type=str,
-        default="apex",
-        choices=["apex", "backtrader"],
-        help="Backtest engine: apex (default) or backtrader",
-    )
-    backtest_group.add_argument(
-        "--spec",
-        type=str,
-        help="Path to backtest spec YAML file (e.g., config/backtest/ma_cross.yaml)",
-    )
-    backtest_group.add_argument(
-        "--strategy", type=str, help="Strategy name (if not using --spec)"
-    )
-    backtest_group.add_argument(
-        "--symbols", type=str, help="Comma-separated symbols (if not using --spec)"
-    )
-    backtest_group.add_argument(
-        "--start", type=str, help="Start date YYYY-MM-DD (if not using --spec)"
-    )
-    backtest_group.add_argument(
-        "--end", type=str, help="End date YYYY-MM-DD (if not using --spec)"
-    )
-    backtest_group.add_argument(
-        "--capital",
-        type=float,
-        default=100000.0,
-        help="Initial capital (default: 100000)",
-    )
-
-    # Trading mode options
-    trading_group = parser.add_argument_group("Trading Mode")
-    trading_group.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Paper trading mode (log orders but don't execute)",
-    )
+    parser.add_argument("--dry-run", action="store_true")
 
     return parser.parse_args()
 
 
-async def main_async(args: argparse.Namespace) -> None:
-    """Main async entry point."""
-    # Load configuration first to get timezone setting
-    config_manager = ConfigManager(config_dir="config", env=args.env)
-    config = config_manager.load()
+async def run_services(args: argparse.Namespace) -> None:
+    """Run the selected services concurrently."""
+    level = logging.DEBUG if args.verbose else getattr(logging, args.log_level)
+    logging.basicConfig(level=level, format="%(levelname)s:%(name)s: %(message)s")
+    logger = logging.getLogger("apex")
 
-    # Set timezone for logging (before creating loggers)
-    log_tz = config.logging.timezone
-    if log_tz and log_tz.lower() != "local":
-        set_log_timezone(log_tz)
-    else:
-        set_log_timezone(None)  # Use local time
+    tasks = []
 
-    # Set up category-based logging
-    category_loggers = setup_category_logging(
-        env=args.env,
-        log_dir="./logs",
-        level=args.log_level,
-        console=True,
-        verbose=args.verbose,
-    )
-    system_logger = category_loggers["system"]
-    data_logger = category_loggers["data"]
+    if args.service in ("signal", "all"):
+        from src.services.signal_service import run_signal_service
 
-    system_structured = StructuredLogger(system_logger)
-    data_structured = StructuredLogger(data_logger)
+        logger.info("Starting signal service...")
+        tasks.append(asyncio.create_task(run_signal_service()))
 
-    system_structured.info(
-        LogCategory.SYSTEM,
-        "Starting Live Risk Management System",
-        {"env": args.env, "log_timezone": log_tz},
-    )
+    if args.service in ("api", "all"):
+        import uvicorn
 
-    # Create application container (composition root)
-    container = AppContainer(
-        config=config,
-        env=args.env,
-        metrics_port=args.metrics_port,
-        no_dashboard=True,
-    )
+        from src.api.server import create_app
 
-    historical_service = None
-    ta_service = None
+        port = int(os.environ.get("APEX_API_PORT", "8322"))
+        logger.info("Starting API server on port %d...", port)
 
-    try:
-        await container.initialize(system_structured)
-        await container.start()
-
-        initial_health = container.health_monitor.get_all_health()
-        system_structured.info(
-            LogCategory.SYSTEM,
-            f"Health components after start: {len(initial_health)}",
-            {"components": [h.component_name for h in initial_health]},
+        config = uvicorn.Config(
+            create_app,
+            host="0.0.0.0",  # nosec B104 - backend service intentionally listens on all interfaces for Xenon consumers
+            port=port,
+            factory=True,
+            log_level="info",
         )
+        server = uvicorn.Server(config)
+        tasks.append(asyncio.create_task(server.serve()))
 
-        # Background task: Connect historical IB and pre-fetch daily bars
-        prefetch_task = None
-        if container.ib_pool:
-
-            async def connect_historical_and_prefetch():
-                try:
-                    await container.ib_pool.connect_historical()
-                    system_structured.info(
-                        LogCategory.SYSTEM,
-                        "IB historical connection established",
-                        {"client_id": config.ibkr.client_ids.historical_pool[0]},
-                    )
-
-                    nonlocal historical_service, ta_service
-                    historical_service = HistoricalDataService(
-                        ib_historical=container.ib_pool.historical,
-                        cache_size=512,
-                        default_daily_lookback=60,
-                    )
-                    ta_service = TAService(historical_service)
-
-                    positions = container.position_store.get_all()
-                    underlyings = {
-                        pos.underlying if pos.underlying else pos.symbol
-                        for pos in positions
-                        if pos.underlying or pos.symbol
-                    }
-
-                    if underlyings:
-                        symbols = list(underlyings)
-                        system_structured.info(
-                            LogCategory.DATA,
-                            f"Pre-fetching 60d daily bars for {len(symbols)} symbols",
-                            {"symbols": symbols[:10]},
-                        )
-                        await historical_service.prefetch_daily_bars(
-                            symbols, lookback_days=60
-                        )
-                        system_structured.info(
-                            LogCategory.DATA, "Daily bars pre-fetch complete"
-                        )
-                except Exception as e:
-                    system_structured.warning(
-                        LogCategory.SYSTEM, f"Historical data setup failed: {e}"
-                    )
-
-            prefetch_task = asyncio.create_task(connect_historical_and_prefetch())
-
-        # Headless mode — run until interrupted
-        try:
-            while True:
-                await asyncio.sleep(1)
-        except KeyboardInterrupt:
-            system_structured.info(LogCategory.SYSTEM, "Received shutdown signal")
-
-        system_structured.info(LogCategory.SYSTEM, "System shutdown complete")
-
-    except Exception as e:
-        system_structured.error(LogCategory.SYSTEM, "Fatal error", {"error": str(e)})
-        system_logger.exception("Fatal error:")
-    finally:
-        await container.cleanup()
-        flush_all_loggers()
-
-
-async def run_backtest(args: argparse.Namespace) -> int:
-    """
-    Run backtest mode.
-
-    Args:
-        args: Parsed CLI arguments.
-
-    Returns:
-        Exit code (0 for success/profitable, 1 for failure/unprofitable).
-    """
-    # Configure logging
-    import logging
-
-    from src.runners.backtest_runner import (
-        BACKTRADER_AVAILABLE,
-        BacktestRunner,
-        BacktraderRunner,
-    )
-
-    from src.domain.strategy.registry import list_strategies
-
-    level = logging.DEBUG if args.verbose else logging.INFO
-    logging.basicConfig(
-        level=level,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    )
-
-    logger = logging.getLogger(__name__)
-
-    # Validate required args (if not using spec file)
-    if not args.spec:
-        if not args.strategy:
-            logger.error("--strategy or --spec required for backtest mode")
-            logger.info("Available strategies: %s", list_strategies())
-            return 1
-        if not args.symbols:
-            logger.error("--symbols required for backtest mode")
-            return 1
-        if not args.start or not args.end:
-            logger.error("--start and --end required for backtest mode")
-            return 1
-
-    try:
-        # Handle engine selection
-        if args.engine == "backtrader":
-            if not BACKTRADER_AVAILABLE:
-                logger.error("backtrader not installed. Run: pip install backtrader")
-                logger.info("Falling back to apex engine.")
-                runner = BacktestRunner.from_args(args)
-            else:
-                logger.info("Using Backtrader engine")
-                runner = BacktraderRunner.from_args(args)
-        else:
-            # Default: apex engine
-            runner = BacktestRunner.from_args(args)
-
-        result = await runner.run()
-        return 0 if result.is_profitable else 1
-    except Exception as e:
-        logger.exception("Backtest failed: %s", e)
-        return 1
-
-
-async def run_trading(args: argparse.Namespace) -> int:
-    """
-    Run trading mode.
-
-    Args:
-        args: Parsed CLI arguments.
-
-    Returns:
-        Exit code.
-    """
-    # Configure logging
-    import logging
-
-    from src.domain.strategy.registry import list_strategies
-    from src.runners.trading_runner import TradingRunner
-
-    level = logging.DEBUG if args.verbose else logging.INFO
-    logging.basicConfig(
-        level=level,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    )
-
-    logger = logging.getLogger(__name__)
-
-    # Validate required args
-    if not args.strategy:
-        logger.error("--strategy required for trading mode")
-        logger.info("Available strategies: %s", list_strategies())
-        return 1
-    if not args.symbols:
-        logger.error("--symbols required for trading mode")
-        return 1
-
-    try:
-        # Default to dry-run unless explicitly disabled
-        dry_run = not getattr(args, "live", False)
-
-        runner = TradingRunner(
-            strategy_name=args.strategy,
-            symbols=[s.strip() for s in args.symbols.split(",")],
-            broker=getattr(args, "broker", "ib"),
-            dry_run=dry_run,
-        )
-        return await runner.run()
-    except Exception as e:
-        logger.exception("Trading failed: %s", e)
-        return 1
-
-
-def create_runner(mode: str):
-    """
-    Factory function to create the appropriate runner for the given mode.
-
-    Args:
-        mode: Operational mode (monitor, backtest, trading).
-
-    Returns:
-        Async function to run the mode.
-    """
-    runners = {
-        "monitor": main_async,
-        "backtest": run_backtest,
-        "trading": run_trading,
-    }
-    return runners.get(mode, main_async)
+    if tasks:
+        await asyncio.gather(*tasks)
 
 
 def main() -> None:
     """Main entry point."""
     args = parse_args()
 
-    # Get the appropriate runner for the mode
-    runner = create_runner(args.mode)
+    if args.mode == "backtest":
+        from src.backtest.execution import BACKTRADER_AVAILABLE
+        from src.backtest.runner import BacktraderRunner, SingleBacktestRunner
 
-    try:
-        if args.mode == "backtest":
-            exit_code = asyncio.run(runner(args))
-            sys.exit(exit_code)
-        elif args.mode == "trading":
-            exit_code = asyncio.run(runner(args))
-            sys.exit(exit_code)
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        )
+        if args.engine == "backtrader" and BACKTRADER_AVAILABLE:
+            runner = BacktraderRunner.from_args(args)
         else:
-            # Default: monitor mode
-            asyncio.run(runner(args))
-    except KeyboardInterrupt:
-        sys.exit(0)
-    except Exception as e:
-        logging.getLogger(__name__).exception("Fatal error: %s", e)
-        sys.exit(1)
+            runner = SingleBacktestRunner.from_args(args)
+        result = asyncio.run(runner.run())
+        sys.exit(0 if getattr(result, "is_profitable", True) else 1)
+
+    elif args.mode == "trading":
+        from src.runners.trading_runner import TradingRunner
+
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        )
+        runner = TradingRunner(
+            strategy_name=args.strategy,
+            symbols=[s.strip() for s in args.symbols.split(",")],
+            broker="ib",
+            dry_run=args.dry_run,
+        )
+        sys.exit(asyncio.run(runner.run()))
+
+    else:
+        try:
+            asyncio.run(run_services(args))
+        except KeyboardInterrupt:
+            sys.exit(0)
 
 
 if __name__ == "__main__":
