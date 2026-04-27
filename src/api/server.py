@@ -9,6 +9,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.api.routes.health import router as health_router
+from src.api.routes.regime import router as regime_router
+from src.api.routes.strategy import router as strategy_router
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +31,8 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(health_router)
+    app.include_router(strategy_router)
+    app.include_router(regime_router)
 
     return app
 
