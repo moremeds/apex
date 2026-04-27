@@ -150,7 +150,9 @@ class Database:
     # Query Execution Methods
     # -------------------------------------------------------------------------
 
-    async def execute(self, query: str, *args: Any, timeout: Optional[float] = None) -> str:
+    async def execute(
+        self, query: str, *args: Any, timeout: Optional[float] = None
+    ) -> str:
         """
         Execute a query and return the status.
 
@@ -194,7 +196,9 @@ class Database:
             logger.error(f"Batch execution failed: {e}", extra={"query": query[:200]})
             raise QueryError(f"Batch execution failed: {e}") from e
 
-    async def fetch(self, query: str, *args: Any, timeout: Optional[float] = None) -> List[Record]:
+    async def fetch(
+        self, query: str, *args: Any, timeout: Optional[float] = None
+    ) -> List[Record]:
         """
         Execute a query and return all rows.
 
@@ -361,6 +365,46 @@ class Database:
             "free": self.pool.get_idle_size(),
             "used": self.pool.get_size() - self.pool.get_idle_size(),
         }
+
+    # -------------------------------------------------------------------------
+    # LISTEN/NOTIFY Support
+    # -------------------------------------------------------------------------
+
+    async def notify(self, channel: str, payload: Dict[str, Any]) -> None:
+        """
+        Send a PG NOTIFY on the given channel with JSON payload.
+
+        Payload is truncated to 7900 bytes if too large (PG limit is 8000).
+        Failures are swallowed (NOTIFY is best-effort, not part of the txn lifecycle).
+        """
+        import json
+
+        payload_str = json.dumps(payload, default=str)
+        if len(payload_str) > 7900:
+            payload_str = payload_str[:7900]
+            logger.warning("NOTIFY payload truncated for channel %s", channel)
+
+        try:
+            async with self.pool.acquire() as conn:
+                await conn.execute("SELECT pg_notify($1, $2)", channel, payload_str)
+        except Exception as e:
+            logger.warning("NOTIFY failed on %s: %s", channel, e)
+
+    async def listen(self, channel: str, callback: Any) -> Connection:
+        """
+        Subscribe to a PG NOTIFY channel. Returns a dedicated connection.
+
+        The callback receives (connection, pid, channel, payload_str). Listening
+        requires a dedicated connection (not from the pool) so the caller is
+        responsible for closing the returned connection.
+
+        For production use with auto-reconnect, prefer SignalListener at
+        src/infrastructure/persistence/signal_listener.py.
+        """
+        conn: Connection = await asyncpg.connect(self._config.dsn)
+        await conn.add_listener(channel, callback)
+        logger.info("Listening on PG channel: %s", channel)
+        return conn
 
 
 # Global database instance (optional singleton pattern)
