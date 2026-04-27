@@ -82,6 +82,12 @@ observability = [
     "prometheus-client>=0.17.0",                  # Prometheus client library
 ]
 
+api = [
+    "fastapi>=0.115.0",        # REST API framework
+    "uvicorn[standard]>=0.30.0", # ASGI server
+    "httpx>=0.27.0",           # Async HTTP client (for tests)
+]
+
 # Full installation includes observability
 full = [
     "apex-risk[dev,observability]",

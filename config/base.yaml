@@ -209,7 +209,7 @@ database:
   type: timescaledb
   host: localhost
   port: 5432
-  database: apex
+  database: apex_signals
   user: chenxi
   password: ""  # Set via environment variable APEX_DB_PASSWORD
 
