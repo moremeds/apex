@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.api.jobs.manager import JobManager
+from src.api.routes.backtest import router as backtest_router
 from src.api.routes.health import router as health_router
 from src.api.routes.regime import router as regime_router
 from src.api.routes.screener import router as screener_router
@@ -38,6 +39,7 @@ def create_app() -> FastAPI:
     app.include_router(strategy_router)
     app.include_router(regime_router)
     app.include_router(screener_router)
+    app.include_router(backtest_router)
 
     return app
 
