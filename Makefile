@@ -377,6 +377,14 @@ signal-service:   ## Start signal service daemon (IB → signals → PostgreSQL)
 	@echo "$(BOLD)Starting APEX Signal Service...$(RESET)"
 	PYTHONPATH=. $(PYTHON) -m src.services.signal_service
 
+api-server:   ## Start REST API server on :8322
+	@echo "$(BOLD)Starting APEX API server...$(RESET)"
+	PYTHONPATH=. $(PYTHON) -m src.api.server
+
+dev:   ## Start all APEX services (signal + api)
+	@echo "$(BOLD)Starting all APEX services (signal + api)...$(RESET)"
+	PYTHONPATH=. $(PYTHON) main.py --service all
+
 db-init:   ## Create PostgreSQL schema
 	@echo "$(BOLD)Initializing database schema...$(RESET)"
 	PYTHONPATH=. $(PYTHON) -m src.infrastructure.persistence.pg_schema --init
