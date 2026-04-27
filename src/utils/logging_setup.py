@@ -115,8 +115,6 @@ MODULE_ROUTING: List[tuple[str, str]] = [
     ("src.infrastructure.monitoring", "system"),
     # Application layer
     ("src.application", "system"),
-    # TUI
-    ("src.tui", "system"),
     # Models (rarely log, but route to data)
     ("src.models", "data"),
     # Default fallback
@@ -448,7 +446,9 @@ def setup_category_logging(
     for category in CATEGORIES:
         logger_name = f"apex.{category}"
         logger = logging.getLogger(logger_name)
-        for handler in logger.handlers[:]:  # Copy list to avoid mutation during iteration
+        for handler in logger.handlers[
+            :
+        ]:  # Copy list to avoid mutation during iteration
             handler.close()
             logger.removeHandler(handler)
 
@@ -484,7 +484,9 @@ def setup_category_logging(
 
         # File handler (actual disk writer)
         file_path = str(log_path / filename)
-        file_handler = logging.FileHandler(filename=file_path, mode="a", encoding="utf-8")
+        file_handler = logging.FileHandler(
+            filename=file_path, mode="a", encoding="utf-8"
+        )
         file_handler.setFormatter(json_formatter)
         file_handler.setLevel(getattr(logging, effective_level, logging.INFO))
 
@@ -547,7 +549,9 @@ def shutdown_logging() -> None:
 
 
 # Keep old function for backward compatibility (now routes to new system)
-def setup_logging(config: LoggingConfig, logger_name: Optional[str] = None) -> logging.Logger:
+def setup_logging(
+    config: LoggingConfig, logger_name: Optional[str] = None
+) -> logging.Logger:
     """
     Set up logging with file rotation and retention.
 
@@ -562,7 +566,8 @@ def setup_logging(config: LoggingConfig, logger_name: Optional[str] = None) -> l
         formatter = JSONFormatter()
     else:
         formatter = logging.Formatter(
-            "%(asctime)s - %(name)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
         )
 
     # Console handler
