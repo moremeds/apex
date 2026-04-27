@@ -24,9 +24,7 @@ async def test_server_connects_to_pg_on_startup():
 
             async with lifespan(app):
                 transport = ASGITransport(app=app)
-                async with AsyncClient(
-                    transport=transport, base_url="http://test"
-                ) as client:
+                async with AsyncClient(transport=transport, base_url="http://test") as client:
                     resp = await client.get("/health")
 
                 assert resp.status_code == 200
@@ -46,9 +44,7 @@ async def test_server_runs_without_pg():
         app = create_app()
         async with lifespan(app):
             transport = ASGITransport(app=app)
-            async with AsyncClient(
-                transport=transport, base_url="http://test"
-            ) as client:
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
                 resp = await client.get("/health")
 
             assert resp.status_code == 200

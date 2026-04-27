@@ -29,9 +29,7 @@ class JobManager:
         ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
         run_id = f"{job_type}-{ts}-{uuid.uuid4().hex[:6]}"
 
-        self._jobs[run_id] = JobInfo(
-            run_id=run_id, job_type=job_type, status=JobStatus.RUNNING
-        )
+        self._jobs[run_id] = JobInfo(run_id=run_id, job_type=job_type, status=JobStatus.RUNNING)
         asyncio.create_task(self._run(run_id, task_fn))
         return run_id
 

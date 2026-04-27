@@ -29,7 +29,7 @@ async def trigger_backtest(req: BacktestRequest, request: Request) -> JSONRespon
     """Submit a backtest job. Returns run_id immediately for polling."""
     job_manager = request.app.state.job_manager
 
-    async def run_backtest(run_id: str):
+    async def run_backtest(run_id: str) -> dict:
         from datetime import date
 
         from src.backtest.runner import SingleBacktestRunner

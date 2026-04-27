@@ -150,9 +150,7 @@ class Database:
     # Query Execution Methods
     # -------------------------------------------------------------------------
 
-    async def execute(
-        self, query: str, *args: Any, timeout: Optional[float] = None
-    ) -> str:
+    async def execute(self, query: str, *args: Any, timeout: Optional[float] = None) -> str:
         """
         Execute a query and return the status.
 
@@ -196,9 +194,7 @@ class Database:
             logger.error(f"Batch execution failed: {e}", extra={"query": query[:200]})
             raise QueryError(f"Batch execution failed: {e}") from e
 
-    async def fetch(
-        self, query: str, *args: Any, timeout: Optional[float] = None
-    ) -> List[Record]:
+    async def fetch(self, query: str, *args: Any, timeout: Optional[float] = None) -> List[Record]:
         """
         Execute a query and return all rows.
 

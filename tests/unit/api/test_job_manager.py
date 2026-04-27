@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 
 import pytest
+
 from src.api.jobs.manager import JobManager
 from src.api.jobs.models import JobStatus
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 from contextlib import asynccontextmanager
+from typing import AsyncIterator
 
 import asyncpg
 from fastapi import FastAPI
@@ -21,14 +22,12 @@ logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Open the asyncpg pool on startup, close it on shutdown."""
     pg_url = os.environ.get("APEX_PG_URL")
     if pg_url:
         try:
-            app.state.pg_pool = await asyncpg.create_pool(
-                pg_url, min_size=1, max_size=5
-            )
+            app.state.pg_pool = await asyncpg.create_pool(pg_url, min_size=1, max_size=5)
             app.state.pg_connected = True
             logger.info("Connected to PostgreSQL")
         except Exception as e:
@@ -82,9 +81,7 @@ def main() -> None:
     port = int(os.environ.get("APEX_API_PORT", "8322"))
     workers = int(os.environ.get("APEX_API_WORKERS", "1"))
 
-    logging.basicConfig(
-        level=logging.INFO, format="%(levelname)s:%(name)s: %(message)s"
-    )
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s: %(message)s")
     logger.info("Starting APEX API server on port %d", port)
 
     uvicorn.run(

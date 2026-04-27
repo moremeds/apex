@@ -63,9 +63,7 @@ Legacy:
     parser.add_argument("--log-level", type=str, default="INFO")
 
     bt = parser.add_argument_group("Backtest")
-    bt.add_argument(
-        "--engine", type=str, default="apex", choices=["apex", "backtrader"]
-    )
+    bt.add_argument("--engine", type=str, default="apex", choices=["apex", "backtrader"])
     bt.add_argument("--spec", type=str)
     bt.add_argument("--strategy", type=str)
     bt.add_argument("--symbols", type=str)

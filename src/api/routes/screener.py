@@ -20,7 +20,7 @@ async def trigger_momentum(request: Request) -> JSONResponse:
     """Trigger a momentum screener run. Returns run_id for polling."""
     job_manager = request.app.state.job_manager
 
-    async def run_momentum(run_id: str):
+    async def run_momentum(run_id: str) -> dict:
         from config.config_manager import ConfigManager
         from src.runners.momentum_runner import cmd_screen
 
@@ -57,17 +57,14 @@ async def trigger_pead(request: Request) -> JSONResponse:
     """Trigger a PEAD screener run. Returns run_id for polling."""
     job_manager = request.app.state.job_manager
 
-    async def run_pead(run_id: str):
+    async def run_pead(run_id: str) -> dict:
         from src.runners.pead_runner import cmd_screen
 
-        result = await asyncio.to_thread(
-            cmd_screen, signals_dir=None, regime_fallback="R1"
-        )
+        result = await asyncio.to_thread(cmd_screen, signals_dir=None, regime_fallback="R1")
         candidates = []
         if result and hasattr(result, "candidates"):
             candidates = [
-                {"symbol": c.symbol, "score": getattr(c, "score", None)}
-                for c in result.candidates
+                {"symbol": c.symbol, "score": getattr(c, "score", None)} for c in result.candidates
             ]
         return {"candidates": candidates, "count": len(candidates)}
 

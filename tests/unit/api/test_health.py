@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+
 from src.api.server import create_app
 
 
