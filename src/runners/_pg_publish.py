@@ -14,9 +14,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-def publish_screener_results(
-    run_id: str, screener_type: str, results: list[dict]
-) -> None:
+def publish_screener_results(run_id: str, screener_type: str, results: list[dict]) -> None:
     """Write screener results to PG. No-op if APEX_PG_URL not set."""
     pg_url = os.environ.get("APEX_PG_URL")
     if not pg_url:
@@ -24,14 +22,10 @@ def publish_screener_results(
     try:
         asyncio.run(_publish_screener(pg_url, run_id, screener_type, results))
     except Exception:
-        logger.warning(
-            "PG publish failed for %s/%s", screener_type, run_id, exc_info=True
-        )
+        logger.warning("PG publish failed for %s/%s", screener_type, run_id, exc_info=True)
 
 
-def publish_backtest_results(
-    run_id: str, strategy: str, symbols: list[str], metrics: dict
-) -> None:
+def publish_backtest_results(run_id: str, strategy: str, symbols: list[str], metrics: dict) -> None:
     """Write backtest results to PG. No-op if APEX_PG_URL not set."""
     pg_url = os.environ.get("APEX_PG_URL")
     if not pg_url:
@@ -88,9 +82,7 @@ async def _publish_screener(
     repo, db = await _get_repo(pg_url)
     await repo.insert_screener_results(run_id, screener_type, results)
     await db.close()
-    logger.info(
-        "Published %d %s results to PG (run=%s)", len(results), screener_type, run_id
-    )
+    logger.info("Published %d %s results to PG (run=%s)", len(results), screener_type, run_id)
 
 
 async def _publish_backtest(

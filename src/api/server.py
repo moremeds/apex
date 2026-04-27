@@ -86,7 +86,7 @@ def main() -> None:
 
     uvicorn.run(
         "src.api.server:create_app",
-        host="0.0.0.0",
+        host="0.0.0.0",  # nosec B104 - backend service intentionally listens on all interfaces for Xenon consumers
         port=port,
         workers=workers,
         factory=True,

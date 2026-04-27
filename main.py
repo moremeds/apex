@@ -63,7 +63,9 @@ Legacy:
     parser.add_argument("--log-level", type=str, default="INFO")
 
     bt = parser.add_argument_group("Backtest")
-    bt.add_argument("--engine", type=str, default="apex", choices=["apex", "backtrader"])
+    bt.add_argument(
+        "--engine", type=str, default="apex", choices=["apex", "backtrader"]
+    )
     bt.add_argument("--spec", type=str)
     bt.add_argument("--strategy", type=str)
     bt.add_argument("--symbols", type=str)
@@ -100,7 +102,7 @@ async def run_services(args: argparse.Namespace) -> None:
 
         config = uvicorn.Config(
             create_app,
-            host="0.0.0.0",
+            host="0.0.0.0",  # nosec B104 - backend service intentionally listens on all interfaces for Xenon consumers
             port=port,
             factory=True,
             log_level="info",
