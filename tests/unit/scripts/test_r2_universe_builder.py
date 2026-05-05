@@ -227,14 +227,19 @@ class TestMergeCurated:
             "timeframes": ["1d", "1w"],
         }
 
-    def _make_screened(self, symbol: str, dollar_volume: float = 50_000_000) -> dict[str, Any]:
+    def _make_screened(
+        self,
+        symbol: str,
+        dollar_volume: float = 50_000_000,
+        sector: Any = "Technology",
+    ) -> dict[str, Any]:
         return {
             "symbol": symbol,
             "name": f"{symbol} Corp.",
             "marketCap": 2_000_000_000,
             "dollar_volume": dollar_volume,
             "turnover_rate": 0.05,
-            "sector": "Technology",
+            "sector": sector,
         }
 
     def test_curated_always_kept(self) -> None:
@@ -275,6 +280,19 @@ class TestMergeCurated:
         assert symbols.count("AAPL") == 1
         assert "MSFT" in symbols
         assert stats["screened_added"] == 1  # only MSFT added
+
+    def test_screened_null_sector_defaults_to_other(self) -> None:
+        """FMP can return null sectors for screened stocks."""
+        tickers, stats = builder.merge_curated(
+            screened=[self._make_screened("NULLSEC", sector=None)],
+            curated=[],
+            screener_metadata={},
+        )
+
+        assert stats["screened_added"] == 1
+        assert tickers[0]["tier"] == "other"
+        assert tickers[0]["sector"] == "other"
+        assert tickers[0]["sectors"] == ["other"]
 
 
 # ── TestLoadCuratedFromYaml ──────────────────────────────────────────────────

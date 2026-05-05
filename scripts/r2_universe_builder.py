@@ -475,7 +475,7 @@ def merge_curated(
         if sym in curated_set:
             continue
 
-        sector = stock.get("sector", "").lower().replace(" ", "_") or "other"
+        sector = str(stock.get("sector") or "").lower().replace(" ", "_") or "other"
         final.append(
             {
                 "symbol": sym,
