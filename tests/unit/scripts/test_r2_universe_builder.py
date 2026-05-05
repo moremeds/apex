@@ -48,6 +48,7 @@ def _make_stock(
     volume: float = 100_000,
     market_cap: float = 1_000_000_000,
     sector: str = "technology",
+    exchange: Any = "New York Stock Exchange",
 ) -> dict[str, Any]:
     """Create a minimal raw stock dict matching FMP screener output."""
     return {
@@ -57,6 +58,7 @@ def _make_stock(
         "volume": volume,
         "marketCap": market_cap,
         "sector": sector,
+        "exchange": exchange,
     }
 
 
@@ -104,6 +106,27 @@ class TestTurnoverLabel:
     def test_extremely_active(self) -> None:
         assert builder._turnover_label(0.10) == "extremely_active"
         assert builder._turnover_label(0.25) == "extremely_active"
+
+
+# ── TestCommonStockFilter ─────────────────────────────────────────────────────
+
+
+class TestCommonStockFilter:
+    """Tests for _is_common_stock()."""
+
+    def test_handles_missing_exchange(self) -> None:
+        """FMP sometimes returns rows with a null exchange field."""
+        assert builder._is_common_stock(_make_stock("GOOD", exchange=None)) is True
+
+    def test_filters_etf_heavy_exchanges(self) -> None:
+        assert builder._is_common_stock(_make_stock("ETF", exchange="NYSE Arca")) is False
+        assert (
+            builder._is_common_stock(_make_stock("OPT", exchange="Cboe Options Exchange")) is False
+        )
+
+    def test_filters_rows_without_symbol(self) -> None:
+        assert builder._is_common_stock({**_make_stock("GOOD"), "symbol": None}) is False
+        assert builder._is_common_stock({**_make_stock("GOOD"), "symbol": ""}) is False
 
 
 # ── TestComputeAndFilter ─────────────────────────────────────────────────────

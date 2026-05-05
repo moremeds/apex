@@ -329,8 +329,11 @@ def _is_common_stock(stock: dict[str, Any]) -> bool:
     tickers ending in X, e.g. AAFTX, ABALX) and ETFs listed on NYSE Arca /
     CBOE. These don't have float shares and aren't suitable for backtesting.
     """
-    sym = stock.get("symbol", "")
-    exchange = stock.get("exchange", "")
+    sym = stock.get("symbol")
+    if not isinstance(sym, str) or not sym:
+        return False
+
+    exchange = str(stock.get("exchange") or "")
     # Mutual fund share classes: 5+ alpha chars ending in X
     if len(sym) >= 5 and sym[-1] == "X" and sym.isalpha():
         return False

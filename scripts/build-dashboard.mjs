@@ -5,7 +5,7 @@
  * Mirrors DashboardBuilder._copy_static() + _compile_typescript() from
  * src/infrastructure/reporting/dashboard/builder.py without requiring Python.
  *
- * Produces out/site/ with:
+ * Produces worker-assets/ with:
  *   index.html          (SPA shell)
  *   _headers            (CF cache headers)
  *   .nojekyll
@@ -28,7 +28,7 @@ import {
 import { basename, dirname, join, relative } from "node:path";
 
 const STATIC_DIR = "src/infrastructure/reporting/dashboard/static";
-const OUTPUT_DIR = "out/site";
+const OUTPUT_DIR = "worker-assets";
 const ASSETS_DIR = join(OUTPUT_DIR, "assets");
 
 // CF cache headers — must match builder.py CF_HEADERS
@@ -78,72 +78,90 @@ mkdirSync(ASSETS_DIR, { recursive: true });
 
 console.log(`[build] Static source: ${STATIC_DIR}`);
 
-if (!existsSync(STATIC_DIR)) {
-  console.error(`[build] ERROR: Static assets not found at ${STATIC_DIR}`);
-  process.exit(1);
-}
+if (existsSync(STATIC_DIR)) {
+  // ── Step 2: Copy static files (mirrors _copy_static) ────────────────────────
+  // index.html → root, everything else → assets/ preserving directory structure
 
-// ── Step 2: Copy static files (mirrors _copy_static) ────────────────────────
-// index.html → root, everything else → assets/ preserving directory structure
+  for (const srcFile of walkDir(STATIC_DIR)) {
+    const rel = relative(STATIC_DIR, srcFile);
 
-for (const srcFile of walkDir(STATIC_DIR)) {
-  const rel = relative(STATIC_DIR, srcFile);
+    let dst;
+    if (basename(rel) === "index.html") {
+      dst = join(OUTPUT_DIR, "index.html");
+    } else {
+      dst = join(ASSETS_DIR, rel);
+    }
 
-  let dst;
-  if (basename(rel) === "index.html") {
-    dst = join(OUTPUT_DIR, "index.html");
-  } else {
-    dst = join(ASSETS_DIR, rel);
+    mkdirSync(dirname(dst), { recursive: true });
+    cpSync(srcFile, dst);
   }
 
-  mkdirSync(dirname(dst), { recursive: true });
-  cpSync(srcFile, dst);
-}
+  console.log("[build] Static files copied");
 
-console.log("[build] Static files copied");
+  // ── Step 3: Compile TypeScript (mirrors _compile_typescript) ───────────────
+  // esbuild: per-file transpile, --format=esm --target=es2022
 
-// ── Step 3: Compile TypeScript (mirrors _compile_typescript) ─────────────────
-// esbuild: per-file transpile, --format=esm --target=es2022
+  const tsFiles = findByExt(ASSETS_DIR, ".ts");
 
-const tsFiles = findByExt(ASSETS_DIR, ".ts");
+  if (tsFiles.length > 0) {
+    let esbuildOk = false;
+    try {
+      const cmd = [
+        "npx",
+        "--yes",
+        "esbuild@0.24",
+        ...tsFiles,
+        `--outdir=${ASSETS_DIR}`,
+        "--format=esm",
+        "--target=es2022",
+      ].join(" ");
+      execSync(cmd, { stdio: "pipe" });
+      esbuildOk = true;
+      console.log(`[build] esbuild compiled ${tsFiles.length} TS files`);
+    } catch (err) {
+      console.error("[build] ERROR: esbuild compilation failed");
+      console.error(err.stderr?.toString().slice(0, 500) || err.message);
+      process.exit(1);
+    }
 
-if (tsFiles.length > 0) {
-  let esbuildOk = false;
-  try {
-    const cmd = [
-      "npx",
-      "--yes",
-      "esbuild@0.24",
-      ...tsFiles,
-      `--outdir=${ASSETS_DIR}`,
-      "--format=esm",
-      "--target=es2022",
-    ].join(" ");
-    execSync(cmd, { stdio: "pipe" });
-    esbuildOk = true;
-    console.log(`[build] esbuild compiled ${tsFiles.length} TS files`);
-  } catch (err) {
-    console.error("[build] ERROR: esbuild compilation failed");
-    console.error(err.stderr?.toString().slice(0, 500) || err.message);
-    process.exit(1);
+    // Remove .ts sources from output (keep only compiled .js)
+    for (const f of findByExt(ASSETS_DIR, ".ts")) {
+      unlinkSync(f);
+    }
+
+    // Remove dev-only files: types/ directory and tsconfig.json
+    const typesDir = join(ASSETS_DIR, "types");
+    if (existsSync(typesDir)) {
+      rmSync(typesDir, { recursive: true });
+    }
+    const tsconfig = join(ASSETS_DIR, "tsconfig.json");
+    if (existsSync(tsconfig)) {
+      unlinkSync(tsconfig);
+    }
+
+    console.log("[build] TS sources and dev files cleaned");
   }
-
-  // Remove .ts sources from output (keep only compiled .js)
-  for (const f of findByExt(ASSETS_DIR, ".ts")) {
-    unlinkSync(f);
-  }
-
-  // Remove dev-only files: types/ directory and tsconfig.json
-  const typesDir = join(ASSETS_DIR, "types");
-  if (existsSync(typesDir)) {
-    rmSync(typesDir, { recursive: true });
-  }
-  const tsconfig = join(ASSETS_DIR, "tsconfig.json");
-  if (existsSync(tsconfig)) {
-    unlinkSync(tsconfig);
-  }
-
-  console.log("[build] TS sources and dev files cleaned");
+} else {
+  console.warn(`[build] WARNING: Static assets not found at ${STATIC_DIR}`);
+  console.warn("[build] Writing minimal fallback site for legacy Workers Builds");
+  writeFileSync(
+    join(OUTPUT_DIR, "index.html"),
+    `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>APEX Dashboard</title>
+</head>
+<body>
+  <main>
+    <h1>APEX Dashboard</h1>
+    <p>Dashboard assets are served by the Cloudflare Pages deployment.</p>
+  </main>
+</body>
+</html>
+`
+  );
 }
 
 // ── Step 4: Write _headers, .nojekyll ────────────────────────────────────────
