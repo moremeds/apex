@@ -358,7 +358,7 @@ the single source.
 |---|---|---|---|
 | Candles | GET | `/bars/{ticker}?timeframe=&start=&end=` | livewire bronze parquet (read on the fly) |
 | Indicator series | GET | `/indicators/{ticker}?timeframe=&indicator=&start=&end=` | **compute-on-read** (recomputed from bars) |
-| Confluence | GET | `/confluence/{ticker}?timeframe=&start=&end=` | Postgres `confluence_scores` (persisted) |
+| Confluence | GET | `/confluence/{ticker}?timeframe=&start=&end=&limit=` | Postgres `confluence_scores` (persisted) |
 
 **Storage model.** Nothing is cached on argon's side. On apex's side it is a deliberate mix:
 
@@ -368,7 +368,13 @@ the single source.
 | indicators | recomputed per request | **compute-on-read** — full depth, gap-free, always matches the candles |
 | confluence | `confluence_scores` PG table | served from storage (depth = persisted history) |
 
-- `start`/`end` are optional ISO-8601; **omit them for the most recent ~500 bars**.
+- `start`/`end` are optional ISO-8601; **omit them for the most recent 500 bars** (apex
+  over-fetches the calendar lookback and tail-slices to 500, so closures don't shrink it).
+- **Supported timeframes for `/bars` + `/indicators`: `1m`, `5m`, `30m`, `1h`, `1d`** (what
+  livewire warehouses). `15m`/`4h`/`1w` → **`400`**. `/confluence` accepts any timeframe that
+  has persisted rows.
+- `/confluence` takes an optional `limit` (default `500`) so you can pull more than the
+  repository default — it is **not** silently capped.
 - All timestamps are emitted in **UTC** (matching the signal contract).
 - Indicators are computed with apex's **default parameters — identical to the live engine**,
   so chart lines line up with the fired signals.
@@ -548,7 +554,8 @@ indicator**, e.g. `{value, zone}` for rsi, `{macd, signal, histogram, direction}
   is available.
 - **Chart data is REST-only (poll).** There is no live WS push for bars/indicators/confluence
   yet — argon polls `/bars` + `/indicators` (and gets live *signals* over `/ws/signals`).
-- **Chart indicators are compute-on-read** (CPU per request, uncached); confluence history is
+- **Chart indicators are compute-on-read** (recomputed per request, uncached — run off the
+  event loop in a worker thread so they don't block the signal stream); confluence history is
   limited to what is persisted in `confluence_scores`.
 - **livewire bronze `COLUMN_MAP` is unverified against real data** — the §10 capture used a
   synthetic bronze fixture. Confirm the real parquet column names before production charting.
