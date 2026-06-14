@@ -8,9 +8,12 @@ Many argon clients on one ticker -> compute once, fan out.
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Protocol, Set
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -54,14 +57,20 @@ class SubscriptionManager:
         compute: _ComputeService,
         timeframes: List[str],
         seed_lookback_days: int = 365,
+        live_feed: Any = None,
     ) -> None:
         self._provider = provider
         self._compute = compute
         self._timeframes = timeframes
         self._lookback_days = seed_lookback_days
+        self._live_feed = live_feed
         self._subs: Dict[str, Subscription] = {}
         self._lock = asyncio.Lock()
         self._compute_started = False
+
+    def set_live_feed(self, live_feed: Any) -> None:
+        """Attach a LiveFeedPort after construction (used by the app lifespan)."""
+        self._live_feed = live_feed
 
     def active_symbols(self) -> Set[str]:
         return {s for s, sub in self._subs.items() if sub.refcount > 0}
@@ -83,6 +92,8 @@ class SubscriptionManager:
                     await self._seed(symbol)
                     sub.seeded = True
                     sub.started = True
+                if self._live_feed is not None and sub.refcount == 0:
+                    await self._live_feed.subscribe(symbol)
             except Exception:
                 if sub.refcount == 0:
                     self._subs.pop(symbol, None)  # drop poisoned entry; allow retry
@@ -97,6 +108,13 @@ class SubscriptionManager:
             remaining = sub.release()
             if remaining == 0:
                 sub.started = False
+                # Drop the live feed for this symbol. Best-effort: a feed error
+                # must not block the in-memory cleanup below.
+                if self._live_feed is not None:
+                    try:
+                        await self._live_feed.unsubscribe(symbol)
+                    except Exception:  # noqa: BLE001 - best-effort remote drop
+                        logger.warning("live feed unsubscribe failed for %s", symbol)
                 # Retain persisted rows for a short TTL (fast re-subscribe / audit),
                 # then prune. Pruning is delegated to the persistence layer (Phase 3);
                 # here we only drop the in-memory run state.

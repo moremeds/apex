@@ -134,3 +134,81 @@ async def test_failed_seed_does_not_poison_subscription() -> None:
     await mgr.subscribe("AAPL")  # retry succeeds
     assert mgr.refcount("AAPL") == 1
     assert compute.injected == [("AAPL", "1d", 1)]
+
+
+# --- Phase 4: live-feed wiring -------------------------------------------------
+
+
+class _FakeLiveFeed:
+    def __init__(self) -> None:
+        self.subscribed: list = []
+        self.unsubscribed: list = []
+        self.fail_subscribe = False
+        self.fail_unsubscribe = False
+
+    async def connect(self) -> None: ...
+
+    async def subscribe(self, symbol: str) -> None:
+        if self.fail_subscribe:
+            raise RuntimeError("feed down")
+        self.subscribed.append(symbol)
+
+    async def unsubscribe(self, symbol: str) -> None:
+        if self.fail_unsubscribe:
+            raise RuntimeError("feed down")
+        self.unsubscribed.append(symbol)
+
+    async def close(self) -> None: ...
+
+
+@pytest.mark.asyncio
+async def test_subscribe_opens_live_feed() -> None:
+    feed = _FakeLiveFeed()
+    mgr = SubscriptionManager(provider=_FakeProvider(), compute=_FakeCompute(), timeframes=["1d"])
+    mgr.set_live_feed(feed)
+    await mgr.subscribe("AAPL")
+    assert feed.subscribed == ["AAPL"]
+
+
+@pytest.mark.asyncio
+async def test_second_subscriber_does_not_reopen_feed() -> None:
+    feed = _FakeLiveFeed()
+    mgr = SubscriptionManager(provider=_FakeProvider(), compute=_FakeCompute(), timeframes=["1d"])
+    mgr.set_live_feed(feed)
+    await mgr.subscribe("AAPL")
+    await mgr.subscribe("AAPL")  # refcount 1 -> 2
+    assert feed.subscribed == ["AAPL"]  # opened once only
+
+
+@pytest.mark.asyncio
+async def test_unsubscribe_drops_live_feed_at_refcount_zero() -> None:
+    feed = _FakeLiveFeed()
+    mgr = SubscriptionManager(provider=_FakeProvider(), compute=_FakeCompute(), timeframes=["1d"])
+    mgr.set_live_feed(feed)
+    await mgr.subscribe("AAPL")
+    await mgr.unsubscribe("AAPL")
+    assert feed.unsubscribed == ["AAPL"]
+
+
+@pytest.mark.asyncio
+async def test_subscribe_feed_failure_leaves_no_poisoned_entry() -> None:
+    feed = _FakeLiveFeed()
+    feed.fail_subscribe = True
+    mgr = SubscriptionManager(provider=_FakeProvider(), compute=_FakeCompute(), timeframes=["1d"])
+    mgr.set_live_feed(feed)
+    with pytest.raises(RuntimeError):
+        await mgr.subscribe("AAPL")
+    assert mgr.refcount("AAPL") == 0
+    assert "AAPL" not in mgr.active_symbols()
+
+
+@pytest.mark.asyncio
+async def test_unsubscribe_feed_failure_still_clears_local_state() -> None:
+    feed = _FakeLiveFeed()
+    feed.fail_unsubscribe = True
+    mgr = SubscriptionManager(provider=_FakeProvider(), compute=_FakeCompute(), timeframes=["1d"])
+    mgr.set_live_feed(feed)
+    await mgr.subscribe("AAPL")
+    await mgr.unsubscribe("AAPL")  # remote drop raises, but must not propagate
+    assert mgr.refcount("AAPL") == 0
+    assert "AAPL" not in mgr.active_symbols()
