@@ -111,3 +111,48 @@ async def test_lifespan_skips_xenon_client_when_url_unset(monkeypatch) -> None:
     app.state.event_bus = _FakeBus()
     async with lifespan(app):
         assert getattr(app.state, "xenon_client", None) is None
+
+
+# --- Task 13: full streaming pipeline wired in lifespan (env-gated) ------------
+
+
+@pytest.mark.asyncio
+async def test_lifespan_builds_full_pipeline_when_livewire_root_set(monkeypatch, tmp_path) -> None:
+    from src.application.services.ta_signal_service import TASignalService
+    from src.application.subscriptions.manager import SubscriptionManager
+    from src.domain.events.priority_event_bus import PriorityEventBus
+    from src.infrastructure.adapters.livewire.ohlc_provider import LivewireOhlcProvider
+
+    monkeypatch.setenv("APEX_LIVEWIRE_ROOT", str(tmp_path))
+    monkeypatch.setenv("APEX_XENON_WS_URL", "ws://127.0.0.1:1")
+    monkeypatch.setenv("APEX_TIMEFRAMES", "1m")
+    monkeypatch.delenv("APEX_PG_URL", raising=False)
+    monkeypatch.setattr(xenon_client_mod, "XenonTickClient", _SpyClient)
+
+    app = create_app()  # no pre-injected subscription_manager -> build the real graph
+    async with lifespan(app):
+        bus = app.state.event_bus
+        sm = app.state.subscription_manager
+        assert isinstance(bus, PriorityEventBus)
+        assert isinstance(sm, SubscriptionManager)
+        # the graph is wired: provider <- livewire, compute <- ta_service, live_feed <- xenon client
+        assert isinstance(sm._provider, LivewireOhlcProvider)
+        assert sm._compute is app.state.ta_service
+        assert isinstance(app.state.ta_service, TASignalService)
+        assert sm._live_feed is app.state.xenon_client
+        assert app.state.signal_emitter is not None
+        assert app.state.ta_service.is_running is True
+    # clean shutdown: service + bus stopped, xenon client closed
+    assert app.state.ta_service.is_running is False
+    assert _SpyClient.last.closed is True
+
+
+@pytest.mark.asyncio
+async def test_lifespan_skips_pipeline_when_livewire_root_unset(monkeypatch) -> None:
+    monkeypatch.delenv("APEX_LIVEWIRE_ROOT", raising=False)
+    monkeypatch.delenv("APEX_XENON_WS_URL", raising=False)
+    monkeypatch.delenv("APEX_PG_URL", raising=False)
+    app = create_app()
+    async with lifespan(app):
+        assert getattr(app.state, "subscription_manager", None) is None
+        assert getattr(app.state, "ta_service", None) is None

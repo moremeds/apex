@@ -52,6 +52,47 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # dependencies are present. Left unbuilt in environments without livewire/PG;
     # the WS route requires app.state.subscription_manager to be set before use.
 
+    # Full streaming pipeline (env-gated on APEX_LIVEWIRE_ROOT): construct the
+    # event bus, TA compute service, signal emitter, and subscription manager so
+    # the server itself streams signals. Guarded so tests can pre-inject fakes.
+    if getattr(app.state, "subscription_manager", None) is None:
+        livewire_root = os.environ.get("APEX_LIVEWIRE_ROOT")
+        if livewire_root:
+            from pathlib import Path
+
+            from src.api.ws.emitter import SignalEmitter
+            from src.application.services.ta_signal_service import TASignalService
+            from src.application.subscriptions.manager import SubscriptionManager
+            from src.domain.events.priority_event_bus import PriorityEventBus
+            from src.infrastructure.adapters.livewire.ohlc_provider import (
+                LivewireOhlcProvider,
+            )
+
+            timeframes = [
+                tf.strip()
+                for tf in os.environ.get("APEX_TIMEFRAMES", "1d").split(",")
+                if tf.strip()
+            ]
+
+            bus = PriorityEventBus()
+            await bus.start()
+            app.state.event_bus = bus
+
+            service = TASignalService(event_bus=bus, timeframes=timeframes)
+            await service.start()
+            app.state.ta_service = service
+
+            # Fan fired signals out to connected argon WS clients (Phase 3 emitter).
+            emitter = SignalEmitter(app.state.signal_hub)
+            emitter.subscribe(bus)
+            app.state.signal_emitter = emitter
+
+            provider = LivewireOhlcProvider(bronze_root=Path(livewire_root))
+            app.state.subscription_manager = SubscriptionManager(
+                provider=provider, compute=service, timeframes=timeframes
+            )
+            logger.info("Streaming TA pipeline started (timeframes=%s)", timeframes)
+
     # Phase 4 live-in (env-gated): connect to xenon's tick feed when configured.
     # Mirrors the pre-injection guard above so tests can inject a fake/spy client.
     if getattr(app.state, "xenon_client", None) is None:
@@ -75,6 +116,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         xenon_client = getattr(app.state, "xenon_client", None)
         if xenon_client is not None:
             await xenon_client.close()
+        ta_service = getattr(app.state, "ta_service", None)
+        if ta_service is not None:
+            await ta_service.stop()
+        event_bus = getattr(app.state, "event_bus", None)
+        if event_bus is not None and hasattr(event_bus, "stop"):
+            await event_bus.stop()
         if app.state.pg_pool is not None:
             await app.state.pg_pool.close()
             logger.info("PostgreSQL pool closed")
