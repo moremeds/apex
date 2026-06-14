@@ -25,8 +25,13 @@ def test_translates_full_price_data_with_iso_timestamp() -> None:
 
 def test_null_last_but_bid_ask_present_is_kept() -> None:
     out = translate_price_data(
-        {"symbol": "AAPL", "last": None, "bid": 10.0, "ask": 10.2,
-         "timestamp": "2026-06-14T12:00:00Z"}
+        {
+            "symbol": "AAPL",
+            "last": None,
+            "bid": 10.0,
+            "ask": 10.2,
+            "timestamp": "2026-06-14T12:00:00Z",
+        }
     )
     assert out is not None
     assert out["bid"] == 10.0 and out["ask"] == 10.2
@@ -34,8 +39,13 @@ def test_null_last_but_bid_ask_present_is_kept() -> None:
 
 def test_no_usable_price_is_dropped() -> None:
     out = translate_price_data(
-        {"symbol": "AAPL", "last": None, "bid": None, "ask": None,
-         "timestamp": "2026-06-14T12:00:00Z"}
+        {
+            "symbol": "AAPL",
+            "last": None,
+            "bid": None,
+            "ask": None,
+            "timestamp": "2026-06-14T12:00:00Z",
+        }
     )
     assert out is None
 

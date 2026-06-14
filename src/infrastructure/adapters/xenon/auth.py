@@ -14,8 +14,7 @@ from typing import Optional, Protocol, runtime_checkable
 class AuthProvider(Protocol):
     """Yield a connection ticket, or ``None`` for the no-auth path."""
 
-    async def ticket(self) -> Optional[str]:
-        ...
+    async def ticket(self) -> Optional[str]: ...
 
 
 class NoAuthProvider:

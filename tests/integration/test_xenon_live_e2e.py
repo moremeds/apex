@@ -34,12 +34,32 @@ async def test_live_tick_drives_bar_close_through_real_pipeline() -> None:
 
         # Two ticks two minutes apart -> the first 1m bar closes when the second
         # tick opens a new bar window.
-        await server.push({"type": "batch", "updates": {"AAPL": {
-            "symbol": "AAPL", "last": 100.0, "volume": 5,
-            "timestamp": "2026-06-14T15:00:10Z"}}})
-        await server.push({"type": "batch", "updates": {"AAPL": {
-            "symbol": "AAPL", "last": 101.0, "volume": 7,
-            "timestamp": "2026-06-14T15:01:10Z"}}})
+        await server.push(
+            {
+                "type": "batch",
+                "updates": {
+                    "AAPL": {
+                        "symbol": "AAPL",
+                        "last": 100.0,
+                        "volume": 5,
+                        "timestamp": "2026-06-14T15:00:10Z",
+                    }
+                },
+            }
+        )
+        await server.push(
+            {
+                "type": "batch",
+                "updates": {
+                    "AAPL": {
+                        "symbol": "AAPL",
+                        "last": 101.0,
+                        "volume": 7,
+                        "timestamp": "2026-06-14T15:01:10Z",
+                    }
+                },
+            }
+        )
 
         for _ in range(200):
             if closed:

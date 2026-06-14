@@ -74,9 +74,17 @@ async def test_batch_tick_is_translated_and_published() -> None:
         await server.wait_for_frames(1)
 
         await server.push(
-            {"type": "batch", "updates": {"AAPL": {
-                "symbol": "AAPL", "last": 150.0, "volume": 10,
-                "timestamp": "2026-06-14T12:00:00Z"}}}
+            {
+                "type": "batch",
+                "updates": {
+                    "AAPL": {
+                        "symbol": "AAPL",
+                        "last": 150.0,
+                        "volume": 10,
+                        "timestamp": "2026-06-14T12:00:00Z",
+                    }
+                },
+            }
         )
         await bus.wait_for(1)
         event_type, payload = bus.published[0]
@@ -93,8 +101,11 @@ async def test_price_frame_is_published() -> None:
         await client.connect()
         await server.wait_for_connection()
         await server.push(
-            {"type": "price", "symbol": "AAPL", "data": {
-                "symbol": "AAPL", "last": 99.0, "timestamp": "2026-06-14T12:00:00Z"}}
+            {
+                "type": "price",
+                "symbol": "AAPL",
+                "data": {"symbol": "AAPL", "last": 99.0, "timestamp": "2026-06-14T12:00:00Z"},
+            }
         )
         await bus.wait_for(1)
         assert bus.published[0][1]["last"] == 99.0
@@ -112,11 +123,14 @@ async def test_malformed_frames_do_not_kill_the_client() -> None:
         # garbage that would crash a naive handler
         for ws in list(server._clients):
             await ws.send("not json")
-            await ws.send(json.dumps([1, 2, 3]))           # JSON, but not an object
+            await ws.send(json.dumps([1, 2, 3]))  # JSON, but not an object
             await ws.send(json.dumps({"type": "batch", "updates": [1]}))  # updates not a dict
         await server.push(
-            {"type": "price", "symbol": "AAPL", "data": {
-                "symbol": "AAPL", "last": 1.0, "timestamp": "2026-06-14T12:00:00Z"}}
+            {
+                "type": "price",
+                "symbol": "AAPL",
+                "data": {"symbol": "AAPL", "last": 1.0, "timestamp": "2026-06-14T12:00:00Z"},
+            }
         )
         await bus.wait_for(1)
         assert bus.published[0][1]["last"] == 1.0
@@ -142,11 +156,11 @@ async def test_reconnects_and_resubscribes_after_drop() -> None:
         await client.connect()
         await server.wait_for_connection(1)
         await client.subscribe("AAPL")
-        await server.wait_for_frames(1)          # initial subscribe
+        await server.wait_for_frames(1)  # initial subscribe
 
-        await server.drop_connections()          # force a reconnect
-        await server.wait_for_connection(2)      # client dialed back in
-        await server.wait_for_frames(2)          # active set replayed on reconnect
+        await server.drop_connections()  # force a reconnect
+        await server.wait_for_connection(2)  # client dialed back in
+        await server.wait_for_frames(2)  # active set replayed on reconnect
         assert server.received[-1] == {"action": "subscribe", "symbols": ["AAPL"]}
         assert server.connections >= 2
         await client.close()
@@ -162,7 +176,7 @@ async def test_close_during_reconnect_stops_redialing() -> None:
         await server.wait_for_frames(1)
 
         await server.drop_connections()
-        await client.close()                     # close while it would be reconnecting
+        await client.close()  # close while it would be reconnecting
         before = server.connections
-        await asyncio.sleep(0.2)                  # > reconnect_delay
-        assert server.connections == before      # no new dial after close()
+        await asyncio.sleep(0.2)  # > reconnect_delay
+        assert server.connections == before  # no new dial after close()
