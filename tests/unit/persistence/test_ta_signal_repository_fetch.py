@@ -62,7 +62,7 @@ async def test_fetch_signals_filters_by_symbol_newest_first() -> None:
     query, params = db.calls[0]
     assert "FROM ta_signals" in query
     assert "symbol = $1" in query
-    assert "ORDER BY time DESC" in query
+    assert "ORDER BY time DESC" in query  # snapshot: most recent first
     assert params[0] == "AAPL"
 
 
@@ -76,5 +76,6 @@ async def test_fetch_signals_applies_since_bound() -> None:
 
     query, params = db.calls[0]
     assert "time > $2" in query
+    assert "ORDER BY time ASC" in query  # backfill: contiguous, oldest-first from cursor
     assert params[0] == "AAPL"
     assert params[1] == since

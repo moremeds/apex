@@ -326,8 +326,11 @@ GET /signals/AAPL?since=2026-06-14T06:00:00Z   # only since a timestamp
 ```
 
 Returns a `signal_service_payload` (§8) of persisted signals (verified live in §7).
-Requires `APEX_PG_URL` (§3). If Postgres is not configured the endpoint is unavailable and
-the live WS push is the source of truth.
+Requires `APEX_PG_URL` (§3); when Postgres is not configured the endpoint returns
+**`503 Service Unavailable`** and the live WS push is the source of truth.
+
+**Ordering:** `?since=` returns oldest-first from the cursor (so paging past the row limit
+is contiguous); without `since` it returns the most recent signals (newest-first).
 
 **Reconnect pattern:** track the `timestamp` of the last signal you rendered; on reconnect,
 `GET /signals/{ticker}?since=<last_seen>` to fill the gap, then resume the live stream.

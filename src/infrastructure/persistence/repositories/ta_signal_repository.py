@@ -371,13 +371,20 @@ class TASignalRepository(SignalPersistencePort):
         Unlike ``get_recent_signals``/``get_signals_since`` (which reconstruct
         domain ``TradingSignal`` objects), this returns plain dict rows so the
         API ``build_payload`` can map ``time``->``timestamp`` and normalise the
-        contract fields directly. Bounded by ``since`` when given.
+        contract fields directly.
+
+        Ordering differs by use case:
+        * ``since`` given (reconnect backfill): oldest-first from the cursor, so a
+          client past the ``limit`` advances ``since`` and pages forward
+          contiguously (newest-first + LIMIT would skip the oldest signals after
+          the cursor). Matches ``get_signals_since``.
+        * no ``since`` (initial snapshot): newest-first, the most recent signals.
         """
         if since is not None:
             query = """
                 SELECT * FROM ta_signals
                 WHERE symbol = $1 AND time > $2
-                ORDER BY time DESC
+                ORDER BY time ASC
                 LIMIT $3
             """
             records = await self._db.fetch(query, ticker, since, limit)

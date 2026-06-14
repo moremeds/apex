@@ -46,3 +46,14 @@ async def test_get_signals_returns_valid_payload() -> None:
     payload = resp.json()
     validate_payload(payload)
     assert payload["signals"][0]["symbol"] == "AAPL"
+
+
+@pytest.mark.asyncio
+async def test_get_signals_503_when_repo_unconfigured() -> None:
+    """No Postgres -> signal_repo is None -> explicit 503 (not a 500 AttributeError)."""
+    app = create_app()
+    app.state.signal_repo = None
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/signals/AAPL")
+    assert resp.status_code == 503

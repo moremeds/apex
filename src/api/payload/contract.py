@@ -47,8 +47,10 @@ def to_contract_strength(raw: Any) -> Any:
     """The contract requires an integer 0-100; events cast strength to float."""
     try:
         return max(0, min(100, int(round(float(raw)))))
-    except (TypeError, ValueError):
-        return raw  # let the validator reject a non-numeric strength
+    except (TypeError, ValueError, OverflowError):
+        # Non-numeric or non-finite (inf/nan) -> return as-is so the schema
+        # validator rejects it, rather than raising past the emitter's handler.
+        return raw
 
 
 def decode_metadata(raw: Any) -> Any:
