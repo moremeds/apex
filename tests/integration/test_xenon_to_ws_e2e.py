@@ -38,16 +38,17 @@ def _write_seed(root, symbol: str = "AAPL") -> None:
     sym_dir.mkdir(parents=True, exist_ok=True)
     base = datetime.now(timezone.utc) - timedelta(minutes=5)
     ts = [base + timedelta(minutes=i) for i in range(3)]
+    # Mirror livewire's REAL intraday bronze schema (clients/intraday_bronze_client.py):
+    # `bar_timestamp` (timestamp tz=UTC) + `symbol_id` + OHLCV. Symbol is the partition.
     pd.DataFrame(
         {
-            "ts": pd.to_datetime(ts, utc=True),
+            "bar_timestamp": pd.to_datetime(ts, utc=True),
+            "symbol_id": [1, 1, 1],
             "open": [10.0, 11.0, 12.0],
             "high": [10.5, 11.5, 12.5],
             "low": [9.5, 10.5, 11.5],
             "close": [11.0, 12.0, 13.0],
             "volume": [100, 200, 300],
-            "asset_class": ["equity"] * 3,
-            "symbol": [symbol] * 3,
         }
     ).to_parquet(sym_dir / "1m.parquet")
 
