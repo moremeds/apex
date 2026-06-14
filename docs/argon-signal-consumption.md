@@ -397,11 +397,13 @@ GET /confluence/AAPL?timeframe=1d
 ### Verified end-to-end (real capture)
 
 Captured on **2026-06-14** from a running apex (real FastAPI lifespan → `LivewireOhlcProvider`
-reads a bronze parquet via DuckDB → compute-on-read → `validate_payload` → JSON; confluence is
-a real Postgres round-trip on `apex_signals`). **Caveat:** the bar *data* below is a synthetic
-bronze fixture — the real livewire bronze tree was not reachable in the capture env — so the
-*values* are illustrative; the **code path, payload shapes, and schema validation are real**.
-Arrays are trimmed to first-2 + last for readability.
+reads the **real livewire bronze data lake** via DuckDB → compute-on-read → `validate_payload`
+→ JSON; confluence is a real Postgres round-trip on `apex_signals`). The bars are **real AAPL
+daily bars** from the data lake, the indicator lines are recomputed from them, and the
+confluence row was written via apex's persistence API and read back — every frame passed
+`validate_payload` before it was sent. (Reading the real lake relies on the bronze schema fix
+in PR #135, which this branch builds on.) Arrays are trimmed to first-2 + last for readability;
+floats are verbatim.
 
 **Startup:**
 
@@ -416,13 +418,13 @@ Arrays are trimmed to first-2 + last for readability.
   "symbol": "AAPL",
   "timeframe": "1d",
   "bars": [
-    { "time": "2025-10-06T00:00:00+00:00", "open": 149.4,  "high": 151.3,  "low": 148.6,  "close": 150.0,  "volume": 1000000, "vwap": null },
-    { "time": "2025-10-07T00:00:00+00:00", "open": 151.13, "high": 153.03, "low": 150.33, "close": 151.73, "volume": 1001000, "vwap": null },
-    "… (250 total) …",
-    { "time": "2026-06-12T00:00:00+00:00", "open": 255.85, "high": 257.75, "low": 255.05, "close": 256.45, "volume": 1249000, "vwap": null }
+    { "time": "2024-06-14T00:00:00+00:00", "open": 213.81, "high": 215.17, "low": 211.3,  "close": 212.49, "volume": 45295827, "vwap": null },
+    { "time": "2024-06-17T00:00:00+00:00", "open": 213.36, "high": 218.95, "low": 212.72, "close": 216.67, "volume": 63750025, "vwap": null },
+    "… (500 total) …",
+    { "time": "2026-06-12T00:00:00+00:00", "open": 296.03, "high": 297.14, "low": 289.62, "close": 291.13, "volume": 38784790, "vwap": null }
   ],
-  "count": 250,
-  "generated_at": "2026-06-14T09:48:03.216789+00:00"
+  "count": 500,
+  "generated_at": "2026-06-14T12:52:21.266353+00:00"
 }
 ```
 
@@ -434,13 +436,13 @@ Arrays are trimmed to first-2 + last for readability.
   "timeframe": "1d",
   "indicator": "rsi",
   "points": [
-    { "time": "2025-10-06T00:00:00+00:00", "state": { "value": 50.0, "zone": "neutral" }, "bar_close": 150.0 },
-    { "time": "2025-10-07T00:00:00+00:00", "state": { "value": 50.0, "zone": "neutral" }, "bar_close": 151.73 },
-    "… (250 total) …",
-    { "time": "2026-06-12T00:00:00+00:00", "state": { "value": 77.6491899411675, "zone": "overbought" }, "bar_close": 256.45 }
+    { "time": "2024-06-14T00:00:00+00:00", "state": { "value": 75.79481014475162, "zone": "overbought" }, "bar_close": 212.49 },
+    { "time": "2024-06-17T00:00:00+00:00", "state": { "value": 78.37764571243576, "zone": "overbought" }, "bar_close": 216.67 },
+    "… (500 total) …",
+    { "time": "2026-06-12T00:00:00+00:00", "state": { "value": 42.69399117765261, "zone": "neutral" }, "bar_close": 291.13 }
   ],
-  "count": 250,
-  "generated_at": "2026-06-14T09:48:03.234453+00:00"
+  "count": 500,
+  "generated_at": "2026-06-14T12:52:21.349853+00:00"
 }
 ```
 
@@ -450,12 +452,12 @@ Arrays are trimmed to first-2 + last for readability.
 {
   "symbol": "AAPL", "timeframe": "1d", "indicator": "macd",
   "points": [
-    { "time": "2025-10-06T00:00:00+00:00", "state": { "macd": 0, "signal": 0, "histogram": 0, "direction": "neutral" }, "bar_close": 150.0 },
-    "… (250 total) …",
-    { "time": "2026-06-12T00:00:00+00:00", "state": { "macd": 5.0589, "signal": 6.0116, "histogram": -1.9052, "direction": "bearish" }, "bar_close": 256.45 }
+    { "time": "2024-06-14T00:00:00+00:00", "state": { "macd": 7.344795778178678, "signal": 5.59932029100524, "histogram": 3.4909509743468767, "direction": "bullish" }, "bar_close": 212.49 },
+    "… (500 total) …",
+    { "time": "2026-06-12T00:00:00+00:00", "state": { "macd": 2.1210869267071644, "signal": 5.866075222112672, "histogram": -7.489976590811015, "direction": "bearish" }, "bar_close": 291.13 }
   ],
-  "count": 250,
-  "generated_at": "2026-06-14T09:48:03.250441+00:00"
+  "count": 500,
+  "generated_at": "2026-06-14T12:52:21.433597+00:00"
 }
 ```
 
@@ -465,17 +467,19 @@ Arrays are trimmed to first-2 + last for readability.
 {
   "symbol": "AAPL", "timeframe": "1d", "indicator": "bollinger",
   "points": [
-    { "time": "2025-10-06T00:00:00+00:00", "state": { "upper": 0, "middle": 0, "lower": 0, "bandwidth": 0, "percent_b": 50, "zone": "neutral", "squeeze": false }, "bar_close": 150.0 },
-    "… (250 total) …",
-    { "time": "2026-06-12T00:00:00+00:00", "state": { "upper": 262.5457, "middle": 255.4425, "lower": 248.3393, "bandwidth": 5.5615, "percent_b": 57.0919, "zone": "neutral", "squeeze": true }, "bar_close": 256.45 }
+    { "time": "2024-06-14T00:00:00+00:00", "state": { "upper": 212.54451958471378, "middle": 196.02649999999957, "lower": 179.50848041528536, "bandwidth": 16.852843451996794, "percent_b": 99.83496936653282, "zone": "neutral", "squeeze": false }, "bar_close": 212.49 },
+    "… (500 total) …",
+    { "time": "2026-06-12T00:00:00+00:00", "state": { "upper": 319.7833280779816, "middle": 304.10824999999966, "lower": 288.4331719220177, "bandwidth": 10.308880523946296, "percent_b": 8.602279569408926, "zone": "neutral", "squeeze": false }, "bar_close": 291.13 }
   ],
-  "count": 250,
-  "generated_at": "2026-06-14T09:48:03.266679+00:00"
+  "count": 500,
+  "generated_at": "2026-06-14T12:52:21.522975+00:00"
 }
 ```
 
-> The leading bars carry neutral/zero `state` until the indicator's warmup window fills —
-> see "Warmup & history depth" below.
+> Here the default window includes a warmup lead, so **every visible bar carries a populated
+> `state`** (no leading zeros) — note the very first bar already has a real RSI/MACD/Bollinger
+> value. Only when the window starts at the very beginning of livewire's history (no lead
+> available) do the first ~warmup bars read neutral/zero. See "Warmup & history depth" below.
 
 **`GET /confluence/AAPL?timeframe=1d`** → `200` (one row written via apex's persistence API,
 then read back through the endpoint — a real PG round-trip)
@@ -489,7 +493,7 @@ then read back through the endpoint — a real PG round-trip)
       "bearish_count": 1, "neutral_count": 2, "total_indicators": 7, "dominant_direction": "bullish" }
   ],
   "count": 1,
-  "generated_at": "2026-06-14T09:48:03.274114+00:00"
+  "generated_at": "2026-06-14T12:52:21.535493+00:00"
 }
 ```
 
@@ -557,5 +561,7 @@ indicator**, e.g. `{value, zone}` for rsi, `{macd, signal, histogram, direction}
 - **Chart indicators are compute-on-read** (recomputed per request, uncached — run off the
   event loop in a worker thread so they don't block the signal stream); confluence history is
   limited to what is persisted in `confluence_scores`.
-- **livewire bronze `COLUMN_MAP` is unverified against real data** — the §10 capture used a
-  synthetic bronze fixture. Confirm the real parquet column names before production charting.
+- **§10 sample values are a point-in-time capture** (2026-06-14) from the **real** livewire
+  bronze data lake — the schema is matched to livewire's writers and smoke-tested against real
+  bytes (PR #135; intraday `TIMESTAMPTZ` is normalized to UTC on read). The payload *shapes*
+  are stable; the *numbers* move as livewire ingests new bars.
