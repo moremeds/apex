@@ -2,7 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Connect apex to xenon's live IB tick WS feed so a subscribed ticker streams real ticks into the existing compute pipeline, producing live TA signals — behind a feature flag that is OFF by default.
+**Goal:** Build the live-feed *adapter* and wiring that let a subscribed ticker stream real xenon IB ticks into apex's existing compute pipeline — behind a feature flag that is OFF by default. The end-to-end seam (xenon tick → bus → `BarAggregator` → bar/signal) is proven by an integration test.
+
+**Scope boundary (read first):** This phase delivers the WS client, tick translation, `SubscriptionManager` live-feed wiring, and env-gated lifespan construction. It does **not** stand up the full pipeline (`PriorityEventBus` + `TASignalService` + `SubscriptionManager`) inside the server `lifespan` — Phase 3 deliberately left that env-gated/unbuilt (it needs the livewire provider + PG). So setting `APEX_XENON_WS_URL` in production today builds and connects the client only if something has populated `app.state.event_bus`/`app.state.subscription_manager`. Phase 4 correctly hooks into that seam and proves the data path with a real integration test; constructing the pipeline in `lifespan` is a separate, tracked follow-up (see Task 13, optional). This boundary matches the approved spec (§8, §12d).
 
 **Architecture:** A thin live-feed *adapter*, not a bar engine. apex's `BarAggregator` already does the tick→bar stitch, so Phase 4 only (1) speaks the xenon WS protocol, (2) translates each tick onto `EventType.MARKET_DATA_TICK`, and (3) wires subscribe/unsubscribe so a watched ticker opens/drops its xenon sub. Everything downstream (bars→indicators→rules→signals→argon) is unchanged.
 
@@ -16,8 +18,9 @@
 - `PriceData` = `{symbol, last, bid, ask, volume, timestamp(ISO-8601 string), ...}`; `last` may be null. (`ib_tick_handler.js:createPriceData`)
 - Loopback / no-`CLERK_JWKS_URL` connections skip ticket auth → no ticket needed for the trusted-network path (`ib_realtime_server.js:362-373`).
 - apex ingest: `BarAggregator.on_tick` accepts a dict `{symbol, last|mid|price|bid+ask, volume, timestamp}`; `timestamp` is returned as-is so it must be a `datetime` (`src/domain/signals/data/bar_aggregator.py:221-264`).
-- event bus: `PriorityEventBus.publish(EventType.MARKET_DATA_TICK, payload)` (sync) (`src/domain/events/priority_event_bus.py`, `src/domain/interfaces/event_bus.py:40`); `EventType.MARKET_DATA_TICK = "market_data_tick"` (`src/domain/events/event_types.py:52`).
-- `SubscriptionManager.__init__(provider, compute, timeframes, seed_lookback_days=365)` (`src/application/subscriptions/manager.py:51`).
+- event bus: `PriorityEventBus.publish(EventType.MARKET_DATA_TICK, payload)` (sync). When the bus is **not** started (`_running` False) `publish` dispatches **synchronously** to subscribers via `_dispatch_sync` (`priority_event_bus.py:195,539`) — this is what the e2e test relies on. `EventType.MARKET_DATA_TICK = "market_data_tick"` (`event_types.py:52`); `EventType.BAR_CLOSE = "bar_close"` (`event_types.py:80`).
+- `SubscriptionManager.__init__(provider, compute, timeframes, seed_lookback_days=365)` (`src/application/subscriptions/manager.py:51`); `subscribe`/`unsubscribe` already await I/O (history seed) under `self._lock` — the lock serializes per-symbol setup. Phase 4 adds the live-feed call to that same critical section, consistent with the existing design (decoupling lock from I/O is out of scope).
+- websockets 16: `connect()` defaults `ping_interval=20s`, `ping_timeout=20s` — it sends protocol PING frames and closes the socket (→ `ConnectionClosed`) if the peer stops responding, so a dead-but-open connection is detected without a manual read-timeout. xenon's Node `ws` server auto-answers protocol PING frames.
 - ports live in `src/domain/interfaces/` as `@runtime_checkable Protocol` (mirror `historical_source.py`); adapters live in `src/infrastructure/adapters/<source>/`.
 - CI test jobs install `.[dev,server,api]` → `websockets` must be declared in the `api` extra to be importable in tests.
 
@@ -36,25 +39,26 @@
 - `tests/support/__init__.py`
 - `tests/support/fake_xenon.py` — `FakeXenonServer` test double (real in-process WS server).
 - `tests/unit/infrastructure/xenon/__init__.py`
-- `tests/unit/infrastructure/xenon/test_translator.py`
+- `tests/unit/infrastructure/xenon/test_live_feed_port.py`
 - `tests/unit/infrastructure/xenon/test_auth.py`
+- `tests/unit/infrastructure/xenon/test_translator.py`
+- `tests/unit/infrastructure/xenon/test_fake_xenon.py`
 - `tests/unit/infrastructure/xenon/test_client.py`
 - `tests/integration/test_xenon_live_e2e.py`
 
 **Modify:**
 - `pyproject.toml` — add `websockets>=16.0` to the `api` extra.
 - `src/domain/interfaces/__init__.py` — export `LiveFeedPort`.
-- `src/application/subscriptions/manager.py` — optional `live_feed`; open on subscribe, drop on unsubscribe; `set_live_feed()`.
+- `src/application/subscriptions/manager.py` — optional `live_feed`; open on subscribe, best-effort drop on unsubscribe; `set_live_feed()`.
 - `tests/unit/application/subscriptions/test_manager.py` — live-feed wiring tests.
-- `src/api/server.py` — env-gated `XenonTickClient` construction in `lifespan`.
+- `src/api/server.py` — env-gated `XenonTickClient` construction in `lifespan` + `close()` on shutdown.
 - `tests/unit/api/test_server_lifespan.py` — lifespan wiring tests.
 
 ---
 
 ## Task 1: Declare the `websockets` dependency
 
-**Files:**
-- Modify: `pyproject.toml` (the `api` optional-dependencies group)
+**Files:** Modify `pyproject.toml` (the `api` optional-dependencies group)
 
 - [ ] **Step 1: Add the dependency**
 
@@ -86,10 +90,8 @@ git commit -m "build: declare websockets dep for xenon live feed (Phase 4)"
 ## Task 2: `LiveFeedPort` interface
 
 **Files:**
-- Create: `src/domain/interfaces/live_feed.py`
+- Create: `src/domain/interfaces/live_feed.py`, `tests/unit/infrastructure/xenon/__init__.py`, `tests/unit/infrastructure/xenon/test_live_feed_port.py`
 - Modify: `src/domain/interfaces/__init__.py`
-- Test: `tests/unit/infrastructure/xenon/test_client.py` (the port-satisfaction check is added with the client in Task 6; here we only add a focused interface test)
-- Test: `tests/unit/infrastructure/xenon/__init__.py` (empty package marker)
 
 - [ ] **Step 1: Create the test package marker**
 
@@ -193,9 +195,7 @@ git commit -m "feat(domain): add LiveFeedPort interface (Phase 4)"
 ## Task 3: Auth seam (`AuthProvider` + `NoAuthProvider`)
 
 **Files:**
-- Create: `src/infrastructure/adapters/xenon/__init__.py`
-- Create: `src/infrastructure/adapters/xenon/auth.py`
-- Test: `tests/unit/infrastructure/xenon/test_auth.py`
+- Create: `src/infrastructure/adapters/xenon/__init__.py`, `src/infrastructure/adapters/xenon/auth.py`, `tests/unit/infrastructure/xenon/test_auth.py`
 
 - [ ] **Step 1: Create the package marker**
 
@@ -275,9 +275,7 @@ git commit -m "feat(xenon): add pluggable auth seam (NoAuthProvider) (Phase 4)"
 
 ## Task 4: Tick translator (`translate_price_data`)
 
-**Files:**
-- Create: `src/infrastructure/adapters/xenon/translator.py`
-- Test: `tests/unit/infrastructure/xenon/test_translator.py`
+**Files:** Create `src/infrastructure/adapters/xenon/translator.py`, `tests/unit/infrastructure/xenon/test_translator.py`
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -306,7 +304,6 @@ def test_translates_full_price_data_with_iso_timestamp() -> None:
     assert out["symbol"] == "AAPL"
     assert out["last"] == 150.25
     assert out["volume"] == 1000
-    # ISO string parsed to a tz-aware datetime (aggregator compares datetimes)
     assert out["timestamp"] == datetime(2026, 6, 14, 12, 0, tzinfo=timezone.utc)
 
 
@@ -413,10 +410,7 @@ git commit -m "feat(xenon): translate PriceData tick to apex tick dict (Phase 4)
 
 ## Task 5: `FakeXenonServer` test double
 
-**Files:**
-- Create: `tests/support/__init__.py`
-- Create: `tests/support/fake_xenon.py`
-- Test: `tests/unit/infrastructure/xenon/test_fake_xenon.py` (self-test of the double)
+**Files:** Create `tests/support/__init__.py`, `tests/support/fake_xenon.py`, `tests/unit/infrastructure/xenon/test_fake_xenon.py`
 
 - [ ] **Step 1: Create the support package marker**
 
@@ -463,8 +457,8 @@ Create `tests/support/fake_xenon.py`:
 """In-process fake of xenon's ib_realtime WS server for tests.
 
 Speaks the real protocol surface apex's client uses: records client action
-frames, can push server frames (price/batch/ping), and can drop connections to
-exercise reconnect. Not collected by pytest (filename is not test_*).
+frames, can push server frames (price/batch/ping/error), and can drop
+connections to exercise reconnect. Not collected by pytest (filename != test_*).
 """
 
 from __future__ import annotations
@@ -538,6 +532,8 @@ class FakeXenonServer:
         self._clients.clear()
 ```
 
+> Note on `wait_for_connection`: a short `sleep(0.01)` poll on a monotonic counter is acceptable here — it is bounded by `timeout` and cannot hang. Frame waits use an `asyncio.Event` (no polling).
+
 - [ ] **Step 5: Run test to verify it passes**
 
 Run: `uv run python -m pytest tests/unit/infrastructure/xenon/test_fake_xenon.py -v --no-cov`
@@ -552,11 +548,11 @@ git commit -m "test(xenon): add FakeXenonServer test double (Phase 4)"
 
 ---
 
-## Task 6: `XenonTickClient` — connect, subscribe, publish ticks
+## Task 6: `XenonTickClient` — connect, subscribe, publish (single connection)
 
-**Files:**
-- Create: `src/infrastructure/adapters/xenon/client.py`
-- Test: `tests/unit/infrastructure/xenon/test_client.py`
+This task builds the client with **only** connect/subscribe/publish + robust per-frame handling. Ping (Task 7) and reconnect (Task 8) are added **after** their own failing tests, to keep each behavior test-first.
+
+**Files:** Create `src/infrastructure/adapters/xenon/client.py`, `tests/unit/infrastructure/xenon/test_client.py`
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -576,13 +572,25 @@ from tests.support.fake_xenon import FakeXenonServer
 
 
 class _RecordingBus:
-    """Captures (event_type, payload) published to it."""
+    """Captures (event_type, payload) and exposes an event-based wait."""
 
     def __init__(self) -> None:
         self.published: list = []
+        self._event = asyncio.Event()
 
     def publish(self, event_type, payload, priority=None) -> None:
         self.published.append((event_type, payload))
+        self._event.set()
+
+    async def wait_for(self, n: int, timeout: float = 2.0) -> None:
+        async def _wait() -> None:
+            while len(self.published) < n:
+                self._event.clear()
+                if len(self.published) >= n:
+                    return
+                await self._event.wait()
+
+        await asyncio.wait_for(_wait(), timeout)
 
 
 def test_client_satisfies_live_feed_port() -> None:
@@ -602,6 +610,20 @@ async def test_subscribe_sends_action_frame() -> None:
 
 
 @pytest.mark.asyncio
+async def test_unsubscribe_sends_action_frame() -> None:
+    async with FakeXenonServer() as server:
+        client = XenonTickClient(server.url, _RecordingBus(), reconnect_delay=0.01)
+        await client.connect()
+        await server.wait_for_connection()
+        await client.subscribe("AAPL")
+        await server.wait_for_frames(1)
+        await client.unsubscribe("AAPL")
+        await server.wait_for_frames(2)
+        assert server.received[1] == {"action": "unsubscribe", "symbols": ["AAPL"]}
+        await client.close()
+
+
+@pytest.mark.asyncio
 async def test_batch_tick_is_translated_and_published() -> None:
     bus = _RecordingBus()
     async with FakeXenonServer() as server:
@@ -616,13 +638,7 @@ async def test_batch_tick_is_translated_and_published() -> None:
                 "symbol": "AAPL", "last": 150.0, "volume": 10,
                 "timestamp": "2026-06-14T12:00:00Z"}}}
         )
-        # give the receive loop a moment to process + publish
-        for _ in range(100):
-            if bus.published:
-                break
-            await asyncio.sleep(0.01)
-
-        assert len(bus.published) == 1
+        await bus.wait_for(1)
         event_type, payload = bus.published[0]
         assert event_type == EventType.MARKET_DATA_TICK
         assert payload["symbol"] == "AAPL" and payload["last"] == 150.0
@@ -640,31 +656,52 @@ async def test_price_frame_is_published() -> None:
             {"type": "price", "symbol": "AAPL", "data": {
                 "symbol": "AAPL", "last": 99.0, "timestamp": "2026-06-14T12:00:00Z"}}
         )
-        for _ in range(100):
-            if bus.published:
-                break
-            await asyncio.sleep(0.01)
+        await bus.wait_for(1)
         assert bus.published[0][1]["last"] == 99.0
         await client.close()
+
+
+@pytest.mark.asyncio
+async def test_malformed_frames_do_not_kill_the_client() -> None:
+    """A non-JSON / non-dict / wrong-shape frame is dropped; later good ticks still flow."""
+    bus = _RecordingBus()
+    async with FakeXenonServer() as server:
+        client = XenonTickClient(server.url, bus, reconnect_delay=0.01)
+        await client.connect()
+        await server.wait_for_connection()
+        # garbage that would crash a naive handler
+        for ws in list(server._clients):
+            await ws.send("not json")
+            await ws.send(json.dumps([1, 2, 3]))           # JSON, but not an object
+            await ws.send(json.dumps({"type": "batch", "updates": [1]}))  # updates not a dict
+        await server.push(
+            {"type": "price", "symbol": "AAPL", "data": {
+                "symbol": "AAPL", "last": 1.0, "timestamp": "2026-06-14T12:00:00Z"}}
+        )
+        await bus.wait_for(1)
+        assert bus.published[0][1]["last"] == 1.0
+        await client.close()
 ```
+
+Add `import json` at the top of the test file (used by the malformed-frame test).
 
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `uv run python -m pytest tests/unit/infrastructure/xenon/test_client.py -v --no-cov`
 Expected: FAIL with `ModuleNotFoundError: ...xenon.client`.
 
-- [ ] **Step 3: Implement the client (connect/subscribe/publish; ping & reconnect added in later tasks but included now to avoid churn)**
+- [ ] **Step 3: Implement the client (connect + subscribe + publish only)**
 
 Create `src/infrastructure/adapters/xenon/client.py`:
 
 ```python
 """WS client to xenon's ib_realtime server -> apex event bus (Phase 4).
 
-Implements LiveFeedPort. Owns one resilient websockets connection: sends
-subscribe/unsubscribe action frames, receives `price`/`batch` ticks and
-republishes each (translated) on EventType.MARKET_DATA_TICK, answers the
-server's application-level `{"type":"ping"}` keep-alive, and reconnects with a
-fixed delay while re-subscribing the active set.
+Implements LiveFeedPort. Owns one websockets connection: sends
+subscribe/unsubscribe action frames and republishes each received `price`/`batch`
+tick (translated) on EventType.MARKET_DATA_TICK. A single malformed frame or a
+handler error never kills the receive loop. (Keep-alive ping is added in Task 7;
+reconnect/backoff in Task 8.)
 """
 
 from __future__ import annotations
@@ -673,6 +710,7 @@ import asyncio
 import json
 import logging
 from typing import Any, Optional, Set
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed
@@ -691,20 +729,21 @@ class XenonTickClient:
         event_bus: Any,
         auth: Optional[AuthProvider] = None,
         reconnect_delay: float = 1.0,
+        max_reconnect_delay: float = 30.0,
     ) -> None:
         self._url = url
         self._bus = event_bus
         self._auth: AuthProvider = auth or NoAuthProvider()
         self._reconnect_delay = reconnect_delay
+        self._max_reconnect_delay = max_reconnect_delay
         self._subscribed: Set[str] = set()
         self._ws: Any = None
         self._task: Optional[asyncio.Task[None]] = None
         self._closing = False
-        self._connected = asyncio.Event()
 
     # ---- LiveFeedPort ----------------------------------------------------
     async def connect(self) -> None:
-        """Launch the background receive/reconnect loop (non-blocking)."""
+        """Launch the background receive loop (non-blocking)."""
         if self._task is None:
             self._closing = False
             self._task = asyncio.create_task(self._run())
@@ -734,13 +773,20 @@ class XenonTickClient:
 
     # ---- internals -------------------------------------------------------
     async def _connect_url(self) -> str:
+        # SECURITY: the returned URL may carry an auth ticket in its query string
+        # (once TicketAuthProvider lands). Never log this value.
         ticket = await self._auth.ticket()
-        return f"{self._url}?ticket={ticket}" if ticket else self._url
+        if not ticket:
+            return self._url
+        parts = urlsplit(self._url)
+        query = dict(parse_qsl(parts.query))
+        query["ticket"] = ticket
+        return urlunsplit(parts._replace(query=urlencode(query)))
 
     async def _send(self, payload: dict) -> None:
         ws = self._ws
         if ws is None:
-            return  # not connected yet; _resubscribe will replay on (re)connect
+            return  # not connected yet; _resubscribe replays on connect
         try:
             await ws.send(json.dumps(payload))
         except ConnectionClosed:
@@ -751,24 +797,23 @@ class XenonTickClient:
             await self._send({"action": "subscribe", "symbols": sorted(self._subscribed)})
 
     async def _run(self) -> None:
-        while not self._closing:
-            try:
-                async with connect(await self._connect_url()) as ws:
-                    self._ws = ws
-                    self._connected.set()
-                    await self._resubscribe()
-                    async for raw in ws:
+        # NOTE (Task 6): single connection, no reconnect. Task 8 wraps this body
+        # in a reconnect loop with capped exponential backoff.
+        try:
+            async with connect(await self._connect_url()) as ws:
+                self._ws = ws
+                await self._resubscribe()
+                async for raw in ws:
+                    try:
                         await self._handle(raw)
-            except (ConnectionClosed, OSError) as exc:
-                logger.warning("xenon WS connection lost: %s", exc)
-            except asyncio.CancelledError:
-                break
-            finally:
-                self._ws = None
-                self._connected.clear()
-            if self._closing:
-                break
-            await asyncio.sleep(self._reconnect_delay)
+                    except Exception:
+                        logger.exception("xenon WS: error handling frame; continuing")
+        except (ConnectionClosed, OSError) as exc:
+            logger.warning("xenon WS connection lost: %s", exc)
+        except asyncio.CancelledError:
+            pass
+        finally:
+            self._ws = None
 
     async def _handle(self, raw: Any) -> None:
         try:
@@ -776,15 +821,21 @@ class XenonTickClient:
         except (ValueError, TypeError):
             logger.warning("xenon WS: dropping non-JSON frame")
             return
+        if not isinstance(msg, dict):
+            logger.warning("xenon WS: dropping non-object frame (%s)", type(msg).__name__)
+            return
         mtype = msg.get("type")
-        if mtype == "ping":
-            await self._send({"action": "pong"})
-        elif mtype == "batch":
-            for data in (msg.get("updates") or {}).values():
-                self._publish(data)
+        if mtype == "batch":
+            updates = msg.get("updates")
+            if isinstance(updates, dict):
+                for data in updates.values():
+                    if isinstance(data, dict):
+                        self._publish(data)
         elif mtype == "price":
-            self._publish(msg.get("data") or {})
-        # status / subscribed / unsubscribed / error: ignored (no action needed)
+            data = msg.get("data")
+            if isinstance(data, dict):
+                self._publish(data)
+        # ping/error/status/subscribed/unsubscribed/unknown handled in later tasks or ignored
 
     def _publish(self, data: dict) -> None:
         tick = translate_price_data(data)
@@ -795,7 +846,7 @@ class XenonTickClient:
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `uv run python -m pytest tests/unit/infrastructure/xenon/test_client.py -v --no-cov`
-Expected: PASS (4 passed).
+Expected: PASS (6 passed).
 
 - [ ] **Step 5: Commit**
 
@@ -806,10 +857,9 @@ git commit -m "feat(xenon): WS client publishes live ticks to the event bus (Pha
 
 ---
 
-## Task 7: `XenonTickClient` — keep-alive ping/pong
+## Task 7: `XenonTickClient` — keep-alive ping/pong + error logging
 
-**Files:**
-- Modify: `tests/unit/infrastructure/xenon/test_client.py` (add a test; implementation already present from Task 6)
+**Files:** Modify `src/infrastructure/adapters/xenon/client.py`, `tests/unit/infrastructure/xenon/test_client.py`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -828,28 +878,53 @@ async def test_server_ping_is_answered_with_pong() -> None:
         await client.close()
 ```
 
-- [ ] **Step 2: Run test to verify it passes (implementation already handles ping)**
+- [ ] **Step 2: Run test to verify it fails**
 
 Run: `uv run python -m pytest "tests/unit/infrastructure/xenon/test_client.py::test_server_ping_is_answered_with_pong" -v --no-cov`
-Expected: PASS.
+Expected: FAIL — the Task 6 `_handle` ignores `{"type":"ping"}`, so no `pong` frame is sent and `wait_for_frames(1)` times out.
 
-> Note: the Task 6 implementation already replies to `{"type":"ping"}`. This task exists to lock that behavior behind an explicit test. If for any reason it had NOT been implemented, the test would fail first (RED) — confirming the test is real.
+- [ ] **Step 3: Implement ping + error handling**
 
-- [ ] **Step 3: Commit**
+In `src/infrastructure/adapters/xenon/client.py` `_handle`, add a `ping` branch (before `batch`) and an `error` branch:
+
+```python
+        mtype = msg.get("type")
+        if mtype == "ping":
+            await self._send({"action": "pong"})
+        elif mtype == "batch":
+            updates = msg.get("updates")
+            if isinstance(updates, dict):
+                for data in updates.values():
+                    if isinstance(data, dict):
+                        self._publish(data)
+        elif mtype == "price":
+            data = msg.get("data")
+            if isinstance(data, dict):
+                self._publish(data)
+        elif mtype == "error":
+            logger.warning("xenon WS error frame: %s", msg.get("message"))
+        # status/subscribed/unsubscribed/unknown: ignored
+```
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `uv run python -m pytest tests/unit/infrastructure/xenon/test_client.py -v --no-cov`
+Expected: PASS (7 passed).
+
+- [ ] **Step 5: Commit**
 
 ```bash
-git add tests/unit/infrastructure/xenon/test_client.py
-git commit -m "test(xenon): lock keep-alive ping/pong behavior (Phase 4)"
+git add src/infrastructure/adapters/xenon/client.py tests/unit/infrastructure/xenon/test_client.py
+git commit -m "feat(xenon): answer keep-alive ping, log error frames (Phase 4)"
 ```
 
 ---
 
-## Task 8: `XenonTickClient` — reconnect + re-subscribe
+## Task 8: `XenonTickClient` — reconnect, backoff, re-subscribe, close-cancels
 
-**Files:**
-- Modify: `tests/unit/infrastructure/xenon/test_client.py` (add a test; implementation already present from Task 6)
+**Files:** Modify `src/infrastructure/adapters/xenon/client.py`, `tests/unit/infrastructure/xenon/test_client.py`
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the failing tests**
 
 Append to `tests/unit/infrastructure/xenon/test_client.py`:
 
@@ -861,63 +936,111 @@ async def test_reconnects_and_resubscribes_after_drop() -> None:
         await client.connect()
         await server.wait_for_connection(1)
         await client.subscribe("AAPL")
-        await server.wait_for_frames(1)  # initial subscribe
+        await server.wait_for_frames(1)          # initial subscribe
 
         await server.drop_connections()          # force a reconnect
-        await server.wait_for_connection(2)       # client dialed back in
-        # on reconnect the client replays its active set as one subscribe frame
-        await server.wait_for_frames(2)
+        await server.wait_for_connection(2)      # client dialed back in
+        await server.wait_for_frames(2)          # active set replayed on reconnect
         assert server.received[-1] == {"action": "subscribe", "symbols": ["AAPL"]}
         assert server.connections >= 2
         await client.close()
+
+
+@pytest.mark.asyncio
+async def test_close_during_reconnect_stops_redialing() -> None:
+    async with FakeXenonServer() as server:
+        client = XenonTickClient(server.url, _RecordingBus(), reconnect_delay=0.05)
+        await client.connect()
+        await server.wait_for_connection(1)
+        await client.subscribe("AAPL")
+        await server.wait_for_frames(1)
+
+        await server.drop_connections()
+        await client.close()                     # close while it would be reconnecting
+        before = server.connections
+        await asyncio.sleep(0.2)                  # > reconnect_delay
+        assert server.connections == before      # no new dial after close()
 ```
 
-- [ ] **Step 2: Run test to verify it passes (implementation already reconnects)**
+- [ ] **Step 2: Run tests to verify they fail**
 
 Run: `uv run python -m pytest "tests/unit/infrastructure/xenon/test_client.py::test_reconnects_and_resubscribes_after_drop" -v --no-cov`
-Expected: PASS.
+Expected: FAIL — the Task 6 `_run` connects once and returns after a drop, so `wait_for_connection(2)` times out.
 
-> Note: the Task 6 `_run` loop already reconnects with `reconnect_delay` and calls `_resubscribe`. If reconnect/resubscribe were missing, `wait_for_connection(2)` or `wait_for_frames(2)` would time out (RED).
+- [ ] **Step 3: Implement reconnect with capped exponential backoff**
 
-- [ ] **Step 3: Run the full client + translator + auth suite**
+Replace the `_run` body in `src/infrastructure/adapters/xenon/client.py` with a reconnect loop (delete the Task-6 NOTE comment):
+
+```python
+    async def _run(self) -> None:
+        delay = self._reconnect_delay
+        while not self._closing:
+            try:
+                async with connect(await self._connect_url()) as ws:
+                    self._ws = ws
+                    delay = self._reconnect_delay  # reset backoff on a good connect
+                    await self._resubscribe()
+                    async for raw in ws:
+                        try:
+                            await self._handle(raw)
+                        except Exception:
+                            logger.exception("xenon WS: error handling frame; continuing")
+            except (ConnectionClosed, OSError) as exc:
+                logger.warning("xenon WS connection lost: %s", exc)
+            except asyncio.CancelledError:
+                break
+            finally:
+                self._ws = None
+            if self._closing:
+                break
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, self._max_reconnect_delay)  # capped exponential backoff
+```
+
+> Dead-but-open connections are handled by websockets' built-in keepalive
+> (`ping_interval`/`ping_timeout` defaults) which raises `ConnectionClosed` →
+> the loop reconnects. No manual read-timeout is needed.
+
+- [ ] **Step 4: Run tests to verify they pass**
 
 Run: `uv run python -m pytest tests/unit/infrastructure/xenon/ -v --no-cov`
-Expected: all PASS.
+Expected: all PASS (translator + auth + fake-server + port + client incl. both new tests).
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add tests/unit/infrastructure/xenon/test_client.py
-git commit -m "test(xenon): lock reconnect + re-subscribe behavior (Phase 4)"
+git add src/infrastructure/adapters/xenon/client.py tests/unit/infrastructure/xenon/test_client.py
+git commit -m "feat(xenon): reconnect with capped backoff + re-subscribe (Phase 4)"
 ```
 
 ---
 
 ## Task 9: Wire `LiveFeedPort` into `SubscriptionManager`
 
-**Files:**
-- Modify: `src/application/subscriptions/manager.py`
-- Test: `tests/unit/application/subscriptions/test_manager.py`
+**Files:** Modify `src/application/subscriptions/manager.py`, `tests/unit/application/subscriptions/test_manager.py`
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `tests/unit/application/subscriptions/test_manager.py` (keep existing imports; add what's missing):
+Append to `tests/unit/application/subscriptions/test_manager.py` (the file already defines `_FakeProvider`, `_FakeCompute` at module level and constructs `SubscriptionManager(provider=..., compute=..., timeframes=["1d"])` inline — verified; follow that):
 
 ```python
 class _FakeLiveFeed:
     def __init__(self) -> None:
         self.subscribed: list = []
         self.unsubscribed: list = []
-        self.fail = False
+        self.fail_subscribe = False
+        self.fail_unsubscribe = False
 
     async def connect(self) -> None: ...
 
     async def subscribe(self, symbol: str) -> None:
-        if self.fail:
+        if self.fail_subscribe:
             raise RuntimeError("feed down")
         self.subscribed.append(symbol)
 
     async def unsubscribe(self, symbol: str) -> None:
+        if self.fail_unsubscribe:
+            raise RuntimeError("feed down")
         self.unsubscribed.append(symbol)
 
     async def close(self) -> None: ...
@@ -926,16 +1049,26 @@ class _FakeLiveFeed:
 @pytest.mark.asyncio
 async def test_subscribe_opens_live_feed() -> None:
     feed = _FakeLiveFeed()
-    mgr = _make_manager()          # existing helper used elsewhere in this file
+    mgr = SubscriptionManager(provider=_FakeProvider(), compute=_FakeCompute(), timeframes=["1d"])
     mgr.set_live_feed(feed)
     await mgr.subscribe("AAPL")
     assert feed.subscribed == ["AAPL"]
 
 
 @pytest.mark.asyncio
+async def test_second_subscriber_does_not_reopen_feed() -> None:
+    feed = _FakeLiveFeed()
+    mgr = SubscriptionManager(provider=_FakeProvider(), compute=_FakeCompute(), timeframes=["1d"])
+    mgr.set_live_feed(feed)
+    await mgr.subscribe("AAPL")
+    await mgr.subscribe("AAPL")           # refcount 1 -> 2
+    assert feed.subscribed == ["AAPL"]    # opened once only
+
+
+@pytest.mark.asyncio
 async def test_unsubscribe_drops_live_feed_at_refcount_zero() -> None:
     feed = _FakeLiveFeed()
-    mgr = _make_manager()
+    mgr = SubscriptionManager(provider=_FakeProvider(), compute=_FakeCompute(), timeframes=["1d"])
     mgr.set_live_feed(feed)
     await mgr.subscribe("AAPL")
     await mgr.unsubscribe("AAPL")
@@ -943,36 +1076,47 @@ async def test_unsubscribe_drops_live_feed_at_refcount_zero() -> None:
 
 
 @pytest.mark.asyncio
-async def test_live_feed_failure_leaves_no_poisoned_entry() -> None:
+async def test_subscribe_feed_failure_leaves_no_poisoned_entry() -> None:
     feed = _FakeLiveFeed()
-    feed.fail = True
-    mgr = _make_manager()
+    feed.fail_subscribe = True
+    mgr = SubscriptionManager(provider=_FakeProvider(), compute=_FakeCompute(), timeframes=["1d"])
     mgr.set_live_feed(feed)
     with pytest.raises(RuntimeError):
         await mgr.subscribe("AAPL")
     assert mgr.refcount("AAPL") == 0
     assert "AAPL" not in mgr.active_symbols()
-```
 
-If `_make_manager()` does not already exist in the test file, add this helper near the top (after imports), using the existing fakes in that file (a fake provider + fake compute). If the file already builds a manager inline per test, mirror that construction instead — the key is a manager with a fake provider/compute and the timeframes the other tests use.
 
-```python
-def _make_manager():
-    # Mirror the construction the existing tests in this file already use.
-    from src.application.subscriptions.manager import SubscriptionManager
-    return SubscriptionManager(provider=_FakeProvider(), compute=_FakeCompute(), timeframes=["1d"])
+@pytest.mark.asyncio
+async def test_unsubscribe_feed_failure_still_clears_local_state() -> None:
+    feed = _FakeLiveFeed()
+    feed.fail_unsubscribe = True
+    mgr = SubscriptionManager(provider=_FakeProvider(), compute=_FakeCompute(), timeframes=["1d"])
+    mgr.set_live_feed(feed)
+    await mgr.subscribe("AAPL")
+    await mgr.unsubscribe("AAPL")          # remote drop raises, but must not propagate
+    assert mgr.refcount("AAPL") == 0
+    assert "AAPL" not in mgr.active_symbols()
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `uv run python -m pytest tests/unit/application/subscriptions/test_manager.py -k "live_feed" -v --no-cov`
+Run: `uv run python -m pytest tests/unit/application/subscriptions/test_manager.py -k "live_feed or feed" -v --no-cov`
 Expected: FAIL with `AttributeError: 'SubscriptionManager' object has no attribute 'set_live_feed'`.
 
 - [ ] **Step 3: Implement the wiring**
 
 In `src/application/subscriptions/manager.py`:
 
-3a. Add `live_feed` to `__init__` (keyword, default `None`) and store it. Change the signature and body:
+3a. Add a module-level logger after the imports (if not already present):
+
+```python
+import logging
+
+logger = logging.getLogger(__name__)
+```
+
+3b. Add `live_feed` to `__init__` (keyword, default `None`) and store it:
 
 ```python
     def __init__(
@@ -993,7 +1137,7 @@ In `src/application/subscriptions/manager.py`:
         self._compute_started = False
 ```
 
-3b. Add a setter just below `__init__`:
+3c. Add a setter just below `__init__`:
 
 ```python
     def set_live_feed(self, live_feed: Any) -> None:
@@ -1001,7 +1145,7 @@ In `src/application/subscriptions/manager.py`:
         self._live_feed = live_feed
 ```
 
-3c. In `subscribe`, open the live feed inside the existing try (so a failure follows the same poison-cleanup path), right after `sub.started = True`:
+3d. In `subscribe`, open the live feed inside the existing try (so a failure follows the same poison-cleanup path), guarded so it opens only on the first subscriber (refcount still 0):
 
 ```python
             try:
@@ -1021,44 +1165,46 @@ In `src/application/subscriptions/manager.py`:
             sub.acquire()
 ```
 
-3d. In `unsubscribe`, drop the live feed when refcount hits zero, before popping the entry:
+3e. In `unsubscribe`, drop the live feed when refcount hits zero — **best-effort**, so a feed error never blocks local cleanup:
 
 ```python
             remaining = sub.release()
             if remaining == 0:
                 sub.started = False
                 if self._live_feed is not None:
-                    await self._live_feed.unsubscribe(symbol)
+                    try:
+                        await self._live_feed.unsubscribe(symbol)
+                    except Exception:  # noqa: BLE001 - best-effort remote drop
+                        logger.warning("live feed unsubscribe failed for %s", symbol)
                 self._subs.pop(symbol, None)
 ```
 
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `uv run python -m pytest tests/unit/application/subscriptions/test_manager.py -v --no-cov`
-Expected: all PASS (existing + 3 new).
+Expected: all PASS (existing + 5 new).
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/application/subscriptions/manager.py tests/unit/application/subscriptions/test_manager.py
-git commit -m "feat(subscriptions): open/drop live feed on subscribe/unsubscribe (Phase 4)"
+git commit -m "feat(subscriptions): open/best-effort-drop live feed on (un)subscribe (Phase 4)"
 ```
 
 ---
 
 ## Task 10: Env-gated lifespan construction
 
-**Files:**
-- Modify: `src/api/server.py` (the `lifespan` function)
-- Test: `tests/unit/api/test_server_lifespan.py`
+**Files:** Modify `src/api/server.py` (the `lifespan` function), `tests/unit/api/test_server_lifespan.py`
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `tests/unit/api/test_server_lifespan.py` (mirror the existing pattern in that file for entering the lifespan; the canonical pattern is shown below):
+Append to `tests/unit/api/test_server_lifespan.py` (the existing tests enter the lifespan via `async with lifespan(app):` — follow that). These monkeypatch the client class with a spy so they assert `connect()`/`close()` actually ran (no real socket):
 
 ```python
 import pytest
 
+import src.infrastructure.adapters.xenon.client as xenon_client_mod
 from src.api.server import create_app, lifespan
 
 
@@ -1074,24 +1220,44 @@ class _FakeSM:
         self.live_feed = feed
 
 
+class _SpyClient:
+    last = None
+
+    def __init__(self, url, event_bus=None, **kw) -> None:
+        self.url = url
+        self.event_bus = event_bus
+        self.connected = False
+        self.closed = False
+        _SpyClient.last = self
+
+    async def connect(self) -> None:
+        self.connected = True
+
+    async def close(self) -> None:
+        self.closed = True
+
+
 @pytest.mark.asyncio
-async def test_lifespan_builds_xenon_client_when_url_set(monkeypatch) -> None:
+async def test_lifespan_builds_connects_and_wires_xenon_client(monkeypatch) -> None:
     monkeypatch.setenv("APEX_XENON_WS_URL", "ws://127.0.0.1:1")
     monkeypatch.delenv("APEX_PG_URL", raising=False)
+    monkeypatch.setattr(xenon_client_mod, "XenonTickClient", _SpyClient)
     app = create_app()
     app.state.event_bus = _FakeBus()
     app.state.subscription_manager = _FakeSM()
     async with lifespan(app):
-        from src.infrastructure.adapters.xenon.client import XenonTickClient
-
-        assert isinstance(app.state.xenon_client, XenonTickClient)
+        assert isinstance(app.state.xenon_client, _SpyClient)
+        assert app.state.xenon_client.connected is True
         assert app.state.subscription_manager.live_feed is app.state.xenon_client
+    # after shutdown:
+    assert _SpyClient.last.closed is True
 
 
 @pytest.mark.asyncio
 async def test_lifespan_skips_xenon_client_when_url_unset(monkeypatch) -> None:
     monkeypatch.delenv("APEX_XENON_WS_URL", raising=False)
     monkeypatch.delenv("APEX_PG_URL", raising=False)
+    monkeypatch.setattr(xenon_client_mod, "XenonTickClient", _SpyClient)
     app = create_app()
     app.state.event_bus = _FakeBus()
     async with lifespan(app):
@@ -1109,7 +1275,7 @@ In `src/api/server.py`, inside `lifespan`, after the Phase 3 signal-surface bloc
 
 ```python
     # Phase 4 live-in (env-gated): connect to xenon's tick feed when configured.
-    # Mirrors the pre-injection guard above so tests can inject a fake client.
+    # Mirrors the pre-injection guard above so tests can inject a fake/spy client.
     if getattr(app.state, "xenon_client", None) is None:
         xenon_url = os.environ.get("APEX_XENON_WS_URL")
         bus = getattr(app.state, "event_bus", None)
@@ -1126,9 +1292,14 @@ In `src/api/server.py`, inside `lifespan`, after the Phase 3 signal-surface bloc
             app.state.xenon_client = None
 ```
 
-And in the `finally:` block, close it on shutdown (before/after the PG pool close):
+> The import is inside the `if` so the spy monkeypatch on
+> `src.infrastructure.adapters.xenon.client.XenonTickClient` is picked up.
+
+And replace the `finally:` block so the client is closed on shutdown:
 
 ```python
+    try:
+        yield
     finally:
         client = getattr(app.state, "xenon_client", None)
         if client is not None:
@@ -1154,12 +1325,11 @@ git commit -m "feat(api): env-gated xenon live-feed wiring in lifespan (Phase 4)
 
 ## Task 11: End-to-end — live tick reaches the real compute pipeline
 
-**Files:**
-- Create: `tests/integration/test_xenon_live_e2e.py`
+Proves the NEW Phase-4 seam: a tick pushed by the fake xenon server flows through the real `XenonTickClient` → real `PriorityEventBus` → real `TASignalService` `BarAggregator` and produces a `BAR_CLOSE` when ticks cross a bar boundary. The `closed` assertion IS the CI regression guard — if the publish→pipeline seam breaks, no `BAR_CLOSE` is produced and the test fails. (Downstream bar→indicator→rule→signal→emitter→socket is already covered by Phase 2/3 tests and not re-proven here.)
 
-This proves the NEW Phase-4 seam deterministically: a tick pushed by the fake xenon server flows through the real `XenonTickClient` → real `PriorityEventBus` → real `TASignalService` `BarAggregator` and produces a `BAR_CLOSE` when ticks cross a bar boundary. (Downstream bar→indicator→rule→signal→emitter→socket is already covered by Phase 2/3 tests and is not re-proven here.)
+**Files:** Create `tests/integration/test_xenon_live_e2e.py`
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the test**
 
 Create `tests/integration/test_xenon_live_e2e.py`:
 
@@ -1179,6 +1349,11 @@ from tests.support.fake_xenon import FakeXenonServer
 
 @pytest.mark.asyncio
 async def test_live_tick_drives_bar_close_through_real_pipeline() -> None:
+    # The bus is intentionally NOT started: PriorityEventBus.publish has a
+    # documented sync fallback (`if not self._running: self._dispatch_sync(...)`,
+    # priority_event_bus.py:195) so every publish dispatches synchronously to
+    # subscribers -- deterministic, exercising the real handler chain. Do NOT
+    # call `await bus.start()`: that switches to async lanes and makes this racy.
     bus = PriorityEventBus()
     closed: list = []
     bus.subscribe(EventType.BAR_CLOSE, lambda ev: closed.append(ev))
@@ -1193,8 +1368,8 @@ async def test_live_tick_drives_bar_close_through_real_pipeline() -> None:
         await client.subscribe("AAPL")
         await server.wait_for_frames(1)
 
-        # Two ticks two minutes apart -> the first 1m bar closes when the
-        # second tick opens a new bar window.
+        # Two ticks two minutes apart -> the first 1m bar closes when the second
+        # tick opens a new bar window.
         await server.push({"type": "batch", "updates": {"AAPL": {
             "symbol": "AAPL", "last": 100.0, "volume": 5,
             "timestamp": "2026-06-14T15:00:10Z"}}})
@@ -1211,17 +1386,14 @@ async def test_live_tick_drives_bar_close_through_real_pipeline() -> None:
 
     await service.stop()
 
-    assert closed, "no BAR_CLOSE produced from live ticks"
+    assert closed, "no BAR_CLOSE produced from live ticks (publish->pipeline seam broken)"
     assert closed[0].symbol == "AAPL"
     assert closed[0].timeframe == "1m"
 ```
 
-- [ ] **Step 2: Run test to verify it fails first**
+- [ ] **Step 2: Confirm the assertion is load-bearing (one-time sanity check)**
 
-Temporarily break the chain to confirm the test is real: it should already PASS once the client is implemented, so to satisfy RED-first discipline, first run it with the client's `_publish` short-circuited is NOT necessary — instead confirm the test fails before Task 6 exists. Since Task 6 is already done by now, run it and confirm it PASSES, then **prove the test bites** by running:
-
-Run: `uv run python -m pytest tests/integration/test_xenon_live_e2e.py -v --no-cov`
-Expected: PASS. Then, as the RED check, comment out the `bus.subscribe(...closed.append...)` line and re-run → it must FAIL with the `no BAR_CLOSE` assertion, proving the assertion is load-bearing. Restore the line.
+The `closed` assertion fails in CI whenever the seam regresses, so it is the real guard. To convince yourself once: temporarily change `_publish` in `client.py` to `pass`, run the test, see it FAIL with the `no BAR_CLOSE` message, then restore `_publish`.
 
 - [ ] **Step 3: Run test to verify it passes**
 
@@ -1275,12 +1447,20 @@ git commit -m "chore: format + lint Phase 4 live-in" || echo "nothing to commit"
 
 ---
 
-## Self-Review (completed by plan author)
+## Task 13 (OPTIONAL — out of default scope): stand up the pipeline in lifespan
 
-**Spec coverage:** §3 contract → Tasks 4/5/6 (frames, PriceData, ping). §3.1 auth → Task 3 (NoAuthProvider) + Task 6 (`_connect_url` ticket append). §4 ingest/translation → Task 4. §5 components → Tasks 2,3,4,6. §5.1 dict-tick → Task 6 `_publish`. §7 subscription wiring → Task 9. §8 lifespan → Task 10. §9 resilience (reconnect/ping/null-drop) → Tasks 6,7,8 + Task 4 null-drop. §10 testing (fake server, translator, client, wiring, e2e) → Tasks 5,4,6–8,9–11. §11 scope: service-JWT & reconnect-reseed explicitly NOT implemented (deferred, matches spec). §12 success criteria (a)→Task 11, (b)→Task 9, (c)→Task 8, (d)→Task 10 + Task 12 step 5, (e)→every frame/field traced to a verified source.
+Only do this if the goal is for the **server entrypoint itself** to stream live (not just the adapter + e2e proof). It requires a livewire bronze root and turns the flag into a true production switch. Left optional because it depends on livewire/PG config and broadens scope beyond the approved Phase 4 spec.
+
+Sketch (TDD each piece): in `lifespan`, when `APEX_LIVEWIRE_ROOT` (+ optionally `APEX_PG_URL`) is set, construct `PriorityEventBus()` → `app.state.event_bus`; `TASignalService(event_bus=bus, timeframes=[...])`; `LivewireOhlcProvider(bronze_root=...)`; `SubscriptionManager(provider, compute=service, timeframes=[...])` → `app.state.subscription_manager`; then the existing Task 10 block attaches the xenon client as its `live_feed`. Gate everything so absence of config = today's behavior. Add a lifespan test that asserts the wired graph. **Do not** start the bus's async lanes unless you also verify the WS route/emitter expectations.
+
+---
+
+## Self-Review (completed by plan author, post-tribunal)
+
+**Spec coverage:** §3 contract → Tasks 4/6/7 (frames, PriceData, ping). §3.1 auth → Task 3 + Task 6 `_connect_url` (safe ticket merge). §4 ingest/translation → Task 4. §5 components → Tasks 2,3,4,6. §5.1 dict-tick → Task 6 `_publish`. §7 subscription wiring → Task 9. §8 lifespan → Task 10. §9 resilience: reconnect+capped backoff (Task 8), keep-alive (Task 7 + websockets built-in ping), malformed-frame survival (Task 6), null-drop (Task 4), best-effort drop (Task 9). §10 testing → Tasks 5,4,6–11. §11 scope: service-JWT & reconnect-reseed deferred (matches spec); pipeline construction in lifespan deferred to optional Task 13 (Scope boundary note). §12 success: (a)→Task 11, (b)→Task 9, (c)→Task 8, (d)→Task 10 + Task 12 step 5, (e)→every frame/field traced to a verified source.
+
+**Tribunal fixes folded in:** client-death-on-bad-frame hardening (Task 6 + test); fail-first split of ping/reconnect (Tasks 6/7/8); capped exponential backoff (Task 8); spy-client lifespan tests asserting connect/close (Task 10); unsubscribe-failure + second-subscriber tests (Task 9); close-cancels-reconnect test (Task 8); error-frame logging (Task 7); safe URL query merge (Task 6); event-based test waits (Task 6 `_RecordingBus`); overclaim corrected via Scope boundary note + Task 13. Deferred with reason: feed I/O under the manager lock (consistent with existing Phase-2 seed-under-lock design; refactor out of scope).
 
 **Placeholder scan:** no TBD/TODO; every code step has complete code; commands have expected output.
 
-**Type consistency:** `LiveFeedPort` methods (connect/subscribe/unsubscribe/close) match `_FakeLiveFeed`, `XenonTickClient`, and the `_Conforming` test. `translate_price_data` returns `dict | None`, consumed as such in `_publish`. `set_live_feed` defined in Task 9, used in Task 10. `EventType.MARKET_DATA_TICK` used consistently. `reconnect_delay`, `_subscribed`, `_ws` names consistent across Tasks 6–8.
-
-**Known dependency:** Tasks 7, 8, 11 rely on the Task 6 implementation already containing ping + reconnect (intentional — they are written into the client once to avoid edit churn, then locked by tests). Each such task documents how to confirm the test is load-bearing (RED check).
+**Type consistency:** `LiveFeedPort` methods match `_FakeLiveFeed`, `_SpyClient`(connect/close), `XenonTickClient`. `translate_price_data -> dict | None` consumed in `_publish`. `set_live_feed` defined in Task 9, used in Task 10. `reconnect_delay`/`max_reconnect_delay`/`_subscribed`/`_ws` consistent across Tasks 6–8. `EventType.MARKET_DATA_TICK`/`BAR_CLOSE` used consistently.
