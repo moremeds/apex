@@ -209,6 +209,14 @@ def test_build_payload_is_schema_valid() -> None:
     validate_payload(payload)  # must not raise
     assert payload["symbol_count"] == 1
     assert payload["signals"][0]["symbol"] == "AAPL"
+
+
+def test_null_current_value_row_is_dropped() -> None:
+    bad = _row()
+    bad["current_value"] = None  # schema requires a number -> drop, not emit invalid
+    payload = build_payload([bad, _row()], generated_at=datetime(2026, 6, 14, 12, 0, tzinfo=timezone.utc))
+    validate_payload(payload)
+    assert len(payload["signals"]) == 1  # the null-current_value row was dropped
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -233,12 +241,18 @@ from datetime import datetime
 from typing import Any, Iterable
 
 # ta_signals columns that map 1:1 onto the schema's trading_signal object.
+# NOTE: lifecycle fields (status/invalidated_by/invalidated_at) are intentionally
+# OMITTED — migration 005 has no such columns, so apex cannot source them yet.
+# Lifecycle persistence is a deferred item (see self-review). The schema does not
+# require them (status has a default), so omitting keeps payloads valid.
 _SIGNAL_FIELDS = (
     "signal_id", "symbol", "category", "indicator", "direction", "strength",
     "priority", "timeframe", "trigger_rule", "current_value", "threshold",
-    "previous_value", "message", "cooldown_until", "metadata", "status",
-    "invalidated_by", "invalidated_at",
+    "previous_value", "message", "cooldown_until", "metadata",
 )
+
+# Schema-required numeric fields that must NOT be null (else the row is invalid).
+_REQUIRED_NUMERIC = ("current_value",)
 
 
 def _iso(value: Any) -> Any:
@@ -255,8 +269,19 @@ def signal_row_to_dict(row: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def is_emittable(row: dict[str, Any]) -> bool:
+    """A row is emittable only if its schema-required numeric fields are non-null.
+
+    ta_signals.current_value is nullable, but the contract requires a number — so
+    rows missing it are dropped (and logged by the caller) rather than emitted invalid.
+    """
+    return all(row.get(k) is not None for k in _REQUIRED_NUMERIC)
+
+
 def build_payload(rows: Iterable[dict[str, Any]], generated_at: datetime) -> dict[str, Any]:
-    signals = [signal_row_to_dict(r) for r in rows]
+    # Drop rows that would be schema-invalid (e.g. null current_value).
+    emittable = [r for r in rows if is_emittable(r)]
+    signals = [signal_row_to_dict(r) for r in emittable]
     return {
         "signals": signals,
         "timestamp": generated_at.isoformat(),
@@ -349,6 +374,7 @@ from typing import Optional
 from fastapi import APIRouter, Request
 
 from src.api.payload.builder import build_payload
+from src.api.payload.validate import validate_payload
 
 router = APIRouter(tags=["signals"])
 
@@ -357,7 +383,9 @@ router = APIRouter(tags=["signals"])
 async def get_signals(ticker: str, request: Request, since: Optional[datetime] = None) -> dict:
     repo = request.app.state.signal_repo
     rows = await repo.fetch_signals(ticker, since=since)
-    return build_payload(rows, generated_at=datetime.now(timezone.utc))
+    payload = build_payload(rows, generated_at=datetime.now(timezone.utc))
+    validate_payload(payload)   # contract guarantee on every REST response
+    return payload
 ```
 
 Modify `src/api/server.py` `create_app()` to register it (follow the existing router-include pattern):
@@ -367,8 +395,21 @@ Modify `src/api/server.py` `create_app()` to register it (follow the existing ro
     app.include_router(signals_router)
 ```
 
-And in `lifespan`, after the pool opens, construct the real repo:
-`app.state.signal_repo = TASignalRepository(app.state.pg_pool)` (use the real constructor verified in Step 1; guard for `pg_pool is None`).
+**Repository wiring (ISSUE-4).** `TASignalRepository.__init__(self, db: Database)` takes
+apex's `Database` wrapper (verified 2026-06-14), **not** an `asyncpg.Pool`. In `lifespan`,
+construct and connect a `Database`, then the repo — guarded so tests can pre-inject fakes:
+
+```python
+    if getattr(app.state, "signal_repo", None) is None and pg_url:
+        from src.infrastructure.persistence.database import Database
+        from src.infrastructure.persistence.repositories.ta_signal_repository import TASignalRepository
+        db = Database(config.database)   # config.database = DatabaseConfig (verify the attr in Step 1)
+        await db.connect()
+        app.state.signal_db = db
+        app.state.signal_repo = TASignalRepository(db)
+```
+
+Close `app.state.signal_db` in the lifespan `finally` block alongside the existing pool teardown.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -424,11 +465,28 @@ async def test_broadcast_only_to_subscribers() -> None:
 
 
 @pytest.mark.asyncio
-async def test_unregister_stops_delivery() -> None:
+async def test_unregister_one_ticker_returns_it_and_keeps_others() -> None:
     hub = SignalHub()
     a = _FakeWS()
     hub.register(a, "AAPL")
-    hub.unregister(a)
+    hub.register(a, "TSLA")
+
+    removed = hub.unregister(a, "AAPL")
+    assert removed == {"AAPL"}
+    await hub.broadcast("AAPL", {"signals": [], "timestamp": "t"})
+    await hub.broadcast("TSLA", {"signals": [], "timestamp": "t"})
+    assert len(a.sent) == 1  # still subscribed to TSLA only
+
+
+@pytest.mark.asyncio
+async def test_unregister_all_returns_full_ticker_set() -> None:
+    hub = SignalHub()
+    a = _FakeWS()
+    hub.register(a, "AAPL")
+    hub.register(a, "TSLA")
+
+    removed = hub.unregister(a)  # ticker=None -> remove everything (disconnect path)
+    assert removed == {"AAPL", "TSLA"}
     await hub.broadcast("AAPL", {"signals": [], "timestamp": "t"})
     assert a.sent == []
 ```
@@ -454,7 +512,7 @@ Create `src/api/ws/hub.py`:
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Any, DefaultDict, Dict, Set
+from typing import Any, DefaultDict, Dict, Optional, Set
 
 
 class SignalHub:
@@ -466,9 +524,24 @@ class SignalHub:
         self._by_ticker[ticker].add(ws)
         self._tickers_of.setdefault(ws, set()).add(ticker)
 
-    def unregister(self, ws: Any) -> None:
-        for ticker in self._tickers_of.pop(ws, set()):
-            self._by_ticker[ticker].discard(ws)
+    def unregister(self, ws: Any, ticker: Optional[str] = None) -> Set[str]:
+        """Remove `ws` from one ticker (if given) or all tickers (disconnect).
+
+        Returns the set of tickers actually removed, so the caller can decrement
+        the matching SubscriptionManager refcounts exactly once each.
+        """
+        held = self._tickers_of.get(ws, set())
+        if ticker is None:
+            removed = set(held)
+            self._tickers_of.pop(ws, None)
+        else:
+            removed = {ticker} & held
+            held.discard(ticker)
+            if not held:
+                self._tickers_of.pop(ws, None)
+        for t in removed:
+            self._by_ticker[t].discard(ws)
+        return removed
 
     async def broadcast(self, ticker: str, payload: dict) -> None:
         dead = []
@@ -478,7 +551,7 @@ class SignalHub:
             except Exception:  # noqa: BLE001 — drop broken sockets
                 dead.append(ws)
         for ws in dead:
-            self.unregister(ws)
+            self.unregister(ws)  # full removal of a dead socket
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -507,7 +580,7 @@ git commit -m "feat(api): SignalHub WS fan-out"
 Create `tests/integration/api/test_signals_ws.py`:
 
 ```python
-"""WS subscribe drives the manager and receives pushed payloads."""
+"""WS subscribe drives the manager, sends an initial snapshot, and cleans up."""
 
 from __future__ import annotations
 
@@ -529,16 +602,35 @@ class _FakeMgr:
         self.unsubscribed.append(t)
 
 
-def test_ws_subscribe_then_receive_broadcast() -> None:
+def test_ws_subscribe_acks_and_disconnect_decrements_refcount() -> None:
+    app = create_app()
+    # Pre-inject fakes; the guarded lifespan (run by `with TestClient`) won't clobber them.
+    app.state.signal_hub = SignalHub()
+    app.state.subscription_manager = _FakeMgr()
+    app.state.signal_repo = None  # no snapshot in this test
+    with TestClient(app) as client:               # context form runs lifespan (ISSUE-13)
+        with client.websocket_connect("/ws/signals") as ws:
+            ws.send_json({"action": "subscribe", "ticker": "AAPL"})
+            assert ws.receive_json() == {"status": "subscribed", "ticker": "AAPL"}
+        # leaving the ws context triggers WebSocketDisconnect on the server
+    assert app.state.subscription_manager.subscribed == ["AAPL"]
+    # disconnect must decrement the manager for every ticker the socket held (ISSUE-3)
+    assert app.state.subscription_manager.unsubscribed == ["AAPL"]
+
+
+def test_ws_explicit_unsubscribe_decrements_once() -> None:
     app = create_app()
     app.state.signal_hub = SignalHub()
     app.state.subscription_manager = _FakeMgr()
-    client = TestClient(app)
-    with client.websocket_connect("/ws/signals") as ws:
-        ws.send_json({"action": "subscribe", "ticker": "AAPL"})
-        ack = ws.receive_json()
-        assert ack == {"status": "subscribed", "ticker": "AAPL"}
-    assert app.state.subscription_manager.subscribed == ["AAPL"]
+    app.state.signal_repo = None
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws/signals") as ws:
+            ws.send_json({"action": "subscribe", "ticker": "AAPL"})
+            ws.receive_json()
+            ws.send_json({"action": "unsubscribe", "ticker": "AAPL"})
+            assert ws.receive_json() == {"status": "unsubscribed", "ticker": "AAPL"}
+    # one explicit unsubscribe + a no-op disconnect (socket already removed) = exactly one
+    assert app.state.subscription_manager.unsubscribed == ["AAPL"]
 ```
 
 - [ ] **Step 2: Implement the WS route**
@@ -551,12 +643,18 @@ Create `src/api/ws/signals_ws.py`:
 Frame protocol (argon → apex):
     {"action": "subscribe",   "ticker": "AAPL"}
     {"action": "unsubscribe", "ticker": "AAPL"}
-apex → argon: acks {"status": ..., "ticker": ...} then signal_service_payload frames.
+apex → argon: ack {"status": ..., "ticker": ...}, then an initial snapshot payload,
+then live signal_service_payload frames as signals fire.
 """
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+
+from src.api.payload.builder import build_payload
+from src.api.payload.validate import validate_payload
 
 router = APIRouter()
 
@@ -566,6 +664,7 @@ async def signals_ws(ws: WebSocket) -> None:
     await ws.accept()
     hub = ws.app.state.signal_hub
     mgr = ws.app.state.subscription_manager
+    repo = getattr(ws.app.state, "signal_repo", None)
     try:
         while True:
             msg = await ws.receive_json()
@@ -575,19 +674,47 @@ async def signals_ws(ws: WebSocket) -> None:
                 hub.register(ws, ticker)
                 await mgr.subscribe(ticker)
                 await ws.send_json({"status": "subscribed", "ticker": ticker})
+                # Initial snapshot so argon can render immediately (spec §3.1).
+                # MVP: recent persisted signals. NOTE: enriching this with the full
+                # historical bars + indicator series requires an indicator-snapshot
+                # API on TASignalService — deferred (see self-review).
+                if repo is not None:
+                    rows = await repo.fetch_signals(ticker)
+                    snapshot = build_payload(rows, generated_at=datetime.now(timezone.utc))
+                    validate_payload(snapshot)
+                    await ws.send_json(snapshot)
             elif action == "unsubscribe" and ticker:
-                hub.unregister(ws)
-                await mgr.unsubscribe(ticker)
+                # Decrement the manager once per ticker actually removed from the hub.
+                for removed in hub.unregister(ws, ticker):
+                    await mgr.unsubscribe(removed)
                 await ws.send_json({"status": "unsubscribed", "ticker": ticker})
             else:
                 await ws.send_json({"status": "error", "detail": "bad frame"})
     except WebSocketDisconnect:
-        hub.unregister(ws)
+        # Decrement EVERY ticker the socket still held (ISSUE-3: no leak).
+        for removed in hub.unregister(ws):
+            await mgr.unsubscribe(removed)
 ```
 
 Modify `src/api/server.py`:
 - include the WS router: `app.include_router(signals_ws_router)`;
-- in `lifespan`, set `app.state.signal_hub = SignalHub()` and construct the `SubscriptionManager` (Phase 2) with the `LivewireOhlcProvider` (Phase 1) and `TASignalService`, assigning to `app.state.subscription_manager`.
+- in `lifespan`, construct dependencies **only if not already set**, so tests
+  (and the REST test in Task 3) can pre-inject fakes that the lifespan will not
+  clobber. Starlette `TestClient` runs the lifespan, so an unconditional assign
+  would overwrite injected fakes and then fail constructing the real ones
+  without livewire/PG:
+
+```python
+    if getattr(app.state, "signal_hub", None) is None:
+        app.state.signal_hub = SignalHub()
+    if getattr(app.state, "subscription_manager", None) is None and app.state.pg_pool is not None:
+        # real wiring: LivewireOhlcProvider (Phase 1) + TASignalService -> SubscriptionManager (Phase 2)
+        app.state.subscription_manager = _build_subscription_manager(app)
+```
+
+  Apply the same `getattr(..., None) is None` guard to `app.state.signal_repo`
+  from Task 3. Factor the real construction into `_build_subscription_manager(app)`
+  so the lifespan stays readable.
 
 - [ ] **Step 3: Run test to verify it passes**
 
@@ -603,29 +730,59 @@ git commit -m "feat(api): WS /ws/signals subscribe protocol"
 
 ---
 
-## Task 6: Wire compute → persist → push (signal emission)
+## Task 6: Emit fired signals to the WS hub (via the event bus)
+
+`TASignalService` exposes **no callback registration** — fired signals flow through
+the **event bus** (`_on_trading_signal` is subscribed to `EventType.TRADING_SIGNAL`;
+persistence happens there via `_persist_signal`). So the WS emitter subscribes a
+NEW handler to the same bus and broadcasts; it does **not** persist (no double-write).
 
 **Files:**
-- Modify: `src/application/subscriptions/manager.py` OR a small `SignalEmitter` (decide per Phase 2's `TASignalService` callback shape)
-- Test: `tests/integration/api/test_signal_emission.py`
+- Read: `src/domain/events/event_types.py` + the bus interface (Step 1)
+- Create: `src/api/ws/emitter.py` (signal→payload mapper + bus subscription)
+- Modify: `src/api/server.py` (subscribe the emitter in lifespan)
+- Test: `tests/unit/api/test_emitter.py`
 
-- [ ] **Step 1: Verify how TASignalService surfaces a fired signal**
+- [ ] **Step 1: Verify the bus + signal object shape**
 
-Run: `grep -nE "_on_trading_signal|_persist_signal|callback|publish" src/application/services/ta_signal_service.py`
-Expected: the hook where a new signal is produced/persisted (verified 2026-06-14: `_on_trading_signal`, `_persist_signal`). The emitter subscribes there.
+Run: `grep -nE "TRADING_SIGNAL|class EventType" src/domain/events/event_types.py`
+Run: `uv run python -c "import inspect; from src.domain.interfaces.event_bus import EventBus; print([m for m in dir(EventBus) if not m.startswith('__')])"`
+Run: `grep -nE "class TradingSignal|signal_id|self\.symbol|self\.category|self\.direction|self\.strength" src/domain/signals/*.py | head`
+Expected: confirm `EventType.TRADING_SIGNAL`, the bus `subscribe(event_type, handler)` method name, and that the fired signal object carries `signal_id, symbol, category, indicator, direction, strength, priority, timeframe, trigger_rule, current_value, timestamp`. Adjust the mapper attribute names in Step 3 to the verified ones.
 
 - [ ] **Step 2: Write the failing test**
 
-Create `tests/integration/api/test_signal_emission.py`:
+Create `tests/unit/api/test_emitter.py`:
 
 ```python
-"""A fired signal is validated, persisted, and pushed to subscribers."""
+"""Emitter maps a fired signal to a valid payload and broadcasts it."""
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+from types import SimpleNamespace
+
 import pytest
 
+from src.api.payload.validate import validate_payload
+from src.api.ws.emitter import signal_to_payload, SignalEmitter
 from src.api.ws.hub import SignalHub
+
+
+def _signal():
+    return SimpleNamespace(
+        signal_id="momentum:rsi:AAPL:1d", symbol="AAPL", timeframe="1d",
+        category="momentum", indicator="RSI", direction="buy", strength=70,
+        priority="high", trigger_rule="rsi_cross", current_value=28.0,
+        threshold=30.0, previous_value=32.0, message="",
+        timestamp=datetime(2026, 6, 14, 12, 0, tzinfo=timezone.utc),
+    )
+
+
+def test_signal_to_payload_is_schema_valid() -> None:
+    payload = signal_to_payload(_signal())
+    validate_payload(payload)
+    assert payload["signals"][0]["signal_id"] == "momentum:rsi:AAPL:1d"
 
 
 class _FakeWS:
@@ -637,53 +794,127 @@ class _FakeWS:
 
 
 @pytest.mark.asyncio
-async def test_fired_signal_is_pushed_to_subscriber() -> None:
-    from src.api.payload.builder import build_payload
-    from datetime import datetime, timezone
-
+async def test_emitter_broadcasts_on_event() -> None:
     hub = SignalHub()
-    client = _FakeWS()
-    hub.register(client, "AAPL")
-
-    row = {
-        "time": datetime(2026, 6, 14, 12, 0, tzinfo=timezone.utc),
-        "signal_id": "momentum:rsi:AAPL:1d", "symbol": "AAPL", "timeframe": "1d",
-        "category": "momentum", "indicator": "RSI", "direction": "buy",
-        "strength": 70, "priority": "high", "trigger_rule": "rsi_cross",
-        "current_value": 28.0, "threshold": 30.0, "previous_value": 32.0,
-        "message": "", "cooldown_until": None, "metadata": {},
-    }
-    payload = build_payload([row], generated_at=row["time"])
-    await hub.broadcast("AAPL", payload)
-    assert client.sent[0]["signals"][0]["signal_id"] == "momentum:rsi:AAPL:1d"
+    ws = _FakeWS()
+    hub.register(ws, "AAPL")
+    emitter = SignalEmitter(hub)
+    # Simulate the bus delivering a TRADING_SIGNAL event payload.
+    await emitter.on_trading_signal(_signal())
+    assert ws.sent[0]["signals"][0]["symbol"] == "AAPL"
 ```
 
-- [ ] **Step 3: Implement the emitter hook**
+- [ ] **Step 3: Run test to verify it fails**
 
-In the construction path (server lifespan), register a callback on `TASignalService` (at the `_on_trading_signal`/persist seam from Step 1) that, for each fired signal: (a) builds a one-signal payload via `build_payload`, (b) `validate_payload(payload)` — log + drop on `ValidationFailure`, (c) persists via the repo (already done inside `_persist_signal`; do not double-write — only persist here if Step 1 shows the service does not), (d) `await hub.broadcast(symbol, payload)`. Keep this glue under `src/api/ws/` as `emitter.py` if it exceeds ~15 lines.
+Run: `uv run pytest tests/unit/api/test_emitter.py -v`
+Expected: FAIL — `ModuleNotFoundError: src.api.ws.emitter`.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **Step 4: Implement the emitter**
 
-Run: `uv run pytest tests/integration/api/test_signal_emission.py -v`
-Expected: PASS.
+Create `src/api/ws/emitter.py`:
 
-- [ ] **Step 5: Run the full API + new-feature suites**
+```python
+"""Subscribe to the event bus and push fired signals to the WS hub.
+
+Does NOT persist — TASignalService._persist_signal already does. This is the
+broadcast-only fan-out from the event bus to connected argon clients.
+"""
+
+from __future__ import annotations
+
+import logging
+from datetime import datetime, timezone
+from typing import Any
+
+from src.api.payload.builder import build_payload, signal_row_to_dict  # noqa: F401
+from src.api.payload.validate import ValidationFailure, validate_payload
+
+logger = logging.getLogger(__name__)
+
+# schema signal fields read off the fired signal object (verify names in Step 1).
+_FIELDS = (
+    "signal_id", "symbol", "category", "indicator", "direction", "strength",
+    "priority", "timeframe", "trigger_rule", "current_value", "threshold",
+    "previous_value", "message",
+)
+
+
+def _iso(v: Any) -> Any:
+    return v.isoformat() if isinstance(v, datetime) else v
+
+
+def signal_to_payload(signal: Any) -> dict:
+    """Map a fired TradingSignal object to a one-signal signal_service_payload."""
+    sig = {f: _iso(getattr(signal, f, None)) for f in _FIELDS if getattr(signal, f, None) is not None}
+    ts = getattr(signal, "timestamp", None) or datetime.now(timezone.utc)
+    sig["timestamp"] = _iso(ts)
+    return {"signals": [sig], "timestamp": _iso(ts), "symbol_count": 1}
+
+
+class SignalEmitter:
+    def __init__(self, hub: Any) -> None:
+        self._hub = hub
+
+    async def on_trading_signal(self, payload: Any) -> None:
+        signal = getattr(payload, "signal", payload)  # unwrap event wrapper
+        try:
+            out = signal_to_payload(signal)
+            validate_payload(out)
+        except ValidationFailure as exc:
+            logger.warning("dropping invalid signal payload: %s", exc)
+            return
+        symbol = getattr(signal, "symbol", None)
+        if symbol:
+            await self._hub.broadcast(symbol, out)
+
+    def subscribe(self, event_bus: Any) -> None:
+        """Subscribe on_trading_signal to the bus's TRADING_SIGNAL event."""
+        from src.domain.events.event_types import EventType
+        event_bus.subscribe(EventType.TRADING_SIGNAL, self._dispatch)
+
+    def _dispatch(self, payload: Any) -> None:
+        # Bus handlers are sync; schedule the async broadcast.
+        import asyncio
+
+        asyncio.create_task(self.on_trading_signal(payload))
+```
+
+- [ ] **Step 5: Run test to verify it passes**
+
+Run: `uv run pytest tests/unit/api/test_emitter.py -v`
+Expected: PASS (2 passed). If `event_bus.subscribe` is named differently (Step 1), fix `subscribe`; the mapper/broadcast tests do not depend on the bus name.
+
+- [ ] **Step 6: Wire the emitter in lifespan**
+
+In `src/api/server.py` lifespan, after the hub + subscription manager + the real
+`TASignalService`/event bus exist: `SignalEmitter(app.state.signal_hub).subscribe(event_bus)`.
+Guard so it only runs when the real bus exists (skipped in fake-injected tests).
+
+- [ ] **Step 7: Run the full API + new-feature suites**
 
 Run: `uv run pytest tests/unit/api tests/integration/api -v`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add src/ tests/integration/api/test_signal_emission.py
-git commit -m "feat(api): emit fired signals — validate, persist, push"
+git add src/api/ws/emitter.py src/api/server.py tests/unit/api/test_emitter.py
+git commit -m "feat(api): emit fired signals to WS hub via event bus"
 ```
 
 ---
 
 ## Self-Review (completed during planning)
 
-- **Spec coverage:** §5 Phase 3 — WS server → Tasks 4,5; REST pull `GET /signals/{ticker}?since=` → Task 3; persist to `ta_signals` (authoritative) → reuse `ta_signal_repository` (Tasks 3,6); validate against schema → Tasks 1,2,6. ✅
-- **Honest gaps flagged:** `ta_signal_repository` read-method name (Task 3 Step 1), `TASignalService` signal-emission seam (Task 6 Step 1), `jsonschema` dependency (Task 1 Step 1), no-double-write guard (Task 6 Step 3). D1 PG-isolation deferred but non-blocking (uses `app.state.pg_pool`). ✅
-- **Type consistency:** `validate_payload`/`ValidationFailure`, `build_payload`/`signal_row_to_dict`, `SignalHub.register/unregister/broadcast`, `app.state.signal_repo`/`signal_hub`/`subscription_manager` consistent across tasks and with Phase 2's `SubscriptionManager.subscribe/unsubscribe`. ✅
-- **TZ note:** `datetime.now(timezone.utc)` is used in app code (Task 3) — allowed; the no-`Date.now()` rule applies only to Workflow scripts, not application code. ✅
+- **Spec coverage:** §5 Phase 3 — WS server → Tasks 4,5; REST pull `GET /signals/{ticker}?since=` → Task 3; persist to `ta_signals` (authoritative) → reuse `ta_signal_repository` (Task 3; emitter does NOT double-write, Task 6); validate against schema → Tasks 1,2,3,6; first-payload snapshot (§3.1) → Task 5 (recent signals; full bars+indicators deferred). ✅
+- **Repo type fixed (ISSUE-4):** `TASignalRepository(db: Database)`, not `pg_pool`; lifespan builds + connects a `Database` (Task 3). ✅
+- **Emission fixed (ISSUE-1):** emitter subscribes to the event bus `TRADING_SIGNAL` event (no fictitious callback); test publishes a real signal object (Task 6). ✅
+- **Refcount leak fixed (ISSUE-3):** `hub.unregister(ws, ticker)` returns removed tickers; WS unsubscribe decrements one, disconnect decrements all (Task 5). ✅
+- **Validation fixed (ISSUE-9):** REST + WS snapshot both `validate_payload`; null `current_value` rows dropped via `is_emittable` (Tasks 2,3,5). ✅
+- **Test wiring fixed (ISSUE-13):** WS tests use `with TestClient(app) as client:`; lifespan construction guarded with `getattr(..., None) is None` so injected fakes survive (Tasks 3,5). ✅
+- **Deferred (recorded, out of MVP scope):**
+  - Lifecycle persistence (ISSUE-10): `status`/`invalidated_*` need new `ta_signals` columns + an invalidation update method — omitted from the builder until then; schema-valid because those fields are optional.
+  - Full first-payload chart seed (ISSUE-6): bars + indicator series need an indicator-snapshot API on `TASignalService`; Task 5 currently sends recent persisted signals as the initial snapshot.
+- **Honest gaps flagged:** `ta_signal_repository.fetch_signals` read-method name (Task 3 Step 1), `config.database` attr (Task 3), event-bus `subscribe` method name + `TradingSignal` field names (Task 6 Step 1). D1 PG-isolation deferred but non-blocking. `jsonschema 4.26.0` confirmed installed (Task 1 Step 1 dep-add branch is a no-op). ✅
+- **Type consistency:** `validate_payload`/`ValidationFailure`, `build_payload`/`signal_row_to_dict`/`is_emittable`, `signal_to_payload`/`SignalEmitter`, `SignalHub.register/unregister(→set)/broadcast`, `app.state.signal_repo`/`signal_db`/`signal_hub`/`subscription_manager` consistent across tasks and with Phase 2. ✅
+- **TZ note:** `datetime.now(timezone.utc)` is app code — allowed; the no-`Date.now()` rule applies only to Workflow scripts. ✅

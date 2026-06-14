@@ -68,10 +68,15 @@ from scripts.carve.import_graph import EdgeClass, classify_module, scan_keepset
 REPO = Path(__file__).resolve().parents[2]
 
 
-def test_clean_core_has_no_infra_edges() -> None:
-    """domain/indicators imports nothing from infra or application."""
+def test_clean_core_has_no_cut_edges() -> None:
+    """domain/indicators imports nothing from infra/application (CUT).
+
+    Intra-keepset domain imports are allowed (classified FOLLOW); only CUT
+    edges (→ infrastructure/services/application) would break separability.
+    """
     edges = classify_module(REPO / "src/domain/indicators")
-    assert all(e.kind == EdgeClass.CLEAN for e in edges), [e for e in edges if e.kind != EdgeClass.CLEAN]
+    cuts = [e for e in edges if e.kind == EdgeClass.CUT]
+    assert cuts == [], cuts
 
 
 def test_signals_core_surfaces_known_cuts() -> None:
@@ -115,8 +120,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List
 
-# Layer prefixes (after the leading "src." is stripped).
-_CUT_PREFIXES = ("infrastructure", "services", "application", "tui", "api")
+# Every internal top-level package under src/ EXCEPT domain. An edge from the
+# keep-set to any of these must be handled by the carve (replace-with-port, move,
+# or stub) — so they are all "cut candidates". Listing them explicitly means
+# edges to src.utils / src.models are classified, never silently skipped.
+_CUT_PREFIXES = (
+    "infrastructure", "services", "application", "tui", "api",
+    "utils", "models", "runners", "verification", "backtest",
+)
 # Keep-set modules: a FOLLOW edge points at one of these.
 _KEEPSET = (
     "domain.indicators",
@@ -244,34 +255,50 @@ Apex domain modules use relative imports (`from ...infrastructure.observability 
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `tests/carve/test_import_graph.py`:
+Append to `tests/carve/test_import_graph.py`. The test builds a synthetic
+package under a temp dir so it is deterministic regardless of which import
+style the real `domain/signals` happens to use (it mixes absolute `from
+src.infrastructure...` and relative `from ...infrastructure...`):
 
 ```python
-def test_relative_imports_are_resolved() -> None:
-    """A `from ...infrastructure.observability import X` edge must be caught as CUT."""
-    edges = classify_module(REPO / "src/domain/signals")
-    rel_resolved = [e for e in edges if "infrastructure.observability" in e.target]
-    assert rel_resolved, "relative infra import not resolved to an absolute CUT edge"
-    assert all(e.kind == EdgeClass.CUT for e in rel_resolved)
+def test_relative_imports_are_resolved(tmp_path) -> None:
+    """A `from ...infrastructure.observability import X` edge resolves to CUT."""
+    src = tmp_path / "src"
+    pkg = src / "domain" / "signals"
+    pkg.mkdir(parents=True)
+    (src / "__init__.py").write_text("")
+    (src / "domain" / "__init__.py").write_text("")
+    (pkg / "__init__.py").write_text("")
+    # 3-dot relative: from src.domain.signals -> up 3 -> src, then infrastructure...
+    (pkg / "mod.py").write_text(
+        "from ...infrastructure.observability import get_logger\n"
+    )
+    edges = classify_module(pkg)
+    rel = [e for e in edges if "infrastructure.observability" in e.target]
+    assert rel, f"relative infra import not resolved; got {[e.target for e in edges]}"
+    assert all(e.kind == EdgeClass.CUT for e in rel)
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/carve/test_import_graph.py::test_relative_imports_are_resolved -v`
-Expected: FAIL (relative imports currently skipped because `node.level == 0` guard rejects them)
+Expected: FAIL (relative imports currently skipped because Task 1 only handled `node.level == 0`)
 
 - [ ] **Step 3: Implement relative-import resolution**
 
 In `scripts/carve/import_graph.py`, replace the `classify_module` import-collection block with one that resolves relative imports against the file's package path:
 
 ```python
-def _abs_module_for(py: Path, repo_src: Path) -> str:
-    """Return the dotted package of `py` relative to src/ (e.g. 'domain.signals')."""
-    rel = py.relative_to(repo_src).with_suffix("")
-    parts = list(rel.parts)
-    if parts and parts[-1] == "__init__":
-        parts = parts[:-1]
-    return ".".join(parts)
+def _package_parts(py: Path, repo_src: Path) -> List[str]:
+    """Dotted parts of the PACKAGE containing `py`, relative to src/.
+
+    For both regular modules and __init__.py this is the parent directory:
+      src/domain/signals/foo.py     -> ['domain', 'signals']
+      src/domain/signals/__init__.py -> ['domain', 'signals']
+    Python resolves `from ...x` (level L) relative to the package, so using the
+    package parts with (level - 1) is correct for both file kinds.
+    """
+    return list(py.relative_to(repo_src).parent.parts)
 
 
 def classify_module(path: Path) -> List[ImportEdge]:
@@ -280,14 +307,14 @@ def classify_module(path: Path) -> List[ImportEdge]:
     while repo_src.name != "src" and repo_src.parent != repo_src:
         repo_src = repo_src.parent
     for py in _iter_py_files(path):
-        pkg = _abs_module_for(py, repo_src)
-        pkg_parts = pkg.split(".")
+        pkg_parts = _package_parts(py, repo_src)
         tree = ast.parse(py.read_text(encoding="utf-8"), filename=str(py))
         for node in ast.walk(tree):
             modules: List[str] = []
             if isinstance(node, ast.ImportFrom):
                 if node.level and node.level > 0:
-                    base = pkg_parts[: len(pkg_parts) - node.level]
+                    # level 1 = current package; each extra dot strips one parent.
+                    base = pkg_parts[: len(pkg_parts) - (node.level - 1)]
                     suffix = [node.module] if node.module else []
                     modules.append(".".join(base + suffix))
                 elif node.module:
@@ -372,11 +399,15 @@ For every top-level module under src/, tag KEEP / DROP / MOVE / STUB:
 <fill from the tree; KEEP = TA-signal path, DROP = adapters/tui/worker-assets/risk, etc.>
 
 ## 4. Coupling-cut list (ranked, seeds Phase 1)
-1. domain/signals → services.historical_data_manager  ⇒ replace with BarProvider port (Phase 1)
+1. domain/signals → services.historical_data_manager  ⇒ replace with HistoricalSourcePort wiring (Phase 1)
 2. domain/signals → infrastructure.observability        ⇒ no-op shim / structured-logging port
 3. domain/signals → application.services.turning_point  ⇒ DECIDE: pull into keep-set or stub
-4. src/backtest → infrastructure.adapters.ib.historical_adapter ⇒ BarProvider port (Phase 1; deferred D5)
 ...
+
+## 4b. Observed-but-NOT-acted-on (out of scope)
+- src/backtest → infrastructure.adapters.ib.historical_adapter — RECORDED ONLY.
+  Backtest is out of scope (spec §2); this collision is **deferred decision D5**
+  for Phase 6. Do NOT cut, rewire, or modify backtest in Phases 0–3.
 
 ## 5. Risk notes
 <anything surprising the scan revealed>
@@ -404,24 +435,49 @@ git commit -m "docs(carve): Phase 0 audit report + extraction manifest"
 Create `tests/carve/test_keepset_imports_isolated.py`:
 
 ```python
-"""Prove the TA-signal keep-set imports with infrastructure stubbed out."""
+"""Prove the ENTIRE TA-signal keep-set imports with infrastructure stubbed out.
+
+Importing a package's __init__ does not import its submodules, so we enumerate
+every .py file under the keep-set dirs (plus the two single-file keep-set
+modules) and import each one individually under the stub harness.
+"""
 
 from __future__ import annotations
 
 import importlib
+from pathlib import Path
 
 import pytest
 
-# Modules that MUST import cleanly once infra/app deps are stubbed.
-KEEPSET_MODULES = [
-    "src.domain.indicators",
-    "src.domain.signals",
-    "src.domain.strategy",
+REPO = Path(__file__).resolve().parents[2]
+SRC = REPO / "src"
+
+# Directories whose every submodule must import; plus explicit single-file modules.
+_KEEPSET_DIRS = [
+    SRC / "domain" / "indicators",
+    SRC / "domain" / "signals",
+    SRC / "domain" / "strategy",
+    SRC / "application" / "orchestrator" / "signal_pipeline",
 ]
+_KEEPSET_FILES = [SRC / "application" / "services" / "ta_signal_service.py"]
+
+
+def _module_name(py: Path) -> str:
+    rel = py.relative_to(REPO).with_suffix("")
+    parts = [p for p in rel.parts if p != "__init__"]
+    return ".".join(parts)
+
+
+def _all_keepset_modules() -> list[str]:
+    mods: list[str] = []
+    for d in _KEEPSET_DIRS:
+        mods += [_module_name(p) for p in sorted(d.rglob("*.py"))]
+    mods += [_module_name(p) for p in _KEEPSET_FILES]
+    return sorted(set(mods))
 
 
 @pytest.mark.usefixtures("install_carve_stubs")
-@pytest.mark.parametrize("modname", KEEPSET_MODULES)
+@pytest.mark.parametrize("modname", _all_keepset_modules())
 def test_keepset_module_imports_with_stubs(modname: str) -> None:
     mod = importlib.import_module(modname)
     assert mod is not None
@@ -533,30 +589,35 @@ git commit -m "test(carve): isolated keep-set import harness with infra stubs"
 
 ---
 
-## Task 5: Run TA-signal core unit tests in isolation
+## Task 5: Confirm TA-signal core unit tests pass
+
+**Note on what this proves:** the *isolation* claim rests on Task 4 (every keep-set
+module imports with infra stubbed). This task is the complementary check — that the
+core suites are green in the normal environment (the cores are functional, not just
+importable). Do not assume directory names; discover them first.
 
 **Files:**
-- Test: existing `tests/unit/domain/` (indicators, signals, strategy suites)
+- Test: the real core suites discovered in Step 1
 - Modify: `docs/superpowers/specs/2026-06-14-apex-phase0-carve.md` (record results)
 
-- [ ] **Step 1: Locate the core test suites**
+- [ ] **Step 1: Discover the real core test paths**
 
-Run: `ls tests/unit/domain/ && find tests -path '*indicator*' -name 'test_*.py' | head`
-Expected: a list of indicator/signal/strategy test files.
+Run: `find tests -type d | grep -iE 'indicator|signal|strateg' ; find tests -name 'test_*.py' | grep -iE 'indicator|signal|strateg' | head -30`
+Expected: the actual test files/dirs. Use the paths that exist — do not guess `tests/unit/domain/...` if the tree differs.
 
-- [ ] **Step 2: Run the indicator + strategy suites (already clean)**
+- [ ] **Step 2: Run the discovered indicator + strategy suites**
 
-Run: `uv run pytest tests/unit/domain/indicators tests/unit/domain/strategy -v`
-Expected: PASS (these cores have zero infra coupling, so they already run standalone).
+Run: `uv run pytest <discovered indicator/strategy paths> -v`
+Expected: PASS (these cores have zero CUT edges, so they run standalone).
 
-- [ ] **Step 3: Run the signals suite, note any infra-import skips**
+- [ ] **Step 3: Run the discovered signals suite, note any infra-import errors**
 
-Run: `uv run pytest tests/unit/domain/signals -v`
-Expected: PASS, OR collection errors that name a real infra import. Each such error is a coupling-cut to add to manifest §4.
+Run: `uv run pytest <discovered signals paths> -v`
+Expected: PASS, OR collection errors that name a real infra import. Each such error is a coupling-cut to add to manifest §4 and a stub to add to `tests/carve/stubs`.
 
 - [ ] **Step 4: Record results in the carve doc**
 
-Edit `docs/superpowers/specs/2026-06-14-apex-phase0-carve.md` §5: list which suites pass standalone and which required a stub, with the exact import that forced each stub.
+Edit `docs/superpowers/specs/2026-06-14-apex-phase0-carve.md` §5: list which suites pass, which (if any) needed a stub, and the exact import that forced each stub. If a suite cannot be collected at all without real infra, that is the single most important Phase-0 finding — record it prominently.
 
 - [ ] **Step 5: Commit**
 
