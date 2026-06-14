@@ -230,6 +230,10 @@ class AppConfig:
     history_loader: Optional[HistoryLoaderConfig] = None
     historical_data: Optional[HistoricalDataConfig] = None
 
+    # Streaming adaptation: root of livewire's DuckDB-over-parquet bronze (apex
+    # reads subscribed tickers from here). None until configured.
+    livewire_bronze_root: Optional[str] = None
+
     def __post_init__(self) -> None:
         """Initialize optional configs with defaults if not provided."""
         if self.database is None:
