@@ -37,6 +37,7 @@ from tenacity import (
 
 from src.domain.interfaces.signal_persistence import SignalPersistencePort
 from src.infrastructure.persistence.database import Database
+from src.utils.jsonable import to_jsonable
 
 if TYPE_CHECKING:
     from src.domain.signals.models import TradingSignal
@@ -425,8 +426,8 @@ class TASignalRepository(SignalPersistencePort):
             symbol,
             timeframe,
             indicator,
-            json.dumps(state),
-            json.dumps(previous_state) if previous_state else None,
+            json.dumps(to_jsonable(state)),
+            json.dumps(to_jsonable(previous_state)) if previous_state else None,
             bar_close,
         )
 
