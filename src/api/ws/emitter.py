@@ -18,9 +18,19 @@ logger = logging.getLogger(__name__)
 # schema signal fields read off the fired signal object (verify names against the
 # real TradingSignal before production wiring).
 _FIELDS = (
-    "signal_id", "symbol", "category", "indicator", "direction", "strength",
-    "priority", "timeframe", "trigger_rule", "current_value", "threshold",
-    "previous_value", "message",
+    "signal_id",
+    "symbol",
+    "category",
+    "indicator",
+    "direction",
+    "strength",
+    "priority",
+    "timeframe",
+    "trigger_rule",
+    "current_value",
+    "threshold",
+    "previous_value",
+    "message",
 )
 
 
@@ -31,9 +41,7 @@ def _iso(v: Any) -> Any:
 def signal_to_payload(signal: Any) -> dict:
     """Map a fired TradingSignal object to a one-signal signal_service_payload."""
     sig = {
-        f: _iso(getattr(signal, f, None))
-        for f in _FIELDS
-        if getattr(signal, f, None) is not None
+        f: _iso(getattr(signal, f, None)) for f in _FIELDS if getattr(signal, f, None) is not None
     }
     ts = getattr(signal, "timestamp", None) or datetime.now(timezone.utc)
     sig["timestamp"] = _iso(ts)

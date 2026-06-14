@@ -15,9 +15,21 @@ from typing import Any, Iterable
 # The schema does not require them (status has a default), so omitting keeps
 # payloads valid. Lifecycle persistence is a deferred item.
 _SIGNAL_FIELDS = (
-    "signal_id", "symbol", "category", "indicator", "direction", "strength",
-    "priority", "timeframe", "trigger_rule", "current_value", "threshold",
-    "previous_value", "message", "cooldown_until", "metadata",
+    "signal_id",
+    "symbol",
+    "category",
+    "indicator",
+    "direction",
+    "strength",
+    "priority",
+    "timeframe",
+    "trigger_rule",
+    "current_value",
+    "threshold",
+    "previous_value",
+    "message",
+    "cooldown_until",
+    "metadata",
 )
 
 # Schema-required numeric fields that must NOT be null (else the row is invalid).

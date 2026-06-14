@@ -14,10 +14,19 @@ from src.api.ws.hub import SignalHub
 
 def _signal():
     return SimpleNamespace(
-        signal_id="momentum:rsi:AAPL:1d", symbol="AAPL", timeframe="1d",
-        category="momentum", indicator="RSI", direction="buy", strength=70,
-        priority="high", trigger_rule="rsi_cross", current_value=28.0,
-        threshold=30.0, previous_value=32.0, message="",
+        signal_id="momentum:rsi:AAPL:1d",
+        symbol="AAPL",
+        timeframe="1d",
+        category="momentum",
+        indicator="RSI",
+        direction="buy",
+        strength=70,
+        priority="high",
+        trigger_rule="rsi_cross",
+        current_value=28.0,
+        threshold=30.0,
+        previous_value=32.0,
+        message="",
         timestamp=datetime(2026, 6, 14, 12, 0, tzinfo=timezone.utc),
     )
 

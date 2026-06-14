@@ -14,9 +14,7 @@ from tests.carve.stubs import install, uninstall
 def install_carve_stubs() -> Iterator[None]:
     # Drop any already-imported keep-set/infra modules so stubs take effect.
     for name in list(sys.modules):
-        if name.startswith(
-            ("src.domain", "src.infrastructure", "src.services", "src.application")
-        ):
+        if name.startswith(("src.domain", "src.infrastructure", "src.services", "src.application")):
             del sys.modules[name]
     installed = install()
     try:

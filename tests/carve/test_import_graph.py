@@ -44,9 +44,7 @@ def test_relative_imports_are_resolved(tmp_path) -> None:
     (src / "domain" / "__init__.py").write_text("")
     (pkg / "__init__.py").write_text("")
     # 3-dot relative: from src.domain.signals -> up 3 -> src, then infrastructure...
-    (pkg / "mod.py").write_text(
-        "from ...infrastructure.observability import get_logger\n"
-    )
+    (pkg / "mod.py").write_text("from ...infrastructure.observability import get_logger\n")
     edges = classify_module(pkg)
     rel = [e for e in edges if "infrastructure.observability" in e.target]
     assert rel, f"relative infra import not resolved; got {[e.target for e in edges]}"

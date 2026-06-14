@@ -15,7 +15,10 @@ import jsonschema
 
 _SCHEMA_PATH = (
     Path(__file__).resolve().parents[3]
-    / "config" / "verification" / "schemas" / "signal_service_payload.schema.json"
+    / "config"
+    / "verification"
+    / "schemas"
+    / "signal_service_payload.schema.json"
 )
 
 

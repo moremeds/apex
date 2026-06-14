@@ -34,7 +34,9 @@ def test_row_to_dict_maps_time_to_timestamp() -> None:
 
 
 def test_build_payload_is_schema_valid() -> None:
-    payload = build_payload([_row()], generated_at=datetime(2026, 6, 14, 12, 0, tzinfo=timezone.utc))
+    payload = build_payload(
+        [_row()], generated_at=datetime(2026, 6, 14, 12, 0, tzinfo=timezone.utc)
+    )
     validate_payload(payload)
     assert payload["symbol_count"] == 1
     assert payload["signals"][0]["symbol"] == "AAPL"
@@ -43,6 +45,8 @@ def test_build_payload_is_schema_valid() -> None:
 def test_null_current_value_row_is_dropped() -> None:
     bad = _row()
     bad["current_value"] = None
-    payload = build_payload([bad, _row()], generated_at=datetime(2026, 6, 14, 12, 0, tzinfo=timezone.utc))
+    payload = build_payload(
+        [bad, _row()], generated_at=datetime(2026, 6, 14, 12, 0, tzinfo=timezone.utc)
+    )
     validate_payload(payload)
     assert len(payload["signals"]) == 1

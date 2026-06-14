@@ -34,9 +34,12 @@ class Subscription:
 
 
 class _ComputeService(Protocol):
-    # Matches the real TASignalService (verified 2026-06-14): async, 3-arg, dict bars.
+    """Matches the real TASignalService (verified 2026-06-14): async, 3-arg, dict bars."""
+
     async def start(self) -> None: ...
+
     async def stop(self) -> None: ...
+
     async def inject_historical_bars(
         self, symbol: str, timeframe: str, bars: List[Dict[str, Any]]
     ) -> int: ...

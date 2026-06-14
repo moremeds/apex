@@ -25,7 +25,11 @@ def test_release_below_zero_raises() -> None:
 def _fake_bar(close: float = 11.0):
     """A BarData-shaped object the manager can convert to a dict."""
     return SimpleNamespace(
-        open=10.0, high=10.5, low=9.5, close=close, volume=100,
+        open=10.0,
+        high=10.5,
+        low=9.5,
+        close=close,
+        volume=100,
         bar_start="2026-01-02T00:00:00Z",
     )
 

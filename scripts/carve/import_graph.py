@@ -19,8 +19,16 @@ from typing import Dict, List
 # or stub) — so they are all "cut candidates". Listing them explicitly means
 # edges to src.utils / src.models are classified, never silently skipped.
 _CUT_PREFIXES = (
-    "infrastructure", "services", "application", "tui", "api",
-    "utils", "models", "runners", "verification", "backtest",
+    "infrastructure",
+    "services",
+    "application",
+    "tui",
+    "api",
+    "utils",
+    "models",
+    "runners",
+    "verification",
+    "backtest",
 )
 # Keep-set modules: a FOLLOW edge points at one of these.
 _KEEPSET = (
@@ -123,8 +131,7 @@ def scan_keepset(repo: Path) -> Dict[str, dict]:
         report[name] = {
             "path": rel,
             "edges": [
-                {"file": e.source_file, "target": e.target, "kind": e.kind.value}
-                for e in edges
+                {"file": e.source_file, "target": e.target, "kind": e.kind.value} for e in edges
             ],
             "cut_targets": sorted({e.target for e in edges if e.kind == EdgeClass.CUT}),
             "follow_targets": sorted({e.target for e in edges if e.kind == EdgeClass.FOLLOW}),
