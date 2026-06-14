@@ -11,11 +11,12 @@ so the lines always match the live signals and the candles.
 from __future__ import annotations
 
 import asyncio
-import math
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
+
+from src.utils.jsonable import to_jsonable
 
 # Bar duration per timeframe -- used to derive the warmup lead in calendar time.
 # Public so the chart routes can reuse it for default windows.
@@ -34,23 +35,6 @@ DEFAULT_TF_DELTA = timedelta(days=1)
 
 class UnknownIndicatorError(ValueError):
     """Raised when the requested indicator is not registered."""
-
-
-def _jsonable(value: Any) -> Any:
-    """Coerce numpy scalars / NaN to JSON-native types (NaN -> None), recursively."""
-    if isinstance(value, dict):
-        return {k: _jsonable(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_jsonable(v) for v in value]
-    item = value
-    if hasattr(value, "item") and not isinstance(value, (str, bytes)):
-        try:
-            item = value.item()  # numpy scalar -> python scalar
-        except (ValueError, AttributeError):
-            item = value
-    if isinstance(item, float) and math.isnan(item):
-        return None
-    return item
 
 
 def _bars_to_df(bars: List[Any]) -> pd.DataFrame:
@@ -121,8 +105,8 @@ def _compute_points(
             points.append(
                 {
                     "time": py_ts,
-                    "state": _jsonable(state),
-                    "bar_close": _jsonable(close),
+                    "state": to_jsonable(state),
+                    "bar_close": to_jsonable(close),
                 }
             )
         prev = row
