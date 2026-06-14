@@ -4,32 +4,61 @@ Implements apex's HistoricalSourcePort (src/domain/interfaces/historical_source.
 Reads are on-demand, one (symbol, timeframe, date-range) at a time -- never the
 full universe.
 
-UNVERIFIED: COLUMN_MAP below uses the documented/fixture schema (`ts` + OHLCV).
-The REAL livewire bronze column names MUST be confirmed against a live parquet
-(see Phase 1 plan Task 1) before production wiring.
+Bronze schema matched to livewire's writers (``clients/bronze_client.py`` +
+``clients/intraday_bronze_client.py``, 2026-06-14): daily bars are keyed by
+``trade_date`` (date32) and carry ``adj_close``; intraday bars are keyed by
+``bar_timestamp`` (timestamp us, tz=UTC). Both also carry ``symbol_id`` (ignored
+here -- the symbol comes from the partition). OHLCV column names match 1:1.
+
+Smoke-tested 2026-06-14 against the real livewire bronze data lake: AAPL ``1d``
+(``trade_date``/DATE) and ``1m`` (``bar_timestamp``/TIMESTAMPTZ) read back correct
+OHLCV at the right instants.
 """
 
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import List
+from typing import Any, List
 
 import duckdb
 
 from ....domain.events.domain_events import BarData
 from .paths import SUPPORTED_TIMEFRAMES, parquet_path
 
-# livewire column -> BarData field. CONFIRM the `ts`/OHLCV names against real data.
-COLUMN_MAP = {
-    "ts": "bar_start",
-    "open": "open",
-    "high": "high",
-    "low": "low",
-    "close": "close",
-    "volume": "volume",
-}
+# livewire keys daily bars by `trade_date` (a DATE) and intraday bars by
+# `bar_timestamp` (a tz-aware UTC TIMESTAMP). OHLCV columns are read by name; extra
+# columns (symbol_id, adj_close) are ignored.
+_DAILY_TS_COLUMN = "trade_date"
+_INTRADAY_TS_COLUMN = "bar_timestamp"
+
+
+def _timestamp_column(timeframe: str) -> str:
+    return _DAILY_TS_COLUMN if timeframe == "1d" else _INTRADAY_TS_COLUMN
+
+
+def _to_utc_datetime(value: Any) -> datetime:
+    """Coerce a livewire timestamp to a UTC-*labelled* tz-aware datetime.
+
+    DuckDB returns ``trade_date`` (date32) as ``datetime.date`` and ``bar_timestamp``
+    (TIMESTAMPTZ) as a tz-aware ``datetime`` -- but in the *session* timezone, NOT UTC
+    (e.g. ``Asia/Hong_Kong`` +08:00 on a HK-locale box). The instant is correct, the
+    label is not. We must ``astimezone(UTC)`` so seeded warmup bars (session tz) and
+    live tick bars (UTC) share one offset: a mixed-offset column crashes
+    ``pd.to_datetime(...)`` in the indicator engine and silently kills live compute.
+    datetime is a subclass of date, so check it first.
+    """
+    if isinstance(value, datetime):
+        return (
+            value.astimezone(timezone.utc)
+            if value.tzinfo is not None
+            else value.replace(tzinfo=timezone.utc)
+        )
+    if isinstance(value, date):
+        return datetime(value.year, value.month, value.day, tzinfo=timezone.utc)
+    raise TypeError(f"unexpected livewire timestamp type: {type(value)!r}")
+
 
 # Bar duration per timeframe -- used to derive bar_end (not a zero-width bar).
 _TF_DELTAS = {
@@ -83,7 +112,7 @@ class LivewireOhlcProvider:
         start: datetime,
         end: datetime,
     ) -> List[BarData]:
-        ts_col = next(k for k, v in COLUMN_MAP.items() if v == "bar_start")
+        ts_col = _timestamp_column(timeframe)
         # NOTE: read_parquet path is inlined (NOT a bound parameter) -- DuckDB does
         # not accept a prepared-statement parameter for the parquet path. The path
         # is constructed by us from a validated symbol/timeframe, not user SQL.
@@ -91,16 +120,20 @@ class LivewireOhlcProvider:
             f"SELECT * FROM read_parquet('{path.as_posix()}') "
             f"WHERE {ts_col} >= ? AND {ts_col} <= ? ORDER BY {ts_col} ASC"
         )
+        # Daily `trade_date` is a DATE -- bind calendar-date params so the comparison
+        # is tz-agnostic (avoids DATE-vs-TIMESTAMPTZ session-tz surprises). Intraday
+        # `bar_timestamp` is TIMESTAMPTZ -- bind the tz-aware datetimes directly.
+        params = [start.date(), end.date()] if timeframe == "1d" else [start, end]
         con = duckdb.connect(database=":memory:")
         try:
-            rows = con.execute(sql, [start, end]).fetch_arrow_table().to_pylist()
+            rows = con.execute(sql, params).fetch_arrow_table().to_pylist()
         finally:
             con.close()
         return [self._row_to_bar(r, symbol, timeframe) for r in rows]
 
     @staticmethod
     def _row_to_bar(row: dict, symbol: str, timeframe: str) -> BarData:
-        ts = row[next(k for k, v in COLUMN_MAP.items() if v == "bar_start")]
+        ts = _to_utc_datetime(row[_timestamp_column(timeframe)])
         end = ts + _TF_DELTAS.get(timeframe, timedelta(0))
         vol = row.get("volume")
         return BarData(
