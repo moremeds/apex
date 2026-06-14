@@ -6,14 +6,21 @@ are validated on egress against their schemas under config/verification/schemas/
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List
-
-_TIMEFRAMES = ("1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w")
 
 
 def _iso(value: Any) -> Any:
-    return value.isoformat() if isinstance(value, datetime) else value
+    """ISO-8601 string, normalised to UTC so the chart contract matches the signal one.
+
+    DuckDB returns bar timestamps in the session timezone; convert tz-aware values to
+    UTC (+00:00) for a consistent contract. Naive datetimes are emitted as-is.
+    """
+    if isinstance(value, datetime):
+        if value.tzinfo is not None:
+            value = value.astimezone(timezone.utc)
+        return value.isoformat()
+    return value
 
 
 def _bar_to_dict(bar: Any) -> Dict[str, Any]:
