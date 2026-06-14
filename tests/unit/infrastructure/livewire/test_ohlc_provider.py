@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime as dt
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -14,30 +15,49 @@ WIDE_END = datetime(2026, 1, 31, tzinfo=timezone.utc)
 
 
 def _write_fixture(root: Path) -> None:
-    """Write a 3-bar livewire bronze parquet for symbol TEST, timeframe 1d.
+    """Write a 3-bar daily livewire bronze parquet for symbol TEST.
 
-    Generated at runtime (not committed) because *.parquet is gitignored -- a
-    static fixture would be absent in CI. Mirrors the real bronze schema: a
-    tz-aware `ts` column plus OHLCV and the Hive partition columns.
+    Generated at runtime (*.parquet is gitignored). Mirrors livewire's REAL daily
+    bronze schema (clients/bronze_client.py): `trade_date` (date32), `symbol_id`,
+    OHLC, `adj_close`, `volume` -- the symbol lives in the partition dir, not a column.
     """
     sym_dir = root / "asset_class=equity" / "symbol=TEST"
     sym_dir.mkdir(parents=True, exist_ok=True)
     df = pd.DataFrame(
         {
-            "ts": pd.to_datetime(
-                ["2026-01-02T00:00:00Z", "2026-01-03T00:00:00Z", "2026-01-06T00:00:00Z"],
+            "trade_date": [dt.date(2026, 1, 2), dt.date(2026, 1, 3), dt.date(2026, 1, 6)],
+            "symbol_id": [1, 1, 1],
+            "open": [10.0, 11.0, 12.0],
+            "high": [10.5, 11.5, 12.5],
+            "low": [9.5, 10.5, 11.5],
+            "close": [11.0, 12.0, 13.0],
+            "adj_close": [11.0, 12.0, 13.0],
+            "volume": [100, 200, 300],
+        }
+    )
+    df.to_parquet(sym_dir / "1d.parquet")
+
+
+def _write_intraday_fixture(root: Path) -> None:
+    """Write a 3-bar 1m parquet mirroring livewire's intraday schema:
+    `bar_timestamp` (tz-aware UTC) + `symbol_id` + OHLCV."""
+    sym_dir = root / "asset_class=equity" / "symbol=TEST"
+    sym_dir.mkdir(parents=True, exist_ok=True)
+    df = pd.DataFrame(
+        {
+            "bar_timestamp": pd.to_datetime(
+                ["2026-01-02T14:30:00Z", "2026-01-02T14:31:00Z", "2026-01-02T14:32:00Z"],
                 utc=True,
             ),
+            "symbol_id": [1, 1, 1],
             "open": [10.0, 11.0, 12.0],
             "high": [10.5, 11.5, 12.5],
             "low": [9.5, 10.5, 11.5],
             "close": [11.0, 12.0, 13.0],
             "volume": [100, 200, 300],
-            "asset_class": ["equity", "equity", "equity"],
-            "symbol": ["TEST", "TEST", "TEST"],
         }
     )
-    df.to_parquet(sym_dir / "1d.parquet")
+    df.to_parquet(sym_dir / "1m.parquet")
 
 
 @pytest.fixture
@@ -82,6 +102,23 @@ async def test_fetch_bars_date_range_filter(provider: LivewireOhlcProvider) -> N
     )
     assert len(bars) == 1
     assert bars[0].close == 12.0
+
+
+@pytest.mark.asyncio
+async def test_fetch_bars_intraday_reads_bar_timestamp(tmp_path: Path) -> None:
+    """Intraday bars are keyed by `bar_timestamp` (tz-aware UTC), not `trade_date`."""
+    _write_intraday_fixture(tmp_path)
+    provider = LivewireOhlcProvider(bronze_root=tmp_path)
+    bars = await provider.fetch_bars(
+        "TEST",
+        "1m",
+        datetime(2026, 1, 2, 14, 30, tzinfo=timezone.utc),
+        datetime(2026, 1, 2, 14, 32, tzinfo=timezone.utc),
+    )
+    assert [b.close for b in bars] == [11.0, 12.0, 13.0]
+    assert bars[0].bar_start == datetime(2026, 1, 2, 14, 30, tzinfo=timezone.utc)
+    assert bars[0].bar_start.tzinfo is not None  # tz-aware UTC, not naive
+    assert bars[0].bar_end > bars[0].bar_start  # 1m duration
 
 
 @pytest.mark.asyncio
