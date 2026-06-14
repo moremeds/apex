@@ -85,8 +85,11 @@ _CONFLUENCE_FIELDS = (
 def build_confluence_payload(
     symbol: str, timeframe: str, rows: Iterable[Dict[str, Any]], *, generated_at: datetime
 ) -> Dict[str, Any]:
+    # get_confluence_history returns newest-first; emit oldest-first so the chart
+    # contract is a consistent ascending time series (like /bars and /indicators).
+    ordered = sorted(rows, key=lambda r: r["time"])
     out: List[Dict[str, Any]] = []
-    for r in rows:
+    for r in ordered:
         point: Dict[str, Any] = {"time": _iso(r["time"])}
         for field in _CONFLUENCE_FIELDS:
             if field in r:
