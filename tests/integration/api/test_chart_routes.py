@@ -234,3 +234,12 @@ async def test_get_confluence_passes_limit_to_repo() -> None:
         resp = await c.get("/confluence/AAPL", params={"timeframe": "1d", "limit": "3"})
     assert resp.status_code == 200
     assert repo.last_limit == 3
+
+
+async def test_get_confluence_rejects_out_of_range_limit() -> None:
+    """limit is bounded (ge=1, le=5000) so a negative LIMIT can't reach Postgres."""
+    app = create_app()
+    app.state.signal_repo = _FakeRepo()
+    async with _client(app) as c:
+        resp = await c.get("/confluence/AAPL", params={"timeframe": "1d", "limit": "0"})
+    assert resp.status_code == 422

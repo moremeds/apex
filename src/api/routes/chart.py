@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Optional, Tuple
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from src.api.payload.chart import (
     build_bars_payload,
@@ -119,7 +119,7 @@ async def get_confluence(
     timeframe: str = "1d",
     start: Optional[datetime] = None,
     end: Optional[datetime] = None,
-    limit: int = 500,
+    limit: int = Query(default=500, ge=1, le=5000),
 ) -> dict:
     repo = getattr(request.app.state, "signal_repo", None)
     if repo is None:
