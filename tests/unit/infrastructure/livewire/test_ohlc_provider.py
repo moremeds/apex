@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import datetime as dt
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pandas as pd
 import pytest
 
 from src.domain.interfaces.historical_source import HistoricalSourcePort
-from src.infrastructure.adapters.livewire.ohlc_provider import LivewireOhlcProvider
+from src.infrastructure.adapters.livewire.ohlc_provider import (
+    LivewireOhlcProvider,
+    _to_utc_datetime,
+)
 
 WIDE_START = datetime(2026, 1, 1, tzinfo=timezone.utc)
 WIDE_END = datetime(2026, 1, 31, tzinfo=timezone.utc)
@@ -131,6 +134,33 @@ async def test_fetch_bars_missing_symbol_returns_empty(provider: LivewireOhlcPro
 async def test_unsupported_timeframe_raises(provider: LivewireOhlcProvider) -> None:
     with pytest.raises(ValueError, match="unsupported timeframe"):
         await provider.fetch_bars("TEST", "3m", WIDE_START, WIDE_END)
+
+
+def test_to_utc_datetime_normalizes_session_tz_to_utc() -> None:
+    """DuckDB returns TIMESTAMPTZ in the session timezone (e.g. +08:00), not UTC.
+
+    The provider must convert those to UTC so warmup-seeded bars (session tz) and
+    live tick bars (UTC) share one offset. A mixed-offset column crashes
+    `pd.to_datetime(...)` in the indicator engine (`Tz-aware datetime cannot be
+    converted to datetime64 unless utc=True`), killing live indicator compute.
+    """
+    hk = timezone(timedelta(hours=8))
+    aware_hk = datetime(2026, 6, 12, 22, 30, tzinfo=hk)  # == 14:30 UTC, same instant
+
+    out = _to_utc_datetime(aware_hk)
+
+    assert out.utcoffset() == timedelta(0)  # normalized to UTC, not left at +08:00
+    assert out.tzinfo == timezone.utc
+    assert out == datetime(2026, 6, 12, 14, 30, tzinfo=timezone.utc)  # instant preserved
+
+
+def test_to_utc_datetime_keeps_naive_and_date_as_utc() -> None:
+    """Naive datetimes are tagged UTC; date32 (daily `trade_date`) becomes midnight UTC."""
+    naive = _to_utc_datetime(datetime(2026, 1, 2, 9, 30))
+    assert naive == datetime(2026, 1, 2, 9, 30, tzinfo=timezone.utc)
+
+    daily = _to_utc_datetime(dt.date(2026, 1, 2))
+    assert daily == datetime(2026, 1, 2, tzinfo=timezone.utc)
 
 
 def test_provider_satisfies_historical_source_port(bronze_root: Path) -> None:

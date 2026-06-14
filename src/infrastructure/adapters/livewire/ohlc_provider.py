@@ -39,14 +39,22 @@ def _timestamp_column(timeframe: str) -> str:
 
 
 def _to_utc_datetime(value: Any) -> datetime:
-    """Coerce a livewire timestamp to a tz-aware UTC datetime.
+    """Coerce a livewire timestamp to a UTC-*labelled* tz-aware datetime.
 
     DuckDB returns ``trade_date`` (date32) as ``datetime.date`` and ``bar_timestamp``
-    (timestamp tz=UTC) as a tz-aware ``datetime``. datetime is a subclass of date, so
-    check it first.
+    (TIMESTAMPTZ) as a tz-aware ``datetime`` -- but in the *session* timezone, NOT UTC
+    (e.g. ``Asia/Hong_Kong`` +08:00 on a HK-locale box). The instant is correct, the
+    label is not. We must ``astimezone(UTC)`` so seeded warmup bars (session tz) and
+    live tick bars (UTC) share one offset: a mixed-offset column crashes
+    ``pd.to_datetime(...)`` in the indicator engine and silently kills live compute.
+    datetime is a subclass of date, so check it first.
     """
     if isinstance(value, datetime):
-        return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+        return (
+            value.astimezone(timezone.utc)
+            if value.tzinfo is not None
+            else value.replace(tzinfo=timezone.utc)
+        )
     if isinstance(value, date):
         return datetime(value.year, value.month, value.day, tzinfo=timezone.utc)
     raise TypeError(f"unexpected livewire timestamp type: {type(value)!r}")
