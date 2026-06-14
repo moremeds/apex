@@ -29,9 +29,7 @@ def install_carve_stubs() -> Iterator[None]:
     on teardown, deleting anything imported during the test.
     """
     snapshot = {
-        name: mod
-        for name, mod in sys.modules.items()
-        if name.startswith(_TOUCHED_PREFIXES)
+        name: mod for name, mod in sys.modules.items() if name.startswith(_TOUCHED_PREFIXES)
     }
     # Drop already-imported keep-set/infra modules so stubs take effect.
     for name in list(sys.modules):
