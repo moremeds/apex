@@ -52,10 +52,38 @@ class _FakeProvider:
         return [b for b in self._bars if start <= b.timestamp <= end]
 
 
+def _series_ending(end_day: datetime, n: int) -> List[BarData]:
+    """n daily bars ending at end_day (used to test the no-arg default window)."""
+    bars: List[BarData] = []
+    price = 100.0
+    for i in range(n):
+        price += 1.0 if i % 3 else -0.7
+        ts = end_day - (n - 1 - i) * _DAY
+        bars.append(
+            BarData(
+                symbol="AAPL",
+                timeframe="1d",
+                open=price - 0.5,
+                high=price + 1.0,
+                low=price - 1.0,
+                close=price,
+                volume=1000 + i,
+                vwap=price,
+                timestamp=ts,
+                bar_start=ts,
+            )
+        )
+    return bars
+
+
 class _FakeRepo:
+    def __init__(self) -> None:
+        self.last_limit: Any = None
+
     async def get_confluence_history(
         self, symbol: str, timeframe: str, start: Any = None, end: Any = None, limit: int = 100
     ) -> List[dict]:
+        self.last_limit = limit
         return [
             {
                 "time": _T0,
@@ -104,6 +132,27 @@ async def test_get_bars_503_when_provider_unconfigured() -> None:
     assert resp.status_code == 503
 
 
+async def test_get_bars_rejects_unsupported_timeframe() -> None:
+    """Schema advertises 4h/15m/1w but livewire doesn't warehouse them -> 400, not 500."""
+    app = create_app()
+    app.state.ohlc_provider = _FakeProvider(_series(10))
+    async with _client(app) as c:
+        resp = await c.get("/bars/AAPL", params={"timeframe": "4h"})
+    assert resp.status_code == 400
+
+
+async def test_get_bars_default_window_tail_slices_to_500() -> None:
+    """No start/end -> most recent 500 bars even when more exist in the lookback."""
+    app = create_app()
+    app.state.ohlc_provider = _FakeProvider(
+        _series_ending(datetime(2026, 6, 1, tzinfo=timezone.utc), 600)
+    )
+    async with _client(app) as c:
+        resp = await c.get("/bars/AAPL", params={"timeframe": "1d"})
+    assert resp.status_code == 200
+    assert resp.json()["count"] == 500
+
+
 # --- /indicators ---------------------------------------------------------
 
 
@@ -146,6 +195,14 @@ async def test_get_indicators_503_when_provider_unconfigured() -> None:
     assert resp.status_code == 503
 
 
+async def test_get_indicators_rejects_unsupported_timeframe() -> None:
+    app = create_app()
+    app.state.ohlc_provider = _FakeProvider(_series(10))
+    async with _client(app) as c:
+        resp = await c.get("/indicators/AAPL", params={"timeframe": "1w", "indicator": "rsi"})
+    assert resp.status_code == 400
+
+
 # --- /confluence ---------------------------------------------------------
 
 
@@ -166,3 +223,14 @@ async def test_get_confluence_503_when_repo_unconfigured() -> None:
     async with _client(app) as c:
         resp = await c.get("/confluence/AAPL", params={"timeframe": "1d"})
     assert resp.status_code == 503
+
+
+async def test_get_confluence_passes_limit_to_repo() -> None:
+    """Confluence must not silently cap at the repo default -> expose `limit`."""
+    repo = _FakeRepo()
+    app = create_app()
+    app.state.signal_repo = repo
+    async with _client(app) as c:
+        resp = await c.get("/confluence/AAPL", params={"timeframe": "1d", "limit": "3"})
+    assert resp.status_code == 200
+    assert repo.last_limit == 3

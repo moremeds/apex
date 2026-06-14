@@ -10,6 +10,7 @@ so the lines always match the live signals and the candles.
 
 from __future__ import annotations
 
+import asyncio
 import math
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
@@ -99,6 +100,14 @@ async def compute_indicator_series(
     if not bars:
         return []
 
+    # calculate() + the per-row state loop are CPU-bound; run them off the event loop
+    # so a large window / expensive indicator can't stall the live signal WS stream.
+    return await asyncio.to_thread(_compute_points, ind, bars, start, end)
+
+
+def _compute_points(
+    ind: Any, bars: List[Any], start: datetime, end: datetime
+) -> List[Dict[str, Any]]:
     df = _bars_to_df(bars)
     result = ind.calculate(df, ind.default_params)
 
