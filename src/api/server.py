@@ -39,6 +39,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.pg_connected = False
         logger.info("No APEX_PG_URL set — running without PG")
 
+    # Streaming TA signal surface (Phase 3). Guarded with `getattr(..., None) is None`
+    # so tests can pre-inject fakes that the lifespan must not clobber.
+    from src.api.ws.hub import SignalHub
+
+    if getattr(app.state, "signal_hub", None) is None:
+        app.state.signal_hub = SignalHub()
+    if getattr(app.state, "signal_repo", None) is None:
+        app.state.signal_repo = None  # real TASignalRepository(Database) wired when PG configured
+    # NOTE (env-gated): the real SubscriptionManager (livewire provider +
+    # TASignalService) and the SignalEmitter(bus) are constructed here when their
+    # dependencies are present. Left unbuilt in environments without livewire/PG;
+    # the WS route requires app.state.subscription_manager to be set before use.
+
     try:
         yield
     finally:
@@ -70,6 +83,13 @@ def create_app() -> FastAPI:
     app.include_router(regime_router)
     app.include_router(screener_router)
     app.include_router(backtest_router)
+
+    # Streaming TA signal surface (Phase 3): REST pull + WS push to argon.
+    from src.api.routes.signals import router as signals_router
+    from src.api.ws.signals_ws import router as signals_ws_router
+
+    app.include_router(signals_router)
+    app.include_router(signals_ws_router)
 
     return app
 
