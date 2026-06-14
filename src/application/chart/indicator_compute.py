@@ -17,7 +17,8 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 
 # Bar duration per timeframe -- used to derive the warmup lead in calendar time.
-_TF_DELTAS: Dict[str, timedelta] = {
+# Public so the chart routes can reuse it for default windows.
+TF_DELTAS: Dict[str, timedelta] = {
     "1m": timedelta(minutes=1),
     "5m": timedelta(minutes=5),
     "15m": timedelta(minutes=15),
@@ -27,7 +28,7 @@ _TF_DELTAS: Dict[str, timedelta] = {
     "1d": timedelta(days=1),
     "1w": timedelta(weeks=1),
 }
-_DEFAULT_DELTA = timedelta(days=1)
+DEFAULT_TF_DELTA = timedelta(days=1)
 
 
 class UnknownIndicatorError(ValueError):
@@ -90,7 +91,7 @@ async def compute_indicator_series(
     if ind is None:
         raise UnknownIndicatorError(indicator)
 
-    delta = _TF_DELTAS.get(timeframe, _DEFAULT_DELTA)
+    delta = TF_DELTAS.get(timeframe, DEFAULT_TF_DELTA)
     warmup = max(int(getattr(ind, "warmup_periods", 0)), 0)
     fetch_start = start - delta * warmup * max(safety, 1)
 

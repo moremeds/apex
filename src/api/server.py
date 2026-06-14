@@ -73,21 +73,36 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 app.state.signal_repo = TASignalRepository(cast("Database", pool))
                 logger.info("Signal repository ready (snapshot + REST backfill enabled)")
 
+        # Chart read surface (bars + compute-on-read indicators + confluence): expose
+        # the bar provider + indicator registry on app.state so /bars, /indicators and
+        # /confluence work even without a live subscription. Reused by the pipeline below.
+        if getattr(app.state, "ohlc_provider", None) is None:
+            app.state.ohlc_provider = None
+            livewire_root = os.environ.get("APEX_LIVEWIRE_ROOT")
+            if livewire_root:
+                from pathlib import Path
+
+                from src.infrastructure.adapters.livewire.ohlc_provider import (
+                    LivewireOhlcProvider,
+                )
+
+                app.state.ohlc_provider = LivewireOhlcProvider(bronze_root=Path(livewire_root))
+                logger.info("Bar provider ready (chart read surface enabled)")
+        if getattr(app.state, "indicator_registry", None) is None:
+            from src.domain.signals.indicators.registry import get_indicator_registry
+
+            app.state.indicator_registry = get_indicator_registry()
+
         # Full streaming pipeline (env-gated on APEX_LIVEWIRE_ROOT): construct the
         # event bus, TA compute service, signal emitter, and subscription manager so
         # the server itself streams signals. Guarded so tests can pre-inject fakes.
         if getattr(app.state, "subscription_manager", None) is None:
             livewire_root = os.environ.get("APEX_LIVEWIRE_ROOT")
             if livewire_root:
-                from pathlib import Path
-
                 from src.api.ws.emitter import SignalEmitter
                 from src.application.services.ta_signal_service import TASignalService
                 from src.application.subscriptions.manager import SubscriptionManager
                 from src.domain.events.priority_event_bus import PriorityEventBus
-                from src.infrastructure.adapters.livewire.ohlc_provider import (
-                    LivewireOhlcProvider,
-                )
 
                 timeframes = [
                     tf.strip()
@@ -112,9 +127,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 emitter.subscribe(bus)
                 app.state.signal_emitter = emitter
 
-                provider = LivewireOhlcProvider(bronze_root=Path(livewire_root))
                 app.state.subscription_manager = SubscriptionManager(
-                    provider=provider, compute=service, timeframes=timeframes
+                    provider=app.state.ohlc_provider, compute=service, timeframes=timeframes
                 )
                 logger.info("Streaming TA pipeline started (timeframes=%s)", timeframes)
 
@@ -198,6 +212,11 @@ def create_app() -> FastAPI:
 
     app.include_router(signals_router)
     app.include_router(signals_ws_router)
+
+    # Chart read surface: bars + compute-on-read indicators + confluence.
+    from src.api.routes.chart import router as chart_router
+
+    app.include_router(chart_router)
 
     return app
 

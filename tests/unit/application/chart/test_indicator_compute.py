@@ -70,9 +70,7 @@ async def test_returns_one_point_per_visible_bar_with_state_and_close() -> None:
     start = full[120].timestamp
     end = full[160].timestamp
 
-    points = await compute_indicator_series(
-        provider, registry, "AAPL", "1d", "rsi", start, end
-    )
+    points = await compute_indicator_series(provider, registry, "AAPL", "1d", "rsi", start, end)
 
     visible = [b for b in full if start <= b.timestamp <= end]
     assert len(points) == len(visible)

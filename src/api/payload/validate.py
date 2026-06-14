@@ -13,9 +13,7 @@ from typing import Any
 
 import jsonschema
 
-_SCHEMA_DIR = (
-    Path(__file__).resolve().parents[3] / "config" / "verification" / "schemas"
-)
+_SCHEMA_DIR = Path(__file__).resolve().parents[3] / "config" / "verification" / "schemas"
 _DEFAULT_SCHEMA = "signal_service_payload"
 
 
