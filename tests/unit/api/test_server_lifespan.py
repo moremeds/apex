@@ -103,14 +103,30 @@ async def test_lifespan_builds_connects_and_wires_xenon_client(monkeypatch) -> N
 
 
 @pytest.mark.asyncio
-async def test_lifespan_skips_xenon_client_when_url_unset(monkeypatch) -> None:
+async def test_lifespan_skips_xenon_client_when_no_event_bus(monkeypatch) -> None:
+    """No event bus (no pipeline) -> no xenon client, even though the URL now
+    defaults to the standard port."""
+    monkeypatch.delenv("APEX_XENON_WS_URL", raising=False)
+    monkeypatch.delenv("APEX_LIVEWIRE_ROOT", raising=False)
+    monkeypatch.delenv("APEX_PG_URL", raising=False)
+    monkeypatch.setattr(xenon_client_mod, "XenonTickClient", _SpyClient)
+    app = create_app()
+    async with lifespan(app):
+        assert getattr(app.state, "xenon_client", None) is None
+
+
+@pytest.mark.asyncio
+async def test_lifespan_defaults_xenon_url_to_standard_port(monkeypatch) -> None:
+    """APEX_XENON_WS_URL is baked into apex: unset -> connect to ws://127.0.0.1:8765."""
     monkeypatch.delenv("APEX_XENON_WS_URL", raising=False)
     monkeypatch.delenv("APEX_PG_URL", raising=False)
     monkeypatch.setattr(xenon_client_mod, "XenonTickClient", _SpyClient)
     app = create_app()
     app.state.event_bus = _FakeBus()
+    app.state.subscription_manager = _FakeSM()
     async with lifespan(app):
-        assert getattr(app.state, "xenon_client", None) is None
+        assert isinstance(app.state.xenon_client, _SpyClient)
+        assert app.state.xenon_client.url == "ws://127.0.0.1:8765"
 
 
 # --- Task 13: full streaming pipeline wired in lifespan (env-gated) ------------
@@ -145,6 +161,25 @@ async def test_lifespan_builds_full_pipeline_when_livewire_root_set(monkeypatch,
     # clean shutdown: service + bus stopped, xenon client closed
     assert app.state.ta_service.is_running is False
     assert _SpyClient.last.closed is True
+
+
+@pytest.mark.asyncio
+async def test_lifespan_passes_signal_repo_as_persistence(monkeypatch, tmp_path) -> None:
+    """A configured signal_repo is handed to TASignalService as its persistence
+    sink (so fired signals are written to PG), and the pre-injected repo is not
+    clobbered by the lifespan."""
+    monkeypatch.setenv("APEX_LIVEWIRE_ROOT", str(tmp_path))
+    monkeypatch.setenv("APEX_XENON_WS_URL", "ws://127.0.0.1:1")
+    monkeypatch.setenv("APEX_TIMEFRAMES", "1m")
+    monkeypatch.delenv("APEX_PG_URL", raising=False)
+    monkeypatch.setattr(xenon_client_mod, "XenonTickClient", _SpyClient)
+
+    fake_repo = object()
+    app = create_app()
+    app.state.signal_repo = fake_repo  # pre-injected -> lifespan must not clobber
+    async with lifespan(app):
+        assert app.state.signal_repo is fake_repo
+        assert app.state.ta_service._persistence is fake_repo
 
 
 @pytest.mark.asyncio

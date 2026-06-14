@@ -360,6 +360,37 @@ class TASignalRepository(SignalPersistencePort):
             for r in records
         ]
 
+    async def fetch_signals(
+        self,
+        ticker: str,
+        since: Optional[datetime] = None,
+        limit: int = 500,
+    ) -> List[Dict[str, Any]]:
+        """Return raw ta_signals rows (newest first) for the API read path.
+
+        Unlike ``get_recent_signals``/``get_signals_since`` (which reconstruct
+        domain ``TradingSignal`` objects), this returns plain dict rows so the
+        API ``build_payload`` can map ``time``->``timestamp`` and normalise the
+        contract fields directly. Bounded by ``since`` when given.
+        """
+        if since is not None:
+            query = """
+                SELECT * FROM ta_signals
+                WHERE symbol = $1 AND time > $2
+                ORDER BY time DESC
+                LIMIT $3
+            """
+            records = await self._db.fetch(query, ticker, since, limit)
+        else:
+            query = """
+                SELECT * FROM ta_signals
+                WHERE symbol = $1
+                ORDER BY time DESC
+                LIMIT $2
+            """
+            records = await self._db.fetch(query, ticker, limit)
+        return [dict(r) for r in records]
+
     # -------------------------------------------------------------------------
     # Indicator Operations (implements SignalPersistencePort)
     # -------------------------------------------------------------------------

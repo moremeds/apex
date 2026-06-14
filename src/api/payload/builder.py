@@ -7,7 +7,13 @@ Maps the DB column `time` -> schema field `timestamp`; drops DB-only columns
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Iterable
+from typing import Any, Callable, Dict, Iterable
+
+from src.api.payload.contract import (
+    decode_metadata,
+    to_contract_direction,
+    to_contract_strength,
+)
 
 # ta_signals columns that map 1:1 onto the schema's trading_signal object.
 # NOTE: lifecycle fields (status/invalidated_by/invalidated_at) are intentionally
@@ -40,11 +46,26 @@ def _iso(value: Any) -> Any:
     return value.isoformat() if isinstance(value, datetime) else value
 
 
+# Per-field coercion to the argon contract. ta_signals stores event-native values
+# (direction "LONG"/"SHORT"/"FLAT", strength as the persisted number, metadata as
+# JSONB that asyncpg returns as a JSON string); normalise them exactly like the WS
+# emitter so REST/snapshot and live frames never disagree.
+_TRANSFORMS: Dict[str, Callable[[Any], Any]] = {
+    "direction": to_contract_direction,
+    "strength": to_contract_strength,
+    "metadata": decode_metadata,
+}
+
+
 def signal_row_to_dict(row: dict[str, Any]) -> dict[str, Any]:
     out: dict[str, Any] = {}
     for key in _SIGNAL_FIELDS:
         if key in row and row[key] is not None:
-            out[key] = _iso(row[key])
+            value = row[key]
+            transform = _TRANSFORMS.get(key)
+            if transform is not None:
+                value = transform(value)
+            out[key] = _iso(value)
     # DB stores the event time as `time`; the contract field is `timestamp`.
     out["timestamp"] = _iso(row["time"])
     return out

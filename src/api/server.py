@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
+from typing import TYPE_CHECKING, Any, AsyncIterator, cast
 
 import asyncpg
 from fastapi import FastAPI
@@ -18,7 +18,37 @@ from src.api.routes.regime import router as regime_router
 from src.api.routes.screener import router as screener_router
 from src.api.routes.strategy import router as strategy_router
 
+if TYPE_CHECKING:
+    from src.domain.interfaces.event_bus import EventBus
+
 logger = logging.getLogger(__name__)
+
+# xenon's ib_realtime WS server defaults to port 8765 (DEFAULT_IB_REALTIME_PORT on
+# the xenon side). Bake the same default in so apex connects to a local xenon out
+# of the box; override with APEX_XENON_WS_URL.
+DEFAULT_XENON_WS_URL = "ws://127.0.0.1:8765"
+
+
+def _build_database(pg_url: str) -> Any:
+    """Build a Database from a libpq DSN (APEX_PG_URL), with default pool/timescale.
+
+    Parsed directly here (rather than via config/base.yaml) so the API server can
+    point at any Postgres via a single env var.
+    """
+    from urllib.parse import unquote, urlparse
+
+    from config.models import DatabaseConfig
+    from src.infrastructure.persistence.database import Database
+
+    parsed = urlparse(pg_url)
+    cfg = DatabaseConfig(
+        host=parsed.hostname or "localhost",
+        port=parsed.port or 5432,
+        database=(parsed.path or "/").lstrip("/") or "apex_signals",
+        user=unquote(parsed.username) if parsed.username else "apex_app",
+        password=unquote(parsed.password) if parsed.password else "",
+    )
+    return Database(cfg)
 
 
 @asynccontextmanager
@@ -45,8 +75,28 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     if getattr(app.state, "signal_hub", None) is None:
         app.state.signal_hub = SignalHub()
+    # Signal repository: powers the WS initial snapshot, the REST backfill, AND
+    # persistence of fired signals (passed to TASignalService below). Built when
+    # APEX_PG_URL is set; guarded so tests can pre-inject a fake repo. A failed
+    # connection degrades gracefully (live WS push still works without PG).
     if getattr(app.state, "signal_repo", None) is None:
-        app.state.signal_repo = None  # real TASignalRepository(Database) wired when PG configured
+        app.state.signal_repo = None
+        repo_pg_url = os.environ.get("APEX_PG_URL")
+        if repo_pg_url:
+            from src.infrastructure.persistence.repositories.ta_signal_repository import (
+                TASignalRepository,
+            )
+
+            try:
+                signal_db = _build_database(repo_pg_url)
+                await signal_db.connect()
+                app.state.signal_db = signal_db
+                app.state.signal_repo = TASignalRepository(signal_db)
+                logger.info("Signal repository connected (snapshot + REST backfill enabled)")
+            except Exception as e:  # pragma: no cover - depends on a live PG
+                logger.warning("Signal repository unavailable, snapshot/REST disabled: %s", e)
+                app.state.signal_repo = None
+                app.state.signal_db = None
     # NOTE (env-gated): the real SubscriptionManager (livewire provider +
     # TASignalService) and the SignalEmitter(bus) are constructed here when their
     # dependencies are present. Left unbuilt in environments without livewire/PG;
@@ -78,7 +128,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await bus.start()
             app.state.event_bus = bus
 
-            service = TASignalService(event_bus=bus, timeframes=timeframes)
+            service = TASignalService(
+                event_bus=cast("EventBus", bus),
+                timeframes=timeframes,
+                persistence=getattr(app.state, "signal_repo", None),
+            )
             await service.start()
             app.state.ta_service = service
 
@@ -96,12 +150,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Phase 4 live-in (env-gated): connect to xenon's tick feed when configured.
     # Mirrors the pre-injection guard above so tests can inject a fake/spy client.
     if getattr(app.state, "xenon_client", None) is None:
-        xenon_url = os.environ.get("APEX_XENON_WS_URL")
-        bus = getattr(app.state, "event_bus", None)
-        if xenon_url and bus is not None:
+        xenon_url = os.environ.get("APEX_XENON_WS_URL", DEFAULT_XENON_WS_URL)
+        xenon_bus = getattr(app.state, "event_bus", None)
+        if xenon_url and xenon_bus is not None:
             from src.infrastructure.adapters.xenon.client import XenonTickClient
 
-            client = XenonTickClient(xenon_url, event_bus=bus)
+            client = XenonTickClient(xenon_url, event_bus=xenon_bus)
             app.state.xenon_client = client
             sm = getattr(app.state, "subscription_manager", None)
             if sm is not None and hasattr(sm, "set_live_feed"):
@@ -122,6 +176,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         event_bus = getattr(app.state, "event_bus", None)
         if event_bus is not None and hasattr(event_bus, "stop"):
             await event_bus.stop()
+        signal_db = getattr(app.state, "signal_db", None)
+        if signal_db is not None:
+            await signal_db.close()
         if app.state.pg_pool is not None:
             await app.state.pg_pool.close()
             logger.info("PostgreSQL pool closed")
