@@ -10,8 +10,9 @@ Bronze schema matched to livewire's writers (``clients/bronze_client.py`` +
 ``bar_timestamp`` (timestamp us, tz=UTC). Both also carry ``symbol_id`` (ignored
 here -- the symbol comes from the partition). OHLCV column names match 1:1.
 
-NOT yet smoke-tested against a live parquet (no bronze on disk in this env); the
-column/layout contract is verified against livewire's writer, not real bytes.
+Smoke-tested 2026-06-14 against the real livewire bronze data lake: AAPL ``1d``
+(``trade_date``/DATE) and ``1m`` (``bar_timestamp``/TIMESTAMPTZ) read back correct
+OHLCV at the right instants.
 """
 
 from __future__ import annotations
