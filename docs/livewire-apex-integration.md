@@ -121,6 +121,12 @@ anything here — just keep writing UTC `TIMESTAMPTZ`.
 
 ## 4. How apex queries (for reference)
 
+> **There is NO DuckDB database.** apex opens a fresh **in-memory** (`:memory:`) DuckDB
+> connection per request, runs one `read_parquet()` over a single Parquet file, and closes
+> it immediately — no `.duckdb` file, no catalog, nothing persisted. **The Parquet files
+> *are* the store.** (A stray `*.duckdb` on disk is a legacy artifact, not used by this
+> service; `*.duckdb` is gitignored.)
+
 Per request, in a worker thread (off the event loop), against an in-memory DuckDB connection:
 
 ```sql

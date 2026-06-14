@@ -107,9 +107,14 @@ coverage.xml
 /results/
 /.claude/
 /data/equity.csv
-/data/historical/_metadata.duckdb
 /data/coverage_report.html
 /data/historical/
+
+# apex holds NO DuckDB database — DuckDB is used in-memory per request over the
+# livewire Parquet lake (src/infrastructure/adapters/livewire/ohlc_provider.py).
+# Any *.duckdb file on disk is a stray legacy artifact, never a real datastore.
+*.duckdb
+*.ddb
 /data/MD（富途moomoo）副图版.txt
 /data/MD（富途moomoo） 主图版.txt
 /output/systematic-hedge-fund-quant-dev-interview-prep.html
