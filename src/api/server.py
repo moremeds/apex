@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
+from typing import TYPE_CHECKING, AsyncIterator, cast
 
 import asyncpg
 from fastapi import FastAPI
@@ -18,12 +18,21 @@ from src.api.routes.regime import router as regime_router
 from src.api.routes.screener import router as screener_router
 from src.api.routes.strategy import router as strategy_router
 
+if TYPE_CHECKING:
+    from src.domain.interfaces.event_bus import EventBus
+    from src.infrastructure.persistence.database import Database
+
 logger = logging.getLogger(__name__)
+
+# xenon's ib_realtime WS server defaults to port 8765 (DEFAULT_IB_REALTIME_PORT on
+# the xenon side). Bake the same default in so apex connects to a local xenon out
+# of the box; override with APEX_XENON_WS_URL.
+DEFAULT_XENON_WS_URL = "ws://127.0.0.1:8765"
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Open the asyncpg pool on startup, close it on shutdown."""
+    """Connect PG + build the streaming pipeline on startup; tear it down on shutdown."""
     pg_url = os.environ.get("APEX_PG_URL")
     if pg_url:
         try:
@@ -39,12 +48,124 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.pg_connected = False
         logger.info("No APEX_PG_URL set — running without PG")
 
+    # Everything constructed below is torn down in the `finally`, even if startup
+    # fails partway, so a half-built pipeline never leaks the pool or bus tasks.
     try:
+        # Streaming TA signal surface (Phase 3). Guarded with `getattr(..., None)
+        # is None` so tests can pre-inject fakes that the lifespan must not clobber.
+        from src.api.ws.hub import SignalHub
+
+        if getattr(app.state, "signal_hub", None) is None:
+            app.state.signal_hub = SignalHub()
+        # Signal repository over the SAME asyncpg pool (no second pool; the original
+        # DSN is preserved by reusing pg_pool). Powers the WS initial snapshot, the
+        # REST backfill, AND persistence of fired signals (handed to the service).
+        if getattr(app.state, "signal_repo", None) is None:
+            app.state.signal_repo = None
+            pool = getattr(app.state, "pg_pool", None)
+            if pool is not None:
+                from src.infrastructure.persistence.repositories.ta_signal_repository import (
+                    TASignalRepository,
+                )
+
+                # asyncpg.Pool proxies fetch/execute/fetchrow, so it satisfies the
+                # repo's Database dependency without opening a second pool.
+                app.state.signal_repo = TASignalRepository(cast("Database", pool))
+                logger.info("Signal repository ready (snapshot + REST backfill enabled)")
+
+        # Full streaming pipeline (env-gated on APEX_LIVEWIRE_ROOT): construct the
+        # event bus, TA compute service, signal emitter, and subscription manager so
+        # the server itself streams signals. Guarded so tests can pre-inject fakes.
+        if getattr(app.state, "subscription_manager", None) is None:
+            livewire_root = os.environ.get("APEX_LIVEWIRE_ROOT")
+            if livewire_root:
+                from pathlib import Path
+
+                from src.api.ws.emitter import SignalEmitter
+                from src.application.services.ta_signal_service import TASignalService
+                from src.application.subscriptions.manager import SubscriptionManager
+                from src.domain.events.priority_event_bus import PriorityEventBus
+                from src.infrastructure.adapters.livewire.ohlc_provider import (
+                    LivewireOhlcProvider,
+                )
+
+                timeframes = [
+                    tf.strip()
+                    for tf in os.environ.get("APEX_TIMEFRAMES", "1d").split(",")
+                    if tf.strip()
+                ]
+
+                bus = PriorityEventBus()
+                await bus.start()
+                app.state.event_bus = bus
+
+                service = TASignalService(
+                    event_bus=cast("EventBus", bus),
+                    timeframes=timeframes,
+                    persistence=getattr(app.state, "signal_repo", None),
+                )
+                await service.start()
+                app.state.ta_service = service
+
+                # Fan fired signals out to connected argon WS clients (Phase 3).
+                emitter = SignalEmitter(app.state.signal_hub)
+                emitter.subscribe(bus)
+                app.state.signal_emitter = emitter
+
+                provider = LivewireOhlcProvider(bronze_root=Path(livewire_root))
+                app.state.subscription_manager = SubscriptionManager(
+                    provider=provider, compute=service, timeframes=timeframes
+                )
+                logger.info("Streaming TA pipeline started (timeframes=%s)", timeframes)
+
+        # Phase 4 live-in: connect to xenon's tick feed. The URL is baked in
+        # (DEFAULT_XENON_WS_URL) so apex reaches a local xenon out of the box;
+        # override with APEX_XENON_WS_URL. Only runs once a bus exists.
+        if getattr(app.state, "xenon_client", None) is None:
+            xenon_url = os.environ.get("APEX_XENON_WS_URL", DEFAULT_XENON_WS_URL)
+            xenon_bus = getattr(app.state, "event_bus", None)
+            if xenon_url and xenon_bus is not None:
+                from src.infrastructure.adapters.xenon.client import XenonTickClient
+
+                client = XenonTickClient(xenon_url, event_bus=xenon_bus)
+                app.state.xenon_client = client
+                sm = getattr(app.state, "subscription_manager", None)
+                if sm is not None and hasattr(sm, "set_live_feed"):
+                    sm.set_live_feed(client)
+                await client.connect()  # non-blocking: launches the background loop
+            else:
+                app.state.xenon_client = None
+
         yield
     finally:
-        if app.state.pg_pool is not None:
-            await app.state.pg_pool.close()
-            logger.info("PostgreSQL pool closed")
+        # Best-effort teardown, each step isolated so one failure can't strand the
+        # rest. Order matters: stop ingest (xenon) first, then drain the bus while
+        # the service is still subscribed (bus.stop() dispatches queued events), then
+        # stop the service (drains its persistence tasks), then close the shared pool.
+        xenon_client = getattr(app.state, "xenon_client", None)
+        if xenon_client is not None:
+            try:
+                await xenon_client.close()
+            except Exception as e:  # pragma: no cover - best-effort teardown
+                logger.warning("teardown: xenon close failed: %s", e)
+        event_bus = getattr(app.state, "event_bus", None)
+        if event_bus is not None and hasattr(event_bus, "stop"):
+            try:
+                await event_bus.stop()
+            except Exception as e:  # pragma: no cover - best-effort teardown
+                logger.warning("teardown: event bus stop failed: %s", e)
+        ta_service = getattr(app.state, "ta_service", None)
+        if ta_service is not None:
+            try:
+                await ta_service.stop()
+            except Exception as e:  # pragma: no cover - best-effort teardown
+                logger.warning("teardown: ta_service stop failed: %s", e)
+        if getattr(app.state, "pg_pool", None) is not None:
+            try:
+                await app.state.pg_pool.close()
+                logger.info("PostgreSQL pool closed")
+            except Exception as e:  # pragma: no cover - best-effort teardown
+                logger.warning("teardown: pg pool close failed: %s", e)
 
 
 def create_app() -> FastAPI:
@@ -70,6 +191,13 @@ def create_app() -> FastAPI:
     app.include_router(regime_router)
     app.include_router(screener_router)
     app.include_router(backtest_router)
+
+    # Streaming TA signal surface (Phase 3): REST pull + WS push to argon.
+    from src.api.routes.signals import router as signals_router
+    from src.api.ws.signals_ws import router as signals_ws_router
+
+    app.include_router(signals_router)
+    app.include_router(signals_ws_router)
 
     return app
 

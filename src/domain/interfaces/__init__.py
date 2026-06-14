@@ -6,6 +6,7 @@ from .broker_adapter import BrokerAdapter
 from .event_bus import EventBus, EventType
 from .execution_provider import ExecutionProvider, OrderRequest, OrderResult
 from .historical_source import DateRange, HistoricalSourcePort
+from .live_feed import LiveFeedPort
 from .market_data_provider import MarketDataProvider
 from .position_provider import PositionProvider
 
@@ -31,6 +32,8 @@ __all__ = [
     # Historical data management
     "HistoricalSourcePort",
     "DateRange",
+    # Live feed (Phase 4)
+    "LiveFeedPort",
     # Signal persistence
     "SignalPersistencePort",
     # Signal introspection (real-time read-only)
