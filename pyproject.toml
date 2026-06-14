@@ -109,6 +109,9 @@ packages = ["src", "config"]
 
 [tool.pytest.ini_options]
 minversion = "7.0"
+# Put the repo root on sys.path so shared test helpers (e.g. `tests.support.*`)
+# import under bare `pytest` (CI), not just `python -m pytest` which adds cwd.
+pythonpath = ["."]
 addopts = [
     "--cov=src",
     "--cov-report=html",

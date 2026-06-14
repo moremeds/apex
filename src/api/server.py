@@ -72,9 +72,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
-        client = getattr(app.state, "xenon_client", None)
-        if client is not None:
-            await client.close()
+        xenon_client = getattr(app.state, "xenon_client", None)
+        if xenon_client is not None:
+            await xenon_client.close()
         if app.state.pg_pool is not None:
             await app.state.pg_pool.close()
             logger.info("PostgreSQL pool closed")
