@@ -15,15 +15,13 @@ from src.api.payload.validate import ValidationFailure, validate_payload
 
 logger = logging.getLogger(__name__)
 
-# schema signal fields read off the fired signal object (verify names against the
-# real TradingSignal before production wiring).
-_FIELDS = (
+# Fields copied straight off the fired event (already contract-valued: category
+# and priority arrive as enum .value strings, see TradingSignalEvent.from_signal).
+_PASSTHROUGH = (
     "signal_id",
     "symbol",
     "category",
     "indicator",
-    "direction",
-    "strength",
     "priority",
     "timeframe",
     "trigger_rule",
@@ -33,16 +31,63 @@ _FIELDS = (
     "message",
 )
 
+# TradingSignalEvent.from_signal converts the contract direction into an event
+# direction via {"buy": "LONG", "sell": "SHORT", "alert": "FLAT"} (domain_events.py).
+# To emit the contract again we apply the exact inverse.
+_DIRECTION_TO_CONTRACT = {"LONG": "buy", "SHORT": "sell", "FLAT": "alert"}
+_CONTRACT_DIRECTIONS = {"buy", "sell", "alert"}
+
 
 def _iso(v: Any) -> Any:
     return v.isoformat() if isinstance(v, datetime) else v
 
 
+def _enum_value(v: Any) -> Any:
+    """Unwrap an Enum to its .value; pass plain values through."""
+    return v.value if hasattr(v, "value") else v
+
+
+def _to_contract_direction(raw: Any) -> Any:
+    """Normalise a fired-event direction to the contract's buy/sell/alert.
+
+    Handles SignalDirection enums (already buy/sell/alert), the event-native
+    LONG/SHORT/FLAT strings, and already-contract strings. Unknown values are
+    returned unchanged so the schema validator rejects them (no silent guess).
+    """
+    val = _enum_value(raw)
+    if not isinstance(val, str):
+        return val
+    if val in _CONTRACT_DIRECTIONS:
+        return val
+    return _DIRECTION_TO_CONTRACT.get(val.upper(), val)
+
+
+def _to_contract_strength(raw: Any) -> Any:
+    """The contract requires an integer 0-100; the event casts strength to float."""
+    try:
+        return max(0, min(100, int(round(float(raw)))))
+    except (TypeError, ValueError):
+        return raw  # let the validator reject a non-numeric strength
+
+
 def signal_to_payload(signal: Any) -> dict:
-    """Map a fired TradingSignal object to a one-signal signal_service_payload."""
-    sig = {
-        f: _iso(getattr(signal, f, None)) for f in _FIELDS if getattr(signal, f, None) is not None
+    """Map a fired TradingSignalEvent to a one-signal signal_service_payload.
+
+    The bus event carries event-native vocabulary (direction LONG/SHORT/FLAT,
+    strength as float); this translates it back to the argon contract before
+    validation. Null/absent optional fields are omitted.
+    """
+    sig: dict = {
+        f: _iso(getattr(signal, f, None))
+        for f in _PASSTHROUGH
+        if getattr(signal, f, None) is not None
     }
+    direction = _to_contract_direction(getattr(signal, "direction", None))
+    if direction is not None:
+        sig["direction"] = direction
+    strength = getattr(signal, "strength", None)
+    if strength is not None:
+        sig["strength"] = _to_contract_strength(strength)
     ts = getattr(signal, "timestamp", None) or datetime.now(timezone.utc)
     sig["timestamp"] = _iso(ts)
     return {"signals": [sig], "timestamp": _iso(ts), "symbol_count": 1}
