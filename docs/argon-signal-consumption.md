@@ -1,15 +1,21 @@
 # Consuming APEX TA Signals from argon
 
 How argon connects to a running **apex** instance to receive live technical-analysis
-signals, with **real, captured** request/response frames (not hand-written examples).
+signals **and to fetch everything needed to render a full chart** (candles, indicator
+overlays/oscillators, confluence) — with **real, captured** request/response frames
+(not hand-written examples).
 
 > Audience: argon (the UI). apex is the TA brain; it ingests bars (from livewire) and
 > live ticks (from xenon), computes indicators on each closed bar, runs the rule engine,
 > and emits `signal_service_payload` frames. argon subscribes per ticker and renders them.
 >
-> Everything in §7 ("Verified end-to-end") was captured from a running apex wired to the
-> **live local xenon (`ws://127.0.0.1:8765`)** and **Postgres (`apex_signals`)** — see that
-> section for the exact bytes.
+> **argon stores nothing** — it pulls signals (§4–§9) *and* all chart data (§10) from apex
+> on demand. apex is the single source: bars from livewire, indicator lines recomputed on
+> read, confluence + signals from Postgres.
+>
+> Everything in §7 and §10 ("Verified end-to-end") was captured from a running apex wired to
+> the **live local xenon (`ws://127.0.0.1:8765`)** and **Postgres (`apex_signals`)** — see
+> those sections for the exact bytes.
 
 ---
 
@@ -29,6 +35,9 @@ apex exposes two consumer surfaces over one HTTP server:
 |---|---|---|---|
 | **Live push** | WebSocket | `/ws/signals` | Subscribe per ticker; receive signals as they fire. **Primary path.** |
 | Backfill pull | HTTP GET | `/signals/{ticker}?since=<iso8601>` | Fetch persisted signals on load/reconnect (requires Postgres). |
+| Chart: candles | HTTP GET | `/bars/{ticker}` | OHLCV bars for the chart body (from livewire). **See §10.** |
+| Chart: indicators | HTTP GET | `/indicators/{ticker}` | Per-bar indicator series (compute-on-read) for overlays/oscillators. **See §10.** |
+| Chart: confluence | HTTP GET | `/confluence/{ticker}` | Multi-timeframe confluence scores (from Postgres). **See §10.** |
 | Health | HTTP GET | `/health` | Liveness + `pg_connected`. |
 
 Default listen address: `0.0.0.0:8322` (override with `APEX_API_PORT`).
@@ -45,7 +54,7 @@ is set**; live ticks flow from xenon automatically (the URL is baked in — see 
 |---|---|---|
 | `APEX_LIVEWIRE_ROOT` | *(unset)* | Bronze parquet root for historical bars. **Required** to build the pipeline. Unset → `/ws/signals` connects but emits nothing. |
 | `APEX_XENON_WS_URL` | `ws://127.0.0.1:8765` | xenon tick-feed WS URL. **Baked into apex** (matches xenon's `DEFAULT_IB_REALTIME_PORT`); only set this to override. Connects automatically once the pipeline is built. |
-| `APEX_TIMEFRAMES` | `1d` | Comma-separated timeframes to compute, e.g. `1m,5m,1d`. Drives the live cadence (§11). |
+| `APEX_TIMEFRAMES` | `1d` | Comma-separated timeframes to compute, e.g. `1m,5m,1d`. Drives the live cadence (§6). |
 | `APEX_API_PORT` | `8322` | HTTP/WS listen port. |
 | `APEX_PG_URL` | *(unset)* | Postgres DSN. Enables persistence, the WS initial snapshot, and REST backfill (§4, §9). |
 
@@ -282,7 +291,7 @@ so argon can render immediately on load and backfill the gap.
 
 Every payload apex sends — snapshot, live, or REST — is validated against
 `config/verification/schemas/signal_service_payload.schema.json` before it leaves the
-server (see §12), so argon can trust the shape.
+server (see §11), so argon can trust the shape.
 
 **Envelope**
 
@@ -338,7 +347,193 @@ is contiguous); without `since` it returns the most recent signals (newest-first
 
 ---
 
-## 10. Contract verification
+## 10. Chart read surface (bars + indicators + confluence)
+
+So argon can render a **full chart** — candles, indicator overlays/oscillators, and the
+multi-timeframe confluence blocks — while **storing nothing itself**, apex exposes three REST
+read endpoints. argon GETs what it needs on load / scroll-back / timeframe-switch; apex is
+the single source.
+
+| Surface | Method | Path | Backed by |
+|---|---|---|---|
+| Candles | GET | `/bars/{ticker}?timeframe=&start=&end=` | livewire bronze parquet (read on the fly) |
+| Indicator series | GET | `/indicators/{ticker}?timeframe=&indicator=&start=&end=` | **compute-on-read** (recomputed from bars) |
+| Confluence | GET | `/confluence/{ticker}?timeframe=&start=&end=&limit=` | Postgres `confluence_scores` (persisted) |
+
+**Storage model.** Nothing is cached on argon's side. On apex's side it is a deliberate mix:
+
+| Layer | apex source | How |
+|---|---|---|
+| bars | livewire parquet | read on the fly — **no apex storage** |
+| indicators | recomputed per request | **compute-on-read** — full depth, gap-free, always matches the candles |
+| confluence | `confluence_scores` PG table | served from storage (depth = persisted history) |
+
+- `start`/`end` are optional ISO-8601; **omit them for the most recent 500 bars** (apex
+  over-fetches the calendar lookback and tail-slices to 500, so closures don't shrink it).
+- **Supported timeframes for `/bars` + `/indicators`: `1m`, `5m`, `30m`, `1h`, `1d`** (what
+  livewire warehouses). `15m`/`4h`/`1w` → **`400`**. `/confluence` accepts any timeframe that
+  has persisted rows.
+- `/confluence` takes an optional `limit` (default `500`) so you can pull more than the
+  repository default — it is **not** silently capped.
+- All timestamps are emitted in **UTC** (matching the signal contract).
+- Indicators are computed with apex's **default parameters — identical to the live engine**,
+  so chart lines line up with the fired signals.
+- `/bars` and `/indicators` need `APEX_LIVEWIRE_ROOT` (the bar source) → **`503`** without it.
+  `/confluence` needs `APEX_PG_URL` → **`503`** without it.
+
+**Indicator catalog.** Any of apex's **48 registered indicators** by name — `rsi`, `macd`,
+`bollinger`, `supertrend`, `obv`, `atr`, `ema`, `sma`, `ichimoku`, `adx`, `vwap`, `cci`,
+`stochastic`, … The `state` object's shape varies per indicator (see frames below). An
+unknown name → **`404`**.
+
+```text
+GET /bars/AAPL?timeframe=1d
+GET /bars/AAPL?timeframe=1d&start=2026-01-01T00:00:00Z&end=2026-06-12T00:00:00Z
+GET /indicators/AAPL?timeframe=1d&indicator=rsi
+GET /indicators/AAPL?timeframe=1d&indicator=macd&start=2026-05-01T00:00:00Z&end=2026-06-12T00:00:00Z
+GET /confluence/AAPL?timeframe=1d
+```
+
+### Verified end-to-end (real capture)
+
+Captured on **2026-06-14** from a running apex (real FastAPI lifespan → `LivewireOhlcProvider`
+reads the **real livewire bronze data lake** via DuckDB → compute-on-read → `validate_payload`
+→ JSON; confluence is a real Postgres round-trip on `apex_signals`). The bars are **real AAPL
+daily bars** from the data lake, the indicator lines are recomputed from them, and the
+confluence row was written via apex's persistence API and read back — every frame passed
+`validate_payload` before it was sent. (Reading the real lake relies on the bronze schema fix
+in PR #135, which this branch builds on.) Arrays are trimmed to first-2 + last for readability;
+floats are verbatim.
+
+**Startup:**
+
+```json
+{ "pg_connected": true, "ohlc_provider_built": true, "signal_repo_built": true, "indicator_registry_size": 48 }
+```
+
+**`GET /bars/AAPL?timeframe=1d`** → `200`
+
+```json
+{
+  "symbol": "AAPL",
+  "timeframe": "1d",
+  "bars": [
+    { "time": "2024-06-14T00:00:00+00:00", "open": 213.81, "high": 215.17, "low": 211.3,  "close": 212.49, "volume": 45295827, "vwap": null },
+    { "time": "2024-06-17T00:00:00+00:00", "open": 213.36, "high": 218.95, "low": 212.72, "close": 216.67, "volume": 63750025, "vwap": null },
+    "… (500 total) …",
+    { "time": "2026-06-12T00:00:00+00:00", "open": 296.03, "high": 297.14, "low": 289.62, "close": 291.13, "volume": 38784790, "vwap": null }
+  ],
+  "count": 500,
+  "generated_at": "2026-06-14T12:52:21.266353+00:00"
+}
+```
+
+**`GET /indicators/AAPL?timeframe=1d&indicator=rsi`** → `200`
+
+```json
+{
+  "symbol": "AAPL",
+  "timeframe": "1d",
+  "indicator": "rsi",
+  "points": [
+    { "time": "2024-06-14T00:00:00+00:00", "state": { "value": 75.79481014475162, "zone": "overbought" }, "bar_close": 212.49 },
+    { "time": "2024-06-17T00:00:00+00:00", "state": { "value": 78.37764571243576, "zone": "overbought" }, "bar_close": 216.67 },
+    "… (500 total) …",
+    { "time": "2026-06-12T00:00:00+00:00", "state": { "value": 42.69399117765261, "zone": "neutral" }, "bar_close": 291.13 }
+  ],
+  "count": 500,
+  "generated_at": "2026-06-14T12:52:21.349853+00:00"
+}
+```
+
+**`GET /indicators/AAPL?timeframe=1d&indicator=macd`** → `200` (multi-field `state`)
+
+```json
+{
+  "symbol": "AAPL", "timeframe": "1d", "indicator": "macd",
+  "points": [
+    { "time": "2024-06-14T00:00:00+00:00", "state": { "macd": 7.344795778178678, "signal": 5.59932029100524, "histogram": 3.4909509743468767, "direction": "bullish" }, "bar_close": 212.49 },
+    "… (500 total) …",
+    { "time": "2026-06-12T00:00:00+00:00", "state": { "macd": 2.1210869267071644, "signal": 5.866075222112672, "histogram": -7.489976590811015, "direction": "bearish" }, "bar_close": 291.13 }
+  ],
+  "count": 500,
+  "generated_at": "2026-06-14T12:52:21.433597+00:00"
+}
+```
+
+**`GET /indicators/AAPL?timeframe=1d&indicator=bollinger`** → `200`
+
+```json
+{
+  "symbol": "AAPL", "timeframe": "1d", "indicator": "bollinger",
+  "points": [
+    { "time": "2024-06-14T00:00:00+00:00", "state": { "upper": 212.54451958471378, "middle": 196.02649999999957, "lower": 179.50848041528536, "bandwidth": 16.852843451996794, "percent_b": 99.83496936653282, "zone": "neutral", "squeeze": false }, "bar_close": 212.49 },
+    "… (500 total) …",
+    { "time": "2026-06-12T00:00:00+00:00", "state": { "upper": 319.7833280779816, "middle": 304.10824999999966, "lower": 288.4331719220177, "bandwidth": 10.308880523946296, "percent_b": 8.602279569408926, "zone": "neutral", "squeeze": false }, "bar_close": 291.13 }
+  ],
+  "count": 500,
+  "generated_at": "2026-06-14T12:52:21.522975+00:00"
+}
+```
+
+> Here the default window includes a warmup lead, so **every visible bar carries a populated
+> `state`** (no leading zeros) — note the very first bar already has a real RSI/MACD/Bollinger
+> value. Only when the window starts at the very beginning of livewire's history (no lead
+> available) do the first ~warmup bars read neutral/zero. See "Warmup & history depth" below.
+
+**`GET /confluence/AAPL?timeframe=1d`** → `200` (one row written via apex's persistence API,
+then read back through the endpoint — a real PG round-trip)
+
+```json
+{
+  "symbol": "AAPL",
+  "timeframe": "1d",
+  "points": [
+    { "time": "2026-06-12T00:00:00+00:00", "alignment_score": 0.42, "bullish_count": 4,
+      "bearish_count": 1, "neutral_count": 2, "total_indicators": 7, "dominant_direction": "bullish" }
+  ],
+  "count": 1,
+  "generated_at": "2026-06-14T12:52:21.535493+00:00"
+}
+```
+
+**Unknown indicator** → `404`
+
+```json
+{ "detail": "unknown indicator: nope" }
+```
+
+### Chart payload shapes
+
+All three payloads share an envelope (`symbol`, `timeframe`, `count`, `generated_at` UTC) and
+are validated on egress against their schemas under `config/verification/schemas/`
+(`bars_payload`, `indicator_series_payload`, `confluence_payload`).
+
+**bar** (`bars[]`): `time` (date-time), `open`/`high`/`low`/`close` (number, required),
+`volume` (integer\|null), `vwap` (number\|null).
+
+**indicator point** (`points[]`): `time` (date-time), `state` (object — **shape per
+indicator**, e.g. `{value, zone}` for rsi, `{macd, signal, histogram, direction}` for macd),
+`bar_close` (number\|null — the close at that bar, for aligning an oscillator to price).
+
+**confluence point** (`points[]`): `time`, `alignment_score` (number, −1..+1), `bullish_count`,
+`bearish_count`, `neutral_count`, `total_indicators` (integers), `dominant_direction`
+(`bullish`\|`bearish`\|`neutral`\|null).
+
+### Warmup & history depth
+
+- **Compute-on-read uses a warmup lead.** apex fetches extra bars *before* your requested
+  `start` (≈ the indicator's warmup × 3) so the visible window has valid values. When the
+  window starts at the very beginning of livewire's data (no lead available), the first
+  ~warmup bars carry neutral/zero `state` — visible in the bollinger frame above. A request
+  *inside* a longer history returns fully-populated lines.
+- **Bars have full history** (livewire); **indicator lines have full depth too** because they
+  are recomputed from those bars on every request. **Confluence depth = persisted history**
+  (`confluence_scores`), i.e. only from when apex began computing it for that symbol/timeframe.
+
+---
+
+## 11. Contract verification
 
 - **Single source of truth:** `config/verification/schemas/signal_service_payload.schema.json`
   (JSON Schema 2020-12).
@@ -353,7 +548,7 @@ is contiguous); without `since` it returns the most recent signals (newest-first
 
 ---
 
-## 11. Current limitations
+## 12. Current limitations
 
 - **Signal lifecycle** (`status`/`invalidated_*`) is not yet persisted; signals are
   effectively append-only and `active`.
@@ -361,3 +556,12 @@ is contiguous); without `since` it returns the most recent signals (newest-first
 - apex must be started with `APEX_LIVEWIRE_ROOT` or `/ws/signals` connects but stays silent.
 - The snapshot/REST backfill require `APEX_PG_URL` (§3); without it, only the live WS push
   is available.
+- **Chart data is REST-only (poll).** There is no live WS push for bars/indicators/confluence
+  yet — argon polls `/bars` + `/indicators` (and gets live *signals* over `/ws/signals`).
+- **Chart indicators are compute-on-read** (recomputed per request, uncached — run off the
+  event loop in a worker thread so they don't block the signal stream); confluence history is
+  limited to what is persisted in `confluence_scores`.
+- **§10 sample values are a point-in-time capture** (2026-06-14) from the **real** livewire
+  bronze data lake — the schema is matched to livewire's writers and smoke-tested against real
+  bytes (PR #135; intraday `TIMESTAMPTZ` is normalized to UTC on read). The payload *shapes*
+  are stable; the *numbers* move as livewire ingests new bars.

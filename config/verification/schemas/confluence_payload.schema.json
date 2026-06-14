@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://apex.trading/schemas/confluence_payload.schema.json",
+  "title": "ConfluencePayload",
+  "description": "Multi-timeframe confluence score series (DB-backed: depth = persisted history)",
+  "type": "object",
+  "required": ["symbol", "timeframe", "points", "generated_at"],
+  "properties": {
+    "symbol": { "type": "string", "minLength": 1 },
+    "timeframe": {
+      "type": "string",
+      "enum": ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"]
+    },
+    "count": { "type": "integer", "minimum": 0 },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "points": { "type": "array", "items": { "$ref": "#/$defs/point" } }
+  },
+  "$defs": {
+    "point": {
+      "type": "object",
+      "required": [
+        "time",
+        "alignment_score",
+        "bullish_count",
+        "bearish_count",
+        "neutral_count",
+        "total_indicators"
+      ],
+      "properties": {
+        "time": { "type": "string", "format": "date-time" },
+        "alignment_score": { "type": "number" },
+        "bullish_count": { "type": "integer", "minimum": 0 },
+        "bearish_count": { "type": "integer", "minimum": 0 },
+        "neutral_count": { "type": "integer", "minimum": 0 },
+        "total_indicators": { "type": "integer", "minimum": 0 },
+        "dominant_direction": {
+          "type": ["string", "null"],
+          "enum": ["bullish", "bearish", "neutral", null]
+        }
+      }
+    }
+  }
+}
