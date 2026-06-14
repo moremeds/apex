@@ -52,9 +52,29 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # dependencies are present. Left unbuilt in environments without livewire/PG;
     # the WS route requires app.state.subscription_manager to be set before use.
 
+    # Phase 4 live-in (env-gated): connect to xenon's tick feed when configured.
+    # Mirrors the pre-injection guard above so tests can inject a fake/spy client.
+    if getattr(app.state, "xenon_client", None) is None:
+        xenon_url = os.environ.get("APEX_XENON_WS_URL")
+        bus = getattr(app.state, "event_bus", None)
+        if xenon_url and bus is not None:
+            from src.infrastructure.adapters.xenon.client import XenonTickClient
+
+            client = XenonTickClient(xenon_url, event_bus=bus)
+            app.state.xenon_client = client
+            sm = getattr(app.state, "subscription_manager", None)
+            if sm is not None and hasattr(sm, "set_live_feed"):
+                sm.set_live_feed(client)
+            await client.connect()  # non-blocking: launches the background loop
+        else:
+            app.state.xenon_client = None
+
     try:
         yield
     finally:
+        client = getattr(app.state, "xenon_client", None)
+        if client is not None:
+            await client.close()
         if app.state.pg_pool is not None:
             await app.state.pg_pool.close()
             logger.info("PostgreSQL pool closed")
