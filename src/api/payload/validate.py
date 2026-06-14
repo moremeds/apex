@@ -13,26 +13,24 @@ from typing import Any
 
 import jsonschema
 
-_SCHEMA_PATH = (
-    Path(__file__).resolve().parents[3]
-    / "config"
-    / "verification"
-    / "schemas"
-    / "signal_service_payload.schema.json"
+_SCHEMA_DIR = (
+    Path(__file__).resolve().parents[3] / "config" / "verification" / "schemas"
 )
+_DEFAULT_SCHEMA = "signal_service_payload"
 
 
 class ValidationFailure(ValueError):
     """Raised when a payload does not satisfy the contract schema."""
 
 
-@lru_cache(maxsize=1)
-def _schema() -> dict:
-    return json.loads(_SCHEMA_PATH.read_text(encoding="utf-8"))
+@lru_cache(maxsize=None)
+def _schema(name: str = _DEFAULT_SCHEMA) -> dict:
+    return json.loads((_SCHEMA_DIR / f"{name}.schema.json").read_text(encoding="utf-8"))
 
 
-def validate_payload(payload: dict[str, Any]) -> None:
+def validate_payload(payload: dict[str, Any], schema: str = _DEFAULT_SCHEMA) -> None:
+    """Validate ``payload`` against ``<schema>.schema.json`` (signal contract by default)."""
     try:
-        jsonschema.validate(instance=payload, schema=_schema())
+        jsonschema.validate(instance=payload, schema=_schema(schema))
     except jsonschema.ValidationError as exc:
         raise ValidationFailure(str(exc)) from exc
