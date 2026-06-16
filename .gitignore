@@ -117,15 +117,25 @@ coverage.xml
 *.ddb
 /data/MD（富途moomoo）副图版.txt
 /data/MD（富途moomoo） 主图版.txt
-/output/systematic-hedge-fund-quant-dev-interview-prep.html
-/output/systematic-hedge-fund-quant-dev-interview-prep.json
 /plan-reviewer/SKILL.md
 /plan-reviewer/scripts/example_script.cjs
 /plan-reviewer/references/example_reference.md
 /plan-reviewer/assets/example_asset.txt
 /.gemini/settings.json
-/design_mockups.html
-/landing_page.png
 /package-lock.json
 .worktrees/
 /docs/
+
+# =============================================================================
+# Browser automation / design scratch / screenshot artifacts
+# =============================================================================
+.playwright-mcp/
+.playwright-cli/
+.mcp.json
+output/
+*.png
+!docs/screenshots/*.png
+network-requests.txt
+*.base64.txt
+*-base64.txt
+/design_mockups.html
