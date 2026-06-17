@@ -23,7 +23,7 @@ Root `CLAUDE.md` is authoritative for policy.
 
 1. PG pool (`APEX_PG_URL`) — optional; routes degrade gracefully when absent
 2. `SignalHub` (`src/api/ws/hub.py`) — WS broadcast hub for signal events
-3. xenon WS client (`XENON_WS_URL`, default `ws://127.0.0.1:8765`) — live tick feed; bootstraps livewire history on connect
+3. xenon WS client (`APEX_XENON_WS_URL`, default `ws://127.0.0.1:8765`) — live tick feed; bootstraps livewire history on connect
 
 Everything is torn down in `finally` so a half-built pipeline never leaks the pool.
 

@@ -17,13 +17,13 @@ Master policy file. Subsystem-specific rules live in subdirectory `CLAUDE.md` fi
 
 **Apex** — signal computation engine and chart data API. Reads OHLCV from the livewire Parquet lake, runs the full indicator + signal pipeline, and exposes results via REST + WebSocket consumed by argon (Options Analytics Cockpit).
 
-Not a broker terminal — no direct order placement. Live IB ticks arrive via xenon's WS feed (`XENON_WS_URL`). Historical bars from the livewire lake (Cloudflare R2 Parquet).
+Not a broker terminal — no direct order placement. Live IB ticks arrive via xenon's WS feed (`APEX_XENON_WS_URL`). Historical bars come from the livewire bronze lake — a **local-filesystem** Parquet tree read on demand via DuckDB (`APEX_LIVEWIRE_ROOT`). R2 is separate: only apex's own `make r2-backfill` pipeline writes to Cloudflare R2.
 
 ## Commands
 
 ```bash
 # Install
-uv pip install -e ".[dev,observability,server,cloudflare]"
+uv pip install -e ".[dev,observability,api,cloudflare]"
 
 # Run
 make api-server        # REST + WS API (:8322) — primary service for argon
@@ -77,14 +77,15 @@ Signal pipeline: tick (xenon WS) → `BarAggregator` → `IndicatorEngine` → `
 
 | Dependency | Default | Env var |
 |---|---|---|
-| xenon WS live ticks | `ws://127.0.0.1:8765` | `XENON_WS_URL` |
+| livewire bronze lake (local Parquet, read via DuckDB) | — | `APEX_LIVEWIRE_ROOT` |
+| xenon WS live ticks | `ws://127.0.0.1:8765` | `APEX_XENON_WS_URL` |
 | PostgreSQL | — | `APEX_PG_URL` |
-| R2 Parquet lake | — | `R2_*` in `config/secrets.yaml` |
+| R2 (backfill pipeline only — `make r2-*`, not the live read path) | — | `R2_*` in `config/secrets.yaml` |
 | FMP API (screeners) | — | `FMP_API_KEY` or `config/secrets.yaml` |
 
 ## Data Source Priority
 
-livewire R2 Parquet → FMP (paid, daily deltas) → Yahoo (bulk backfill only, **never live**)
+livewire bronze lake (local Parquet) → FMP (paid, daily deltas) → Yahoo (bulk backfill only, **never live**)
 
 IB ticks arrive via xenon WS — apex never connects to IB directly.
 

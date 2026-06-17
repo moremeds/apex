@@ -1,0 +1,51 @@
+# apex production deploy stack — Mac mini.
+# Mirrors /opt/xenon/compose.yml: pulls the image from GHCR (no build step),
+# reaches host-native Postgres + xenon WS via host.docker.internal.
+#
+# On the mini this file is deployed to /opt/apex/compose.yml alongside an
+# operator-created /opt/apex/.env (NOT committed — holds the secret APEX_PG_URL).
+#
+# Auto-deploy: apex-api carries the Watchtower opt-in label. The engine-wide
+# Watchtower already running in /opt/xenon/compose.yml (mounts docker.sock,
+# WATCHTOWER_LABEL_ENABLE opt-in) polls GHCR every 60s and recreates this
+# container in place when release.yml publishes a new :latest digest. Do NOT
+# add a second watchtower here — one per Docker engine.
+#
+# Livewire lake: bind-mounted read-only from the external DATA_LAKE disk. That
+# host path must be in colima's `mounts:` (see ~/.colima/default/colima.yaml)
+# or the VM can't see /Volumes — naive mounts fail.
+#
+# First deploy:
+#   docker compose -f /opt/apex/compose.yml pull
+#   docker compose -f /opt/apex/compose.yml up -d
+#   curl http://localhost:8322/health
+
+services:
+  api:
+    image: ghcr.io/moremeds/apex-api:latest
+    # Secret APEX_PG_URL lives here (postgresql://apex_app:***@host.docker.internal:5432/apex_signals).
+    env_file:
+      - ./.env
+    environment:
+      # Non-secret overrides — pinned in-compose so they're versioned, not hidden in .env.
+      APEX_LIVEWIRE_ROOT: /data/livewire
+      # The server reads APEX_XENON_WS_URL (src/api/server.py); without it apex falls
+      # back to ws://127.0.0.1:8765 = the container's own loopback, so live ticks break.
+      APEX_XENON_WS_URL: ws://host.docker.internal:8765
+    ports:
+      - "8322:8322"
+    volumes:
+      # Read-only bronze lake. Real external-disk path (NOT the ~/market-warehouse
+      # symlink) so it resolves inside the colima VM.
+      - /Volumes/DATA_LAKE/livewire/data-lake/bronze:/data/livewire:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8322/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+    restart: unless-stopped

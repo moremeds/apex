@@ -6,7 +6,7 @@ Root `CLAUDE.md` is authoritative for policy.
 
 | Adapter | Role |
 |---------|------|
-| `livewire/` | Reads OHLCV Parquet from Cloudflare R2 via DuckDB (in-memory, not a datastore) |
+| `livewire/` | Reads OHLCV Parquet from the **local-filesystem** bronze lake (`APEX_LIVEWIRE_ROOT`) via DuckDB (in-memory, not a datastore) |
 | `xenon/` | WebSocket client for xenon's IB realtime feed — live tick source |
 | `r2/` | Cloudflare R2 S3-compatible store (boto3); Parquet lake read/write |
 | `fmp/` | Financial Modeling Prep API — daily OHLCV deltas, screener data |
@@ -16,7 +16,7 @@ Root `CLAUDE.md` is authoritative for policy.
 
 ## DuckDB (livewire)
 
-`adapters/livewire/ohlc_provider.py` creates an **in-memory** DuckDB session per request to query Parquet files over R2. **Not a persistent database** — any `*.duckdb` file on disk is a stale artifact (gitignored). Never treat it as a source of truth.
+`adapters/livewire/ohlc_provider.py` creates an **in-memory** DuckDB session per request to `read_parquet()` over the **local** bronze lake at `APEX_LIVEWIRE_ROOT` (a Hive `asset_class=…/symbol=…/<tf>.parquet` tree — livewire writes it; apex only reads). On the macmini it lives on an external disk, bind-mounted read-only into the container (see `docker-compose.yml`). **Not a persistent database** — any `*.duckdb` file on disk is a stale artifact (gitignored). Never treat it as a source of truth. (R2 — the `r2/` adapter below — is a separate backfill pipeline, not this read path.)
 
 ## FMP Intraday Limits
 
