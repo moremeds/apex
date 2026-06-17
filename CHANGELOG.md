@@ -9,6 +9,9 @@ All notable changes to apex are recorded here. Format follows
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-06-17
+
+
 ### Added
 - Release pipeline: `VERSION` + `CHANGELOG.md` + `scripts/release/cut.sh` (interactive
   bump → tag) and tag-triggered `release.yml` (verify → GitHub Release → GHCR arm64 image).
