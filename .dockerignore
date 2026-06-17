@@ -1,0 +1,39 @@
+# Build context hygiene for docker/api.Dockerfile.
+# Keep: main.py, src/, config/*.yaml, pyproject.toml, uv.lock, README.md, VERSION.
+
+.git
+.github
+.venv
+venv
+__pycache__
+**/__pycache__
+*.py[cod]
+.mypy_cache
+.pytest_cache
+.ruff_cache
+.hypothesis
+
+# Secrets never get baked into the image — injected via env/compose at runtime.
+config/secrets.yaml
+
+# Frontend + docs + scratch — not needed by the api service.
+web
+node_modules
+docs
+tasks
+.worktrees
+
+# Test assets (the livewire fixtures are large) + generated output.
+tests
+reports
+results
+output
+htmlcov
+data
+*.duckdb
+*.ddb
+*.parquet
+*.png
+*.log
+.coverage*
+.DS_Store

@@ -15,6 +15,20 @@ jobs:
   # Phase 1: Parallel Quality Gates (no dependencies between them)
   # ═══════════════════════════════════════════════════════════════
 
+  version-sync:
+    name: Version Sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      # VERSION (source of truth) must equal pyproject.toml [project].version.
+      # cut.sh bumps both in lockstep; this locks the invariant in. tomllib is stdlib.
+      - name: Check VERSION ↔ pyproject sync
+        run: python scripts/release/version_sync_check.py
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
@@ -127,7 +141,7 @@ jobs:
         run: |
           uv venv
           source .venv/bin/activate
-          uv pip install -e ".[dev,server,api]" types-PyYAML types-pytz
+          uv pip install -e ".[dev,api]" types-PyYAML types-pytz
 
       - name: Run mypy
         run: |
@@ -240,7 +254,7 @@ jobs:
           fi
 
       - name: Install dependencies
-        run: uv pip install --system -e ".[dev,observability,server,api]"
+        run: uv pip install --system -e ".[dev,observability,api]"
 
       - name: Run unit tests with coverage
         run: |
@@ -308,7 +322,7 @@ jobs:
           fi
 
       - name: Install dependencies
-        run: uv pip install --system -e ".[dev,observability,server,api]"
+        run: uv pip install --system -e ".[dev,observability,api]"
 
       - name: Run integration tests
         run: |
