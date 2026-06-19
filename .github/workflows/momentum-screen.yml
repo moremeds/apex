@@ -58,7 +58,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/ta-lib-install
-          key: talib-0.6.4-${{ runner.os }}-${{ runner.arch }}
+          key: talib-0.6.8-${{ runner.os }}-${{ runner.arch }}
 
       - name: Install TA-Lib
         run: |
@@ -68,11 +68,11 @@ jobs:
             sudo cp -r $HOME/ta-lib-install/include/* /usr/include/
             sudo ldconfig
           else
-            echo "Building TA-Lib 0.6.4 from source..."
+            echo "Building TA-Lib 0.6.8 from source..."
             sudo apt-get update && sudo apt-get install -y wget build-essential
-            wget https://github.com/ta-lib/ta-lib/releases/download/v0.6.4/ta-lib-0.6.4-src.tar.gz
-            tar -xzf ta-lib-0.6.4-src.tar.gz
-            cd ta-lib-0.6.4 && ./configure --prefix=/usr && make -j$(nproc) && sudo make install
+            wget https://github.com/ta-lib/ta-lib/releases/download/v0.6.8/ta-lib-0.6.8-src.tar.gz
+            tar -xzf ta-lib-0.6.8-src.tar.gz
+            cd ta-lib-0.6.8 && ./configure --prefix=/usr && make -j$(nproc) && sudo make install
             sudo ldconfig
             mkdir -p $HOME/ta-lib-install/lib $HOME/ta-lib-install/include
             cp -r /usr/lib/libta* $HOME/ta-lib-install/lib/ 2>/dev/null || true
@@ -107,7 +107,6 @@ jobs:
               print(f'WARNING: R2 fetch failed ({e}) — regime will default to R1')
           "
         env:
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
