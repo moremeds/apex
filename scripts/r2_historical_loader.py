@@ -413,7 +413,7 @@ def _detect_gaps(df: pd.DataFrame, timeframe: str) -> list[dict[str, str]]:
 
     Returns list of gap dicts with start/end timestamps.
     """
-    if df.empty or len(df) < 2:
+    if df.empty or len(df) < 2 or not isinstance(df.index, pd.DatetimeIndex):
         return []
 
     # Map timeframe to expected frequency
@@ -506,7 +506,7 @@ def generate_data_quality(
             # Download from R2 to run quality checks
             df = r2.get_parquet(f"parquet/historical/{tf}/{sym}.parquet")
 
-            if df is None or df.empty:
+            if df is None or df.empty or not isinstance(df.index, pd.DatetimeIndex):
                 quality_entries.append(
                     {
                         "symbol": sym,
