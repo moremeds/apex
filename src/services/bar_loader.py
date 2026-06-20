@@ -81,7 +81,9 @@ def _fetch_fmp(
 ) -> dict[str, pd.DataFrame]:
     """Fetch bars from FMP. Respects config rate_limit_per_sec."""
     try:
-        from src.infrastructure.adapters.fmp.historical_adapter import FMPHistoricalAdapter
+        from src.infrastructure.adapters.fmp.historical_adapter import (
+            FMPHistoricalAdapter,
+        )
 
         delay = _get_rate_delay("fmp")
         adapter = FMPHistoricalAdapter(request_delay=delay)
@@ -148,12 +150,14 @@ def _fetch_yahoo(
         if len(symbols) == 1:
             sym = symbols[0]
             df = raw.copy()
-            df.columns = [c.lower() if isinstance(c, str) else c[0].lower() for c in df.columns]
+            df.columns = [
+                c.lower() if isinstance(c, str) else c[0].lower() for c in df.columns
+            ]
             for col in ["dividends", "stock splits", "adj close"]:
                 if col in df.columns:
                     df = df.drop(columns=[col])
             df = df.dropna(subset=["close"])
-            if not df.empty:
+            if not df.empty and isinstance(df.index, pd.DatetimeIndex):
                 result[sym] = _maybe_resample(df, timeframe, interval)
         else:
             for sym in symbols:
@@ -166,7 +170,7 @@ def _fetch_yahoo(
                         if col in df.columns:
                             df = df.drop(columns=[col])
                     df = df.dropna(subset=["close"])
-                    if not df.empty:
+                    if not df.empty and isinstance(df.index, pd.DatetimeIndex):
                         result[sym] = _maybe_resample(df, timeframe, interval)
                 except Exception as e:
                     logger.debug(f"Yahoo parse failed for {sym}: {e}")
@@ -200,7 +204,9 @@ def _maybe_resample(df: pd.DataFrame, timeframe: str, interval: str) -> pd.DataF
 
 # Registry of synchronous fetchers. "ib" is deliberately absent because
 # it requires an async event loop + live IB Gateway connection.
-_SOURCE_FETCHERS: dict[str, Callable[[list[str], str, date, date], dict[str, pd.DataFrame]]] = {
+_SOURCE_FETCHERS: dict[
+    str, Callable[[list[str], str, date, date], dict[str, pd.DataFrame]]
+] = {
     "fmp": _fetch_fmp,
     "yahoo": _fetch_yahoo,
 }
@@ -267,7 +273,8 @@ def load_bars(
                 result.update(fetched)
                 remaining = [s for s in remaining if s not in fetched]
                 logger.info(
-                    f"[{source}] fetched {len(fetched)} symbols, " f"{len(remaining)} remaining"
+                    f"[{source}] fetched {len(fetched)} symbols, "
+                    f"{len(remaining)} remaining"
                 )
         except Exception as e:
             logger.warning(f"[{source}] failed: {e}")
