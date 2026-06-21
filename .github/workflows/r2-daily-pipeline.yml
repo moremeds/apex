@@ -3,15 +3,12 @@ name: "R2: Daily Pipeline"
 # ═══════════════════════════════════════════════════════════════════════════
 # R2 data pipeline: universe screening → historical OHLCV delta load
 #
-# Daily 2am EST: rebuild universe, delta-load market data
-# Weekly Sunday: also refresh float shares cache (economics data)
-# Manual: supports delta/backfill/validate
+# Scheduled runs disabled — livewire (local Parquet lake) is the primary
+# data source and covers wider symbol/history depth locally.
+# Manual dispatch kept for on-demand backfill or validation.
 # ═══════════════════════════════════════════════════════════════════════════
 
 on:
-  schedule:
-    # Daily 2am EST = 7am UTC (Mon-Sat captures previous trading day)
-    - cron: '0 7 * * 1-6'
   workflow_dispatch:
     inputs:
       mode:
