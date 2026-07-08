@@ -9,6 +9,17 @@ All notable changes to apex are recorded here. Format follows
 
 ## [Unreleased]
 
+## [0.1.2] — 2026-07-08
+
+### Changed
+- `GET /bars` and `GET /indicators` now accept a `limit` query param (default **2000**,
+  up from a hardcoded 500) and no longer cap it — `limit<=0` returns full history. The
+  param was previously undeclared, so callers passing `?limit=N` were silently ignored.
+- R2 daily pipeline schedule disabled; the workflow is now manual-dispatch only.
+
+### Fixed
+- R2 daily pipeline failures and a TA-Lib version mismatch (#141).
+
 ## [0.1.1] — 2026-06-17
 
 
