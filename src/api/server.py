@@ -24,6 +24,25 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
+def _apex_version() -> str:
+    """Real running version, from the installed dist metadata (set from pyproject at
+    build). Falls back to the VERSION file for an editable checkout that isn't installed."""
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        return version("apex-risk")
+    except PackageNotFoundError:  # pragma: no cover - only hit in a bare checkout
+        from pathlib import Path
+
+        try:
+            return Path(__file__).resolve().parents[2].joinpath("VERSION").read_text().strip()
+        except OSError:
+            return "unknown"
+
+
+APEX_VERSION = _apex_version()
+
 # xenon's ib_realtime WS server defaults to port 8765 (DEFAULT_IB_REALTIME_PORT on
 # the xenon side). Bake the same default in so apex connects to a local xenon out
 # of the box; override with APEX_XENON_WS_URL.
@@ -128,7 +147,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 app.state.signal_emitter = emitter
 
                 app.state.subscription_manager = SubscriptionManager(
-                    provider=app.state.ohlc_provider, compute=service, timeframes=timeframes
+                    provider=app.state.ohlc_provider,
+                    compute=service,
+                    timeframes=timeframes,
                 )
                 logger.info("Streaming TA pipeline started (timeframes=%s)", timeframes)
 
@@ -187,7 +208,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="APEX Signal Server",
         description="Signal generation, backtesting, and strategy management API",
-        version="0.1.0",
+        version=APEX_VERSION,
         lifespan=lifespan,
     )
 

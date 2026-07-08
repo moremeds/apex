@@ -16,6 +16,7 @@ async def health(request: Request) -> dict:
     """Return service health + PG connection status."""
     return {
         "status": "ok",
+        "version": request.app.version,
         "uptime": round(time.time() - _start_time, 1),
         "service": "apex-signal-server",
         "pg_connected": getattr(request.app.state, "pg_connected", False),
