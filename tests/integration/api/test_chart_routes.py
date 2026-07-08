@@ -81,7 +81,12 @@ class _FakeRepo:
         self.last_limit: Any = None
 
     async def get_confluence_history(
-        self, symbol: str, timeframe: str, start: Any = None, end: Any = None, limit: int = 100
+        self,
+        symbol: str,
+        timeframe: str,
+        start: Any = None,
+        end: Any = None,
+        limit: int = 100,
     ) -> List[dict]:
         self.last_limit = limit
         return [
@@ -141,16 +146,23 @@ async def test_get_bars_rejects_unsupported_timeframe() -> None:
     assert resp.status_code == 400
 
 
-async def test_get_bars_default_window_tail_slices_to_500() -> None:
-    """No start/end -> most recent 500 bars even when more exist in the lookback."""
+async def test_get_bars_limit_tail_slices() -> None:
+    """No start/end -> tail-slice to `limit` most recent bars; the param is honored
+    (the bug this fixes: /bars silently dropped limit and hard-capped at 500)."""
     app = create_app()
     app.state.ohlc_provider = _FakeProvider(
         _series_ending(datetime(2026, 6, 1, tzinfo=timezone.utc), 600)
     )
     async with _client(app) as c:
-        resp = await c.get("/bars/AAPL", params={"timeframe": "1d"})
-    assert resp.status_code == 200
-    assert resp.json()["count"] == 500
+        # default window keeps all 600 (default is 2000, above the series length)
+        default_resp = await c.get("/bars/AAPL", params={"timeframe": "1d"})
+        # explicit limit tail-slices
+        limited_resp = await c.get("/bars/AAPL", params={"timeframe": "1d", "limit": "100"})
+        # limit<=0 -> full history, no tail-slice
+        full_resp = await c.get("/bars/AAPL", params={"timeframe": "1d", "limit": "0"})
+    assert default_resp.json()["count"] == 600
+    assert limited_resp.json()["count"] == 100
+    assert full_resp.json()["count"] == 600
 
 
 # --- /indicators ---------------------------------------------------------
