@@ -9,6 +9,13 @@ All notable changes to apex are recorded here. Format follows
 
 ## [Unreleased]
 
+## [0.1.3] — 2026-07-08
+
+### Fixed
+- `/health` now reports the real running version (new `version` field) instead of a
+  hardcoded `0.1.0`. Resolved from installed dist metadata so it can't drift from the
+  shipped image — makes "is it live?" a one-curl check (`curl .../health | jq .version`).
+
 ## [0.1.2] — 2026-07-08
 
 ### Changed
