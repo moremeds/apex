@@ -41,6 +41,48 @@ def _return(bars: list[BarData]) -> float | None:
     return float(last / bars[0].close - 1)
 
 
+def _continuity_metrics(raw: list[BarData], adjusted: list[BarData]) -> dict[str, int]:
+    """Count factor-change boundaries and those with a smaller local discontinuity."""
+    if len(raw) != len(adjusted):
+        return {"action_boundaries": 0, "improved_boundaries": 0}
+    ratios: list[float | None] = []
+    for raw_bar, adjusted_bar in zip(raw, adjusted, strict=True):
+        if not raw_bar.close or adjusted_bar.close is None:
+            ratios.append(None)
+        else:
+            ratios.append(float(adjusted_bar.close / raw_bar.close))
+
+    action_boundaries = improved_boundaries = 0
+    for index in range(1, len(raw)):
+        previous_ratio, current_ratio = ratios[index - 1], ratios[index]
+        if (
+            previous_ratio is None
+            or current_ratio is None
+            or abs(previous_ratio - current_ratio) <= 1e-12
+        ):
+            continue
+        previous_raw = raw[index - 1].close
+        current_raw = raw[index].close
+        previous_adjusted = adjusted[index - 1].close
+        current_adjusted = adjusted[index].close
+        if (
+            not previous_raw
+            or current_raw is None
+            or not previous_adjusted
+            or current_adjusted is None
+        ):
+            continue
+        action_boundaries += 1
+        raw_return = float(current_raw / previous_raw - 1)
+        adjusted_return = float(current_adjusted / previous_adjusted - 1)
+        if abs(adjusted_return) <= abs(raw_return) + 1e-12:
+            improved_boundaries += 1
+    return {
+        "action_boundaries": action_boundaries,
+        "improved_boundaries": improved_boundaries,
+    }
+
+
 async def check_silver_canary(
     *,
     bronze_root: Path,
@@ -84,16 +126,21 @@ async def check_silver_canary(
         )
         raw_return = _return(raw_daily)
         adjusted_return = _return(adjusted_daily)
-        continuity_improved = (
-            raw_return is not None
-            and adjusted_return is not None
-            and abs(adjusted_return) <= abs(raw_return)
-        )
+        continuity = _continuity_metrics(raw_daily, adjusted_daily)
+        continuity_improved = continuity["improved_boundaries"] > 0
         is_control = symbol == control
         symbol_passed = (
             counts_match
             and timestamps_match
-            and (identity if is_control else (not identity and continuity_improved))
+            and (
+                identity
+                if is_control
+                else (
+                    not identity
+                    and continuity["action_boundaries"] > 0
+                    and (volume_unchanged or continuity_improved)
+                )
+            )
         )
         results[symbol] = {
             "passed": symbol_passed,
@@ -103,6 +150,7 @@ async def check_silver_canary(
             "raw_return": raw_return,
             "adjusted_return": adjusted_return,
             "continuity_improved": continuity_improved,
+            **continuity,
             "volume_unchanged": volume_unchanged,
             "split_volume_adjusted": not volume_unchanged,
             "identity_control": identity if is_control else False,

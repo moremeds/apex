@@ -12,7 +12,7 @@ import pandas as pd
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from scripts.check_silver_canary import _same_values, check_silver_canary
+from scripts.check_silver_canary import _continuity_metrics, _same_values, check_silver_canary
 from src.api.server import create_app, lifespan
 from src.application.subscriptions.manager import SubscriptionManager
 from src.domain.events.domain_events import BarData
@@ -191,6 +191,15 @@ async def _wait_for_revision(app: Any, revision: int) -> None:
 
 def test_canary_value_comparison_rejects_row_count_mismatch() -> None:
     assert _same_values([BarData(close=1.0)], []) is False
+
+
+def test_canary_measures_action_boundary_not_whole_window_return() -> None:
+    raw = [BarData(close=value) for value in (100.0, 90.0, 200.0)]
+    adjusted = [BarData(close=value) for value in (90.0, 90.0, 200.0)]
+
+    metrics = _continuity_metrics(raw, adjusted)
+
+    assert metrics == {"action_boundaries": 1, "improved_boundaries": 1}
 
 
 @pytest.mark.asyncio
