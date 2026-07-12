@@ -612,7 +612,7 @@ class TASignalService:
         """Replace all supplied timeframe histories for a revised symbol."""
         if not self._indicator_engine:
             raise RuntimeError("IndicatorEngine not initialized")
-        counts = self._indicator_engine.replace_symbol_histories(symbol, histories)
+        counts: Dict[str, int] = self._indicator_engine.replace_symbol_histories(symbol, histories)
         for timeframe in histories:
             await self._indicator_engine.compute_on_history(symbol, timeframe)
         return counts
