@@ -23,6 +23,25 @@ the lake). This is the *read* side; livewire owns *writing* the bronze tree.
   preloads history before live ticks) and the **chart read surface** (`GET /bars`,
   `GET /indicators` — see [argon-apex-api.md](argon-apex-api.md)).
 
+### Silver revision contract (pre-cutover)
+
+Apex can additionally mount Livewire's future `data-lake/silver` root read-only
+through `APEX_LIVEWIRE_SILVER_ROOT`. When configured, Apex polls
+`revisions/current.json` every `APEX_LIVEWIRE_REVISION_POLL_SECONDS` (default
+`30`). A manifest is accepted only after schema, path-containment, and SHA-256
+checks pass.
+
+Revision observation does not restart the Docker container. Apex refreshes only
+affected active symbols, buffers their Xenon ticks, replaces all configured
+timeframe histories under one symbol lock, clears stale indicator states,
+recomputes, and replays ticks in event-time order. Unrelated symbols continue
+normally. `/health` exposes observed, fully applied, and per-symbol revision
+state plus failures.
+
+The watcher does not itself make bars adjusted. Keep the Silver root unset in
+production until Livewire's adjustment publisher and Apex's adjusted read path
+complete their separate canary and cutover plans.
+
 ```
 livewire writers ──▶  data-lake/bronze/ (Parquet)  ◀── apex (DuckDB read_parquet, on demand)
                                                           └─▶ argon (/bars, /indicators)

@@ -53,6 +53,8 @@ makes its endpoints return `503` (degrades, never crashes).
 | Variable | Default | Enables |
 |---|---|---|
 | `APEX_LIVEWIRE_ROOT` | unset | `/bars`, `/indicators`, and the streaming warmup seed |
+| `APEX_LIVEWIRE_SILVER_ROOT` | unset | Silver revision watcher (pre-cutover; adjusted reads land separately) |
+| `APEX_LIVEWIRE_REVISION_POLL_SECONDS` | `30` | Poll interval for atomically published Silver revisions |
 | `APEX_PG_URL` | unset | `/signals` snapshot/backfill, `/confluence`, and signal persistence |
 | `APEX_XENON_WS_URL` | `ws://127.0.0.1:8765` | live ticks → live WS signal frames |
 | `APEX_TIMEFRAMES` | `1d` | timeframes the streaming pipeline subscribes/warms |
@@ -78,6 +80,13 @@ Full reference and payload shapes: **[`docs/argon-apex-api.md`](docs/argon-apex-
 > (preloads history into the indicator buffer) and attaches the live feed; signals fire
 > per **closed bar**, ref-counted across subscribers. The REST chart surface
 > (`/bars`, `/indicators`, `/confluence`) is independent and **compute-on-read**.
+
+When `APEX_LIVEWIRE_SILVER_ROOT` is configured, the long-running service polls
+`revisions/current.json`. A newer valid revision reseeds only affected active
+subscriptions, buffers that symbol's Xenon ticks during replacement, atomically
+swaps all configured timeframe histories, and replays buffered ticks. Leave the
+variable unset until Livewire's Silver publisher and Apex's adjusted provider
+complete canary validation; the watcher does not itself adjust prices.
 
 ---
 

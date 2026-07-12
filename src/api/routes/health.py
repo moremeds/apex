@@ -14,9 +14,11 @@ _start_time = time.time()
 @router.get("/health")
 async def health(request: Request) -> dict:
     """Return service health + PG connection status."""
+    watcher = getattr(request.app.state, "revision_watcher", None)
     return {
         "status": "ok",
         "uptime": round(time.time() - _start_time, 1),
         "service": "apex-signal-server",
         "pg_connected": getattr(request.app.state, "pg_connected", False),
+        "silver_revision": watcher.health() if watcher is not None else {"enabled": False},
     }
