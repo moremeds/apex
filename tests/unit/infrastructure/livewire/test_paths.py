@@ -6,7 +6,9 @@ import pytest
 
 from src.infrastructure.adapters.livewire.paths import (
     SUPPORTED_TIMEFRAMES,
+    daily_silver_path,
     encode_symbol,
+    factor_path,
     parquet_path,
 )
 
@@ -29,6 +31,20 @@ def test_encode_symbol_matches_livewire() -> None:
 def test_parquet_path_encodes_special_symbol() -> None:
     p = parquet_path(Path("/data/bronze"), "BF/B", "1d")
     assert p == Path("/data/bronze") / "asset_class=equity" / "symbol=BF%2FB" / "1d.parquet"
+
+
+def test_daily_silver_path_layout() -> None:
+    root = Path("/data/silver")
+    assert daily_silver_path(root, "AAPL") == (
+        root / "asset_class=equity" / "symbol=AAPL" / "1d.parquet"
+    )
+
+
+def test_factor_path_layout_and_symbol_encoding() -> None:
+    root = Path("/data/silver")
+    assert factor_path(root, "BF/B") == (
+        root / "adjustments" / "asset_class=equity" / "symbol=BF%2FB" / "factors.parquet"
+    )
 
 
 def test_unsupported_timeframe_raises() -> None:

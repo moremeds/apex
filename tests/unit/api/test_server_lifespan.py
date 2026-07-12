@@ -186,6 +186,40 @@ async def test_lifespan_builds_full_pipeline_when_livewire_root_set(monkeypatch,
 
 
 @pytest.mark.asyncio
+async def test_lifespan_wires_one_adjusted_provider_for_charts_and_subscriptions(
+    monkeypatch, tmp_path
+) -> None:
+    bronze_root = tmp_path / "bronze"
+    silver_root = tmp_path / "silver"
+    monkeypatch.setenv("APEX_LIVEWIRE_ROOT", str(bronze_root))
+    monkeypatch.setenv("APEX_LIVEWIRE_SILVER_ROOT", str(silver_root))
+    monkeypatch.setenv("APEX_LIVEWIRE_PRICE_MODE", "adjusted")
+    monkeypatch.setenv("APEX_XENON_WS_URL", "ws://127.0.0.1:1")
+    monkeypatch.delenv("APEX_PG_URL", raising=False)
+    monkeypatch.setattr(xenon_client_mod, "XenonTickClient", _SpyClient)
+
+    app = create_app()
+    async with lifespan(app):
+        provider = app.state.ohlc_provider
+        assert provider.bronze_root == bronze_root
+        assert provider.silver_root == silver_root
+        assert provider.price_mode == "adjusted"
+        assert app.state.subscription_manager._provider is provider
+
+
+@pytest.mark.asyncio
+async def test_lifespan_rejects_invalid_livewire_price_mode(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("APEX_LIVEWIRE_ROOT", str(tmp_path))
+    monkeypatch.setenv("APEX_LIVEWIRE_PRICE_MODE", "sometimes-adjusted")
+    monkeypatch.delenv("APEX_PG_URL", raising=False)
+
+    app = create_app()
+    with pytest.raises(ValueError, match="price mode"):
+        async with lifespan(app):
+            pass
+
+
+@pytest.mark.asyncio
 async def test_lifespan_passes_signal_repo_as_persistence(monkeypatch, tmp_path) -> None:
     """A configured signal_repo is handed to TASignalService as its persistence
     sink (so fired signals are written to PG), and the pre-injected repo is not

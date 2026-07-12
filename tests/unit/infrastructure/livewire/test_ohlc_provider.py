@@ -9,6 +9,7 @@ import pytest
 
 from src.domain.interfaces.historical_source import HistoricalSourcePort
 from src.infrastructure.adapters.livewire.ohlc_provider import (
+    AdjustedDataUnavailable,
     LivewireOhlcProvider,
     _to_utc_datetime,
 )
@@ -61,6 +62,72 @@ def _write_intraday_fixture(root: Path) -> None:
         }
     )
     df.to_parquet(sym_dir / "1m.parquet")
+
+
+def _write_silver_daily_fixture(root: Path) -> None:
+    sym_dir = root / "asset_class=equity" / "symbol=TEST"
+    sym_dir.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        {
+            "trade_date": [dt.date(2026, 1, 2), dt.date(2026, 1, 3), dt.date(2026, 1, 6)],
+            "symbol_id": [1, 1, 1],
+            "open": [5.0, 5.5, 12.0],
+            "high": [5.25, 5.75, 12.5],
+            "low": [4.75, 5.25, 11.5],
+            "close": [5.5, 6.0, 13.0],
+            "adj_close": [5.5, 6.0, 13.0],
+            "volume": [200, 400, 300],
+            "price_adjustment_factor": [0.5, 0.5, 1.0],
+            "split_volume_factor": [2.0, 2.0, 1.0],
+            "adjustment_revision": [1, 1, 1],
+        }
+    ).to_parquet(sym_dir / "1d.parquet")
+
+
+def _write_factor_fixture(root: Path, *, cover_bar_date: bool = True) -> None:
+    sym_dir = root / "adjustments" / "asset_class=equity" / "symbol=TEST"
+    sym_dir.mkdir(parents=True, exist_ok=True)
+    effective_start = dt.date(2026, 1, 2) if cover_bar_date else dt.date(2026, 1, 3)
+    pd.DataFrame(
+        {
+            "effective_start": [effective_start],
+            "effective_end": [dt.date(2026, 1, 2) if cover_bar_date else None],
+            "price_adjustment_factor": [0.5],
+            "split_volume_factor": [2.0],
+            "adjustment_revision": [1],
+        }
+    ).to_parquet(sym_dir / "factors.parquet")
+
+
+def _write_action_span_fixtures(bronze_root: Path, silver_root: Path) -> None:
+    bronze_dir = bronze_root / "asset_class=equity" / "symbol=TEST"
+    bronze_dir.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        {
+            "bar_timestamp": pd.to_datetime(
+                ["2026-01-02T14:30:00Z", "2026-01-05T14:30:00Z", "2026-01-06T14:30:00Z"],
+                utc=True,
+            ),
+            "symbol_id": [1, 1, 1],
+            "open": [10.0, 10.0, 10.0],
+            "high": [11.0, 11.0, 11.0],
+            "low": [9.0, 9.0, 9.0],
+            "close": [10.0, 10.0, 10.0],
+            "volume": [100, 100, 100],
+        }
+    ).to_parquet(bronze_dir / "1m.parquet")
+
+    factor_dir = silver_root / "adjustments" / "asset_class=equity" / "symbol=TEST"
+    factor_dir.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        {
+            "effective_start": [None, dt.date(2026, 1, 3), dt.date(2026, 1, 6)],
+            "effective_end": [dt.date(2026, 1, 2), dt.date(2026, 1, 5), None],
+            "price_adjustment_factor": [0.45, 0.9, 1.0],
+            "split_volume_factor": [2.0, 1.0, 1.0],
+            "adjustment_revision": [1, 1, 1],
+        }
+    ).to_parquet(factor_dir / "factors.parquet")
 
 
 @pytest.fixture
@@ -122,6 +189,117 @@ async def test_fetch_bars_intraday_reads_bar_timestamp(tmp_path: Path) -> None:
     assert bars[0].bar_start == datetime(2026, 1, 2, 14, 30, tzinfo=timezone.utc)
     assert bars[0].bar_start.tzinfo is not None  # tz-aware UTC, not naive
     assert bars[0].bar_end > bars[0].bar_start  # 1m duration
+
+
+@pytest.mark.asyncio
+async def test_adjusted_daily_reads_materialized_silver(tmp_path: Path) -> None:
+    bronze_root = tmp_path / "bronze"
+    silver_root = tmp_path / "silver"
+    _write_fixture(bronze_root)
+    _write_silver_daily_fixture(silver_root)
+    provider = LivewireOhlcProvider(
+        bronze_root=bronze_root,
+        silver_root=silver_root,
+        price_mode="adjusted",
+    )
+
+    bars = await provider.fetch_bars("TEST", "1d", WIDE_START, WIDE_END)
+
+    assert [bar.close for bar in bars] == [5.5, 6.0, 13.0]
+    assert [bar.volume for bar in bars] == [200, 400, 300]
+
+
+@pytest.mark.asyncio
+async def test_adjusted_daily_does_not_require_bronze_artifact(tmp_path: Path) -> None:
+    silver_root = tmp_path / "silver"
+    _write_silver_daily_fixture(silver_root)
+    provider = LivewireOhlcProvider(
+        bronze_root=tmp_path / "bronze",
+        silver_root=silver_root,
+        price_mode="adjusted",
+    )
+
+    bars = await provider.fetch_bars("TEST", "1d", WIDE_START, WIDE_END)
+
+    assert [bar.close for bar in bars] == [5.5, 6.0, 13.0]
+
+
+@pytest.mark.asyncio
+async def test_adjusted_intraday_applies_price_and_split_volume_factors(tmp_path: Path) -> None:
+    bronze_root = tmp_path / "bronze"
+    silver_root = tmp_path / "silver"
+    _write_intraday_fixture(bronze_root)
+    _write_factor_fixture(silver_root)
+    provider = LivewireOhlcProvider(
+        bronze_root=bronze_root,
+        silver_root=silver_root,
+        price_mode="adjusted",
+    )
+
+    bars = await provider.fetch_bars(
+        "TEST",
+        "1m",
+        datetime(2026, 1, 2, 14, 30, tzinfo=timezone.utc),
+        datetime(2026, 1, 2, 14, 32, tzinfo=timezone.utc),
+    )
+
+    assert [bar.open for bar in bars] == [5.0, 5.5, 6.0]
+    assert [bar.close for bar in bars] == [5.5, 6.0, 6.5]
+    assert [bar.volume for bar in bars] == [200, 400, 600]
+
+
+@pytest.mark.asyncio
+async def test_adjusted_intraday_spans_split_dividend_and_identity_intervals(
+    tmp_path: Path,
+) -> None:
+    bronze_root = tmp_path / "bronze"
+    silver_root = tmp_path / "silver"
+    _write_action_span_fixtures(bronze_root, silver_root)
+    provider = LivewireOhlcProvider(
+        bronze_root=bronze_root,
+        silver_root=silver_root,
+        price_mode="adjusted",
+    )
+
+    bars = await provider.fetch_bars("TEST", "1m", WIDE_START, WIDE_END)
+
+    assert [bar.open for bar in bars] == [4.5, 9.0, 10.0]
+    assert [bar.volume for bar in bars] == [200, 100, 100]
+
+
+@pytest.mark.asyncio
+async def test_adjusted_intraday_rejects_missing_factor_artifact(tmp_path: Path) -> None:
+    bronze_root = tmp_path / "bronze"
+    _write_intraday_fixture(bronze_root)
+    provider = LivewireOhlcProvider(
+        bronze_root=bronze_root,
+        silver_root=tmp_path / "silver",
+        price_mode="adjusted",
+    )
+
+    with pytest.raises(AdjustedDataUnavailable, match="factor artifact"):
+        await provider.fetch_bars("TEST", "1m", WIDE_START, WIDE_END)
+
+
+@pytest.mark.asyncio
+async def test_adjusted_intraday_rejects_incomplete_factor_coverage(tmp_path: Path) -> None:
+    bronze_root = tmp_path / "bronze"
+    silver_root = tmp_path / "silver"
+    _write_intraday_fixture(bronze_root)
+    _write_factor_fixture(silver_root, cover_bar_date=False)
+    provider = LivewireOhlcProvider(
+        bronze_root=bronze_root,
+        silver_root=silver_root,
+        price_mode="adjusted",
+    )
+
+    with pytest.raises(AdjustedDataUnavailable, match="factor coverage"):
+        await provider.fetch_bars(
+            "TEST",
+            "1m",
+            datetime(2026, 1, 2, 14, 30, tzinfo=timezone.utc),
+            datetime(2026, 1, 2, 14, 32, tzinfo=timezone.utc),
+        )
 
 
 @pytest.mark.asyncio

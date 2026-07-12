@@ -53,7 +53,8 @@ makes its endpoints return `503` (degrades, never crashes).
 | Variable | Default | Enables |
 |---|---|---|
 | `APEX_LIVEWIRE_ROOT` | unset | `/bars`, `/indicators`, and the streaming warmup seed |
-| `APEX_LIVEWIRE_SILVER_ROOT` | unset | Silver revision watcher (pre-cutover; adjusted reads land separately) |
+| `APEX_LIVEWIRE_SILVER_ROOT` | unset | Silver revision watcher and adjusted daily/factor artifacts |
+| `APEX_LIVEWIRE_PRICE_MODE` | `raw` | Bar reads: `raw` Bronze or `adjusted` Silver/factor-joined Bronze |
 | `APEX_LIVEWIRE_REVISION_POLL_SECONDS` | `30` | Poll interval for atomically published Silver revisions |
 | `APEX_PG_URL` | unset | `/signals` snapshot/backfill, `/confluence`, and signal persistence |
 | `APEX_XENON_WS_URL` | `ws://127.0.0.1:8765` | live ticks → live WS signal frames |
@@ -85,8 +86,10 @@ When `APEX_LIVEWIRE_SILVER_ROOT` is configured, the long-running service polls
 `revisions/current.json`. A newer valid revision reseeds only affected active
 subscriptions, buffers that symbol's Xenon ticks during replacement, atomically
 swaps all configured timeframe histories, and replays buffered ticks. Leave the
-variable unset until Livewire's Silver publisher and Apex's adjusted provider
-complete canary validation; the watcher does not itself adjust prices.
+price mode at its default `raw` during shadow validation. Setting
+`APEX_LIVEWIRE_PRICE_MODE=adjusted` makes daily reads use materialized Silver and
+intraday reads apply Silver factor intervals to Bronze. Missing or incomplete
+Silver data fails explicitly; Apex never silently falls back to raw bars.
 
 ---
 
