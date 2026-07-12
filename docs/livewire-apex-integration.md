@@ -23,9 +23,9 @@ the lake). This is the *read* side; livewire owns *writing* the bronze tree.
   preloads history before live ticks) and the **chart read surface** (`GET /bars`,
   `GET /indicators` — see [argon-apex-api.md](argon-apex-api.md)).
 
-### Silver revision contract (pre-cutover)
+### Silver revision and adjusted-read contract
 
-Apex can additionally mount Livewire's future `data-lake/silver` root read-only
+Apex can additionally mount Livewire's `data-lake/silver` root read-only
 through `APEX_LIVEWIRE_SILVER_ROOT`. When configured, Apex polls
 `revisions/current.json` every `APEX_LIVEWIRE_REVISION_POLL_SECONDS` (default
 `30`). A manifest is accepted only after schema, path-containment, and SHA-256
@@ -38,13 +38,25 @@ recomputes, and replays ticks in event-time order. Unrelated symbols continue
 normally. `/health` exposes observed, fully applied, and per-symbol revision
 state plus failures.
 
-The watcher does not itself make bars adjusted. Keep the Silver root unset in
-production until Livewire's adjustment publisher and Apex's adjusted read path
-complete their separate canary and cutover plans.
+The watcher does not itself make bars adjusted. `APEX_LIVEWIRE_PRICE_MODE` selects
+the provider behavior and defaults to `raw` for shadow validation. In `adjusted`
+mode, daily bars come directly from Silver while intraday bars are adjusted in one
+DuckDB range join against compact Silver factor intervals. A missing artifact,
+factor gap, or overlapping factor interval raises an explicit unavailable error;
+there is no silent raw fallback.
 
 ```
 livewire writers ──▶  data-lake/bronze/ (Parquet)  ◀── apex (DuckDB read_parquet, on demand)
                                                           └─▶ argon (/bars, /indicators)
+```
+
+Adjusted mode additionally reads:
+
+```
+<APEX_LIVEWIRE_SILVER_ROOT>/
+  asset_class=equity/symbol=<encoded>/1d.parquet
+  adjustments/asset_class=equity/symbol=<encoded>/factors.parquet
+  revisions/current.json
 ```
 
 ---
@@ -107,7 +119,7 @@ columns freely. The names and types apex requires:
 | Column | Type | apex uses it? | Notes |
 |---|---|---|---|
 | `trade_date` | `DATE` (date32) | ✅ **timestamp key** | The bar's calendar date. apex maps it to a UTC midnight instant. |
-| `open` `high` `low` `close` | `DOUBLE` | ✅ | OHLC. apex uses **raw `close`**, not `adj_close`. |
+| `open` `high` `low` `close` | `DOUBLE` | ✅ | Raw mode reads Bronze OHLC; adjusted mode reads materialized Silver OHLC. |
 | `volume` | `BIGINT` | ✅ | Cast to int; null tolerated. |
 | `vwap` | `DOUBLE` | ⚪ optional | Read if present, else `null` in the payload. |
 | `adj_close` | `DOUBLE` | ❌ ignored | apex charts use raw OHLC, not split/dividend-adjusted. |
@@ -125,7 +137,10 @@ columns freely. The names and types apex requires:
 | `symbol_id` | `BIGINT` | ❌ ignored | |
 | `asset_class`, `symbol` | `VARCHAR` | ❌ ignored | |
 
-> Intraday has **no `adj_close`** (and apex wouldn't use it anyway).
+> Intraday has no materialized adjusted file. In adjusted mode Apex multiplies
+> OHLC by `price_adjustment_factor` and volume by `split_volume_factor`; dividends
+> never alter volume. The bar timestamp is converted to an `America/New_York`
+> trading date for the factor join.
 
 ### Timezone (important)
 
@@ -170,11 +185,15 @@ Each returned row becomes a `BarData` with `bar_start = bar_end - <timeframe dur
 | Env var | Meaning |
 |---|---|
 | `APEX_LIVEWIRE_ROOT` | Absolute path to livewire's `data-lake/bronze`. **Required** for `/bars`, `/indicators`, and the streaming warmup seed — without it those return `503` / stay silent. |
+| `APEX_LIVEWIRE_SILVER_ROOT` | Absolute path to livewire's `data-lake/silver`. Required for the revision watcher and adjusted mode. |
+| `APEX_LIVEWIRE_PRICE_MODE` | `raw` (default) or `adjusted`. Invalid values fail startup. |
 
 Example (local external volume, 20,389 symbols):
 
 ```bash
 export APEX_LIVEWIRE_ROOT=/Volumes/DATA_LAKE/livewire/data-lake/bronze
+export APEX_LIVEWIRE_SILVER_ROOT=/Volumes/DATA_LAKE/livewire/data-lake/silver
+export APEX_LIVEWIRE_PRICE_MODE=raw
 ```
 
 R2 backup: livewire also mirrors bronze to R2 (`R2_*` creds + `sync_to_r2.py --download` pulls

@@ -20,6 +20,7 @@ from src.api.routes.strategy import router as strategy_router
 
 if TYPE_CHECKING:
     from src.domain.interfaces.event_bus import EventBus
+    from src.infrastructure.adapters.livewire.ohlc_provider import PriceMode
     from src.infrastructure.persistence.database import Database
 
 logger = logging.getLogger(__name__)
@@ -52,6 +53,13 @@ DEFAULT_XENON_WS_URL = "ws://127.0.0.1:8765"
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Connect PG + build the streaming pipeline on startup; tear it down on shutdown."""
+    livewire_root = os.environ.get("APEX_LIVEWIRE_ROOT")
+    silver_root = os.environ.get("APEX_LIVEWIRE_SILVER_ROOT")
+    livewire_price_mode = os.environ.get("APEX_LIVEWIRE_PRICE_MODE", "raw")
+    if livewire_price_mode not in ("raw", "adjusted"):
+        raise ValueError(f"unsupported Livewire price mode: {livewire_price_mode!r}")
+    app.state.livewire_price_mode = livewire_price_mode
+
     pg_url = os.environ.get("APEX_PG_URL")
     if pg_url:
         try:
@@ -97,7 +105,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # /confluence work even without a live subscription. Reused by the pipeline below.
         if getattr(app.state, "ohlc_provider", None) is None:
             app.state.ohlc_provider = None
-            livewire_root = os.environ.get("APEX_LIVEWIRE_ROOT")
             if livewire_root:
                 from pathlib import Path
 
@@ -105,7 +112,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                     LivewireOhlcProvider,
                 )
 
-                app.state.ohlc_provider = LivewireOhlcProvider(bronze_root=Path(livewire_root))
+                app.state.ohlc_provider = LivewireOhlcProvider(
+                    bronze_root=Path(livewire_root),
+                    silver_root=Path(silver_root) if silver_root else None,
+                    price_mode=cast("PriceMode", livewire_price_mode),
+                )
                 logger.info("Bar provider ready (chart read surface enabled)")
         if getattr(app.state, "indicator_registry", None) is None:
             from src.domain.signals.indicators.registry import get_indicator_registry
@@ -116,7 +127,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # event bus, TA compute service, signal emitter, and subscription manager so
         # the server itself streams signals. Guarded so tests can pre-inject fakes.
         if getattr(app.state, "subscription_manager", None) is None:
-            livewire_root = os.environ.get("APEX_LIVEWIRE_ROOT")
             if livewire_root:
                 from src.api.ws.emitter import SignalEmitter
                 from src.application.services.ta_signal_service import TASignalService
@@ -173,7 +183,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
         if getattr(app.state, "revision_watcher", None) is None:
             app.state.revision_watcher = None
-            silver_root = os.environ.get("APEX_LIVEWIRE_SILVER_ROOT")
             subscription_manager = getattr(app.state, "subscription_manager", None)
             if silver_root and subscription_manager is not None:
                 from pathlib import Path

@@ -99,6 +99,18 @@ class LivewireOhlcProvider:
     def source_name(self) -> str:
         return "livewire"
 
+    @property
+    def bronze_root(self) -> Path:
+        return self._bronze_root
+
+    @property
+    def silver_root(self) -> Path | None:
+        return self._silver_root
+
+    @property
+    def price_mode(self) -> PriceMode:
+        return self._price_mode
+
     def supports_timeframe(self, timeframe: str) -> bool:
         return timeframe in SUPPORTED_TIMEFRAMES
 
