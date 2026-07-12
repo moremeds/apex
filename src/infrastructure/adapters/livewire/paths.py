@@ -42,3 +42,19 @@ def parquet_path(bronze_root: Path, symbol: str, timeframe: str) -> Path:
         / f"symbol={encode_symbol(symbol)}"
         / f"{timeframe}.parquet"
     )
+
+
+def daily_silver_path(silver_root: Path, symbol: str) -> Path:
+    """Return the materialized adjusted-daily artifact for ``symbol``."""
+    return silver_root / "asset_class=equity" / f"symbol={encode_symbol(symbol)}" / "1d.parquet"
+
+
+def factor_path(silver_root: Path, symbol: str) -> Path:
+    """Return the compact adjustment-factor artifact for ``symbol``."""
+    return (
+        silver_root
+        / "adjustments"
+        / "asset_class=equity"
+        / f"symbol={encode_symbol(symbol)}"
+        / "factors.parquet"
+    )
