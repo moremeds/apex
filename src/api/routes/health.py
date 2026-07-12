@@ -17,6 +17,7 @@ async def health(request: Request) -> dict:
     watcher = getattr(request.app.state, "revision_watcher", None)
     return {
         "status": "ok",
+        "version": request.app.version,
         "uptime": round(time.time() - _start_time, 1),
         "service": "apex-signal-server",
         "pg_connected": getattr(request.app.state, "pg_connected", False),

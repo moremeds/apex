@@ -65,7 +65,11 @@ def normalize_timestamps(df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
         return df
 
     idx = df.index
-    if hasattr(idx, "tz") and idx.tz is not None:
+    if not isinstance(idx, pd.DatetimeIndex):
+        # yfinance 1.0 can return a RangeIndex for malformed/empty symbol data
+        return df.iloc[0:0]
+
+    if idx.tz is not None:
         idx = idx.tz_convert("UTC")
     else:
         idx = idx.tz_localize("UTC")
@@ -166,7 +170,9 @@ def fetch_and_upload_timeframe(
     # For delta, compute per-symbol days_back from R2 last-modified
     per_symbol_days: dict[str, int] | None = None
     if is_delta:
-        per_symbol_days = _compute_delta_days(r2, symbols, timeframe, DELTA_OVERLAP_DAYS)
+        per_symbol_days = _compute_delta_days(
+            r2, symbols, timeframe, DELTA_OVERLAP_DAYS
+        )
 
     bar_counts: dict[str, int] = {}
 
@@ -175,7 +181,7 @@ def fetch_and_upload_timeframe(
         batch = symbols[batch_start : batch_start + BATCH_SIZE]
         logger.info(
             f"[{timeframe}] Batch {batch_start // BATCH_SIZE + 1}: "
-            f"{len(batch)} symbols ({batch_start+1}-{batch_start+len(batch)}/{len(symbols)})"
+            f"{len(batch)} symbols ({batch_start + 1}-{batch_start + len(batch)}/{len(symbols)})"
         )
 
         # For delta, use the max days_back in this batch for the load_bars call
@@ -196,7 +202,9 @@ def fetch_and_upload_timeframe(
             df = normalize_timestamps(df, timeframe)
 
             if is_delta:
-                existing = r2.get_parquet(f"parquet/historical/{timeframe}/{sym}.parquet")
+                existing = r2.get_parquet(
+                    f"parquet/historical/{timeframe}/{sym}.parquet"
+                )
                 if existing is not None and not existing.empty:
                     existing = normalize_timestamps(existing, timeframe)
                     df = pd.concat([existing, df])
@@ -210,7 +218,9 @@ def fetch_and_upload_timeframe(
             if failed:
                 logger.warning(f"[{timeframe}] Failed uploads: {failed}")
 
-            logger.info(f"[{timeframe}] Uploaded {len(upload_items) - len(failed)} Parquet files")
+            logger.info(
+                f"[{timeframe}] Uploaded {len(upload_items) - len(failed)} Parquet files"
+            )
 
         # Brief pause between batches
         if batch_start + BATCH_SIZE < len(symbols):
@@ -260,7 +270,9 @@ def _handle_1w(
 
         if upload_items:
             failed = r2.put_parquet_batch(upload_items, workers=20)
-            logger.info(f"[1w] Uploaded {len(upload_items) - len(failed)} Parquet files")
+            logger.info(
+                f"[1w] Uploaded {len(upload_items) - len(failed)} Parquet files"
+            )
 
     return bar_counts
 
@@ -270,7 +282,13 @@ def _resample_df_to_1w(df_1d: pd.DataFrame) -> pd.DataFrame:
     if df_1d.empty:
         return df_1d
 
-    ohlcv_cols = {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
+    ohlcv_cols = {
+        "open": "first",
+        "high": "max",
+        "low": "min",
+        "close": "last",
+        "volume": "sum",
+    }
     available_agg = {k: v for k, v in ohlcv_cols.items() if k in df_1d.columns}
 
     if not available_agg:
@@ -325,7 +343,9 @@ def _handle_4h(
 
         if upload_items:
             failed = r2.put_parquet_batch(upload_items, workers=20)
-            logger.info(f"[4h] Uploaded {len(upload_items) - len(failed)} Parquet files")
+            logger.info(
+                f"[4h] Uploaded {len(upload_items) - len(failed)} Parquet files"
+            )
 
     return bar_counts
 
@@ -336,7 +356,13 @@ def _resample_df_to_4h(df_1h: pd.DataFrame) -> pd.DataFrame:
         return df_1h
 
     # Simple 4h resample
-    ohlcv_cols = {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
+    ohlcv_cols = {
+        "open": "first",
+        "high": "max",
+        "low": "min",
+        "close": "last",
+        "volume": "sum",
+    }
     available_agg = {k: v for k, v in ohlcv_cols.items() if k in df_1h.columns}
 
     if not available_agg:
@@ -387,7 +413,7 @@ def _detect_gaps(df: pd.DataFrame, timeframe: str) -> list[dict[str, str]]:
 
     Returns list of gap dicts with start/end timestamps.
     """
-    if df.empty or len(df) < 2:
+    if df.empty or len(df) < 2 or not isinstance(df.index, pd.DatetimeIndex):
         return []
 
     # Map timeframe to expected frequency
@@ -480,7 +506,7 @@ def generate_data_quality(
             # Download from R2 to run quality checks
             df = r2.get_parquet(f"parquet/historical/{tf}/{sym}.parquet")
 
-            if df is None or df.empty:
+            if df is None or df.empty or not isinstance(df.index, pd.DatetimeIndex):
                 quality_entries.append(
                     {
                         "symbol": sym,
@@ -501,7 +527,11 @@ def generate_data_quality(
             last_bar = str(df.index.max())
 
             # Compute coverage
-            start = df.index.min().date() if hasattr(df.index.min(), "date") else BACKFILL_START
+            start = (
+                df.index.min().date()
+                if hasattr(df.index.min(), "date")
+                else BACKFILL_START
+            )
             cov_pct = compute_coverage(bar_count, tf, start, today)
             status = coverage_status(cov_pct)
 
@@ -546,8 +576,12 @@ def generate_data_quality(
 def main() -> None:
     parser = argparse.ArgumentParser(description="R2 Historical Data Loader (Job 1)")
     mode = parser.add_mutually_exclusive_group(required=True)
-    mode.add_argument("--backfill", action="store_true", help="Full 2019-present backfill")
-    mode.add_argument("--delta", action="store_true", help="Incremental (last-bar + overlap)")
+    mode.add_argument(
+        "--backfill", action="store_true", help="Full 2019-present backfill"
+    )
+    mode.add_argument(
+        "--delta", action="store_true", help="Incremental (last-bar + overlap)"
+    )
     mode.add_argument(
         "--validate-only", action="store_true", help="Generate data_quality.json only"
     )
@@ -595,7 +629,9 @@ def main() -> None:
         if tf == "1h" and args.backfill:
             tf_days = 730  # Yahoo 1h max
 
-        counts = fetch_and_upload_timeframe(r2, symbols, tf, tf_days, is_delta=args.delta)
+        counts = fetch_and_upload_timeframe(
+            r2, symbols, tf, tf_days, is_delta=args.delta
+        )
 
         for sym, count in counts.items():
             all_bar_counts[(sym, tf)] = count
@@ -603,7 +639,9 @@ def main() -> None:
         logger.info(f"[{tf}] Complete: {len(counts)} symbols loaded")
 
     # Generate data quality (downloads from R2 per-symbol, memory-bounded)
-    quality = generate_data_quality(r2, tickers, all_bar_counts, symbol_filter=args.symbols)
+    quality = generate_data_quality(
+        r2, tickers, all_bar_counts, symbol_filter=args.symbols
+    )
     _write_quality(r2, quality)
 
     # Update last_updated

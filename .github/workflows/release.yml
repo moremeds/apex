@@ -1,0 +1,122 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  # Mirror ci.yml::unit-tests (the hard 40% coverage gate) so release verify matches
+  # what master CI proved green, plus the VERSION ↔ pyproject sync invariant.
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install dependencies
+        run: uv pip install --system -e ".[dev,observability,api]"
+
+      - name: Verify VERSION ↔ pyproject sync
+        run: python scripts/release/version_sync_check.py
+
+      - name: Run unit tests with coverage gate
+        run: |
+          pytest tests/unit/ -v --tb=short \
+            --cov=src --cov-report=term-missing --cov-fail-under=40
+
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - name: Extract CHANGELOG section
+        id: changelog
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          source scripts/release/_lib.sh
+          {
+            echo 'body<<EOF'
+            extract_changelog_section CHANGELOG.md "$VERSION"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+      - name: Classify release
+        id: rel
+        # A prerelease tag carries a semver pre-release suffix (hyphen), e.g.
+        # v0.2.0-rc1 — kept out of "Latest" and (below) off the GHCR :latest float.
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [[ "$VERSION" == *-* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+      # Publishing the Release also fires release-holdout-gate.yml (on: release:
+      # published) — the holdout strategy validation runs as a post-publish gate.
+      - uses: softprops/action-gh-release@v3
+        with:
+          name: ${{ github.ref_name }}
+          body: ${{ steps.changelog.outputs.body }}
+          draft: false
+          prerelease: ${{ steps.rel.outputs.prerelease }}
+          make_latest: ${{ steps.rel.outputs.prerelease == 'false' }}
+
+  ghcr-push:
+    # Build the apex-api image and push to GHCR. Native arm64 runner — deploys
+    # target the Apple Silicon Mac mini, so build natively (no QEMU emulation).
+    needs: verify
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Resolve image metadata
+        id: meta
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          REPO_OWNER="${GITHUB_REPOSITORY_OWNER,,}"
+          IMAGE="ghcr.io/${REPO_OWNER}/apex-api"
+          # Always publish the immutable version tag. Float :latest ONLY for final
+          # releases — a prerelease tag (hyphen, e.g. v0.2.0-rc1) must never become
+          # :latest, because the mini's Watchtower auto-deploys whatever :latest points at.
+          TAGS="${IMAGE}:${VERSION}"
+          if [[ "$VERSION" != *-* ]]; then
+            TAGS="${TAGS}"$'\n'"${IMAGE}:latest"
+          fi
+          {
+            echo "version=${VERSION}"
+            echo "revision=${GITHUB_SHA}"
+            echo "tags<<TAGS_EOF"
+            echo "${TAGS}"
+            echo "TAGS_EOF"
+          } >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: docker/api.Dockerfile
+          platforms: linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ steps.meta.outputs.revision }}
+            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
+          cache-from: type=gha,scope=apex-api
+          cache-to: type=gha,scope=apex-api,mode=max

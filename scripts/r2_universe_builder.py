@@ -28,8 +28,12 @@ from typing import Any
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.infrastructure.adapters.fmp.index_constituents import FMPIndexConstituentsAdapter
-from src.infrastructure.adapters.yahoo.fundamentals_adapter import YahooFundamentalsAdapter
+from src.infrastructure.adapters.fmp.index_constituents import (
+    FMPIndexConstituentsAdapter,
+)
+from src.infrastructure.adapters.yahoo.fundamentals_adapter import (
+    YahooFundamentalsAdapter,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -193,7 +197,9 @@ def _save_local_float_cache(data: dict[str, float]) -> None:
         "count": len(data),
         "data": data,
     }
-    LOCAL_FLOAT_CACHE.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
+    LOCAL_FLOAT_CACHE.write_text(
+        json.dumps(payload, separators=(",", ":")), encoding="utf-8"
+    )
     logger.info(f"Saved local float cache: {len(data)} symbols → {LOCAL_FLOAT_CACHE}")
 
 
@@ -265,7 +271,9 @@ def get_float_shares(
             return r2_data
 
     # Level 3: Yahoo Finance batch fetch
-    logger.info(f"Float shares: fetching from Yahoo Finance for {len(symbols)} symbols...")
+    logger.info(
+        f"Float shares: fetching from Yahoo Finance for {len(symbols)} symbols..."
+    )
     yahoo = YahooFundamentalsAdapter(max_workers=20)
     data = yahoo.fetch_float_shares(symbols)
 
@@ -364,7 +372,9 @@ def compute_and_filter(
     stocks = [s for s in raw_stocks if _is_common_stock(s)]
     excluded = len(raw_stocks) - len(stocks)
     if excluded > 0:
-        logger.info(f"Excluded {excluded} mutual funds/ETFs from {len(raw_stocks)} raw entries")
+        logger.info(
+            f"Excluded {excluded} mutual funds/ETFs from {len(raw_stocks)} raw entries"
+        )
 
     # Compute derived metrics
     float_hits = 0
@@ -423,10 +433,11 @@ def compute_and_filter(
         "float_misses": float_misses,
         "turnover_filter_active": turnover_filter_active,
     }
+    float_pct = f"{float_hits / total:.0%}" if total > 0 else "n/a"
     logger.info(
         f"Stage 2: {len(raw_stocks)} raw → {total} stocks "
         f"(excl {excluded} funds/ETFs) → {len(filtered)} after filter "
-        f"(float {float_hits}/{total} = {float_hits / total:.0%}, "
+        f"(float {float_hits}/{total} = {float_pct}, "
         f"turnover_filter={'on' if turnover_filter_active else 'off'})"
     )
     return filtered, stats
@@ -500,7 +511,8 @@ def merge_curated(
         "final_count": len(final),
     }
     logger.info(
-        f"Stage 3: {len(curated)} curated + {screened_added} screened " f"= {len(final)} final"
+        f"Stage 3: {len(curated)} curated + {screened_added} screened "
+        f"= {len(final)} final"
     )
     return final, stats
 
@@ -526,7 +538,9 @@ def build_universe_json(
             "final": len(tickers),
             "float_hits": screening_stats.get("float_hits", 0),
             "float_misses": screening_stats.get("float_misses", 0),
-            "turnover_filter_active": screening_stats.get("turnover_filter_active", True),
+            "turnover_filter_active": screening_stats.get(
+                "turnover_filter_active", True
+            ),
         },
         "filters_applied": {
             "min_market_cap": screening_config.get("min_market_cap"),
@@ -563,7 +577,9 @@ def write_local(universe_json: dict[str, Any], output_dir: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="R2 Universe Builder (Job 0)")
-    parser.add_argument("--dry-run", action="store_true", help="No R2 access, local cache only")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="No R2 access, local cache only"
+    )
     parser.add_argument(
         "--force-float-refresh",
         action="store_true",
@@ -631,7 +647,9 @@ def main() -> None:
     )
 
     # Build JSON
-    universe_json = build_universe_json(tickers, screening_stats, merge_stats, screening)
+    universe_json = build_universe_json(
+        tickers, screening_stats, merge_stats, screening
+    )
 
     # Summary
     tier_group_counts: dict[str, int] = {}
@@ -656,7 +674,11 @@ def main() -> None:
         print(f"  Curated (YAML):   {merge_stats['curated_count']}")
         print(f"  Screened added:   {merge_stats['screened_added']}")
         print(f"  Final:            {len(tickers)}")
-        print(f"  Float coverage:   {fh}/{sa} ({fh / sa:.0%})" if sa else "  Float coverage: N/A")
+        print(
+            f"  Float coverage:   {fh}/{sa} ({fh / sa:.0%})"
+            if sa
+            else "  Float coverage: N/A"
+        )
         print(
             f"  Turnover filter:  "
             f"{'on' if screening_stats['turnover_filter_active'] else 'off'}"

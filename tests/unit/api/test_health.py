@@ -5,12 +5,12 @@ from __future__ import annotations
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from src.api.server import create_app
+from src.api.server import APEX_VERSION, create_app
 
 
 @pytest.mark.asyncio
 async def test_health_returns_ok():
-    """GET /health returns status ok with uptime and service name."""
+    """GET /health returns status ok with uptime, service name, and running version."""
     app = create_app()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -22,6 +22,9 @@ async def test_health_returns_ok():
     assert "uptime" in data
     assert data["service"] == "apex-signal-server"
     assert data["silver_revision"] == {"enabled": False}
+    # version must reflect the real running build, not a hardcoded literal
+    assert data["version"] == APEX_VERSION
+    assert data["version"] not in ("", "unknown")
 
 
 @pytest.mark.asyncio

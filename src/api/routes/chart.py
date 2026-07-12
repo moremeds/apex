@@ -34,7 +34,7 @@ router = APIRouter(tags=["chart"])
 # Default no-arg window: the most recent N bars. We over-fetch in calendar time
 # (markets aren't 24/7, so N*delta would under-cover across closures) then tail-slice
 # to exactly N. Callers wanting an exact range pass start/end.
-_DEFAULT_BARS = 500
+_DEFAULT_BARS = 2000
 _LOOKBACK_FUDGE = 10
 
 
@@ -49,15 +49,20 @@ def _require_supported_timeframe(timeframe: str) -> None:
 
 
 def _resolve_window(
-    timeframe: str, start: Optional[datetime], end: Optional[datetime]
+    timeframe: str,
+    start: Optional[datetime],
+    end: Optional[datetime],
+    bars: int = _DEFAULT_BARS,
 ) -> Tuple[datetime, datetime, Optional[int]]:
     """Return (start, end, tail_limit). When start is omitted, fetch a generous
-    lookback and tail-slice to _DEFAULT_BARS; an explicit start is honoured as-is."""
+    lookback and tail-slice to `bars`; an explicit start is honoured as-is."""
     end = end or datetime.now(timezone.utc)
     if start is None:
+        if bars <= 0:  # full history: no tail-slice, fetch from the epoch
+            return datetime(1970, 1, 1, tzinfo=timezone.utc), end, None
         delta = TF_DELTAS.get(timeframe, DEFAULT_TF_DELTA)
-        start = end - delta * _DEFAULT_BARS * _LOOKBACK_FUDGE
-        return start, end, _DEFAULT_BARS
+        start = end - delta * bars * _LOOKBACK_FUDGE
+        return start, end, bars
     return start, end, None
 
 
@@ -68,15 +73,19 @@ async def get_bars(
     timeframe: str = "1d",
     start: Optional[datetime] = None,
     end: Optional[datetime] = None,
+    limit: int = Query(
+        default=_DEFAULT_BARS,
+        description="tail-slice to N most recent bars; <=0 for full history",
+    ),
 ) -> dict:
     provider = getattr(request.app.state, "ohlc_provider", None)
     if provider is None:
         raise HTTPException(status_code=503, detail="bar provider not configured")
     _require_supported_timeframe(timeframe)
-    start, end, limit = _resolve_window(timeframe, start, end)
+    start, end, tail = _resolve_window(timeframe, start, end, limit)
     bars = await provider.fetch_bars(ticker, timeframe, start, end)
-    if limit is not None:
-        bars = bars[-limit:]
+    if tail is not None:
+        bars = bars[-tail:]
     payload = build_bars_payload(ticker, timeframe, bars, generated_at=datetime.now(timezone.utc))
     validate_payload(payload, "bars_payload")
     return payload
@@ -90,21 +99,25 @@ async def get_indicators(
     timeframe: str = "1d",
     start: Optional[datetime] = None,
     end: Optional[datetime] = None,
+    limit: int = Query(
+        default=_DEFAULT_BARS,
+        description="tail-slice to N most recent bars; <=0 for full history",
+    ),
 ) -> dict:
     provider = getattr(request.app.state, "ohlc_provider", None)
     if provider is None:
         raise HTTPException(status_code=503, detail="bar provider not configured")
     _require_supported_timeframe(timeframe)
     registry = getattr(request.app.state, "indicator_registry", None) or get_indicator_registry()
-    start, end, limit = _resolve_window(timeframe, start, end)
+    start, end, tail = _resolve_window(timeframe, start, end, limit)
     try:
         points = await compute_indicator_series(
             provider, registry, ticker, timeframe, indicator, start, end
         )
     except UnknownIndicatorError:
         raise HTTPException(status_code=404, detail=f"unknown indicator: {indicator}")
-    if limit is not None:
-        points = points[-limit:]
+    if tail is not None:
+        points = points[-tail:]
     payload = build_indicator_payload(
         ticker, timeframe, indicator, points, generated_at=datetime.now(timezone.utc)
     )

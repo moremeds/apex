@@ -81,7 +81,9 @@ def _fetch_fmp(
 ) -> dict[str, pd.DataFrame]:
     """Fetch bars from FMP. Respects config rate_limit_per_sec."""
     try:
-        from src.infrastructure.adapters.fmp.historical_adapter import FMPHistoricalAdapter
+        from src.infrastructure.adapters.fmp.historical_adapter import (
+            FMPHistoricalAdapter,
+        )
 
         delay = _get_rate_delay("fmp")
         adapter = FMPHistoricalAdapter(request_delay=delay)
@@ -153,7 +155,7 @@ def _fetch_yahoo(
                 if col in df.columns:
                     df = df.drop(columns=[col])
             df = df.dropna(subset=["close"])
-            if not df.empty:
+            if not df.empty and isinstance(df.index, pd.DatetimeIndex):
                 result[sym] = _maybe_resample(df, timeframe, interval)
         else:
             for sym in symbols:
@@ -166,7 +168,7 @@ def _fetch_yahoo(
                         if col in df.columns:
                             df = df.drop(columns=[col])
                     df = df.dropna(subset=["close"])
-                    if not df.empty:
+                    if not df.empty and isinstance(df.index, pd.DatetimeIndex):
                         result[sym] = _maybe_resample(df, timeframe, interval)
                 except Exception as e:
                     logger.debug(f"Yahoo parse failed for {sym}: {e}")
