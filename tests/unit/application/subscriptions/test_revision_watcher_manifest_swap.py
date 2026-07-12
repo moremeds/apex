@@ -35,9 +35,7 @@ def _publish_manifest(root: Path, revision: int, symbol: str = "NVDA") -> None:
         "generation_id": f"gen-{revision}",
         "published_at": "2026-07-12T10:00:00Z",
         "corporate_actions_as_of": "2026-07-12T09:58:00Z",
-        "affected": [
-            {"symbol": symbol, "earliest_date": "1999-01-22", "timeframes": ["1d"]}
-        ],
+        "affected": [{"symbol": symbol, "earliest_date": "1999-01-22", "timeframes": ["1d"]}],
         "artifacts": [{"path": artifact_rel, "sha256": digest}],
     }
     revisions = root / "revisions"

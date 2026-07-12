@@ -118,9 +118,7 @@ def _revision_for(number: int, symbols: list[tuple[str, tuple[str, ...]]]) -> Si
         generation_id=f"test-{number}",
         published_at=now,
         corporate_actions_as_of=now,
-        affected=tuple(
-            AffectedSymbol(sym, date(1999, 1, 22), tfs) for sym, tfs in symbols
-        ),
+        affected=tuple(AffectedSymbol(sym, date(1999, 1, 22), tfs) for sym, tfs in symbols),
     )
 
 

@@ -130,9 +130,12 @@ class RevisionWatcher:
 
             if self._pending:
                 self._consecutive_failures += 1
-                self.last_error = "; ".join(
-                    f"{symbol}: {error}" for symbol, error in sorted(result.failed.items())
-                ) or f"pending reseed: {', '.join(sorted(self._pending))}"
+                self.last_error = (
+                    "; ".join(
+                        f"{symbol}: {error}" for symbol, error in sorted(result.failed.items())
+                    )
+                    or f"pending reseed: {', '.join(sorted(self._pending))}"
+                )
                 return
 
             self._mark_fully_applied(revision.revision)

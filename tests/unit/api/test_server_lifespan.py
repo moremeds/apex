@@ -53,8 +53,8 @@ async def test_server_runs_without_pg():
 
 # --- Phase 4: env-gated xenon live-feed wiring --------------------------------
 
-import src.infrastructure.adapters.xenon.client as xenon_client_mod  # noqa: E402
 import src.application.subscriptions.revision_watcher as revision_watcher_mod  # noqa: E402
+import src.infrastructure.adapters.xenon.client as xenon_client_mod  # noqa: E402
 from src.api.server import create_app, lifespan  # noqa: E402
 
 
