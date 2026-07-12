@@ -536,3 +536,13 @@ class TASignalService:
 
         result: int = self._indicator_engine.inject_historical_bars(symbol, timeframe, bars)
         return result
+
+    async def replace_symbol_histories(
+        self,
+        symbol: str,
+        histories: Dict[str, List[Dict[str, Any]]],
+    ) -> Dict[str, int]:
+        """Replace all supplied timeframe histories for a revised symbol."""
+        if not self._indicator_engine:
+            raise RuntimeError("IndicatorEngine not initialized")
+        return self._indicator_engine.replace_symbol_histories(symbol, histories)

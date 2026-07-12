@@ -223,6 +223,58 @@ class TestHistoricalBarInjection:
         assert len(engine._history[("AAPL", "1d")]) == 50
 
 
+class TestHistoricalBarReplacement:
+    """Test revision-safe replacement of all histories for one symbol."""
+
+    def test_replace_overwrites_existing_timestamps_for_all_timeframes(
+        self, mock_event_bus: MockEventBus
+    ) -> None:
+        engine = IndicatorEngine(mock_event_bus, max_workers=2)
+        old = generate_ohlcv_data(n_bars=2).to_dict("records")
+        engine.inject_historical_bars("NVDA", "1d", old)
+        engine.inject_historical_bars("NVDA", "1h", old)
+        replacement = {
+            "1d": [{**row, "close": row["close"] / 10} for row in old],
+            "1h": [{**row, "close": row["close"] / 10} for row in old],
+        }
+
+        counts = engine.replace_symbol_histories("NVDA", replacement)
+
+        assert counts == {"1d": 2, "1h": 2}
+        assert engine.get_history("NVDA", "1d")[0]["close"] == old[0]["close"] / 10
+        assert engine.get_history("NVDA", "1h")[0]["close"] == old[0]["close"] / 10
+
+    def test_invalid_replacement_leaves_every_timeframe_unchanged(
+        self, mock_event_bus: MockEventBus
+    ) -> None:
+        engine = IndicatorEngine(mock_event_bus, max_workers=2)
+        old = generate_ohlcv_data(n_bars=2).to_dict("records")
+        engine.inject_historical_bars("NVDA", "1d", old)
+        engine.inject_historical_bars("NVDA", "1h", old)
+        duplicate = [old[0], old[0]]
+
+        with pytest.raises(ValueError, match="duplicate timestamps"):
+            engine.replace_symbol_histories("NVDA", {"1d": old, "1h": duplicate})
+
+        assert engine.get_history("NVDA", "1d") == old
+        assert engine.get_history("NVDA", "1h") == old
+
+    def test_replacement_clears_only_affected_indicator_states(
+        self, mock_event_bus: MockEventBus
+    ) -> None:
+        engine = IndicatorEngine(mock_event_bus, max_workers=2)
+        bars = generate_ohlcv_data(n_bars=2).to_dict("records")
+        engine._previous_states[("NVDA", "1d", "rsi")] = {"value": 50}
+        engine._previous_states[("NVDA", "1h", "rsi")] = {"value": 51}
+        engine._previous_states[("AAPL", "1d", "rsi")] = {"value": 52}
+
+        engine.replace_symbol_histories("NVDA", {"1d": bars})
+
+        assert ("NVDA", "1d", "rsi") not in engine._previous_states
+        assert ("NVDA", "1h", "rsi") in engine._previous_states
+        assert ("AAPL", "1d", "rsi") in engine._previous_states
+
+
 # =============================================================================
 # State Cache Tests
 # =============================================================================
