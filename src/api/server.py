@@ -171,12 +171,37 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             else:
                 app.state.xenon_client = None
 
+        if getattr(app.state, "revision_watcher", None) is None:
+            app.state.revision_watcher = None
+            silver_root = os.environ.get("APEX_LIVEWIRE_SILVER_ROOT")
+            subscription_manager = getattr(app.state, "subscription_manager", None)
+            if silver_root and subscription_manager is not None:
+                from pathlib import Path
+
+                from src.application.subscriptions.revision_watcher import RevisionWatcher
+                from src.infrastructure.adapters.livewire.revisions import RevisionManifestReader
+
+                poll_seconds = float(os.environ.get("APEX_LIVEWIRE_REVISION_POLL_SECONDS", "30"))
+                app.state.revision_watcher = RevisionWatcher(
+                    RevisionManifestReader(Path(silver_root)),
+                    subscription_manager,
+                    poll_seconds,
+                )
+                await app.state.revision_watcher.start()
+                logger.info("Silver revision watcher started (interval=%ss)", poll_seconds)
+
         yield
     finally:
         # Best-effort teardown, each step isolated so one failure can't strand the
         # rest. Order matters: stop ingest (xenon) first, then drain the bus while
         # the service is still subscribed (bus.stop() dispatches queued events), then
         # stop the service (drains its persistence tasks), then close the shared pool.
+        revision_watcher = getattr(app.state, "revision_watcher", None)
+        if revision_watcher is not None:
+            try:
+                await revision_watcher.stop()
+            except Exception as e:  # pragma: no cover - best-effort teardown
+                logger.warning("teardown: revision watcher stop failed: %s", e)
         xenon_client = getattr(app.state, "xenon_client", None)
         if xenon_client is not None:
             try:

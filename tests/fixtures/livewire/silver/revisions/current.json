@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "revision": 42,
+  "generation_id": "20260712T100000Z-42",
+  "published_at": "2026-07-12T10:00:00Z",
+  "corporate_actions_as_of": "2026-07-12T09:58:00Z",
+  "affected": [
+    {
+      "symbol": "NVDA",
+      "earliest_date": "1999-01-22",
+      "timeframes": ["1d", "1m", "5m", "30m", "1h"]
+    }
+  ],
+  "artifacts": []
+}

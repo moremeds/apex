@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from datetime import date, datetime, timezone
 from types import SimpleNamespace
 
 import pytest
 
 from src.application.subscriptions.manager import Subscription, SubscriptionManager
+from src.infrastructure.adapters.livewire.revisions import AffectedSymbol, SilverRevision
 
 
 def test_subscription_refcount_increments_and_decrements() -> None:
@@ -50,6 +52,8 @@ class _FakeCompute:
         self.started: list[str] = []
         self.stopped: list[str] = []
         self.injected: list[tuple[str, str, int]] = []
+        self.replaced: list[tuple[str, dict]] = []
+        self.refreshing: list[str] = []
 
     async def start(self) -> None:
         self.started.append("all")
@@ -60,6 +64,30 @@ class _FakeCompute:
     async def inject_historical_bars(self, symbol, timeframe, bars) -> int:
         self.injected.append((symbol, timeframe, len(bars)))
         return len(bars)
+
+    def begin_symbol_refresh(self, symbol: str) -> None:
+        self.refreshing.append(symbol)
+
+    async def replace_symbol_histories(self, symbol: str, histories: dict) -> dict[str, int]:
+        self.replaced.append((symbol, histories))
+        return {timeframe: len(bars) for timeframe, bars in histories.items()}
+
+    def commit_symbol_refresh(self, symbol: str) -> None:
+        self.refreshing.remove(symbol)
+
+    def abort_symbol_refresh(self, symbol: str) -> None:
+        self.refreshing.remove(symbol)
+
+
+def _revision(revision: int, symbols: list[str]) -> SilverRevision:
+    return SilverRevision(
+        schema_version=1,
+        revision=revision,
+        generation_id=f"test-{revision}",
+        published_at=datetime(2026, 7, 12, tzinfo=timezone.utc),
+        corporate_actions_as_of=datetime(2026, 7, 12, tzinfo=timezone.utc),
+        affected=tuple(AffectedSymbol(symbol, date(1999, 1, 22), ("1d",)) for symbol in symbols),
+    )
 
 
 @pytest.mark.asyncio
@@ -134,6 +162,41 @@ async def test_failed_seed_does_not_poison_subscription() -> None:
     await mgr.subscribe("AAPL")  # retry succeeds
     assert mgr.refcount("AAPL") == 1
     assert compute.injected == [("AAPL", "1d", 1)]
+
+
+@pytest.mark.asyncio
+async def test_refresh_revision_reseeds_only_active_affected_symbols() -> None:
+    provider, compute = _FakeProvider(), _FakeCompute()
+    manager = SubscriptionManager(provider=provider, compute=compute, timeframes=["1d"])
+    await manager.subscribe("NVDA")
+
+    result = await manager.refresh_revision(_revision(42, ["NVDA", "AAPL"]))
+
+    assert result.applied == {"NVDA": 42}
+    assert result.failed == {}
+    assert provider.calls == [("NVDA", "1d"), ("NVDA", "1d")]
+    assert compute.replaced[0][0] == "NVDA"
+    assert compute.refreshing == []
+
+
+@pytest.mark.asyncio
+async def test_refresh_failure_aborts_symbol_without_blocking_others() -> None:
+    class _FailingProvider(_FakeProvider):
+        async def fetch_bars(self, symbol, timeframe, **kw):
+            if symbol == "NVDA" and self.calls:
+                raise RuntimeError("Silver unavailable")
+            return await super().fetch_bars(symbol, timeframe, **kw)
+
+    provider, compute = _FailingProvider(), _FakeCompute()
+    manager = SubscriptionManager(provider=provider, compute=compute, timeframes=["1d"])
+    await manager.subscribe("NVDA")
+    await manager.subscribe("AAPL")
+
+    result = await manager.refresh_revision(_revision(43, ["NVDA", "AAPL"]))
+
+    assert result.applied == {"AAPL": 43}
+    assert "Silver unavailable" in result.failed["NVDA"]
+    assert compute.refreshing == []
 
 
 # --- Phase 4: live-feed wiring -------------------------------------------------

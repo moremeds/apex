@@ -53,6 +53,7 @@ async def test_server_runs_without_pg():
 
 # --- Phase 4: env-gated xenon live-feed wiring --------------------------------
 
+import src.application.subscriptions.revision_watcher as revision_watcher_mod  # noqa: E402
 import src.infrastructure.adapters.xenon.client as xenon_client_mod  # noqa: E402
 from src.api.server import create_app, lifespan  # noqa: E402
 
@@ -84,6 +85,27 @@ class _SpyClient:
 
     async def close(self) -> None:
         self.closed = True
+
+
+class _SpyWatcher:
+    last = None
+
+    def __init__(self, reader, manager, poll_seconds) -> None:
+        self.reader = reader
+        self.manager = manager
+        self.poll_seconds = poll_seconds
+        self.started = False
+        self.stopped = False
+        _SpyWatcher.last = self
+
+    async def start(self) -> None:
+        self.started = True
+
+    async def stop(self) -> None:
+        self.stopped = True
+
+    def health(self) -> dict:
+        return {"enabled": True}
 
 
 @pytest.mark.asyncio
@@ -191,3 +213,21 @@ async def test_lifespan_skips_pipeline_when_livewire_root_unset(monkeypatch) -> 
     async with lifespan(app):
         assert getattr(app.state, "subscription_manager", None) is None
         assert getattr(app.state, "ta_service", None) is None
+
+
+@pytest.mark.asyncio
+async def test_lifespan_starts_and_stops_revision_watcher(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("APEX_LIVEWIRE_SILVER_ROOT", str(tmp_path))
+    monkeypatch.setenv("APEX_LIVEWIRE_REVISION_POLL_SECONDS", "7.5")
+    monkeypatch.delenv("APEX_LIVEWIRE_ROOT", raising=False)
+    monkeypatch.delenv("APEX_PG_URL", raising=False)
+    monkeypatch.setattr(revision_watcher_mod, "RevisionWatcher", _SpyWatcher)
+    app = create_app()
+    app.state.subscription_manager = _FakeSM()
+
+    async with lifespan(app):
+        watcher = app.state.revision_watcher
+        assert watcher.started is True
+        assert watcher.poll_seconds == 7.5
+
+    assert _SpyWatcher.last.stopped is True

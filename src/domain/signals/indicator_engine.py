@@ -98,6 +98,7 @@ class IndicatorEngine:
 
         # PERF: Per-symbol locks to reduce contention (allows parallel processing of different symbols)
         self._locks: Dict[BarKey, RLock] = {}
+        self._symbol_locks: Dict[str, RLock] = {}
         self._locks_lock = RLock()  # Meta-lock for creating new per-symbol locks
 
         # Thread pool for parallel calculations
@@ -207,9 +208,10 @@ class IndicatorEngine:
         Callers should use this instead of accessing ``_history`` directly.
         """
         bar_key: BarKey = (symbol, timeframe)
-        with self._get_lock(bar_key):
-            deq = self._history.get(bar_key)
-            return list(deq) if deq else None
+        with self._get_symbol_lock(symbol):
+            with self._get_lock(bar_key):
+                deq = self._history.get(bar_key)
+                return list(deq) if deq else None
 
     def start(self) -> None:
         """Start the engine by subscribing to BAR_CLOSE events."""
@@ -255,6 +257,18 @@ class IndicatorEngine:
                 self._locks[bar_key] = lock
             return lock
 
+    def _get_symbol_lock(self, symbol: str) -> RLock:
+        """Return the lock that coordinates all timeframe state for one symbol."""
+        lock = self._symbol_locks.get(symbol)
+        if lock is not None:
+            return lock
+        with self._locks_lock:
+            lock = self._symbol_locks.get(symbol)
+            if lock is None:
+                lock = RLock()
+                self._symbol_locks[symbol] = lock
+            return lock
+
     def inject_historical_bars(
         self,
         symbol: str,
@@ -282,34 +296,35 @@ class IndicatorEngine:
         """
         bar_key: BarKey = (symbol, timeframe)
 
-        with self._get_lock(bar_key):
-            if bar_key not in self._history:
-                self._history[bar_key] = deque(maxlen=self._max_history)
+        with self._get_symbol_lock(symbol):
+            with self._get_lock(bar_key):
+                if bar_key not in self._history:
+                    self._history[bar_key] = deque(maxlen=self._max_history)
 
-            # Get latest timestamp in existing history for idempotency check
-            existing_history = self._history[bar_key]
-            latest_ts = None
-            if existing_history:
-                latest_ts = existing_history[-1].get("timestamp")
+                # Get latest timestamp in existing history for idempotency check
+                existing_history = self._history[bar_key]
+                latest_ts = None
+                if existing_history:
+                    latest_ts = existing_history[-1].get("timestamp")
 
-            # Only inject bars NEWER than existing data
-            new_bars = []
-            for bar in bar_dicts:
-                bar_ts = bar.get("timestamp")
-                if latest_ts is None or bar_ts > latest_ts:
-                    new_bars.append(bar)
-                    latest_ts = bar_ts  # Update for next iteration
+                # Only inject bars NEWER than existing data
+                new_bars = []
+                for bar in bar_dicts:
+                    bar_ts = bar.get("timestamp")
+                    if latest_ts is None or bar_ts > latest_ts:
+                        new_bars.append(bar)
+                        latest_ts = bar_ts  # Update for next iteration
 
-            for bar in new_bars:
-                self._history[bar_key].append(bar)
+                for bar in new_bars:
+                    self._history[bar_key].append(bar)
 
-            injected_count = len(new_bars)
-            skipped_count = len(bar_dicts) - injected_count
+                injected_count = len(new_bars)
+                skipped_count = len(bar_dicts) - injected_count
 
-            # Get latest bar timestamp for logging
-            latest_bar_ts = None
-            if self._history[bar_key]:
-                latest_bar_ts = self._history[bar_key][-1].get("timestamp")
+                # Get latest bar timestamp for logging
+                latest_bar_ts = None
+                if self._history[bar_key]:
+                    latest_bar_ts = self._history[bar_key][-1].get("timestamp")
 
             logger.info(
                 "Injected historical bars for indicator warmup",
@@ -325,6 +340,38 @@ class IndicatorEngine:
                 },
             )
             return injected_count
+
+    def replace_symbol_histories(
+        self,
+        symbol: str,
+        histories: Dict[str, List[Dict[str, Any]]],
+    ) -> Dict[str, int]:
+        """Atomically replace selected timeframe histories for one symbol."""
+        replacements: Dict[str, Deque[Dict[str, Any]]] = {}
+        for timeframe, bars in histories.items():
+            copied = [dict(bar) for bar in bars]
+            if any(bar.get("timestamp") is None for bar in copied):
+                raise ValueError(f"missing timestamp for {symbol}/{timeframe}")
+            try:
+                ordered = sorted(copied, key=lambda bar: bar["timestamp"])
+            except TypeError as exc:
+                raise ValueError(f"incomparable timestamps for {symbol}/{timeframe}") from exc
+            timestamps = [bar["timestamp"] for bar in ordered]
+            if len(timestamps) != len(set(timestamps)):
+                raise ValueError(f"duplicate timestamps for {symbol}/{timeframe}")
+            replacements[timeframe] = deque(ordered, maxlen=self._max_history)
+
+        with self._get_symbol_lock(symbol):
+            for timeframe, replacement in replacements.items():
+                self._history[(symbol, timeframe)] = replacement
+            affected = set(replacements)
+            self._previous_states = {
+                key: state
+                for key, state in self._previous_states.items()
+                if not (key[0] == symbol and key[1] in affected)
+            }
+
+        return {timeframe: len(rows) for timeframe, rows in replacements.items()}
 
     async def compute_on_history(self, symbol: str, timeframe: str) -> int:
         """
@@ -342,11 +389,12 @@ class IndicatorEngine:
         """
         bar_key: BarKey = (symbol, timeframe)
 
-        with self._get_lock(bar_key):
-            if bar_key not in self._history:
-                logger.debug(f"No history for {symbol}/{timeframe}, skipping compute")
-                return 0
-            bars = list(self._history[bar_key])
+        with self._get_symbol_lock(symbol):
+            with self._get_lock(bar_key):
+                if bar_key not in self._history:
+                    logger.debug(f"No history for {symbol}/{timeframe}, skipping compute")
+                    return 0
+                bars = list(self._history[bar_key])
 
         if not bars:
             return 0
@@ -472,11 +520,12 @@ class IndicatorEngine:
         bar_key: BarKey = (event.symbol, event.timeframe)
 
         # Update history (thread-safe with per-symbol lock)
-        with self._get_lock(bar_key):
-            if bar_key not in self._history:
-                self._history[bar_key] = deque(maxlen=self._max_history)
-            self._history[bar_key].append(bar_entry)
-            bars = list(self._history[bar_key])
+        with self._get_symbol_lock(event.symbol):
+            with self._get_lock(bar_key):
+                if bar_key not in self._history:
+                    self._history[bar_key] = deque(maxlen=self._max_history)
+                self._history[bar_key].append(bar_entry)
+                bars = list(self._history[bar_key])
 
         self._bars_processed += 1
 
