@@ -20,18 +20,24 @@ from __future__ import annotations
 import asyncio
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, List
+from typing import Any, List, Literal
 
 import duckdb
 
 from ....domain.events.domain_events import BarData
-from .paths import SUPPORTED_TIMEFRAMES, parquet_path
+from .paths import SUPPORTED_TIMEFRAMES, daily_silver_path, factor_path, parquet_path
 
 # livewire keys daily bars by `trade_date` (a DATE) and intraday bars by
 # `bar_timestamp` (a tz-aware UTC TIMESTAMP). OHLCV columns are read by name; extra
 # columns (symbol_id, adj_close) are ignored.
 _DAILY_TS_COLUMN = "trade_date"
 _INTRADAY_TS_COLUMN = "bar_timestamp"
+
+PriceMode = Literal["raw", "adjusted"]
+
+
+class AdjustedDataUnavailable(RuntimeError):
+    """Raised when adjusted mode cannot prove complete Silver coverage."""
 
 
 def _timestamp_column(timeframe: str) -> str:
@@ -76,8 +82,17 @@ class LivewireOhlcProvider:
     Satisfies HistoricalSourcePort (runtime_checkable Protocol).
     """
 
-    def __init__(self, bronze_root: Path) -> None:
-        self._root = Path(bronze_root)
+    def __init__(
+        self,
+        bronze_root: Path,
+        silver_root: Path | None = None,
+        price_mode: PriceMode = "raw",
+    ) -> None:
+        if price_mode not in ("raw", "adjusted"):
+            raise ValueError(f"unsupported Livewire price mode: {price_mode!r}")
+        self._bronze_root = Path(bronze_root)
+        self._silver_root = Path(silver_root) if silver_root is not None else None
+        self._price_mode = price_mode
 
     # --- HistoricalSourcePort ---
     @property
@@ -97,11 +112,40 @@ class LivewireOhlcProvider:
         start: datetime,
         end: datetime,
     ) -> List[BarData]:
-        # parquet_path raises ValueError on an unsupported timeframe.
-        path = parquet_path(self._root, symbol, timeframe)
-        if not path.exists():
+        bronze_path = parquet_path(self._bronze_root, symbol, timeframe)
+        if self._price_mode == "raw":
+            if not bronze_path.exists():
+                return []
+            return await asyncio.to_thread(
+                self._query,
+                bronze_path,
+                symbol,
+                timeframe,
+                start,
+                end,
+            )
+        if self._silver_root is None:
+            raise AdjustedDataUnavailable("Silver root is not configured")
+        if timeframe == "1d":
+            path = daily_silver_path(self._silver_root, symbol)
+            if not path.exists():
+                raise AdjustedDataUnavailable(f"Silver daily artifact is missing for {symbol}")
+            return await asyncio.to_thread(self._query, path, symbol, timeframe, start, end)
+
+        if not bronze_path.exists():
             return []
-        return await asyncio.to_thread(self._query, path, symbol, timeframe, start, end)
+        factors = factor_path(self._silver_root, symbol)
+        if not factors.exists():
+            raise AdjustedDataUnavailable(f"Silver factor artifact is missing for {symbol}")
+        return await asyncio.to_thread(
+            self._query_adjusted_intraday,
+            bronze_path,
+            factors,
+            symbol,
+            timeframe,
+            start,
+            end,
+        )
 
     # --- internals ---
     def _query(
@@ -130,6 +174,59 @@ class LivewireOhlcProvider:
         finally:
             con.close()
         return [self._row_to_bar(r, symbol, timeframe) for r in rows]
+
+    def _query_adjusted_intraday(
+        self,
+        bronze_path: Path,
+        factors_path: Path,
+        symbol: str,
+        timeframe: str,
+        start: datetime,
+        end: datetime,
+    ) -> List[BarData]:
+        sql = """
+            WITH raw AS (
+                SELECT *, count(*) OVER () AS raw_count
+                FROM read_parquet(?)
+                WHERE bar_timestamp >= ? AND bar_timestamp <= ?
+            )
+            SELECT
+                b.bar_timestamp,
+                b.open * f.price_adjustment_factor AS open,
+                b.high * f.price_adjustment_factor AS high,
+                b.low * f.price_adjustment_factor AS low,
+                b.close * f.price_adjustment_factor AS close,
+                CAST(ROUND(b.volume * f.split_volume_factor) AS BIGINT) AS volume,
+                b.raw_count,
+                f.adjustment_revision
+            FROM raw b
+            LEFT JOIN read_parquet(?) f
+              ON CAST(timezone('America/New_York', b.bar_timestamp) AS DATE)
+                 >= COALESCE(f.effective_start, DATE '0001-01-01')
+             AND CAST(timezone('America/New_York', b.bar_timestamp) AS DATE)
+                 <= COALESCE(f.effective_end, DATE '9999-12-31')
+            ORDER BY b.bar_timestamp
+        """
+        con = duckdb.connect(database=":memory:")
+        try:
+            rows = (
+                con.execute(
+                    sql,
+                    [bronze_path.as_posix(), start, end, factors_path.as_posix()],
+                )
+                .fetch_arrow_table()
+                .to_pylist()
+            )
+        finally:
+            con.close()
+        if not rows:
+            return []
+        raw_count = int(rows[0]["raw_count"])
+        if len(rows) != raw_count or any(row["adjustment_revision"] is None for row in rows):
+            raise AdjustedDataUnavailable(
+                f"incomplete or overlapping factor coverage for {symbol} {timeframe}"
+            )
+        return [self._row_to_bar(row, symbol, timeframe) for row in rows]
 
     @staticmethod
     def _row_to_bar(row: dict, symbol: str, timeframe: str) -> BarData:
