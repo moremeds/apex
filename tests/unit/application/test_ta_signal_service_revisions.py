@@ -91,3 +91,37 @@ def test_refresh_buffer_overflow_is_explicit() -> None:
 
     with pytest.raises(RuntimeError, match="tick buffer exceeded"):
         service.commit_symbol_refresh("NVDA")
+
+
+def test_buffer_is_thread_safe_under_concurrent_ticks() -> None:
+    """Ticks arriving from many threads (as they would if the tick handler is
+    ever dispatched via the event bus' heavy-callback thread pool) must not
+    corrupt the buffer. All captured ticks replay exactly once on commit."""
+    import threading
+
+    service, aggregator = _running_service(max_ticks=10_000)
+    base = datetime(2026, 7, 12, tzinfo=timezone.utc)
+    service.begin_symbol_refresh("NVDA")
+
+    tick_count = 500
+    barrier = threading.Barrier(8)
+
+    def fire(start: int) -> None:
+        barrier.wait()  # maximize overlap
+        for i in range(start, tick_count, 8):
+            service._on_market_data_tick(
+                {"symbol": "NVDA", "timestamp": base + timedelta(seconds=i)}
+            )
+
+    threads = [threading.Thread(target=fire, args=(offset,)) for offset in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert aggregator.ticks == []  # nothing dispatched while buffering
+    service.commit_symbol_refresh("NVDA")
+    # Every tick captured exactly once, and replayed in event-time order.
+    seconds = [tick["timestamp"] for tick in aggregator.ticks]
+    assert len(seconds) == tick_count
+    assert seconds == sorted(seconds)

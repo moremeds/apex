@@ -11,6 +11,7 @@ Pipeline: TICK → BAR → INDICATOR → RULE → SIGNAL → PERSISTENCE → NOT
 from __future__ import annotations
 
 import asyncio
+import threading
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -101,6 +102,11 @@ class TASignalService:
         self._refresh_buffer_max_ticks = refresh_buffer_max_ticks
         self._refresh_buffer_max_age_seconds = refresh_buffer_max_age_seconds
         self._refresh_buffers: Dict[str, _RefreshBuffer] = {}
+        # Guards _refresh_buffers so buffering stays correct even if the tick
+        # handler is ever dispatched off-loop (e.g. registered as a "heavy"
+        # event-bus callback → asyncio.to_thread). Held only for the microsecond
+        # dict op, never across tick replay.
+        self._refresh_lock = threading.Lock()
 
         # Pipeline components (lazy init)
         self._bar_aggregators: Dict[str, "BarAggregator"] = {}
@@ -353,16 +359,18 @@ class TASignalService:
         symbol = (
             payload.get("symbol") if isinstance(payload, dict) else getattr(payload, "symbol", None)
         )
-        buffer = self._refresh_buffers.get(symbol) if symbol else None
-        if buffer is not None:
-            age = time.monotonic() - buffer.started_at
-            if age > self._refresh_buffer_max_age_seconds:
-                buffer.error = f"tick buffer exceeded age limit for {symbol}"
-            elif len(buffer.ticks) >= self._refresh_buffer_max_ticks:
-                buffer.error = f"tick buffer exceeded count limit for {symbol}"
-            elif buffer.error is None:
-                buffer.ticks.append(payload)
-            return
+        if symbol is not None:
+            with self._refresh_lock:
+                buffer = self._refresh_buffers.get(symbol)
+                if buffer is not None:
+                    age = time.monotonic() - buffer.started_at
+                    if age > self._refresh_buffer_max_age_seconds:
+                        buffer.error = f"tick buffer exceeded age limit for {symbol}"
+                    elif len(buffer.ticks) >= self._refresh_buffer_max_ticks:
+                        buffer.error = f"tick buffer exceeded count limit for {symbol}"
+                    elif buffer.error is None:
+                        buffer.ticks.append(payload)
+                    return
 
         self._dispatch_market_data_tick(payload)
 
@@ -379,13 +387,15 @@ class TASignalService:
 
     def begin_symbol_refresh(self, symbol: str) -> None:
         """Begin buffering live ticks while a symbol's history is rebuilt."""
-        if symbol in self._refresh_buffers:
-            raise RuntimeError(f"refresh already active for {symbol}")
-        self._refresh_buffers[symbol] = _RefreshBuffer()
+        with self._refresh_lock:
+            if symbol in self._refresh_buffers:
+                raise RuntimeError(f"refresh already active for {symbol}")
+            self._refresh_buffers[symbol] = _RefreshBuffer()
 
     def commit_symbol_refresh(self, symbol: str) -> None:
         """Replay buffered ticks after a successful history replacement."""
-        buffer = self._refresh_buffers.pop(symbol, None)
+        with self._refresh_lock:
+            buffer = self._refresh_buffers.pop(symbol, None)
         if buffer is None:
             raise RuntimeError(f"no refresh active for {symbol}")
         if buffer.error is not None:
@@ -395,7 +405,8 @@ class TASignalService:
 
     def abort_symbol_refresh(self, symbol: str) -> None:
         """Replay captured ticks into unchanged state after a failed refresh."""
-        buffer = self._refresh_buffers.pop(symbol, None)
+        with self._refresh_lock:
+            buffer = self._refresh_buffers.pop(symbol, None)
         if buffer is None:
             return
         for tick in sorted(buffer.ticks, key=self._tick_sort_key):
