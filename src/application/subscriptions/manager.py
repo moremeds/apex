@@ -11,7 +11,10 @@ import asyncio
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Protocol, Set
+from typing import TYPE_CHECKING, Any, Dict, List, Protocol, Set
+
+if TYPE_CHECKING:
+    from src.infrastructure.adapters.livewire.revisions import SilverRevision
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +39,14 @@ class Subscription:
         return self.refcount
 
 
+@dataclass(frozen=True)
+class RefreshResult:
+    """Per-symbol result of applying one Silver revision."""
+
+    applied: Dict[str, int]
+    failed: Dict[str, str]
+
+
 class _ComputeService(Protocol):
     """Matches the real TASignalService (verified 2026-06-14): async, 3-arg, dict bars."""
 
@@ -46,6 +57,16 @@ class _ComputeService(Protocol):
     async def inject_historical_bars(
         self, symbol: str, timeframe: str, bars: List[Dict[str, Any]]
     ) -> int: ...
+
+    def begin_symbol_refresh(self, symbol: str) -> None: ...
+
+    async def replace_symbol_histories(
+        self, symbol: str, histories: Dict[str, List[Dict[str, Any]]]
+    ) -> Dict[str, int]: ...
+
+    def commit_symbol_refresh(self, symbol: str) -> None: ...
+
+    def abort_symbol_refresh(self, symbol: str) -> None: ...
 
 
 class SubscriptionManager:
@@ -67,6 +88,8 @@ class SubscriptionManager:
         self._subs: Dict[str, Subscription] = {}
         self._lock = asyncio.Lock()
         self._compute_started = False
+        self._refresh_locks: Dict[str, asyncio.Lock] = {}
+        self._applied_revisions: Dict[str, int] = {}
 
     def set_live_feed(self, live_feed: Any) -> None:
         """Attach a LiveFeedPort after construction (used by the app lifespan)."""
@@ -134,6 +157,47 @@ class SubscriptionManager:
             bars = await self._provider.fetch_bars(symbol, tf, start=start, end=end)
             payload = [self._bar_to_dict(b) for b in bars]
             await self._compute.inject_historical_bars(symbol, tf, payload)
+
+    async def refresh_revision(self, revision: "SilverRevision") -> RefreshResult:
+        """Reseed active symbols affected by a validated Silver revision."""
+        active = self.active_symbols()
+        affected = [item for item in revision.affected if item.symbol in active]
+        outcomes = await asyncio.gather(
+            *(self._refresh_symbol(item, revision.revision) for item in affected),
+            return_exceptions=False,
+        )
+        applied: Dict[str, int] = {}
+        failed: Dict[str, str] = {}
+        for symbol, error in outcomes:
+            if error is None:
+                applied[symbol] = revision.revision
+                self._applied_revisions[symbol] = revision.revision
+            else:
+                failed[symbol] = error
+        return RefreshResult(applied=applied, failed=failed)
+
+    async def _refresh_symbol(self, affected: Any, revision: int) -> tuple[str, str | None]:
+        symbol = affected.symbol
+        lock = self._refresh_locks.setdefault(symbol, asyncio.Lock())
+        async with lock:
+            self._compute.begin_symbol_refresh(symbol)
+            try:
+                end = datetime.now(timezone.utc)
+                start = end - timedelta(days=self._lookback_days)
+                requested = set(affected.timeframes)
+                histories: Dict[str, List[Dict[str, Any]]] = {}
+                for timeframe in self._timeframes:
+                    if timeframe not in requested:
+                        continue
+                    bars = await self._provider.fetch_bars(symbol, timeframe, start=start, end=end)
+                    histories[timeframe] = [self._bar_to_dict(bar) for bar in bars]
+                await self._compute.replace_symbol_histories(symbol, histories)
+                self._compute.commit_symbol_refresh(symbol)
+                return symbol, None
+            except Exception as exc:  # noqa: BLE001 - isolate one revised symbol
+                self._compute.abort_symbol_refresh(symbol)
+                logger.exception("Silver revision %s failed for %s", revision, symbol)
+                return symbol, str(exc)
 
     @staticmethod
     def _bar_to_dict(bar: Any) -> Dict[str, Any]:

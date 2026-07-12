@@ -11,6 +11,9 @@ Pipeline: TICK → BAR → INDICATOR → RULE → SIGNAL → PERSISTENCE → NOT
 from __future__ import annotations
 
 import asyncio
+import time
+from collections import deque
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
@@ -27,6 +30,13 @@ if TYPE_CHECKING:
     from ...infrastructure.observability import SignalMetrics
 
 logger = get_logger(__name__)
+
+
+@dataclass
+class _RefreshBuffer:
+    started_at: float = field(default_factory=time.monotonic)
+    ticks: deque[Any] = field(default_factory=deque)
+    error: str | None = None
 
 
 class TASignalService:
@@ -66,6 +76,8 @@ class TASignalService:
         max_workers: int = 4,
         enabled: bool = True,
         signal_metrics: Optional["SignalMetrics"] = None,
+        refresh_buffer_max_ticks: int = 10_000,
+        refresh_buffer_max_age_seconds: float = 120.0,
     ) -> None:
         """
         Initialize the TA signal service.
@@ -84,6 +96,11 @@ class TASignalService:
         self._max_workers = max_workers
         self._enabled = enabled
         self._metrics = signal_metrics
+        if refresh_buffer_max_ticks < 1 or refresh_buffer_max_age_seconds <= 0:
+            raise ValueError("refresh buffer limits must be positive")
+        self._refresh_buffer_max_ticks = refresh_buffer_max_ticks
+        self._refresh_buffer_max_age_seconds = refresh_buffer_max_age_seconds
+        self._refresh_buffers: Dict[str, _RefreshBuffer] = {}
 
         # Pipeline components (lazy init)
         self._bar_aggregators: Dict[str, "BarAggregator"] = {}
@@ -333,6 +350,25 @@ class TASignalService:
         if not self._running:
             return
 
+        symbol = (
+            payload.get("symbol") if isinstance(payload, dict) else getattr(payload, "symbol", None)
+        )
+        buffer = self._refresh_buffers.get(symbol) if symbol else None
+        if buffer is not None:
+            age = time.monotonic() - buffer.started_at
+            if age > self._refresh_buffer_max_age_seconds:
+                buffer.error = f"tick buffer exceeded age limit for {symbol}"
+            elif len(buffer.ticks) >= self._refresh_buffer_max_ticks:
+                buffer.error = f"tick buffer exceeded count limit for {symbol}"
+            elif buffer.error is None:
+                buffer.ticks.append(payload)
+            return
+
+        self._dispatch_market_data_tick(payload)
+
+    def _dispatch_market_data_tick(self, payload: Any) -> None:
+        """Dispatch one tick without applying refresh buffering again."""
+
         for aggregator in self._bar_aggregators.values():
             try:
                 aggregator.on_tick(payload)
@@ -340,6 +376,37 @@ class TASignalService:
                 logger.error(f"Error processing tick in aggregator: {e}")
 
         self._bars_processed += 1
+
+    def begin_symbol_refresh(self, symbol: str) -> None:
+        """Begin buffering live ticks while a symbol's history is rebuilt."""
+        if symbol in self._refresh_buffers:
+            raise RuntimeError(f"refresh already active for {symbol}")
+        self._refresh_buffers[symbol] = _RefreshBuffer()
+
+    def commit_symbol_refresh(self, symbol: str) -> None:
+        """Replay buffered ticks after a successful history replacement."""
+        buffer = self._refresh_buffers.pop(symbol, None)
+        if buffer is None:
+            raise RuntimeError(f"no refresh active for {symbol}")
+        if buffer.error is not None:
+            raise RuntimeError(buffer.error)
+        for tick in sorted(buffer.ticks, key=self._tick_sort_key):
+            self._dispatch_market_data_tick(tick)
+
+    def abort_symbol_refresh(self, symbol: str) -> None:
+        """Replay captured ticks into unchanged state after a failed refresh."""
+        buffer = self._refresh_buffers.pop(symbol, None)
+        if buffer is None:
+            return
+        for tick in sorted(buffer.ticks, key=self._tick_sort_key):
+            self._dispatch_market_data_tick(tick)
+
+    @staticmethod
+    def _tick_sort_key(tick: Any) -> tuple[bool, str]:
+        timestamp = (
+            tick.get("timestamp") if isinstance(tick, dict) else getattr(tick, "timestamp", None)
+        )
+        return (timestamp is None, str(timestamp))
 
     def _on_indicator_update(self, payload: Any) -> None:
         """
@@ -545,4 +612,7 @@ class TASignalService:
         """Replace all supplied timeframe histories for a revised symbol."""
         if not self._indicator_engine:
             raise RuntimeError("IndicatorEngine not initialized")
-        return self._indicator_engine.replace_symbol_histories(symbol, histories)
+        counts = self._indicator_engine.replace_symbol_histories(symbol, histories)
+        for timeframe in histories:
+            await self._indicator_engine.compute_on_history(symbol, timeframe)
+        return counts
