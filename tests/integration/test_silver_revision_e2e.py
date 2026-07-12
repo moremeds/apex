@@ -93,20 +93,19 @@ def _publish_symbol(
         }
     )
     _atomic_parquet(bronze_dir / "1d.parquet", raw_daily)
-    _atomic_parquet(
-        bronze_dir / "1m.parquet",
-        pd.DataFrame(
-            {
-                "bar_timestamp": pd.to_datetime(timestamps, utc=True),
-                "symbol_id": [1, 1],
-                "open": [first_raw_close, second_raw_close],
-                "high": [first_raw_close, second_raw_close],
-                "low": [first_raw_close, second_raw_close],
-                "close": [first_raw_close, second_raw_close],
-                "volume": raw_volume,
-            }
-        ),
+    intraday = pd.DataFrame(
+        {
+            "bar_timestamp": pd.to_datetime(timestamps, utc=True),
+            "symbol_id": [1, 1],
+            "open": [first_raw_close, second_raw_close],
+            "high": [first_raw_close, second_raw_close],
+            "low": [first_raw_close, second_raw_close],
+            "close": [first_raw_close, second_raw_close],
+            "volume": raw_volume,
+        }
     )
+    for timeframe in ("1m", "5m", "30m", "1h"):
+        _atomic_parquet(bronze_dir / f"{timeframe}.parquet", intraday)
     adjusted_first = first_raw_close * first_factor
     daily_path = silver_dir / "1d.parquet"
     _atomic_parquet(
@@ -243,6 +242,12 @@ async def test_adjusted_canary_and_revision_reseed_without_restart(
     assert canary["passed"] is True
     assert canary["revision"] == 1
     assert canary["symbols"]["NVDA"]["split_volume_adjusted"] is True
+    assert set(canary["symbols"]["NVDA"]["intraday_counts"]) == {
+        "1m",
+        "5m",
+        "30m",
+        "1h",
+    }
     assert canary["symbols"]["AAPL"]["volume_unchanged"] is True
     assert canary["symbols"]["SPY"]["volume_unchanged"] is True
     assert canary["symbols"]["PLTR"]["identity_control"] is True

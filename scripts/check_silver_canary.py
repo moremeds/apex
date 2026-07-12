@@ -89,6 +89,7 @@ async def check_silver_canary(
     silver_root: Path,
     symbols: tuple[str, ...] = ("NVDA", "AAPL", "SPY"),
     control: str = "PLTR",
+    intraday_timeframes: tuple[str, ...] = ("1m", "5m", "30m", "1h"),
     start: datetime = datetime(2020, 1, 1, tzinfo=timezone.utc),
     end: datetime | None = None,
 ) -> dict[str, Any]:
@@ -100,30 +101,38 @@ async def check_silver_canary(
     results: dict[str, dict[str, Any]] = {}
 
     for symbol in (*symbols, control):
-        raw_daily, adjusted_daily, raw_intraday, adjusted_intraday = await asyncio.gather(
+        raw_daily, adjusted_daily = await asyncio.gather(
             raw_provider.fetch_bars(symbol, "1d", start, end),
             adjusted_provider.fetch_bars(symbol, "1d", start, end),
-            raw_provider.fetch_bars(symbol, "1m", start, end),
-            adjusted_provider.fetch_bars(symbol, "1m", start, end),
         )
-        counts_match = (
-            len(raw_daily) == len(adjusted_daily) > 0
-            and len(raw_intraday) == len(adjusted_intraday) > 0
-        )
-        timestamps_match = _same_timestamps(raw_daily, adjusted_daily) and _same_timestamps(
-            raw_intraday, adjusted_intraday
-        )
-        identity = _same_values(raw_daily, adjusted_daily) and _same_values(
-            raw_intraday, adjusted_intraday
-        )
+        counts_match = len(raw_daily) == len(adjusted_daily) > 0
+        timestamps_match = _same_timestamps(raw_daily, adjusted_daily)
+        identity = _same_values(raw_daily, adjusted_daily)
         volume_unchanged = counts_match and all(
             left.volume == right.volume
-            for raw_rows, adjusted_rows in (
-                (raw_daily, adjusted_daily),
-                (raw_intraday, adjusted_intraday),
-            )
-            for left, right in zip(raw_rows, adjusted_rows, strict=True)
+            for left, right in zip(raw_daily, adjusted_daily, strict=True)
         )
+        intraday_counts: dict[str, int] = {}
+        for timeframe in intraday_timeframes:
+            raw_intraday, adjusted_intraday = await asyncio.gather(
+                raw_provider.fetch_bars(symbol, timeframe, start, end),
+                adjusted_provider.fetch_bars(symbol, timeframe, start, end),
+            )
+            intraday_counts[timeframe] = len(raw_intraday)
+            timeframe_counts_match = len(raw_intraday) == len(adjusted_intraday) > 0
+            counts_match = counts_match and timeframe_counts_match
+            timestamps_match = timestamps_match and _same_timestamps(
+                raw_intraday, adjusted_intraday
+            )
+            identity = identity and _same_values(raw_intraday, adjusted_intraday)
+            volume_unchanged = (
+                volume_unchanged
+                and timeframe_counts_match
+                and all(
+                    left.volume == right.volume
+                    for left, right in zip(raw_intraday, adjusted_intraday, strict=True)
+                )
+            )
         raw_return = _return(raw_daily)
         adjusted_return = _return(adjusted_daily)
         continuity = _continuity_metrics(raw_daily, adjusted_daily)
@@ -145,7 +154,7 @@ async def check_silver_canary(
         results[symbol] = {
             "passed": symbol_passed,
             "daily_count": len(raw_daily),
-            "intraday_count": len(raw_intraday),
+            "intraday_counts": intraday_counts,
             "timestamps_match": timestamps_match,
             "raw_return": raw_return,
             "adjusted_return": adjusted_return,
