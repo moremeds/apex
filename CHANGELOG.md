@@ -16,7 +16,14 @@ All notable changes to apex are recorded here. Format follows
   `src/infrastructure/adapters/r2/` client, the `make r2-*`/`make tunnel` targets, the
   `cloudflare` (boto3) extra, and the `R2: Daily Pipeline` GitHub workflow. The signal
   daemon no longer bootstraps indicator warmup from R2 — it warms from accumulating live
-  bars. The momentum-screen CI workflow drops its R2 regime fetch (regime defaults to R1).
+  bars. The momentum-screen CI workflow drops its R2 regime fetch (regime defaults to R1;
+  the orphaned file-based regime source is tracked for reconnect-to-PG in #154).
+- **Orphaned Cloudflare dashboard scaffolding removed.** The React app it built was deleted
+  in the April backend-only refactor; the leftover `wrangler.toml` (`apex-dashboard`),
+  `worker-assets/` husk, and `scripts/build-dashboard.mjs` (pointed at a since-deleted source
+  dir) are gone, along with the dead `web-*`/`server` Makefile help + `.PHONY` refs. The
+  external Cloudflare Workers Build project for `apex-dashboard` should be disconnected in the
+  Cloudflare dashboard (not removable via code).
 
 ## [0.1.3] — 2026-07-08
 
