@@ -44,7 +44,7 @@ Add the external volume to colima's mount list, bind-mount the real path read-on
 
 ## Phase 2 — Docker image
 
-- [ ] `docker/api.Dockerfile` — `python:3.13-slim` → install TA-Lib C lib (0.6.4 from source, cached layer) → `uv pip install -e ".[server,observability,cloudflare]"` → `CMD ["python","main.py","--service","api"]`
+- [ ] `docker/api.Dockerfile` — `python:3.13-slim` → install TA-Lib C lib (0.6.4 from source, cached layer) → `uv pip install -e ".[server,observability]"` → `CMD ["python","main.py","--service","api"]`
 - [ ] `.dockerignore` (exclude .venv, tests fixtures, data, output, *.png, .git)
 - [ ] Single `apex-api` image. signal-service deferred (not in prod) — add `--service` override later if needed.
 
