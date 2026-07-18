@@ -17,13 +17,13 @@ Master policy file. Subsystem-specific rules live in subdirectory `CLAUDE.md` fi
 
 **Apex** — signal computation engine and chart data API. Reads OHLCV from the livewire Parquet lake, runs the full indicator + signal pipeline, and exposes results via REST + WebSocket consumed by argon (Options Analytics Cockpit).
 
-Not a broker terminal — no direct order placement. Live IB ticks arrive via xenon's WS feed (`APEX_XENON_WS_URL`). Historical bars come from the livewire bronze lake — a **local-filesystem** Parquet tree read on demand via DuckDB (`APEX_LIVEWIRE_ROOT`). R2 is separate: only apex's own `make r2-backfill` pipeline writes to Cloudflare R2.
+Not a broker terminal — no direct order placement. Live IB ticks arrive via xenon's WS feed (`APEX_XENON_WS_URL`). Historical bars come from the livewire bronze lake — a **local-filesystem** Parquet tree read on demand via DuckDB (`APEX_LIVEWIRE_ROOT`).
 
 ## Commands
 
 ```bash
 # Install
-uv pip install -e ".[dev,observability,api,cloudflare]"
+uv pip install -e ".[dev,observability,api]"
 
 # Run
 make api-server        # REST + WS API (:8322) — primary service for argon
@@ -48,12 +48,6 @@ make pead              # PEAD: full pipeline
 # Strategy verification (after any strategy change)
 make strategy-verify   # unit tests → parity → mypy → format → compare
 
-# R2 Data Pipeline
-make r2-universe       # FMP screener → R2 meta/
-make r2-backfill       # Full backfill (all symbols, 2019-present)
-make r2-delta          # Incremental delta update
-make r2-validate       # Generate data_quality.json only
-
 # Database
 make db-init           # Create PG schema
 make db-reset          # Drop + recreate PG schema
@@ -68,7 +62,7 @@ API             src/api/          FastAPI: /bars /indicators /confluence /ws/sig
 CLI             src/runners/      momentum, pead, strategy_compare, optimize, validation
 APPLICATION     src/application/  bootstrap, orchestrators, chart service, subscription manager
 DOMAIN          src/domain/       signals, strategy, screeners, events, interfaces (no infra imports)
-INFRASTRUCTURE  src/infrastructure/ adapters (livewire, xenon_ws, r2, fmp, ib), persistence, stores
+INFRASTRUCTURE  src/infrastructure/ adapters (livewire, xenon_ws, fmp, ib), persistence, stores
 ```
 
 Signal pipeline: tick (xenon WS) → `BarAggregator` → `IndicatorEngine` → `RuleEngine` → PostgreSQL → argon via REST + WS.
@@ -80,7 +74,6 @@ Signal pipeline: tick (xenon WS) → `BarAggregator` → `IndicatorEngine` → `
 | livewire bronze lake (local Parquet, read via DuckDB) | — | `APEX_LIVEWIRE_ROOT` |
 | xenon WS live ticks | `ws://127.0.0.1:8765` | `APEX_XENON_WS_URL` |
 | PostgreSQL | — | `APEX_PG_URL` |
-| R2 (backfill pipeline only — `make r2-*`, not the live read path) | — | `R2_*` in `config/secrets.yaml` |
 | FMP API (screeners) | — | `FMP_API_KEY` or `config/secrets.yaml` |
 
 ## Data Source Priority
@@ -92,7 +85,7 @@ IB ticks arrive via xenon WS — apex never connects to IB directly.
 ## Mandatory Rules
 
 1. **uv only** — `uv run pytest`, never bare `python`, `pip`, or activated venvs
-2. **Never Yahoo Finance as a live source** — bulk backfill for R2 initial fill only
+2. **Never Yahoo Finance as a live source** — historical bulk backfill only
 3. **No naked shorts** — defined-risk only
 4. **Never commit without explicit user request** — draft first, wait
 5. **Always open a PR before merging to master** — never `git push origin master` directly

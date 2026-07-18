@@ -9,6 +9,15 @@ All notable changes to apex are recorded here. Format follows
 
 ## [Unreleased]
 
+### Removed
+- **Cloudflare R2 build scrapped (deprecated).** livewire's local Parquet lake is
+  the sole historical source now, so the R2 write pipeline and read client are gone:
+  `scripts/r2_{historical_loader,universe_builder,market_caps}.py`, the
+  `src/infrastructure/adapters/r2/` client, the `make r2-*`/`make tunnel` targets, the
+  `cloudflare` (boto3) extra, and the `R2: Daily Pipeline` GitHub workflow. The signal
+  daemon no longer bootstraps indicator warmup from R2 — it warms from accumulating live
+  bars. The momentum-screen CI workflow drops its R2 regime fetch (regime defaults to R1).
+
 ## [0.1.3] — 2026-07-08
 
 ### Fixed

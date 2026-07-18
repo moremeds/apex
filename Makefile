@@ -1,7 +1,7 @@
 # APEX Development Makefile
 # Quick commands for common development tasks
 
-.PHONY: install run run-dev run-prod run-demo run-headless lint format type-check dead-code complexity quality test test-all coverage clean help validate-fast strategy-compare strategy-verify strategy-compare-quick pead pead-test pead-screen momentum momentum-update momentum-backtest momentum-test r2-universe r2-backfill r2-backfill-test r2-delta r2-validate r2-market-caps server-dev server web-install web-dev web-build live tunnel jobs-momentum jobs-pead jobs-strategy-compare
+.PHONY: install run run-dev run-prod run-demo run-headless lint format type-check dead-code complexity quality test test-all coverage clean help validate-fast strategy-compare strategy-verify strategy-compare-quick pead pead-test pead-screen momentum momentum-update momentum-backtest momentum-test server-dev server web-install web-dev web-build live jobs-momentum jobs-pead jobs-strategy-compare
 
 # Virtual environment - use .venv/bin executables directly
 VENV := .venv/bin
@@ -54,14 +54,6 @@ help:
 	@echo "  make quantitative-moment-backtest Walk-forward backtest + ablation"
 	@echo "  make quantitative-moment-test     Run unit tests"
 	@echo ""
-	@echo "$(GREEN)R2 Data Pipeline:$(RESET)"
-	@echo "  make r2-universe       Screen universe (FMP → filter → ~500 symbols → R2)"
-	@echo "  make r2-backfill       Full backfill (all symbols, 2019-present)"
-	@echo "  make r2-backfill-test  Quick test (5 symbols)"
-	@echo "  make r2-delta          Incremental delta update"
-	@echo "  make r2-validate       Generate data_quality.json only"
-	@echo "  make r2-market-caps    Update market caps → R2"
-	@echo ""
 	@echo "$(GREEN)Compute Jobs (API triggers):$(RESET)"
 	@echo "  make jobs-momentum          Run momentum screener"
 	@echo "  make jobs-pead              Run PEAD screener"
@@ -72,7 +64,6 @@ help:
 	@echo "  make server            Start FastAPI server (production, :8080)"
 	@echo "  make web-dev           Start React dev server (:5173)"
 	@echo "  make web-build         Build React frontend for production"
-	@echo "  make tunnel            Start Cloudflare Tunnel"
 	@echo ""
 	@echo "$(GREEN)Other:$(RESET)"
 	@echo "  make clean          Remove build artifacts"
@@ -84,7 +75,7 @@ help:
 install:
 	@echo "$(BOLD)Installing dependencies with uv...$(RESET)"
 	uv venv
-	. .venv/bin/activate && uv pip install -e ".[dev,observability,server,cloudflare]"
+	. .venv/bin/activate && uv pip install -e ".[dev,observability,server]"
 	@echo "$(BOLD)Installing web frontend dependencies...$(RESET)"
 	cd web && npm install
 	@echo "$(GREEN)✓ Installation complete. Run 'source .venv/bin/activate' to activate.$(RESET)"
@@ -303,42 +294,6 @@ quantitative-moment-backtest: momentum-backtest
 quantitative-moment-test: momentum-test
 
 .PHONY: quantitative-moment quantitative-moment-update quantitative-moment-backtest quantitative-moment-test
-
-# ═══════════════════════════════════════════════════════════════
-# R2 Data Pipeline
-# ═══════════════════════════════════════════════════════════════
-
-r2-universe:   ## Build universe (FMP screener → R2 meta/)
-	@echo "$(BOLD)Building universe → R2...$(RESET)"
-	$(PYTHON) scripts/r2_universe_builder.py
-	@echo "$(GREEN)✓ Universe uploaded to R2$(RESET)"
-
-r2-backfill:   ## Full backfill (all symbols, 2019-present → R2 Parquet)
-	@echo "$(BOLD)R2 historical backfill (2019-present, all symbols)...$(RESET)"
-	$(PYTHON) scripts/r2_historical_loader.py --backfill
-	@echo "$(GREEN)✓ Backfill complete$(RESET)"
-
-r2-backfill-test:   ## Quick backfill test (5 symbols)
-	@echo "$(BOLD)R2 backfill test (5 symbols)...$(RESET)"
-	$(PYTHON) scripts/r2_historical_loader.py --backfill --symbols AAPL MSFT SPY QQQ NVDA
-	@echo "$(GREEN)✓ Test backfill complete$(RESET)"
-
-r2-delta:   ## Incremental delta update (last-bar + overlap → R2)
-	@echo "$(BOLD)R2 delta update...$(RESET)"
-	$(PYTHON) scripts/r2_historical_loader.py --delta
-	@echo "$(GREEN)✓ Delta update complete$(RESET)"
-
-r2-validate:   ## Generate data_quality.json only (no fetch)
-	@echo "$(BOLD)R2 data quality validation...$(RESET)"
-	$(PYTHON) scripts/r2_historical_loader.py --validate-only
-	@echo "$(GREEN)✓ data_quality.json generated$(RESET)"
-
-r2-market-caps:   ## Update market caps → R2 meta/market_caps.json
-	@echo "$(BOLD)Updating market caps → R2...$(RESET)"
-	$(PYTHON) scripts/r2_market_caps.py
-	@echo "$(GREEN)✓ Market caps uploaded to R2$(RESET)"
-
-.PHONY: r2-universe r2-backfill r2-backfill-test r2-delta r2-validate r2-market-caps
 
 # ═══════════════════════════════════════════════════════════════
 # Compute Jobs (same runners as /api/jobs/ endpoints)

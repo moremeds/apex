@@ -8,7 +8,6 @@ Root `CLAUDE.md` is authoritative for policy.
 |---------|------|
 | `livewire/` | Reads OHLCV Parquet from the **local-filesystem** bronze lake (`APEX_LIVEWIRE_ROOT`) via DuckDB (in-memory, not a datastore) |
 | `xenon/` | WebSocket client for xenon's IB realtime feed — live tick source |
-| `r2/` | Cloudflare R2 S3-compatible store (boto3); Parquet lake read/write |
 | `fmp/` | Financial Modeling Prep API — daily OHLCV deltas, screener data |
 | `ib/` | IB Gateway adapter (secondary; live ticks come via xenon WS in normal operation) |
 | `futu/` | Futu OpenD read-only adapter |
