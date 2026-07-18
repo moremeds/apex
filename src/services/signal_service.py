@@ -11,7 +11,6 @@ import asyncio
 import logging
 import os
 import signal
-from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -160,127 +159,6 @@ async def _on_trading_signal(event: Any, repo: Any, db: Any | None = None) -> No
         )
 
 
-# ── Bootstrap helpers ─────────────────────────────────────────
-
-
-async def _bootstrap_from_r2(
-    signal_engine: Any,
-    r2_client: Any,
-    symbols: list[str],
-    timeframes: list[str],
-) -> int:
-    """Inject R2 history into SignalEngine and compute indicators."""
-    import time as _time
-
-    ie = signal_engine.indicator_engine
-    t0 = _time.monotonic()
-    warmed = 0
-
-    for tf in timeframes:
-        for symbol in symbols:
-            try:
-                key = f"parquet/historical/{tf}/{symbol}.parquet"
-                df = await asyncio.to_thread(r2_client.get_parquet, key)
-                if df is not None and not df.empty:
-                    if len(df) > 500:
-                        df = df.tail(500)
-                    bar_dicts = []
-                    for idx, row in df.iterrows():
-                        ts = row.get("timestamp") or row.get("date") or idx
-                        if hasattr(ts, "to_pydatetime"):
-                            ts = ts.to_pydatetime()
-                        if ts is not None and hasattr(ts, "tzinfo") and ts.tzinfo is not None:
-                            ts = ts.replace(tzinfo=None)
-                        bar_dicts.append(
-                            {
-                                "timestamp": ts,
-                                "open": float(row.get("open", 0)),
-                                "high": float(row.get("high", 0)),
-                                "low": float(row.get("low", 0)),
-                                "close": float(row.get("close", 0)),
-                                "volume": (int(row.get("volume", 0)) if row.get("volume") else 0),
-                            }
-                        )
-                    n = ie.inject_historical_bars(symbol, tf, bar_dicts)
-                    if n > 0:
-                        warmed += 1
-            except Exception as e:
-                logger.debug("Bootstrap skip %s/%s: %s", symbol, tf, e)
-
-    for tf in timeframes:
-        for symbol in symbols:
-            try:
-                await ie.compute_on_history(symbol, tf)
-            except Exception:
-                logger.debug("Compute on history failed for %s/%s", symbol, tf, exc_info=True)
-
-    logger.info("Bootstrap: %d symbol/tf pairs warmed in %.1fs", warmed, _time.monotonic() - t0)
-    return warmed
-
-
-async def _fill_data_gap(
-    engine: Any,
-    symbols: list[str],
-    tf: str = "1d",
-) -> int:
-    """Fill gap between R2-bootstrapped history and today using FMP/Yahoo."""
-    from src.domain.services.bar_count_calculator import BarCountCalculator
-    from src.services.bar_loader import load_bars
-
-    cal = BarCountCalculator("NYSE")
-    today = date.today()
-    filled = 0
-
-    for sym in symbols:
-        bar_deque = engine.get_history(sym, tf)
-        if not bar_deque:
-            continue
-        latest_ts = bar_deque[-1].get("timestamp")
-        if latest_ts is None:
-            continue
-        latest_date = latest_ts.date() if hasattr(latest_ts, "date") else latest_ts
-        missing_days = cal.get_trading_days(latest_date + timedelta(days=1), today)
-        if not missing_days:
-            continue
-
-        try:
-            import pandas as pd
-
-            result = await asyncio.to_thread(
-                load_bars,
-                [sym],
-                tf,
-                (today - latest_date).days + 1,
-                today,
-            )
-            df = result.get(sym)
-            if df is not None and not df.empty:
-                df = df[df.index > pd.Timestamp(latest_ts)]
-                if not df.empty:
-                    bar_dicts = []
-                    for idx, row in df.iterrows():
-                        ts = idx.to_pydatetime() if hasattr(idx, "to_pydatetime") else idx
-                        if hasattr(ts, "tzinfo") and ts.tzinfo is not None:
-                            ts = ts.replace(tzinfo=None)
-                        bar_dicts.append(
-                            {
-                                "timestamp": ts,
-                                "open": float(row.get("open", 0)),
-                                "high": float(row.get("high", 0)),
-                                "low": float(row.get("low", 0)),
-                                "close": float(row.get("close", 0)),
-                                "volume": (int(row.get("volume", 0)) if row.get("volume") else 0),
-                            }
-                        )
-                    n = engine.inject_historical_bars(sym, tf, bar_dicts)
-                    if n > 0:
-                        filled += n
-        except Exception:
-            logger.warning("Gap fill failed for %s/%s", sym, tf, exc_info=True)
-
-    return filled
-
-
 # ── Main daemon ───────────────────────────────────────────────
 
 
@@ -354,34 +232,6 @@ async def run_signal_service() -> None:
         logger.info("IB Gateway connected (%s:%d)", ib_host, ib_port)
     except Exception:
         logger.warning("IB Gateway not available — running without live ticks", exc_info=True)
-
-    from src.domain.services.regime.universe_loader import load_universe
-
-    universe = load_universe()
-    all_symbols = sorted(list(universe.all_symbols))
-    logger.info("Loaded %d symbols from universe", len(all_symbols))
-
-    r2_client = None
-    try:
-        from src.infrastructure.adapters.r2.client import R2Client
-
-        r2_client = R2Client()
-    except (ValueError, ImportError):
-        logger.info("R2 client not available")
-
-    if r2_client:
-        await _bootstrap_from_r2(signal_engine, r2_client, all_symbols, timeframes)
-
-        ie = signal_engine.indicator_engine
-        for gap_tf in timeframes:
-            gap_count = await _fill_data_gap(ie, all_symbols, gap_tf)
-            if gap_count > 0:
-                logger.info("Gap fill [%s]: %d new bars", gap_tf, gap_count)
-                for sym in all_symbols:
-                    try:
-                        await ie.compute_on_history(sym, gap_tf)
-                    except Exception:
-                        pass
 
     logger.info("Signal service running — Ctrl+C to stop")
 
