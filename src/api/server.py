@@ -57,6 +57,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     livewire_root = os.environ.get("APEX_LIVEWIRE_ROOT")
     silver_root = os.environ.get("APEX_LIVEWIRE_SILVER_ROOT")
     livewire_price_mode = os.environ.get("APEX_LIVEWIRE_PRICE_MODE", "raw")
+    # Residency probe only -- detects ticker reuse for listing=any. apex never
+    # serves bars from the delisted tree (blocked on livewire, spec 2.3).
+    delisted_root = os.environ.get("APEX_LIVEWIRE_DELISTED_ROOT")
     if livewire_price_mode not in ("raw", "adjusted"):
         raise ValueError(f"unsupported Livewire price mode: {livewire_price_mode!r}")
     app.state.livewire_price_mode = livewire_price_mode
@@ -117,6 +120,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                     bronze_root=Path(livewire_root),
                     silver_root=Path(silver_root) if silver_root else None,
                     price_mode=cast("PriceMode", livewire_price_mode),
+                    delisted_root=Path(delisted_root) if delisted_root else None,
                 )
                 logger.info("Bar provider ready (chart read surface enabled)")
         if getattr(app.state, "indicator_registry", None) is None:

@@ -347,3 +347,179 @@ def test_provider_satisfies_historical_source_port(bronze_root: Path) -> None:
     assert p.source_name == "livewire"
     assert p.supports_timeframe("1d") is True
     assert p.supports_timeframe("3m") is False
+
+
+# --- Task 5: per-asset-class reads -------------------------------------------------
+#
+# Fixture values are REAL production bars frozen 2026-08-23 from
+# macmini:/Volumes/DATA_LAKE/livewire/data-lake. Do not round or extend them.
+
+_AC_START = datetime(2026, 8, 1, tzinfo=timezone.utc)
+_AC_END = datetime(2026, 8, 31, tzinfo=timezone.utc)
+
+
+def _write_vix(root: Path) -> None:
+    """Real CBOE VIX daily bars from bronze/asset_class=volatility."""
+    d = root / "asset_class=volatility" / "symbol=VIX"
+    d.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        {
+            "trade_date": [dt.date(2026, 8, 19), dt.date(2026, 8, 20), dt.date(2026, 8, 21)],
+            "symbol_id": [13486153039336466] * 3,
+            "open": [15.92, 14.91, 15.82],
+            "high": [15.95, 16.14, 15.88],
+            "low": [14.77, 14.91, 15.08],
+            "close": [14.89, 16.01, 15.13],
+            "adj_close": [14.89, 16.01, 15.13],
+            "volume": [0, 0, 0],
+        }
+    ).to_parquet(d / "1d.parquet")
+
+
+def _write_futures(root: Path) -> None:
+    """Real ICE Brent BZ_202609 daily bars from bronze/asset_class=futures."""
+    d = root / "asset_class=futures" / "symbol=BZ_202609"
+    d.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        {
+            "trade_date": [dt.date(2026, 7, 1), dt.date(2026, 7, 2)],
+            "contract_id": [3871332472656972] * 2,
+            "root_symbol": ["BZ", "BZ"],
+            "expiry_date": [dt.date(2026, 9, 1)] * 2,
+            "open": [71.86, 70.78],
+            "high": [72.23, 71.91],
+            "low": [71.04, 70.44],
+            "close": [71.57, 71.80],
+            "settlement": [71.57, 71.80],
+            "volume": [7303, 5353],
+            "open_interest": [0, 0],
+        }
+    ).to_parquet(d / "1d.parquet")
+
+
+def _write_dxy_hourly(root: Path) -> None:
+    """Real DXY 1h bars from bronze/asset_class=fx. All 21 FX pairs carry intraday."""
+    d = root / "asset_class=fx" / "symbol=DXY"
+    d.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        {
+            "bar_timestamp": pd.to_datetime(
+                [
+                    "2026-08-21T18:00:00Z",
+                    "2026-08-21T19:00:00Z",
+                    "2026-08-21T20:00:00Z",
+                ]
+            ),
+            "symbol_id": [1919363639481568] * 3,
+            "open": [98.81700134277344, 98.80000305175781, 98.83100128173828],
+            "high": [98.82099914550781, 98.83799743652344, 98.85900115966797],
+            "low": [98.78800201416016, 98.7969970703125, 98.82499694824219],
+            "close": [98.80000305175781, 98.83200073242188, 98.83899688720703],
+            "volume": [0, 0, 0],
+        }
+    ).to_parquet(d / "1h.parquet")
+
+
+@pytest.mark.asyncio
+async def test_volatility_reads_its_own_partition(tmp_path: Path) -> None:
+    _write_vix(tmp_path)
+    provider = LivewireOhlcProvider(bronze_root=tmp_path)
+    bars = await provider.fetch_bars("VIX", "1d", _AC_START, _AC_END, asset_class="volatility")
+    assert [b.close for b in bars] == [14.89, 16.01, 15.13]
+
+
+@pytest.mark.asyncio
+async def test_equity_partition_is_not_consulted_for_volatility(tmp_path: Path) -> None:
+    _write_vix(tmp_path)
+    provider = LivewireOhlcProvider(bronze_root=tmp_path)
+    # No asset_class=equity/symbol=VIX exists; the default class must miss, not fall through.
+    assert await provider.fetch_bars("VIX", "1d", _AC_START, _AC_END) == []
+
+
+@pytest.mark.asyncio
+async def test_futures_reads_composite_contract_symbol(tmp_path: Path) -> None:
+    _write_futures(tmp_path)
+    provider = LivewireOhlcProvider(bronze_root=tmp_path)
+    bars = await provider.fetch_bars(
+        "BZ_202609",
+        "1d",
+        datetime(2026, 7, 1, tzinfo=timezone.utc),
+        datetime(2026, 7, 31, tzinfo=timezone.utc),
+        asset_class="futures",
+    )
+    assert [b.close for b in bars] == [71.57, 71.80]
+
+
+@pytest.mark.asyncio
+async def test_futures_carries_its_extra_columns(tmp_path: Path) -> None:
+    """settlement/open_interest/contract identity are real columns livewire publishes;
+    dropping them would make the futures payload indistinguishable from an equity one."""
+    _write_futures(tmp_path)
+    provider = LivewireOhlcProvider(bronze_root=tmp_path)
+    bars = await provider.fetch_bars(
+        "BZ_202609",
+        "1d",
+        datetime(2026, 7, 1, tzinfo=timezone.utc),
+        datetime(2026, 7, 31, tzinfo=timezone.utc),
+        asset_class="futures",
+    )
+    first = bars[0]
+    assert first.settlement == 71.57
+    assert first.open_interest == 0
+    assert first.root_symbol == "BZ"
+    assert first.contract_id == 3871332472656972
+    # ISO string, not a date: DomainEvent.to_dict() only special-cases datetime and Enum.
+    assert first.expiry_date == "2026-09-01"
+    assert isinstance(first.expiry_date, str)
+
+
+@pytest.mark.asyncio
+async def test_fx_intraday_reads_bar_timestamp(tmp_path: Path) -> None:
+    """fx publishes the full 1m/5m/30m/1h/1d ladder on all 21 pairs, keyed by
+    bar_timestamp exactly like equity intraday."""
+    _write_dxy_hourly(tmp_path)
+    provider = LivewireOhlcProvider(bronze_root=tmp_path)
+    bars = await provider.fetch_bars(
+        "DXY",
+        "1h",
+        datetime(2026, 8, 21, tzinfo=timezone.utc),
+        datetime(2026, 8, 22, tzinfo=timezone.utc),
+        asset_class="fx",
+    )
+    assert [b.close for b in bars] == [
+        98.80000305175781,
+        98.83200073242188,
+        98.83899688720703,
+    ]
+    assert bars[0].bar_start == datetime(2026, 8, 21, 18, 0, tzinfo=timezone.utc)
+
+
+@pytest.mark.asyncio
+async def test_non_equity_is_raw_even_when_provider_is_adjusted(tmp_path: Path) -> None:
+    """Silver exists only for equity. An adjusted-mode provider must serve non-equity
+    raw and say so, not raise AdjustedDataUnavailable."""
+    _write_vix(tmp_path)
+    provider = LivewireOhlcProvider(
+        bronze_root=tmp_path, silver_root=tmp_path / "silver", price_mode="adjusted"
+    )
+    assert provider.effective_price_mode("volatility") == "raw"
+    assert provider.effective_price_mode("equity") == "adjusted"
+    bars = await provider.fetch_bars("VIX", "1d", _AC_START, _AC_END, asset_class="volatility")
+    assert len(bars) == 3
+
+
+@pytest.mark.asyncio
+async def test_explicit_adjusted_on_non_equity_raises(tmp_path: Path) -> None:
+    """An explicit per-call override must not silently downgrade to raw."""
+    _write_vix(tmp_path)
+    provider = LivewireOhlcProvider(bronze_root=tmp_path)
+    with pytest.raises(AdjustedDataUnavailable, match="volatility"):
+        await provider.fetch_bars(
+            "VIX", "1d", _AC_START, _AC_END, asset_class="volatility", price_mode="adjusted"
+        )
+
+
+def test_delisted_root_defaults_to_none(tmp_path: Path) -> None:
+    assert LivewireOhlcProvider(bronze_root=tmp_path).delisted_root is None
+    provider = LivewireOhlcProvider(bronze_root=tmp_path, delisted_root=tmp_path / "d")
+    assert provider.delisted_root == tmp_path / "d"

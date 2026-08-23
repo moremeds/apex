@@ -221,6 +221,18 @@ class BarData(DomainEvent):
     vwap: Optional[float] = None  # Volume-weighted average price
     trade_count: Optional[int] = None  # Number of trades in bar
 
+    # Futures-only extras, from livewire's asset_class=futures partition. Every field
+    # needs a default: BarData is frozen+slots, so the generated __init__ forbids a
+    # non-default after a default, and a slots class has no __dict__ to patch later.
+    settlement: Optional[float] = None
+    open_interest: Optional[int] = None
+    contract_id: Optional[int] = None
+    root_symbol: Optional[str] = None  # e.g. "BZ"
+    # ISO string, NOT a date. to_dict() serializes via asdict() and special-cases only
+    # datetime and Enum; a bare date would survive as a live object and break JSON
+    # persistence. datetime subclasses date, so the datetime branch does not catch it.
+    expiry_date: Optional[str] = None
+
     # Bar time boundaries
     bar_start: Optional[datetime] = None
     bar_end: Optional[datetime] = None

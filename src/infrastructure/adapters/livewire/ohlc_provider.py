@@ -25,6 +25,7 @@ from typing import Any, List, Literal
 import duckdb
 
 from ....domain.events.domain_events import BarData
+from .asset_classes import DEFAULT_ASSET_CLASS, get_asset_class
 from .paths import SUPPORTED_TIMEFRAMES, daily_silver_path, factor_path, parquet_path
 
 # livewire keys daily bars by `trade_date` (a DATE) and intraday bars by
@@ -87,12 +88,16 @@ class LivewireOhlcProvider:
         bronze_root: Path,
         silver_root: Path | None = None,
         price_mode: PriceMode = "raw",
+        delisted_root: Path | None = None,
     ) -> None:
         if price_mode not in ("raw", "adjusted"):
             raise ValueError(f"unsupported Livewire price mode: {price_mode!r}")
         self._bronze_root = Path(bronze_root)
         self._silver_root = Path(silver_root) if silver_root is not None else None
         self._price_mode = price_mode
+        # Residency probe only -- used to detect ticker reuse for listing=any. apex
+        # never serves bars from the delisted tree; that is blocked on livewire.
+        self._delisted_root = Path(delisted_root) if delisted_root is not None else None
 
     # --- HistoricalSourcePort ---
     @property
@@ -102,6 +107,10 @@ class LivewireOhlcProvider:
     @property
     def bronze_root(self) -> Path:
         return self._bronze_root
+
+    @property
+    def delisted_root(self) -> Path | None:
+        return self._delisted_root
 
     @property
     def silver_root(self) -> Path | None:
@@ -117,15 +126,33 @@ class LivewireOhlcProvider:
     def get_supported_timeframes(self) -> List[str]:
         return list(SUPPORTED_TIMEFRAMES)
 
+    def effective_price_mode(self, asset_class: str = DEFAULT_ASSET_CLASS) -> PriceMode:
+        """The mode this provider can actually serve for ``asset_class``.
+
+        Silver exists only under asset_class=equity, so every other class is raw
+        regardless of the configured mode. Callers put this in the payload -- the
+        consumer must never have to infer the basis.
+        """
+        if self._price_mode == "adjusted" and get_asset_class(asset_class).supports_adjusted:
+            return "adjusted"
+        return "raw"
+
     async def fetch_bars(
         self,
         symbol: str,
         timeframe: str,
         start: datetime,
         end: datetime,
+        asset_class: str = DEFAULT_ASSET_CLASS,
+        price_mode: PriceMode | None = None,
     ) -> List[BarData]:
-        bronze_path = parquet_path(self._bronze_root, symbol, timeframe)
-        if self._price_mode == "raw":
+        # An explicit price_mode is a per-call override (the route passes the mode it
+        # already validated); None falls back to what this provider can serve.
+        resolved = price_mode or self.effective_price_mode(asset_class)
+        if resolved == "adjusted" and not get_asset_class(asset_class).supports_adjusted:
+            raise AdjustedDataUnavailable(f"Silver does not exist for {asset_class}")
+        bronze_path = parquet_path(self._bronze_root, symbol, timeframe, asset_class)
+        if resolved == "raw":
             if not bronze_path.exists():
                 return []
             return await asyncio.to_thread(
@@ -245,6 +272,7 @@ class LivewireOhlcProvider:
         ts = _to_utc_datetime(row[_timestamp_column(timeframe)])
         end = ts + _TF_DELTAS.get(timeframe, timedelta(0))
         vol = row.get("volume")
+        oi = row.get("open_interest")
         return BarData(
             symbol=symbol,
             timeframe=timeframe,
@@ -254,6 +282,12 @@ class LivewireOhlcProvider:
             close=row.get("close"),
             volume=int(vol) if vol is not None else None,
             vwap=row.get("vwap"),
+            settlement=row.get("settlement"),
+            open_interest=int(oi) if oi is not None else None,
+            contract_id=row.get("contract_id"),
+            root_symbol=row.get("root_symbol"),
+            # str(), not the raw value: asdict() would leak a live date into JSON.
+            expiry_date=(str(row["expiry_date"]) if row.get("expiry_date") is not None else None),
             bar_start=ts,
             bar_end=end,
             timestamp=ts,  # event time = bar time, NOT construction-time now()
