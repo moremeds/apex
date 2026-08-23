@@ -3,8 +3,11 @@ name: CI
 on:
   push:
     branches: [master, main]
+  # No branch filter on pull_request: a stacked PR (one whose base is another feature
+  # branch, not master) otherwise gets NO CI at all, and GitHub's auto-retarget when the
+  # base merges fires `edited`, which is not in the default trigger set -- so it would
+  # stay untested right up to the merge button.
   pull_request:
-    branches: [master, main]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
