@@ -11,6 +11,7 @@ import asyncpg
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from src.api.errors import install_error_handlers
 from src.api.jobs.manager import JobManager
 from src.api.routes.backtest import router as backtest_router
 from src.api.routes.health import router as health_router
@@ -272,6 +273,9 @@ def create_app() -> FastAPI:
     from src.api.routes.chart import router as chart_router
 
     app.include_router(chart_router)
+
+    # Routes raise ApiError; this renders it as the typed envelope instead of a bare 500.
+    install_error_handlers(app)
 
     return app
 
