@@ -173,19 +173,26 @@ Every route is `/v1/{asset_class}/{symbol}/...`. The flat routes in §3 still wo
 | `rates` | `1d` | `rates_series_payload` | n/a | A **yield**, not a price — no OHLC |
 
 `timeframes` is a per-**class** ceiling, not a per-symbol guarantee. A symbol that lacks a
-given timeframe returns `404 unknown_symbol`.
+given timeframe returns `404 unknown_symbol` — measured, not theoretical: `AACT` carries
+`1m/5m/30m/1h` in the live tree and no `1d` at all. Ask
+`GET /v1/{asset_class}/{symbol}` for the ladder a specific symbol actually has.
 
 ### Routes
 
 | Method · Path | Purpose | Key errors |
 |---|---|---|
 | `GET /v1/{asset_class}/{symbol}/bars` | OHLCV candles | `400` class/tf/mode · `404` no artifact · `409` ambiguous · `501` delisted · `503` no Silver |
-| `GET /v1/rates/{symbol}/series` | Treasury yield series | `503` no provider |
-| `GET /v1/{asset_class}/{symbol}/indicators` | Per-bar indicator series | `400` · `404` unknown indicator · `503` |
+| `GET /v1/rates/{symbol}/series` | Treasury yield series | `404` no artifact · `503` no provider |
+| `GET /v1/{asset_class}/{symbol}/indicators` | Per-bar indicator series | `400` bad class/tf/indicator · `404` no artifact · `503` |
 | `GET /v1/equity/{symbol}/confluence` | Multi-timeframe confluence (PG) | `503` no PG |
 | `GET /v1/equity/{symbol}/signals` | Signal backfill (PG) | `503` no PG |
 | `GET /v1/instruments` | Discovery across all classes | `400` bad class · `501` delisted · `503` no catalog |
 | `GET /v1/{asset_class}/{symbol}` | One instrument's metadata | `400` bad class · `404` no artifact · `503` |
+
+`GET /v1/{asset_class}/{symbol}` also returns `coverage_source`: `livewire_coverage_snapshot`
+when the catalog answered, `not_configured` or `unavailable` when it did not. Without it a
+null `first_date` would be ambiguous between "this symbol has no recorded coverage" and
+"apex could not read the catalog".
 | `GET /v1/equity/{symbol}/actions` | Corporate actions | **`501` always** — blocked on livewire |
 | `GET /v1/equity/{symbol}/delisting` | Delisting terminal state | **`501` always** — blocked on livewire |
 
@@ -197,7 +204,7 @@ given timeframe returns `404 unknown_symbol`.
 | `start` / `end` | all series | none | ISO-8601. Omit both → most recent `limit` bars |
 | `limit` | bars, indicators, confluence, instruments | `2000` (bars) | Tail-slice; `<=0` → full history |
 | `price_mode` | bars | provider default | `raw` \| `adjusted`. A **request**, not a hint |
-| `listing` | bars | `listed` | `listed` \| `delisted` \| `any` |
+| `listing` | bars, instruments | `listed` | `listed` \| `delisted` \| `any` |
 | `indicator` | indicators | **required** | Any of apex's registered indicators |
 | `asset_class` | instruments | all | Filter |
 | `q` | instruments | none | Symbol **prefix** filter (`_`/`%` are escaped) |
@@ -208,14 +215,24 @@ Every failure returns `{"error": {"code", "message", "symbol"?, "asset_class"?}}
 
 | Code | Status | Meaning |
 |---|---|---|
+| `invalid_parameter` | 400 | A query value is malformed: bad `listing`, bad `price_mode`, unknown `indicator`, `start` after `end` |
 | `unsupported_timeframe` | 400 | Timeframe not in this class's ladder |
 | `unsupported_asset_class` | 400 | Unknown class, or a class whose payload is not bars |
 | `adjusted_not_supported` | 400 | `price_mode=adjusted` on a class with no Silver |
-| `unknown_symbol` | 404 | No artifact under that partition (or unknown indicator) |
+| `unknown_symbol` | 404 | No artifact under that partition, in any tree the read would use |
 | `ambiguous_symbol` | 409 | `listing=any` on a ticker that is both live and delisted |
 | `not_yet_available` | 501 | Specified but blocked on upstream livewire work |
 | `provider_not_configured` | 503 | Provider / PG / coverage catalog unavailable |
 | `adjusted_unavailable` | 503 | Silver artifact missing or quarantined — retry later |
+| `internal_error` | 500 | Unanticipated failure (e.g. the lake volume went away) |
+
+Framework-level request validation (a non-integer `limit`, an unparseable date) keeps
+FastAPI's **422** status but uses this same envelope with `invalid_parameter`, so there is
+exactly one error shape on the surface rather than two.
+
+A code always names the thing that was wrong. A malformed query value is
+`invalid_parameter`, never `unknown_symbol` or `not_yet_available` — those would send
+you debugging a symbol or an upstream outage when the fault is a typo in the request.
 
 `adjusted_unavailable` is a **503, not a 4xx**: a quarantined Silver artifact is an upstream
 condition livewire may repair, so the request was not wrong. 243 equity symbols are in this

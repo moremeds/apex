@@ -24,6 +24,11 @@ All notable changes to apex are recorded here. Format follows
 ### Changed
 
 - Flat routes (`/bars/{ticker}` etc.) are deprecated aliases; they emit `Deprecation` and `Sunset`.
+- **Breaking for `/indicators` callers:** an unknown `indicator` now returns `400 invalid_parameter`
+  instead of `404`. The symbol was never the problem; the old code sent callers to check their
+  ticker.
+- FastAPI's own request-validation failures (bad `limit`, unparseable date) keep their 422 status
+  but now use the error envelope instead of `{"detail": [...]}`, so the surface has one error shape.
 - `bars_payload` no longer emits `vwap` (always null -- no lake parquet carries the column).
 - `bars_payload` timeframe enum narrowed to `1m/5m/30m/1h/1d`.
 
@@ -34,6 +39,20 @@ All notable changes to apex are recorded here. Format follows
 - Non-equity symbols no longer resolve into `asset_class=equity` and read an absent file.
 - fx and volatility intraday are reachable: both publish an intraday ladder that a
   daily-only assumption would have hidden (126 parquet files).
+- Unknown symbols on `/indicators` and `/rates/.../series` return `404` instead of an empty
+  `200`, which read as "no signal fired" / "this yield had no observations".
+- `listing=any` probes the requested asset class, not always equity (`bronze-delisted` holds
+  `asset_class=fx` too), so fx ticker reuse is no longer reported as unambiguous.
+- A `start` after `end` is a `400`, not a `200` with zero rows.
+- Indicators reject `rates`: computing over a yield's null OHLC returned a number-shaped
+  answer to a question that has none.
+- Adjusted daily reads probe Silver as well as Bronze, so a Silver-only symbol with an empty
+  window is no longer a false `404`.
+- Coverage-catalog reads run off the event loop; a synchronous DuckDB read was stalling every
+  other request on the worker.
+- Unanticipated failures (the lake volume going away, a truncated parquet) return a typed
+  `500 internal_error` in the envelope rather than an unparseable bare 500, and no longer echo
+  absolute lake paths to the client.
 
 ## [0.1.4] — 2026-08-22
 
