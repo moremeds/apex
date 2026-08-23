@@ -22,8 +22,11 @@ class ValidationFailure(ValueError):
 
 
 @lru_cache(maxsize=None)
-def _schema(name: str = _DEFAULT_SCHEMA) -> dict:
-    return json.loads((_SCHEMA_DIR / f"{name}.schema.json").read_text(encoding="utf-8"))
+def _schema(name: str = _DEFAULT_SCHEMA) -> dict[str, Any]:
+    loaded: dict[str, Any] = json.loads(
+        (_SCHEMA_DIR / f"{name}.schema.json").read_text(encoding="utf-8")
+    )
+    return loaded
 
 
 def validate_payload(payload: dict[str, Any], schema: str = _DEFAULT_SCHEMA) -> None:
