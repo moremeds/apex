@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://apex.trading/schemas/instruments_payload.schema.json",
+  "title": "InstrumentsPayload",
+  "description": "Instrument coverage discovery, sourced from livewire's coverage snapshot",
+  "type": "object",
+  "required": ["instruments", "count", "source", "generated_at"],
+  "properties": {
+    "count": { "type": "integer", "minimum": 0 },
+    "source": { "type": "string", "const": "livewire_coverage_snapshot" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "instruments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "symbol",
+          "asset_class",
+          "listing_status",
+          "silver_available",
+          "price_mode"
+        ],
+        "properties": {
+          "symbol": { "type": "string", "minLength": 1 },
+          "asset_class": {
+            "type": "string",
+            "enum": ["equity", "volatility", "fx", "cmdty", "futures", "rates"]
+          },
+          "listing_status": {
+            "type": "string",
+            "enum": ["listed", "delisted"]
+          },
+          "first_date": { "type": ["string", "null"] },
+          "last_date": { "type": ["string", "null"] },
+          "silver_available": { "type": "boolean" },
+          "price_mode": { "type": "string", "enum": ["raw", "adjusted"] }
+        }
+      }
+    }
+  }
+}

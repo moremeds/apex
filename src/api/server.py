@@ -123,6 +123,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                     delisted_root=Path(delisted_root) if delisted_root else None,
                 )
                 logger.info("Bar provider ready (chart read surface enabled)")
+        if getattr(app.state, "coverage_catalog", None) is None:
+            app.state.coverage_catalog = None
+            coverage_db = os.environ.get("APEX_LIVEWIRE_COVERAGE_DB")
+            if coverage_db:
+                from pathlib import Path
+
+                from src.infrastructure.adapters.livewire.coverage import CoverageCatalog
+
+                app.state.coverage_catalog = CoverageCatalog(Path(coverage_db))
+                logger.info("Coverage catalog ready (/v1/instruments enabled)")
         if getattr(app.state, "indicator_registry", None) is None:
             from src.domain.signals.indicators.registry import get_indicator_registry
 
@@ -277,6 +287,10 @@ def create_app() -> FastAPI:
     from src.api.routes.chart import router as chart_router
 
     app.include_router(chart_router)
+
+    from src.api.routes.instruments import router as instruments_router
+
+    app.include_router(instruments_router)
 
     # Routes raise ApiError; this renders it as the typed envelope instead of a bare 500.
     install_error_handlers(app)
