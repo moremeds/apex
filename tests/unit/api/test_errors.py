@@ -65,6 +65,8 @@ def test_envelope_omits_absent_context() -> None:
 def test_code_values_are_stable_contract() -> None:
     """These strings are published to argon; renaming one is a breaking change."""
     assert {c.value for c in ApiErrorCode} == {
+        "invalid_parameter",
+        "internal_error",
         "unsupported_timeframe",
         "unsupported_asset_class",
         "adjusted_not_supported",

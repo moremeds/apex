@@ -14,7 +14,7 @@ Mirrors the signal contract: REST backfill + validate-on-egress on every respons
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Optional, Tuple
+from typing import Optional
 
 from fastapi import APIRouter, Query, Request, Response
 
@@ -26,178 +26,32 @@ from src.api.payload.chart import (
     build_rates_series_payload,
 )
 from src.api.payload.validate import validate_payload
+from src.api.routes._chart_guards import (
+    _DEFAULT_BARS,
+    _artifact_exists,
+    _check_listing,
+    _check_timeframe,
+    _contract_identity,
+    _provider_or_raise,
+    _require_bars_payload,
+    _resolve_window,
+    _silver_revision,
+    _spec_or_raise,
+)
 from src.application.chart.indicator_compute import (
-    DEFAULT_TF_DELTA,
-    TF_DELTAS,
     UnknownIndicatorError,
     compute_indicator_series,
 )
 from src.domain.signals.indicators.registry import get_indicator_registry
-from src.infrastructure.adapters.livewire.asset_classes import (
-    AssetClassSpec,
-    UnknownAssetClass,
-    get_asset_class,
-)
 from src.infrastructure.adapters.livewire.ohlc_provider import AdjustedDataUnavailable
-from src.infrastructure.adapters.livewire.paths import delisted_bronze_path, parquet_path
+from src.infrastructure.adapters.livewire.paths import parquet_path
 
 router = APIRouter(tags=["chart"])
 
 # Default no-arg window: the most recent N bars. We over-fetch in calendar time
 # (markets aren't 24/7, so N*delta would under-cover across closures) then tail-slice
 # to exactly N. Callers wanting an exact range pass start/end.
-_DEFAULT_BARS = 2000
-_LOOKBACK_FUDGE = 10
-
 _SUNSET = "Wed, 31 Dec 2026 23:59:59 GMT"
-
-
-def _resolve_window(
-    timeframe: str,
-    start: Optional[datetime],
-    end: Optional[datetime],
-    bars: int = _DEFAULT_BARS,
-) -> Tuple[datetime, datetime, Optional[int]]:
-    """Return (start, end, tail_limit). When start is omitted, fetch a generous
-    lookback and tail-slice to `bars`; an explicit start is honoured as-is."""
-    end = end or datetime.now(timezone.utc)
-    if start is None:
-        if bars <= 0:  # full history: no tail-slice, fetch from the epoch
-            return datetime(1970, 1, 1, tzinfo=timezone.utc), end, None
-        delta = TF_DELTAS.get(timeframe, DEFAULT_TF_DELTA)
-        start = end - delta * bars * _LOOKBACK_FUDGE
-        return start, end, bars
-    return start, end, None
-
-
-def _silver_revision(request: Request) -> Optional[int]:
-    """The revision the payload's adjusted prices were built from.
-
-    Sourced from the running watcher's ``last_fully_applied_revision`` -- NOT
-    ``observed_revision``, which may be a revision apex has seen but not finished
-    applying. There is no ``app.state.silver_revision``; the watcher owns this.
-    """
-    watcher = getattr(request.app.state, "revision_watcher", None)
-    return getattr(watcher, "last_fully_applied_revision", None) if watcher else None
-
-
-def _contract_identity(spec: AssetClassSpec, bars: list) -> Optional[dict]:
-    """Futures instrument identity, lifted off the first bar.
-
-    livewire stores contract_id / root_symbol / expiry_date as per-row columns on
-    asset_class=futures and they are constant across a contract's rows. Every other
-    class returns None.
-    """
-    if spec.name != "futures" or not bars:
-        return None
-    first = bars[0]
-    root = getattr(first, "root_symbol", None)
-    if root is None:
-        return None
-    return {
-        "contract_id": getattr(first, "contract_id", None),
-        "root_symbol": root,
-        "expiry_date": getattr(first, "expiry_date", None),  # already an ISO string
-    }
-
-
-def _provider_or_raise(request: Request) -> Any:
-    provider = getattr(request.app.state, "ohlc_provider", None)
-    if provider is None:
-        raise ApiError(ApiErrorCode.PROVIDER_NOT_CONFIGURED, "bar provider not configured")
-    return provider
-
-
-def _spec_or_raise(asset_class: str) -> AssetClassSpec:
-    try:
-        return get_asset_class(asset_class)
-    except UnknownAssetClass as exc:
-        raise ApiError(
-            ApiErrorCode.UNSUPPORTED_ASSET_CLASS, str(exc), asset_class=asset_class
-        ) from exc
-
-
-def _require_bars_payload(spec: AssetClassSpec, symbol: str) -> None:
-    """Reject a class whose payload is not bars.
-
-    `rates` is registered in the asset-class registry (so paths and discovery work) but a
-    yield has no OHLC and cannot satisfy bars_payload.schema.json. Without this the generic
-    route would read the parquet, build a payload of null prices, and fail egress validation
-    as a 500 instead of telling the caller which route to use.
-    """
-    if spec.payload != "bars":
-        raise ApiError(
-            ApiErrorCode.UNSUPPORTED_ASSET_CLASS,
-            f"{spec.name} is not an OHLCV class; use /v1/{spec.name}/{{symbol}}/series",
-            symbol=symbol,
-            asset_class=spec.name,
-        )
-
-
-def _check_timeframe(spec: AssetClassSpec, timeframe: str) -> None:
-    if timeframe not in spec.timeframes:
-        raise ApiError(
-            ApiErrorCode.UNSUPPORTED_TIMEFRAME,
-            f"unsupported timeframe {timeframe!r} for {spec.name} "
-            f"(have {list(spec.timeframes)})",
-            asset_class=spec.name,
-        )
-
-
-def _is_dual_resident(provider: Any, symbol: str) -> bool:
-    """True when ``symbol`` exists in BOTH the live and delisted bronze trees.
-
-    Prefers a provider-supplied answer so test doubles need no filesystem; falls back to
-    probing bronze-delisted/. With no delisted root configured, nothing is dual-resident.
-    """
-    probe = getattr(provider, "is_dual_resident", None)
-    if probe is not None:
-        return bool(probe(symbol))
-    delisted_root = getattr(provider, "delisted_root", None)
-    return delisted_root is not None and delisted_bronze_path(delisted_root, symbol).exists()
-
-
-def _check_listing(provider: Any, listing: str, symbol: str, asset_class: str) -> str:
-    """Resolve the ``listing`` filter to a listing_status, or fail with a typed code.
-
-    ``delisted`` is specified but blocked upstream: livewire has no Silver tree for
-    bronze-delisted/, and no delisted symbol has correct corporate-action data
-    (measured 2026-08-23). Serving raw delisted bars would trade survivorship bias
-    for silent mis-adjustment, so we fail loudly instead.
-
-    ``any`` resolves to ``listed`` unless the ticker is genuinely dual-resident, in which
-    case it is a 409: 2,345 tickers exist in BOTH the live and delisted trees (ticker
-    reuse), so for those "either" has no single correct answer.
-    """
-    if listing == "listed":
-        return "listed"
-    if listing == "any":
-        # Only ambiguous when the ticker really is dual-resident. 2,345 of 8,620 delisted
-        # symbols are also live; for the other ~12,400 live symbols "any" has exactly one
-        # answer, so 409-ing all of them would be noise.
-        if _is_dual_resident(provider, symbol):
-            raise ApiError(
-                ApiErrorCode.AMBIGUOUS_SYMBOL,
-                f"{symbol} resolves to both a live and a delisted entity; "
-                "request listing=listed or listing=delisted explicitly",
-                symbol=symbol,
-                asset_class=asset_class,
-            )
-        return "listed"
-    if listing != "delisted":
-        raise ApiError(
-            ApiErrorCode.UNKNOWN_SYMBOL,
-            f"unknown listing filter {listing!r} (have listed, delisted, any)",
-            symbol=symbol,
-            asset_class=asset_class,
-        )
-    raise ApiError(
-        ApiErrorCode.NOT_YET_AVAILABLE,
-        "delisted coverage requires upstream livewire work "
-        "(instrument identity, corporate-action backfill, Silver over bronze-delisted)",
-        symbol=symbol,
-        asset_class=asset_class,
-    )
 
 
 async def _bars_response(
@@ -211,14 +65,17 @@ async def _bars_response(
     price_mode: Optional[str],
     listing: str,
 ) -> dict:
-    provider = _provider_or_raise(request)
+    # Request validation first: a malformed request is malformed whether or not the
+    # provider happens to be up, and answering it with 503 tells the caller to retry
+    # something that can never succeed.
     spec = _spec_or_raise(asset_class)
     _require_bars_payload(spec, symbol)
     _check_timeframe(spec, timeframe)
+    provider = _provider_or_raise(request)
     listing_status = _check_listing(provider, listing, symbol, spec.name)
     if price_mode is not None and price_mode not in ("raw", "adjusted"):
         raise ApiError(
-            ApiErrorCode.UNSUPPORTED_ASSET_CLASS,
+            ApiErrorCode.INVALID_PARAMETER,
             f"unknown price_mode {price_mode!r} (have raw, adjusted)",
             symbol=symbol,
             asset_class=spec.name,
@@ -244,7 +101,7 @@ async def _bars_response(
         raise ApiError(
             ApiErrorCode.ADJUSTED_UNAVAILABLE, str(exc), symbol=symbol, asset_class=spec.name
         ) from exc
-    if not bars and not parquet_path(provider.bronze_root, symbol, timeframe, spec.name).exists():
+    if not bars and not _artifact_exists(provider, symbol, timeframe, spec, effective):
         # Distinguish "no artifact" from "artifact exists, window is empty". The second is a
         # legitimate 200 with zero bars (a quiet window); the first is a 404.
         raise ApiError(
@@ -280,9 +137,13 @@ async def _indicators_response(
     end: Optional[datetime],
     limit: int,
 ) -> dict:
-    provider = _provider_or_raise(request)
     spec = _spec_or_raise(asset_class)
+    # A yield has no OHLC. Without this the rates parquet is read into BarData with
+    # null prices and the indicator computes over them, returning 200 and null
+    # bar_close -- a number-shaped answer to a question that has no answer.
+    _require_bars_payload(spec, symbol)
     _check_timeframe(spec, timeframe)
+    provider = _provider_or_raise(request)
     registry = getattr(request.app.state, "indicator_registry", None) or get_indicator_registry()
     start, end, tail = _resolve_window(timeframe, start, end, limit)
     try:
@@ -297,8 +158,10 @@ async def _indicators_response(
             asset_class=spec.name,
         )
     except UnknownIndicatorError as exc:
+        # The symbol is fine; the `indicator` QUERY VALUE is not. Reporting this as
+        # unknown_symbol sent callers to check their ticker.
         raise ApiError(
-            ApiErrorCode.UNKNOWN_SYMBOL,
+            ApiErrorCode.INVALID_PARAMETER,
             f"unknown indicator: {indicator}",
             symbol=symbol,
             asset_class=spec.name,
@@ -307,6 +170,18 @@ async def _indicators_response(
         raise ApiError(
             ApiErrorCode.ADJUSTED_UNAVAILABLE, str(exc), symbol=symbol, asset_class=spec.name
         ) from exc
+    if not points and not _artifact_exists(
+        provider, symbol, timeframe, spec, provider.effective_price_mode(spec.name)
+    ):
+        # Same rule as /bars, and probed only on an empty result so the happy path
+        # costs no extra stat(): no artifact is a 404, an empty window over a real
+        # one is a legitimate 200.
+        raise ApiError(
+            ApiErrorCode.UNKNOWN_SYMBOL,
+            f"no artifact for {symbol} under {spec.partition}",
+            symbol=symbol,
+            asset_class=spec.name,
+        )
     if tail is not None:
         points = points[-tail:]
     payload = build_indicator_payload(
@@ -375,8 +250,19 @@ async def get_rates_series_v1(
     end: Optional[datetime] = None,
 ) -> dict:
     provider = _provider_or_raise(request)
+    spec = _spec_or_raise("rates")
     start, end, _ = _resolve_window("1d", start, end, 0)
     points = await provider.fetch_rate_series(symbol, start, end)
+    if not points and not parquet_path(provider.bronze_root, symbol, "1d", spec.name).exists():
+        # Same rule as /bars: no artifact is a 404, an empty window over a real
+        # artifact is a legitimate 200. Without this an unknown series answers 200
+        # with zero points, which reads as "this yield had no observations".
+        raise ApiError(
+            ApiErrorCode.UNKNOWN_SYMBOL,
+            f"no artifact for {symbol} under {spec.partition}",
+            symbol=symbol,
+            asset_class=spec.name,
+        )
     payload = build_rates_series_payload(symbol, points, generated_at=datetime.now(timezone.utc))
     validate_payload(payload, "rates_series_payload")
     return payload

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -12,6 +14,8 @@ from src.api.payload.validate import validate_payload
 from src.infrastructure.adapters.livewire.asset_classes import UnknownAssetClass, get_asset_class
 from src.infrastructure.adapters.livewire.coverage import CoverageUnavailable
 from src.infrastructure.adapters.livewire.paths import daily_silver_path, parquet_path
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["instruments"])
 
@@ -35,6 +39,11 @@ async def list_instruments(
     limit: int = Query(default=500, ge=1, le=5000),
 ) -> dict:
     catalog = _catalog_or_raise(request)
+    if listing not in ("listed", "delisted", "any"):
+        raise ApiError(
+            ApiErrorCode.INVALID_PARAMETER,
+            f"unknown listing filter {listing!r} (have listed, delisted, any)",
+        )
     if listing != "listed":
         # The coverage table measures the live tree only; bronze-delisted/ is not in it.
         raise ApiError(
@@ -50,8 +59,14 @@ async def list_instruments(
                 ApiErrorCode.UNSUPPORTED_ASSET_CLASS, str(exc), asset_class=asset_class
             ) from exc
     try:
-        rows = catalog.list_instruments(  # type: ignore[attr-defined]
-            asset_class=asset_class, query=q, limit=limit
+        # DuckDB is synchronous and the catalog lives on the same external volume
+        # as the lake; running it inline stalls every other request on this worker
+        # for the duration of the read. Same treatment the bars path already gets.
+        rows = await asyncio.to_thread(
+            catalog.list_instruments,  # type: ignore[attr-defined]
+            asset_class=asset_class,
+            query=q,
+            limit=limit,
         )
     except CoverageUnavailable as exc:
         # An unreadable catalog is NOT an empty universe. Reporting zero instruments
@@ -138,10 +153,18 @@ async def get_instrument(asset_class: str, symbol: str, request: Request) -> dic
     # Probe the artifacts: the coverage table measures no equity intraday, so it
     # cannot answer this. Five exists() calls is fine for one symbol; it is exactly
     # why the LIST endpoint does not do it 14,746 times.
+    silver_daily = (
+        spec.supports_adjusted
+        and provider.silver_root is not None
+        and daily_silver_path(provider.silver_root, symbol).exists()
+    )
     timeframes = [
         tf
         for tf in spec.timeframes
+        # Silver can outlive its Bronze source, so a Bronze-only probe would omit "1d"
+        # from a symbol that /bars will happily serve in adjusted mode.
         if parquet_path(provider.bronze_root, symbol, tf, spec.name).exists()
+        or (tf == "1d" and silver_daily)
     ]
     if not timeframes:
         raise ApiError(
@@ -150,23 +173,30 @@ async def get_instrument(asset_class: str, symbol: str, request: Request) -> dic
             symbol=symbol,
             asset_class=spec.name,
         )
-    silver_available = False
-    if spec.supports_adjusted and provider.silver_root is not None:
-        silver_available = daily_silver_path(provider.silver_root, symbol).exists()
+    silver_available = silver_daily
     catalog = getattr(request.app.state, "coverage_catalog", None)
     dates = None
+    # Names WHY first_date/last_date are null, so an unreadable catalog cannot hide
+    # behind a symbol that genuinely has no recorded coverage. Not fatal here:
+    # timeframes and silver_available came from disk and are still correct.
+    coverage_source = "not_configured" if catalog is None else "livewire_coverage_snapshot"
     if catalog is not None:
         try:
-            dates = catalog.get_instrument(symbol, spec.name)
-        except CoverageUnavailable:
+            dates = await asyncio.to_thread(catalog.get_instrument, symbol, spec.name)
+        except CoverageUnavailable as exc:
             # Detail degrades to artifact-only facts rather than failing: the
-            # timeframes above came from disk and are still correct.
+            # timeframes above came from disk and are still correct. Logged, not
+            # swallowed -- silently nulling the dates would hide a broken catalog
+            # mount behind a 200.
+            logger.warning("coverage catalog unreadable, serving %s without dates: %s", symbol, exc)
             dates = None
+            coverage_source = "unavailable"
     return {
         "symbol": symbol,
         "asset_class": spec.name,
         "listing_status": "listed",
         "timeframes": timeframes,
+        "coverage_source": coverage_source,
         "first_date": dates.first_date if dates else None,
         "last_date": dates.last_date if dates else None,
         "silver_available": silver_available,
