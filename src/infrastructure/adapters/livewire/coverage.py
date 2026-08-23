@@ -130,6 +130,19 @@ class CoverageCatalog:
             con.close()
         return [self._to_row(r) for r in rows]
 
+    def get_instrument(self, symbol: str, asset_class: str) -> Optional[InstrumentRow]:
+        """Exact-match lookup for one instrument.
+
+        Not ``list_instruments(limit=1)``: that filters by PREFIX, so "AA" would
+        return whichever of AA/AAL/AAPL sorts first.
+        """
+        rows = [
+            r
+            for r in self.list_instruments(asset_class=asset_class, query=symbol, limit=50)
+            if r.symbol == symbol
+        ]
+        return rows[0] if rows else None
+
     @staticmethod
     def _to_row(row: dict) -> InstrumentRow:
         asset_class = _VIEW_TO_CLASS[row["view_name"]]

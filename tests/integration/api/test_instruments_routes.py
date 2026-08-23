@@ -91,3 +91,58 @@ async def test_silver_availability_is_visible_before_requesting_bars(catalog_db:
     assert by_symbol["AAPL"]["price_mode"] == "adjusted"
     assert by_symbol["HON"]["silver_available"] is False
     assert by_symbol["HON"]["price_mode"] == "raw"
+
+
+@pytest.mark.asyncio
+async def test_instrument_detail_probes_actual_timeframes(tmp_path: Path, catalog_db: Path) -> None:
+    """The coverage table measures no equity intraday, so per-symbol timeframes come
+    from artifact probes -- five Path.exists() calls, affordable for one symbol."""
+    from src.infrastructure.adapters.livewire.ohlc_provider import LivewireOhlcProvider
+
+    d = tmp_path / "asset_class=equity" / "symbol=AAPL"
+    d.mkdir(parents=True, exist_ok=True)
+    for tf in ("1d", "1h"):
+        (d / f"{tf}.parquet").write_bytes(b"")
+
+    app = create_app()
+    app.state.coverage_catalog = CoverageCatalog(catalog_db)
+    app.state.ohlc_provider = LivewireOhlcProvider(bronze_root=tmp_path)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        r = await c.get("/v1/equity/AAPL")
+    assert r.status_code == 200
+    body = r.json()
+    assert sorted(body["timeframes"]) == ["1d", "1h"]
+    assert body["asset_class"] == "equity"
+    assert body["first_date"] == "1980-12-12"
+
+
+@pytest.mark.asyncio
+async def test_instrument_detail_unknown_symbol_is_404(tmp_path: Path, catalog_db: Path) -> None:
+    from src.infrastructure.adapters.livewire.ohlc_provider import LivewireOhlcProvider
+
+    app = create_app()
+    app.state.coverage_catalog = CoverageCatalog(catalog_db)
+    app.state.ohlc_provider = LivewireOhlcProvider(bronze_root=tmp_path)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        r = await c.get("/v1/equity/NOTAREALTICKER")
+    assert r.status_code == 404
+    assert r.json()["error"]["code"] == "unknown_symbol"
+
+
+@pytest.mark.asyncio
+async def test_detail_does_not_shadow_the_list_route(catalog_db: Path) -> None:
+    """/v1/instruments is one segment, /v1/{asset_class}/{symbol} is two -- Starlette
+    matches whole patterns, so registration order cannot make them collide."""
+    app = _app(catalog_db)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        r = await c.get("/v1/instruments")
+    assert r.status_code == 200
+    assert "instruments" in r.json()
+
+
+@pytest.mark.asyncio
+async def test_exact_match_not_prefix_match(tmp_path: Path, catalog_db: Path) -> None:
+    """get_instrument must not return AAPL when asked for AA."""
+    catalog = CoverageCatalog(catalog_db)
+    assert catalog.get_instrument("AA", "equity") is None
+    assert catalog.get_instrument("AAPL", "equity").symbol == "AAPL"
