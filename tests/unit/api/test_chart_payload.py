@@ -260,3 +260,29 @@ def test_rates_payload_nulls_tenor_when_mixed() -> None:
     payload = build_rates_series_payload("MIXED", points, generated_at=_GEN)
     assert payload["tenor_years"] is None
     validate_payload(payload, "rates_series_payload")
+
+
+def test_extra_bar_fields_come_from_the_registry_not_a_hardcoded_tuple() -> None:
+    """Adding a seventh asset class must be a registry row. If the payload hardcodes
+    which columns are 'extra', a new class with extra columns silently drops them."""
+    from src.infrastructure.adapters.livewire.asset_classes import get_asset_class
+
+    assert get_asset_class("futures").extra_bar_fields == ("settlement", "open_interest")
+    assert get_asset_class("equity").extra_bar_fields == ()
+
+    class _Bar:
+        open = high = low = close = 1.0
+        volume = 1
+        timestamp = bar_start = datetime(2026, 8, 21, tzinfo=timezone.utc)
+        settlement = 74.2
+        open_interest = 1234
+
+    # Same bar object, two classes: the registry alone decides what is emitted.
+    as_futures = build_bars_payload(
+        "BZ_202609", "1d", [_Bar()], generated_at=_GEN, asset_class="futures"
+    )["bars"][0]
+    as_equity = build_bars_payload("AAPL", "1d", [_Bar()], generated_at=_GEN, asset_class="equity")[
+        "bars"
+    ][0]
+    assert as_futures["settlement"] == 74.2 and as_futures["open_interest"] == 1234
+    assert "settlement" not in as_equity and "open_interest" not in as_equity

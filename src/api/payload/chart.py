@@ -9,6 +9,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List
 
+from src.infrastructure.adapters.livewire.asset_classes import get_asset_class
+
 
 def _iso(value: Any) -> Any:
     """ISO-8601 string, normalised to UTC so the chart contract matches the signal one.
@@ -23,7 +25,7 @@ def _iso(value: Any) -> Any:
     return value
 
 
-def _bar_to_dict(bar: Any) -> Dict[str, Any]:
+def _bar_to_dict(bar: Any, extra_fields: tuple[str, ...] = ()) -> Dict[str, Any]:
     # livewire bars set timestamp == bar_start; prefer timestamp, fall back to bar_start.
     when = bar.timestamp if getattr(bar, "timestamp", None) is not None else bar.bar_start
     row: Dict[str, Any] = {
@@ -34,9 +36,10 @@ def _bar_to_dict(bar: Any) -> Dict[str, Any]:
         "close": bar.close,
         "volume": bar.volume,
     }
-    # Futures-only columns. Omitted entirely for every other class rather than
-    # emitted as null noise on ~20M equity bars.
-    for extra in ("settlement", "open_interest"):
+    # Per-class extra columns, read from the registry rather than hardcoded -- the
+    # whole point of the registry is that a seventh class is a row, not an edit here.
+    # Omitted entirely where absent rather than emitted as null noise on ~20M bars.
+    for extra in extra_fields:
         value = getattr(bar, extra, None)
         if value is not None:
             row[extra] = value
@@ -61,7 +64,8 @@ def build_bars_payload(
     consumer written against ``listing_status == "listed"`` cannot later be handed
     delisted bars silently, and the adjustment basis is never left to inference.
     """
-    rows = [_bar_to_dict(b) for b in bars]
+    extra_fields = get_asset_class(asset_class).extra_bar_fields
+    rows = [_bar_to_dict(b, extra_fields) for b in bars]
     return {
         "symbol": symbol,
         "asset_class": asset_class,
