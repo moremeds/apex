@@ -7,6 +7,7 @@ route reads off app.state (ohlc_provider / signal_repo).
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, List
 
 from httpx import ASGITransport, AsyncClient
@@ -43,8 +44,22 @@ def _series(n: int) -> List[BarData]:
 
 
 class _FakeProvider:
-    def __init__(self, bars: List[BarData]) -> None:
+    def __init__(self, bars: List[BarData], dual_resident: set[str] | None = None) -> None:
         self._bars = bars
+        # A real path that does not exist: _bars_response probes it to tell "no artifact"
+        # (404) apart from "artifact exists, window empty" (200 with zero bars).
+        self.bronze_root = Path("/nonexistent")
+        self.delisted_root = None
+        self._dual = dual_resident or set()
+
+    def effective_price_mode(self, asset_class: str = "equity") -> str:
+        return "raw"
+
+    def is_dual_resident(self, symbol: str) -> bool:
+        return symbol in self._dual
+
+    async def fetch_rate_series(self, symbol: str, start: datetime, end: datetime) -> list:
+        return []
 
     async def fetch_bars(
         self,
@@ -261,3 +276,208 @@ async def test_get_confluence_rejects_out_of_range_limit() -> None:
     async with _client(app) as c:
         resp = await c.get("/confluence/AAPL", params={"timeframe": "1d", "limit": "0"})
     assert resp.status_code == 422
+
+
+# --- Task 8: /v1 routes and deprecated aliases -------------------------------------
+
+import pytest  # noqa: E402
+
+from src.infrastructure.adapters.livewire.ohlc_provider import (  # noqa: E402
+    AdjustedDataUnavailable,
+)
+
+
+@pytest.mark.asyncio
+async def test_v1_bars_route_serves_equity() -> None:
+    app = create_app()
+    app.state.ohlc_provider = _FakeProvider(_series(5))
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        r = await c.get("/v1/equity/AAPL/bars", params={"timeframe": "1d"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["asset_class"] == "equity"
+    assert body["price_mode"] == "raw"
+    assert body["listing_status"] == "listed"
+    validate_payload(body, "bars_payload")
+
+
+@pytest.mark.asyncio
+async def test_flat_alias_matches_v1_and_is_marked_deprecated() -> None:
+    app = create_app()
+    app.state.ohlc_provider = _FakeProvider(_series(5))
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        legacy = await c.get("/bars/AAPL", params={"timeframe": "1d"})
+        v1 = await c.get("/v1/equity/AAPL/bars", params={"timeframe": "1d"})
+    assert legacy.json()["bars"] == v1.json()["bars"]
+    assert legacy.headers["Deprecation"] == "true"
+    assert "Sunset" in legacy.headers
+    assert "successor-version" in legacy.headers["Link"]
+
+
+@pytest.mark.asyncio
+async def test_v1_indicators_route_works_off_equity() -> None:
+    app = create_app()
+    app.state.ohlc_provider = _FakeProvider(_series(300))
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        r = await c.get(
+            "/v1/equity/AAPL/indicators", params={"indicator": "rsi", "timeframe": "1d"}
+        )
+    assert r.status_code == 200
+    validate_payload(r.json(), "indicator_series_payload")
+
+
+@pytest.mark.asyncio
+async def test_v1_confluence_route_is_registered() -> None:
+    """PG-backed and equity-only: with no repo configured it must be a typed 503,
+    not a 404 -- proving the route exists."""
+    app = create_app()
+    app.state.signal_repo = None
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        r = await c.get("/v1/equity/AAPL/confluence")
+    assert r.status_code == 503
+    assert r.json()["error"]["code"] == "provider_not_configured"
+
+
+@pytest.mark.asyncio
+async def test_unknown_asset_class_is_400_with_a_code() -> None:
+    app = create_app()
+    app.state.ohlc_provider = _FakeProvider([])
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        r = await c.get("/v1/crypto/BTC/bars")
+    assert r.status_code == 400
+    assert r.json()["error"]["code"] == "unsupported_asset_class"
+
+
+@pytest.mark.asyncio
+async def test_intraday_on_a_daily_only_class_is_400_with_a_code() -> None:
+    app = create_app()
+    app.state.ohlc_provider = _FakeProvider([])
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        r = await c.get("/v1/volatility/VIX/bars", params={"timeframe": "1m"})
+    assert r.status_code == 400
+    assert r.json()["error"]["code"] == "unsupported_timeframe"
+
+
+# Explicit window covering the fixture series: the no-arg default window is anchored
+# to now(), and a 1m default lookback (~14 days) would not reach a Jan-2026 fixture.
+_WINDOW = {"start": _T0.isoformat(), "end": (_T0 + 30 * _DAY).isoformat()}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("timeframe", ["5m", "30m", "1h", "1d"])
+async def test_volatility_intraday_is_accepted(timeframe: str) -> None:
+    """Measured on the production lake: volatility publishes 5m/30m/1h/1d (never 1m).
+    Rejecting the intraday ladder would make real parquet files unreachable."""
+    app = create_app()
+    app.state.ohlc_provider = _FakeProvider(_series(5))
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        r = await c.get("/v1/volatility/VIX/bars", params={"timeframe": timeframe, **_WINDOW})
+    assert r.status_code == 200, r.text
+    assert r.json()["asset_class"] == "volatility"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("timeframe", ["1m", "5m", "30m", "1h", "1d"])
+async def test_fx_intraday_is_accepted(timeframe: str) -> None:
+    """All 21 production FX pairs publish the full 1m/5m/30m/1h/1d ladder."""
+    app = create_app()
+    app.state.ohlc_provider = _FakeProvider(_series(5))
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        r = await c.get("/v1/fx/DXY/bars", params={"timeframe": timeframe, **_WINDOW})
+    assert r.status_code == 200, r.text
+    assert r.json()["asset_class"] == "fx"
+
+
+@pytest.mark.asyncio
+async def test_rates_through_the_bars_route_is_redirected_not_500() -> None:
+    """A yield has no OHLC; the bars route must name the right route rather than
+    building a null-price payload that fails egress validation as a 500."""
+    app = create_app()
+    app.state.ohlc_provider = _FakeProvider([])
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        r = await c.get("/v1/rates/DGS10/bars")
+    assert r.status_code == 400
+    assert r.json()["error"]["code"] == "unsupported_asset_class"
+    assert "series" in r.json()["error"]["message"]
+
+
+@pytest.mark.asyncio
+async def test_rates_series_route_serves_the_yield_shape() -> None:
+    app = create_app()
+    app.state.ohlc_provider = _FakeProvider([])
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        r = await c.get("/v1/rates/DGS10/series")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["asset_class"] == "rates"
+    validate_payload(body, "rates_series_payload")
+
+
+@pytest.mark.asyncio
+async def test_adjusted_unavailable_is_503_not_500() -> None:
+    """The 243 symbols with bronze but no Silver must be distinguishable from a crash."""
+
+    class _Quarantined:
+        bronze_root = Path("/nonexistent")
+        delisted_root = None
+
+        def effective_price_mode(self, asset_class: str = "equity") -> str:
+            return "adjusted"
+
+        async def fetch_bars(self, *a: object, **kw: object) -> list:
+            raise AdjustedDataUnavailable("Silver daily artifact is missing for HON")
+
+    app = create_app()
+    app.state.ohlc_provider = _Quarantined()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        r = await c.get("/v1/equity/HON/bars")
+    assert r.status_code == 503
+    body = r.json()["error"]
+    assert body["code"] == "adjusted_unavailable"
+    assert body["symbol"] == "HON"
+
+
+@pytest.mark.asyncio
+async def test_adjusted_requested_on_non_equity_is_400() -> None:
+    app = create_app()
+    app.state.ohlc_provider = _FakeProvider([])
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        r = await c.get("/v1/fx/DXY/bars", params={"price_mode": "adjusted"})
+    assert r.status_code == 400
+    assert r.json()["error"]["code"] == "adjusted_not_supported"
+
+
+@pytest.mark.asyncio
+async def test_listing_any_is_409_because_tickers_are_reused() -> None:
+    """2,345 tickers exist in both the live and delisted trees (measured 2026-08-23).
+    Only those are ambiguous; a live-only symbol under listing=any is served normally."""
+    app = create_app()
+    app.state.ohlc_provider = _FakeProvider(_series(5), dual_resident={"BBBY"})
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        ambiguous = await c.get("/v1/equity/BBBY/bars", params={"listing": "any"})
+        unambiguous = await c.get("/v1/equity/AAPL/bars", params={"listing": "any"})
+    assert ambiguous.status_code == 409
+    assert ambiguous.json()["error"]["code"] == "ambiguous_symbol"
+    assert unambiguous.status_code == 200
+    assert unambiguous.json()["listing_status"] == "listed"
+
+
+@pytest.mark.asyncio
+async def test_delisted_is_a_typed_501_not_a_silent_empty() -> None:
+    app = create_app()
+    app.state.ohlc_provider = _FakeProvider([])
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        r = await c.get("/v1/equity/BBBY/bars", params={"listing": "delisted"})
+    assert r.status_code == 501
+    assert r.json()["error"]["code"] == "not_yet_available"
+
+
+@pytest.mark.asyncio
+async def test_missing_artifact_is_404_not_an_empty_200() -> None:
+    """An absent parquet is a 404; an existing parquet with a quiet window is a 200."""
+    app = create_app()
+    app.state.ohlc_provider = _FakeProvider([])
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        r = await c.get("/v1/equity/NOSUCHTICKER/bars")
+    assert r.status_code == 404
+    assert r.json()["error"]["code"] == "unknown_symbol"
