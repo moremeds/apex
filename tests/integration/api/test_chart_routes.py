@@ -47,7 +47,13 @@ class _FakeProvider:
         self._bars = bars
 
     async def fetch_bars(
-        self, symbol: str, timeframe: str, start: datetime, end: datetime
+        self,
+        symbol: str,
+        timeframe: str,
+        start: datetime,
+        end: datetime,
+        asset_class: str = "equity",
+        price_mode: str | None = None,
     ) -> List[BarData]:
         return [b for b in self._bars if start <= b.timestamp <= end]
 
