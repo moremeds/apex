@@ -216,13 +216,17 @@ class LivewireOhlcProvider:
 
     def _query_rates(self, path: Path, start: datetime, end: datetime) -> List[RatePoint]:
         sql = (
-            f"SELECT trade_date, tenor_years, yield_pct "
-            f"FROM read_parquet('{path.as_posix()}') "
-            f"WHERE trade_date >= ? AND trade_date <= ? ORDER BY trade_date ASC"
+            "SELECT trade_date, tenor_years, yield_pct "
+            "FROM read_parquet(?) "
+            "WHERE trade_date >= ? AND trade_date <= ? ORDER BY trade_date ASC"
         )
         con = duckdb.connect(database=":memory:")
         try:
-            rows = con.execute(sql, [start.date(), end.date()]).fetch_arrow_table().to_pylist()
+            rows = (
+                con.execute(sql, [path.as_posix(), start.date(), end.date()])
+                .fetch_arrow_table()
+                .to_pylist()
+            )
         finally:
             con.close()
         return [
@@ -268,7 +272,7 @@ class LivewireOhlcProvider:
         con = duckdb.connect(database=":memory:")
         try:
             row = con.execute(
-                f"SELECT max(trade_date) FROM read_parquet('{path.as_posix()}')"
+                "SELECT max(trade_date) FROM read_parquet(?)", [path.as_posix()]
             ).fetchone()
         except duckdb.Error as exc:
             logger.error("recency probe failed for %s: %s", path, exc)
@@ -287,17 +291,20 @@ class LivewireOhlcProvider:
         end: datetime,
     ) -> List[BarData]:
         ts_col = _timestamp_column(timeframe)
-        # NOTE: read_parquet path is inlined (NOT a bound parameter) -- DuckDB does
-        # not accept a prepared-statement parameter for the parquet path. The path
-        # is constructed by us from a validated symbol/timeframe, not user SQL.
+        # The parquet path is a BOUND parameter, not interpolated. An earlier comment
+        # here claimed DuckDB could not bind it; measured against duckdb 1.4.3 it can,
+        # including a path containing a quote. `ts_col` is still interpolated because
+        # an identifier cannot be a parameter -- it comes from _timestamp_column, which
+        # returns one of two module constants, never caller input.
         sql = (
-            f"SELECT * FROM read_parquet('{path.as_posix()}') "
+            f"SELECT * FROM read_parquet(?) "
             f"WHERE {ts_col} >= ? AND {ts_col} <= ? ORDER BY {ts_col} ASC"
         )
         # Daily `trade_date` is a DATE -- bind calendar-date params so the comparison
         # is tz-agnostic (avoids DATE-vs-TIMESTAMPTZ session-tz surprises). Intraday
         # `bar_timestamp` is TIMESTAMPTZ -- bind the tz-aware datetimes directly.
-        params = [start.date(), end.date()] if timeframe == "1d" else [start, end]
+        window = [start.date(), end.date()] if timeframe == "1d" else [start, end]
+        params: List[Any] = [path.as_posix(), *window]
         con = duckdb.connect(database=":memory:")
         try:
             rows = con.execute(sql, params).fetch_arrow_table().to_pylist()
