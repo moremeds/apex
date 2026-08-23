@@ -9,6 +9,32 @@ All notable changes to apex are recorded here. Format follows
 
 ## [Unreleased]
 
+### Added
+
+- `/v1/{asset_class}/{symbol}/bars` covering equity, volatility, fx, cmdty and futures.
+- `/v1/rates/{symbol}/series` for FRED Treasury yields (a yield has no OHLC, so it gets its
+  own payload shape).
+- `/v1/instruments` and `/v1/{asset_class}/{symbol}` discovery.
+- `/v1/equity/{symbol}/actions` and `/delisting` specified, returning a typed 501 pending livewire.
+- Typed error envelope with machine-readable codes on every failure.
+- `price_mode`, `listing_status`, `asset_class` and `adjustment_revision` on every bars payload.
+- Futures bars carry `settlement`, `open_interest` and contract identity.
+- `/health` now reports real bronze/silver recency read from the artifacts.
+
+### Changed
+
+- Flat routes (`/bars/{ticker}` etc.) are deprecated aliases; they emit `Deprecation` and `Sunset`.
+- `bars_payload` no longer emits `vwap` (always null -- no lake parquet carries the column).
+- `bars_payload` timeframe enum narrowed to `1m/5m/30m/1h/1d`.
+
+### Fixed
+
+- Missing Silver artifacts return `503 adjusted_unavailable` instead of a bare 500 (243 symbols
+  including HON, MMM, CMCSA).
+- Non-equity symbols no longer resolve into `asset_class=equity` and read an absent file.
+- fx and volatility intraday are reachable: both publish an intraday ladder that a
+  daily-only assumption would have hidden (126 parquet files).
+
 ## [0.1.4] — 2026-08-22
 
 ### Fixed
