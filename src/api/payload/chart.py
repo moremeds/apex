@@ -76,6 +76,26 @@ def build_bars_payload(
     }
 
 
+def build_rates_series_payload(
+    symbol: str, points: Iterable[Any], *, generated_at: datetime
+) -> Dict[str, Any]:
+    """Build the rates contract. Separate from bars because a yield has no OHLC and
+    cannot satisfy bars_payload.schema.json's numeric open/high/low/close."""
+    # Materialize once: `points` is an Iterable, and iterating it twice would leave
+    # tenor_years silently None for any generator caller.
+    materialized = list(points)
+    rows = [{"time": _iso(p.time), "yield_pct": p.yield_pct} for p in materialized]
+    tenors = {p.tenor_years for p in materialized}
+    return {
+        "symbol": symbol,
+        "asset_class": "rates",
+        "tenor_years": next(iter(tenors)) if len(tenors) == 1 else None,
+        "points": rows,
+        "count": len(rows),
+        "generated_at": generated_at.isoformat(),
+    }
+
+
 def build_indicator_payload(
     symbol: str,
     timeframe: str,

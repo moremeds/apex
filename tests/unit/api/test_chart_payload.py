@@ -8,6 +8,7 @@ from src.api.payload.chart import (
     build_bars_payload,
     build_confluence_payload,
     build_indicator_payload,
+    build_rates_series_payload,
 )
 from src.api.payload.validate import validate_payload
 from src.domain.events.domain_events import BarData
@@ -213,3 +214,49 @@ def test_every_shape_validates_against_the_schema() -> None:
         timeframe = kwargs.pop("timeframe", "1d")
         payload = build_bars_payload("AAPL", timeframe, [], generated_at=_GEN, **kwargs)
         validate_payload(payload, "bars_payload")
+
+
+def test_rates_payload_validates() -> None:
+    """Real FRED DGS10 observations, frozen 2026-08-23."""
+    from src.infrastructure.adapters.livewire.ohlc_provider import RatePoint
+
+    points = [
+        RatePoint(
+            time=datetime(2026, 8, 18, tzinfo=timezone.utc), tenor_years=10.0, yield_pct=4.71
+        ),
+        RatePoint(
+            time=datetime(2026, 8, 19, tzinfo=timezone.utc), tenor_years=10.0, yield_pct=4.65
+        ),
+    ]
+    payload = build_rates_series_payload("DGS10", points, generated_at=_GEN)
+    assert payload["tenor_years"] == 10.0
+    assert payload["points"][0]["yield_pct"] == 4.71
+    validate_payload(payload, "rates_series_payload")
+
+
+def test_rates_payload_accepts_a_generator() -> None:
+    """points is an Iterable; iterating it twice would silently null tenor_years."""
+    from src.infrastructure.adapters.livewire.ohlc_provider import RatePoint
+
+    def gen():
+        yield RatePoint(
+            time=datetime(2026, 8, 20, tzinfo=timezone.utc), tenor_years=10.0, yield_pct=4.69
+        )
+
+    payload = build_rates_series_payload("DGS10", gen(), generated_at=_GEN)
+    assert payload["tenor_years"] == 10.0
+    assert payload["count"] == 1
+
+
+def test_rates_payload_nulls_tenor_when_mixed() -> None:
+    from src.infrastructure.adapters.livewire.ohlc_provider import RatePoint
+
+    points = [
+        RatePoint(
+            time=datetime(2026, 8, 18, tzinfo=timezone.utc), tenor_years=10.0, yield_pct=4.71
+        ),
+        RatePoint(time=datetime(2026, 8, 18, tzinfo=timezone.utc), tenor_years=5.0, yield_pct=3.9),
+    ]
+    payload = build_rates_series_payload("MIXED", points, generated_at=_GEN)
+    assert payload["tenor_years"] is None
+    validate_payload(payload, "rates_series_payload")

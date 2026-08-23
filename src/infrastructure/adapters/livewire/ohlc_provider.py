@@ -18,6 +18,7 @@ OHLCV at the right instants.
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, List, Literal
@@ -39,6 +40,15 @@ PriceMode = Literal["raw", "adjusted"]
 
 class AdjustedDataUnavailable(RuntimeError):
     """Raised when adjusted mode cannot prove complete Silver coverage."""
+
+
+@dataclass(frozen=True)
+class RatePoint:
+    """One observation from asset_class=rates. Not a bar -- there is no OHLC."""
+
+    time: datetime
+    tenor_years: float
+    yield_pct: float
 
 
 def _timestamp_column(timeframe: str) -> str:
@@ -185,6 +195,35 @@ class LivewireOhlcProvider:
             start,
             end,
         )
+
+    async def fetch_rate_series(
+        self, symbol: str, start: datetime, end: datetime
+    ) -> List[RatePoint]:
+        """Read a yield series. Rates are never adjusted -- a yield has no split."""
+        path = parquet_path(self._bronze_root, symbol, "1d", "rates")
+        if not path.exists():
+            return []
+        return await asyncio.to_thread(self._query_rates, path, start, end)
+
+    def _query_rates(self, path: Path, start: datetime, end: datetime) -> List[RatePoint]:
+        sql = (
+            f"SELECT trade_date, tenor_years, yield_pct "
+            f"FROM read_parquet('{path.as_posix()}') "
+            f"WHERE trade_date >= ? AND trade_date <= ? ORDER BY trade_date ASC"
+        )
+        con = duckdb.connect(database=":memory:")
+        try:
+            rows = con.execute(sql, [start.date(), end.date()]).fetch_arrow_table().to_pylist()
+        finally:
+            con.close()
+        return [
+            RatePoint(
+                time=_to_utc_datetime(r["trade_date"]),
+                tenor_years=float(r["tenor_years"]),
+                yield_pct=float(r["yield_pct"]),
+            )
+            for r in rows
+        ]
 
     # --- internals ---
     def _query(

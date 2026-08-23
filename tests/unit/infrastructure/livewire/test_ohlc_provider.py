@@ -523,3 +523,43 @@ def test_delisted_root_defaults_to_none(tmp_path: Path) -> None:
     assert LivewireOhlcProvider(bronze_root=tmp_path).delisted_root is None
     provider = LivewireOhlcProvider(bronze_root=tmp_path, delisted_root=tmp_path / "d")
     assert provider.delisted_root == tmp_path / "d"
+
+
+def _write_dgs10(root: Path) -> None:
+    """Real FRED DGS10 rows, frozen 2026-08-23 from bronze/asset_class=rates."""
+    d = root / "asset_class=rates" / "symbol=DGS10"
+    d.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        {
+            "trade_date": [dt.date(2026, 8, 18), dt.date(2026, 8, 19), dt.date(2026, 8, 20)],
+            "symbol_id": [5866486538776591] * 3,
+            "tenor_years": [10.0, 10.0, 10.0],
+            "yield_pct": [4.71, 4.65, 4.69],
+            "source": ["fred", "fred", "fred"],
+        }
+    ).to_parquet(d / "1d.parquet")
+
+
+@pytest.mark.asyncio
+async def test_rates_series_returns_yields_not_bars(tmp_path: Path) -> None:
+    _write_dgs10(tmp_path)
+    provider = LivewireOhlcProvider(bronze_root=tmp_path)
+    points = await provider.fetch_rate_series("DGS10", _AC_START, _AC_END)
+    assert [p.yield_pct for p in points] == [4.71, 4.65, 4.69]
+    assert {p.tenor_years for p in points} == {10.0}
+
+
+@pytest.mark.asyncio
+async def test_rates_series_is_empty_when_absent(tmp_path: Path) -> None:
+    provider = LivewireOhlcProvider(bronze_root=tmp_path)
+    assert await provider.fetch_rate_series("DGS10", _AC_START, _AC_END) == []
+
+
+@pytest.mark.asyncio
+async def test_rates_through_fetch_bars_yields_no_ohlc(tmp_path: Path) -> None:
+    """A rates row has no open/high/low/close. Reading it as bars produces all-None
+    OHLC, which is exactly why rates gets its own route and payload."""
+    _write_dgs10(tmp_path)
+    provider = LivewireOhlcProvider(bronze_root=tmp_path)
+    bars = await provider.fetch_bars("DGS10", "1d", _AC_START, _AC_END, asset_class="rates")
+    assert bars and all(b.close is None for b in bars)

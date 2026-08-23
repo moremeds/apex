@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://apex.trading/schemas/rates_series_payload.schema.json",
+  "title": "RatesSeriesPayload",
+  "description": "Yield series from livewire asset_class=rates (FRED Treasury constant maturity)",
+  "type": "object",
+  "required": ["symbol", "asset_class", "points", "generated_at"],
+  "properties": {
+    "symbol": { "type": "string", "minLength": 1 },
+    "asset_class": { "type": "string", "const": "rates" },
+    "tenor_years": { "type": ["number", "null"] },
+    "count": { "type": "integer", "minimum": 0 },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "points": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["time", "yield_pct"],
+        "properties": {
+          "time": { "type": "string", "format": "date-time" },
+          "yield_pct": { "type": "number" }
+        }
+      }
+    }
+  }
+}
