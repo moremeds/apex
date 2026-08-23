@@ -563,3 +563,44 @@ async def test_rates_through_fetch_bars_yields_no_ohlc(tmp_path: Path) -> None:
     provider = LivewireOhlcProvider(bronze_root=tmp_path)
     bars = await provider.fetch_bars("DGS10", "1d", _AC_START, _AC_END, asset_class="rates")
     assert bars and all(b.close is None for b in bars)
+
+
+@pytest.mark.asyncio
+async def test_unknown_symbol_in_adjusted_mode_is_empty_not_quarantined(tmp_path: Path) -> None:
+    """A ticker with neither Bronze nor Silver does not exist -- the route must be able
+    to answer 404. Raising AdjustedDataUnavailable would answer a typo with 503
+    "retry later", and the caller would retry forever.
+
+    Caught by production verification against the real lake on 2026-08-23.
+    """
+    provider = LivewireOhlcProvider(
+        bronze_root=tmp_path / "bronze",
+        silver_root=tmp_path / "silver",
+        price_mode="adjusted",
+    )
+    assert await provider.fetch_bars("NOTAREALTICKER", "1d", _AC_START, _AC_END) == []
+
+
+@pytest.mark.asyncio
+async def test_bronze_without_silver_still_raises(tmp_path: Path) -> None:
+    """The genuinely-quarantined case must keep its 503: the symbol exists in Bronze
+    but has no Silver artifact. 243 production symbols are in this state."""
+    bronze = tmp_path / "bronze" / "asset_class=equity" / "symbol=HON"
+    bronze.mkdir(parents=True)
+    pd.DataFrame(
+        {
+            "trade_date": [dt.date(2026, 8, 21)],
+            "open": [200.0],
+            "high": [201.0],
+            "low": [199.0],
+            "close": [200.5],
+            "volume": [1000],
+        }
+    ).to_parquet(bronze / "1d.parquet")
+    provider = LivewireOhlcProvider(
+        bronze_root=tmp_path / "bronze",
+        silver_root=tmp_path / "silver",
+        price_mode="adjusted",
+    )
+    with pytest.raises(AdjustedDataUnavailable, match="HON"):
+        await provider.fetch_bars("HON", "1d", _AC_START, _AC_END)

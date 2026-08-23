@@ -181,6 +181,12 @@ class LivewireOhlcProvider:
         if timeframe == "1d":
             path = daily_silver_path(self._silver_root, symbol)
             if not path.exists():
+                # No Silver AND no Bronze means the symbol does not exist at all -- an
+                # unknown ticker, which the route turns into 404. Raising here instead
+                # would answer a typo with "retry later" and the caller would retry
+                # forever. Only a symbol that HAS bronze is genuinely quarantined.
+                if not bronze_path.exists():
+                    return []
                 raise AdjustedDataUnavailable(f"Silver daily artifact is missing for {symbol}")
             return await asyncio.to_thread(self._query, path, symbol, timeframe, start, end)
 
