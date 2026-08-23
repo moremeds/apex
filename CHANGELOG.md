@@ -9,6 +9,8 @@ All notable changes to apex are recorded here. Format follows
 
 ## [Unreleased]
 
+## [0.1.4] — 2026-08-23
+
 ### Added
 
 - `/v1/{asset_class}/{symbol}/bars` covering equity, volatility, fx, cmdty and futures.
@@ -20,7 +22,6 @@ All notable changes to apex are recorded here. Format follows
 - `price_mode`, `listing_status`, `asset_class` and `adjustment_revision` on every bars payload.
 - Futures bars carry `settlement`, `open_interest` and contract identity.
 - `/health` now reports real bronze/silver recency read from the artifacts.
-
 ### Changed
 
 - Flat routes (`/bars/{ticker}` etc.) are deprecated aliases; they emit `Deprecation` and `Sunset`.
@@ -31,7 +32,6 @@ All notable changes to apex are recorded here. Format follows
   but now use the error envelope instead of `{"detail": [...]}`, so the surface has one error shape.
 - `bars_payload` no longer emits `vwap` (always null -- no lake parquet carries the column).
 - `bars_payload` timeframe enum narrowed to `1m/5m/30m/1h/1d`.
-
 ### Fixed
 
 - Missing Silver artifacts return `503 adjusted_unavailable` instead of a bare 500 (243 symbols
@@ -53,11 +53,6 @@ All notable changes to apex are recorded here. Format follows
 - Unanticipated failures (the lake volume going away, a truncated parquet) return a typed
   `500 internal_error` in the envelope rather than an unparseable bare 500, and no longer echo
   absolute lake paths to the client.
-
-## [0.1.4] — 2026-08-22
-
-### Fixed
-
 - Deploy config now matches production: silver mount plus `APEX_LIVEWIRE_SILVER_ROOT`,
   `APEX_LIVEWIRE_PRICE_MODE`, `APEX_LIVEWIRE_REVISION_POLL_SECONDS`. The published image had
   been pre-Silver since 0.1.3 because no release tag was cut after #150-#152 merged.
@@ -69,14 +64,12 @@ All notable changes to apex are recorded here. Format follows
   bump, not a host reconfiguration. The coverage catalog is intentionally left unmounted:
   it lives outside colima's VM mount set, so binding it would silently yield an empty
   directory instead of the database.
-
 ## [0.1.3] — 2026-07-08
 
 ### Fixed
 - `/health` now reports the real running version (new `version` field) instead of a
   hardcoded `0.1.0`. Resolved from installed dist metadata so it can't drift from the
   shipped image — makes "is it live?" a one-curl check (`curl .../health | jq .version`).
-
 ## [0.1.2] — 2026-07-08
 
 ### Changed
@@ -84,19 +77,15 @@ All notable changes to apex are recorded here. Format follows
   up from a hardcoded 500) and no longer cap it — `limit<=0` returns full history. The
   param was previously undeclared, so callers passing `?limit=N` were silently ignored.
 - R2 daily pipeline schedule disabled; the workflow is now manual-dispatch only.
-
 ### Fixed
 - R2 daily pipeline failures and a TA-Lib version mismatch (#141).
-
 ## [0.1.1] — 2026-06-17
-
 
 ### Added
 - Release pipeline: `VERSION` + `CHANGELOG.md` + `scripts/release/cut.sh` (interactive
   bump → tag) and tag-triggered `release.yml` (verify → GitHub Release → GHCR arm64 image).
 - Docker deploy: `docker/api.Dockerfile` + `docker-compose.yml` for the macmini, with the
   livewire bronze lake bind-mounted read-only and Watchtower auto-deploy on `:latest`.
-
 ### Fixed
 - Docs: corrected the "R2-backed livewire" claim — the livewire read path is a local-FS
   Parquet lake (`APEX_LIVEWIRE_ROOT`), not R2. R2 is only the `make r2-backfill` pipeline.
