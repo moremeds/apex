@@ -57,3 +57,31 @@ async def test_get_signals_503_when_repo_unconfigured() -> None:
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.get("/signals/AAPL")
     assert resp.status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_v1_signals_route_matches_the_alias() -> None:
+    """The /v1 path and the flat alias share one implementation; the alias is marked."""
+    app = create_app()
+    app.state.signal_repo = _FakeRepo()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        v1 = await client.get("/v1/equity/AAPL/signals")
+        legacy = await client.get("/signals/AAPL")
+    assert v1.status_code == 200
+    validate_payload(v1.json())
+    assert v1.json()["signals"] == legacy.json()["signals"]
+    assert legacy.headers["Deprecation"] == "true"
+    assert "Sunset" in legacy.headers
+
+
+@pytest.mark.asyncio
+async def test_signals_503_carries_a_typed_code() -> None:
+    """The bare HTTPException detail became the typed envelope."""
+    app = create_app()
+    app.state.signal_repo = None
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/v1/equity/AAPL/signals")
+    assert resp.status_code == 503
+    assert resp.json()["error"]["code"] == "provider_not_configured"

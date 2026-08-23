@@ -18,7 +18,38 @@ state from apex on demand.
 |---|---|
 | Base URL | `http://<host>:8322` (HTTP) / `ws://<host>:8322` (WS). Port = `APEX_API_PORT`, default `8322`. |
 | Run apex | `uv run python -m src.api.server` |
-| Health | `GET /health` → `{ "status": "ok", "uptime": <s>, "service": "apex-signal-server", "pg_connected": <bool> }` |
+| Health | `GET /health` — see the real shape below |
+
+```json
+{
+  "status": "ok",
+  "version": "0.1.4",
+  "uptime": 102407.2,
+  "service": "apex-signal-server",
+  "pg_connected": true,
+  "livewire": {
+    "configured": true,
+    "configured_price_mode": "adjusted",
+    "effective_price_mode": "adjusted",
+    "recency": {
+      "bronze_last_trade_date": "2026-08-21",
+      "silver_last_trade_date": "2026-08-21",
+      "lag_days": 0
+    }
+  },
+  "silver_revision": {
+    "enabled": true, "running": true,
+    "observed_revision": 33, "last_fully_applied_revision": 33,
+    "per_symbol_revision": {}, "failed": {}, "pending": [],
+    "consecutive_failures": 0, "last_error": null,
+    "last_success_age_seconds": 53594.0
+  }
+}
+```
+
+`recency` is read from the parquet artifacts, **not** from livewire's 11:00 UTC coverage
+snapshot — that snapshot under-reports and would show a lag that does not exist.
+`lag_days` is **calendar** days, not trading sessions.
 
 apex's data sources are env-gated, which determines what's available:
 
@@ -122,6 +153,109 @@ Query: `timeframe` (default `1d`), `start`, `end`, `limit` (default `500`, `1..5
 GET /confluence/AAPL?timeframe=1d
 GET /confluence/AAPL?timeframe=1d&limit=2000
 ```
+
+---
+
+## 3a. The `/v1` surface (asset-class aware)
+
+Every route is `/v1/{asset_class}/{symbol}/...`. The flat routes in §3 still work and are
+**deprecated aliases** — see the migration table below.
+
+### Asset classes
+
+| Class | Timeframes | Payload | Adjustment | Notes |
+|---|---|---|---|---|
+| `equity` | `1m 5m 30m 1h 1d` | `bars_payload` | raw **or adjusted** | The only class with a Silver tree |
+| `fx` | `1m 5m 30m 1h 1d` | `bars_payload` | raw only | All 21 pairs carry the full ladder |
+| `volatility` | `5m 30m 1h 1d` | `bars_payload` | raw only | **No `1m`** anywhere; 30 of 44 symbols are `1d`-only |
+| `cmdty` | `1d` | `bars_payload` | raw only | |
+| `futures` | `1d` | `bars_payload` | raw only | Adds `settlement`, `open_interest`, `contract` |
+| `rates` | `1d` | `rates_series_payload` | n/a | A **yield**, not a price — no OHLC |
+
+`timeframes` is a per-**class** ceiling, not a per-symbol guarantee. A symbol that lacks a
+given timeframe returns `404 unknown_symbol` — measured, not theoretical: `AACT` carries
+`1m/5m/30m/1h` in the live tree and no `1d` at all. Ask
+`GET /v1/{asset_class}/{symbol}` for the ladder a specific symbol actually has.
+
+### Routes
+
+| Method · Path | Purpose | Key errors |
+|---|---|---|
+| `GET /v1/{asset_class}/{symbol}/bars` | OHLCV candles | `400` class/tf/mode · `404` no artifact · `409` ambiguous · `501` delisted · `503` no Silver |
+| `GET /v1/rates/{symbol}/series` | Treasury yield series | `404` no artifact · `503` no provider |
+| `GET /v1/{asset_class}/{symbol}/indicators` | Per-bar indicator series | `400` bad class/tf/indicator · `404` no artifact · `503` |
+| `GET /v1/equity/{symbol}/confluence` | Multi-timeframe confluence (PG) | `503` no PG |
+| `GET /v1/equity/{symbol}/signals` | Signal backfill (PG) | `503` no PG |
+| `GET /v1/instruments` | Discovery across all classes | `400` bad class · `501` delisted · `503` no catalog |
+| `GET /v1/{asset_class}/{symbol}` | One instrument's metadata | `400` bad class · `404` no artifact · `503` |
+
+`GET /v1/{asset_class}/{symbol}` also returns `coverage_source`: `livewire_coverage_snapshot`
+when the catalog answered, `not_configured` or `unavailable` when it did not. Without it a
+null `first_date` would be ambiguous between "this symbol has no recorded coverage" and
+"apex could not read the catalog".
+| `GET /v1/equity/{symbol}/actions` | Corporate actions | **`501` always** — blocked on livewire |
+| `GET /v1/equity/{symbol}/delisting` | Delisting terminal state | **`501` always** — blocked on livewire |
+
+### Query parameters
+
+| Param | Routes | Default | Meaning |
+|---|---|---|---|
+| `timeframe` | bars, indicators | `1d` | Must be in the class's ladder |
+| `start` / `end` | all series | none | ISO-8601. Omit both → most recent `limit` bars |
+| `limit` | bars, indicators, confluence, instruments | `2000` (bars) | Tail-slice; `<=0` → full history |
+| `price_mode` | bars | provider default | `raw` \| `adjusted`. A **request**, not a hint |
+| `listing` | bars, instruments | `listed` | `listed` \| `delisted` \| `any` |
+| `indicator` | indicators | **required** | Any of apex's registered indicators |
+| `asset_class` | instruments | all | Filter |
+| `q` | instruments | none | Symbol **prefix** filter (`_`/`%` are escaped) |
+
+### Error envelope
+
+Every failure returns `{"error": {"code", "message", "symbol"?, "asset_class"?}}`.
+
+| Code | Status | Meaning |
+|---|---|---|
+| `invalid_parameter` | 400 | A query value is malformed: bad `listing`, bad `price_mode`, unknown `indicator`, `start` after `end` |
+| `unsupported_timeframe` | 400 | Timeframe not in this class's ladder |
+| `unsupported_asset_class` | 400 | Unknown class, or a class whose payload is not bars |
+| `adjusted_not_supported` | 400 | `price_mode=adjusted` on a class with no Silver |
+| `unknown_symbol` | 404 | No artifact under that partition, in any tree the read would use |
+| `ambiguous_symbol` | 409 | `listing=any` on a ticker that is both live and delisted |
+| `not_yet_available` | 501 | Specified but blocked on upstream livewire work |
+| `provider_not_configured` | 503 | Provider / PG / coverage catalog unavailable |
+| `adjusted_unavailable` | 503 | Silver artifact missing or quarantined — retry later |
+| `internal_error` | 500 | Unanticipated failure (e.g. the lake volume went away) |
+
+Framework-level request validation (a non-integer `limit`, an unparseable date) keeps
+FastAPI's **422** status but uses this same envelope with `invalid_parameter`, so there is
+exactly one error shape on the surface rather than two.
+
+A code always names the thing that was wrong. A malformed query value is
+`invalid_parameter`, never `unknown_symbol` or `not_yet_available` — those would send
+you debugging a symbol or an upstream outage when the fault is a typo in the request.
+
+`adjusted_unavailable` is a **503, not a 4xx**: a quarantined Silver artifact is an upstream
+condition livewire may repair, so the request was not wrong. 243 equity symbols are in this
+state, including HON, MMM, CMCSA, AIG, ECL, MSI, WY and LEN.
+
+### Deprecation
+
+The flat routes keep working and now emit `Deprecation: true`, `Sunset: Wed, 31 Dec 2026
+23:59:59 GMT`, and a `Link` header naming the successor.
+
+| Old | New |
+|---|---|
+| `GET /bars/AAPL` | `GET /v1/equity/AAPL/bars` |
+| `GET /indicators/AAPL?indicator=rsi` | `GET /v1/equity/AAPL/indicators?indicator=rsi` |
+| `GET /confluence/AAPL` | `GET /v1/equity/AAPL/confluence` |
+| `GET /signals/AAPL` | `GET /v1/equity/AAPL/signals` |
+
+### Two contract narrowings
+
+- **`vwap` is gone** from bar objects. No parquet in the lake carries that column, so it was
+  always `null`.
+- **The `timeframe` enum no longer accepts `15m`, `4h` or `1w`.** livewire warehouses none of
+  them, so those values could only ever `400`.
 
 ---
 

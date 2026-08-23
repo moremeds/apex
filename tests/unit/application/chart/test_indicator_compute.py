@@ -56,7 +56,13 @@ class _FakeProvider:
         self.calls: List[Tuple[datetime, datetime]] = []
 
     async def fetch_bars(
-        self, symbol: str, timeframe: str, start: datetime, end: datetime
+        self,
+        symbol: str,
+        timeframe: str,
+        start: datetime,
+        end: datetime,
+        asset_class: str = "equity",
+        price_mode: str | None = None,
     ) -> List[BarData]:
         self.calls.append((start, end))
         return [b for b in self._bars if start <= b.timestamp <= end]

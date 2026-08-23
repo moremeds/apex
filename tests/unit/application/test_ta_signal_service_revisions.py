@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from typing import Any, cast
 
 import pytest
 
@@ -51,7 +52,7 @@ class _RecordingAggregator:
 def _running_service(*, max_ticks: int = 10_000) -> tuple[TASignalService, _RecordingAggregator]:
     service = TASignalService(event_bus=object(), refresh_buffer_max_ticks=max_ticks)
     aggregator = _RecordingAggregator()
-    service._bar_aggregators = {"1m": aggregator}
+    service._bar_aggregators = {"1m": cast(Any, aggregator)}
     service._running = True
     return service, aggregator
 

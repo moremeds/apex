@@ -26,6 +26,9 @@ async def health(request: Request) -> dict:
             "configured": provider is not None,
             "configured_price_mode": getattr(request.app.state, "livewire_price_mode", "raw"),
             "effective_price_mode": provider.price_mode if provider is not None else None,
+            # From the artifacts, not livewire's 11:00 UTC coverage snapshot -- that
+            # under-reports by design and would show a lag that does not exist.
+            "recency": provider.fetch_recency() if provider is not None else None,
         },
         "silver_revision": watcher.health() if watcher is not None else {"enabled": False},
     }

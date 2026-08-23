@@ -65,10 +65,12 @@ async def compute_indicator_series(
     end: datetime,
     *,
     safety: int = 3,
+    asset_class: str = "equity",
 ) -> List[Dict[str, Any]]:
     """Return ``[{time, state, bar_close}]`` for ``indicator`` over ``[start, end]``.
 
-    ``provider`` must expose ``async fetch_bars(symbol, timeframe, start, end)``;
+    ``provider`` must expose
+    ``async fetch_bars(symbol, timeframe, start, end, asset_class=...)``;
     ``registry`` must expose ``get(name)``. ``safety`` multiplies the warmup lead to
     cover non-trading gaps (weekends/holidays) when converting bar-count to time.
     """
@@ -80,7 +82,7 @@ async def compute_indicator_series(
     warmup = max(int(getattr(ind, "warmup_periods", 0)), 0)
     fetch_start = start - delta * warmup * max(safety, 1)
 
-    bars = await provider.fetch_bars(symbol, timeframe, fetch_start, end)
+    bars = await provider.fetch_bars(symbol, timeframe, fetch_start, end, asset_class=asset_class)
     if not bars:
         return []
 
