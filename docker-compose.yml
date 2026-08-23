@@ -29,6 +29,20 @@ services:
     environment:
       # Non-secret overrides — pinned in-compose so they're versioned, not hidden in .env.
       APEX_LIVEWIRE_ROOT: /data/livewire
+      APEX_LIVEWIRE_SILVER_ROOT: /data/livewire-silver
+      # Serve the published Silver revision. Symbols without complete Silver
+      # artifacts fail closed; apex never relabels raw Bronze as adjusted.
+      APEX_LIVEWIRE_PRICE_MODE: adjusted
+      APEX_LIVEWIRE_REVISION_POLL_SECONDS: "30"
+      # APEX_LIVEWIRE_COVERAGE_DB is deliberately NOT set. livewire's catalog lives at
+      # /Users/moremeds/market-warehouse/analytics.duckdb, and /Users is NOT inside
+      # colima's VM (colima.yaml mounts only /Volumes/DATA_LAKE/livewire/data-lake).
+      # Binding it yields an EMPTY DIRECTORY in the container, not the file — verified
+      # 2026-08-23. Leave unset until the catalog is reachable; /v1/instruments fails
+      # closed with a typed 503 rather than reporting an empty universe.
+      # Residency probe only — used to detect ticker reuse for listing=any.
+      # apex never serves bars from this tree (blocked on livewire, spec §2.3).
+      APEX_LIVEWIRE_DELISTED_ROOT: /data/livewire-delisted
       # The server reads APEX_XENON_WS_URL (src/api/server.py); without it apex falls
       # back to ws://127.0.0.1:8765 = the container's own loopback, so live ticks break.
       APEX_XENON_WS_URL: ws://host.docker.internal:8765
@@ -38,6 +52,11 @@ services:
       # Read-only bronze lake. Real external-disk path (NOT the ~/market-warehouse
       # symlink) so it resolves inside the colima VM.
       - /Volumes/DATA_LAKE/livewire/data-lake/bronze:/data/livewire:ro
+      # Read-only silver lake — required by APEX_LIVEWIRE_PRICE_MODE=adjusted.
+      - /Volumes/DATA_LAKE/livewire/data-lake/silver:/data/livewire-silver:ro
+      # NOTE: no coverage-catalog mount — see APEX_LIVEWIRE_COVERAGE_DB above.
+      # Archived delisted tree, read-only. Existence probe only — see the env comment.
+      - /Volumes/DATA_LAKE/livewire/data-lake/bronze-delisted:/data/livewire-delisted:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:

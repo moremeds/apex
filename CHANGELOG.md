@@ -9,6 +9,18 @@ All notable changes to apex are recorded here. Format follows
 
 ## [Unreleased]
 
+## [0.1.4] — 2026-08-22
+
+### Fixed
+
+- Deploy config now matches production: silver mount plus `APEX_LIVEWIRE_SILVER_ROOT`,
+  `APEX_LIVEWIRE_PRICE_MODE`, `APEX_LIVEWIRE_REVISION_POLL_SECONDS`. The published image had
+  been pre-Silver since 0.1.3 because no release tag was cut after #150-#152 merged.
+- Delisted-tree mount is declared ahead of the `/v1` API work so that rollout is an image
+  bump, not a host reconfiguration. The coverage catalog is intentionally left unmounted:
+  it lives outside colima's VM mount set, so binding it would silently yield an empty
+  directory instead of the database.
+
 ## [0.1.3] — 2026-07-08
 
 ### Fixed
