@@ -18,6 +18,7 @@ OHLCV at the right instants.
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -32,6 +33,8 @@ from .paths import SUPPORTED_TIMEFRAMES, daily_silver_path, factor_path, parquet
 # livewire keys daily bars by `trade_date` (a DATE) and intraday bars by
 # `bar_timestamp` (a tz-aware UTC TIMESTAMP). OHLCV columns are read by name; extra
 # columns (symbol_id, adj_close) are ignored.
+logger = logging.getLogger(__name__)
+
 _DAILY_TS_COLUMN = "trade_date"
 _INTRADAY_TS_COLUMN = "bar_timestamp"
 
@@ -224,6 +227,46 @@ class LivewireOhlcProvider:
             )
             for r in rows
         ]
+
+    def get_recency(self, reference_symbol: str = "AAPL") -> dict[str, Any]:
+        """Last trade_date in bronze and silver for a liquid reference symbol.
+
+        Read from the ARTIFACTS, not livewire's coverage table -- that table is an
+        11:00 UTC snapshot and under-reports by design. AAPL is the default probe
+        because it trades every session the market is open.
+        """
+        bronze_last = self._last_trade_date(parquet_path(self._bronze_root, reference_symbol, "1d"))
+        silver_last = (
+            self._last_trade_date(daily_silver_path(self._silver_root, reference_symbol))
+            if self._silver_root is not None
+            else None
+        )
+        lag: int | None = None
+        if bronze_last is not None and silver_last is not None:
+            # Calendar days, NOT trading sessions -- apex has no exchange calendar
+            # here, and calling a Friday/Monday gap "3 sessions" would be a lie.
+            lag = (date.fromisoformat(bronze_last) - date.fromisoformat(silver_last)).days
+        return {
+            "bronze_last_trade_date": bronze_last,
+            "silver_last_trade_date": silver_last,
+            "lag_days": lag,
+        }
+
+    @staticmethod
+    def _last_trade_date(path: Path) -> str | None:
+        if not path.exists():
+            return None
+        con = duckdb.connect(database=":memory:")
+        try:
+            row = con.execute(
+                f"SELECT max(trade_date) FROM read_parquet('{path.as_posix()}')"
+            ).fetchone()
+        except duckdb.Error as exc:
+            logger.error("recency probe failed for %s: %s", path, exc)
+            return None
+        finally:
+            con.close()
+        return str(row[0]) if row and row[0] is not None else None
 
     # --- internals ---
     def _query(
