@@ -80,6 +80,44 @@ async def list_instruments(
     return payload
 
 
+_UPSTREAM_BLOCKER = (
+    "blocked on livewire: permanent instrument identity, corporate-action backfill "
+    "for the delisted universe, and Silver over bronze-delisted"
+)
+
+
+@router.get("/v1/equity/{symbol}/actions")
+async def get_corporate_actions(symbol: str) -> dict:
+    """Corporate actions behind a symbol's adjustment.
+
+    Not yet served: the store is ticker-keyed and scoped to the live universe, so it
+    cannot be trusted for any symbol whose ticker was reused. Measured 2026-08-23 --
+    6,275 delisted symbols have no corporate-action data at all, and the 2,345 that
+    appear to are ticker reuses whose actions belong to a different, living company.
+    """
+    raise ApiError(
+        ApiErrorCode.NOT_YET_AVAILABLE,
+        f"corporate actions are not exposed yet -- {_UPSTREAM_BLOCKER}",
+        symbol=symbol,
+        asset_class="equity",
+    )
+
+
+@router.get("/v1/equity/{symbol}/delisting")
+async def get_delisting(symbol: str) -> dict:
+    """Terminal state: delist date, reason, final consideration.
+
+    Nothing in the lake records these today, and serving delisted bars without them
+    turns a bankruptcy into a flat exit.
+    """
+    raise ApiError(
+        ApiErrorCode.NOT_YET_AVAILABLE,
+        f"delisting metadata does not exist upstream yet -- {_UPSTREAM_BLOCKER}",
+        symbol=symbol,
+        asset_class="equity",
+    )
+
+
 # Route ordering is NOT a constraint here: Starlette matches on the whole path pattern,
 # so /v1/{asset_class}/{symbol} (two segments) can never shadow /v1/instruments (one)
 # nor /v1/equity/{symbol}/bars (three). Verified empirically in both registration orders.

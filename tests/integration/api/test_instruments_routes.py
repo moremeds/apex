@@ -146,3 +146,43 @@ async def test_exact_match_not_prefix_match(tmp_path: Path, catalog_db: Path) ->
     catalog = CoverageCatalog(catalog_db)
     assert catalog.get_instrument("AA", "equity") is None
     assert catalog.get_instrument("AAPL", "equity").symbol == "AAPL"
+
+
+@pytest.mark.asyncio
+async def test_actions_and_delisting_are_typed_501s() -> None:
+    """Specified now so the contract is stable; blocked on livewire L1/L2/L4.
+
+    Measured 2026-08-23: no delisted symbol in the lake has correct corporate-action
+    data (6,275 have none; the 2,345 that do are ticker reuses whose actions belong
+    to a different, living company).
+    """
+    app = create_app()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        for path in ("/v1/equity/BBBY/actions", "/v1/equity/BBBY/delisting"):
+            r = await c.get(path)
+            assert r.status_code == 501, path
+            assert r.json()["error"]["code"] == "not_yet_available", path
+            assert r.json()["error"]["symbol"] == "BBBY", path
+
+
+@pytest.mark.asyncio
+async def test_three_segment_routes_do_not_shadow_the_two_segment_detail(
+    tmp_path: Path, catalog_db: Path
+) -> None:
+    """/v1/equity/{symbol}/actions (three segments) and /v1/{asset_class}/{symbol}
+    (two) coexist -- Starlette matches whole patterns, not prefixes."""
+    from src.infrastructure.adapters.livewire.ohlc_provider import LivewireOhlcProvider
+
+    d = tmp_path / "asset_class=equity" / "symbol=AAPL"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "1d.parquet").write_bytes(b"")
+
+    app = create_app()
+    app.state.coverage_catalog = CoverageCatalog(catalog_db)
+    app.state.ohlc_provider = LivewireOhlcProvider(bronze_root=tmp_path)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        detail = await c.get("/v1/equity/AAPL")
+        actions = await c.get("/v1/equity/AAPL/actions")
+    assert detail.status_code == 200
+    assert detail.json()["timeframes"] == ["1d"]
+    assert actions.status_code == 501
