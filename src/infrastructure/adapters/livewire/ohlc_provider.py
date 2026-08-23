@@ -234,8 +234,11 @@ class LivewireOhlcProvider:
             for r in rows
         ]
 
-    def get_recency(self, reference_symbol: str = "AAPL") -> dict[str, Any]:
+    def fetch_recency(self, reference_symbol: str = "AAPL") -> dict[str, Any]:
         """Last trade_date in bronze and silver for a liquid reference symbol.
+
+        ``fetch_`` not ``get_``: this touches the disk on every call (two DuckDB reads),
+        it is not a cache lookup.
 
         Read from the ARTIFACTS, not livewire's coverage table -- that table is an
         11:00 UTC snapshot and under-reports by design. AAPL is the default probe

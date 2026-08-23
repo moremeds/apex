@@ -108,7 +108,7 @@ def test_health_reports_zero_lag_when_silver_matches_bronze(tmp_path: Path) -> N
     provider = LivewireOhlcProvider(
         bronze_root=tmp_path / "bronze", silver_root=tmp_path / "silver", price_mode="adjusted"
     )
-    recency = provider.get_recency("AAPL")
+    recency = provider.fetch_recency("AAPL")
     assert recency["bronze_last_trade_date"] == "2026-08-21"
     assert recency["silver_last_trade_date"] == "2026-08-21"
     assert recency["lag_days"] == 0
@@ -118,7 +118,7 @@ def test_recency_is_null_when_artifacts_are_absent(tmp_path: Path) -> None:
     from src.infrastructure.adapters.livewire.ohlc_provider import LivewireOhlcProvider
 
     provider = LivewireOhlcProvider(bronze_root=tmp_path)
-    assert provider.get_recency("AAPL") == {
+    assert provider.fetch_recency("AAPL") == {
         "bronze_last_trade_date": None,
         "silver_last_trade_date": None,
         "lag_days": None,
