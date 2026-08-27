@@ -64,6 +64,12 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
         self._subscribed_symbols: List[str] = []
         self._quote_callback: Optional[Callable[[QuoteTick], None]] = None
 
+        # Symbol-streaming subscriptions (symbol -> ticker, id(ticker) -> symbol)
+        self._active_tickers: Dict[str, Any] = {}
+        self._ticker_to_symbol: Dict[int, str] = {}
+        self._streaming_lock: Lock = Lock()
+        self._streaming_active: bool = False
+
         # Position cache
         self._position_cache: Optional[List[Position]] = None
         self._position_cache_time: Optional[datetime] = None
@@ -265,6 +271,25 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
 
     async def _on_disconnecting(self) -> None:
         """Clean up before disconnect."""
+        # Cancel all symbol-streaming subscriptions
+        with self._streaming_lock:
+            if self._streaming_active and self.ib:
+                try:
+                    self.ib.pendingTickersEvent -= self._on_pending_tickers
+                except Exception:
+                    pass
+                self._streaming_active = False
+            tickers_to_cancel = list(self._active_tickers.values())
+            self._active_tickers.clear()
+            self._ticker_to_symbol.clear()
+
+        if self.ib:
+            for ticker in tickers_to_cancel:
+                try:
+                    self.ib.cancelMktData(ticker.contract)
+                except Exception:
+                    pass
+
         if self._market_data_fetcher:
             self._market_data_fetcher.cleanup()
             self._market_data_fetcher = None
@@ -283,18 +308,63 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
     # -------------------------------------------------------------------------
 
     async def subscribe_quotes(self, symbols: List[str]) -> None:
-        """Subscribe to real-time quotes."""
-        if not self.is_connected():
+        """Subscribe to real-time quotes via IB reqMktData."""
+        if not self.is_connected() or self.ib is None:
             raise ConnectionError("Not connected to IB")
 
-        self._subscribed_symbols.extend(symbols)
-        logger.info(f"Subscribed to {len(symbols)} symbols")
+        from ib_async import Stock
+
+        new_symbols = [s for s in symbols if s not in self._active_tickers]
+        if not new_symbols:
+            return
+
+        contracts = [Stock(sym, "SMART", "USD") for sym in new_symbols]
+        try:
+            qualified_raw = await self.ib.qualifyContractsAsync(*contracts)
+        except Exception as e:
+            logger.error(f"Failed to qualify contracts for {new_symbols}: {e}")
+            return
+
+        qualified = [c for c in qualified_raw if c is not None and getattr(c, "conId", None)]
+        if not qualified:
+            logger.warning(f"No contracts qualified for {new_symbols}")
+            return
+
+        with self._streaming_lock:
+            if not self._streaming_active:
+                self.ib.pendingTickersEvent += self._on_pending_tickers
+                self._streaming_active = True
+
+        for qc in qualified:
+            sym = qc.symbol
+            with self._streaming_lock:
+                if sym in self._active_tickers:
+                    continue
+                ticker = self.ib.reqMktData(qc, "", False, False)
+                self._active_tickers[sym] = ticker
+                self._ticker_to_symbol[id(ticker)] = sym
+            if sym not in self._subscribed_symbols:
+                self._subscribed_symbols.append(sym)
+
+        logger.info(f"Subscribed to {len(qualified)} symbols via reqMktData")
 
     async def unsubscribe_quotes(self, symbols: List[str]) -> None:
-        """Unsubscribe from quotes."""
-        for symbol in symbols:
-            if symbol in self._subscribed_symbols:
-                self._subscribed_symbols.remove(symbol)
+        """Unsubscribe from quotes and cancel IB market data."""
+        for sym in symbols:
+            with self._streaming_lock:
+                ticker = self._active_tickers.pop(sym, None)
+                if ticker:
+                    self._ticker_to_symbol.pop(id(ticker), None)
+
+            if ticker and self.ib:
+                try:
+                    self.ib.cancelMktData(ticker.contract)
+                except Exception as e:
+                    logger.warning(f"Error cancelling market data for {sym}: {e}")
+
+            if sym in self._subscribed_symbols:
+                self._subscribed_symbols.remove(sym)
+
         logger.info(f"Unsubscribed from {len(symbols)} symbols")
 
     def set_quote_callback(self, callback: Optional[Callable[[QuoteTick], None]]) -> None:
@@ -348,6 +418,44 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
         if self._quote_callback:
             quote_tick = self._market_data_to_quote_tick(market_data)
             self._quote_callback(quote_tick)
+
+    def _on_pending_tickers(self, tickers: Any) -> None:
+        """Route IB pendingTickersEvent to _quote_callback for subscribed symbols."""
+        if not self._quote_callback:
+            return
+
+        for ticker in tickers:
+            sym = self._ticker_to_symbol.get(id(ticker))
+            if not sym:
+                continue
+            try:
+                md = self._ticker_to_market_data(sym, ticker)
+                self._handle_streaming_update(sym, md)
+            except Exception as e:
+                logger.warning(f"Error processing tick for {sym}: {e}")
+
+    def _ticker_to_market_data(self, symbol: str, ticker: Any) -> MarketData:
+        """Convert an IB ticker snapshot to MarketData."""
+
+        def safe(val: Any) -> Optional[float]:
+            try:
+                f = float(val)
+                return None if isnan(f) else f
+            except (TypeError, ValueError):
+                return None
+
+        bid = safe(ticker.bid)
+        ask = safe(ticker.ask)
+        last = safe(ticker.last)
+        mid = float((bid + ask) / 2) if bid and ask else None
+        return MarketData(
+            symbol=symbol,
+            bid=bid,
+            ask=ask,
+            last=last,
+            mid=mid,
+            timestamp=datetime.now(),
+        )
 
     # -------------------------------------------------------------------------
     # PositionProvider Implementation
@@ -693,7 +801,7 @@ class IbLiveAdapter(IbBaseAdapter, QuoteProvider, PositionProvider, AccountProvi
                     timeout=15.0,
                 )
             except asyncio.TimeoutError:
-                logger.error(f"Timeout fetching market data after 15s")
+                logger.error("Timeout fetching market data after 15s")
                 return []
 
             for md in market_data_list:
