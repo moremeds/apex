@@ -267,18 +267,21 @@ class LivewireOhlcProvider:
 
     @staticmethod
     def _last_trade_date(path: Path) -> str | None:
-        if not path.exists():
-            return None
-        con = duckdb.connect(database=":memory:")
+        # OSError as well as duckdb.Error: livewire rewrites these files in place, so
+        # a probe landing mid-replace raises PermissionError off the exfat lake mount.
         try:
-            row = con.execute(
-                "SELECT max(trade_date) FROM read_parquet(?)", [path.as_posix()]
-            ).fetchone()
-        except duckdb.Error as exc:
+            if not path.exists():
+                return None
+            con = duckdb.connect(database=":memory:")
+            try:
+                row = con.execute(
+                    "SELECT max(trade_date) FROM read_parquet(?)", [path.as_posix()]
+                ).fetchone()
+            finally:
+                con.close()
+        except (duckdb.Error, OSError) as exc:
             logger.error("recency probe failed for %s: %s", path, exc)
             return None
-        finally:
-            con.close()
         return str(row[0]) if row and row[0] is not None else None
 
     # --- internals ---

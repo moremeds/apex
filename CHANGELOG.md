@@ -9,6 +9,16 @@ All notable changes to apex are recorded here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+- **`/health` no longer blocks the event loop on the livewire lake.** The recency
+  probe (two DuckDB reads off the exfat `DATA_LAKE` mount) ran inline in the async
+  handler, so livewire's afternoon lake rewrite pushed `/health` past the 5s
+  compose-healthcheck/ops-probe timeout and a parquet file caught mid-replace raised
+  an unhandled `PermissionError` 500 — `apex_api` was marked down 11 times over
+  2026-09-03..05 while the process was fine. `/health` now serves a 60s-TTL cached
+  value refreshed by a single-flight background task (`recency_as_of` exposes the
+  staleness), and `_last_trade_date` catches `OSError` alongside `duckdb.Error`.
+
 ## [0.1.4] — 2026-08-23
 
 ### Added
