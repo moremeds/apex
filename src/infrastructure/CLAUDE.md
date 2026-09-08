@@ -2,56 +2,38 @@
 
 Root `CLAUDE.md` is authoritative for policy.
 
-## Adapters (`adapters/`)
+## livewire (`adapters/livewire/`) — the only live read path
 
-| Adapter | Role |
-|---------|------|
-| `livewire/` | Reads OHLCV Parquet from the **local-filesystem** bronze lake (`APEX_LIVEWIRE_ROOT`) via DuckDB (in-memory, not a datastore) |
-| `xenon/` | WebSocket client for xenon's IB realtime feed — live tick source |
-| `r2/` | Cloudflare R2 S3-compatible store (boto3); Parquet lake read/write |
-| `fmp/` | Financial Modeling Prep API — daily OHLCV deltas, screener data |
-| `ib/` | IB Gateway adapter (secondary; live ticks come via xenon WS in normal operation) |
-| `futu/` | Futu OpenD read-only adapter |
-| `yahoo/` | Yahoo Finance — R2 bulk backfill **only**, never live or incremental |
+`adapters/livewire/` reads two lakes. **Bronze** (`APEX_LIVEWIRE_ROOT`) is livewire's raw per-ticker Hive tree, `asset_class=<class>/symbol=<encode_symbol(SYM)>/<tf>.parquet`; `paths.py` owns that contract (including livewire's exact symbol percent-encoding) and `asset_classes.py` the six classes (`equity`, `volatility`, `fx`, `cmdty`, `futures`, `rates`) with their differing timeframe ladders — cmdty/futures/rates are daily-only. **Silver** (`APEX_LIVEWIRE_SILVER_ROOT`) is equity-only, split-and-dividend adjusted, and published _atomically as numbered revisions_: `revisions.py` reads `revisions/current.json`, validates `schema_version`, and SHA-256-verifies every referenced artifact before a revision is accepted (`RevisionManifestError` on anything malformed). `ohlc_provider.py` serves both, per-request in-memory DuckDB, under `APEX_LIVEWIRE_PRICE_MODE` (`raw` default; `adjusted` reads materialized Silver for daily and joins Silver factor intervals onto Bronze for intraday) — missing Silver data raises `AdjustedDataUnavailable`, never a silent fallback to raw. `coverage.py` reads livewire's `analytics.duckdb` catalog (`APEX_LIVEWIRE_COVERAGE_DB`) for `/v1/instruments` discovery, because scanning the lake costs ~19 minutes; those first/last dates are a snapshot and lag by up to a day. `src/application/subscriptions/revision_watcher.py` polls every `APEX_LIVEWIRE_REVISION_POLL_SECONDS` (30) and, on a new valid revision, reseeds only affected subscriptions while buffering that symbol's xenon ticks.
 
-## DuckDB (livewire)
+DuckDB here is **in-memory per request** (`duckdb.connect(database=":memory:")`), not a datastore. Any `*.duckdb` file apex writes is a stale artifact (gitignored) — never a source of truth. The one exception is livewire's own `analytics.duckdb`, which apex opens **read-only** for coverage.
 
-`adapters/livewire/ohlc_provider.py` creates an **in-memory** DuckDB session per request to `read_parquet()` over the **local** bronze lake at `APEX_LIVEWIRE_ROOT` (a Hive `asset_class=…/symbol=…/<tf>.parquet` tree — livewire writes it; apex only reads). On the macmini it lives on an external disk, bind-mounted read-only into the container (see `docker-compose.yml`). **Not a persistent database** — any `*.duckdb` file on disk is a stale artifact (gitignored). Never treat it as a source of truth. (R2 — the `r2/` adapter below — is a separate backfill pipeline, not this read path.)
+Two different things are called "coverage" — keep them apart: `adapters/livewire/coverage.py` reads livewire's catalog (discovery, `/v1/instruments`), while `stores/duckdb_coverage_store.py` is legacy local bar-coverage bookkeeping.
 
-## FMP Intraday Limits
+## Other adapters
 
-FMP caps intraday at ~410 rows/request. Pagination required for full history:
+`adapters/` also holds `xenon/` (WS client for the live tick feed — the only live IB path), plus the frozen-subsystem adapters `fmp/`, `ib/`, `futu/`, `yahoo/`, `r2/`, `earnings/` and the loose `market_data_fetcher.py` / `market_data_manager.py` / `broker_manager.py` modules that the anti-patterns below refer to.
 
-| Timeframe | Cap | Chunk size |
-|-----------|-----|------------|
-| 1h | ~410 bars (~3 months) | 90-day windows |
-| 4h | ~245 bars (~6 months) | 180-day windows |
-| 1d | 2,500+ bars | No pagination needed |
-
-Strategy: Yahoo for initial bulk 1h/4h R2 fill; FMP for daily deltas.
+FMP caps intraday at ~410 rows/request, so full history needs pagination: 1h → 90-day windows (~410 bars), 4h → 180-day windows (~245 bars), 1d → 2,500+ bars in one call. Yahoo for the initial bulk 1h/4h fill, FMP for daily deltas — backfill only, never live.
 
 ## Persistence (`persistence/`)
 
-- `pg_schema.py` — DDL for 6 tables: bars, signals, summary, score_history, + 2 more. CLI for init/reset.
-- `pg_repositories.py` — asyncpg writes; thin repository over the pool.
+- `pg_schema.py` — DDL for six tables: `bars`, `signals`, `summary`, `score_history`, `screener_results`, `backtest_results`. CLI for init/reset (`make db-init` / `make db-reset`); no migration framework, the schema is recreated from DDL.
+- `pg_repositories.py` + `repositories/` — asyncpg writes over the shared pool.
 - `signal_listener.py` — PostgreSQL LISTEN/NOTIFY for real-time signal fan-out.
+- `database.py` — pool wrapper the repositories take.
 
-Schema is managed via `make db-init` / `make db-reset` — no migration framework; schema is recreated from DDL.
+**There is a second schema path.** `migrations/005_ta_signals.sql` creates `ta_signals` / `indicator_values` / `confluence_scores` — the tables the streaming signal surface actually reads — and `pg_schema.py` does **not** create them. `make db-init` alone is not enough to stand up the signal service; apply the migration too.
 
 ## Stores (`stores/`)
 
-RCU (Read-Copy-Update) pattern: readers get lock-free snapshots; writers swap in a new copy atomically. Used for market data and position state that's read frequently from the signal pipeline.
-
-- `rcu_store.py` — base RCU implementation
-- `market_data_store.py` — live quotes
-- `position_store.py` — live positions
-- `parquet_historical_store.py` — cached Parquet data
-- `duckdb_coverage_store.py` — data coverage metadata
+RCU (Read-Copy-Update): readers get lock-free snapshots, writers swap in a new copy atomically. Used for market data and position state read hot from the signal pipeline. `rcu_store.py` is the base; never mutate a snapshot in place.
 
 ## Anti-patterns (DO NOT)
 
 - Do NOT call `prune_stale_subscriptions()` on fetch cycles — causes subscription churn
 - Do NOT filter positions before `fetch_market_data()` when pruning is involved
-- Do NOT forget `MarketDataFetcher.start_dispatch()` — processes IB callback thread
+- Do NOT forget `MarketDataFetcher.start_dispatch()` — processes the IB callback thread
 - Do NOT merge tick data without updating `MarketData.timestamp`
-- Do NOT treat the livewire DuckDB as a persistent store — it is in-memory per request
+- Do NOT treat the livewire DuckDB session as persistent — it is in-memory per request
+- Do NOT add a raw fallback when adjusted data is missing — let `AdjustedDataUnavailable` propagate
