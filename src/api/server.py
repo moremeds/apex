@@ -284,8 +284,12 @@ def create_app() -> FastAPI:
     app.include_router(signals_ws_router)
 
     # Chart read surface: bars + compute-on-read indicators + confluence.
+    # /v1/equity/returns is registered first: /v1/{asset_class}/{symbol} (instruments)
+    # would otherwise match it as symbol="returns".
     from src.api.routes.chart import router as chart_router
+    from src.api.routes.returns import router as returns_router
 
+    app.include_router(returns_router)
     app.include_router(chart_router)
 
     from src.api.routes.instruments import router as instruments_router

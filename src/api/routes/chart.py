@@ -1,6 +1,8 @@
 """Chart read surface for argon (stateless renderer pulls everything from apex).
 
 - GET /v1/{asset_class}/{symbol}/bars        -> OHLCV candles from livewire
+  start/end bound the window inclusively at BOTH ends, intraday included:
+  timeframe=1m over 12:25:00Z..12:35:00Z returns 11 bars, not 10.
 - GET /v1/{asset_class}/{symbol}/indicators  -> per-bar indicator series, compute-on-read
 - GET /v1/rates/{symbol}/series              -> yield series (no OHLC)
 - GET /v1/equity/{symbol}/confluence         -> multi-timeframe confluence, DB-backed
