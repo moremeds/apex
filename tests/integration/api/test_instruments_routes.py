@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -114,6 +115,29 @@ async def test_instrument_detail_probes_actual_timeframes(tmp_path: Path, catalo
     assert sorted(body["timeframes"]) == ["1d", "1h"]
     assert body["asset_class"] == "equity"
     assert body["first_date"] == "1980-12-12"
+
+
+@pytest.mark.asyncio
+async def test_instrument_detail_reports_the_revision_of_its_pinned_snapshot(
+    tmp_path: Path, catalog_db: Path
+) -> None:
+    from src.infrastructure.adapters.livewire.ohlc_provider import LivewireOhlcProvider
+    from tests.support.silver_manifest import publish_manifest, write_generation
+
+    silver = tmp_path / "silver"
+    publish_manifest(silver, 7, write_generation(silver, "seven", 7.0, "AAPL"))
+    app = create_app()
+    app.state.coverage_catalog = CoverageCatalog(catalog_db)
+    app.state.ohlc_provider = LivewireOhlcProvider(
+        bronze_root=tmp_path / "bronze", silver_root=silver, price_mode="adjusted"
+    )
+    app.state.revision_watcher = SimpleNamespace(last_fully_applied_revision=3)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as client:
+        response = await client.get("/v1/equity/AAPL")
+
+    assert response.status_code == 200
+    assert response.json()["adjustment_revision"] == 7
 
 
 @pytest.mark.asyncio

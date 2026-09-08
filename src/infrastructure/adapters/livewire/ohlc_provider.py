@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from copy import copy
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -28,7 +29,8 @@ import duckdb
 
 from ....domain.events.domain_events import BarData
 from .asset_classes import DEFAULT_ASSET_CLASS, get_asset_class
-from .paths import SUPPORTED_TIMEFRAMES, daily_silver_path, factor_path, parquet_path
+from .paths import SUPPORTED_TIMEFRAMES, parquet_path
+from .revisions import ArtifactKind, RevisionManifestError, RevisionManifestReader, SilverRevision
 
 # livewire keys daily bars by `trade_date` (a DATE) and intraday bars by
 # `bar_timestamp` (a tz-aware UTC TIMESTAMP). OHLCV columns are read by name; extra
@@ -108,6 +110,7 @@ class LivewireOhlcProvider:
         self._bronze_root = Path(bronze_root)
         self._silver_root = Path(silver_root) if silver_root is not None else None
         self._price_mode = price_mode
+        self._snapshot: SilverRevision | None = None
         # Residency probe only -- used to detect ticker reuse for listing=any. apex
         # never serves bars from the delisted tree; that is blocked on livewire.
         self._delisted_root = Path(delisted_root) if delisted_root is not None else None
@@ -132,6 +135,39 @@ class LivewireOhlcProvider:
     @property
     def price_mode(self) -> PriceMode:
         return self._price_mode
+
+    @property
+    def snapshot(self) -> SilverRevision | None:
+        return self._snapshot
+
+    def pin_snapshot(self, revision: SilverRevision | None = None) -> LivewireOhlcProvider:
+        """Return an operation-local provider; never change the shared provider's revision."""
+        if self._silver_root is None:
+            raise AdjustedDataUnavailable("Silver root is not configured")
+        try:
+            snapshot = (
+                revision
+                or self._snapshot
+                or RevisionManifestReader(self._silver_root).read_current()
+            )
+            if snapshot.root != self._silver_root.resolve():
+                raise RevisionManifestError("Silver snapshot belongs to another root")
+        except RevisionManifestError as exc:
+            raise AdjustedDataUnavailable(str(exc)) from exc
+        pinned = copy(self)
+        pinned._snapshot = snapshot
+        return pinned
+
+    def silver_artifact_path(
+        self, symbol: str, kind: ArtifactKind, *, verify: bool = True
+    ) -> Path | None:
+        """Resolve only a committed reference, never a file omitted by the manifest."""
+        pinned = self if self._snapshot is not None else self.pin_snapshot()
+        assert pinned._snapshot is not None
+        try:
+            return pinned._snapshot.artifact_path(symbol, kind, verify=verify)
+        except RevisionManifestError as exc:
+            raise AdjustedDataUnavailable(str(exc)) from exc
 
     def supports_timeframe(self, timeframe: str) -> bool:
         return timeframe in SUPPORTED_TIMEFRAMES
@@ -178,9 +214,12 @@ class LivewireOhlcProvider:
             )
         if self._silver_root is None:
             raise AdjustedDataUnavailable("Silver root is not configured")
+        if self._snapshot is None:
+            pinned = await asyncio.to_thread(self.pin_snapshot)
+            return await pinned.fetch_bars(symbol, timeframe, start, end, asset_class, resolved)
         if timeframe == "1d":
-            path = daily_silver_path(self._silver_root, symbol)
-            if not path.exists():
+            path = await asyncio.to_thread(self.silver_artifact_path, symbol, "daily")
+            if path is None:
                 # No Silver AND no Bronze means the symbol does not exist at all -- an
                 # unknown ticker, which the route turns into 404. Raising here instead
                 # would answer a typo with "retry later" and the caller would retry
@@ -192,8 +231,8 @@ class LivewireOhlcProvider:
 
         if not bronze_path.exists():
             return []
-        factors = factor_path(self._silver_root, symbol)
-        if not factors.exists():
+        factors = await asyncio.to_thread(self.silver_artifact_path, symbol, "factors")
+        if factors is None:
             raise AdjustedDataUnavailable(f"Silver factor artifact is missing for {symbol}")
         return await asyncio.to_thread(
             self._query_adjusted_intraday,
@@ -249,11 +288,14 @@ class LivewireOhlcProvider:
         because it trades every session the market is open.
         """
         bronze_last = self._last_trade_date(parquet_path(self._bronze_root, reference_symbol, "1d"))
-        silver_last = (
-            self._last_trade_date(daily_silver_path(self._silver_root, reference_symbol))
-            if self._silver_root is not None
-            else None
-        )
+        silver_last = None
+        if self._silver_root is not None:
+            try:
+                path = self.silver_artifact_path(reference_symbol, "daily")
+                if path is not None:
+                    silver_last = self._last_trade_date(path)
+            except AdjustedDataUnavailable as exc:
+                logger.warning("Silver recency unavailable: %s", exc)
         lag: int | None = None
         if bronze_last is not None and silver_last is not None:
             # Calendar days, NOT trading sessions -- apex has no exchange calendar

@@ -13,7 +13,8 @@ from src.api.errors import ApiError, ApiErrorCode
 from src.api.payload.validate import validate_payload
 from src.infrastructure.adapters.livewire.asset_classes import UnknownAssetClass, get_asset_class
 from src.infrastructure.adapters.livewire.coverage import CoverageUnavailable
-from src.infrastructure.adapters.livewire.paths import daily_silver_path, parquet_path
+from src.infrastructure.adapters.livewire.ohlc_provider import AdjustedDataUnavailable
+from src.infrastructure.adapters.livewire.paths import parquet_path
 
 logger = logging.getLogger(__name__)
 
@@ -153,11 +154,21 @@ async def get_instrument(asset_class: str, symbol: str, request: Request) -> dic
     # Probe the artifacts: the coverage table measures no equity intraday, so it
     # cannot answer this. Five exists() calls is fine for one symbol; it is exactly
     # why the LIST endpoint does not do it 14,746 times.
-    silver_daily = (
-        spec.supports_adjusted
-        and provider.silver_root is not None
-        and daily_silver_path(provider.silver_root, symbol).exists()
-    )
+    silver_daily = False
+    adjustment_revision = None
+    if spec.supports_adjusted and provider.silver_root is not None:
+        try:
+            pinned_provider = await asyncio.to_thread(provider.pin_snapshot)
+            silver_daily = (
+                await asyncio.to_thread(pinned_provider.silver_artifact_path, symbol, "daily")
+                is not None
+            )
+            if silver_daily and pinned_provider.snapshot is not None:
+                adjustment_revision = pinned_provider.snapshot.revision
+        except AdjustedDataUnavailable as exc:
+            raise ApiError(
+                ApiErrorCode.ADJUSTED_UNAVAILABLE, str(exc), symbol=symbol, asset_class=spec.name
+            ) from exc
     timeframes = [
         tf
         for tf in spec.timeframes
@@ -201,14 +212,6 @@ async def get_instrument(asset_class: str, symbol: str, request: Request) -> dic
         "last_date": dates.last_date if dates else None,
         "silver_available": silver_available,
         "price_mode": provider.effective_price_mode(spec.name),
-        "adjustment_revision": (
-            getattr(
-                getattr(request.app.state, "revision_watcher", None),
-                "last_fully_applied_revision",
-                None,
-            )
-            if silver_available
-            else None
-        ),
+        "adjustment_revision": adjustment_revision,
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }

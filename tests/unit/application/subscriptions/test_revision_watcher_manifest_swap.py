@@ -1,9 +1,9 @@
 """Component-level proof that a running watcher picks up a real, atomically
 swapped Silver manifest on disk and advances — no process/container restart.
 
-Uses the real RevisionManifestReader (real file read + SHA-256 checksum
-verification + os.replace atomic swap). The subscription manager is faked; the
-manager's own reseed logic is covered by test_manager.py."""
+Uses the real RevisionManifestReader (real file read + immutable pointer check +
+os.replace atomic swap). The subscription manager is faked; the manager's own
+reseed logic is covered by test_manager.py."""
 
 from __future__ import annotations
 
@@ -17,17 +17,31 @@ import pytest
 
 from src.application.subscriptions.manager import RefreshResult
 from src.application.subscriptions.revision_watcher import RevisionWatcher
-from src.infrastructure.adapters.livewire.revisions import RevisionManifestReader, SilverRevision
+from src.infrastructure.adapters.livewire.revisions import (
+    RevisionManifestError,
+    RevisionManifestReader,
+    SilverRevision,
+)
 
 
 def _publish_manifest(root: Path, revision: int, symbol: str = "NVDA") -> None:
     """Write revision={n}.json + artifact, then atomically swap current.json —
     the same temp-write → os.replace commit order Livewire's publisher uses."""
-    artifact_rel = f"asset_class=equity/symbol={symbol}/1d.parquet"
-    artifact = root / artifact_rel
-    artifact.parent.mkdir(parents=True, exist_ok=True)
-    artifact.write_bytes(f"silver-{symbol}-rev-{revision}".encode())
-    digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
+    artifact_paths = [
+        f"generations/{revision}/asset_class=equity/symbol={symbol}/1d.parquet",
+        (
+            f"generations/{revision}/adjustments/asset_class=equity/"
+            f"symbol={symbol}/factors.parquet"
+        ),
+    ]
+    artifacts = []
+    for artifact_path in artifact_paths:
+        artifact = root / artifact_path
+        artifact.parent.mkdir(parents=True, exist_ok=True)
+        artifact.write_bytes(f"silver-{symbol}-rev-{revision}-{artifact.name}".encode())
+        artifacts.append(
+            {"path": artifact_path, "sha256": hashlib.sha256(artifact.read_bytes()).hexdigest()}
+        )
 
     payload = {
         "schema_version": 1,
@@ -36,7 +50,7 @@ def _publish_manifest(root: Path, revision: int, symbol: str = "NVDA") -> None:
         "published_at": "2026-07-12T10:00:00Z",
         "corporate_actions_as_of": "2026-07-12T09:58:00Z",
         "affected": [{"symbol": symbol, "earliest_date": "1999-01-22", "timeframes": ["1d"]}],
-        "artifacts": [{"path": artifact_rel, "sha256": digest}],
+        "artifacts": artifacts,
     }
     revisions = root / "revisions"
     revisions.mkdir(parents=True, exist_ok=True)
@@ -92,17 +106,13 @@ async def test_running_watcher_observes_real_atomic_manifest_swap(tmp_path: Path
     assert health["pending"] == []
 
 
-@pytest.mark.asyncio
-async def test_real_reader_rejects_tampered_artifact(tmp_path: Path) -> None:
+def test_selected_artifact_verification_rejects_tamper(tmp_path: Path) -> None:
     _publish_manifest(tmp_path, revision=1)
     # Corrupt the artifact after publication so the recorded SHA-256 no longer matches.
-    (tmp_path / "asset_class=equity/symbol=NVDA/1d.parquet").write_bytes(b"tampered")
+    artifact = tmp_path / "generations/1/asset_class=equity/symbol=NVDA/1d.parquet"
+    artifact.write_bytes(b"tampered")
 
-    manager = _Manager()
-    watcher = RevisionWatcher(RevisionManifestReader(tmp_path), manager, poll_seconds=1)
-    await watcher.poll_once()
+    snapshot = RevisionManifestReader(tmp_path).read_current()
 
-    # Checksum mismatch → no reseed, state retained, error surfaced.
-    assert manager.calls == []
-    assert watcher.last_fully_applied_revision == 0
-    assert "checksum mismatch" in (watcher.last_error or "")
+    with pytest.raises(RevisionManifestError, match="checksum mismatch"):
+        snapshot.artifact_path("NVDA", "daily")

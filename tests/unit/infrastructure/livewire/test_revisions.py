@@ -22,10 +22,15 @@ def _write_manifest(
     schema_version: int = 1,
     published_at: str = "2026-07-12T10:00:00Z",
 ) -> None:
-    artifact = root / artifact_path
-    if ".." not in Path(artifact_path).parts:
-        artifact.parent.mkdir(parents=True, exist_ok=True)
-        artifact.write_bytes(b"silver")
+    artifact_paths = [
+        artifact_path,
+        "adjustments/asset_class=equity/symbol=NVDA/factors.parquet",
+    ]
+    for path in artifact_paths:
+        artifact = root / path
+        if ".." not in Path(path).parts:
+            artifact.parent.mkdir(parents=True, exist_ok=True)
+            artifact.write_bytes(b"silver")
     if digest is None:
         digest = hashlib.sha256(b"silver").hexdigest()
     payload = {
@@ -34,19 +39,32 @@ def _write_manifest(
         "generation_id": f"20260712T100000Z-{revision}",
         "published_at": published_at,
         "corporate_actions_as_of": "2026-07-12T09:58:00Z",
-        "affected": affected
-        or [
+        "affected": (
+            affected
+            if affected is not None
+            else [
+                {
+                    "symbol": "NVDA",
+                    "earliest_date": "1999-01-22",
+                    "timeframes": ["1d", "1m"],
+                }
+            ]
+        ),
+        "artifacts": [
             {
-                "symbol": "NVDA",
-                "earliest_date": "1999-01-22",
-                "timeframes": ["1d", "1m"],
+                "path": path,
+                "sha256": (
+                    digest if path == artifact_path else hashlib.sha256(b"silver").hexdigest()
+                ),
             }
+            for path in artifact_paths
         ],
-        "artifacts": [{"path": artifact_path, "sha256": digest}],
     }
     revisions = root / "revisions"
     revisions.mkdir(parents=True, exist_ok=True)
-    (revisions / "current.json").write_text(json.dumps(payload), encoding="utf-8")
+    encoded = json.dumps(payload)
+    (revisions / f"revision={revision}.json").write_text(encoded, encoding="utf-8")
+    (revisions / "current.json").write_text(encoded, encoding="utf-8")
 
 
 def test_reader_parses_and_verifies_current_manifest(tmp_path: Path) -> None:
@@ -79,7 +97,7 @@ def test_reader_rejects_checksum_mismatch(tmp_path: Path) -> None:
     _write_manifest(tmp_path, digest="0" * 64)
 
     with pytest.raises(RevisionManifestError, match="checksum mismatch"):
-        RevisionManifestReader(tmp_path).read_current()
+        RevisionManifestReader(tmp_path).read_current().artifact_path("NVDA", "daily")
 
 
 def test_reader_rejects_duplicate_affected_symbols(tmp_path: Path) -> None:
@@ -101,8 +119,53 @@ def test_reader_rejects_unsupported_timeframe(tmp_path: Path) -> None:
         RevisionManifestReader(tmp_path).read_current()
 
 
+def test_reader_rejects_empty_publication(tmp_path: Path) -> None:
+    _write_manifest(tmp_path, affected=[])
+
+    with pytest.raises(RevisionManifestError, match="affected must be a non-empty list"):
+        RevisionManifestReader(tmp_path).read_current()
+
+
 def test_reader_rejects_non_utc_timestamp(tmp_path: Path) -> None:
     _write_manifest(tmp_path, published_at="2026-07-12T18:00:00+08:00")
 
     with pytest.raises(RevisionManifestError, match="published_at must be UTC"):
+        RevisionManifestReader(tmp_path).read_current()
+
+
+@pytest.mark.parametrize(
+    "artifacts",
+    [
+        ["asset_class=equity/symbol=NVDA/1d.parquet"],
+        [
+            "asset_class=equity/symbol=NVDA/1d.parquet",
+            "adjustments/asset_class=equity/symbol=NVDA/factors.parquet",
+            "asset_class=equity/symbol=AAPL/1d.parquet",
+        ],
+    ],
+)
+def test_reader_rejects_artifacts_that_do_not_exactly_match_affected_membership(
+    tmp_path: Path, artifacts: list[str]
+) -> None:
+    digest = hashlib.sha256(b"silver").hexdigest()
+    for path in artifacts:
+        artifact = tmp_path / path
+        artifact.parent.mkdir(parents=True, exist_ok=True)
+        artifact.write_bytes(b"silver")
+    payload = {
+        "schema_version": 1,
+        "revision": 42,
+        "generation_id": "test-42",
+        "published_at": "2026-07-12T10:00:00Z",
+        "corporate_actions_as_of": "2026-07-12T09:58:00Z",
+        "affected": [{"symbol": "NVDA", "earliest_date": "1999-01-22", "timeframes": ["1d"]}],
+        "artifacts": [{"path": path, "sha256": digest} for path in artifacts],
+    }
+    revisions = tmp_path / "revisions"
+    revisions.mkdir()
+    encoded = json.dumps(payload)
+    (revisions / "revision=42.json").write_text(encoded, encoding="utf-8")
+    (revisions / "current.json").write_text(encoded, encoding="utf-8")
+
+    with pytest.raises(RevisionManifestError, match="exactly one daily and one factors"):
         RevisionManifestReader(tmp_path).read_current()

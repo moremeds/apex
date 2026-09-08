@@ -5,12 +5,14 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
-from pathlib import Path
-from typing import Any
+from pathlib import Path, PurePosixPath
+from types import MappingProxyType
+from typing import Any, Literal, Mapping
+from urllib.parse import unquote
 
-from .paths import SUPPORTED_TIMEFRAMES
+from .paths import SUPPORTED_TIMEFRAMES, encode_symbol
 
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
@@ -28,9 +30,19 @@ class AffectedSymbol:
     timeframes: tuple[str, ...]
 
 
+ArtifactKind = Literal["daily", "factors"]
+_ARTIFACT_KINDS: tuple[ArtifactKind, ...] = ("daily", "factors")
+
+
+@dataclass(frozen=True)
+class SilverArtifact:
+    path: str
+    sha256: str
+
+
 @dataclass(frozen=True)
 class SilverRevision:
-    """Validated current Silver revision."""
+    """One committed manifest; verify selected artifacts when they are read."""
 
     schema_version: int
     revision: int
@@ -38,10 +50,37 @@ class SilverRevision:
     published_at: datetime
     corporate_actions_as_of: datetime
     affected: tuple[AffectedSymbol, ...]
+    artifacts: Mapping[tuple[str, ArtifactKind], SilverArtifact] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
+    root: Path | None = None
+
+    def artifact_path(self, symbol: str, kind: ArtifactKind, *, verify: bool = True) -> Path | None:
+        artifact = self.artifacts.get((symbol, kind))
+        if artifact is None:
+            return None
+        if self.root is None:
+            raise RevisionManifestError("Silver snapshot has no root")
+        path = (self.root / artifact.path).resolve()
+        if not path.is_relative_to(self.root):
+            raise RevisionManifestError(f"artifact outside Silver root: {artifact.path}")
+        if verify:
+            try:
+                actual = RevisionManifestReader._sha256(path)
+            except OSError as exc:
+                raise RevisionManifestError(f"cannot read artifact {artifact.path}: {exc}") from exc
+            if actual != artifact.sha256:
+                raise RevisionManifestError(f"checksum mismatch for artifact {artifact.path}")
+        return path
+
+    def verify_artifacts(self) -> None:
+        """Explicit full verification for audits, never implicit per chart request."""
+        for symbol, kind in self.artifacts:
+            self.artifact_path(symbol, kind)
 
 
 class RevisionManifestReader:
-    """Load ``revisions/current.json`` and verify every referenced artifact."""
+    """Pin one current manifest, validating its structure and immutable commit record."""
 
     def __init__(self, silver_root: Path) -> None:
         self._root = Path(silver_root).resolve()
@@ -49,18 +88,27 @@ class RevisionManifestReader:
     def read_current(self) -> SilverRevision:
         manifest_path = self._root / "revisions" / "current.json"
         try:
-            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
+            current_bytes = manifest_path.read_bytes()
+            payload = json.loads(current_bytes)
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise RevisionManifestError(f"cannot read Silver revision manifest: {exc}") from exc
         if not isinstance(payload, dict):
             raise RevisionManifestError("Silver revision manifest must be a JSON object")
 
         schema_version = payload.get("schema_version")
-        if schema_version != 1:
+        if type(schema_version) is not int or schema_version != 1:
             raise RevisionManifestError(f"unsupported schema_version: {schema_version!r}")
         revision = payload.get("revision")
         if not isinstance(revision, int) or isinstance(revision, bool) or revision < 1:
             raise RevisionManifestError("revision must be a positive integer")
+        immutable = self._root / "revisions" / f"revision={revision}.json"
+        try:
+            if immutable.read_bytes() != current_bytes:
+                raise RevisionManifestError(
+                    "current Silver pointer does not match immutable manifest"
+                )
+        except OSError as exc:
+            raise RevisionManifestError(f"cannot read immutable Silver manifest: {exc}") from exc
 
         generation_id = payload.get("generation_id")
         if not isinstance(generation_id, str) or not generation_id.strip():
@@ -71,7 +119,13 @@ class RevisionManifestReader:
             payload.get("corporate_actions_as_of"), "corporate_actions_as_of"
         )
         affected = self._parse_affected(payload.get("affected"))
-        self._verify_artifacts(payload.get("artifacts"))
+        artifacts = self._parse_artifacts(payload.get("artifacts"))
+        expected_artifacts = {(item.symbol, kind) for item in affected for kind in _ARTIFACT_KINDS}
+        if set(artifacts) != expected_artifacts:
+            raise RevisionManifestError(
+                "artifacts must contain exactly one daily and one factors entry "
+                "for every affected symbol"
+            )
         return SilverRevision(
             schema_version=1,
             revision=revision,
@@ -79,6 +133,8 @@ class RevisionManifestReader:
             published_at=published_at,
             corporate_actions_as_of=actions_as_of,
             affected=affected,
+            artifacts=MappingProxyType(artifacts),
+            root=self._root,
         )
 
     @staticmethod
@@ -95,8 +151,8 @@ class RevisionManifestReader:
 
     @staticmethod
     def _parse_affected(value: Any) -> tuple[AffectedSymbol, ...]:
-        if not isinstance(value, list):
-            raise RevisionManifestError("affected must be a list")
+        if not isinstance(value, list) or not value:
+            raise RevisionManifestError("affected must be a non-empty list")
         parsed: list[AffectedSymbol] = []
         seen: set[str] = set()
         for item in value:
@@ -115,6 +171,8 @@ class RevisionManifestReader:
             raw_timeframes = item.get("timeframes")
             if not isinstance(raw_timeframes, list) or not raw_timeframes:
                 raise RevisionManifestError(f"timeframes must be a non-empty list for {symbol}")
+            if any(not isinstance(tf, str) for tf in raw_timeframes):
+                raise RevisionManifestError(f"timeframes must contain strings for {symbol}")
             if len(raw_timeframes) != len(set(raw_timeframes)):
                 raise RevisionManifestError(f"duplicate timeframe for {symbol}")
             unsupported = [tf for tf in raw_timeframes if tf not in SUPPORTED_TIMEFRAMES]
@@ -125,10 +183,11 @@ class RevisionManifestReader:
             parsed.append(AffectedSymbol(symbol, earliest, tuple(raw_timeframes)))
         return tuple(parsed)
 
-    def _verify_artifacts(self, value: Any) -> None:
+    def _parse_artifacts(self, value: Any) -> dict[tuple[str, ArtifactKind], SilverArtifact]:
         if not isinstance(value, list):
             raise RevisionManifestError("artifacts must be a list")
         seen: set[str] = set()
+        parsed: dict[tuple[str, ArtifactKind], SilverArtifact] = {}
         for item in value:
             if not isinstance(item, dict):
                 raise RevisionManifestError("artifact entries must be objects")
@@ -141,18 +200,32 @@ class RevisionManifestReader:
             seen.add(raw_path)
             if not isinstance(digest, str) or _SHA256_RE.fullmatch(digest) is None:
                 raise RevisionManifestError(f"invalid sha256 for artifact {raw_path}")
-            candidate = Path(raw_path)
-            if candidate.is_absolute():
+            candidate = PurePosixPath(raw_path)
+            if candidate.is_absolute() or ".." in candidate.parts or "\\" in raw_path:
                 raise RevisionManifestError(f"artifact outside Silver root: {raw_path}")
-            resolved = (self._root / candidate).resolve()
-            if not resolved.is_relative_to(self._root):
-                raise RevisionManifestError(f"artifact outside Silver root: {raw_path}")
-            try:
-                actual = self._sha256(resolved)
-            except OSError as exc:
-                raise RevisionManifestError(f"cannot read artifact {raw_path}: {exc}") from exc
-            if actual != digest:
-                raise RevisionManifestError(f"checksum mismatch for artifact {raw_path}")
+            parts = candidate.parts
+            if (
+                len(parts) < 3
+                or parts[-3] != "asset_class=equity"
+                or not parts[-2].startswith("symbol=")
+            ):
+                raise RevisionManifestError(f"invalid Silver artifact path: {raw_path}")
+            encoded = parts[-2][len("symbol=") :]
+            symbol = unquote(encoded)
+            if not symbol or encode_symbol(symbol) != encoded:
+                raise RevisionManifestError(f"invalid Silver symbol encoding: {raw_path}")
+            kind: ArtifactKind
+            if parts[-1] == "1d.parquet":
+                kind = "daily"
+            elif parts[-1] == "factors.parquet" and len(parts) >= 4 and parts[-4] == "adjustments":
+                kind = "factors"
+            else:
+                raise RevisionManifestError(f"invalid Silver artifact path: {raw_path}")
+            key = (symbol, kind)
+            if key in parsed:
+                raise RevisionManifestError(f"duplicate Silver artifact for {symbol}/{kind}")
+            parsed[key] = SilverArtifact(raw_path, digest)
+        return parsed
 
     @staticmethod
     def _sha256(path: Path) -> str:
