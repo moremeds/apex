@@ -9,6 +9,23 @@ All notable changes to apex are recorded here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Livewire Silver reads pin one manifest per logical request. The adapter validates
+  `revisions/current.json` (schema 1, immutable pointer identity, complete membership, exactly one
+  daily/factor artifact per member, safe encoded paths, declared SHA-256) and hashes only the
+  artifact it reads. Missing, corrupt, withdrawn or uncovered data keeps the
+  `503 adjusted_unavailable` contract. Chart, instrument-detail and canary responses report the
+  revision they actually pinned. Live signal recomputation is still not atomic across a Silver
+  revision; that consumer redesign is deferred to the Apex rewrite.
+
+### Build
+
+- `plotly>=6.0,<7`: plotly 7.0.0 dropped the scattermapbox traces vectorbt 0.28.2 registers, which
+  broke the vectorbt engine tests on CI (CI installs from pyproject, not the lockfile).
+- isort ordering in `backtest/execution` and a `Literal` direction for `optuna.create_study`, so
+  CI's unpinned isort 9 and mypy accept the tree. `uv.lock` refreshed alongside.
+
 ## [0.1.4] — 2026-08-23
 
 ### Added
