@@ -62,6 +62,20 @@ class _FakeProvider:
         self.delisted_root = delisted_root
         self.silver_root = silver_root
         self._price_mode = price_mode
+        self.snapshot = None
+
+    def pin_snapshot(self):
+        from copy import copy
+
+        from src.infrastructure.adapters.livewire.revisions import RevisionManifestReader
+
+        pinned = copy(self)
+        if self.silver_root is not None:
+            pinned.snapshot = RevisionManifestReader(self.silver_root).read_current()
+        return pinned
+
+    def silver_artifact_path(self, symbol, kind, *, verify=True):
+        return self.snapshot.artifact_path(symbol, kind, verify=verify) if self.snapshot else None
 
     def effective_price_mode(self, asset_class: str = "equity") -> str:
         return self._price_mode
@@ -487,6 +501,9 @@ async def test_adjusted_unavailable_is_503_not_500() -> None:
         def effective_price_mode(self, asset_class: str = "equity") -> str:
             return "adjusted"
 
+        def pin_snapshot(self):
+            return self
+
         async def fetch_bars(self, *a: object, **kw: object) -> list:
             raise AdjustedDataUnavailable("Silver daily artifact is missing for HON")
 
@@ -697,11 +714,13 @@ async def test_a_silver_only_symbol_is_not_a_false_404(tmp_path: Path) -> None:
     """Silver can outlive its Bronze source. Probing Bronze alone answers a real
     adjusted symbol with 404 whenever the requested window happens to be empty."""
     from src.infrastructure.adapters.livewire.paths import daily_silver_path
+    from tests.support.silver_manifest import publish_manifest
 
     silver_root = tmp_path / "silver"
     artifact = daily_silver_path(silver_root, "AAPL")
     artifact.parent.mkdir(parents=True)
     artifact.touch()
+    publish_manifest(silver_root)
 
     app = create_app()
     # Empty window, bronze_root deliberately nonexistent: only Silver backs this symbol.

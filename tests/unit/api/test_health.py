@@ -8,6 +8,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from src.api.server import APEX_VERSION, create_app
+from tests.support.silver_manifest import publish_manifest
 
 
 @pytest.mark.asyncio
@@ -104,6 +105,7 @@ def test_health_reports_zero_lag_when_silver_matches_bronze(tmp_path: Path) -> N
     for d in (bronze, silver):
         d.mkdir(parents=True, exist_ok=True)
         pd.DataFrame({"trade_date": dates, **ohlc}).to_parquet(d / "1d.parquet")
+    publish_manifest(tmp_path / "silver")
 
     provider = LivewireOhlcProvider(
         bronze_root=tmp_path / "bronze", silver_root=tmp_path / "silver", price_mode="adjusted"

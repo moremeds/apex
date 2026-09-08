@@ -13,6 +13,7 @@ Mirrors the signal contract: REST backfill + validate-on-egress on every respons
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -94,6 +95,8 @@ async def _bars_response(
     effective = price_mode or provider.effective_price_mode(spec.name)
     start, end, tail = _resolve_window(timeframe, start, end, limit)
     try:
+        if effective == "adjusted":
+            provider = await asyncio.to_thread(provider.pin_snapshot)
         bars = await provider.fetch_bars(
             symbol, timeframe, start, end, asset_class=spec.name, price_mode=effective
         )
@@ -121,7 +124,7 @@ async def _bars_response(
         contract=_contract_identity(spec, bars),
         price_mode=effective,
         listing_status=listing_status,
-        adjustment_revision=_silver_revision(request) if effective == "adjusted" else None,
+        adjustment_revision=_silver_revision(provider) if effective == "adjusted" else None,
     )
     validate_payload(payload, "bars_payload")
     return payload
@@ -147,6 +150,8 @@ async def _indicators_response(
     registry = getattr(request.app.state, "indicator_registry", None) or get_indicator_registry()
     start, end, tail = _resolve_window(timeframe, start, end, limit)
     try:
+        if provider.effective_price_mode(spec.name) == "adjusted":
+            provider = await asyncio.to_thread(provider.pin_snapshot)
         points = await compute_indicator_series(
             provider,
             registry,

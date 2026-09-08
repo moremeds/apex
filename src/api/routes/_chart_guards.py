@@ -22,7 +22,6 @@ from src.infrastructure.adapters.livewire.asset_classes import (
     get_asset_class,
 )
 from src.infrastructure.adapters.livewire.paths import (
-    daily_silver_path,
     delisted_bronze_path,
     parquet_path,
 )
@@ -56,15 +55,10 @@ def _resolve_window(
     return start, end, None
 
 
-def _silver_revision(request: Request) -> Optional[int]:
-    """The revision the payload's adjusted prices were built from.
-
-    Sourced from the running watcher's ``last_fully_applied_revision`` -- NOT
-    ``observed_revision``, which may be a revision apex has seen but not finished
-    applying. There is no ``app.state.silver_revision``; the watcher owns this.
-    """
-    watcher = getattr(request.app.state, "revision_watcher", None)
-    return getattr(watcher, "last_fully_applied_revision", None) if watcher else None
+def _silver_revision(provider: Any) -> Optional[int]:
+    """The snapshot used by this read, independent of subscription reseed progress."""
+    snapshot = provider.snapshot
+    return snapshot.revision if snapshot is not None else None
 
 
 def _contract_identity(spec: AssetClassSpec, bars: list) -> Optional[dict]:
@@ -144,7 +138,7 @@ def _artifact_exists(
         and timeframe == "1d"
         and spec.supports_adjusted
         and provider.silver_root is not None
-        and daily_silver_path(provider.silver_root, symbol).exists()
+        and provider.silver_artifact_path(symbol, "daily", verify=False) is not None
     ):
         return True
     return parquet_path(provider.bronze_root, symbol, timeframe, spec.name).exists()

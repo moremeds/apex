@@ -19,13 +19,9 @@ from ...domain.events.domain_events import QuoteTick, TradeFill
 from ...domain.interfaces.execution_provider import OrderRequest, OrderResult
 
 # Reality models (optional)
-from ...domain.reality import (
-    AssetType,
-)
+from ...domain.reality import AssetType
 from ...domain.reality import OrderType as RealityOrderType
-from ...domain.reality import (
-    RealityModelPack,
-)
+from ...domain.reality import RealityModelPack
 
 if TYPE_CHECKING:
     from .ledger import PositionLedger

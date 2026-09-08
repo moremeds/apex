@@ -13,6 +13,7 @@ from src.infrastructure.adapters.livewire.ohlc_provider import (
     LivewireOhlcProvider,
     _to_utc_datetime,
 )
+from tests.support.silver_manifest import publish_manifest, write_generation
 
 WIDE_START = datetime(2026, 1, 1, tzinfo=timezone.utc)
 WIDE_END = datetime(2026, 1, 31, tzinfo=timezone.utc)
@@ -82,6 +83,7 @@ def _write_silver_daily_fixture(root: Path) -> None:
             "adjustment_revision": [1, 1, 1],
         }
     ).to_parquet(sym_dir / "1d.parquet")
+    publish_manifest(root)
 
 
 def _write_factor_fixture(root: Path, *, cover_bar_date: bool = True) -> None:
@@ -97,6 +99,7 @@ def _write_factor_fixture(root: Path, *, cover_bar_date: bool = True) -> None:
             "adjustment_revision": [1],
         }
     ).to_parquet(sym_dir / "factors.parquet")
+    publish_manifest(root)
 
 
 def _write_action_span_fixtures(bronze_root: Path, silver_root: Path) -> None:
@@ -128,6 +131,7 @@ def _write_action_span_fixtures(bronze_root: Path, silver_root: Path) -> None:
             "adjustment_revision": [1, 1, 1],
         }
     ).to_parquet(factor_dir / "factors.parquet")
+    publish_manifest(silver_root)
 
 
 @pytest.fixture
@@ -271,9 +275,11 @@ async def test_adjusted_intraday_spans_split_dividend_and_identity_intervals(
 async def test_adjusted_intraday_rejects_missing_factor_artifact(tmp_path: Path) -> None:
     bronze_root = tmp_path / "bronze"
     _write_intraday_fixture(bronze_root)
+    silver_root = tmp_path / "silver"
+    publish_manifest(silver_root, artifacts=write_generation(silver_root, "other", 1.0, "OTHER"))
     provider = LivewireOhlcProvider(
         bronze_root=bronze_root,
-        silver_root=tmp_path / "silver",
+        silver_root=silver_root,
         price_mode="adjusted",
     )
 
@@ -573,9 +579,11 @@ async def test_unknown_symbol_in_adjusted_mode_is_empty_not_quarantined(tmp_path
 
     Caught by production verification against the real lake on 2026-08-23.
     """
+    silver_root = tmp_path / "silver"
+    publish_manifest(silver_root, artifacts=write_generation(silver_root, "other", 1.0, "OTHER"))
     provider = LivewireOhlcProvider(
         bronze_root=tmp_path / "bronze",
-        silver_root=tmp_path / "silver",
+        silver_root=silver_root,
         price_mode="adjusted",
     )
     assert await provider.fetch_bars("NOTAREALTICKER", "1d", _AC_START, _AC_END) == []
@@ -597,9 +605,11 @@ async def test_bronze_without_silver_still_raises(tmp_path: Path) -> None:
             "volume": [1000],
         }
     ).to_parquet(bronze / "1d.parquet")
+    silver_root = tmp_path / "silver"
+    publish_manifest(silver_root, artifacts=write_generation(silver_root, "other", 1.0, "OTHER"))
     provider = LivewireOhlcProvider(
         bronze_root=tmp_path / "bronze",
-        silver_root=tmp_path / "silver",
+        silver_root=silver_root,
         price_mode="adjusted",
     )
     with pytest.raises(AdjustedDataUnavailable, match="HON"):

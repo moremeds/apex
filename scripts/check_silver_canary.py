@@ -97,7 +97,9 @@ async def check_silver_canary(
     end = end or datetime.now(timezone.utc)
     revision = await asyncio.to_thread(RevisionManifestReader(silver_root).read_current)
     raw_provider = LivewireOhlcProvider(bronze_root, price_mode="raw")
-    adjusted_provider = LivewireOhlcProvider(bronze_root, silver_root, "adjusted")
+    adjusted_provider = LivewireOhlcProvider(bronze_root, silver_root, "adjusted").pin_snapshot(
+        revision
+    )
     results: dict[str, dict[str, Any]] = {}
 
     for symbol in (*symbols, control):
