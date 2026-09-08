@@ -9,6 +9,16 @@ All notable changes to apex are recorded here. Format follows
 
 ## [Unreleased]
 
+### Added
+
+- `GET /v1/equity/returns?symbols=A,B,C&start=&end=` — one call returns, per symbol, the
+  window's daily closes and returns plus window return, YTD, distance from the 52-week high
+  and excess vs SPY and QQQ. Every derived number is computed server-side on one price basis
+  so no consumer does the arithmetic; symbols that cannot be served are listed in `missing`
+  with a reason instead of being dropped. At most 200 symbols per call. (#160)
+- Documented that `start`/`end` bound a bars window inclusively at **both** ends, intraday
+  included — a `1m` request over `12:25:00Z..12:35:00Z` returns 11 bars, not 10. (#160)
+
 ## [0.1.5] — 2026-09-08
 
 

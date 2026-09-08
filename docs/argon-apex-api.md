@@ -184,6 +184,7 @@ given timeframe returns `404 unknown_symbol` — measured, not theoretical: `AAC
 | `GET /v1/{asset_class}/{symbol}/bars` | OHLCV candles | `400` class/tf/mode · `404` no artifact · `409` ambiguous · `501` delisted · `503` no Silver |
 | `GET /v1/rates/{symbol}/series` | Treasury yield series | `404` no artifact · `503` no provider |
 | `GET /v1/{asset_class}/{symbol}/indicators` | Per-bar indicator series | `400` bad class/tf/indicator · `404` no artifact · `503` |
+| `GET /v1/equity/returns` | Bulk weekly return table (window/YTD/52w/excess vs SPY,QQQ) | `400` no symbols, >200, bad dates · `503` no provider |
 | `GET /v1/equity/{symbol}/confluence` | Multi-timeframe confluence (PG) | `503` no PG |
 | `GET /v1/equity/{symbol}/signals` | Signal backfill (PG) | `503` no PG |
 | `GET /v1/instruments` | Discovery across all classes | `400` bad class · `501` delisted · `503` no catalog |
@@ -201,13 +202,14 @@ null `first_date` would be ambiguous between "this symbol has no recorded covera
 | Param | Routes | Default | Meaning |
 |---|---|---|---|
 | `timeframe` | bars, indicators | `1d` | Must be in the class's ladder |
-| `start` / `end` | all series | none | ISO-8601. Omit both → most recent `limit` bars |
+| `start` / `end` | all series | none | ISO-8601, **inclusive at both ends** (a `1m` window `12:25:00Z..12:35:00Z` returns 11 bars). Omit both → most recent `limit` bars. Required, `YYYY-MM-DD`, on returns |
 | `limit` | bars, indicators, confluence, instruments | `2000` (bars) | Tail-slice; `<=0` → full history |
 | `price_mode` | bars | provider default | `raw` \| `adjusted`. A **request**, not a hint |
 | `listing` | bars, instruments | `listed` | `listed` \| `delisted` \| `any` |
 | `indicator` | indicators | **required** | Any of apex's registered indicators |
 | `asset_class` | instruments | all | Filter |
 | `q` | instruments | none | Symbol **prefix** filter (`_`/`%` are escaped) |
+| `symbols` | returns | **required** | Comma-separated tickers, ≤200, de-duplicated |
 
 ### Error envelope
 
