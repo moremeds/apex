@@ -9,6 +9,8 @@ All notable changes to apex are recorded here. Format follows
 
 ## [Unreleased]
 
+## [0.1.6] — 2026-09-08
+
 ### Added
 
 - `GET /v1/equity/returns?symbols=A,B,C&start=&end=` — one call returns, per symbol, the
