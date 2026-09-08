@@ -7,7 +7,7 @@ parameter search in large spaces.
 Supports batched suggestions for parallel trial execution.
 """
 
-from typing import Any, Dict, Iterator, List, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Literal, Optional, Tuple
 
 import optuna
 import pandas as pd
@@ -67,7 +67,9 @@ class BayesianOptimizer:
         self.sampler = TPESampler(seed=seed, n_startup_trials=max(10, batch_size))
         self.pruner = HyperbandPruner()
 
-        direction = "maximize" if spec.optimization.direction == "maximize" else "minimize"
+        direction: Literal["minimize", "maximize"] = (
+            "maximize" if spec.optimization.direction == "maximize" else "minimize"
+        )
 
         self.study = optuna.create_study(
             direction=direction,

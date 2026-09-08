@@ -11,15 +11,9 @@ import logging
 import multiprocessing as mp
 import random
 import time
-from concurrent.futures import (
-    BrokenExecutor,
-    Future,
-    ProcessPoolExecutor,
-)
+from concurrent.futures import BrokenExecutor, Future, ProcessPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeoutError
-from concurrent.futures import (
-    as_completed,
-)
+from concurrent.futures import as_completed
 from dataclasses import dataclass, field
 from threading import Event, Thread
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, Type
