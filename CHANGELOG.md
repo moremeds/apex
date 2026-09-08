@@ -9,6 +9,9 @@ All notable changes to apex are recorded here. Format follows
 
 ## [Unreleased]
 
+## [0.1.5] — 2026-09-08
+
+
 ### Fixed
 
 - Livewire Silver reads pin one manifest per logical request. The adapter validates
@@ -25,7 +28,6 @@ All notable changes to apex are recorded here. Format follows
   broke the vectorbt engine tests on CI (CI installs from pyproject, not the lockfile).
 - isort ordering in `backtest/execution` and a `Literal` direction for `optuna.create_study`, so
   CI's unpinned isort 9 and mypy accept the tree. `uv.lock` refreshed alongside.
-
 ## [0.1.4] — 2026-08-23
 
 ### Added
