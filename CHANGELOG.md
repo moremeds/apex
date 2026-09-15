@@ -9,6 +9,21 @@ All notable changes to apex are recorded here. Format follows
 
 ## [Unreleased]
 
+### Added
+
+- Point-in-time index membership over REST, read from livewire's lake:
+  `GET /v1/membership/indices`, `GET /v1/membership/{index_id}?as_of=&known_at=&include_candidates=`
+  and `GET /v1/membership/history?symbol=&index_id=&as_of=`. Members are replayed from the
+  append-only event log rather than read from a materialised list: events some later-known event
+  `supersedes` are dropped, `known_at` gates both the replay and the security master to what was
+  known on a date, and surviving members are kept only while the master still calls their identity
+  verified. Tickers are resolved through the master at the same as-of date. Gated on the new
+  `APEX_LIVEWIRE_LAKE_ROOT` (503 when unset). An index with no published events under the requested
+  status reading fails closed with a 503; an empty replay over a populated log is a real
+  point-in-time answer and returns 200 with an empty member list. `/history` is ungated (every
+  status, superseded rows included, each carrying its `supersedes`) and falls back to livewire's
+  `unresolved:<TICKER>` placeholder when the master does not know the ticker yet.
+
 ## [0.1.6] — 2026-09-08
 
 ### Added

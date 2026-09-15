@@ -79,6 +79,8 @@ coverage.xml
 # =============================================================================
 /data/cache/
 *.parquet
+# ...except the checked-in livewire lake fixtures, which CI must be able to read.
+!tests/fixtures/livewire_membership/**/*.parquet
 *.pkl
 
 # =============================================================================

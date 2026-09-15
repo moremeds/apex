@@ -90,6 +90,7 @@ Every data source is env-gated: apex boots regardless, and each unset source mak
 | `APEX_LIVEWIRE_PRICE_MODE`            | `raw`                 | `raw` Bronze or `adjusted` Silver/factor-joined Bronze   |
 | `APEX_LIVEWIRE_REVISION_POLL_SECONDS` | `30`                  | Silver revision poll interval                            |
 | `APEX_LIVEWIRE_COVERAGE_DB`           | unset                 | the coverage catalog behind `/v1/instruments`            |
+| `APEX_LIVEWIRE_LAKE_ROOT`             | unset                 | `/v1/membership/*` point-in-time index membership        |
 | `APEX_LIVEWIRE_DELISTED_ROOT`         | unset                 | delisted-symbol artifacts                                |
 | `APEX_PG_URL`                         | unset                 | signal backfill, confluence, signal persistence          |
 | `APEX_XENON_WS_URL`                   | `ws://127.0.0.1:8765` | live ticks → live WS signal frames                       |
