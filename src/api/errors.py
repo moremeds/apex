@@ -37,6 +37,9 @@ class ApiErrorCode(str, Enum):
     NOT_YET_AVAILABLE = "not_yet_available"
     PROVIDER_NOT_CONFIGURED = "provider_not_configured"
     ADJUSTED_UNAVAILABLE = "adjusted_unavailable"
+    UNKNOWN_INDEX = "unknown_index"
+    AMBIGUOUS_SECURITY = "ambiguous_security"
+    MEMBERSHIP_UNAVAILABLE = "membership_unavailable"
 
 
 # 503 for ADJUSTED_UNAVAILABLE is deliberate: a missing or quarantined Silver artifact
@@ -53,6 +56,13 @@ STATUS_BY_CODE: dict[ApiErrorCode, int] = {
     ApiErrorCode.NOT_YET_AVAILABLE: 501,
     ApiErrorCode.PROVIDER_NOT_CONFIGURED: 503,
     ApiErrorCode.ADJUSTED_UNAVAILABLE: 503,
+    ApiErrorCode.UNKNOWN_INDEX: 404,
+    # Ambiguity is a 404 here, not the 409 AMBIGUOUS_SYMBOL carries: the membership
+    # surface has no resolved security to talk about, so the subject does not exist.
+    ApiErrorCode.AMBIGUOUS_SECURITY: 404,
+    # Fail closed. Membership data is still being backfilled upstream, so an empty
+    # replay means "not published yet", never "this index has no members".
+    ApiErrorCode.MEMBERSHIP_UNAVAILABLE: 503,
 }
 
 

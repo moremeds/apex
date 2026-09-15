@@ -44,7 +44,10 @@ def test_adjusted_unavailable_is_503_not_500() -> None:
 
 def test_envelope_shape() -> None:
     exc = ApiError(
-        ApiErrorCode.ADJUSTED_UNAVAILABLE, "quarantined", symbol="HON", asset_class="equity"
+        ApiErrorCode.ADJUSTED_UNAVAILABLE,
+        "quarantined",
+        symbol="HON",
+        asset_class="equity",
     )
     body = json.loads(api_error_response(exc).body)
     assert body == {
@@ -75,6 +78,9 @@ def test_code_values_are_stable_contract() -> None:
         "not_yet_available",
         "provider_not_configured",
         "adjusted_unavailable",
+        "unknown_index",
+        "ambiguous_security",
+        "membership_unavailable",
     }
 
 

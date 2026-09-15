@@ -292,6 +292,12 @@ def create_app() -> FastAPI:
     app.include_router(returns_router)
     app.include_router(chart_router)
 
+    # Point-in-time index membership. Registered before instruments for the same reason
+    # returns is: /v1/{asset_class}/{symbol} would match /v1/membership/history.
+    from src.api.routes.membership import router as membership_router
+
+    app.include_router(membership_router)
+
     from src.api.routes.instruments import router as instruments_router
 
     app.include_router(instruments_router)
