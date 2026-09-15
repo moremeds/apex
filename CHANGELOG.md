@@ -9,6 +9,9 @@ All notable changes to apex are recorded here. Format follows
 
 ## [Unreleased]
 
+## [0.1.7] — 2026-09-15
+
+
 ### Added
 
 - Point-in-time index membership over REST, read from livewire's lake:
@@ -23,7 +26,6 @@ All notable changes to apex are recorded here. Format follows
   point-in-time answer and returns 200 with an empty member list. `/history` is ungated (every
   status, superseded rows included, each carrying its `supersedes`) and falls back to livewire's
   `unresolved:<TICKER>` placeholder when the master does not know the ticker yet.
-
 ## [0.1.6] — 2026-09-08
 
 ### Added
