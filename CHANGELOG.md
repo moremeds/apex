@@ -9,6 +9,9 @@ All notable changes to apex are recorded here. Format follows
 
 ## [Unreleased]
 
+## [0.1.8] — 2026-09-16
+
+
 ### Fixed
 
 - `GET /v1/membership/history` no longer hides the part of a ticker's log that predates
@@ -23,7 +26,6 @@ All notable changes to apex are recorded here. Format follows
   replacement) collapses to the one live event instead of showing a duplicate add. Top-level
   `security_id` is still the resolved id when the master resolves the ticker, the placeholder
   when only it has events, and an unknown ticker with no events is still a 404.
-
 ## [0.1.7] — 2026-09-15
 
 
