@@ -190,7 +190,7 @@ class MembershipReader:
         index_id: str,
         *,
         known_at: Optional[date] = None,
-        security_id: Optional[str] = None,
+        security_ids: Sequence[str] = (),
     ) -> List[MembershipEvent]:
         """Log rows visible at the ``known_at`` knowledge cutoff, in replay order.
 
@@ -204,9 +204,9 @@ class MembershipReader:
         if known_at is not None:
             clauses.append("known_at <= ?")
             params.append(_end_of_day(known_at))
-        if security_id is not None:
-            clauses.append("security_id = ?")
-            params.append(security_id)
+        if security_ids:
+            clauses.append("security_id IN (" + ", ".join("?" for _ in security_ids) + ")")
+            params.extend(security_ids)
         sql = (
             "SELECT index_id, security_id, action, announced_at, effective_at, known_at, "
             "revision, status, event_id, supersedes FROM read_parquet(?) WHERE "
@@ -302,13 +302,18 @@ class MembershipReader:
         return bool(self._query(sql, [str(path), status]))
 
     def history_for_security(
-        self, security_id: str, index_id: Optional[str] = None
+        self, security_id: str | Sequence[str], index_id: Optional[str] = None
     ) -> List[MembershipEvent]:
-        """Every logged event for a security, all statuses, across one or all indices.
+        """The effective membership timeline for one security, across one or all indices.
 
-        Deliberately ungated: the history is the audit trail, so superseded rows and
-        rejected rows stay visible, each carrying the ``supersedes`` that retracts it.
+        Accepts several ids because one security's log is routinely split between the
+        placeholder ``unresolved:<TICKER>`` and the resolved ``sec_...`` id. Retracted
+        rows -- anything another row supersedes, and anything ``rejected`` -- are
+        dropped *over the union* of the ids, never per id: the identity backfill logs
+        the rejected revision under the placeholder while the replacement carries the
+        resolved id, so filtering one id at a time would leave both alive.
         """
+        ids = [security_id] if isinstance(security_id, str) else list(security_id)
         if index_id is not None:
             paths = [(index_id, self.events_path(index_id))]
             if paths[0][1] is None:
@@ -319,7 +324,15 @@ class MembershipReader:
         for name, path in paths:
             if path is None:  # pragma: no cover - list_indices only yields real files
                 continue
-            events.extend(self._read_events(path, name, security_id=security_id))
+            # One read per index for every id: two reads could straddle livewire's
+            # atomic replace and union rows from two different publications.
+            events.extend(self._read_events(path, name, security_ids=ids))
+        superseded = {event.supersedes for event in events if event.supersedes is not None}
+        events = [
+            event
+            for event in events
+            if event.event_id not in superseded and event.status != _REJECTED
+        ]
         events.sort(key=lambda e: (e.effective_at, e.known_at, e.revision, e.event_id))
         return events
 
