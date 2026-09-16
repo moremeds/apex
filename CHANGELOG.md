@@ -9,6 +9,21 @@ All notable changes to apex are recorded here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `GET /v1/membership/history` no longer hides the part of a ticker's log that predates
+  livewire's identity floor. Events before the floor stay logged under the placeholder
+  `unresolved:<TICKER>` even after the backfill resolves the ticker, so the route queried
+  only the resolved `security_id` and returned an empty timeline (`symbol=INTC&index_id=djia`
+  returned `events: []` while the log held an add in 1999 and a remove in 2024). The route now
+  queries both the resolved id and the placeholder and each event carries its own `security_id`.
+  `/history` returns the **effective timeline**, not the raw audit rows: rows another row
+  supersedes and rows with status `rejected` are dropped across the union of both ids, so the
+  backfill's three-row pattern (original placeholder event, its rejected revision, the resolved
+  replacement) collapses to the one live event instead of showing a duplicate add. Top-level
+  `security_id` is still the resolved id when the master resolves the ticker, the placeholder
+  when only it has events, and an unknown ticker with no events is still a 404.
+
 ## [0.1.7] — 2026-09-15
 
 

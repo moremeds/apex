@@ -1,7 +1,7 @@
 """Point-in-time index membership read surface.
 
 - ``GET /v1/membership/indices``      -- index ids present in the lake
-- ``GET /v1/membership/history``      -- one security's full membership event log
+- ``GET /v1/membership/history``      -- one security's effective membership timeline
 - ``GET /v1/membership/{index_id}``   -- members as of a date, PIT-gated by ``known_at``
 
 Registration order matters twice: ``/indices`` and ``/history`` are declared before
@@ -21,6 +21,7 @@ from fastapi import APIRouter, Query
 from src.api.errors import ApiError, ApiErrorCode
 from src.infrastructure.adapters.livewire.membership import (
     MembershipDataError,
+    MembershipEvent,
     MembershipReader,
 )
 
@@ -78,7 +79,14 @@ async def membership_history(
     index_id: Optional[str] = Query(None, description="Restrict to one index"),
     as_of: Optional[str] = Query(None, description="Date used to resolve the ticker"),
 ) -> Dict[str, Any]:
-    """Every membership event, all statuses, for the security a ticker resolves to."""
+    """The effective membership timeline for a ticker, across both of its log ids.
+
+    Events are unioned over the resolved ``security_id`` and the placeholder
+    ``unresolved:<TICKER>`` -- livewire logs pre-identity-floor events under the
+    placeholder even once the ticker resolves -- and the union is reduced to the
+    effective timeline: superseded and rejected rows are dropped, not returned as
+    raw audit rows.
+    """
     reader = _reader_or_raise()
     resolve_day = _parse_day(as_of, "as_of", default=_today_utc())
     ticker = symbol.strip().upper()
@@ -101,20 +109,21 @@ async def membership_history(
         raise ApiError(ApiErrorCode.UNKNOWN_INDEX, f"unknown index {index_id!r}")
 
     security_id = resolution.security_id
+    # livewire's identity backfill only reaches back to the provider's identity floor,
+    # so one ticker's log is routinely split: events before the floor stay under
+    # `unresolved:<TICKER>` while later ones carry the real id. Both ids go into one
+    # call so the adapter can retract superseded and rejected rows over the union --
+    # the backfill's rejected revision and its replacement sit under different ids.
+    placeholder = f"{_UNRESOLVED_PREFIX}{ticker}"
+    ids = [placeholder] if security_id is None else [security_id, placeholder]
     try:
-        if security_id is not None:
-            events = await asyncio.to_thread(reader.history_for_security, security_id, index_id)
-        else:
-            # The master does not know this ticker, but livewire logs the constituents
-            # it could not map under `unresolved:<TICKER>`. Backfill is incomplete, so
-            # that placeholder is usually the only trace a ticker has, and returning it
-            # is more useful than a 404 that is really "not resolved yet".
-            placeholder = f"{_UNRESOLVED_PREFIX}{ticker}"
-            events = await asyncio.to_thread(reader.history_for_security, placeholder, index_id)
-            if events:
-                security_id = placeholder
+        events: List[MembershipEvent] = await asyncio.to_thread(
+            reader.history_for_security, ids, index_id
+        )
     except MembershipDataError as exc:
         raise ApiError(ApiErrorCode.MEMBERSHIP_UNAVAILABLE, str(exc)) from exc
+    if security_id is None and events:
+        security_id = placeholder
 
     if security_id is None:
         raise ApiError(
@@ -130,6 +139,7 @@ async def membership_history(
         "events": [
             {
                 "index_id": event.index_id,
+                "security_id": event.security_id,
                 "action": event.action,
                 "effective_at": _iso(event.effective_at),
                 "announced_at": _iso(event.announced_at),
