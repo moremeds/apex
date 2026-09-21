@@ -9,6 +9,16 @@ All notable changes to apex are recorded here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **A bare date or naive timestamp in `start`/`end` is a `400`, not a `500`.** FastAPI coerces
+  both `2024-01-02` and `2024-01-02T00:00:00` to a naive datetime without complaint, and the
+  first tz-aware comparison in the window resolver then raised `TypeError`, surfacing a malformed
+  query as an opaque `internal_error`. Every bars, indicator, confluence, rates-series and bulk
+  route shares that resolver, so all of them were affected. The error now names the parameter and
+  shows the accepted form. The offset is required rather than defaulted to UTC on purpose: a
+  caller who meant an America/New_York boundary would otherwise be shifted silently.
+
 ### Documentation
 
 - **Documented what `missing` means on the bulk bars route.** Measured across the whole equity
@@ -17,7 +27,9 @@ All notable changes to apex are recorded here. Format follows
   Reading `missing` as "absent, safe to skip" under the default `listing=listed` therefore drops
   the delisted cohort and reintroduces survivorship bias while appearing to succeed. Documented
   `listing=any` as the survivorship-free pull, and that it is raw-only because no Silver exists
-  over the archive.
+  over the archive. Corrects an inaccuracy in that same note: `listing=any` with
+  `price_mode=adjusted` is a `400` only on the per-symbol route; the bulk route returns `200`,
+  serves the listed names, and reports each delisted one in `missing` with its reason.
 
 ### Added
 

@@ -30,6 +30,27 @@ _DEFAULT_BARS = 2000
 _LOOKBACK_FUDGE = 10
 
 
+def _require_aware(name: str, value: Optional[datetime]) -> None:
+    """A naive timestamp is a 400, not a 500.
+
+    FastAPI parses both ``2024-01-02`` and ``2024-01-02T00:00:00`` into a *naive*
+    datetime without complaint, because ``date-time`` coercion does not require an
+    offset. The first tz-aware comparison downstream then raises TypeError, so a
+    malformed query surfaces as an opaque ``internal_error`` and sends the caller to
+    read server logs for a mistake in their own URL.
+
+    Defaulting the offset to UTC instead would be worse than rejecting it: a caller
+    who meant an America/New_York session boundary would silently receive a window
+    shifted by four or five hours, and no error anywhere would say so.
+    """
+    if value is not None and value.tzinfo is None:
+        raise ApiError(
+            ApiErrorCode.INVALID_PARAMETER,
+            f"{name} must carry a UTC offset (got {value.isoformat()!r}); "
+            f"use e.g. {value.date().isoformat()}T00:00:00Z",
+        )
+
+
 def _resolve_window(
     timeframe: str,
     start: Optional[datetime],
@@ -43,6 +64,8 @@ def _resolve_window(
     ``from_epoch`` drops the now-anchored lookback and reads the whole history before
     tail-slicing: a delisted name's last bar can be years old, so a window measured
     back from today would answer an empty series for it."""
+    _require_aware("start", start)
+    _require_aware("end", end)
     end = end or datetime.now(timezone.utc)
     if start is not None and start > end:
         # Otherwise this reads a real artifact, matches nothing, and answers 200 with

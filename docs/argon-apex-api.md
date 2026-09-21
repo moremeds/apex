@@ -305,8 +305,13 @@ the 1,287 carry a `.WS`/`.U`-style suffix; the other 1,249 are plain tickers. So
 reads `missing` as "absent, safe to skip" silently drops the delisted names and reintroduces
 survivorship bias while appearing to succeed. For a survivorship-free universe pass
 `listing=any`, which serves those names as `listing_status: "delisted"` and empties the map.
-Note the consequence: `listing=any` with `price_mode=adjusted` is a `400` (no Silver over the
-archive), so a survivorship-free tier panel is **raw-only** today. In
+Note the consequence for adjusted prices. On the per-symbol route, `price_mode=adjusted` for a
+symbol that really is delisted is a `400`. On this bulk route the same condition **degrades
+instead of failing**: the response is `200`, the listed symbols are served adjusted under the
+pinned revision, and each delisted symbol lands in `missing` carrying `no Silver for delisted
+names; use price_mode=raw`. So a mixed request never loses its listed names. Either way no
+adjusted prices exist for the delisted cohort, which makes a survivorship-free tier panel
+**raw-only** today. In
 adjusted mode the whole table is read under **one pinned Silver revision**, so every series in
 the response is adjusted on the same corporate-action set — the reason to use this route rather
 than 200 single-symbol calls.
