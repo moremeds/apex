@@ -391,13 +391,13 @@ def test_identity_is_verified_and_not_superseded(tmp_path: Path) -> None:
     assert [(i.security_id, i.effective_from, i.effective_to) for i in intervals] == [
         (
             "sec_fed8e56a7978430e851923da5ba73c86",
-            "1996-01-01 08:00:00+08:00",
-            "1996-01-03 08:00:00+08:00",
+            "1996-01-01 00:00:00+00:00",
+            "1996-01-03 00:00:00+00:00",
         ),
         (
             "sec_fed8e56a7978430e851923da5ba73c86",
-            "2008-09-29 08:00:00+08:00",
-            "2008-10-01 08:00:00+08:00",
+            "2008-09-29 00:00:00+00:00",
+            "2008-10-01 00:00:00+00:00",
         ),
     ]
     assert all(i.status == "verified" for i in intervals)

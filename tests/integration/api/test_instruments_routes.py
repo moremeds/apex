@@ -173,20 +173,15 @@ async def test_exact_match_not_prefix_match(tmp_path: Path, catalog_db: Path) ->
 
 
 @pytest.mark.asyncio
-async def test_actions_and_delisting_are_typed_501s() -> None:
-    """Specified now so the contract is stable; blocked on livewire L1/L2/L4.
-
-    Measured 2026-08-23: no delisted symbol in the lake has correct corporate-action
-    data (6,275 have none; the 2,345 that do are ticker reuses whose actions belong
-    to a different, living company).
-    """
+async def test_actions_and_delisting_are_typed_503s_without_a_lake() -> None:
+    """Both routes read the lake directly; with no root configured they degrade to a
+    typed 503 like every other env-gated source, never a 500 or an empty 200."""
     app = create_app()
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         for path in ("/v1/equity/BBBY/actions", "/v1/equity/BBBY/delisting"):
             r = await c.get(path)
-            assert r.status_code == 501, path
-            assert r.json()["error"]["code"] == "not_yet_available", path
-            assert r.json()["error"]["symbol"] == "BBBY", path
+            assert r.status_code == 503, path
+            assert r.json()["error"]["code"] == "provider_not_configured", path
 
 
 @pytest.mark.asyncio
@@ -209,4 +204,4 @@ async def test_three_segment_routes_do_not_shadow_the_two_segment_detail(
         actions = await c.get("/v1/equity/AAPL/actions")
     assert detail.status_code == 200
     assert detail.json()["timeframes"] == ["1d"]
-    assert actions.status_code == 501
+    assert actions.status_code == 503

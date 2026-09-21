@@ -248,6 +248,9 @@ class LivewireReferenceReader:
     def _query(sql: str, params: Sequence[Any]) -> List[Any]:
         con = duckdb.connect(database=":memory:")
         try:
+            # Same as membership.py: TIMESTAMPTZ renders in the session zone, and the
+            # API must not answer a different effective_from per server timezone.
+            con.execute("SET TimeZone='UTC'")
             return con.execute(sql, list(params)).fetchall()
         except duckdb.Error as exc:
             # The lake sits on an external volume; a truncated or unmounted artifact
