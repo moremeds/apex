@@ -295,7 +295,18 @@ the [consumption guide](argon-signal-consumption.md).
 `adjustment_revision|null`, `timeframe`, `symbols` (a map `SYM -> { listing_status, bars[] }`),
 `missing` (a map `SYM -> reason`), `generated_at`. There is no top-level `symbol`: the map keys
 are the symbols. A ticker that could not be served appears in `missing` rather than failing the
-request, so one delisted name in a list of 200 does not cost the other 199 their bars. In
+request, so one delisted name in a list of 200 does not cost the other 199 their bars.
+
+**`missing` under the default `listing=listed` is mostly the delisted cohort, not absent data.**
+Measured across the whole equity tree on 2026-09-21: 1,287 of 14,942 symbol directories (8.6%)
+have no `1d.parquet` in `bronze/`, and **every one of them has one in `bronze-delisted/`** — the
+daily artifact moves to the archive at delisting while 1h/30m/1m remnants stay behind. Only 38 of
+the 1,287 carry a `.WS`/`.U`-style suffix; the other 1,249 are plain tickers. So a caller that
+reads `missing` as "absent, safe to skip" silently drops the delisted names and reintroduces
+survivorship bias while appearing to succeed. For a survivorship-free universe pass
+`listing=any`, which serves those names as `listing_status: "delisted"` and empties the map.
+Note the consequence: `listing=any` with `price_mode=adjusted` is a `400` (no Silver over the
+archive), so a survivorship-free tier panel is **raw-only** today. In
 adjusted mode the whole table is read under **one pinned Silver revision**, so every series in
 the response is adjusted on the same corporate-action set — the reason to use this route rather
 than 200 single-symbol calls.
