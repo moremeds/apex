@@ -9,6 +9,9 @@ All notable changes to apex are recorded here. Format follows
 
 ## [Unreleased]
 
+## [0.1.9] — 2026-09-21
+
+
 ### Documentation
 
 - **Documented what `missing` means on the bulk bars route.** Measured across the whole equity
@@ -60,7 +63,6 @@ Both reference endpoints are **ticker-keyed, not security-keyed**, and say so in
 
 - `bars_payload.schema.json` requires `basis` and accepts `listing_status: "dual"`.
 - `ambiguous_symbol` (409) is now reserved — no route emits it.
-
 ## [0.1.8] — 2026-09-16
 
 
