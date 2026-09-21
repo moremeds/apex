@@ -9,6 +9,9 @@ All notable changes to apex are recorded here. Format follows
 
 ## [Unreleased]
 
+## [0.1.9] — 2026-09-21
+
+
 ### Fixed
 
 - **A bare date or naive timestamp in `start`/`end` is a `400`, not a `500`.** FastAPI coerces
@@ -72,7 +75,6 @@ Both reference endpoints are **ticker-keyed, not security-keyed**, and say so in
 
 - `bars_payload.schema.json` requires `basis` and accepts `listing_status: "dual"`.
 - `ambiguous_symbol` (409) is now reserved — no route emits it.
-
 ## [0.1.8] — 2026-09-16
 
 
