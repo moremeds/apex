@@ -9,6 +9,16 @@ All notable changes to apex are recorded here. Format follows
 
 ## [Unreleased]
 
+### Documentation
+
+- **Documented what `missing` means on the bulk bars route.** Measured across the whole equity
+  tree 2026-09-21: 1,287 of 14,942 symbol directories (8.6%) have no `1d.parquet` in `bronze/`
+  and every one of them has one in `bronze-delisted/`, with only 38 carrying a `.WS`/`.U` suffix.
+  Reading `missing` as "absent, safe to skip" under the default `listing=listed` therefore drops
+  the delisted cohort and reintroduces survivorship bias while appearing to succeed. Documented
+  `listing=any` as the survivorship-free pull, and that it is raw-only because no Silver exists
+  over the archive.
+
 ### Added
 
 - **`basis` on every bars payload.** `price_mode: "adjusted"` now also reports
