@@ -1,7 +1,7 @@
 # APEX Development Makefile
 # Quick commands for common development tasks
 
-.PHONY: install run run-dev run-prod run-demo run-headless lint format type-check dead-code complexity quality test test-all coverage clean help validate-fast strategy-compare strategy-verify strategy-compare-quick pead pead-test pead-screen momentum momentum-update momentum-backtest momentum-test r2-universe r2-backfill r2-backfill-test r2-delta r2-validate r2-market-caps server-dev server web-install web-dev web-build live tunnel jobs-momentum jobs-pead jobs-strategy-compare
+.PHONY: install run run-dev run-prod run-demo run-headless lint format type-check dead-code complexity quality test test-all coverage clean help validate-fast strategy-compare strategy-verify strategy-compare-quick pead pead-test pead-screen momentum momentum-update momentum-backtest momentum-test r2-universe r2-backfill r2-backfill-test r2-delta r2-validate r2-market-caps server-dev server web-install web-dev web-build live jobs-momentum jobs-pead jobs-strategy-compare
 
 # Virtual environment - use .venv/bin executables directly
 VENV := .venv/bin
@@ -72,7 +72,6 @@ help:
 	@echo "  make server            Start FastAPI server (production, :8080)"
 	@echo "  make web-dev           Start React dev server (:5173)"
 	@echo "  make web-build         Build React frontend for production"
-	@echo "  make tunnel            Start Cloudflare Tunnel"
 	@echo ""
 	@echo "$(GREEN)Other:$(RESET)"
 	@echo "  make clean          Remove build artifacts"
