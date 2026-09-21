@@ -244,3 +244,36 @@ async def test_unknown_listing_filter_is_a_400(lake: dict[str, Path]) -> None:
     resp = await _get(_provider(lake), "/v1/equity/SPY/bars?listing=maybe")
     assert resp.status_code == 400
     assert resp.json()["error"]["code"] == "invalid_parameter"
+
+
+async def test_a_bare_date_is_a_400_not_an_internal_error(lake: dict[str, Path]) -> None:
+    """``start=2024-01-02`` parses into a NAIVE datetime, which used to reach a
+    tz-aware comparison and raise TypeError -- answering a malformed query with an
+    opaque 500 that points the caller at server logs for their own URL mistake."""
+    resp = await _get(_provider(lake), "/v1/equity/SPY/bars?start=2026-09-16")
+    assert resp.status_code == 400
+    assert resp.json()["error"]["code"] == "invalid_parameter"
+    assert "start" in resp.json()["error"]["message"]
+
+
+async def test_a_naive_timestamp_is_a_400_and_names_the_offset_form(
+    lake: dict[str, Path],
+) -> None:
+    """The more surprising half: it IS a well-formed datetime, so nothing complains
+    until the comparison. The message has to show the accepted spelling."""
+    resp = await _get(_provider(lake), "/v1/equity/SPY/bars?end=2026-09-18T00:00:00")
+    assert resp.status_code == 400
+    message = resp.json()["error"]["message"]
+    assert "end" in message
+    assert "2026-09-18T00:00:00Z" in message
+
+
+async def test_an_offset_aware_window_still_serves_real_bars(lake: dict[str, Path]) -> None:
+    """The guard must reject only the naive form. Real SPY bronze rows, 2026-09-16/17."""
+    resp = await _get(
+        _provider(lake),
+        "/v1/equity/SPY/bars?start=2026-09-16T00:00:00Z&end=2026-09-17T23:59:59Z",
+    )
+    assert resp.status_code == 200
+    closes = [bar["close"] for bar in resp.json()["bars"]]
+    assert closes == [754.05, 762.6]
