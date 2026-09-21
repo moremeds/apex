@@ -30,7 +30,11 @@ def _write_fixture(root: Path) -> None:
     sym_dir.mkdir(parents=True, exist_ok=True)
     df = pd.DataFrame(
         {
-            "trade_date": [dt.date(2026, 1, 2), dt.date(2026, 1, 3), dt.date(2026, 1, 6)],
+            "trade_date": [
+                dt.date(2026, 1, 2),
+                dt.date(2026, 1, 3),
+                dt.date(2026, 1, 6),
+            ],
             "symbol_id": [1, 1, 1],
             "open": [10.0, 11.0, 12.0],
             "high": [10.5, 11.5, 12.5],
@@ -51,7 +55,11 @@ def _write_intraday_fixture(root: Path) -> None:
     df = pd.DataFrame(
         {
             "bar_timestamp": pd.to_datetime(
-                ["2026-01-02T14:30:00Z", "2026-01-02T14:31:00Z", "2026-01-02T14:32:00Z"],
+                [
+                    "2026-01-02T14:30:00Z",
+                    "2026-01-02T14:31:00Z",
+                    "2026-01-02T14:32:00Z",
+                ],
                 utc=True,
             ),
             "symbol_id": [1, 1, 1],
@@ -70,7 +78,11 @@ def _write_silver_daily_fixture(root: Path) -> None:
     sym_dir.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(
         {
-            "trade_date": [dt.date(2026, 1, 2), dt.date(2026, 1, 3), dt.date(2026, 1, 6)],
+            "trade_date": [
+                dt.date(2026, 1, 2),
+                dt.date(2026, 1, 3),
+                dt.date(2026, 1, 6),
+            ],
             "symbol_id": [1, 1, 1],
             "open": [5.0, 5.5, 12.0],
             "high": [5.25, 5.75, 12.5],
@@ -108,7 +120,11 @@ def _write_action_span_fixtures(bronze_root: Path, silver_root: Path) -> None:
     pd.DataFrame(
         {
             "bar_timestamp": pd.to_datetime(
-                ["2026-01-02T14:30:00Z", "2026-01-05T14:30:00Z", "2026-01-06T14:30:00Z"],
+                [
+                    "2026-01-02T14:30:00Z",
+                    "2026-01-05T14:30:00Z",
+                    "2026-01-06T14:30:00Z",
+                ],
                 utc=True,
             ),
             "symbol_id": [1, 1, 1],
@@ -146,7 +162,9 @@ def provider(bronze_root: Path) -> LivewireOhlcProvider:
 
 
 @pytest.mark.asyncio
-async def test_fetch_bars_returns_bardata_sorted(provider: LivewireOhlcProvider) -> None:
+async def test_fetch_bars_returns_bardata_sorted(
+    provider: LivewireOhlcProvider,
+) -> None:
     bars = await provider.fetch_bars("TEST", "1d", WIDE_START, WIDE_END)
     assert len(bars) == 3
     assert [b.close for b in bars] == [11.0, 12.0, 13.0]
@@ -157,7 +175,9 @@ async def test_fetch_bars_returns_bardata_sorted(provider: LivewireOhlcProvider)
 
 
 @pytest.mark.asyncio
-async def test_bar_timestamps_are_event_time_not_now(provider: LivewireOhlcProvider) -> None:
+async def test_bar_timestamps_are_event_time_not_now(
+    provider: LivewireOhlcProvider,
+) -> None:
     """Regression: timestamp must be the bar's time, never construction-time now()."""
     bars = await provider.fetch_bars("TEST", "1d", WIDE_START, WIDE_END)
     first = bars[0]
@@ -229,7 +249,9 @@ async def test_adjusted_daily_does_not_require_bronze_artifact(tmp_path: Path) -
 
 
 @pytest.mark.asyncio
-async def test_adjusted_intraday_applies_price_and_split_volume_factors(tmp_path: Path) -> None:
+async def test_adjusted_intraday_applies_price_and_split_volume_factors(
+    tmp_path: Path,
+) -> None:
     bronze_root = tmp_path / "bronze"
     silver_root = tmp_path / "silver"
     _write_intraday_fixture(bronze_root)
@@ -272,7 +294,9 @@ async def test_adjusted_intraday_spans_split_dividend_and_identity_intervals(
 
 
 @pytest.mark.asyncio
-async def test_adjusted_intraday_rejects_missing_factor_artifact(tmp_path: Path) -> None:
+async def test_adjusted_intraday_rejects_missing_factor_artifact(
+    tmp_path: Path,
+) -> None:
     bronze_root = tmp_path / "bronze"
     _write_intraday_fixture(bronze_root)
     silver_root = tmp_path / "silver"
@@ -288,7 +312,9 @@ async def test_adjusted_intraday_rejects_missing_factor_artifact(tmp_path: Path)
 
 
 @pytest.mark.asyncio
-async def test_adjusted_intraday_rejects_incomplete_factor_coverage(tmp_path: Path) -> None:
+async def test_adjusted_intraday_rejects_incomplete_factor_coverage(
+    tmp_path: Path,
+) -> None:
     bronze_root = tmp_path / "bronze"
     silver_root = tmp_path / "silver"
     _write_intraday_fixture(bronze_root)
@@ -309,7 +335,9 @@ async def test_adjusted_intraday_rejects_incomplete_factor_coverage(tmp_path: Pa
 
 
 @pytest.mark.asyncio
-async def test_fetch_bars_missing_symbol_returns_empty(provider: LivewireOhlcProvider) -> None:
+async def test_fetch_bars_missing_symbol_returns_empty(
+    provider: LivewireOhlcProvider,
+) -> None:
     bars = await provider.fetch_bars("NOPE", "1d", WIDE_START, WIDE_END)
     assert bars == []
 
@@ -370,7 +398,11 @@ def _write_vix(root: Path) -> None:
     d.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(
         {
-            "trade_date": [dt.date(2026, 8, 19), dt.date(2026, 8, 20), dt.date(2026, 8, 21)],
+            "trade_date": [
+                dt.date(2026, 8, 19),
+                dt.date(2026, 8, 20),
+                dt.date(2026, 8, 21),
+            ],
             "symbol_id": [13486153039336466] * 3,
             "open": [15.92, 14.91, 15.82],
             "high": [15.95, 16.14, 15.88],
@@ -521,7 +553,12 @@ async def test_explicit_adjusted_on_non_equity_raises(tmp_path: Path) -> None:
     provider = LivewireOhlcProvider(bronze_root=tmp_path)
     with pytest.raises(AdjustedDataUnavailable, match="volatility"):
         await provider.fetch_bars(
-            "VIX", "1d", _AC_START, _AC_END, asset_class="volatility", price_mode="adjusted"
+            "VIX",
+            "1d",
+            _AC_START,
+            _AC_END,
+            asset_class="volatility",
+            price_mode="adjusted",
         )
 
 
@@ -537,7 +574,11 @@ def _write_dgs10(root: Path) -> None:
     d.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(
         {
-            "trade_date": [dt.date(2026, 8, 18), dt.date(2026, 8, 19), dt.date(2026, 8, 20)],
+            "trade_date": [
+                dt.date(2026, 8, 18),
+                dt.date(2026, 8, 19),
+                dt.date(2026, 8, 20),
+            ],
             "symbol_id": [5866486538776591] * 3,
             "tenor_years": [10.0, 10.0, 10.0],
             "yield_pct": [4.71, 4.65, 4.69],
@@ -572,7 +613,9 @@ async def test_rates_through_fetch_bars_yields_no_ohlc(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_unknown_symbol_in_adjusted_mode_is_empty_not_quarantined(tmp_path: Path) -> None:
+async def test_unknown_symbol_in_adjusted_mode_is_empty_not_quarantined(
+    tmp_path: Path,
+) -> None:
     """A ticker with neither Bronze nor Silver does not exist -- the route must be able
     to answer 404. Raising AdjustedDataUnavailable would answer a typo with 503
     "retry later", and the caller would retry forever.
@@ -614,3 +657,86 @@ async def test_bronze_without_silver_still_raises(tmp_path: Path) -> None:
     )
     with pytest.raises(AdjustedDataUnavailable, match="HON"):
         await provider.fetch_bars("HON", "1d", _AC_START, _AC_END)
+
+
+def _write_delisted_dual_fixture(bronze_root: Path, delisted_root: Path) -> None:
+    """VSCO 1h dual residency, prices reused from the real lake fixture sheet.
+
+    2026-05-29 and 2021-07-21 are real VSCO session dates (real-fixtures.md). The
+    live tree carries one 1h bar on 2026-05-29; the archive carries that same date
+    PLUS a second hour the live tree lacks, plus the real 2021-07-21 archive-only
+    date. All OHLC values here are the real 2026-05-29 / 2021-07-21 daily closes
+    from the sheet, not invented prices -- only the intraday timestamps/hour split
+    are constructed.
+    """
+    live_dir = bronze_root / "asset_class=equity" / "symbol=VSCO"
+    live_dir.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        {
+            "bar_timestamp": pd.to_datetime(["2026-05-29T14:30:00Z"], utc=True),
+            "symbol_id": [1],
+            "open": [58.5],
+            "high": [58.5],
+            "low": [55.0],
+            "close": [55.0],
+            "volume": [3956702],
+        }
+    ).to_parquet(live_dir / "1h.parquet")
+
+    delisted_dir = delisted_root / "asset_class=equity" / "symbol=VSCO"
+    delisted_dir.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        {
+            "bar_timestamp": pd.to_datetime(
+                [
+                    "2021-07-21T14:30:00Z",
+                    "2026-05-29T14:30:00Z",
+                    "2026-05-29T15:30:00Z",
+                ],
+                utc=True,
+            ),
+            "symbol_id": [1, 1, 1],
+            "open": [55.0, 58.5, 58.5],
+            "high": [55.0, 58.5, 58.5],
+            "low": [39.99, 55.0, 55.0],
+            "close": [42.5, 55.0, 55.0],
+            "volume": [80637, 3956703, 3956703],
+        }
+    ).to_parquet(delisted_dir / "1h.parquet")
+
+
+@pytest.mark.asyncio
+async def test_dual_union_drops_archive_hour_on_a_shared_ny_trading_date(
+    tmp_path: Path,
+) -> None:
+    """The dual union dedupes by America/New_York trading DATE, not exact timestamp.
+
+    2026-05-29 is a real VSCO session covered by both trees. The archive carries an
+    extra 15:30Z bar on that date the live tree lacks; because the live tree already
+    covers that NY trading date, the archive's extra hour must NOT survive into the
+    union even though its exact timestamp is absent from the live series. The real
+    archive-only 2021-07-21 date is kept.
+    """
+    bronze_root = tmp_path / "bronze"
+    delisted_root = tmp_path / "bronze-delisted"
+    _write_delisted_dual_fixture(bronze_root, delisted_root)
+    provider = LivewireOhlcProvider(bronze_root=bronze_root, delisted_root=delisted_root)
+
+    bars = await provider.fetch_bars(
+        "VSCO",
+        "1h",
+        datetime(2021, 1, 1, tzinfo=timezone.utc),
+        datetime(2026, 12, 31, tzinfo=timezone.utc),
+        listing="dual",
+    )
+
+    timestamps = sorted(b.timestamp for b in bars)
+    assert timestamps == [
+        datetime(2021, 7, 21, 14, 30, tzinfo=timezone.utc),
+        datetime(2026, 5, 29, 14, 30, tzinfo=timezone.utc),
+    ]
+    # Live wins on the shared date: its volume (…702), not the archive's (…703).
+    may29 = next(
+        b for b in bars if b.timestamp == datetime(2026, 5, 29, 14, 30, tzinfo=timezone.utc)
+    )
+    assert may29.volume == 3956702

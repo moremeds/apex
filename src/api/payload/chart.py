@@ -11,6 +11,21 @@ from typing import Any, Dict, Iterable, List
 
 from src.infrastructure.adapters.livewire.asset_classes import get_asset_class
 
+# The two adjustment bases apex can serve. `adjusted` reads livewire Silver, whose
+# factor chain compounds splits AND cash dividends (verified against revision 76 on
+# 2026-09-21: SPY carries a 0.99752... factor across a dividend-only interval), so
+# "split-adjusted" would understate what the numbers are. Named, not inferred: a
+# consumer must never have to guess the basis from the price_mode label.
+_BASIS_BY_MODE = {"adjusted": "split+dividend", "raw": "unadjusted"}
+
+
+def basis_for(price_mode: str) -> str:
+    """The adjustment basis a ``price_mode`` is served on."""
+    try:
+        return _BASIS_BY_MODE[price_mode]
+    except KeyError as exc:  # pragma: no cover - routes validate before calling
+        raise ValueError(f"unknown price_mode {price_mode!r}") from exc
+
 
 def _iso(value: Any) -> Any:
     """ISO-8601 string, normalised to UTC so the chart contract matches the signal one.
@@ -46,6 +61,12 @@ def _bar_to_dict(bar: Any, extra_fields: tuple[str, ...] = ()) -> Dict[str, Any]
     return row
 
 
+def build_bar_rows(bars: Iterable[Any], asset_class: str = "equity") -> List[Dict[str, Any]]:
+    """Bars as contract rows, for a payload that carries several series at once."""
+    extra_fields = get_asset_class(asset_class).extra_bar_fields
+    return [_bar_to_dict(bar, extra_fields) for bar in bars]
+
+
 def build_bars_payload(
     symbol: str,
     timeframe: str,
@@ -71,6 +92,7 @@ def build_bars_payload(
         "asset_class": asset_class,
         "timeframe": timeframe,
         "price_mode": price_mode,
+        "basis": basis_for(price_mode),
         "listing_status": listing_status,
         "adjustment_revision": adjustment_revision,
         "contract": contract,

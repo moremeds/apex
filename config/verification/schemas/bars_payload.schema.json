@@ -9,6 +9,7 @@
     "asset_class",
     "timeframe",
     "price_mode",
+    "basis",
     "listing_status",
     "bars",
     "generated_at"
@@ -24,7 +25,11 @@
       "enum": ["1m", "5m", "30m", "1h", "1d"]
     },
     "price_mode": { "type": "string", "enum": ["raw", "adjusted"] },
-    "listing_status": { "type": "string", "enum": ["listed", "delisted"] },
+    "basis": { "type": "string", "enum": ["split+dividend", "unadjusted"] },
+    "listing_status": {
+      "type": "string",
+      "enum": ["listed", "delisted", "dual"]
+    },
     "adjustment_revision": { "type": ["integer", "null"] },
     "contract": {
       "type": ["object", "null"],

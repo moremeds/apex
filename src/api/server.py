@@ -284,12 +284,14 @@ def create_app() -> FastAPI:
     app.include_router(signals_ws_router)
 
     # Chart read surface: bars + compute-on-read indicators + confluence.
-    # /v1/equity/returns is registered first: /v1/{asset_class}/{symbol} (instruments)
-    # would otherwise match it as symbol="returns".
+    # /v1/equity/returns and /v1/equity/bars are registered first: /v1/{asset_class}/{symbol}
+    # (instruments) would otherwise match them as symbol="returns" / symbol="bars".
+    from src.api.routes.bulk_bars import router as bulk_bars_router
     from src.api.routes.chart import router as chart_router
     from src.api.routes.returns import router as returns_router
 
     app.include_router(returns_router)
+    app.include_router(bulk_bars_router)
     app.include_router(chart_router)
 
     # Point-in-time index membership. Registered before instruments for the same reason

@@ -111,6 +111,8 @@ def test_bars_payload_states_basis_and_listing_explicitly() -> None:
     have to infer the adjustment basis, and must not be silently handed delisted bars."""
     payload = build_bars_payload("AAPL", "1d", [], generated_at=_GEN)
     assert payload["price_mode"] == "raw"
+    # The basis is spelled out, not left to be inferred from the mode label.
+    assert payload["basis"] == "unadjusted"
     assert payload["listing_status"] == "listed"
     assert payload["asset_class"] == "equity"
     assert payload["adjustment_revision"] is None
@@ -121,6 +123,8 @@ def test_bars_payload_carries_adjustment_revision_when_adjusted() -> None:
         "AAPL", "1d", [], generated_at=_GEN, price_mode="adjusted", adjustment_revision=33
     )
     assert (payload["price_mode"], payload["adjustment_revision"]) == ("adjusted", 33)
+    # Silver compounds dividends as well as splits, so "split-adjusted" would understate it.
+    assert payload["basis"] == "split+dividend"
 
 
 def test_bars_payload_drops_vwap() -> None:
@@ -209,6 +213,7 @@ def test_every_shape_validates_against_the_schema() -> None:
             "contract": {"contract_id": 1, "root_symbol": "BZ", "expiry_date": "2026-09-01"},
         },
         {"listing_status": "delisted"},
+        {"listing_status": "dual"},
         {"asset_class": "fx", "timeframe": "1h"},
     ):
         timeframe = kwargs.pop("timeframe", "1d")

@@ -76,6 +76,23 @@ def delisted_bronze_path(
     )
 
 
+def corporate_action_path(bronze_root: Path, symbol: str) -> Path:
+    """Return the corporate-action event log for ``symbol``.
+
+    livewire writes corporate actions as a seventh bronze partition,
+    ``asset_class=corporate_action``, one ``events.parquet`` per ticker (15,015 symbols
+    on 2026-09-21). It is not in ``asset_classes.py`` because it holds no bars and
+    answers no timeframe -- routing it through ``parquet_path`` would require inventing
+    a timeframe ladder for a file that has none.
+    """
+    return (
+        bronze_root
+        / "asset_class=corporate_action"
+        / f"symbol={encode_symbol(symbol)}"
+        / "events.parquet"
+    )
+
+
 def daily_silver_path(silver_root: Path, symbol: str) -> Path:
     """Return the materialized adjusted-daily artifact for ``symbol`` (equity only)."""
     return silver_root / "asset_class=equity" / f"symbol={encode_symbol(symbol)}" / "1d.parquet"

@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://apex.trading/schemas/bulk_bars_payload.schema.json",
+  "title": "BulkBarsPayload",
+  "description": "OHLCV bar series for many equity tickers on one adjustment basis",
+  "type": "object",
+  "required": [
+    "price_mode",
+    "basis",
+    "adjustment_revision",
+    "timeframe",
+    "symbols",
+    "missing",
+    "generated_at"
+  ],
+  "properties": {
+    "price_mode": { "type": "string", "enum": ["raw", "adjusted"] },
+    "basis": { "type": "string", "enum": ["split+dividend", "unadjusted"] },
+    "adjustment_revision": { "type": ["integer", "null"] },
+    "timeframe": { "type": "string", "enum": ["1m", "5m", "30m", "1h", "1d"] },
+    "symbols": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/series" }
+    },
+    "missing": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "generated_at": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "series": {
+      "type": "object",
+      "required": ["listing_status", "bars"],
+      "properties": {
+        "listing_status": {
+          "type": "string",
+          "enum": ["listed", "delisted", "dual"]
+        },
+        "bars": { "type": "array", "items": { "$ref": "#/$defs/bar" } }
+      }
+    },
+    "bar": {
+      "type": "object",
+      "required": ["time", "open", "high", "low", "close"],
+      "properties": {
+        "time": { "type": "string", "format": "date-time" },
+        "open": { "type": "number" },
+        "high": { "type": "number" },
+        "low": { "type": "number" },
+        "close": { "type": "number" },
+        "volume": { "type": ["integer", "number", "null"] }
+      }
+    }
+  }
+}

@@ -4,21 +4,42 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Query, Request
 
 from src.api.errors import ApiError, ApiErrorCode
 from src.api.payload.validate import validate_payload
-from src.infrastructure.adapters.livewire.asset_classes import UnknownAssetClass, get_asset_class
+from src.infrastructure.adapters.livewire.asset_classes import (
+    UnknownAssetClass,
+    get_asset_class,
+)
 from src.infrastructure.adapters.livewire.coverage import CoverageUnavailable
 from src.infrastructure.adapters.livewire.ohlc_provider import AdjustedDataUnavailable
 from src.infrastructure.adapters.livewire.paths import parquet_path
+from src.infrastructure.adapters.livewire.reference import (
+    ACTION_TYPES,
+    LivewireReferenceReader,
+    ReferenceDataError,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["instruments"])
+
+
+def _parse_day(value: Optional[str], name: str) -> Optional[date]:
+    """Parse an optional YYYY-MM-DD filter bound; absent is not an error."""
+    if value is None or not value.strip():
+        return None
+    try:
+        return date.fromisoformat(value.strip())
+    except ValueError as exc:
+        raise ApiError(
+            ApiErrorCode.INVALID_PARAMETER,
+            f"malformed {name} {value!r}; expected YYYY-MM-DD",
+        ) from exc
 
 
 def _catalog_or_raise(request: Request) -> object:
@@ -96,42 +117,155 @@ async def list_instruments(
     return payload
 
 
-_UPSTREAM_BLOCKER = (
-    "blocked on livewire: permanent instrument identity, corporate-action backfill "
-    "for the delisted universe, and Silver over bronze-delisted"
-)
+# The ticker-reuse caveat, carried verbatim from the era when these endpoints were 501:
+# both artifacts are keyed by TICKER, not by a permanent security id. Measured
+# 2026-08-23 -- 6,275 delisted symbols have no corporate-action data at all, and the
+# 2,345 that appear to are ticker reuses whose actions belong to a different, living
+# company. Every response below says ``identity: "ticker"`` so a consumer cannot
+# mistake it for security-level truth.
+_TICKER_IDENTITY = "ticker"
+
+
+def _reference_or_raise(attribute: str, message: str) -> LivewireReferenceReader:
+    reader = LivewireReferenceReader.from_env()
+    if getattr(reader, attribute) is None:
+        raise ApiError(ApiErrorCode.PROVIDER_NOT_CONFIGURED, message)
+    return reader
 
 
 @router.get("/v1/equity/{symbol}/actions")
-async def get_corporate_actions(symbol: str) -> dict:
-    """Corporate actions behind a symbol's adjustment.
+async def get_corporate_actions(
+    symbol: str,
+    type: Optional[str] = Query(default=None, description="split | cash_dividend"),
+    start: Optional[str] = Query(default=None, description="earliest ex_date, YYYY-MM-DD"),
+    end: Optional[str] = Query(default=None, description="latest ex_date, YYYY-MM-DD"),
+) -> dict:
+    """Corporate actions behind a symbol's adjustment, from livewire bronze.
 
-    Not yet served: the store is ticker-keyed and scoped to the live universe, so it
-    cannot be trusted for any symbol whose ticker was reused. Measured 2026-08-23 --
-    6,275 delisted symbols have no corporate-action data at all, and the 2,345 that
-    appear to are ticker reuses whose actions belong to a different, living company.
+    **Ticker-keyed, not security-keyed.** The log is stored per ticker, so for a symbol
+    that was reused the actions may belong to a different, living company; measured
+    2026-08-23, 2,345 delisted tickers are reuses of live ones. ``identity`` says so in
+    the payload. Resolve the ticker through ``/v1/equity/{symbol}/delisting`` or the
+    membership surface before treating a series as one company's.
+
+    Only ``status='active'`` rows count: a correction lands as a new ``action_id`` that
+    supersedes the old row, and the old row is re-marked ``corrected``.
     """
-    raise ApiError(
-        ApiErrorCode.NOT_YET_AVAILABLE,
-        f"corporate actions are not exposed yet -- {_UPSTREAM_BLOCKER}",
-        symbol=symbol,
-        asset_class="equity",
+    if type is not None and type not in ACTION_TYPES:
+        raise ApiError(
+            ApiErrorCode.INVALID_PARAMETER,
+            f"unknown type {type!r} (have {list(ACTION_TYPES)})",
+            symbol=symbol,
+            asset_class="equity",
+        )
+    start_date = _parse_day(start, "start")
+    end_date = _parse_day(end, "end")
+    if start_date is not None and end_date is not None and start_date > end_date:
+        # Otherwise this reads a real artifact, matches nothing, and answers 200 with
+        # zero actions -- reporting an impossible request as a quiet history.
+        raise ApiError(
+            ApiErrorCode.INVALID_PARAMETER,
+            f"start {start_date.isoformat()} is after end {end_date.isoformat()}",
+            symbol=symbol,
+            asset_class="equity",
+        )
+    reader = _reference_or_raise(
+        "bronze_root", "corporate actions are not configured; set APEX_LIVEWIRE_ROOT"
     )
+    ticker = symbol.upper()
+    try:
+        actions = await asyncio.to_thread(
+            reader.fetch_actions,
+            ticker,
+            action_type=type,
+            start=start_date,
+            end=end_date,
+        )
+        provider = await asyncio.to_thread(reader.fetch_provider, ticker)
+    except ReferenceDataError as exc:
+        raise ApiError(
+            ApiErrorCode.PROVIDER_NOT_CONFIGURED,
+            str(exc),
+            symbol=symbol,
+            asset_class="equity",
+        ) from exc
+    if actions is None:
+        # No log file at all is an unknown ticker (404); a log with nothing matching the
+        # filter is a legitimate 200 with zero actions.
+        raise ApiError(
+            ApiErrorCode.UNKNOWN_SYMBOL,
+            f"no corporate-action log for {ticker}",
+            symbol=symbol,
+            asset_class="equity",
+        )
+    payload = {
+        "symbol": ticker,
+        "identity": _TICKER_IDENTITY,
+        "source": "livewire_bronze_corporate_action",
+        "provider": provider,
+        "actions": [action.as_dict() for action in actions],
+        "count": len(actions),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    validate_payload(payload, "actions_payload")
+    return payload
 
 
 @router.get("/v1/equity/{symbol}/delisting")
 async def get_delisting(symbol: str) -> dict:
-    """Terminal state: delist date, reason, final consideration.
+    """Identity intervals for a ticker, from the livewire security master.
 
-    Nothing in the lake records these today, and serving delisted bars without them
-    turns a bankruptcy into a flat exit.
+    **Not a terminal-state record.** Measured 2026-09-21, the security master carries
+    no delisting reason, no delist date as such and no final consideration --
+    ``relationship_type`` and ``related_security_id`` are null across the whole file.
+    What it does carry is ``[effective_from, effective_to)`` identity intervals, so the
+    honest answer is those intervals and the issuer behind them: a closed
+    ``effective_to`` tells you the ticker stopped resolving to that issuer, and nothing
+    tells you why. Do not read a bankruptcy into a flat exit.
+
+    **Ticker-keyed**, with the same reuse caveat as ``/actions``: two intervals under
+    one ticker are two different securities, not one company's history.
     """
-    raise ApiError(
-        ApiErrorCode.NOT_YET_AVAILABLE,
-        f"delisting metadata does not exist upstream yet -- {_UPSTREAM_BLOCKER}",
-        symbol=symbol,
-        asset_class="equity",
+    reader = _reference_or_raise(
+        "lake_root",
+        "the security master is not configured; set APEX_LIVEWIRE_LAKE_ROOT",
     )
+    ticker = symbol.upper()
+    try:
+        intervals = await asyncio.to_thread(reader.fetch_identity, ticker)
+    except ReferenceDataError as exc:
+        raise ApiError(
+            ApiErrorCode.PROVIDER_NOT_CONFIGURED,
+            str(exc),
+            symbol=symbol,
+            asset_class="equity",
+        ) from exc
+    if intervals is None:
+        raise ApiError(
+            ApiErrorCode.PROVIDER_NOT_CONFIGURED,
+            "security master artifact is missing under APEX_LIVEWIRE_LAKE_ROOT",
+            symbol=symbol,
+            asset_class="equity",
+        )
+    if not intervals:
+        raise ApiError(
+            ApiErrorCode.UNKNOWN_SYMBOL,
+            f"no verified security-master record for {ticker}",
+            symbol=symbol,
+            asset_class="equity",
+        )
+    payload = {
+        "symbol": ticker,
+        "identity": _TICKER_IDENTITY,
+        "source": "livewire_security_master",
+        # Named so nobody reads the absence of a reason as "still listed".
+        "delisting_reason_available": False,
+        "intervals": [interval.as_dict() for interval in intervals],
+        "count": len(intervals),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    validate_payload(payload, "delisting_payload")
+    return payload
 
 
 # Route ordering is NOT a constraint here: Starlette matches on the whole path pattern,
@@ -149,7 +283,9 @@ async def get_instrument(asset_class: str, symbol: str, request: Request) -> dic
     provider = getattr(request.app.state, "ohlc_provider", None)
     if provider is None:
         raise ApiError(
-            ApiErrorCode.PROVIDER_NOT_CONFIGURED, "bar provider not configured", symbol=symbol
+            ApiErrorCode.PROVIDER_NOT_CONFIGURED,
+            "bar provider not configured",
+            symbol=symbol,
         )
     # Probe the artifacts: the coverage table measures no equity intraday, so it
     # cannot answer this. Five exists() calls is fine for one symbol; it is exactly
@@ -167,7 +303,10 @@ async def get_instrument(asset_class: str, symbol: str, request: Request) -> dic
                 adjustment_revision = pinned_provider.snapshot.revision
         except AdjustedDataUnavailable as exc:
             raise ApiError(
-                ApiErrorCode.ADJUSTED_UNAVAILABLE, str(exc), symbol=symbol, asset_class=spec.name
+                ApiErrorCode.ADJUSTED_UNAVAILABLE,
+                str(exc),
+                symbol=symbol,
+                asset_class=spec.name,
             ) from exc
     timeframes = [
         tf

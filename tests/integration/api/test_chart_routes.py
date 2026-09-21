@@ -67,7 +67,9 @@ class _FakeProvider:
     def pin_snapshot(self):
         from copy import copy
 
-        from src.infrastructure.adapters.livewire.revisions import RevisionManifestReader
+        from src.infrastructure.adapters.livewire.revisions import (
+            RevisionManifestReader,
+        )
 
         pinned = copy(self)
         if self.silver_root is not None:
@@ -95,6 +97,7 @@ class _FakeProvider:
         end: datetime,
         asset_class: str = "equity",
         price_mode: str | None = None,
+        listing: str = "listed",
     ) -> List[BarData]:
         return [b for b in self._bars if start <= b.timestamp <= end]
 
@@ -155,10 +158,14 @@ def _rates_series() -> List[Any]:
 
     return [
         RatePoint(
-            time=datetime(2026, 8, 18, tzinfo=timezone.utc), tenor_years=10.0, yield_pct=4.71
+            time=datetime(2026, 8, 18, tzinfo=timezone.utc),
+            tenor_years=10.0,
+            yield_pct=4.71,
         ),
         RatePoint(
-            time=datetime(2026, 8, 19, tzinfo=timezone.utc), tenor_years=10.0, yield_pct=4.65
+            time=datetime(2026, 8, 19, tzinfo=timezone.utc),
+            tenor_years=10.0,
+            yield_pct=4.65,
         ),
     ]
 
@@ -528,13 +535,53 @@ async def test_adjusted_requested_on_non_equity_is_400() -> None:
 
 
 @pytest.mark.asyncio
-async def test_listing_any_is_409_because_tickers_are_reused(tmp_path: Path) -> None:
+async def test_listing_any_on_dual_resident_returns_dual_raw_and_rejects_adjusted(
+    tmp_path: Path,
+) -> None:
     """2,345 tickers exist in both the live and delisted trees (measured 2026-08-23).
-    Only those are ambiguous; a live-only symbol under listing=any is served normally.
+    ``any`` on one of them unions the two trees and labels the series "dual" -- whether
+    that means two issuers behind a reused ticker or one issuer's duplicated history is
+    answered by ``/v1/equity/{symbol}/delisting``, not by this label. There is no
+    Silver over bronze-delisted, so an adjusted request against a dual name is rejected
+    outright rather than silently served raw. A live-only symbol under listing=any is
+    served normally, still labelled "listed".
 
-    Builds a real bronze-delisted tree so the route's own path construction is what
-    gets exercised, not a test-only shortcut on the provider.
+    Builds real live and bronze-delisted trees so the route's own path construction is
+    what gets exercised, not a test-only shortcut on the provider.
     """
+    from src.infrastructure.adapters.livewire.paths import (
+        delisted_bronze_path,
+        parquet_path,
+    )
+
+    delisted_artifact = delisted_bronze_path(tmp_path / "delisted", "BBBY")
+    delisted_artifact.parent.mkdir(parents=True)
+    delisted_artifact.touch()
+    live_artifact = parquet_path(tmp_path / "live", "BBBY", "1d")
+    live_artifact.parent.mkdir(parents=True)
+    live_artifact.touch()
+    app = create_app()
+    provider = _FakeProvider(_series(5), delisted_root=tmp_path / "delisted")
+    provider.bronze_root = tmp_path / "live"
+    app.state.ohlc_provider = provider
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        dual = await c.get("/v1/equity/BBBY/bars", params={"listing": "any"})
+        rejected = await c.get(
+            "/v1/equity/BBBY/bars", params={"listing": "any", "price_mode": "adjusted"}
+        )
+        unambiguous = await c.get("/v1/equity/AAPL/bars", params={"listing": "any"})
+    assert dual.status_code == 200
+    assert dual.json()["listing_status"] == "dual"
+    assert rejected.status_code == 400
+    assert rejected.json()["error"]["code"] == "adjusted_not_supported"
+    assert unambiguous.status_code == 200
+    assert unambiguous.json()["listing_status"] == "listed"
+
+
+@pytest.mark.asyncio
+async def test_delisted_is_a_200_served_from_the_archive_tree(tmp_path: Path) -> None:
+    """``listing=delisted`` in raw mode reads bronze-delisted/ directly and serves its
+    bars -- not the retired 501, which predates the archive-tree read path."""
     from src.infrastructure.adapters.livewire.paths import delisted_bronze_path
 
     artifact = delisted_bronze_path(tmp_path, "BBBY")
@@ -543,22 +590,11 @@ async def test_listing_any_is_409_because_tickers_are_reused(tmp_path: Path) -> 
     app = create_app()
     app.state.ohlc_provider = _FakeProvider(_series(5), delisted_root=tmp_path)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
-        ambiguous = await c.get("/v1/equity/BBBY/bars", params={"listing": "any"})
-        unambiguous = await c.get("/v1/equity/AAPL/bars", params={"listing": "any"})
-    assert ambiguous.status_code == 409
-    assert ambiguous.json()["error"]["code"] == "ambiguous_symbol"
-    assert unambiguous.status_code == 200
-    assert unambiguous.json()["listing_status"] == "listed"
-
-
-@pytest.mark.asyncio
-async def test_delisted_is_a_typed_501_not_a_silent_empty() -> None:
-    app = create_app()
-    app.state.ohlc_provider = _FakeProvider([])
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         r = await c.get("/v1/equity/BBBY/bars", params={"listing": "delisted"})
-    assert r.status_code == 501
-    assert r.json()["error"]["code"] == "not_yet_available"
+    assert r.status_code == 200
+    body = r.json()
+    assert body["listing_status"] == "delisted"
+    assert body["bars"]
 
 
 @pytest.mark.asyncio
@@ -599,7 +635,9 @@ async def test_an_unexpected_provider_error_is_a_typed_500_not_a_bare_one() -> N
 
 
 @pytest.mark.asyncio
-async def test_a_corrupt_parquet_is_a_typed_500_through_the_real_provider(tmp_path: Path) -> None:
+async def test_a_corrupt_parquet_is_a_typed_500_through_the_real_provider(
+    tmp_path: Path,
+) -> None:
     """The catch-all with a REAL DuckDB failure, not a stand-in exception.
 
     A truncated or partially-written artifact is the realistic form of this on a lake
@@ -692,7 +730,10 @@ async def test_dual_residency_probes_the_requested_class_not_always_equity(
     tmp_path: Path,
 ) -> None:
     """bronze-delisted is overwhelmingly equity but NOT only equity: asset_class=fx
-    holds USDEUR. Defaulting the partition answers the question for the wrong tree."""
+    holds USDEUR. Defaulting the partition would answer the question for the wrong
+    tree -- the fx probe must resolve archive-only residency using the fx partition,
+    not fall through to equity's (empty) one. The same ticker under equity, where no
+    artifact exists in either tree, falls back to "listed"."""
     from src.infrastructure.adapters.livewire.paths import delisted_bronze_path
 
     fx = delisted_bronze_path(tmp_path, "USDEUR", asset_class="fx")
@@ -702,11 +743,13 @@ async def test_dual_residency_probes_the_requested_class_not_always_equity(
     app.state.ohlc_provider = _FakeProvider(_series(5), delisted_root=tmp_path)
     async with _client(app) as c:
         as_fx = await c.get("/v1/fx/USDEUR/bars", params={"listing": "any"})
-        # The same ticker under equity is NOT dual-resident -- no equity artifact exists.
+        # The same ticker under equity is NOT dual (nor archive-only) resident -- no
+        # equity artifact exists in either tree, so it falls back to "listed".
         as_equity = await c.get("/v1/equity/USDEUR/bars", params={"listing": "any"})
-    assert as_fx.status_code == 409
-    assert as_fx.json()["error"]["code"] == "ambiguous_symbol"
+    assert as_fx.status_code == 200
+    assert as_fx.json()["listing_status"] == "delisted"
     assert as_equity.status_code == 200
+    assert as_equity.json()["listing_status"] == "listed"
 
 
 @pytest.mark.asyncio

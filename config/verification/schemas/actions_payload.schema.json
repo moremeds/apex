@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://apex.trading/schemas/actions_payload.schema.json",
+  "title": "ActionsPayload",
+  "description": "Live corporate actions for one ticker, from the livewire bronze corporate-action log",
+  "type": "object",
+  "required": [
+    "symbol",
+    "identity",
+    "source",
+    "provider",
+    "actions",
+    "count",
+    "generated_at"
+  ],
+  "properties": {
+    "symbol": { "type": "string" },
+    "identity": { "type": "string", "enum": ["ticker"] },
+    "source": { "type": "string" },
+    "provider": { "type": ["string", "null"] },
+    "actions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/action" }
+    },
+    "count": { "type": "integer", "minimum": 0 },
+    "generated_at": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "action": {
+      "type": "object",
+      "required": [
+        "action_type",
+        "ex_date",
+        "split_from",
+        "split_to",
+        "cash_amount",
+        "currency",
+        "declaration_date",
+        "record_date",
+        "pay_date"
+      ],
+      "properties": {
+        "action_type": { "type": "string", "enum": ["split", "cash_dividend"] },
+        "ex_date": { "type": ["string", "null"], "format": "date" },
+        "split_from": { "type": ["number", "null"] },
+        "split_to": { "type": ["number", "null"] },
+        "cash_amount": { "type": ["number", "null"] },
+        "currency": { "type": ["string", "null"] },
+        "declaration_date": { "type": ["string", "null"], "format": "date" },
+        "record_date": { "type": ["string", "null"], "format": "date" },
+        "pay_date": { "type": ["string", "null"], "format": "date" }
+      }
+    }
+  }
+}
