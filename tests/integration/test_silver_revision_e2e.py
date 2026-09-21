@@ -274,8 +274,13 @@ async def test_adjusted_canary_and_revision_reseed_without_restart(
                 "/bars/NVDA",
                 params={
                     "timeframe": "1d",
-                    "start": first_date.isoformat(),
-                    "end": second_date.isoformat(),
+                    # Offset-aware: a bare YYYY-MM-DD is a 400 on the series routes.
+                    # It used to reach DuckDB only because BOTH ends were naive, and
+                    # answered a 500 as soon as one was omitted.
+                    "start": datetime.combine(
+                        first_date, time.min, tzinfo=timezone.utc
+                    ).isoformat(),
+                    "end": datetime.combine(second_date, time.max, tzinfo=timezone.utc).isoformat(),
                     "limit": 0,
                 },
             )
