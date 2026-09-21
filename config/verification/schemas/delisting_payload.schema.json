@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://apex.trading/schemas/delisting_payload.schema.json",
+  "title": "DelistingPayload",
+  "description": "Security-master identity intervals for one ticker",
+  "type": "object",
+  "required": [
+    "symbol",
+    "identity",
+    "source",
+    "delisting_reason_available",
+    "intervals",
+    "count",
+    "generated_at"
+  ],
+  "properties": {
+    "symbol": { "type": "string" },
+    "identity": { "type": "string", "enum": ["ticker"] },
+    "source": { "type": "string" },
+    "delisting_reason_available": { "type": "boolean" },
+    "intervals": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/interval" }
+    },
+    "count": { "type": "integer", "minimum": 0 },
+    "generated_at": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "interval": {
+      "type": "object",
+      "required": [
+        "security_id",
+        "symbol",
+        "issuer_name",
+        "exchange_mic",
+        "currency",
+        "effective_from",
+        "effective_to",
+        "status",
+        "continuity_basis",
+        "relationship_type",
+        "related_security_id"
+      ],
+      "properties": {
+        "security_id": { "type": "string" },
+        "symbol": { "type": "string" },
+        "issuer_name": { "type": ["string", "null"] },
+        "exchange_mic": { "type": ["string", "null"] },
+        "currency": { "type": ["string", "null"] },
+        "effective_from": { "type": ["string", "null"] },
+        "effective_to": { "type": ["string", "null"] },
+        "status": { "type": ["string", "null"] },
+        "continuity_basis": { "type": ["string", "null"] },
+        "relationship_type": { "type": ["string", "null"] },
+        "related_security_id": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

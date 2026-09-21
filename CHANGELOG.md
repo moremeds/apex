@@ -9,6 +9,48 @@ All notable changes to apex are recorded here. Format follows
 
 ## [Unreleased]
 
+### Added
+
+- **`basis` on every bars payload.** `price_mode: "adjusted"` now also reports
+  `basis: "split+dividend"`, and `raw` reports `basis: "unadjusted"`, so a consumer never has
+  to infer the adjustment from a mode label. `split+dividend` is measured, not assumed: Silver
+  revision 76 gives SPY a `price_adjustment_factor` of `0.9975231654864936` across
+  `2026-06-18..09-17`, an interval containing no split, so "split-adjusted" would understate
+  what the numbers are. `/v1/equity/returns` carries the same field.
+- **Delisted bars.** `listing=delisted` serves raw bars from `bronze-delisted/` (8,620 equity
+  symbols, `1d/1h/5m/1m`) instead of the old `501`. `listing=any` resolves to whichever tree
+  holds the symbol, and for a dual-resident ticker returns the **union** of both with the live
+  tree winning every shared America/New_York trading date and `listing_status: "dual"` —
+  replacing the previous `409 ambiguous_symbol`. `price_mode=adjusted` over the archived tree is a
+  `400 adjusted_not_supported` (`no Silver for delisted names; use price_mode=raw`), never a
+  silent raw fallback: livewire publishes no Silver there, and splicing an adjusted segment
+  onto a raw one would put two definitions in one series.
+- **`GET /v1/equity/bars`** — bulk OHLCV for up to 200 tickers in one request, mirroring
+  `/v1/equity/returns` conventions (comma list, upper-cased, de-duplicated). In adjusted mode
+  the whole table reads under **one pinned Silver revision**, so every series is adjusted on
+  the same corporate-action set; 200 single-symbol calls pin 200 revisions independently. A
+  symbol that cannot be served lands in `missing: {SYM: reason}` rather than failing the
+  request. Registered before `instruments` — `/v1/{asset_class}/{symbol}` would otherwise match
+  it as `symbol="bars"`.
+- **`GET /v1/equity/{symbol}/actions`** — corporate actions read from livewire bronze
+  (`asset_class=corporate_action`, 15,015 symbols) instead of the old `501`. Only
+  `status='active'` rows (a correction is a new `action_id` superseding the old row, which is
+  re-marked `corrected`; listing both would double-count a dividend), ordered by `ex_date`; optional `type=split|cash_dividend` and `start`/`end` on `ex_date`.
+- **`GET /v1/equity/{symbol}/delisting`** — security-master identity intervals instead of the
+  old `501`. It is **not** a terminal-state record and does not pretend to be: measured
+  2026-09-21 the master carries no delisting reason and no final consideration
+  (`relationship_type` and `related_security_id` are null across the whole file), so the
+  response is the `[effective_from, effective_to)` intervals with `issuer_name`,
+  `exchange_mic` and `delisting_reason_available: false`.
+
+Both reference endpoints are **ticker-keyed, not security-keyed**, and say so in the payload
+(`identity: "ticker"`): for a reused ticker the rows may belong to a different, living company.
+
+### Changed
+
+- `bars_payload.schema.json` requires `basis` and accepts `listing_status: "dual"`.
+- `ambiguous_symbol` (409) is now reserved — no route emits it.
+
 ## [0.1.8] — 2026-09-16
 
 

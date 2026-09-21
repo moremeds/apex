@@ -181,35 +181,48 @@ given timeframe returns `404 unknown_symbol` — measured, not theoretical: `AAC
 
 | Method · Path | Purpose | Key errors |
 |---|---|---|
-| `GET /v1/{asset_class}/{symbol}/bars` | OHLCV candles | `400` class/tf/mode · `404` no artifact · `409` ambiguous · `501` delisted · `503` no Silver |
+| `GET /v1/{asset_class}/{symbol}/bars` | OHLCV candles | `400` class/tf/mode, adjusted-over-delisted · `404` no artifact · `503` no Silver |
+| `GET /v1/equity/bars` | **Bulk** OHLCV, many tickers on one basis | `400` no symbols, >200, bad tf/mode · `503` no provider |
 | `GET /v1/rates/{symbol}/series` | Treasury yield series | `404` no artifact · `503` no provider |
 | `GET /v1/{asset_class}/{symbol}/indicators` | Per-bar indicator series | `400` bad class/tf/indicator · `404` no artifact · `503` |
 | `GET /v1/equity/returns` | Bulk weekly return table (window/YTD/52w/excess vs SPY,QQQ) | `400` no symbols, >200, bad dates · `503` no provider |
 | `GET /v1/equity/{symbol}/confluence` | Multi-timeframe confluence (PG) | `503` no PG |
 | `GET /v1/equity/{symbol}/signals` | Signal backfill (PG) | `503` no PG |
-| `GET /v1/instruments` | Discovery across all classes | `400` bad class · `501` delisted · `503` no catalog |
+| `GET /v1/instruments` | Discovery across all classes | `400` bad class · `501` delisted (the coverage catalog measures the live tree only) · `503` no catalog |
 | `GET /v1/{asset_class}/{symbol}` | One instrument's metadata | `400` bad class · `404` no artifact · `503` |
 
 `GET /v1/{asset_class}/{symbol}` also returns `coverage_source`: `livewire_coverage_snapshot`
 when the catalog answered, `not_configured` or `unavailable` when it did not. Without it a
 null `first_date` would be ambiguous between "this symbol has no recorded coverage" and
 "apex could not read the catalog".
-| `GET /v1/equity/{symbol}/actions` | Corporate actions | **`501` always** — blocked on livewire |
-| `GET /v1/equity/{symbol}/delisting` | Delisting terminal state | **`501` always** — blocked on livewire |
+
+| Method · Path | Purpose | Key errors |
+|---|---|---|
+| `GET /v1/equity/{symbol}/actions` | Corporate actions (splits, cash dividends) | `400` bad `type`/date · `404` no log for that ticker · `503` no `APEX_LIVEWIRE_ROOT` |
+| `GET /v1/equity/{symbol}/delisting` | Security-master identity intervals | `404` no master record · `503` no `APEX_LIVEWIRE_LAKE_ROOT` |
+
+Both of these were `501` before this release and are now served from the lake. Both are
+**ticker-keyed, not security-keyed**, and say so in the payload (`identity: "ticker"`):
+the corporate-action log and the security master are both stored per ticker, so for a
+reused ticker the rows may belong to a different, living company — measured 2026-08-23,
+2,345 delisted tickers are reuses of live ones. Resolve the ticker before treating a
+series as one company's history.
 
 ### Query parameters
 
 | Param | Routes | Default | Meaning |
 |---|---|---|---|
-| `timeframe` | bars, indicators | `1d` | Must be in the class's ladder |
+| `timeframe` | bars, bulk bars, indicators | `1d` | Must be in the class's ladder |
 | `start` / `end` | all series | none | ISO-8601, **inclusive at both ends** (a `1m` window `12:25:00Z..12:35:00Z` returns 11 bars). Omit both → most recent `limit` bars. Required, `YYYY-MM-DD`, on returns |
-| `limit` | bars, indicators, confluence, instruments | `2000` (bars) | Tail-slice; `<=0` → full history |
-| `price_mode` | bars | provider default | `raw` \| `adjusted`. A **request**, not a hint |
-| `listing` | bars, instruments | `listed` | `listed` \| `delisted` \| `any` |
+| `limit` | bars, bulk bars, indicators, confluence, instruments | `2000` (bars) | Tail-slice; `<=0` → full history |
+| `price_mode` | bars, bulk bars | provider default | `raw` \| `adjusted`. A **request**, not a hint |
+| `listing` | bars, bulk bars, instruments | `listed` | `listed` \| `delisted` \| `any` |
 | `indicator` | indicators | **required** | Any of apex's registered indicators |
 | `asset_class` | instruments | all | Filter |
 | `q` | instruments | none | Symbol **prefix** filter (`_`/`%` are escaped) |
-| `symbols` | returns | **required** | Comma-separated tickers, ≤200, de-duplicated |
+| `symbols` | returns, bulk bars | **required** | Comma-separated tickers, ≤200, upper-cased and de-duplicated |
+| `type` | actions | all | `split` \| `cash_dividend` |
+| `start` / `end` | actions | none | `YYYY-MM-DD`, filters on `ex_date` |
 
 ### Error envelope
 
@@ -220,10 +233,10 @@ Every failure returns `{"error": {"code", "message", "symbol"?, "asset_class"?}}
 | `invalid_parameter` | 400 | A query value is malformed: bad `listing`, bad `price_mode`, unknown `indicator`, `start` after `end` |
 | `unsupported_timeframe` | 400 | Timeframe not in this class's ladder |
 | `unsupported_asset_class` | 400 | Unknown class, or a class whose payload is not bars |
-| `adjusted_not_supported` | 400 | `price_mode=adjusted` on a class with no Silver |
+| `adjusted_not_supported` | 400 | `price_mode=adjusted` where no Silver exists: a non-equity class, or a read that touches `bronze-delisted` |
 | `unknown_symbol` | 404 | No artifact under that partition, in any tree the read would use |
-| `ambiguous_symbol` | 409 | `listing=any` on a ticker that is both live and delisted |
-| `not_yet_available` | 501 | Specified but blocked on upstream livewire work |
+| `ambiguous_symbol` | 409 | Reserved. No route emits it today — `listing=any` on a dual-resident ticker returns the union with `listing_status: "dual"` instead of a 409 |
+| `not_yet_available` | 501 | Specified but blocked on upstream livewire work (only `/v1/instruments?listing=delisted` today) |
 | `provider_not_configured` | 503 | Provider / PG / coverage catalog unavailable |
 | `adjusted_unavailable` | 503 | Silver artifact missing or quarantined — retry later |
 | `internal_error` | 500 | Unanticipated failure (e.g. the lake volume went away) |
@@ -274,7 +287,79 @@ the data array. Validated on egress against `config/verification/schemas/`.
 `timestamp`, optional `threshold`/`previous_value`/`message`/`metadata`. Full field table: §8 of
 the [consumption guide](argon-signal-consumption.md).
 
-**`bars_payload`** — `bars[]` of `{ time, open, high, low, close, volume|null, vwap|null }`.
+**`bars_payload`** — `symbol`, `asset_class`, `timeframe`, `price_mode`, **`basis`**,
+`listing_status`, `adjustment_revision|null`, `contract|null`, `count`, `generated_at`, and
+`bars[]` of `{ time, open, high, low, close, volume|null }`.
+
+**`bulk_bars_payload`** (`GET /v1/equity/bars`) — `price_mode`, `basis`,
+`adjustment_revision|null`, `timeframe`, `symbols` (a map `SYM -> { listing_status, bars[] }`),
+`missing` (a map `SYM -> reason`), `generated_at`. There is no top-level `symbol`: the map keys
+are the symbols. A ticker that could not be served appears in `missing` rather than failing the
+request, so one delisted name in a list of 200 does not cost the other 199 their bars. In
+adjusted mode the whole table is read under **one pinned Silver revision**, so every series in
+the response is adjusted on the same corporate-action set — the reason to use this route rather
+than 200 single-symbol calls.
+
+**`actions`** (`GET /v1/equity/{symbol}/actions`) — `symbol`, `identity` (`"ticker"`), `source`
+(`"livewire_bronze_corporate_action"`), `provider`, `count`, `generated_at`, and `actions[]` of
+`{ action_type ("split"|"cash_dividend"), ex_date, split_from, split_to, cash_amount, currency,
+declaration_date, record_date, pay_date }`, ascending by `ex_date`. Only `status='active'` rows
+count: a correction arrives as a new `action_id` whose `supersedes_action_id` names the old row,
+and the old row is re-marked `corrected`, so listing both would double-count a dividend.
+
+**`delisting`** (`GET /v1/equity/{symbol}/delisting`) — `symbol`, `identity` (`"ticker"`),
+`source` (`"livewire_security_master"`), `delisting_reason_available` (**always `false`**),
+`count`, `generated_at`, and `intervals[]` of `{ security_id, symbol, issuer_name, exchange_mic,
+currency, effective_from, effective_to, status, continuity_basis, relationship_type,
+related_security_id }`, ascending by `effective_from`, with superseded and `rejected` rows
+dropped. It is **not** a terminal-state record: measured 2026-09-21 the security master carries
+no delisting reason and no final consideration (`relationship_type` and `related_security_id`
+are null across the whole file). A closed `effective_to` says the ticker stopped resolving to
+that issuer, and nothing says why — do not read a bankruptcy into a flat exit.
+
+### Adjustment basis
+
+Every bars payload carries `basis` alongside `price_mode`, so the consumer never infers the
+adjustment from a mode label:
+
+| `price_mode` | `basis` | Source |
+|---|---|---|
+| `raw` | `unadjusted` | livewire Bronze, as traded |
+| `adjusted` | `split+dividend` | livewire Silver, whose factor chain compounds splits **and** cash dividends |
+
+`split+dividend` is the measured basis, not a guess: Silver revision 76 gives SPY a
+`price_adjustment_factor` of `0.9975231654864936` across `2026-06-18..09-17`, an interval with
+no split in it — so calling the basis "split-adjusted" would understate what the numbers are.
+SPY's 2026-09-17 close reads `762.60` raw and `760.711166` adjusted.
+
+`/v1/equity/returns` carries the same `basis` field, for the same reason.
+
+### Listing: `listed`, `delisted`, `any`
+
+`listing` selects which bronze tree a bars read comes from. bronze-delisted holds 8,620 equity
+symbols (plus `asset_class=fx`), at `1d/1h/5m/1m`, **raw only**.
+
+| `listing` | Reads | `listing_status` |
+|---|---|---|
+| `listed` (default) | the live tree | `listed` |
+| `delisted` | the archived tree | `delisted` |
+| `any` | whichever tree holds the symbol; both when it is in both | `listed`, `delisted`, or `dual` |
+
+A **dual** result means the series was merged from both trees, with the **live tree winning
+every trading date the two share** (per America/New_York trading date, not per exact
+timestamp): the live artifact is the one livewire still maintains. Presence in both trees does
+NOT by itself mean two issuers — on a genuinely dual-resident name the archived rows can be
+duplicate copies of the live company's own history (identical OHLC, a volume count off by one),
+while for a reused ticker they belong to a different company. `listing_status: "dual"` only
+says the series was merged; whether one or two issuers are behind it is answered by
+`GET /v1/equity/{symbol}/delisting` (the security-master intervals), not by the label. Check
+those intervals before computing a return across the seam.
+
+**`price_mode=adjusted` with a read that touches the archived tree is a `400
+adjusted_not_supported`**, message `no Silver for delisted names; use price_mode=raw`. livewire
+publishes no Silver over bronze-delisted, so serving it would mean splicing an adjusted segment
+onto a raw one. Rule 12's spirit: fail loudly, never fall back. On the bulk route the same
+condition lands in `missing` for that symbol instead of failing the request.
 
 **`indicator_series_payload`** — `points[]` of `{ time, state (object, shape per indicator),
 bar_close (number|null — close at that bar, to align an oscillator to price) }`.
@@ -340,3 +425,25 @@ print(b["count"], b["bars"][-1])
 - Signal **lifecycle** (`status`/`invalidated_*`) is not yet persisted — treat signals as
   append-only and `active`.
 - Per-bar cadence, not per-tick (§2).
+- **`limit` defaults to `2000` and tail-slices.** With no `start`, a bars request returns the
+  most recent 2,000 bars, not the full history — a symbol with 30 years of daily bars answers
+  with the last ~8. Send **`limit=0`** (any value `<=0`) for the whole series. This bites
+  hardest on intraday: `timeframe=1m&limit=2000` is about a day and a half of session minutes.
+  The lookback is anchored at *now* for listed names; a `delisted`/`any` read instead scans the
+  whole archive and tail-slices, so `listing=delisted&limit=2` returns the name's last two bars
+  rather than an empty window.
+- **Known limitation — the 2021-06-11 Silver seam.** About 61 equity symbols have Silver
+  starting `2021-06-11` while their Bronze history runs earlier (TSLA, CTAS and MSTR among
+  them). In `price_mode=adjusted` those names serve history **from 2021-06-11 only**; the
+  request does not silently extend into the earlier segment. The pre-seam Bronze segment is
+  split-adjusted but **not** dividend-adjusted, and a few names (BNED, CTO) sit on an unrelated
+  basis entirely, so splicing it on would produce a series with two definitions and a false
+  return across the join. Rebasing it is a livewire **Silver rebuild**, not something an apex
+  read can fix. For pre-2021 history on a seam-cohort name, request `price_mode=raw` and adjust
+  downstream with `/v1/equity/{symbol}/actions`.
+- **Ops: `pgrep apex` on the macmini finds nothing, and that is normal.** Port 8322 there is
+  served by the docker container `apex-deploy-api-1` (`docker ps` shows
+  `0.0.0.0:8322->8322/tcp`), and the port that `lsof -nP -iTCP:8322 -sTCP:LISTEN` reports is an
+  **ssh reverse-tunnel listener** (`COMMAND ssh`, `TCP *:8322 (LISTEN)`) sitting in front of it
+  — verified 2026-09-21. There is no `apex` process on the host to find. Check `docker ps` and
+  `docker logs apex-deploy-api-1` instead.

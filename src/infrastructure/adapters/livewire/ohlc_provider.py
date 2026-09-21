@@ -24,13 +24,19 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, List, Literal
+from zoneinfo import ZoneInfo
 
 import duckdb
 
 from ....domain.events.domain_events import BarData
 from .asset_classes import DEFAULT_ASSET_CLASS, get_asset_class
-from .paths import SUPPORTED_TIMEFRAMES, parquet_path
-from .revisions import ArtifactKind, RevisionManifestError, RevisionManifestReader, SilverRevision
+from .paths import SUPPORTED_TIMEFRAMES, delisted_bronze_path, parquet_path
+from .revisions import (
+    ArtifactKind,
+    RevisionManifestError,
+    RevisionManifestReader,
+    SilverRevision,
+)
 
 # livewire keys daily bars by `trade_date` (a DATE) and intraday bars by
 # `bar_timestamp` (a tz-aware UTC TIMESTAMP). OHLCV columns are read by name; extra
@@ -39,6 +45,7 @@ logger = logging.getLogger(__name__)
 
 _DAILY_TS_COLUMN = "trade_date"
 _INTRADAY_TS_COLUMN = "bar_timestamp"
+_NY_TZ = ZoneInfo("America/New_York")
 
 PriceMode = Literal["raw", "adjusted"]
 
@@ -111,8 +118,8 @@ class LivewireOhlcProvider:
         self._silver_root = Path(silver_root) if silver_root is not None else None
         self._price_mode = price_mode
         self._snapshot: SilverRevision | None = None
-        # Residency probe only -- used to detect ticker reuse for listing=any. apex
-        # never serves bars from the delisted tree; that is blocked on livewire.
+        # bronze-delisted/: the archived tree. Raw only -- livewire publishes no Silver
+        # over it -- so adjusted reads that touch it fail loudly rather than mixing bases.
         self._delisted_root = Path(delisted_root) if delisted_root is not None else None
 
     # --- HistoricalSourcePort ---
@@ -194,12 +201,22 @@ class LivewireOhlcProvider:
         end: datetime,
         asset_class: str = DEFAULT_ASSET_CLASS,
         price_mode: PriceMode | None = None,
+        listing: str = "listed",
     ) -> List[BarData]:
         # An explicit price_mode is a per-call override (the route passes the mode it
         # already validated); None falls back to what this provider can serve.
         resolved = price_mode or self.effective_price_mode(asset_class)
         if resolved == "adjusted" and not get_asset_class(asset_class).supports_adjusted:
             raise AdjustedDataUnavailable(f"Silver does not exist for {asset_class}")
+        if listing != "listed":
+            # There is no Silver over bronze-delisted, so an adjusted read that touches
+            # it would have to splice an adjusted segment onto a raw one. Rule 12: fail,
+            # never fall back.
+            if resolved == "adjusted":
+                raise AdjustedDataUnavailable("no Silver for delisted names; use price_mode=raw")
+            return await self._fetch_including_delisted(
+                symbol, timeframe, start, end, asset_class, listing
+            )
         bronze_path = parquet_path(self._bronze_root, symbol, timeframe, asset_class)
         if resolved == "raw":
             if not bronze_path.exists():
@@ -243,6 +260,49 @@ class LivewireOhlcProvider:
             start,
             end,
         )
+
+    async def _fetch_including_delisted(
+        self,
+        symbol: str,
+        timeframe: str,
+        start: datetime,
+        end: datetime,
+        asset_class: str,
+        listing: str,
+    ) -> List[BarData]:
+        """Raw bars from bronze-delisted, optionally unioned with the live tree.
+
+        ``delisted`` reads the archived tree alone. ``dual`` reads both and lets the
+        live tree win on any bar the two share: the live artifact is the one livewire
+        still maintains. "Wins" means per America/New_York trading date, not per exact
+        timestamp -- for an intraday timeframe an archived bar can carry a timestamp the
+        live tree lacks even on a date the live tree does cover, and deduping by exact
+        timestamp alone would let that archived bar survive alongside the live session
+        it duplicates. Whether the archived rows behind a ``dual`` symbol are the same
+        issuer under a reused ticker or a duplicate copy of the live company's own
+        history is not decided here -- see ``/v1/equity/{symbol}/delisting`` for that.
+        """
+        delisted: List[BarData] = []
+        if self._delisted_root is not None:
+            path = delisted_bronze_path(self._delisted_root, symbol, timeframe, asset_class)
+            if path.exists():
+                delisted = await asyncio.to_thread(self._query, path, symbol, timeframe, start, end)
+        if listing == "delisted":
+            return delisted
+        live_path = parquet_path(self._bronze_root, symbol, timeframe, asset_class)
+        live: List[BarData] = []
+        if live_path.exists():
+            live = await asyncio.to_thread(self._query, live_path, symbol, timeframe, start, end)
+        if not delisted:
+            return live
+        if not live:
+            return delisted
+        taken_dates = {bar.timestamp.astimezone(_NY_TZ).date() for bar in live}
+        merged = live + [
+            bar for bar in delisted if bar.timestamp.astimezone(_NY_TZ).date() not in taken_dates
+        ]
+        merged.sort(key=lambda bar: bar.timestamp)
+        return merged
 
     async def fetch_rate_series(
         self, symbol: str, start: datetime, end: datetime

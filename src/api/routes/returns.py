@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 from fastapi import APIRouter, Query, Request
 
 from src.api.errors import ApiError, ApiErrorCode
+from src.api.payload.chart import basis_for
 from src.api.routes._chart_guards import (
     _artifact_exists,
     _provider_or_raise,
@@ -213,6 +214,7 @@ async def equity_returns(
         "start": start_day.isoformat(),
         "end": end_day.isoformat(),
         "price_mode": price_mode,
+        "basis": basis_for(price_mode),
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "benchmarks": {name: {"window_return": bench_returns[name]} for name in _BENCHMARKS},
         "results": results,

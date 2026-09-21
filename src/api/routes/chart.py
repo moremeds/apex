@@ -75,7 +75,6 @@ async def _bars_response(
     _require_bars_payload(spec, symbol)
     _check_timeframe(spec, timeframe)
     provider = _provider_or_raise(request)
-    listing_status = _check_listing(provider, listing, symbol, spec.name)
     if price_mode is not None and price_mode not in ("raw", "adjusted"):
         raise ApiError(
             ApiErrorCode.INVALID_PARAMETER,
@@ -95,18 +94,31 @@ async def _bars_response(
     # provider; `adjusted` is satisfiable only where Silver exists, already checked above.
     # Accepting the parameter and then ignoring it would be worse than not offering it.
     effective = price_mode or provider.effective_price_mode(spec.name)
-    start, end, tail = _resolve_window(timeframe, start, end, limit)
+    # After the mode is resolved: the listing check rejects adjusted-over-delisted, so
+    # it has to know which mode the read would actually use.
+    listing_status = _check_listing(provider, listing, symbol, spec.name, timeframe, effective)
+    start, end, tail = _resolve_window(
+        timeframe, start, end, limit, from_epoch=listing_status != "listed"
+    )
     try:
         if effective == "adjusted":
             provider = await asyncio.to_thread(provider.pin_snapshot)
         bars = await provider.fetch_bars(
-            symbol, timeframe, start, end, asset_class=spec.name, price_mode=effective
+            symbol,
+            timeframe,
+            start,
+            end,
+            asset_class=spec.name,
+            price_mode=effective,
+            listing=listing_status,
         )
     except AdjustedDataUnavailable as exc:
         raise ApiError(
             ApiErrorCode.ADJUSTED_UNAVAILABLE, str(exc), symbol=symbol, asset_class=spec.name
         ) from exc
-    if not bars and not _artifact_exists(provider, symbol, timeframe, spec, effective):
+    if not bars and not _artifact_exists(
+        provider, symbol, timeframe, spec, effective, listing_status
+    ):
         # Distinguish "no artifact" from "artifact exists, window is empty". The second is a
         # legitimate 200 with zero bars (a quiet window); the first is a 404.
         raise ApiError(
