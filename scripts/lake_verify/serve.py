@@ -33,7 +33,9 @@ LAKE_ENV = (
 )
 
 
-def build_app():  # type: ignore[no-untyped-def]
+def build_app(price_mode: str | None = None):  # type: ignore[no-untyped-def]
+    """The real REST app with lake state injected; ``price_mode`` overrides the
+    process configuration (the matrix runs a raw and an adjusted app side by side)."""
     stray = sorted(k for k in os.environ if k.startswith("APEX_") and k not in LAKE_ENV)
     if stray:
         raise SystemExit(f"refusing non-lake environment: {stray}")
@@ -48,7 +50,7 @@ def build_app():  # type: ignore[no-untyped-def]
     app.state.ohlc_provider = LivewireOhlcProvider(
         bronze_root=Path(env("APEX_LIVEWIRE_ROOT", "")),
         silver_root=Path(silver) if silver else None,
-        price_mode=env("APEX_LIVEWIRE_PRICE_MODE", "raw"),  # type: ignore[arg-type]
+        price_mode=price_mode or env("APEX_LIVEWIRE_PRICE_MODE", "raw"),  # type: ignore[arg-type]
         delisted_root=Path(delisted) if delisted else None,
     )
     catalog = env("APEX_LIVEWIRE_COVERAGE_DB")

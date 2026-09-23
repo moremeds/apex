@@ -121,15 +121,43 @@ def _done(out: Path) -> set:
     return done
 
 
+_APPS: Dict[str, Any] = {}
+
+
+def _app(process: str) -> Any:
+    """One real REST app per process configuration, lifespan never run."""
+    if process not in _APPS:
+        from serve import build_app
+
+        _APPS[process] = build_app(price_mode=process)
+    return _APPS[process]
+
+
 class Executor:
+    """``http`` requests go to a loopback server URL, or -- with target ``asgi`` -- to
+    the real app in this process (FastAPI TestClient: real routing, middleware and
+    serialization, no sockets). Loopback servers answer ``Connection: close`` under
+    uvicorn here and a fast run exhausts macOS ephemeral ports (Errno 49, measured
+    2026-09-23), so the matrix uses ``asgi``; the benchmark keeps real sockets."""
+
     def __init__(self, targets: Dict[str, str]) -> None:
         self.targets = targets
         self.client = httpx.Client(timeout=180)
-        self._inproc: Dict[str, Any] = {}
+        self._asgi: Dict[str, Any] = {}
+
+    def _client(self, process: str) -> Tuple[Any, str]:
+        target = self.targets[process]
+        if target != "asgi":
+            return self.client, target
+        if process not in self._asgi:
+            from fastapi.testclient import TestClient
+
+            self._asgi[process] = TestClient(_app(process), raise_server_exceptions=False)
+        return self._asgi[process], ""
 
     def http(self, request: Dict[str, Any]) -> Tuple[int, Any]:
-        base = self.targets[request["process"]]
-        response = self.client.get(base + request["path"], params=request.get("params") or {})
+        client, base = self._client(request["process"])
+        response = client.get(base + request["path"], params=request.get("params") or {})
         try:
             body = response.json()
         except ValueError:
@@ -214,6 +242,10 @@ def run(
         t0 = time.perf_counter()
         try:
             outcome = _settle(case, local.executor, lake, checkers)
+        except httpx.TransportError as exc:
+            # The harness could not reach the target: nothing about the candidate was
+            # observed. NOT_RUN keeps the case pending for a resumed run.
+            outcome = Outcome("NOT_RUN", f"transport error: {exc!r}")
         except Exception as exc:  # a crashed check is a FAIL, never a silent skip
             outcome = Outcome("FAIL", f"runner error: {exc!r} {traceback.format_exc()[-600:]}")
         record = {
