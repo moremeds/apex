@@ -29,6 +29,7 @@ uv pip install -e ".[dev,observability,api,cloudflare]"
 scripts/serve.sh
 uv run --env-file .env python -m src.api.server   # equivalent, env loaded by you
 make api-server        # REST + WS API on :8322
+make mcp-server        # read-only lake MCP on :8333 (needs APEX_MCP_API_KEY)
 make dev               # api + signal service via main.py --service all
 
 # Test
@@ -61,6 +62,7 @@ Legacy make targets (`momentum`, `pead`, `strategy-compare`, `strategy-verify`, 
 
 ```
 src/api/            FastAPI app factory, routes, WS hub, JobManager, payload builders
+src/mcp_server/     read-only lake MCP (20 tools over src/application/lake); separate process, no PG/streaming
 src/application/    bootstrap, orchestrator, chart service, subscriptions, revision watcher
 src/domain/         signals, indicators, regime, events, strategy, interfaces
 src/infrastructure/ adapters (livewire, xenon, fmp, ib, futu, yahoo, r2, earnings), persistence, stores, observability
@@ -98,6 +100,9 @@ Every data source is env-gated: apex boots regardless, and each unset source mak
 | `APEX_XENON_WS_URL`                   | `ws://127.0.0.1:8765` | live ticks → live WS signal frames                       |
 | `APEX_TIMEFRAMES`                     | `1d`                  | timeframes the streaming pipeline subscribes/warms       |
 | `APEX_API_PORT`                       | `8322`                | listen port                                              |
+| `APEX_MCP_API_KEY`                    | unset                 | **required** by the MCP server (Bearer; it refuses to boot without one) |
+| `APEX_MCP_HOST` / `APEX_MCP_PORT`     | `127.0.0.1` / `8333`  | MCP listen address                                       |
+| `APEX_MCP_ALLOWED_HOSTS`              | loopback:port         | Host header values MCP clients may send (DNS-rebinding guard) |
 
 FMP (`FMP_API_KEY` or `config/secrets.yaml`) and R2 (`R2_*` in `config/secrets.yaml`) serve the frozen screener and backfill pipelines only, never the live read path.
 

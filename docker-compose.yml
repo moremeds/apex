@@ -69,3 +69,47 @@ services:
     labels:
       com.centurylinklabs.watchtower.enable: "true"
     restart: unless-stopped
+
+  # Read-only market-data MCP (Claude Code over the tailnet; ChatGPT via Secure MCP
+  # Tunnel). Same image, separate process: lake readers only -- no PG, no streaming.
+  # It deliberately does NOT read ./.env (the API's PG secret): its only private file is
+  # ./mcp.env, which holds APEX_MCP_API_KEY and APEX_MCP_ALLOWED_HOSTS (the Host header
+  # values clients send, e.g. "<tailnet-name>:8333,<tailnet-ip>:8333"). The host port
+  # binds only APEX_MCP_BIND (the mini's tailnet address, set in ./.env for compose
+  # interpolation), never 0.0.0.0.
+  #   curl http://<APEX_MCP_BIND>:8333/healthz          # liveness, no auth
+  #   readiness = an authenticated tools/list + tools/call (docs/mcp-operator-guide.md)
+  mcp:
+    image: ghcr.io/moremeds/apex-api:latest
+    command: ["python", "-m", "src.mcp_server.server"]
+    env_file:
+      - ./mcp.env
+    environment:
+      APEX_MCP_HOST: 0.0.0.0
+      APEX_MCP_PORT: "8333"
+      APEX_LIVEWIRE_ROOT: /data/livewire
+      APEX_LIVEWIRE_SILVER_ROOT: /data/livewire-silver
+      APEX_LIVEWIRE_PRICE_MODE: adjusted
+      APEX_LIVEWIRE_COVERAGE_DB: /data/catalog/analytics.duckdb
+      APEX_LIVEWIRE_LAKE_ROOT: /data/lake
+      APEX_LIVEWIRE_DELISTED_ROOT: /data/livewire-delisted
+      APEX_LIVEWIRE_REPAIRS_ROOT: /data/repairs
+    ports:
+      - "${APEX_MCP_BIND:?set the tailnet address in .env}:8333:8333"
+    volumes:
+      - ${APEX_LAKE_HOST_ROOT:?set in .env}/bronze:/data/livewire:ro
+      - ${APEX_LAKE_HOST_ROOT:?set in .env}/silver:/data/livewire-silver:ro
+      - ${APEX_LAKE_HOST_ROOT:?set in .env}/bronze-delisted:/data/livewire-delisted:ro
+      - ${APEX_LAKE_HOST_ROOT:?set in .env}/catalog:/data/catalog:ro
+      - ${APEX_LAKE_HOST_ROOT:?set in .env}/index_membership:/data/lake/index_membership:ro
+      - ${APEX_LAKE_HOST_ROOT:?set in .env}/security_master:/data/lake/security_master:ro
+      - ${APEX_LAKE_HOST_ROOT:?set in .env}/repairs:/data/repairs:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8333/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+    restart: unless-stopped

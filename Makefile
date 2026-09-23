@@ -380,6 +380,10 @@ api-server:   ## Start REST API server on :8322
 	@echo "$(BOLD)Starting APEX API server...$(RESET)"
 	PYTHONPATH=. $(PYTHON) -m src.api.server
 
+mcp-server:   ## Start the read-only lake MCP server on :8333 (needs APEX_MCP_API_KEY)
+	@echo "$(BOLD)Starting APEX MCP server...$(RESET)"
+	PYTHONPATH=. $(PYTHON) -m src.mcp_server.server
+
 dev:   ## Start all APEX services (signal + api)
 	@echo "$(BOLD)Starting all APEX services (signal + api)...$(RESET)"
 	PYTHONPATH=. $(PYTHON) main.py --service all

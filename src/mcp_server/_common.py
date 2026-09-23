@@ -23,7 +23,7 @@ from typing import (
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
-from mcp.types import ToolAnnotations
+from mcp.types import CallToolResult, TextContent, ToolAnnotations
 from pydantic import BaseModel, ConfigDict
 
 from src.application.lake.errors import LakeError, redact_paths
@@ -78,14 +78,20 @@ def lake_tool(server: MCPServer) -> Callable[[Fn], Fn]:
                     "internal_error",
                     f"internal error; see server logs (incident {incident})",
                 ) from exc
-            size = len(result.model_dump_json())
+            # Compact text beside the structured result (the SDK's own rendering is
+            # indented JSON, 2-3x larger); the budget counts the whole wire result.
+            call = CallToolResult(
+                content=[TextContent(type="text", text=result.model_dump_json())],
+                structured_content=result.model_dump(mode="json"),
+            )
+            size = len(call.model_dump_json(by_alias=True))
             if size > BUDGET_BYTES:
                 raise tool_error(
                     "result_too_large",
                     f"result is {size} bytes, over the {BUDGET_BYTES}-byte budget; "
                     "narrow the window, lower limit, or page with offset",
                 )
-            return result
+            return call
 
         server.tool(annotations=READ_ONLY)(wrapper)
         return fn
