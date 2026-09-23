@@ -330,3 +330,26 @@ def test_silver_only_symbol_with_an_unreadable_artifact_is_an_outage(
     assert (
         response.status_code == 503 and response.json()["error"]["code"] == "adjusted_unavailable"
     )
+
+
+def test_unreadable_silver_daily_still_discovers_bronze_intraday(
+    client: TestClient, tmp_path: Path
+) -> None:
+    """Real FSLR 5m bars (bronze, read 2026-09-23); Silver daily corrupted as a test
+    mutation. Discovery keeps the Bronze timeframe instead of a 503."""
+    bars = pd.DataFrame(
+        [
+            (dt.datetime(2026, 9, 21, 23, 10, tzinfo=dt.timezone.utc), 200.62, 200.7, 200.62, 200.7, 708),
+            (dt.datetime(2026, 9, 21, 23, 25, tzinfo=dt.timezone.utc), 200.5, 200.5, 200.5, 200.5, 905),
+        ],
+        columns=["bar_timestamp", "open", "high", "low", "close", "volume"],
+    )  # fmt: skip
+    target_dir = tmp_path / "bronze" / "asset_class=equity" / "symbol=FSLR"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    bars.to_parquet(target_dir / "5m.parquet", index=False)
+    manifest = json.loads((tmp_path / "silver" / "revisions" / "current.json").read_bytes())
+    daily = next(a for a in manifest["artifacts"] if a["path"].endswith("symbol=FSLR/1d.parquet"))
+    artifact = tmp_path / "silver" / daily["path"]
+    artifact.write_bytes(artifact.read_bytes() + b"\0")
+    body = client.get("/v1/equity/FSLR").json()
+    assert body["timeframes"] == ["5m"] and body["silver_available"] is False

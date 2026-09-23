@@ -14,13 +14,18 @@ from typing import Any, Literal, Mapping, Optional
 # replaced whole, spaces included; unquoted ones up to whitespace or punctuation.
 # Relative Silver paths ("generations/.../1d.parquet") are public manifest content and
 # kept; "/v1/..." is an API route a message may point to.
-_QUOTED_PATH = re.compile(r"(['\"])/(?!v1/)[^'\"]*\1")
+# Python renders a filename containing "'" inside double quotes, so each quote style
+# allows the other one inside.
+_SINGLE_QUOTED_PATH = re.compile(r"'/(?!v1/)[^']*'")
+_DOUBLE_QUOTED_PATH = re.compile(r'"/(?!v1/)[^"]*"')
 _BARE_PATH = re.compile(r"(?<![^\s=:(\[])/(?!v1/)[^\s'\"(),:;]+")
 
 
 def redact_paths(text: str) -> str:
     """Remove absolute host paths from client-visible text (design §6)."""
-    return _BARE_PATH.sub("<path>", _QUOTED_PATH.sub(r"\1<path>\1", text))
+    text = _SINGLE_QUOTED_PATH.sub("'<path>'", text)
+    text = _DOUBLE_QUOTED_PATH.sub('"<path>"', text)
+    return _BARE_PATH.sub("<path>", text)
 
 
 LakeErrorCode = Literal[

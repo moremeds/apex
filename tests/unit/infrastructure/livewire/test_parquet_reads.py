@@ -66,15 +66,17 @@ async def test_cancelled_while_queued_never_executes() -> None:
     loop.set_default_executor(ThreadPoolExecutor(max_workers=1))
     release = threading.Event()
     blocker = loop.run_in_executor(None, release.wait)
-    ran: list[bool] = []
-    original = LakeDb._run
+    from src.infrastructure.adapters.livewire import parquet_reads
 
-    def spy(*args: object) -> object:
-        result = original(*args)  # type: ignore[arg-type]
+    ran: list[bool] = []
+    original = parquet_reads._Run.execute
+
+    def spy(self: object, *args: object) -> object:
+        result = original(self, *args)  # type: ignore[arg-type]
         ran.append(bool(result))
         return result
 
-    LakeDb._run = staticmethod(spy)  # type: ignore[method-assign]
+    parquet_reads._Run.execute = spy  # type: ignore[method-assign]
     try:
         task = asyncio.create_task(LakeDb(timeout=30).rows("SELECT 1 AS one", []))
         await asyncio.sleep(0.1)
@@ -85,5 +87,5 @@ async def test_cancelled_while_queued_never_executes() -> None:
         await blocker
         await asyncio.sleep(0.2)  # let the queued work item come off the queue
     finally:
-        LakeDb._run = staticmethod(original)  # type: ignore[method-assign]
+        parquet_reads._Run.execute = original  # type: ignore[method-assign]
     assert ran == [False]  # it was dequeued but returned without executing

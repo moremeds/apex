@@ -211,3 +211,10 @@ def test_redaction_covers_spaces_and_single_segment_paths() -> None:
     assert redact_paths("not a file: /data") == "not a file: <path>"
     assert redact_paths('pattern "/data/lake/x y/e.parquet"') == 'pattern "<path>"'
     assert redact_paths("see ratio 1/2 and a/b") == "see ratio 1/2 and a/b"
+
+
+def test_redaction_of_an_oserror_path_containing_an_apostrophe() -> None:
+    from src.application.lake.errors import redact_paths
+
+    error = FileNotFoundError(2, "No such file or directory", "/Volumes/Chen's Lake/p/f.parquet")
+    assert "Volumes" not in redact_paths(str(error))

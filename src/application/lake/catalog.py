@@ -92,6 +92,7 @@ async def get_instrument(services: LakeServices, symbol: str, asset_class: str) 
     spec = spec_or_raise(asset_class)
     provider = services.require_provider()
     silver_daily = False
+    silver_error: Optional[AdjustedDataUnavailable] = None
     adjustment_revision = None
     if spec.supports_adjusted and provider.silver_root is not None:
         try:
@@ -108,15 +109,11 @@ async def get_instrument(services: LakeServices, symbol: str, asset_class: str) 
                     is not None
                 )
             except AdjustedDataUnavailable as exc:
-                # The manifest names an artifact that is missing or fails its hash. With
-                # a Bronze daily file the symbol is still discoverable; without one, its
-                # only copy is unreadable, which is an outage, not an unknown symbol.
-                bronze_daily = parquet_path(provider.bronze_root, symbol, "1d", spec.name)
-                if not await asyncio.to_thread(bronze_daily.exists):
-                    raise LakeError(
-                        "adjusted_unavailable", str(exc), symbol=symbol, asset_class=spec.name
-                    ) from exc
+                # The manifest names an artifact that is missing or fails its hash:
+                # Silver daily is not usable. Decided after the probe below whether the
+                # symbol still has other artifacts or this was its only copy.
                 logger.warning("Silver artifact unreadable for %s: %s", symbol, exc)
+                silver_error = exc
             if silver_daily and pinned.snapshot is not None:
                 adjustment_revision = pinned.snapshot.revision
 
@@ -137,6 +134,12 @@ async def get_instrument(services: LakeServices, symbol: str, asset_class: str) 
         return found, residency
 
     timeframes, residency = await asyncio.to_thread(probe)
+    if not timeframes and not residency and silver_error is not None:
+        # No Bronze in either tree and the Silver copy is unreadable: an outage of the
+        # only artifact, not an unknown symbol.
+        raise LakeError(
+            "adjusted_unavailable", str(silver_error), symbol=symbol, asset_class=spec.name
+        ) from silver_error
     if not timeframes:
         raise LakeError(
             "unknown_symbol",
