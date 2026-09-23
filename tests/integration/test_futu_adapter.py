@@ -13,7 +13,7 @@ from pathlib import Path
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src.infrastructure.adapters import FutuAdapter
+from src.infrastructure.adapters.futu import FutuAdapter
 
 
 async def test_connection_only():

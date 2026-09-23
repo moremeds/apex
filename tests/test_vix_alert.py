@@ -10,8 +10,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from config.config_manager import ConfigManager
 from src.domain.services.market_alert_detector import MarketAlertDetector
-from src.infrastructure.adapters import IbCompositeAdapter
-from src.infrastructure.adapters.ib import ConnectionPoolConfig
+from src.infrastructure.adapters.ib import ConnectionPoolConfig, IbCompositeAdapter
 
 
 async def test_vix_alert() -> None:

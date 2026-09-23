@@ -2,27 +2,17 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from datetime import date, datetime, timezone
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Query, Request
 
 from src.api.errors import ApiError, ApiErrorCode
+from src.api.payload.lake import instrument_payload, page_fields
 from src.api.payload.validate import validate_payload
-from src.infrastructure.adapters.livewire.asset_classes import (
-    UnknownAssetClass,
-    get_asset_class,
-)
-from src.infrastructure.adapters.livewire.coverage import CoverageUnavailable
-from src.infrastructure.adapters.livewire.ohlc_provider import AdjustedDataUnavailable
-from src.infrastructure.adapters.livewire.paths import parquet_path
-from src.infrastructure.adapters.livewire.reference import (
-    ACTION_TYPES,
-    LivewireReferenceReader,
-    ReferenceDataError,
-)
+from src.api.routes._lake import lake_services
+from src.application.lake import catalog, identity
 
 logger = logging.getLogger(__name__)
 
@@ -42,16 +32,6 @@ def _parse_day(value: Optional[str], name: str) -> Optional[date]:
         ) from exc
 
 
-def _catalog_or_raise(request: Request) -> object:
-    catalog = getattr(request.app.state, "coverage_catalog", None)
-    if catalog is None:
-        raise ApiError(
-            ApiErrorCode.PROVIDER_NOT_CONFIGURED,
-            "coverage catalog not configured (set APEX_LIVEWIRE_COVERAGE_DB)",
-        )
-    return catalog
-
-
 @router.get("/v1/instruments")
 async def list_instruments(
     request: Request,
@@ -60,7 +40,6 @@ async def list_instruments(
     listing: str = Query(default="listed", description="listed | delisted"),
     limit: int = Query(default=500, ge=1, le=5000),
 ) -> dict:
-    catalog = _catalog_or_raise(request)
     if listing not in ("listed", "delisted", "any"):
         raise ApiError(
             ApiErrorCode.INVALID_PARAMETER,
@@ -73,27 +52,9 @@ async def list_instruments(
             "delisted discovery requires upstream livewire work "
             "(instrument identity, corporate-action backfill, Silver over bronze-delisted)",
         )
-    if asset_class is not None:
-        try:
-            get_asset_class(asset_class)
-        except UnknownAssetClass as exc:
-            raise ApiError(
-                ApiErrorCode.UNSUPPORTED_ASSET_CLASS, str(exc), asset_class=asset_class
-            ) from exc
-    try:
-        # DuckDB is synchronous and the catalog lives on the same external volume
-        # as the lake; running it inline stalls every other request on this worker
-        # for the duration of the read. Same treatment the bars path already gets.
-        rows = await asyncio.to_thread(
-            catalog.list_instruments,  # type: ignore[attr-defined]
-            asset_class=asset_class,
-            query=q,
-            limit=limit,
-        )
-    except CoverageUnavailable as exc:
-        # An unreadable catalog is NOT an empty universe. Reporting zero instruments
-        # would let a broken deployment masquerade as a correct one.
-        raise ApiError(ApiErrorCode.PROVIDER_NOT_CONFIGURED, str(exc)) from exc
+    rows = await catalog.search_instruments(
+        lake_services(request), q=q, asset_class=asset_class, limit=limit
+    )
     payload = {
         "instruments": [
             {
@@ -126,19 +87,15 @@ async def list_instruments(
 _TICKER_IDENTITY = "ticker"
 
 
-def _reference_or_raise(attribute: str, message: str) -> LivewireReferenceReader:
-    reader = LivewireReferenceReader.from_env()
-    if getattr(reader, attribute) is None:
-        raise ApiError(ApiErrorCode.PROVIDER_NOT_CONFIGURED, message)
-    return reader
-
-
 @router.get("/v1/equity/{symbol}/actions")
 async def get_corporate_actions(
+    request: Request,
     symbol: str,
     type: Optional[str] = Query(default=None, description="split | cash_dividend"),
     start: Optional[str] = Query(default=None, description="earliest ex_date, YYYY-MM-DD"),
     end: Optional[str] = Query(default=None, description="latest ex_date, YYYY-MM-DD"),
+    limit: Optional[int] = Query(default=None, description="opt-in page size (1..2000)"),
+    offset: Optional[int] = Query(default=None, description="opt-in page offset"),
 ) -> dict:
     """Corporate actions behind a symbol's adjustment, from livewire bronze.
 
@@ -151,68 +108,39 @@ async def get_corporate_actions(
     Only ``status='active'`` rows count: a correction lands as a new ``action_id`` that
     supersedes the old row, and the old row is re-marked ``corrected``.
     """
-    if type is not None and type not in ACTION_TYPES:
-        raise ApiError(
-            ApiErrorCode.INVALID_PARAMETER,
-            f"unknown type {type!r} (have {list(ACTION_TYPES)})",
-            symbol=symbol,
-            asset_class="equity",
-        )
-    start_date = _parse_day(start, "start")
-    end_date = _parse_day(end, "end")
-    if start_date is not None and end_date is not None and start_date > end_date:
-        # Otherwise this reads a real artifact, matches nothing, and answers 200 with
-        # zero actions -- reporting an impossible request as a quiet history.
-        raise ApiError(
-            ApiErrorCode.INVALID_PARAMETER,
-            f"start {start_date.isoformat()} is after end {end_date.isoformat()}",
-            symbol=symbol,
-            asset_class="equity",
-        )
-    reader = _reference_or_raise(
-        "bronze_root", "corporate actions are not configured; set APEX_LIVEWIRE_ROOT"
+    paged = limit is not None or offset is not None
+    result = await identity.corporate_actions(
+        lake_services(request),
+        symbol,
+        action_type=type,
+        start=_parse_day(start, "start"),
+        end=_parse_day(end, "end"),
+        limit=limit,
+        offset=offset,
+        paged=paged,
     )
-    ticker = symbol.upper()
-    try:
-        actions = await asyncio.to_thread(
-            reader.fetch_actions,
-            ticker,
-            action_type=type,
-            start=start_date,
-            end=end_date,
-        )
-        provider = await asyncio.to_thread(reader.fetch_provider, ticker)
-    except ReferenceDataError as exc:
-        raise ApiError(
-            ApiErrorCode.PROVIDER_NOT_CONFIGURED,
-            str(exc),
-            symbol=symbol,
-            asset_class="equity",
-        ) from exc
-    if actions is None:
-        # No log file at all is an unknown ticker (404); a log with nothing matching the
-        # filter is a legitimate 200 with zero actions.
-        raise ApiError(
-            ApiErrorCode.UNKNOWN_SYMBOL,
-            f"no corporate-action log for {ticker}",
-            symbol=symbol,
-            asset_class="equity",
-        )
-    payload = {
-        "symbol": ticker,
+    payload: Dict[str, Any] = {
+        "symbol": result.symbol,
         "identity": _TICKER_IDENTITY,
         "source": "livewire_bronze_corporate_action",
-        "provider": provider,
-        "actions": [action.as_dict() for action in actions],
-        "count": len(actions),
+        "provider": result.provider,
+        "actions": [action.as_dict() for action in result.page.items],
+        "count": len(result.page.items),
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
+    if paged:
+        payload.update(page_fields(result.page))
     validate_payload(payload, "actions_payload")
     return payload
 
 
 @router.get("/v1/equity/{symbol}/delisting")
-async def get_delisting(symbol: str) -> dict:
+async def get_delisting(
+    request: Request,
+    symbol: str,
+    limit: Optional[int] = Query(default=None, description="opt-in page size (1..2000)"),
+    offset: Optional[int] = Query(default=None, description="opt-in page offset"),
+) -> dict:
     """Identity intervals for a ticker, from the livewire security master.
 
     **Not a terminal-state record.** Measured 2026-09-21, the security master carries
@@ -226,44 +154,22 @@ async def get_delisting(symbol: str) -> dict:
     **Ticker-keyed**, with the same reuse caveat as ``/actions``: two intervals under
     one ticker are two different securities, not one company's history.
     """
-    reader = _reference_or_raise(
-        "lake_root",
-        "the security master is not configured; set APEX_LIVEWIRE_LAKE_ROOT",
+    paged = limit is not None or offset is not None
+    page = await identity.delisting(
+        lake_services(request), symbol, limit=limit, offset=offset, paged=paged
     )
-    ticker = symbol.upper()
-    try:
-        intervals = await asyncio.to_thread(reader.fetch_identity, ticker)
-    except ReferenceDataError as exc:
-        raise ApiError(
-            ApiErrorCode.PROVIDER_NOT_CONFIGURED,
-            str(exc),
-            symbol=symbol,
-            asset_class="equity",
-        ) from exc
-    if intervals is None:
-        raise ApiError(
-            ApiErrorCode.PROVIDER_NOT_CONFIGURED,
-            "security master artifact is missing under APEX_LIVEWIRE_LAKE_ROOT",
-            symbol=symbol,
-            asset_class="equity",
-        )
-    if not intervals:
-        raise ApiError(
-            ApiErrorCode.UNKNOWN_SYMBOL,
-            f"no verified security-master record for {ticker}",
-            symbol=symbol,
-            asset_class="equity",
-        )
-    payload = {
-        "symbol": ticker,
+    payload: Dict[str, Any] = {
+        "symbol": symbol.upper(),
         "identity": _TICKER_IDENTITY,
         "source": "livewire_security_master",
         # Named so nobody reads the absence of a reason as "still listed".
         "delisting_reason_available": False,
-        "intervals": [interval.as_dict() for interval in intervals],
-        "count": len(intervals),
+        "intervals": [interval.as_dict() for interval in page.items],
+        "count": len(page.items),
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
+    if paged:
+        payload.update(page_fields(page))
     validate_payload(payload, "delisting_payload")
     return payload
 
@@ -274,83 +180,5 @@ async def get_delisting(symbol: str) -> dict:
 @router.get("/v1/{asset_class}/{symbol}")
 async def get_instrument(asset_class: str, symbol: str, request: Request) -> dict:
     """One instrument's detail, including the timeframes that actually exist on disk."""
-    try:
-        spec = get_asset_class(asset_class)
-    except UnknownAssetClass as exc:
-        raise ApiError(
-            ApiErrorCode.UNSUPPORTED_ASSET_CLASS, str(exc), asset_class=asset_class
-        ) from exc
-    provider = getattr(request.app.state, "ohlc_provider", None)
-    if provider is None:
-        raise ApiError(
-            ApiErrorCode.PROVIDER_NOT_CONFIGURED,
-            "bar provider not configured",
-            symbol=symbol,
-        )
-    # Probe the artifacts: the coverage table measures no equity intraday, so it
-    # cannot answer this. Five exists() calls is fine for one symbol; it is exactly
-    # why the LIST endpoint does not do it 14,746 times.
-    silver_daily = False
-    adjustment_revision = None
-    if spec.supports_adjusted and provider.silver_root is not None:
-        try:
-            pinned_provider = await asyncio.to_thread(provider.pin_snapshot)
-            silver_daily = (
-                await asyncio.to_thread(pinned_provider.silver_artifact_path, symbol, "daily")
-                is not None
-            )
-            if silver_daily and pinned_provider.snapshot is not None:
-                adjustment_revision = pinned_provider.snapshot.revision
-        except AdjustedDataUnavailable as exc:
-            raise ApiError(
-                ApiErrorCode.ADJUSTED_UNAVAILABLE,
-                str(exc),
-                symbol=symbol,
-                asset_class=spec.name,
-            ) from exc
-    timeframes = [
-        tf
-        for tf in spec.timeframes
-        # Silver can outlive its Bronze source, so a Bronze-only probe would omit "1d"
-        # from a symbol that /bars will happily serve in adjusted mode.
-        if parquet_path(provider.bronze_root, symbol, tf, spec.name).exists()
-        or (tf == "1d" and silver_daily)
-    ]
-    if not timeframes:
-        raise ApiError(
-            ApiErrorCode.UNKNOWN_SYMBOL,
-            f"no artifact for {symbol} under {spec.partition}",
-            symbol=symbol,
-            asset_class=spec.name,
-        )
-    silver_available = silver_daily
-    catalog = getattr(request.app.state, "coverage_catalog", None)
-    dates = None
-    # Names WHY first_date/last_date are null, so an unreadable catalog cannot hide
-    # behind a symbol that genuinely has no recorded coverage. Not fatal here:
-    # timeframes and silver_available came from disk and are still correct.
-    coverage_source = "not_configured" if catalog is None else "livewire_coverage_snapshot"
-    if catalog is not None:
-        try:
-            dates = await asyncio.to_thread(catalog.get_instrument, symbol, spec.name)
-        except CoverageUnavailable as exc:
-            # Detail degrades to artifact-only facts rather than failing: the
-            # timeframes above came from disk and are still correct. Logged, not
-            # swallowed -- silently nulling the dates would hide a broken catalog
-            # mount behind a 200.
-            logger.warning("coverage catalog unreadable, serving %s without dates: %s", symbol, exc)
-            dates = None
-            coverage_source = "unavailable"
-    return {
-        "symbol": symbol,
-        "asset_class": spec.name,
-        "listing_status": "listed",
-        "timeframes": timeframes,
-        "coverage_source": coverage_source,
-        "first_date": dates.first_date if dates else None,
-        "last_date": dates.last_date if dates else None,
-        "silver_available": silver_available,
-        "price_mode": provider.effective_price_mode(spec.name),
-        "adjustment_revision": adjustment_revision,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-    }
+    detail = await catalog.get_instrument(lake_services(request), symbol, asset_class)
+    return instrument_payload(detail)

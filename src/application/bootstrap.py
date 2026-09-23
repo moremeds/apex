@@ -30,8 +30,11 @@ from ..domain.services.risk.risk_signal_engine import RiskSignalEngine
 from ..domain.services.risk.risk_signal_manager import RiskSignalManager
 from ..domain.services.risk.rule_engine import RuleEngine
 from ..domain.services.risk.streaming import DeltaPublisher
-from ..infrastructure.adapters import BrokerManager, FileLoader, FutuAdapter, MarketDataManager
+from ..infrastructure.adapters.broker_manager import BrokerManager
+from ..infrastructure.adapters.file_loader import FileLoader
+from ..infrastructure.adapters.futu import FutuAdapter
 from ..infrastructure.adapters.ib import ConnectionPoolConfig, IbCompositeAdapter, IbConnectionPool
+from ..infrastructure.adapters.market_data_manager import MarketDataManager
 from ..infrastructure.monitoring import HealthMonitor, Watchdog
 from ..infrastructure.persistence.database import Database
 from ..infrastructure.persistence.repositories.ta_signal_repository import TASignalRepository

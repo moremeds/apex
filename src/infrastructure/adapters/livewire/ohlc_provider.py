@@ -358,6 +358,31 @@ class LivewireOhlcProvider:
             for r in rows
         ]
 
+    def fetch_futures_contract(self, symbol: str) -> dict[str, Any]:
+        """Identity and bounds of one futures contract file, from one aggregate read
+        (parquet min/max statistics make it cheap). Contract columns are constant
+        across a contract's rows."""
+        path = parquet_path(self._bronze_root, symbol, "1d", "futures")
+        con = duckdb.connect(database=":memory:")
+        try:
+            row = con.execute(
+                "SELECT any_value(contract_id), any_value(root_symbol), "
+                "any_value(expiry_date), min(trade_date), max(trade_date), count(*) "
+                "FROM read_parquet(?)",
+                [path.as_posix()],
+            ).fetchone()
+        finally:
+            con.close()
+        assert row is not None
+        return {
+            "contract_id": None if row[0] is None else int(row[0]),
+            "root_symbol": row[1],
+            "expiry_date": None if row[2] is None else str(row[2]),
+            "first_date": None if row[3] is None else str(row[3]),
+            "last_date": None if row[4] is None else str(row[4]),
+            "rows": int(row[5]),
+        }
+
     def fetch_recency(self, reference_symbol: str = "AAPL") -> dict[str, Any]:
         """Last trade_date in bronze and silver for a liquid reference symbol.
 

@@ -139,6 +139,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
                 app.state.coverage_catalog = CoverageCatalog(Path(coverage_db))
                 logger.info("Coverage catalog ready (/v1/instruments enabled)")
+        # Lake readers that keep state across requests (the PIT summary cache) or read
+        # their own env var; guarded like the others so tests can pre-inject them.
+        if getattr(app.state, "pit_reader", None) is None:
+            app.state.pit_reader = None
+            if silver_root:
+                from pathlib import Path
+
+                from src.infrastructure.adapters.livewire.pit_revisions import (
+                    PitRevisionReader,
+                )
+
+                app.state.pit_reader = PitRevisionReader(Path(silver_root))
+        if getattr(app.state, "repairs_reader", None) is None:
+            from src.api.routes._lake import repairs_from_env
+
+            app.state.repairs_reader = repairs_from_env()
         if getattr(app.state, "indicator_registry", None) is None:
             from src.domain.signals.indicators.registry import get_indicator_registry
 
@@ -309,14 +325,17 @@ def create_app() -> FastAPI:
 
     app.include_router(membership_router)
 
-    # Literal namespaces must precede the asset-class catch-all.
+    # Literal namespaces must precede the asset-class catch-all: /v1/{asset_class}/{symbol}
+    # (instruments) would match /v1/lake/status, /v1/lake/coverage, /v1/security/{symbol}.
     from src.api.routes.db_catalog import router as db_catalog_router
     from src.api.routes.db_table import router as db_table_router
+    from src.api.routes.lake import router as lake_router
     from src.api.routes.uw_joins import router as uw_joins_router
 
     app.include_router(db_catalog_router)
     app.include_router(db_table_router)
     app.include_router(uw_joins_router)
+    app.include_router(lake_router)
 
     from src.api.routes.instruments import router as instruments_router
 

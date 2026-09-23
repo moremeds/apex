@@ -82,12 +82,15 @@ class _FakeProvider:
     def effective_price_mode(self, asset_class: str = "equity") -> str:
         return self._price_mode
 
-    async def fetch_rate_series(self, symbol: str, start: datetime, end: datetime) -> list:
+    async def fetch_rate_series(
+        self, symbol: str, start: datetime, end: datetime, tail: int | None = None
+    ) -> list:
         # Keys on symbol: the real provider reads a per-symbol parquet, so a fake that
         # served the same series for every ticker would hide the unknown-symbol path.
         if symbol != "DGS10":
             return []
-        return [p for p in self._rates if start <= p.time <= end]
+        points = [p for p in self._rates if start <= p.time <= end]
+        return points if tail is None else points[-tail:]
 
     async def fetch_bars(
         self,
@@ -98,8 +101,11 @@ class _FakeProvider:
         asset_class: str = "equity",
         price_mode: str | None = None,
         listing: str = "listed",
+        tail: int | None = None,
     ) -> List[BarData]:
-        return [b for b in self._bars if start <= b.timestamp <= end]
+        # Mirrors the real provider: ``tail`` keeps the last N bars of the window.
+        bars = [b for b in self._bars if start <= b.timestamp <= end]
+        return bars if tail is None else bars[-tail:]
 
 
 def _series_ending(end_day: datetime, n: int) -> List[BarData]:
