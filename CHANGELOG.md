@@ -64,6 +64,15 @@ All notable changes to apex are recorded here. Format follows
 
 ### Changed
 
+- **Error messages never carry host filesystem paths**: absolute paths in any lake or REST
+  error message are replaced with `<path>`, and `/v1/lake/status` reports fixed texts.
+- **`GET /v1/equity/bars?listing=delisted` with an adjusted mode is one `400
+  adjusted_not_supported`**, the same answer single-symbol bars gives, instead of a `200`
+  whose every symbol is missing.
+- **A lake read timeout is `504 query_timeout` on every route** (indicators included);
+  `/v1/equity/returns` files a timed-out symbol under `missing`.
+- **A huge legacy `limit` reads from the epoch** instead of overflowing the lookback window
+  into a `500` (pre-existing).
 - **`src/api/routes/_chart_guards.py` is gone; its logic moved to `src/application/lake/guards.py`**
   (`resolve_window`, `check_listing`, `artifact_exists`, `spec_or_raise`, ...), now shared by REST
   and the application layer instead of living in the route module. Bulk bars moved out of

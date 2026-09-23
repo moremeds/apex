@@ -185,14 +185,14 @@ given timeframe returns `404 unknown_symbol` — measured, not theoretical: `AAC
 | Method · Path | Purpose | Key errors |
 |---|---|---|
 | `GET /v1/{asset_class}/{symbol}/bars` | OHLCV candles; optional `silver_revision`/`pit_revision` pin | `400` class/tf/mode/pin, adjusted-over-delisted · `404` no artifact/unknown_revision · `409` ambiguous_symbol (PIT scope spans two securities) · `503` no Silver/pit_unavailable · `504` query_timeout |
-| `GET /v1/equity/bars` | **Bulk** OHLCV, many tickers on one basis; optional `silver_revision` pin | `400` no symbols, >200, bad tf/mode/pin · `503` no provider (a per-symbol timeout instead lands that symbol in `missing`) |
+| `GET /v1/equity/bars` | **Bulk** OHLCV, many tickers on one basis; optional `silver_revision` pin | `400` no symbols, >200, bad tf/mode/pin, `listing=delisted` with adjusted (`adjusted_not_supported`, once for the request) · `503` no provider (a per-symbol timeout instead lands that symbol in `missing`) |
 | `GET /v1/rates/{symbol}/series` | Treasury yield series; optional `limit` (last N points) | `404` no artifact · `503` no provider · `504` query_timeout |
 | `GET /v1/{asset_class}/{symbol}/indicators` | Per-bar indicator series | `400` bad class/tf/indicator · `404` no artifact · `503` |
 | `GET /v1/equity/returns` | Bulk weekly return table (window/YTD/52w/excess vs SPY,QQQ) | `400` no symbols, >200, bad dates · `503` no provider |
 | `GET /v1/equity/{symbol}/confluence` | Multi-timeframe confluence (PG) | `503` no PG |
 | `GET /v1/equity/{symbol}/signals` | Signal backfill (PG) | `503` no PG |
 | `GET /v1/instruments` | Discovery across all classes | `400` bad class · `501` delisted (the coverage catalog measures the live tree only) · `503` no catalog |
-| `GET /v1/{asset_class}/{symbol}` | One instrument's metadata, incl. `residency` (per-timeframe `live`\|`archive`\|`dual`) | `400` bad class · `404` no artifact · `503` |
+| `GET /v1/{asset_class}/{symbol}` | One instrument's metadata, incl. `residency` (per-timeframe `live`\|`archive`\|`dual`\|`silver` — Silver-only daily); a broken Silver pointer degrades to `silver_available: false`, never a 503 | `400` bad class · `404` no artifact · `503` |
 
 `GET /v1/{asset_class}/{symbol}` also returns `coverage_source`: `livewire_coverage_snapshot`
 when the catalog answered, `not_configured` or `unavailable` when it did not. Without it a
@@ -281,10 +281,14 @@ for fx, and XNYS as an approximation for volatility/cmdty/futures/rates. The res
 - **`lifetime`** — the security's known identity interval(s) (equity only); sessions outside it
   are `not_expected`, not gaps.
 - **`file_bounds`** — the first/last session the underlying artifact(s) actually cover.
-- **`status`** — `gaps` \| `complete_sessions` \| `no_data` (no observed session in the window at
-  all — never reported as "zero gaps").
+- **`status`** — `no_data` (no observed session in the window at all — never reported as
+  "zero gaps") \| `gaps` (interior runs exist) \| `edges_unobserved` (no interior run, but
+  sessions before the first or after the last observation are missing) \|
+  `complete_sessions` (every expected session present and the identity lifetime is known) \|
+  `lifetime_unknown` (every calendar session present, but without a known lifetime
+  completeness is not claimed — always the case for non-equity classes).
 - **`repairs`** — supplementary evidence from Livewire's gap-engine repair reports: `state`
-  (`available`\|`not_configured`\|`absent`\|`degraded`), `reports_read`, `warnings`, and matching
+  (`available`\|`not_configured`\|`absent` — no report in the root \|`degraded` — a report was unreadable), `reports_read`, `warnings`, and matching
   `entries[]`. Historical evidence, not current truth.
 
 ### Query parameters
@@ -317,6 +321,7 @@ for fx, and XNYS as an approximation for volatility/cmdty/futures/rates. The res
 ### Error envelope
 
 Every failure returns `{"error": {"code", "message", "symbol"?, "asset_class"?, "details"?}}`.
+Messages never carry host filesystem paths (absolute paths are replaced with `<path>`).
 `details` is an object and appears only on the errors that need structured context (today: the
 PIT scope errors below).
 
@@ -338,7 +343,7 @@ PIT scope errors below).
 | `adjusted_unavailable` | 503 | Silver artifact missing or quarantined — retry later |
 | `membership_unavailable` | 503 | Membership data not yet published for that index/status reading — fail closed, never an empty-list guess |
 | `pit_unavailable` | 503 | Present but unservable PIT evidence: a malformed manifest, an evicted/missing/hash-mismatched artifact, or a member with no daily artifact entry — never served as another revision or as raw data |
-| `query_timeout` | 504 | A lake parquet read exceeded its deadline (`APEX_LAKE_QUERY_TIMEOUT_SECONDS`, default 30s) and was interrupted; on `/v1/equity/bars` the affected symbol lands in `missing` instead |
+| `query_timeout` | 504 | A lake parquet read exceeded its deadline (`APEX_LAKE_QUERY_TIMEOUT_SECONDS`, default 30s) and was interrupted — on every route, including indicators; on `/v1/equity/bars` and `/v1/equity/returns` the affected symbol lands in `missing` instead |
 | `internal_error` | 500 | Unanticipated failure (e.g. the lake volume went away) |
 
 Framework-level request validation (a non-integer `limit`, an unparseable date) keeps
