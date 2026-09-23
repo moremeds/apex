@@ -102,6 +102,7 @@ Every data source is env-gated: apex boots regardless, and each unset source mak
 | `APEX_API_PORT`                       | `8322`                | listen port                                              |
 | `APEX_MCP_API_KEY`                    | unset                 | **required** by the MCP server (Bearer; it refuses to boot without one) |
 | `APEX_MCP_HOST` / `APEX_MCP_PORT`     | `127.0.0.1` / `8333`  | MCP listen address                                       |
+| `APEX_MCP_CALL_TIMEOUT_SECONDS`       | `60`                  | whole-call deadline for one MCP tool call (`query_timeout` on expiry) |
 | `APEX_MCP_ALLOWED_HOSTS`              | loopback:port         | Host header values MCP clients may send (DNS-rebinding guard) |
 
 FMP (`FMP_API_KEY` or `config/secrets.yaml`) and R2 (`R2_*` in `config/secrets.yaml`) serve the frozen screener and backfill pipelines only, never the live read path.

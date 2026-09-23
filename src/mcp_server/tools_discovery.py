@@ -13,13 +13,13 @@ from src.api.payload.lake import (
     instruments_payload,
 )
 from src.application.lake import catalog, gaps
-from src.application.lake.services import LakeServices, check_page
+from src.application.lake.services import LakeServices
 from src.mcp_server._common import Result, lake_tool, parse_day
 
-Limit = Annotated[
-    Optional[int], Field(ge=1, le=2000, description="page size (1..2000, default 100)")
-]
-Offset = Annotated[Optional[int], Field(ge=0, description="page offset (default 0)")]
+# Range checks stay in check_page (invalid_parameter, REST's 400), as on the REST lake
+# routes; the schema only types them.
+Limit = Annotated[Optional[int], Field(description="page size (1..2000, default 100)")]
+Offset = Annotated[Optional[int], Field(description="page offset (default 0)")]
 
 
 class Page(Result):
@@ -84,11 +84,16 @@ def register(server: MCPServer, services: LakeServices) -> None:
     async def search_instruments(
         q: Annotated[Optional[str], Field(description="symbol prefix")] = None,
         asset_class: Optional[str] = None,
-        limit: Limit = None,
+        listing: Annotated[
+            str, Field(description="listed (delisted/any: not yet available upstream)")
+        ] = "listed",
+        # REST's typed bound (/v1/instruments: 1..5000, a 422 class); MCP's default is
+        # the bounded 100 rather than REST's 500.
+        limit: Annotated[int, Field(ge=1, le=5000, description="1..5000, default 100")] = 100,
     ) -> Instruments:
         """Live instruments from the coverage catalog (dates are its daily snapshot)."""
         rows = await catalog.search_instruments(
-            services, q=q, asset_class=asset_class, limit=check_page(limit, None)[0]
+            services, q=q, asset_class=asset_class, limit=limit, listing=listing
         )
         return Instruments(**instruments_payload(rows))
 

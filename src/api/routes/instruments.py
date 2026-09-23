@@ -45,20 +45,8 @@ async def list_instruments(
     listing: str = Query(default="listed", description="listed | delisted"),
     limit: int = Query(default=500, ge=1, le=5000),
 ) -> dict:
-    if listing not in ("listed", "delisted", "any"):
-        raise ApiError(
-            ApiErrorCode.INVALID_PARAMETER,
-            f"unknown listing filter {listing!r} (have listed, delisted, any)",
-        )
-    if listing != "listed":
-        # The coverage table measures the live tree only; bronze-delisted/ is not in it.
-        raise ApiError(
-            ApiErrorCode.NOT_YET_AVAILABLE,
-            "delisted discovery requires upstream livewire work "
-            "(instrument identity, corporate-action backfill, Silver over bronze-delisted)",
-        )
     rows = await catalog.search_instruments(
-        lake_services(request), q=q, asset_class=asset_class, limit=limit
+        lake_services(request), q=q, asset_class=asset_class, limit=limit, listing=listing
     )
     payload = instruments_payload(rows)
     validate_payload(payload, "instruments_payload")

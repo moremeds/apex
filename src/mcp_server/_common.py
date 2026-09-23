@@ -11,9 +11,11 @@ each tool's input and output schema from its real annotations, and ``lake_tool``
 wrapper would otherwise resolve string annotations against this module's globals.
 """
 
+import asyncio
 import functools
 import json
 import logging
+import os
 import uuid
 from datetime import date
 from typing import (
@@ -51,6 +53,16 @@ READ_ONLY = ToolAnnotations(
 )
 
 Fn = TypeVar("Fn", bound=Callable[..., Awaitable[Any]])
+
+DEFAULT_CALL_TIMEOUT_SECONDS = 60.0
+
+
+def call_timeout() -> float:
+    """Whole-call deadline. The lake's per-query deadline bounds one parquet read; a
+    call may make many (bulk, futures) or none (status, catalog), and mcp 2.2.0 does
+    not cancel a stateless call its client abandoned -- so the server bounds it."""
+    raw = os.environ.get("APEX_MCP_CALL_TIMEOUT_SECONDS", "").strip()
+    return float(raw) if raw else DEFAULT_CALL_TIMEOUT_SECONDS
 
 
 class Result(BaseModel):
@@ -140,8 +152,16 @@ def lake_tool(server: MCPServer) -> Callable[[Fn], Fn]:
     def register(fn: Fn) -> Fn:
         @functools.wraps(fn)
         async def wrapper(*args: Any, **kwargs: Any) -> Any:
+            deadline = call_timeout()
             try:
-                result = await fn(*args, **kwargs)
+                # Cancelling the call interrupts its in-flight LakeDb query; a catalog
+                # lookup already running in a worker thread finishes on its own.
+                result = await asyncio.wait_for(fn(*args, **kwargs), timeout=deadline)
+            except TimeoutError:
+                return error_result(
+                    "query_timeout",
+                    f"tool call exceeded {deadline:g}s; narrow the request",
+                )
             except LakeError as exc:
                 return error_result(
                     exc.code,

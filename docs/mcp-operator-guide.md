@@ -13,7 +13,7 @@ indicators, signals, options, or the ledger.
 | Group | Tool | REST twin |
 |---|---|---|
 | discovery | `list_asset_classes` | `GET /v1/lake/asset-classes` |
-| | `search_instruments` | `GET /v1/instruments` |
+| | `search_instruments` | `GET /v1/instruments` (same `listing` and 1..5000 `limit`; default 100, not 500) |
 | | `get_instrument` | `GET /v1/{asset_class}/{symbol}` |
 | | `get_coverage` | `GET /v1/lake/coverage` |
 | | `find_gaps` | `GET /v1/{asset_class}/{symbol}/gaps` |
@@ -53,19 +53,25 @@ the same as REST's, for example `unknown_symbol`, `invalid_parameter`,
 `unknown_revision`, `pit_unavailable`, and `query_timeout`.
 
 A few failures come from the MCP layer itself rather than the lake:
-- **Invalid arguments** (a wrong type, a malformed timestamp, an out-of-range `limit`):
-  `invalid_parameter` with `details.source = "arguments"` and a `problems` list. This
-  corresponds to REST's 422.
+- **Invalid arguments** (a wrong type or a malformed timestamp, rejected by the tool's
+  input schema): `invalid_parameter` with `details.source = "arguments"` and a
+  `problems` list. This is REST's 422 class. An out-of-range `limit` or `offset` on a
+  list tool is the lake's own `invalid_parameter` (REST's 400), exactly as on REST.
 - **Unknown tool:** `invalid_parameter` with `details.source = "tool"`.
 - **Result over the 2 MiB budget:** `result_too_large`, which is MCP only.
 
-**Abandoned calls keep running.** The server runs stateless over HTTP. With mcp 2.2.0,
-when a client times out or disconnects, the server does not cancel the tool that is
-still executing, and the call runs to completion. The work it can do is capped by the
-per-query lake deadline, `APEX_LAKE_QUERY_TIMEOUT_SECONDS` (default 30). This is
-recorded as an `xfail(strict=True)` in `tests/unit/mcp_server/test_transport.py`; if
-the SDK starts cancelling abandoned calls, that test will pass unexpectedly and fail
-the suite, which flags that this note needs updating.
+**Every call has a deadline.** A call gets `APEX_MCP_CALL_TIMEOUT_SECONDS` (default 60)
+in total. When it runs out, the call is cancelled and returns `query_timeout`: any lake
+read still in flight is interrupted, while a catalog lookup already running in a worker
+thread is left to finish on its own. This cap covers the whole call. The separate
+per-query lake deadline, `APEX_LAKE_QUERY_TIMEOUT_SECONDS`, bounds only a single parquet
+read, and some calls make many reads (bulk bars, futures contracts) or none (status,
+catalog).
+
+The deadline matters because the server runs stateless over HTTP, and with mcp 2.2.0
+a client that times out or disconnects does not cancel the call on the server. That
+behavior is kept visible as a narrow `xfail(strict=True)` in
+`tests/unit/mcp_server/test_transport.py`.
 
 ## Configuration
 
@@ -80,6 +86,7 @@ that need it. MCP-specific settings:
 | `APEX_MCP_API_KEY` | none — **required** | Bearer key for every request except `/healthz`. The server will not start without it; there is no unauthenticated mode. |
 | `APEX_MCP_HOST` | `127.0.0.1` | Listen address. |
 | `APEX_MCP_PORT` | `8333` | Listen port. |
+| `APEX_MCP_CALL_TIMEOUT_SECONDS` | `60` | Deadline for one whole tool call (see above). |
 | `APEX_MCP_ALLOWED_HOSTS` | `127.0.0.1:<port>,localhost:<port>` | Comma-separated `Host` header values that clients may send. Anything else gets 421. An `Origin` header, if present, must be `http(s)://` followed by one of these values, or the request gets 403. |
 
 Generate a key with `python -c "import secrets; print(secrets.token_urlsafe(32))"`.
