@@ -6,7 +6,10 @@
 SPY, QQQ, OJ and the q="SP" instrument prefix are fixed real symbols this smoke run
 assumes exist on the target lake; the index id, PIT revision and rates symbol are
 discovered through the tools themselves (list_indices, list_pit_revisions,
-search_instruments(asset_class="rates")), never invented. Writes one JSON record per
+search_instruments(asset_class="rates")), never invented, and so is the ticker for the
+identity tools (get_delisting, resolve_security, get_membership_history): the first
+named member of the discovered index, since ETFs such as SPY have no security-master
+record. Writes one JSON record per
 call -- including a call that raised, so a transport crash still shows up as a failed
 call rather than aborting the run silently -- and exits 1 unless the tool set is
 exactly the 20 names, every call succeeds, and the series/list tools that should have
@@ -83,16 +86,21 @@ async def main(url: str, key: str, out: str) -> int:
                     await call("get_rate_series", {"symbol": sym, "limit": 5}, "rows")
                 await call("list_futures_contracts", {"root": "OJ", "limit": 5}, "contracts")
                 await call("get_corporate_actions", {"symbol": "SPY", "limit": 5})
-                await call("get_delisting", {"symbol": "SPY"})
-                await call("resolve_security", {"symbol": "SPY"})
                 ok, indices = await call("list_indices", {})
                 if ok and indices["indices"]:
-                    await call(
+                    ok, members = await call(
                         "get_index_members",
                         {"index_id": indices["indices"][0], "limit": 5},
                         "members",
                     )
-                await call("get_membership_history", {"symbol": "SPY", "limit": 5})
+                    # Identity tools need a security-master ticker; ETFs like SPY have
+                    # none, so use a current member of a discovered index.
+                    listed = members["members"] if ok else []
+                    named = [m["symbol"] for m in listed if m.get("symbol")]
+                    if ok and named:
+                        await call("get_delisting", {"symbol": named[0]})
+                        await call("resolve_security", {"symbol": named[0]})
+                        await call("get_membership_history", {"symbol": named[0], "limit": 5})
                 await call("list_silver_revisions", {"limit": 3})
                 await call("get_silver_revision", {"limit": 3})
                 ok, pits = await call("list_pit_revisions", {})
