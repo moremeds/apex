@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, AsyncIterator, cast
+from typing import TYPE_CHECKING, AsyncIterator, Optional, cast
 
 import asyncpg
 from fastapi import FastAPI
@@ -49,6 +49,61 @@ APEX_VERSION = _apex_version()
 # the xenon side). Bake the same default in so apex connects to a local xenon out
 # of the box; override with APEX_XENON_WS_URL.
 DEFAULT_XENON_WS_URL = "ws://127.0.0.1:8765"
+
+
+def _init_lake_state(
+    app: FastAPI,
+    livewire_root: Optional[str],
+    silver_root: Optional[str],
+    livewire_price_mode: str,
+    delisted_root: Optional[str],
+) -> None:
+    """Lake readers on app.state, each guarded so tests can pre-inject it."""
+    # Chart read surface (bars + compute-on-read indicators + confluence): expose
+    # the bar provider + indicator registry on app.state so /bars, /indicators and
+    # /confluence work even without a live subscription. Reused by the pipeline below.
+    if getattr(app.state, "ohlc_provider", None) is None:
+        app.state.ohlc_provider = None
+        if livewire_root:
+            from pathlib import Path
+
+            from src.infrastructure.adapters.livewire.ohlc_provider import (
+                LivewireOhlcProvider,
+            )
+
+            app.state.ohlc_provider = LivewireOhlcProvider(
+                bronze_root=Path(livewire_root),
+                silver_root=Path(silver_root) if silver_root else None,
+                price_mode=cast("PriceMode", livewire_price_mode),
+                delisted_root=Path(delisted_root) if delisted_root else None,
+            )
+            logger.info("Bar provider ready (chart read surface enabled)")
+    if getattr(app.state, "coverage_catalog", None) is None:
+        app.state.coverage_catalog = None
+        coverage_db = os.environ.get("APEX_LIVEWIRE_COVERAGE_DB")
+        if coverage_db:
+            from pathlib import Path
+
+            from src.infrastructure.adapters.livewire.coverage import CoverageCatalog
+
+            app.state.coverage_catalog = CoverageCatalog(Path(coverage_db))
+            logger.info("Coverage catalog ready (/v1/instruments enabled)")
+    # Lake readers that keep state across requests (the PIT summary cache) or read
+    # their own env var; guarded like the others so tests can pre-inject them.
+    if getattr(app.state, "pit_reader", None) is None:
+        app.state.pit_reader = None
+        if silver_root:
+            from pathlib import Path
+
+            from src.infrastructure.adapters.livewire.pit_revisions import (
+                PitRevisionReader,
+            )
+
+            app.state.pit_reader = PitRevisionReader(Path(silver_root))
+    if getattr(app.state, "repairs_reader", None) is None:
+        from src.api.routes._lake import repairs_from_env
+
+        app.state.repairs_reader = repairs_from_env()
 
 
 @asynccontextmanager
@@ -110,51 +165,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 app.state.signal_repo = TASignalRepository(cast("Database", pool))
                 logger.info("Signal repository ready (snapshot + REST backfill enabled)")
 
-        # Chart read surface (bars + compute-on-read indicators + confluence): expose
-        # the bar provider + indicator registry on app.state so /bars, /indicators and
-        # /confluence work even without a live subscription. Reused by the pipeline below.
-        if getattr(app.state, "ohlc_provider", None) is None:
-            app.state.ohlc_provider = None
-            if livewire_root:
-                from pathlib import Path
-
-                from src.infrastructure.adapters.livewire.ohlc_provider import (
-                    LivewireOhlcProvider,
-                )
-
-                app.state.ohlc_provider = LivewireOhlcProvider(
-                    bronze_root=Path(livewire_root),
-                    silver_root=Path(silver_root) if silver_root else None,
-                    price_mode=cast("PriceMode", livewire_price_mode),
-                    delisted_root=Path(delisted_root) if delisted_root else None,
-                )
-                logger.info("Bar provider ready (chart read surface enabled)")
-        if getattr(app.state, "coverage_catalog", None) is None:
-            app.state.coverage_catalog = None
-            coverage_db = os.environ.get("APEX_LIVEWIRE_COVERAGE_DB")
-            if coverage_db:
-                from pathlib import Path
-
-                from src.infrastructure.adapters.livewire.coverage import CoverageCatalog
-
-                app.state.coverage_catalog = CoverageCatalog(Path(coverage_db))
-                logger.info("Coverage catalog ready (/v1/instruments enabled)")
-        # Lake readers that keep state across requests (the PIT summary cache) or read
-        # their own env var; guarded like the others so tests can pre-inject them.
-        if getattr(app.state, "pit_reader", None) is None:
-            app.state.pit_reader = None
-            if silver_root:
-                from pathlib import Path
-
-                from src.infrastructure.adapters.livewire.pit_revisions import (
-                    PitRevisionReader,
-                )
-
-                app.state.pit_reader = PitRevisionReader(Path(silver_root))
-        if getattr(app.state, "repairs_reader", None) is None:
-            from src.api.routes._lake import repairs_from_env
-
-            app.state.repairs_reader = repairs_from_env()
+        _init_lake_state(app, livewire_root, silver_root, livewire_price_mode, delisted_root)
         if getattr(app.state, "indicator_registry", None) is None:
             from src.domain.signals.indicators.registry import get_indicator_registry
 
