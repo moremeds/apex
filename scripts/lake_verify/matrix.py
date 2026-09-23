@@ -197,7 +197,10 @@ def _settle(case: Case, executor: Executor, lake: Lake, checkers: Dict[str, Any]
     if expect["kind"] == "rejection":
         status, body = executor.execute(case.request)
         code = body.get("error", {}).get("code") if isinstance(body, dict) else None
-        if status == expect["status"] and code == expect["code"]:
+        # An MCP tool error carries a code but no HTTP status (mcp_exec derives one),
+        # so the mcp target is judged on the code alone.
+        mcp = executor.targets[case.request["process"]] == "mcp"
+        if code == expect["code"] and (mcp or status == expect["status"]):
             return Outcome("EXPECTED_REJECTION", f"{status} {code}")
         return Outcome(
             "FAIL",

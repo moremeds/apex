@@ -134,8 +134,10 @@ def translate(request: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
             if params.get("listing", "listed") != "listed":
                 raise NotApplicable("instruments listing != listed is REST-only (501)")
             args.setdefault("limit", 500)  # REST's default page
-            if not (isinstance(args["limit"], int) and 1 <= args["limit"] <= PAGE_MAX):
-                raise NotApplicable(f"instruments limit {args['limit']!r} outside MCP 1..2000")
+            limit = args["limit"]
+            if isinstance(limit, int) and PAGE_MAX < limit <= 5000:
+                # REST serves 2001..5000; MCP's page cap refuses it: a real difference.
+                raise NotApplicable(f"instruments limit {limit} is REST-only (MCP max 2000)")
         return tool, args
     raise NotApplicable(f"no MCP twin for {path}")
 
