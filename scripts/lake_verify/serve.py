@@ -30,6 +30,7 @@ LAKE_ENV = (
     "APEX_LIVEWIRE_DELISTED_ROOT",
     "APEX_LIVEWIRE_REPAIRS_ROOT",
     "APEX_LAKE_QUERY_TIMEOUT_SECONDS",
+    "APEX_VERIFY_LAKE_ROOT",  # the matrix oracle's lake path, read by scripts only
 )
 
 
