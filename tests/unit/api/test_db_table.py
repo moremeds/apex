@@ -193,6 +193,10 @@ class _Pool:
 class _CatalogCache:
     def __init__(self) -> None:
         self.calls = 0
+        self.invalidated: list[str] = []
+
+    def invalidate(self, database: str) -> None:
+        self.invalidated.append(database)
 
     async def get(self, database: str, pool: object) -> DatabaseCatalog:
         self.calls += 1
@@ -446,9 +450,9 @@ async def test_excluded_tables_are_unknown_to_the_table_route() -> None:
 async def test_stale_catalog_driver_errors_are_typed_4xx_without_sql(
     error: Exception, status: int, code: str
 ) -> None:
-    connection = _Connection([], error=error)
+    app = _app(_Connection([], error=error))
     async with AsyncClient(
-        transport=ASGITransport(app=_app(connection), raise_app_exceptions=False),
+        transport=ASGITransport(app=app, raise_app_exceptions=False),
         base_url="http://test",
         headers=AUTH_HEADERS,
     ) as client:
@@ -457,6 +461,8 @@ async def test_stale_catalog_driver_errors_are_typed_4xx_without_sql(
     assert response.json()["error"]["code"] == code
     for leaked in ("relation", "column", "permission", "SELECT", "uw_scan", "too many"):
         assert leaked not in response.text
+    # Only a stale-catalog error drops the cached catalog; the next request rebuilds it.
+    assert app.state.pg_catalog_cache.invalidated == (["warehouse"] if status == 400 else [])
 
 
 async def test_route_limit_and_offset_bounds() -> None:
