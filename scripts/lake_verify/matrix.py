@@ -39,7 +39,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path.cwd()))
 
 from lake import Lake, identity  # noqa: E402
-from model import Case, Invalidated, Outcome  # noqa: E402
+from model import Case, Invalidated, NotApplicable, Outcome  # noqa: E402
 
 STATUSES = (
     "PASS",
@@ -48,6 +48,7 @@ STATUSES = (
     "BLOCKED_DEPENDENCY",
     "FAIL",
     "NOT_RUN",
+    "NOT_APPLICABLE",  # mcp target only: a REST-only cell (mcp_exec.NotApplicable)
 )
 OPERATION_MODULES = ("bars_cases", "surface_cases")
 RETRIES = 2
@@ -144,6 +145,7 @@ class Executor:
         self.targets = targets
         self.client = httpx.Client(timeout=180)
         self._asgi: Dict[str, Any] = {}
+        self._mcp: Dict[str, Any] = {}
 
     def _client(self, process: str) -> Tuple[Any, str]:
         target = self.targets[process]
@@ -171,7 +173,18 @@ class Executor:
 
         return asyncio.run(call(request))
 
+    def mcp(self, request: Dict[str, Any]) -> Tuple[int, Any]:
+        """Target ``mcp``: the case as an MCP tool call through the real MCP app."""
+        from mcp_exec import McpTarget
+
+        process = request["process"]
+        if process not in self._mcp:
+            self._mcp[process] = McpTarget(process)
+        return self._mcp[process].execute(request)
+
     def execute(self, request: Dict[str, Any]) -> Tuple[int, Any]:
+        if self.targets[request["process"]] == "mcp":
+            return self.mcp(request)
         return self.http(request) if request["transport"] == "http" else self.inproc(request)
 
 
@@ -242,6 +255,8 @@ def run(
         t0 = time.perf_counter()
         try:
             outcome = _settle(case, local.executor, lake, checkers)
+        except NotApplicable as exc:
+            outcome = Outcome("NOT_APPLICABLE", str(exc))
         except httpx.TransportError as exc:
             # The harness could not reach the target: nothing about the candidate was
             # observed. NOT_RUN keeps the case pending for a resumed run.

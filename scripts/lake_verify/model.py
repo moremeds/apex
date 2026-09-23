@@ -29,3 +29,7 @@ class Outcome:
 
 class Invalidated(RuntimeError):
     """A mutable source changed between the candidate read and the oracle read."""
+
+
+class NotApplicable(Exception):
+    """mcp target: the cell has no MCP twin by design (REST-only); the reason is recorded."""
