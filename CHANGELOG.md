@@ -9,6 +9,9 @@ All notable changes to apex are recorded here. Format follows
 
 ## [Unreleased]
 
+## [0.1.10] — 2026-09-23
+
+
 ### Added
 
 - **Read-only PostgreSQL API behind a Bearer token.** `GET /v1/db/catalog`,
@@ -29,7 +32,6 @@ All notable changes to apex are recorded here. Format follows
 - Driver failures have typed codes and never carry SQL: a table or column dropped since the
   catalog was cached is `400`, a revoked grant is `403 forbidden`, and a database that is down,
   saturated or rejecting the credentials is `503`.
-
 ## [0.1.9] — 2026-09-21
 
 
