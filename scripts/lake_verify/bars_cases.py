@@ -564,7 +564,15 @@ class BarsChecker:
                 window_limit = bounded_default if limit is None else limit
             else:
                 window_limit = limit if isinstance(limit, int) else LEGACY_DEFAULT
-            start = EPOCH if from_epoch else end - DELTA[tf] * window_limit * 10
+            if from_epoch:
+                start = EPOCH
+            else:
+                # Contract (guards.resolve_window): the lookback never reaches before
+                # the epoch, and one past year 1 reads from the epoch.
+                try:
+                    start = max(end - DELTA[tf] * window_limit * 10, EPOCH)
+                except OverflowError:
+                    start = EPOCH
         meta: Dict[str, Any] = {
             "price_mode": effective,
             "listing_status": status,
