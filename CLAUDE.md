@@ -89,10 +89,11 @@ Every data source is env-gated: apex boots regardless, and each unset source mak
 | `APEX_LIVEWIRE_SILVER_ROOT`           | unset                 | Silver revision watcher, adjusted daily/factor artifacts |
 | `APEX_LIVEWIRE_PRICE_MODE`            | `raw`                 | `raw` Bronze or `adjusted` Silver/factor-joined Bronze   |
 | `APEX_LIVEWIRE_REVISION_POLL_SECONDS` | `30`                  | Silver revision poll interval                            |
-| `APEX_LIVEWIRE_COVERAGE_DB`           | unset                 | the coverage catalog behind `/v1/instruments`            |
-| `APEX_LIVEWIRE_LAKE_ROOT`             | unset                 | index membership, security master, `/delisting`          |
-| `APEX_LIVEWIRE_LAKE_ROOT`             | unset                 | `/v1/membership/*` point-in-time index membership        |
+| `APEX_LIVEWIRE_COVERAGE_DB`           | unset                 | the coverage catalog behind `/v1/instruments`, `/v1/lake/coverage` |
+| `APEX_LIVEWIRE_LAKE_ROOT`             | unset                 | index membership, security master — `/v1/membership/*`, `/v1/equity/{symbol}/delisting`, `/v1/security/{symbol}` |
 | `APEX_LIVEWIRE_DELISTED_ROOT`         | unset                 | `listing=delisted`/`any` bars from bronze-delisted (raw) |
+| `APEX_LIVEWIRE_REPAIRS_ROOT`          | unset                 | gap-engine repair-report evidence on `/v1/{asset_class}/{symbol}/gaps`; unset leaves `repairs.state=not_configured` and gaps still work |
+| `APEX_LAKE_QUERY_TIMEOUT_SECONDS`     | `30`                  | per-query deadline on every parquet read (`LakeDb`); expiry interrupts only that query and answers `504 query_timeout` (bulk bars: that symbol goes to `missing`) |
 | `APEX_PG_URL`                         | unset                 | signal backfill, confluence, signal persistence          |
 | `APEX_XENON_WS_URL`                   | `ws://127.0.0.1:8765` | live ticks → live WS signal frames                       |
 | `APEX_TIMEFRAMES`                     | `1d`                  | timeframes the streaming pipeline subscribes/warms       |
@@ -108,7 +109,7 @@ FMP (`FMP_API_KEY` or `config/secrets.yaml`) and R2 (`R2_*` in `config/secrets.y
 4. **Never commit without explicit user request** — draft first, wait
 5. **Always open a PR before merging to master** — never `git push origin master` directly
 6. **`/review-cycle` before finalizing any substantial change** — it runs `/tribunal-review` as its cross-model pass. (Supersedes the old `/codex-review`.)
-7. **Module size budget** — target <500 lines; split on a responsibility seam, not a layer. `src/api/routes/_chart_guards.py` is the precedent: it carries "is this request coherent, and which artifact would it read?" out of `chart.py`, leaving routes and response assembly behind.
+7. **Module size budget** — target <500 lines; split on a responsibility seam, not a layer. `src/application/lake/guards.py` is the precedent: it carries "is this request coherent, and which artifact would it read?" out of `chart.py` (originally split out as `src/api/routes/_chart_guards.py`, then moved into `src/application/lake/` so REST and MCP share it), leaving routes and response assembly behind.
 8. **Fix every issue you spot** — no "pre-existing" dismissals
 9. **Wire all features** — never leave code dead/unconnected; no accumulating dead code behind flags
 10. **Backtest is frozen** — do not modify `src/backtest/` or `src/domain/backtest/` unless explicitly asked; they are frozen for the Phase 6 strip-down

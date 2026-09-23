@@ -9,6 +9,75 @@ All notable changes to apex are recorded here. Format follows
 
 ## [Unreleased]
 
+### Added
+
+- **`src/application/lake/` — a transport-neutral lake query layer shared by REST (and, going
+  forward, MCP).** `bars.py`, `catalog.py`, `identity.py`, `revisions.py` and `gaps.py` hold the
+  queries; `services.py` gathers the sources one query may touch into `LakeServices`, built per
+  request from `app.state` via `src/api/routes/_lake.py::lake_services`. Failures raise
+  transport-neutral `LakeError` (`src/application/lake/errors.py`), which the REST error handler
+  renders on the same `{"error": {...}}` envelope as `ApiError`.
+- **`GET /v1/lake/asset-classes`, `GET /v1/lake/status`, `GET /v1/lake/coverage`.** The
+  asset-class registry; per-source configured/available/freshness for bronze, delisted, Silver,
+  PIT, the coverage catalog, membership and repairs (never host paths or secrets); and paged raw
+  coverage-catalog rows.
+- **`GET /v1/lake/silver-revisions[/{n}]` and `GET /v1/lake/pit-revisions[/{n}]`.** Discovery and
+  detail for retained numbered Silver revisions and published PIT manifests. There is no PIT
+  `current` route — Livewire's `pit-revisions/current.json` is one pointer shared by every index,
+  so apex never resolves an index's PIT revision through it.
+- **`GET /v1/security/{symbol}`.** Resolves a ticker to one `security_id` as of a date
+  (optionally as known at an earlier date); ambiguity is `404 ambiguous_security`, never a guess.
+- **`GET /v1/futures/{root}/contracts`.** Contracts under one futures root from a single directory
+  listing (the coverage catalog lists only 14 of 114 contracts, measured 2026-09-23), each with
+  per-contract identity and `in_catalog`.
+- **`GET /v1/{asset_class}/{symbol}/gaps`.** Session-presence gap diagnosis: expected sessions
+  from an explicit calendar (XNYS for equity, weekdays for fx, XNYS-as-approximation for
+  volatility/cmdty/futures/rates), interior gaps as runs of consecutive expected sessions,
+  leading/trailing unobserved ranges, the security's identity lifetime, and repair-report evidence
+  from the new `APEX_LIVEWIRE_REPAIRS_ROOT`. Default window is the last 365 days to today UTC.
+- **Revision pins on bars.** `GET /v1/{asset_class}/{symbol}/bars` and `GET /v1/equity/bars` take
+  a `silver_revision` param, and the per-symbol route also takes `pit_revision`; both pin adjusted
+  history to an immutable revision, are mutually exclusive, and require `asset_class=equity`,
+  `timeframe=1d`, `listing=listed`. A `pit_revision` serves only through the member's PIT scope
+  (`session_from <= date < session_to`) up to the manifest's `daily_bar_cutoff`, and returns
+  `409 ambiguous_symbol` if the window spans two `security_id`s. `bars_payload` gains `window`,
+  `truncated` and `provenance` (`immutable_history`, `silver_revision`, `pit`); raw-mode equity
+  rows gain `source_price_basis`. `GET /v1/equity/bars` gains `window`, `silver_revision` and
+  per-series `truncated`; `GET /v1/rates/{symbol}/series` gains an optional `limit` (with `window`
+  and `truncated` when passed).
+- **Opt-in pagination** (`limit`, `offset`) on `GET /v1/equity/{symbol}/actions`,
+  `GET /v1/equity/{symbol}/delisting`, `GET /v1/membership/indices`, `GET /v1/membership/history`
+  and `GET /v1/membership/{index_id}` — the envelope is unchanged unless one is passed. Tail
+  limits on bars/bulk-bars/rates are now pushed into the DuckDB read
+  (`ORDER BY ... DESC LIMIT N+1`), so `truncated` is exact rather than inferred.
+- **New error codes**: `unknown_revision` (404), `pit_unavailable` (503), `revision_not_supported`
+  (400). The error envelope may now carry a `details` object, and `ambiguous_symbol` (409) is no
+  longer unused — a PIT scope spanning two securities emits it.
+- **`APEX_LIVEWIRE_REPAIRS_ROOT`** — Livewire's gap-engine repair reports (`tier_a_<date>.json`,
+  `decisions_<date>.json`, `unresolved.json`), read by the new `RepairsReader` as supplementary
+  `/gaps` evidence. Unset leaves repairs `not_configured`; `/gaps` still works.
+- **A per-query deadline on every lake parquet read.** `src/infrastructure/adapters/livewire/parquet_reads.py::LakeDb`
+  runs each DuckDB read on its own handle in a worker thread; on expiry
+  (`APEX_LAKE_QUERY_TIMEOUT_SECONDS`, default 30s) it interrupts only that query's handle and the
+  request fails `504 query_timeout` — on the bulk bars route the timed-out symbol goes to
+  `missing` instead of failing the whole request.
+
+### Changed
+
+- **`src/api/routes/_chart_guards.py` is gone; its logic moved to `src/application/lake/guards.py`**
+  (`resolve_window`, `check_listing`, `artifact_exists`, `spec_or_raise`, ...), now shared by REST
+  and the application layer instead of living in the route module. Bulk bars moved out of
+  `bars.py` into its own `src/application/lake/bulk.py` (`query_bulk_bars`, `normalize_symbols`,
+  `BulkResult`/`BulkSeries`, the `BULK_*` limits).
+- **`docker-compose.yml` reconciled with the production mounts.** Host paths come from
+  `APEX_LAKE_HOST_ROOT` in the private `.env`; bronze, Silver, bronze-delisted, the catalog
+  directory, index membership, the security master and repairs are all bind-mounted read-only,
+  and `APEX_LIVEWIRE_COVERAGE_DB`, `APEX_LIVEWIRE_LAKE_ROOT` and the new
+  `APEX_LIVEWIRE_REPAIRS_ROOT` are set in-compose.
+- **`src/application/__init__.py` and `src/infrastructure/adapters/__init__.py` no longer
+  re-export anything**, so importing the lake queries cannot pull in the orchestrator, bootstrap
+  container, PG repositories or broker adapters (`tests/carve/test_lake_boundary.py`).
+
 ## [0.1.12] — 2026-09-23
 
 
