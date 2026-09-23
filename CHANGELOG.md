@@ -9,6 +9,9 @@ All notable changes to apex are recorded here. Format follows
 
 ## [Unreleased]
 
+## [0.1.11] — 2026-09-23
+
+
 ### Fixed
 
 - **A dropped table or column no longer returns `400` for up to 10 minutes.** The PostgreSQL
@@ -16,7 +19,6 @@ All notable changes to apex are recorded here. Format follows
   the database no longer has, the route still answers `400`, and now also drops that
   database's cached catalog, so the next request rebuilds it from the live database. A
   revoked grant or a connection failure leaves the cache alone.
-
 ## [0.1.10] — 2026-09-23
 
 
