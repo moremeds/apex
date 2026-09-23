@@ -84,6 +84,38 @@ def test_code_values_are_stable_contract() -> None:
         "unknown_index",
         "ambiguous_security",
         "membership_unavailable",
+        "unknown_revision",
+        "pit_unavailable",
+        "revision_not_supported",
+    }
+
+
+def test_every_lake_error_code_is_a_rest_code() -> None:
+    """The application raises LakeError with these codes; REST must map each one."""
+    from typing import get_args
+
+    from src.application.lake.errors import LakeError, LakeErrorCode
+
+    for code in get_args(LakeErrorCode):
+        api = ApiError.from_lake(LakeError(code, "m"))
+        assert api.code.value == code and api.status_code >= 400
+
+
+def test_revision_statuses() -> None:
+    assert ApiError(ApiErrorCode.UNKNOWN_REVISION, "x").status_code == 404
+    assert ApiError(ApiErrorCode.PIT_UNAVAILABLE, "x").status_code == 503
+    assert ApiError(ApiErrorCode.REVISION_NOT_SUPPORTED, "x").status_code == 400
+
+
+def test_envelope_carries_details_when_present() -> None:
+    from src.application.lake.errors import LakeError
+
+    exc = LakeError("ambiguous_symbol", "two", symbol="FSLR", details={"scopes": [1, 2]})
+    body = json.loads(api_error_response(ApiError.from_lake(exc)).body)
+    assert body["error"]["details"] == {"scopes": [1, 2]}
+    assert json.loads(api_error_response(ApiError(ApiErrorCode.FORBIDDEN, "x")).body)["error"] == {
+        "code": "forbidden",
+        "message": "x",
     }
 
 

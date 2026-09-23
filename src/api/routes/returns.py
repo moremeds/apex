@@ -20,11 +20,8 @@ from fastapi import APIRouter, Query, Request
 
 from src.api.errors import ApiError, ApiErrorCode
 from src.api.payload.chart import basis_for
-from src.api.routes._chart_guards import (
-    _artifact_exists,
-    _provider_or_raise,
-    _spec_or_raise,
-)
+from src.api.routes._lake import provider_or_raise
+from src.application.lake.guards import artifact_exists, spec_or_raise
 from src.domain.events.domain_events import BarData
 from src.infrastructure.adapters.livewire.ohlc_provider import AdjustedDataUnavailable
 
@@ -159,8 +156,8 @@ async def equity_returns(
             f"start {start_day.isoformat()} is after end {end_day.isoformat()}",
         )
 
-    spec = _spec_or_raise("equity")
-    provider = _provider_or_raise(request)
+    spec = spec_or_raise("equity")
+    provider = provider_or_raise(request)
     # One basis for every number on the page: the window, YTD, the 52-week high and both
     # benchmarks are all read in the provider's configured mode, and it is echoed back.
     price_mode = provider.effective_price_mode(spec.name)
@@ -196,7 +193,7 @@ async def equity_returns(
         if not any(start_day <= when <= end_day for when, _ in rows):
             reason = (
                 f"no bars between {start_day.isoformat()} and {end_day.isoformat()}"
-                if _artifact_exists(provider, symbol, "1d", spec, price_mode)
+                if artifact_exists(provider, symbol, "1d", spec, price_mode)
                 else f"no artifact for {symbol} under {spec.partition}"
             )
             missing.append({"symbol": symbol, "reason": reason})

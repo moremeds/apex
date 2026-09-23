@@ -9,6 +9,15 @@
     "symbol": { "type": "string", "minLength": 1 },
     "asset_class": { "type": "string", "const": "rates" },
     "tenor_years": { "type": ["number", "null"] },
+    "window": {
+      "type": "object",
+      "required": ["start", "end"],
+      "properties": {
+        "start": { "type": "string", "format": "date-time" },
+        "end": { "type": "string", "format": "date-time" }
+      }
+    },
+    "truncated": { "type": "boolean" },
     "count": { "type": "integer", "minimum": 0 },
     "generated_at": { "type": "string", "format": "date-time" },
     "points": {

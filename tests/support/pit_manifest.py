@@ -31,6 +31,9 @@ import pyarrow.parquet as pq
 from src.infrastructure.adapters.livewire.paths import encode_symbol
 
 GENERATION = "generations/20260922T093620.708794Z-108ced3daee8416288907099cf7af6b5"
+# Silver revision 76's generation; its FSLR artifact ends 2026-09-18 (published before
+# the 09-21 session) and carries adjustment_revision 75 on every row.
+GENERATION_R76 = "generations/20260919T075732.226646Z-6d55d99fb9dd47359cb2d36762e1b5af"
 
 # (trade_date, open, high, low, close, volume) -- Silver revision 77, factors 1.0.
 FSLR_ROWS = [
@@ -85,9 +88,15 @@ BIIB_SCOPE = {
 }
 
 
-def write_daily(silver_root: Path, symbol: str, rows: list[tuple]) -> str:
+def write_daily(
+    silver_root: Path,
+    symbol: str,
+    rows: list[tuple],
+    generation: str = GENERATION,
+    adjustment_revision: int = 77,
+) -> str:
     """Write a Silver-shaped daily artifact; return its Silver-relative path."""
-    relative = f"{GENERATION}/asset_class=equity/symbol={encode_symbol(symbol)}/1d.parquet"
+    relative = f"{generation}/asset_class=equity/symbol={encode_symbol(symbol)}/1d.parquet"
     path = silver_root / relative
     path.parent.mkdir(parents=True, exist_ok=True)
     pq.write_table(
@@ -103,7 +112,7 @@ def write_daily(silver_root: Path, symbol: str, rows: list[tuple]) -> str:
                     "volume": v,
                     "price_adjustment_factor": 1.0,
                     "split_volume_factor": 1.0,
-                    "adjustment_revision": 77,
+                    "adjustment_revision": adjustment_revision,
                     "asset_class": "equity",
                     "symbol": symbol,
                 }

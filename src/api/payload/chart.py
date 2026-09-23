@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List
 
+from src.application.lake.bars import BarsResult, BulkResult, PitProvenance, RatesResult
 from src.infrastructure.adapters.livewire.asset_classes import get_asset_class
 
 # The two adjustment bases apex can serve. `adjusted` reads livewire Silver, whose
@@ -40,7 +41,9 @@ def _iso(value: Any) -> Any:
     return value
 
 
-def _bar_to_dict(bar: Any, extra_fields: tuple[str, ...] = ()) -> Dict[str, Any]:
+def _bar_to_dict(
+    bar: Any, extra_fields: tuple[str, ...] = (), source_basis: bool = False
+) -> Dict[str, Any]:
     # livewire bars set timestamp == bar_start; prefer timestamp, fall back to bar_start.
     when = bar.timestamp if getattr(bar, "timestamp", None) is not None else bar.bar_start
     row: Dict[str, Any] = {
@@ -58,13 +61,25 @@ def _bar_to_dict(bar: Any, extra_fields: tuple[str, ...] = ()) -> Dict[str, Any]
         value = getattr(bar, extra, None)
         if value is not None:
             row[extra] = value
+    if source_basis:
+        # The serving mode says "unadjusted"; this says what livewire recorded for the
+        # row itself (raw / split_adjusted / unknown). Absent column -> unknown, never
+        # inferred from the mode.
+        row["source_price_basis"] = getattr(bar, "source_price_basis", None) or "unknown"
     return row
 
 
-def build_bar_rows(bars: Iterable[Any], asset_class: str = "equity") -> List[Dict[str, Any]]:
+def _carries_source_basis(asset_class: str, price_mode: str) -> bool:
+    return asset_class == "equity" and price_mode == "raw"
+
+
+def build_bar_rows(
+    bars: Iterable[Any], asset_class: str = "equity", price_mode: str = "raw"
+) -> List[Dict[str, Any]]:
     """Bars as contract rows, for a payload that carries several series at once."""
     extra_fields = get_asset_class(asset_class).extra_bar_fields
-    return [_bar_to_dict(bar, extra_fields) for bar in bars]
+    source_basis = _carries_source_basis(asset_class, price_mode)
+    return [_bar_to_dict(bar, extra_fields, source_basis) for bar in bars]
 
 
 def build_bars_payload(
@@ -78,6 +93,9 @@ def build_bars_payload(
     listing_status: str = "listed",
     adjustment_revision: int | None = None,
     contract: Dict[str, Any] | None = None,
+    window: Dict[str, Any] | None = None,
+    truncated: bool | None = None,
+    provenance: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     """Build the bars contract.
 
@@ -85,9 +103,8 @@ def build_bars_payload(
     consumer written against ``listing_status == "listed"`` cannot later be handed
     delisted bars silently, and the adjustment basis is never left to inference.
     """
-    extra_fields = get_asset_class(asset_class).extra_bar_fields
-    rows = [_bar_to_dict(b, extra_fields) for b in bars]
-    return {
+    rows = build_bar_rows(bars, asset_class, price_mode)
+    payload = {
         "symbol": symbol,
         "asset_class": asset_class,
         "timeframe": timeframe,
@@ -100,6 +117,91 @@ def build_bars_payload(
         "count": len(rows),
         "generated_at": generated_at.isoformat(),
     }
+    # Additive fields: present only when the caller has them, so the legacy shape
+    # of a hand-built payload is unchanged.
+    for key, value in (("window", window), ("truncated", truncated), ("provenance", provenance)):
+        if value is not None:
+            payload[key] = value
+    return payload
+
+
+def _window(start: datetime, end: datetime) -> Dict[str, Any]:
+    return {"start": _iso(start), "end": _iso(end)}
+
+
+def pit_provenance_dict(pit: PitProvenance) -> Dict[str, Any]:
+    return {
+        "revision": pit.revision,
+        "index_id": pit.index_id,
+        "publisher_status": pit.publisher_status,
+        "policy_version": pit.policy_version,
+        "as_of": pit.as_of.isoformat(),
+        "published_at": pit.published_at.isoformat(),
+        "daily_bar_cutoff": pit.daily_bar_cutoff.isoformat(),
+        "silver_revision": pit.silver_revision,
+        "membership_revision": pit.membership_revision,
+        "scopes": [
+            {
+                "security_id": scope.security_id,
+                "session_from": scope.session_from.isoformat(),
+                "session_to": None if scope.session_to is None else scope.session_to.isoformat(),
+            }
+            for scope in pit.scopes
+        ],
+    }
+
+
+def bars_payload_from(result: BarsResult, *, generated_at: datetime) -> Dict[str, Any]:
+    """The bars contract for a shared-query result, with window/provenance fields."""
+    return build_bars_payload(
+        result.symbol,
+        result.timeframe,
+        result.bars,
+        generated_at=generated_at,
+        asset_class=result.asset_class,
+        contract=result.contract,
+        price_mode=result.price_mode,
+        listing_status=result.listing_status,
+        adjustment_revision=result.adjustment_revision,
+        window=_window(result.window_start, result.window_end),
+        truncated=result.truncated,
+        provenance={
+            "immutable_history": result.immutable_history,
+            "silver_revision": result.pinned_silver_revision,
+            "pit": None if result.pit is None else pit_provenance_dict(result.pit),
+        },
+    )
+
+
+def bulk_bars_payload_from(result: BulkResult, *, generated_at: datetime) -> Dict[str, Any]:
+    return {
+        "price_mode": result.price_mode,
+        "basis": basis_for(result.price_mode),
+        "adjustment_revision": result.adjustment_revision,
+        "silver_revision": result.pinned_silver_revision,
+        "timeframe": result.timeframe,
+        "window": _window(result.window_start, result.window_end),
+        "symbols": {
+            symbol: {
+                "listing_status": series.listing_status,
+                "truncated": series.truncated,
+                "bars": build_bar_rows(series.bars, "equity", result.price_mode),
+            }
+            for symbol, series in result.series.items()
+        },
+        "missing": result.missing,
+        "generated_at": generated_at.isoformat(),
+    }
+
+
+def rates_payload_from(
+    result: RatesResult, *, generated_at: datetime, bounded: bool
+) -> Dict[str, Any]:
+    payload = build_rates_series_payload(result.symbol, result.points, generated_at=generated_at)
+    if bounded:
+        payload["window"] = _window(result.window_start, result.window_end)
+        payload["truncated"] = result.truncated
+    return payload
 
 
 def build_rates_series_payload(
