@@ -903,6 +903,12 @@ class RatesChecker:
         limit = holder.get("limit")
         if limit in ("exact", "below"):
             holder["limit"] = limit = max(1, len(rows) if limit == "exact" else len(rows) - 1)
+            if limit > BOUNDED_MAX:
+                # Any explicit rates limit is capped (query_rates), and the window
+                # holds more points than one call may return.
+                return BarsChecker()._compare_rejection(
+                    case, executor, request, Reject(400, "invalid_parameter")
+                )
         if bounded and limit is None:
             tail: Optional[int] = RATES_BOUNDED_DEFAULT
         else:
