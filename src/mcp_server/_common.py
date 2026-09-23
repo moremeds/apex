@@ -154,8 +154,9 @@ def lake_tool(server: MCPServer) -> Callable[[Fn], Fn]:
         async def wrapper(*args: Any, **kwargs: Any) -> Any:
             deadline = call_timeout()
             try:
-                # Cancelling the call interrupts its in-flight LakeDb query; a catalog
-                # lookup already running in a worker thread finishes on its own.
+                # Cancelling the call interrupts an in-flight LakeDb (bar/yield) read;
+                # the other readers (catalog, membership, reference, manifests, repairs)
+                # run in worker threads and finish on their own.
                 result = await asyncio.wait_for(fn(*args, **kwargs), timeout=deadline)
             except TimeoutError:
                 return error_result(

@@ -61,12 +61,19 @@ A few failures come from the MCP layer itself rather than the lake:
 - **Result over the 2 MiB budget:** `result_too_large`, which is MCP only.
 
 **Every call has a deadline.** A call gets `APEX_MCP_CALL_TIMEOUT_SECONDS` (default 60)
-in total. When it runs out, the call is cancelled and returns `query_timeout`: any lake
-read still in flight is interrupted, while a catalog lookup already running in a worker
-thread is left to finish on its own. This cap covers the whole call. The separate
-per-query lake deadline, `APEX_LAKE_QUERY_TIMEOUT_SECONDS`, bounds only a single parquet
-read, and some calls make many reads (bulk bars, futures contracts) or none (status,
-catalog).
+in total. When it runs out, the call is cancelled and returns `query_timeout`.
+
+Cancellation stops the call itself, but not every read the call started:
+- **Interrupted:** a bar or yield parquet read still in flight (`LakeDb`).
+- **Not interrupted:** every other reader runs in a worker thread and finishes on its
+  own after the call has already returned. That covers the coverage catalog,
+  membership, the security master, corporate actions, the Silver and PIT manifests,
+  and the repair reports. These are small files, and REST has no deadline on them
+  either.
+
+`APEX_LAKE_QUERY_TIMEOUT_SECONDS` is a different limit: it bounds one parquet read,
+not the call. Some calls make many reads (bulk bars, futures contracts) and some make
+none (status, catalog).
 
 The deadline matters because the server runs stateless over HTTP, and with mcp 2.2.0
 a client that times out or disconnects does not cancel the call on the server. That
