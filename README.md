@@ -57,6 +57,8 @@ makes its endpoints return `503` (degrades, never crashes).
 | `APEX_LIVEWIRE_PRICE_MODE` | `raw` | Bar reads: `raw` Bronze or `adjusted` Silver/factor-joined Bronze |
 | `APEX_LIVEWIRE_REVISION_POLL_SECONDS` | `30` | Poll interval for atomically published Silver revisions |
 | `APEX_PG_URL` | unset | `/signals` snapshot/backfill, `/confluence`, and signal persistence |
+| `APEX_PG_READ_URLS` | unset | `/v1/db/*` catalog/table reads + `/v1/uw/*` curated joins (comma-separated DSNs; each DSN's database name is the `{database}` segment) |
+| `APEX_PG_READ_TOKEN` | unset | Bearer credential required by every `/v1/db/*` and `/v1/uw/*` route |
 | `APEX_XENON_WS_URL` | `ws://127.0.0.1:8765` | live ticks → live WS signal frames |
 | `APEX_TIMEFRAMES` | `1d` | timeframes the streaming pipeline subscribes/warms |
 | `APEX_API_PORT` | `8322` | listen port |
@@ -76,6 +78,14 @@ makes its endpoints return `503` (degrades, never crashes).
 | `GET /confluence/{ticker}` | multi-timeframe confluence |
 
 Full reference and payload shapes: **[`docs/argon-apex-api.md`](docs/argon-apex-api.md)**.
+
+### PostgreSQL read surface (env-gated)
+
+With `APEX_PG_READ_URLS` **and** `APEX_PG_READ_TOKEN` set, the API serves
+read-only PostgreSQL access — `GET /v1/db/*` generic catalog/table reads and
+`GET /v1/uw/*` curated `uw_scan` joins — under Bearer auth on dedicated
+read-only pools. Full route/grammar/error contract:
+**[`docs/argon-apex-api.md`](docs/argon-apex-api.md) §3b**.
 
 > **Lifecycle:** APEX is idle at rest. A WS subscribe triggers a one-time **warmup seed**
 > (preloads history into the indicator buffer) and attaches the live feed; signals fire

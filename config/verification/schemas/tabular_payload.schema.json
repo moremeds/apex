@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["database", "schema", "table", "columns", "rows", "count", "truncated", "generated_at"],
+  "properties": {
+    "database": {"type": "string"},
+    "schema": {"type": "string"},
+    "table": {"type": "string"},
+    "columns": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["name", "type"], "properties": {"name": {"type": "string"}, "type": {"type": "string"}}}},
+    "rows": {"type": "array", "maxItems": 5000, "items": {"type": "array"}},
+    "count": {"type": "integer", "minimum": 0, "maximum": 5000},
+    "truncated": {"type": "boolean"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "coverage": {"type": "object", "additionalProperties": false, "required": ["scope", "tables"], "properties": {"scope": {"const": "returned_rows"}, "tables": {"type": "object", "additionalProperties": {"type": "object", "additionalProperties": false, "required": ["matched", "total"], "properties": {"matched": {"type": "integer", "minimum": 0, "maximum": 5000}, "total": {"type": "integer", "minimum": 0, "maximum": 5000}}}}}}
+  }
+}

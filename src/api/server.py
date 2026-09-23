@@ -82,6 +82,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Everything constructed below is torn down in the `finally`, even if startup
     # fails partway, so a half-built pipeline never leaks the pool or bus tasks.
     try:
+        # Dedicated least-privilege pools for the PG read API (/v1/db, /v1/uw).
+        from src.infrastructure.persistence.read_pools import create_read_pools
+
+        if getattr(app.state, "pg_read_pools", None) is None:
+            app.state.pg_read_pools = await create_read_pools()
+
         # Streaming TA signal surface (Phase 3). Guarded with `getattr(..., None)
         # is None` so tests can pre-inject fakes that the lifespan must not clobber.
         from src.api.ws.hub import SignalHub
@@ -220,6 +226,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # rest. Order matters: stop ingest (xenon) first, then drain the bus while
         # the service is still subscribed (bus.stop() dispatches queued events), then
         # stop the service (drains its persistence tasks), then close the shared pool.
+        from src.infrastructure.persistence.read_pools import close_read_pools
+
+        await close_read_pools(getattr(app.state, "pg_read_pools", {}))
         revision_watcher = getattr(app.state, "revision_watcher", None)
         if revision_watcher is not None:
             try:
@@ -299,6 +308,15 @@ def create_app() -> FastAPI:
     from src.api.routes.membership import router as membership_router
 
     app.include_router(membership_router)
+
+    # Literal namespaces must precede the asset-class catch-all.
+    from src.api.routes.db_catalog import router as db_catalog_router
+    from src.api.routes.db_table import router as db_table_router
+    from src.api.routes.uw_joins import router as uw_joins_router
+
+    app.include_router(db_catalog_router)
+    app.include_router(db_table_router)
+    app.include_router(uw_joins_router)
 
     from src.api.routes.instruments import router as instruments_router
 

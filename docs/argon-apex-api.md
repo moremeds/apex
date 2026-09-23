@@ -59,7 +59,10 @@ apex's data sources are env-gated, which determines what's available:
 | Signal snapshot/backfill + confluence | `APEX_PG_URL` (Postgres) | `/signals`,`/confluence` → `503`; live WS push still works |
 | Live ticks | `APEX_XENON_WS_URL` (default `ws://127.0.0.1:8765`) | no live frames; snapshot/REST still work |
 
-All timestamps in every response are **UTC** ISO-8601.
+All timestamps in the signal and chart responses above are **UTC** ISO-8601. The
+PostgreSQL read surface (§3b) is different: values serialize as ISO-8601 but keep the
+column's own semantics — `timestamptz` carries its offset, `timestamp` has none,
+`date`/`time` stay calendar/clock values.
 
 ---
 
@@ -237,6 +240,7 @@ Every failure returns `{"error": {"code", "message", "symbol"?, "asset_class"?}}
 | `unknown_symbol` | 404 | No artifact under that partition, in any tree the read would use |
 | `ambiguous_symbol` | 409 | Reserved. No route emits it today — `listing=any` on a dual-resident ticker returns the union with `listing_status: "dual"` instead of a 409 |
 | `not_yet_available` | 501 | Specified but blocked on upstream livewire work (only `/v1/instruments?listing=delisted` today) |
+| `forbidden` | 403 | PG read role lacks privilege on the table (`/v1/db/*`, `/v1/uw/*`) |
 | `provider_not_configured` | 503 | Provider / PG / coverage catalog unavailable |
 | `adjusted_unavailable` | 503 | Silver artifact missing or quarantined — retry later |
 | `internal_error` | 500 | Unanticipated failure (e.g. the lake volume went away) |
@@ -271,6 +275,124 @@ The flat routes keep working and now emit `Deprecation: true`, `Sunset: Wed, 31 
   always `null`.
 - **The `timeframe` enum no longer accepts `15m`, `4h` or `1w`.** livewire warehouses none of
   them, so those values could only ever `400`.
+
+---
+
+## 3b. PostgreSQL read surface (`/v1/db`, `/v1/uw`)
+
+Read-only SQL over the databases named in `APEX_PG_READ_URLS` — a comma-separated
+DSN list whose path component is the `{database}` segment — plus the curated
+`option_wizard.uw_scan` joins. Both namespaces share one auth boundary, one tabular
+payload shape, and dedicated least-privilege pools (`default_transaction_read_only`,
+`statement_timeout=30s`, `max_size=3` per database; separate from the signal-writer
+pool).
+
+### Auth and failure ordering
+
+Every request needs `Authorization: Bearer <APEX_PG_READ_TOKEN>`; the check runs
+**before** any pool acquisition or catalog lookup.
+
+| Condition | Result |
+|---|---|
+| `APEX_PG_READ_TOKEN` unset — checked before the credential itself | `503 provider_not_configured` for the whole surface |
+| `Authorization` missing, wrong token, non-`Bearer` scheme, or malformed | `401 unauthorized` + `WWW-Authenticate: Bearer` |
+| Valid token, but `APEX_PG_READ_URLS` unset or the database unreachable | `503 provider_not_configured` |
+| Valid token, `{database}` not among the configured DSNs | `400 invalid_parameter` |
+| Statement timeout or bounded pool acquire | `504 query_timeout` |
+| Unknown table/column/filter operator, invalid value, unknown join | `400 invalid_parameter` |
+
+### `GET /v1/db/catalog[?database=]`
+
+`{"databases": [{"name", "schemas": [{"name", "tables": [{"name", "columns":
+[{"name", "type", "nullable"}], "primary_key", "unique_keys", "foreign_keys":
+[{"columns", "referenced_schema", "referenced_table", "referenced_columns"}]}]}]}],
+"generated_at", "unavailable": [database]}` — validated against
+[db_catalog_payload.schema.json](../config/verification/schemas/db_catalog_payload.schema.json). `database` may be
+given once; omit it for every configured database. Cached 10 minutes per database.
+Without `database` the listing is best-effort: a configured database that cannot be
+reached is named in `unavailable` instead of failing the whole call. With `database`,
+an unreachable database is `503`.
+
+The catalog is also the read **allowlist**: it excludes the system schemas
+(`pg_*`, `_timescaledb*`, `timescaledb_*`, `information_schema`) and the ops/audit
+relations `api_request_audit`, `raw_payloads`, `external_api_requests`, `jobs`,
+`job_failures`, `worker_heartbeat`, `pipeline_benchmark_snapshots`, `data_gap_*`,
+`data_freshness_snapshots`, `volatility_backfill_status`, `ws_consumer_state`,
+`macro_source_status`, `uw_fetch_memo`, `pg_stat_statements*`. Exclusions apply by
+relation name in every schema of every configured database.
+
+### `GET /v1/db/{database}/{schema}/{table}`
+
+Bounded read of one allowlisted table. Identifiers come only from the catalog —
+absent → `400`, never interpolated into SQL — and values are bound parameters.
+
+| Param | Grammar | Default · bound |
+|---|---|---|
+| `columns` | `a,b`, unique names | all columns |
+| `where` | `col:op:value`, repeatable, ANDed; `op` ∈ `eq ne lt le gt ge in like isnull` | none |
+| `order` | `col[:asc\|desc]` | primary key ascending |
+| `limit` | integer ≥ 1, clamped to **5000** | 500 |
+| `offset` | integer ≥ 0, ≤ signed-int64 max | 0 |
+
+`in` takes a comma-separated list; `like` is string-columns only; `isnull` takes
+`true|false`; the value is everything after the second colon. String values and
+comma-separated tokens preserve whitespace literally. With no `order`,
+rows come back in PK order; a caller `order` on a non-unique column gets the
+remaining PK columns appended `ASC` to resolve ties on a static table. A table
+without a PK requires explicit `order` for a positive `offset`; nonunique order
+still permits unstable ties. Offset pagination never guarantees a snapshot
+under concurrent writes.
+
+Response — [tabular_payload.schema.json](../config/verification/schemas/tabular_payload.schema.json):
+`{"database", "schema", "table", "columns": [{"name", "type"}], "rows": [[…]],
+"count", "truncated", "generated_at"}`. Rows are arrays in `columns` order;
+`count` is the rows in this page; `truncated` is true only when a row beyond the
+page exists. Column `type` is `format_type`, typmods included (`numeric(10,2)`).
+
+### `GET /v1/uw/{join}`
+
+Eleven curated joins over `option_wizard.uw_scan`. Filters beyond `limit`/`offset`:
+
+`limit` defaults to 500 and clamps to 5000; join pagination inputs must fit signed
+int32, with positive `limit` and nonnegative `offset`. `run_id` must be a positive
+signed-int64 value. Date filters use ISO dates; `start` must not exceed `end`.
+
+| join | filters | required | grain |
+|---|---|---|---|
+| `watchlist_active_card` | `ticker` | — | active watchlist ticker |
+| `scan_run_signal_bundle` | `ticker`, `run_id` | `ticker` | gate row; hits/flags as separate arrays |
+| `oi_change_with_quote` | `ticker`, `run_id` | `ticker` | OI event × contract in the selected run |
+| `strike_grid` | `ticker`, `run_id`, `start`, `end`, `expiry` | `ticker` | run × ticker × expiry × strike |
+| `trade_insight_thread` | `ticker`, `run_id`, `start`, `end` | `ticker` | snapshot; candidates/analyses as separate arrays |
+| `chain_exposure` | `ticker` | `ticker` | current membership × matched exposure |
+| `universe_identity_sector` | `ticker`, `tier` | — | active universe tier/ticker |
+| `daily_ohlc_technical` | `ticker`, `start`, `end` | `ticker` | ticker × date |
+| `macro_evidence_chain` | `start`, `end` | — | published state × evidence |
+| `fundamental_evidence_chain` | `ticker`, `start`, `end` | `ticker` | score × provenance |
+| `daily_signal_panel` | `ticker`, `start`, `end` | `ticker` | ticker × market_date |
+
+An omitted `run_id` resolves to the latest run that has rows in the join's
+driving table. On `strike_grid` and `trade_insight_thread` that run is chosen
+**before** `start`/`end` apply, so a date window that excludes the latest run
+returns an empty page; pass `run_id` to read an older run. `start`/`end` are inclusive; on the two `timestamptz`-keyed joins
+(`trade_insight_thread`, `macro_evidence_chain`) they compare the **UTC calendar
+date** of the timestamp, independent of session zone. Join responses are the same
+`tabular_payload` plus `coverage` — `{"scope": "returned_rows", "tables": {name:
+{"matched", "total"}}}` — per right-hand table, how many of *this page's* rows
+matched. Partial matches are normal data (a score with no provenance row yet),
+not an error. Join column `type` is the native type name from the prepared
+statement — no typmods (`numeric`, not `numeric(10,2)`).
+
+OI rows expose parsed OCC `root`. Strike rows expose `call_root`, `put_root`, and
+a common `root` only when both agree. These do not imply multiplier or settlement
+metadata, which the source does not contain.
+
+Serialization for `tabular` rows: `numeric` and `uuid` → strings (no float
+drift); non-finite floats → `"nan"`/`"inf"`/`"-inf"`; `bytea` → `\x…` hex;
+`json`/`jsonb` → decoded values with fractional numeric literals represented as
+strings to preserve decimal precision;
+`date`/`time`/timestamps → ISO-8601 keeping the column's own semantics
+(`timestamptz` with its offset, `timestamp` without). `generated_at` is UTC.
 
 ---
 
@@ -394,6 +516,9 @@ oldest-first.
 | `400` | Unsupported timeframe on `/bars` or `/indicators` (livewire warehouses `1m/5m/30m/1h/1d`) |
 | `404` | Unknown indicator name on `/indicators` |
 | `503` | Required source not configured: no `APEX_LIVEWIRE_ROOT` (`/bars`,`/indicators`) or no `APEX_PG_URL` (`/signals`,`/confluence`) |
+
+The `/v1/db` + `/v1/uw` read surface adds `401` (missing/wrong Bearer credential)
+and `504` (query timeout) — see §3b.
 
 ---
 

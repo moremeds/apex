@@ -19,7 +19,7 @@ Two facts about that surface that the code alone does not explain:
 
 ## Lifespan startup order
 
-`server.py`, in order: PG pool (`APEX_PG_URL`) → `SignalHub` + signal repo → `LivewireOhlcProvider` → `CoverageCatalog` (gates `/v1/instruments`; `503` when `APEX_LIVEWIRE_COVERAGE_DB` is unset) → indicator registry → event bus → TA service → `SignalEmitter` → `SubscriptionManager` → xenon WS client.
+`server.py`, in order: PG pool (`APEX_PG_URL`) → PG read pools (`app.state.pg_read_pools` from `APEX_PG_READ_URLS`; empty map when unset, so `/v1/db/*` and `/v1/uw/*` degrade to `503`) → `SignalHub` + signal repo → `LivewireOhlcProvider` → `CoverageCatalog` (gates `/v1/instruments`; `503` when `APEX_LIVEWIRE_COVERAGE_DB` is unset) → indicator registry → event bus → TA service → `SignalEmitter` → `SubscriptionManager` → xenon WS client.
 
 Every stage is optional and degrades to `503` rather than failing the boot. Everything is torn down in `finally` so a half-built pipeline never leaks the pool.
 

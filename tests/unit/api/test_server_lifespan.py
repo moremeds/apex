@@ -51,6 +51,89 @@ async def test_server_runs_without_pg():
             assert resp.json()["pg_connected"] is False
 
 
+async def test_read_pools_are_wired_and_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("APEX_PG_URL", raising=False)
+    reader = AsyncMock()
+    with patch(
+        "src.infrastructure.persistence.read_pools.create_read_pools",
+        new=AsyncMock(return_value={"option_wizard": reader}),
+    ):
+        app = create_app()
+        async with lifespan(app):
+            assert app.state.pg_read_pools == {"option_wizard": reader}
+            assert app.state.pg_pool is None
+        reader.close.assert_awaited_once()
+
+
+DB_READ_PATHS = (
+    "/v1/db/catalog",
+    "/v1/db/option_wizard/uw_scan/scan_runs",
+    "/v1/uw/strike_grid?ticker=SPY",
+)
+
+
+async def test_read_namespaces_precede_asset_class_routes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A valid token clears auth and reaches the route; unconfigured pools -> 503."""
+    monkeypatch.setenv("APEX_PG_READ_TOKEN", "unit-test-token")
+    app = create_app()
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={"Authorization": "Bearer unit-test-token"},
+    ) as client:
+        for path in DB_READ_PATHS:
+            response = await client.get(path)
+            assert response.status_code == 503
+            assert response.json()["error"]["code"] == "provider_not_configured"
+
+
+@pytest.mark.parametrize("path", DB_READ_PATHS)
+async def test_read_namespaces_require_bearer_token(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, path: str
+) -> None:
+    """The Bearer boundary fires before any pool lookup; nothing secret leaks."""
+    monkeypatch.setenv("APEX_PG_READ_TOKEN", "unit-test-token")
+    app = create_app()
+    rejected_headers = [
+        {},
+        {"Authorization": "Bearer wrong-token"},
+        {"Authorization": "Basic dGVzdDp0ZXN0"},
+        {"Authorization": "Bearer"},
+        {"Authorization": "Bearer unit-test-token extra"},
+        {"Authorization": "Bearer\tunit-test-token"},
+    ]
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        for headers in rejected_headers:
+            response = await client.get(path, headers=headers)
+            assert response.status_code == 401
+            assert response.headers["www-authenticate"] == "Bearer"
+            assert response.json()["error"]["code"] == "unauthorized"
+            assert "unit-test-token" not in response.text
+        assert "unit-test-token" not in caplog.text
+        assert "wrong-token" not in caplog.text
+        # The scheme is case-insensitive; a matching token reaches the route.
+        ok = await client.get(path, headers={"Authorization": "bearer unit-test-token"})
+        assert ok.status_code == 503
+        assert ok.json()["error"]["code"] == "provider_not_configured"
+        # Non-DB routes are unaffected by the read-API token requirement.
+        health = await client.get("/health")
+        assert health.status_code == 200
+
+
+@pytest.mark.parametrize("path", DB_READ_PATHS)
+async def test_read_namespaces_503_when_token_unconfigured(
+    monkeypatch: pytest.MonkeyPatch, path: str
+) -> None:
+    monkeypatch.delenv("APEX_PG_READ_TOKEN", raising=False)
+    app = create_app()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get(path, headers={"Authorization": "Bearer unit-test-token"})
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "provider_not_configured"
+
+
 # --- Phase 4: env-gated xenon live-feed wiring --------------------------------
 
 import src.application.subscriptions.revision_watcher as revision_watcher_mod  # noqa: E402
@@ -265,3 +348,21 @@ async def test_lifespan_starts_and_stops_revision_watcher(monkeypatch, tmp_path)
         assert watcher.poll_seconds == 7.5
 
     assert _SpyWatcher.last.stopped is True
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["/health", "/v1/equity/bars?symbols=SPY&timeframe=1d", "/v1/equity/SPY/bars?timeframe=1d"],
+)
+async def test_pre_existing_routes_do_not_require_the_read_token(
+    monkeypatch: pytest.MonkeyPatch, path: str
+) -> None:
+    """The Bearer dependency is scoped to /v1/db and /v1/uw routers only."""
+    monkeypatch.setenv("APEX_PG_READ_TOKEN", "unit-test-token")
+    app = create_app()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get(path)
+    assert response.status_code != 401
+    assert "www-authenticate" not in response.headers
+    if response.status_code >= 400:
+        assert response.json()["error"]["code"] != "unauthorized"
