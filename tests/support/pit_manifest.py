@@ -19,6 +19,7 @@ repeated-digit placeholders because apex never checks them (design §3.4).
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 from datetime import date
@@ -178,7 +179,8 @@ def pit_payload(
                 "sha256": "4" * 64,
             },
         },
-        "members": members if members is not None else [*FSLR_SCOPES, BIIB_SCOPE],
+        # Deep copies: callers mutate payloads, and the frozen scopes are module-level.
+        "members": copy.deepcopy(members if members is not None else [*FSLR_SCOPES, BIIB_SCOPE]),
         "membership_revision": 4896,
         "policy_version": "pit-silver-v1",
         "published_at": "2026-09-23T04:25:44.553025+00:00",

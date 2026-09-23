@@ -164,3 +164,39 @@ def test_real_app_registers_the_handler() -> None:
     from src.api.server import create_app
 
     assert ApiError in create_app().exception_handlers
+
+
+def test_error_messages_never_carry_host_paths() -> None:
+    from src.application.lake.errors import LakeError
+
+    exc = LakeError("adjusted_unavailable", "cannot read: '/Volumes/DATA_LAKE/x/silver/a.json'")
+    assert "/Volumes" not in exc.message and "<path>" in exc.message
+    legacy = ApiError(ApiErrorCode.PROVIDER_NOT_CONFIGURED, "not a file: /data/catalog/a.duckdb")
+    assert "/data/" not in json.loads(api_error_response(legacy).body)["error"]["message"]
+    # API routes named in a message are guidance, not host layout.
+    route = LakeError("unsupported_asset_class", "use /v1/rates/{symbol}/series")
+    assert route.message.endswith("/v1/rates/{symbol}/series")
+
+
+def test_a_lake_timeout_on_an_untranslated_route_is_504() -> None:
+    """Indicators call the provider directly; its deadline must not surface as a 500."""
+    from fastapi.testclient import TestClient
+
+    from src.api.server import create_app
+    from src.infrastructure.adapters.livewire.parquet_reads import QueryTimeout
+
+    class _Slow:
+        bronze_root = None
+        silver_root = None
+
+        def effective_price_mode(self, asset_class: str = "equity") -> str:
+            return "raw"
+
+        async def fetch_bars(self, *args: object, **kwargs: object) -> list:
+            raise QueryTimeout("lake query exceeded 30s")
+
+    app = create_app()
+    app.state.ohlc_provider = _Slow()
+    response = TestClient(app).get("/v1/equity/SPY/indicators", params={"indicator": "rsi"})
+    assert response.status_code == 504
+    assert response.json()["error"]["code"] == "query_timeout"

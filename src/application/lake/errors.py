@@ -7,7 +7,19 @@ the same code in its tool error. The application never imports REST exceptions.
 
 from __future__ import annotations
 
+import re
 from typing import Any, Literal, Mapping, Optional
+
+# An absolute POSIX path (two or more segments). Relative Silver paths such as
+# "generations/.../1d.parquet" do not start with "/" and are kept: they are public
+# manifest content, not host layout; "/v1/..." is an API route a message may point to.
+_ABSOLUTE_PATH = re.compile(r"(?<![\w.])/(?!v1/)(?:[^\s'\"(),:;]+/)+[^\s'\"(),:;]*")
+
+
+def redact_paths(text: str) -> str:
+    """Remove absolute host paths from client-visible text (design §6)."""
+    return _ABSOLUTE_PATH.sub("<path>", text)
+
 
 LakeErrorCode = Literal[
     "invalid_parameter",
@@ -41,6 +53,7 @@ class LakeError(Exception):
         asset_class: Optional[str] = None,
         details: Optional[Mapping[str, Any]] = None,
     ) -> None:
+        message = redact_paths(message)
         super().__init__(message)
         self.code = code
         self.message = message

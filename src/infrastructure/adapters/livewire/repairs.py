@@ -148,10 +148,18 @@ class RepairsReader:
                 parsed = [_entry(kind, path.name, report_date, row) for row in rows]
                 entries.extend(parsed)
                 count += 1
-            except (OSError, ValueError, TypeError, KeyError) as exc:
+            except OSError as exc:
                 logger.warning("repairs report %s unreadable: %s", path.name, exc)
-                warnings.append(f"{path.name}: {exc}")
-        return ("degraded" if warnings else "available"), entries, warnings, count
+                warnings.append(f"{path.name}: {exc.strerror or type(exc).__name__}")
+            except (ValueError, TypeError, KeyError) as exc:
+                logger.warning("repairs report %s malformed: %s", path.name, exc)
+                warnings.append(f"{path.name}: malformed ({type(exc).__name__})")
+        if warnings:
+            return "degraded", entries, warnings, count
+        if count == 0:
+            # A readable root with no report is not "no repairs": nothing was published.
+            return "absent", [], ["no repair reports in the repairs root"], 0
+        return "available", entries, warnings, count
 
 
 def _rows(kind: str, payload: Any) -> list[dict[str, Any]]:

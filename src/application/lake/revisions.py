@@ -68,7 +68,7 @@ async def list_silver_revisions(
         # Retained numbered manifests are still listable when the pointer is broken;
         # the listing says so rather than guessing a current revision.
         logger.warning("Silver current pointer unreadable: %s", exc)
-        current, error = None, str(exc)[:200]
+        current, error = None, "current pointer unreadable or inconsistent"
     return SilverRevisionList(current, error, page_of(numbers, size, skip))
 
 
@@ -111,6 +111,9 @@ async def silver_revision_detail(
 
 @dataclass(frozen=True)
 class PitRevisionList:
+    # Any manifest on disk, before the index filter: a filter that matches nothing is
+    # not "PIT was never published".
+    available: bool
     latest_per_index: Dict[str, int]
     page: Page[PitRevisionSummary]
 
@@ -129,13 +132,14 @@ async def list_pit_revisions(
         summaries: List[PitRevisionSummary] = await asyncio.to_thread(_pit(services).list_revisions)
     except PitUnavailable as exc:
         raise LakeError("pit_unavailable", str(exc)) from exc
+    available = bool(summaries)
     latest: Dict[str, int] = {}
     for summary in summaries:  # newest first
         latest.setdefault(summary.index_id, summary.revision)
     if index_id is not None:
         summaries = [s for s in summaries if s.index_id == index_id]
         latest = {k: v for k, v in latest.items() if k == index_id}
-    return PitRevisionList(latest, page_of(summaries, size, skip))
+    return PitRevisionList(available, latest, page_of(summaries, size, skip))
 
 
 @dataclass(frozen=True)

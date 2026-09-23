@@ -44,11 +44,12 @@ async def session_presence(
     # every path and date is a bound parameter.
     union = " UNION ALL ".join(f"SELECT {day} AS day FROM read_parquet(?)" for _ in paths)
     params = [p.as_posix() for p in paths]
-    (bounds,) = await db.rows(
-        f"SELECT min(day) AS first, max(day) AS last FROM ({union})", params  # nosec B608
-    )
-    rows = await db.rows(
-        f"SELECT DISTINCT day FROM ({union}) WHERE day >= ? AND day <= ? ORDER BY day",  # nosec B608
+    # One statement: the file bounds and the in-window sessions come from the same
+    # scan (one snapshot of a mutable Bronze file) under one deadline.
+    (row,) = await db.rows(
+        f"WITH d AS ({union}) SELECT min(day) AS first, max(day) AS last, "  # nosec B608
+        "list(DISTINCT day ORDER BY day) FILTER (WHERE day >= ? AND day <= ?) AS present "
+        "FROM d",
         [*params, start, end],
     )
-    return SessionPresence([row["day"] for row in rows], bounds["first"], bounds["last"])
+    return SessionPresence(sorted(row["present"] or []), row["first"], row["last"])

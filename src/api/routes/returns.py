@@ -24,6 +24,7 @@ from src.api.routes._lake import provider_or_raise
 from src.application.lake.guards import artifact_exists, spec_or_raise
 from src.domain.events.domain_events import BarData
 from src.infrastructure.adapters.livewire.ohlc_provider import AdjustedDataUnavailable
+from src.infrastructure.adapters.livewire.parquet_reads import QueryTimeout
 
 router = APIRouter(tags=["chart"])
 
@@ -133,7 +134,7 @@ async def _load(
             bars = await provider.fetch_bars(
                 symbol, "1d", lo, hi, asset_class=spec.name, price_mode=price_mode
             )
-        except AdjustedDataUnavailable as exc:
+        except (AdjustedDataUnavailable, QueryTimeout) as exc:
             failures[symbol] = str(exc)
             continue
         series[symbol] = _closes(bars)

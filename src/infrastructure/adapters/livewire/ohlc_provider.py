@@ -32,6 +32,7 @@ from .asset_classes import DEFAULT_ASSET_CLASS, get_asset_class
 from .parquet_reads import (
     DateRanges,
     LakeDb,
+    QueryTimeout,
     adjusted_intraday_sql,
     bars_sql,
     rates_sql,
@@ -318,12 +319,12 @@ class LivewireOhlcProvider:
             for r in rows
         ]
 
-    def fetch_futures_contract(self, symbol: str) -> dict[str, Any]:
+    async def fetch_futures_contract(self, symbol: str) -> dict[str, Any]:
         """Identity and bounds of one futures contract file, from one aggregate read
         (parquet min/max statistics make it cheap). Contract columns are constant
         across a contract's rows."""
         path = parquet_path(self._bronze_root, symbol, "1d", "futures")
-        (row,) = self._db.rows_sync(
+        (row,) = await self._db.rows(
             "SELECT any_value(contract_id) AS contract_id, any_value(root_symbol) AS root, "
             "any_value(expiry_date) AS expiry, min(trade_date) AS first, "
             "max(trade_date) AS last, count(*) AS n FROM read_parquet(?)",
@@ -375,7 +376,7 @@ class LivewireOhlcProvider:
             (row,) = self._db.rows_sync(
                 "SELECT max(trade_date) AS last FROM read_parquet(?)", [path.as_posix()]
             )
-        except duckdb.Error as exc:
+        except (duckdb.Error, QueryTimeout) as exc:
             logger.error("recency probe failed for %s: %s", path, exc)
             return None
         return str(row["last"]) if row["last"] is not None else None

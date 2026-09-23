@@ -135,7 +135,7 @@ async def find_gaps(
         paths.append(parquet_path(provider.bronze_root, symbol, timeframe, spec.name))
     if status in ("delisted", "dual") and provider.delisted_root is not None:
         paths.append(delisted_bronze_path(provider.delisted_root, symbol, timeframe, spec.name))
-    paths = [p for p in paths if p.exists()]
+    paths = await asyncio.to_thread(lambda: [p for p in paths if p.exists()])
     if not paths:
         raise LakeError(
             "unknown_symbol",
@@ -198,7 +198,7 @@ async def find_gaps(
     runs = _runs(interior, order)
     return GapsResult(
         **common,
-        status="gaps" if runs else "complete_sessions",
+        status=_status(runs, leading, trailing, lifetime),
         leading_unobserved=SessionRange(leading[0], leading[-1], len(leading)) if leading else None,
         trailing_unobserved=(
             SessionRange(trailing[0], trailing[-1], len(trailing)) if trailing else None
@@ -207,6 +207,20 @@ async def find_gaps(
         gaps_total=len(runs),
         truncated=len(runs) > max_gaps,
     )
+
+
+def _status(
+    runs: List[SessionRange], leading: List[date], trailing: List[date], lifetime: Dict[str, Any]
+) -> str:
+    """``gaps`` (interior runs) > ``edges_unobserved`` (only the window's ends are
+    missing) > ``complete_sessions`` (every expected session present, identity lifetime
+    known) / ``lifetime_unknown`` (every calendar session present, but without a known
+    lifetime completeness cannot be claimed -- design §4)."""
+    if runs:
+        return "gaps"
+    if leading or trailing:
+        return "edges_unobserved"
+    return "complete_sessions" if lifetime.get("state") == "known" else "lifetime_unknown"
 
 
 async def _lifetime(
@@ -229,10 +243,8 @@ async def _lifetime(
     try:
         intervals = await asyncio.to_thread(services.reference.fetch_identity, symbol.upper())
     except ReferenceDataError as exc:
-        return {
-            "state": "unknown",
-            "reason": f"security master unreadable: {exc}",
-        }, everything
+        logger.warning("identity lifetime unavailable for %s: %s", symbol, exc)
+        return {"state": "unknown", "reason": "security master unreadable"}, everything
     if not intervals:
         return {
             "state": "unknown",

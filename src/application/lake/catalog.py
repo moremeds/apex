@@ -16,7 +16,11 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from src.application.lake.errors import LakeError
-from src.application.lake.guards import delisted_artifact_exists, spec_or_raise
+from src.application.lake.guards import (
+    canonical_symbol,
+    delisted_artifact_exists,
+    spec_or_raise,
+)
 from src.application.lake.services import LakeServices, Page, check_page
 from src.infrastructure.adapters.livewire.asset_classes import ASSET_CLASSES
 from src.infrastructure.adapters.livewire.coverage import (
@@ -27,6 +31,7 @@ from src.infrastructure.adapters.livewire.coverage import (
 )
 from src.infrastructure.adapters.livewire.membership import MembershipDataError
 from src.infrastructure.adapters.livewire.ohlc_provider import AdjustedDataUnavailable
+from src.infrastructure.adapters.livewire.parquet_reads import QueryTimeout
 from src.infrastructure.adapters.livewire.paths import parquet_path
 from src.infrastructure.adapters.livewire.pit_revisions import PitUnavailable
 from src.infrastructure.adapters.livewire.revisions import RevisionManifestError
@@ -97,20 +102,27 @@ async def get_instrument(services: LakeServices, symbol: str, asset_class: str) 
             if silver_daily and pinned.snapshot is not None:
                 adjustment_revision = pinned.snapshot.revision
         except AdjustedDataUnavailable as exc:
-            raise LakeError(
-                "adjusted_unavailable", str(exc), symbol=symbol, asset_class=spec.name
-            ) from exc
-    residency: Dict[str, str] = {}
-    timeframes = []
-    for tf in spec.timeframes:
-        live = parquet_path(provider.bronze_root, symbol, tf, spec.name).exists()
-        archived = delisted_artifact_exists(provider, symbol, tf, spec.name)
-        # Silver can outlive its Bronze source, so a Bronze-only probe would omit "1d"
-        # from a symbol that /bars serves in adjusted mode.
-        if live or (tf == "1d" and silver_daily):
-            timeframes.append(tf)
-        if live or archived:
-            residency[tf] = "dual" if live and archived else "live" if live else "archive"
+            # Discovery degrades: a broken Silver pointer must not hide Bronze facts.
+            # Only an adjusted bars read reports adjusted_unavailable.
+            logger.warning("Silver unavailable for %s detail: %s", symbol, exc)
+
+    def probe() -> tuple[List[str], Dict[str, str]]:
+        found, residency = [], {}
+        for tf in spec.timeframes:
+            live = parquet_path(provider.bronze_root, symbol, tf, spec.name).exists()
+            archived = delisted_artifact_exists(provider, symbol, tf, spec.name)
+            silver_only = tf == "1d" and silver_daily and not live
+            # Silver can outlive its Bronze source, so a Bronze-only probe would omit
+            # "1d" from a symbol that /bars serves in adjusted mode.
+            if live or silver_only:
+                found.append(tf)
+            if live or archived:
+                residency[tf] = "dual" if live and archived else "live" if live else "archive"
+            elif silver_only:
+                residency[tf] = "silver"
+        return found, residency
+
+    timeframes, residency = await asyncio.to_thread(probe)
     if not timeframes:
         raise LakeError(
             "unknown_symbol",
@@ -162,19 +174,26 @@ async def coverage(
     if asset_class is not None:
         spec_or_raise(asset_class)
     catalog = services.require_catalog()
-    try:
-        identity = await asyncio.to_thread(catalog.identity)
-        rows, truncated = await asyncio.to_thread(
-            catalog.list_coverage,
-            symbol=symbol,
-            asset_class=asset_class,
-            include_silver=include_silver,
-            limit=size,
-            offset=skip,
-        )
-    except CoverageUnavailable as exc:
-        raise LakeError("provider_not_configured", str(exc)) from exc
-    return CoverageResult(identity, Page(rows, size, skip, truncated))
+    wanted = None if symbol is None else canonical_symbol(symbol)
+    for _ in range(3):
+        try:
+            before = await asyncio.to_thread(catalog.identity)
+            rows, truncated = await asyncio.to_thread(
+                catalog.list_coverage,
+                symbol=wanted,
+                asset_class=asset_class,
+                include_silver=include_silver,
+                limit=size,
+                offset=skip,
+            )
+            after = await asyncio.to_thread(catalog.identity)
+        except CoverageUnavailable as exc:
+            raise LakeError("provider_not_configured", str(exc)) from exc
+        # The echoed identity must describe the rows: a replacement mid-read retries.
+        if before == after:
+            return CoverageResult(after, Page(rows, size, skip, truncated))
+        logger.info("coverage catalog replaced during a read; retrying")
+    raise LakeError("provider_not_configured", "coverage catalog kept changing; retry")
 
 
 @dataclass(frozen=True)
@@ -235,7 +254,10 @@ async def futures_contracts(
             catalogued = set()
     contracts = []
     for symbol in window[:size]:
-        facts = await asyncio.to_thread(provider.fetch_futures_contract, symbol)
+        try:
+            facts = await provider.fetch_futures_contract(symbol)
+        except QueryTimeout as exc:
+            raise LakeError("query_timeout", str(exc), asset_class="futures") from exc
         contracts.append(FuturesContract(symbol=symbol, in_catalog=symbol in catalogued, **facts))
     return Page(contracts, size, skip, len(window) > size)
 
@@ -274,15 +296,24 @@ async def _silver_status(services: LakeServices) -> Dict[str, Any]:
         return {"configured": False, "available": False}
     try:
         retained = await asyncio.to_thread(services.silver.list_revisions)
-        current = await asyncio.to_thread(services.silver.current_revision_number)
-    except RevisionManifestError as exc:
-        return {"configured": True, "available": False, "error": str(exc)[:200]}
-    return {
+    except OSError as exc:
+        logger.warning("Silver revisions unreadable: %s", exc)
+        return {"configured": True, "available": False, "error": "revisions directory unreadable"}
+    status: Dict[str, Any] = {
         "configured": True,
-        "available": True,
-        "current_revision": current,
+        "available": bool(retained),
         "retained_revisions": len(retained),
     }
+    try:
+        status["current_revision"] = await asyncio.to_thread(
+            services.silver.current_revision_number
+        )
+    except RevisionManifestError as exc:
+        # Numbered revisions stay pinnable when the current pointer is broken.
+        logger.warning("Silver current pointer unreadable: %s", exc)
+        status["current_revision"] = None
+        status["current_error"] = "current pointer unreadable or inconsistent"
+    return status
 
 
 async def _pit_status(services: LakeServices) -> Dict[str, Any]:
@@ -291,7 +322,8 @@ async def _pit_status(services: LakeServices) -> Dict[str, Any]:
     try:
         summaries = await asyncio.to_thread(services.pit.list_revisions)
     except PitUnavailable as exc:
-        return {"configured": True, "available": False, "error": str(exc)[:200]}
+        logger.warning("PIT manifests unreadable: %s", exc)
+        return {"configured": True, "available": False, "error": "a PIT manifest is unreadable"}
     latest: Dict[str, Dict[str, Any]] = {}
     for summary in summaries:  # newest first, so the first per index is the latest
         latest.setdefault(

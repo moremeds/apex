@@ -164,3 +164,20 @@ def test_biib_security_is_carried(tmp_path: Path) -> None:
     publish_pit(tmp_path, pit_payload(tmp_path))
     (scope,) = PitRevisionReader(tmp_path).read(1).scopes_for("BIIB")
     assert scope.security_id == BIIB_SECURITY and scope.session_to is None
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda p: p["members"][0].pop("session_from"),
+        lambda p: p.update(revision="1"),
+        lambda p: p.update(revision=True),
+        lambda p: p["inputs"].update(silver_artifacts=[{"path": 7}]),
+    ],
+)
+def test_every_malformation_is_pit_unavailable(tmp_path: Path, mutate) -> None:
+    payload = pit_payload(tmp_path)
+    mutate(payload)
+    publish_pit(tmp_path, payload, revision=1)
+    with pytest.raises(PitUnavailable):
+        PitRevisionReader(tmp_path).read(1)

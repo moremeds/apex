@@ -31,6 +31,9 @@ def lake_services(request: Request) -> LakeServices:
     state = request.app.state
     provider: Any = getattr(state, "ohlc_provider", None)
     silver_root = getattr(provider, "silver_root", None) if provider is not None else None
+    if silver_root is None and os.environ.get("APEX_LIVEWIRE_SILVER_ROOT", "").strip():
+        # Silver/PIT discovery needs only its own root, not a Bronze-backed provider.
+        silver_root = Path(os.environ["APEX_LIVEWIRE_SILVER_ROOT"].strip()).expanduser()
     pit = getattr(state, "pit_reader", None)
     if pit is None and silver_root is not None:
         pit = PitRevisionReader(silver_root)

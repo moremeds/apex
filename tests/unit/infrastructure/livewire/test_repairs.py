@@ -114,3 +114,9 @@ def test_unconfigured_and_absent_are_distinct(tmp_path: Path) -> None:
     )
     assert evidence.entries[0].report_kind == "unresolved"
     assert evidence.entries[0].details["reason"] == "no provider row"
+
+
+def test_readable_root_without_reports_is_absent(tmp_path: Path) -> None:
+    (tmp_path / "yahoo-split-repair-batch1").mkdir()
+    status = RepairsReader(tmp_path).status()
+    assert status["state"] == "absent" and status["warnings"]

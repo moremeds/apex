@@ -195,7 +195,9 @@ class PitRevisionReader:
         except FileNotFoundError as exc:
             raise PitRevisionNotFound(f"PIT revision {revision} does not exist") from exc
         except OSError as exc:
-            raise PitUnavailable(f"cannot read PIT revision {revision}: {exc}") from exc
+            raise PitUnavailable(
+                f"cannot read PIT revision {revision}: {exc.strerror or type(exc).__name__}"
+            ) from exc
 
         def parse() -> PitRevision:
             try:
@@ -214,6 +216,19 @@ class PitRevisionReader:
 
 
 def _parse(payload: Any, revision: int, silver_root: Path) -> PitRevision:
+    """Every malformation -- missing key, wrong type, bad date -- is PitUnavailable,
+    never an uncaught KeyError/ValueError (which would surface as a 500)."""
+    try:
+        return _parse_checked(payload, revision, silver_root)
+    except PitUnavailable:
+        raise
+    except (KeyError, TypeError, ValueError, AttributeError) as exc:
+        raise PitUnavailable(
+            f"PIT revision {revision} is malformed: {type(exc).__name__}: {exc}"
+        ) from exc
+
+
+def _parse_checked(payload: Any, revision: int, silver_root: Path) -> PitRevision:
     def bad(reason: str) -> PitUnavailable:
         return PitUnavailable(f"PIT revision {revision} is malformed: {reason}")
 

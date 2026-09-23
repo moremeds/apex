@@ -26,6 +26,7 @@ from src.infrastructure.adapters.livewire.paths import (
 
 DEFAULT_BARS = 2000
 _LOOKBACK_FUDGE = 10
+_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 
 def require_aware(name: str, value: Optional[datetime]) -> None:
@@ -74,11 +75,14 @@ def resolve_window(
         )
     if start is None:
         if bars <= 0:  # full history: no tail-slice, fetch from the epoch
-            return datetime(1970, 1, 1, tzinfo=timezone.utc), end, None
+            return _EPOCH, end, None
         if from_epoch:
-            return datetime(1970, 1, 1, tzinfo=timezone.utc), end, bars
+            return _EPOCH, end, bars
         delta = TF_DELTAS.get(timeframe, DEFAULT_TF_DELTA)
-        start = end - delta * bars * _LOOKBACK_FUDGE
+        try:
+            start = max(end - delta * bars * _LOOKBACK_FUDGE, _EPOCH)
+        except OverflowError:  # a huge legacy limit reaches past year 1: read from the epoch
+            start = _EPOCH
         return start, end, bars
     return start, end, None
 
@@ -257,3 +261,10 @@ def check_listing(
             asset_class=asset_class,
         )
     return status
+
+
+def canonical_symbol(symbol: str) -> str:
+    """Livewire canonicalization for new lake queries (design §3.1): trim, upper-case a
+    wholly lower-case symbol, keep mixed case as given."""
+    trimmed = symbol.strip()
+    return trimmed.upper() if trimmed == trimmed.lower() else trimmed

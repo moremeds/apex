@@ -95,7 +95,9 @@ class SilverRevision:
             try:
                 actual = RevisionManifestReader._sha256(path)
             except OSError as exc:
-                raise RevisionManifestError(f"cannot read artifact {relative}: {exc}") from exc
+                raise RevisionManifestError(
+                    f"cannot read artifact {relative}: {exc.strerror or type(exc).__name__}"
+                ) from exc
             if actual != digest:
                 raise RevisionManifestError(f"checksum mismatch for artifact {relative}")
         return path
@@ -134,7 +136,9 @@ class RevisionManifestReader:
         try:
             current_bytes = manifest_path.read_bytes()
         except OSError as exc:
-            raise RevisionManifestError(f"cannot read Silver revision manifest: {exc}") from exc
+            raise RevisionManifestError(
+                f"cannot read Silver revision manifest: {getattr(exc, 'strerror', None) or type(exc).__name__}"
+            ) from exc
         manifest = self._parsed(current_bytes)
         # Re-checked on every read, cache hit or not: the pointer must equal the
         # immutable manifest it names.
@@ -145,7 +149,9 @@ class RevisionManifestReader:
                     "current Silver pointer does not match immutable manifest"
                 )
         except OSError as exc:
-            raise RevisionManifestError(f"cannot read immutable Silver manifest: {exc}") from exc
+            raise RevisionManifestError(
+                f"cannot read immutable Silver manifest: {exc.strerror or type(exc).__name__}"
+            ) from exc
         return manifest
 
     def _parsed(self, raw: bytes) -> SilverRevision:
@@ -170,7 +176,9 @@ class RevisionManifestReader:
         except FileNotFoundError as exc:
             raise RevisionNotFound(f"Silver revision {revision} does not exist") from exc
         except OSError as exc:
-            raise RevisionManifestError(f"cannot read Silver revision {revision}: {exc}") from exc
+            raise RevisionManifestError(
+                f"cannot read Silver revision {revision}: {exc.strerror or type(exc).__name__}"
+            ) from exc
         manifest = self._parsed(raw)
         if manifest.revision != revision:
             raise RevisionManifestError(
@@ -183,7 +191,9 @@ class RevisionManifestReader:
         try:
             payload = json.loads(raw)
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise RevisionManifestError(f"cannot read Silver revision manifest: {exc}") from exc
+            raise RevisionManifestError(
+                f"cannot read Silver revision manifest: {getattr(exc, 'strerror', None) or type(exc).__name__}"
+            ) from exc
         if not isinstance(payload, dict):
             raise RevisionManifestError("Silver revision manifest must be a JSON object")
         schema_version = payload.get("schema_version")

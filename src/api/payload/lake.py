@@ -117,7 +117,7 @@ def silver_detail_payload(detail: SilverRevisionDetail) -> Dict[str, Any]:
 
 def pit_list_payload(result: PitRevisionList) -> Dict[str, Any]:
     return {
-        "available": bool(result.page.items) or bool(result.latest_per_index),
+        "available": result.available,
         "latest_per_index": result.latest_per_index,
         "revisions": [pit_summary_dict(summary) for summary in result.page.items],
         **page_fields(result.page),

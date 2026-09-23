@@ -120,6 +120,12 @@ async def query_bulk_bars(
             f"{len(requested)} symbols x limit {tail} exceeds the {BULK_ROW_BUDGET}-row budget",
         )
     effective = "adjusted" if pin else (price_mode or provider.effective_price_mode(spec.name))
+    if effective == "adjusted" and listing == "delisted":
+        # No symbol can be served: there is no Silver over the archive. Same answer as
+        # single-symbol bars, instead of a 200 whose every symbol is missing.
+        raise LakeError(
+            "adjusted_not_supported", "no Silver for delisted names; use price_mode=raw"
+        )
     try:
         if pin == "silver":
             provider = await pin_silver(services, provider, silver_revision_pin)

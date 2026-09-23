@@ -325,3 +325,10 @@ async def test_silver_pin_reads_the_older_retained_revision(lake: dict[str, Path
     with pytest.raises(LakeError) as caught:
         await query_bars(services, symbol="FSLR", silver_revision_pin=12)
     assert caught.value.code == "unknown_revision"
+
+
+def test_huge_legacy_limit_reads_from_the_epoch_instead_of_overflowing() -> None:
+    from src.application.lake.guards import resolve_window
+
+    start, _, tail = resolve_window("1d", None, None, 1_000_000)
+    assert start == dt.datetime(1970, 1, 1, tzinfo=UTC) and tail == 1_000_000

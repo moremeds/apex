@@ -16,7 +16,8 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from src.application.lake.errors import LakeError
+from src.application.lake.errors import LakeError, redact_paths
+from src.infrastructure.adapters.livewire.parquet_reads import QueryTimeout
 
 logger = logging.getLogger(__name__)
 
@@ -120,7 +121,7 @@ class ApiError(Exception):
 
 def api_error_response(exc: ApiError) -> JSONResponse:
     """Render ``exc`` as the error envelope, omitting absent context fields."""
-    error: dict[str, object] = {"code": exc.code.value, "message": exc.message}
+    error: dict[str, object] = {"code": exc.code.value, "message": redact_paths(exc.message)}
     if exc.symbol is not None:
         error["symbol"] = exc.symbol
     if exc.asset_class is not None:
@@ -143,6 +144,14 @@ def install_error_handlers(app: FastAPI) -> None:
     async def _handle_lake(request: Request, exc: LakeError) -> JSONResponse:  # pragma: no cover
         logger.warning("lake error %s on %s: %s", exc.code, request.url.path, exc.message)
         return api_error_response(ApiError.from_lake(exc))
+
+    @app.exception_handler(QueryTimeout)
+    async def _handle_timeout(
+        request: Request, exc: QueryTimeout
+    ) -> JSONResponse:  # pragma: no cover
+        """A lake read that hit its deadline, on a route that did not translate it."""
+        logger.warning("lake query timeout on %s: %s", request.url.path, exc)
+        return api_error_response(ApiError(ApiErrorCode.QUERY_TIMEOUT, str(exc)))
 
     @app.exception_handler(RequestValidationError)
     async def _handle_validation(request: Request, exc: RequestValidationError) -> JSONResponse:

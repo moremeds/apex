@@ -250,3 +250,68 @@ def test_futures_contracts_come_from_the_partition_not_the_catalog(client: TestC
     assert [c["symbol"] for c in second["contracts"]] == ["OJ_202701"]
     assert client.get("/v1/futures/ZZ/contracts").json()["error"]["code"] == "unknown_symbol"
     assert client.get("/v1/futures/O%2FJ/contracts").status_code in (400, 404)
+
+
+# -- review regressions (tribunal, 2026-09-23) ------------------------------------
+
+
+def test_gap_status_distinguishes_edges_from_completeness(client: TestClient) -> None:
+    edges = client.get("/v1/equity/SPY/gaps", params={"start": "2025-01-06", "end": "2025-01-08"})
+    assert edges.json()["status"] == "edges_unobserved"  # 01-06 is missing, nothing interior
+    full = client.get("/v1/equity/SPY/gaps", params={"start": "2025-01-07", "end": "2025-01-08"})
+    # Every session present, but SPY has no identity interval in the fixture master.
+    assert full.json()["status"] == "lifetime_unknown"
+    assert full.json()["lifetime"]["state"] == "unknown"
+
+
+def test_bulk_delisted_adjusted_is_one_rejection(client: TestClient) -> None:
+    response = client.get("/v1/equity/bars", params={"symbols": "SPY,VSCO", "listing": "delisted"})
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "adjusted_not_supported"
+
+
+def test_pit_filter_miss_is_not_unpublished(client: TestClient) -> None:
+    body = client.get("/v1/lake/pit-revisions", params={"index_id": "nosuchindex"}).json()
+    assert body["available"] is True and body["revisions"] == []
+
+
+def test_broken_silver_pointer_degrades_discovery(client: TestClient, tmp_path: Path) -> None:
+    (tmp_path / "silver" / "revisions" / "current.json").write_bytes(b"{")
+    status = client.get("/v1/lake/status").json()["sources"]["silver"]
+    assert status["available"] is True and status["current_revision"] is None
+    assert status["retained_revisions"] == 2 and str(tmp_path) not in str(status)
+    listed = client.get("/v1/lake/silver-revisions").json()
+    assert listed["current"] is None and str(tmp_path) not in listed["current_error"]
+    detail = client.get("/v1/equity/SPY")
+    assert detail.status_code == 200 and detail.json()["silver_available"] is False
+    # A numbered pin never reads the pointer.
+    assert client.get("/v1/lake/silver-revisions/76").status_code == 200
+
+
+def test_coverage_symbol_is_canonicalized(client: TestClient) -> None:
+    lower = client.get("/v1/lake/coverage", params={"symbol": "aapl"}).json()
+    assert [r["symbol"] for r in lower["rows"]] == ["AAPL", "AAPL"]
+
+
+def test_silver_discovery_does_not_need_a_bronze_provider(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    silver = tmp_path / "silver"
+    publish_manifest(silver, 77, [silver / write_daily(silver, "FSLR", FSLR_ROWS)])
+    monkeypatch.setenv("APEX_LIVEWIRE_SILVER_ROOT", str(silver))
+    app = create_app()  # no ohlc_provider: APEX_LIVEWIRE_ROOT unset
+    body = TestClient(app).get("/v1/lake/silver-revisions").json()
+    assert body["current"] == 77
+
+
+def test_pit_session_to_is_exclusive_on_the_bars_path(client: TestClient, tmp_path: Path) -> None:
+    """A spell ending on 2026-09-17 must not serve the 09-17 bar."""
+    silver = tmp_path / "silver"
+    from tests.support.pit_manifest import FSLR_SCOPES
+
+    ended = dict(FSLR_SCOPES[1], session_to="2026-09-17")
+    publish_pit(silver, pit_payload(silver, 5, members=[ended]))
+    body = client.get(
+        "/v1/equity/FSLR/bars", params={"pit_revision": 5, "start": "2026-09-15T00:00:00Z"}
+    ).json()
+    assert [b["time"][:10] for b in body["bars"]] == ["2026-09-15", "2026-09-16"]
