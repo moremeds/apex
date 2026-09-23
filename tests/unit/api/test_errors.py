@@ -169,7 +169,7 @@ def test_real_app_registers_the_handler() -> None:
 def test_error_messages_never_carry_host_paths() -> None:
     from src.application.lake.errors import LakeError
 
-    exc = LakeError("adjusted_unavailable", "cannot read: '/Volumes/DATA_LAKE/x/silver/a.json'")
+    exc = LakeError("adjusted_unavailable", "cannot read: '/Volumes/Lake/x/silver/a.json'")
     assert "/Volumes" not in exc.message and "<path>" in exc.message
     legacy = ApiError(ApiErrorCode.PROVIDER_NOT_CONFIGURED, "not a file: /data/catalog/a.duckdb")
     assert "/data/" not in json.loads(api_error_response(legacy).body)["error"]["message"]
@@ -216,5 +216,5 @@ def test_redaction_covers_spaces_and_single_segment_paths() -> None:
 def test_redaction_of_an_oserror_path_containing_an_apostrophe() -> None:
     from src.application.lake.errors import redact_paths
 
-    error = FileNotFoundError(2, "No such file or directory", "/Volumes/Chen's Lake/p/f.parquet")
+    error = FileNotFoundError(2, "No such file or directory", "/Volumes/Owner's Lake/p/f.parquet")
     assert "Volumes" not in redact_paths(str(error))
