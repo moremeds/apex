@@ -99,7 +99,12 @@ def register(server: MCPServer, services: LakeServices) -> None:
             Field(description="serve through one published PIT revision (equity, 1d, listed)"),
         ] = None,
     ) -> Bars:
-        """OHLCV bars for one symbol, oldest first; `truncated` says older rows exist."""
+        """OHLCV bars for one symbol, oldest first.
+
+        `limit` keeps the most recent rows of the [start, end] window (end inclusive).
+        `truncated: true` means older rows exist in the window: to read them, call again
+        with `end` just before the first returned row's time.
+        """
         result = await query_bars(
             services,
             symbol=symbol,
@@ -130,7 +135,12 @@ def register(server: MCPServer, services: LakeServices) -> None:
         listing: Listing = "listed",
         silver_revision: SilverPin = None,
     ) -> BulkBars:
-        """Equity bars for many symbols on one Silver revision; absent ones are in `missing`."""
+        """Equity bars for many symbols on one Silver revision; absent ones are in `missing`.
+
+        `limit` keeps the most recent rows of the [start, end] window (end inclusive).
+        `truncated: true` means older rows exist in the window: to read them, call again
+        with `end` just before the first returned row's time.
+        """
         result = await query_bulk_bars(
             services,
             symbols=symbols,
@@ -158,7 +168,12 @@ def register(server: MCPServer, services: LakeServices) -> None:
             Optional[int], Field(description="last N points (1..5000, default 500)")
         ] = None,
     ) -> Rates:
-        """A Treasury yield series (percent), oldest first."""
+        """A Treasury yield series (percent), oldest first.
+
+        `limit` keeps the most recent rows of the [start, end] window (end inclusive).
+        `truncated: true` means older rows exist in the window: to read them, call again
+        with `end` just before the first returned row's time.
+        """
         result = await query_rates(
             services, symbol=symbol, start=start, end=end, limit=limit, policy="bounded"
         )

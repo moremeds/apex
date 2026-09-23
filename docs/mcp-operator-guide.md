@@ -42,7 +42,9 @@ Every tool is marked read-only and idempotent.
   - bulk bars: 1–200 symbols, default 50 rows each, at most 2000 each, and symbols × limit ≤ 10000;
   - yields: default 500 points.
   
-  `truncated: true` means older rows exist; narrow the window or lower the limit.
+  `limit` keeps the most recent rows of the window. `truncated: true` means older rows
+  exist; to read them, call again with `end` just before the first returned row's time
+  (`end` is inclusive). SPY's full daily history comes back in two calls this way.
 - **Pagination.** List tools always page: `limit` defaults to 100 (max 2000) and `offset` to 0. The response includes `returned`, `truncated`, and `next_offset`.
 - **Size budget.** A result larger than 2 MiB fails with `result_too_large` instead of being cut off.
 
