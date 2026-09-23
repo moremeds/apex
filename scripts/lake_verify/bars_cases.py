@@ -62,6 +62,8 @@ DELTA = {
 LEGACY_DEFAULT, BOUNDED_DEFAULT, BOUNDED_MAX = 2000, 250, 5000
 FLOAT_TOL = 1e-9
 BULK_BOUNDED_DEFAULT = 50
+BULK_BOUNDED_MAX = 2000
+BULK_ROW_BUDGET = 10000
 RATES_BOUNDED_DEFAULT = 500
 PIT_INDEX = "sp500"
 
@@ -333,12 +335,10 @@ def _bulk_cases(samples: Dict[Tuple[str, str, str], Sample], current: int) -> Li
         anchor = samples.get(("equity", tf, "live_only")) or samples[("equity", "1d", "live_only")]
         window = _window_params(win, tf if tf in DELTA else "1d", anchor)
         rejection = contract_rejection({**d, "asset_class": "equity"})
-        if rejection is None and policy == "bounded" and limit == "maximum":
-            rejection = None  # 5000 x 3 symbols stays inside the 10000-row budget? checked below
-            if BOUNDED_MAX * len(symbols) > 10000:
-                rejection = (400, "invalid_parameter")
         silver_pin = {"current_silver": current, "older_silver": current - 1}.get(rev)
-        lim = _limit_value(limit, policy)
+        # Bulk's contract maximum is the per-symbol 2000 (3 symbols x 2000 stays inside
+        # the 10000-row budget).
+        lim = BULK_BOUNDED_MAX if limit == "maximum" else _limit_value(limit, policy)
         if rejection is not None and lim in ("exact", "below"):
             lim = 7
         if policy == "legacy":
@@ -486,6 +486,11 @@ class BarsChecker:
                 return Outcome(
                     "BLOCKED_DATA",
                     "window holds no rows; 'exact' limit is not positive",
+                )
+            if d["output_policy"] == "bounded" and holder["limit"] > BOUNDED_MAX:
+                # The window holds more rows than the bounded contract allows in one call.
+                return self._compare_rejection(
+                    case, executor, request, Reject(400, "invalid_parameter")
                 )
             expected = self.expected(_with_request(case, request), lake, datetime.now(UTC))
         status, body = executor.execute(request)
@@ -837,6 +842,13 @@ class BulkChecker:
             if count < 2:
                 return Outcome("BLOCKED_DATA", f"anchor {symbols[0]} window holds {count} row(s)")
             holder["limit"] = count if holder["limit"] == "exact" else count - 1
+            if bounded and (
+                holder["limit"] > BULK_BOUNDED_MAX
+                or holder["limit"] * len(symbols) > BULK_ROW_BUDGET
+            ):
+                return BarsChecker()._compare_rejection(
+                    case, executor, request, Reject(400, "invalid_parameter")
+                )
         status, body = executor.execute(request)
         if status != 200:
             return Outcome("FAIL", f"bulk returned {status}: {str(body)[:300]}")
