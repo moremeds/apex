@@ -96,15 +96,29 @@ async def get_instrument(services: LakeServices, symbol: str, asset_class: str) 
     if spec.supports_adjusted and provider.silver_root is not None:
         try:
             pinned = await asyncio.to_thread(provider.pin_snapshot)
-            silver_daily = (
-                await asyncio.to_thread(pinned.silver_artifact_path, symbol, "daily") is not None
-            )
-            if silver_daily and pinned.snapshot is not None:
-                adjustment_revision = pinned.snapshot.revision
         except AdjustedDataUnavailable as exc:
             # Discovery degrades: a broken Silver pointer must not hide Bronze facts.
             # Only an adjusted bars read reports adjusted_unavailable.
-            logger.warning("Silver unavailable for %s detail: %s", symbol, exc)
+            logger.warning("Silver pointer unavailable for %s detail: %s", symbol, exc)
+            pinned = None
+        if pinned is not None:
+            try:
+                silver_daily = (
+                    await asyncio.to_thread(pinned.silver_artifact_path, symbol, "daily")
+                    is not None
+                )
+            except AdjustedDataUnavailable as exc:
+                # The manifest names an artifact that is missing or fails its hash. With
+                # a Bronze daily file the symbol is still discoverable; without one, its
+                # only copy is unreadable, which is an outage, not an unknown symbol.
+                bronze_daily = parquet_path(provider.bronze_root, symbol, "1d", spec.name)
+                if not await asyncio.to_thread(bronze_daily.exists):
+                    raise LakeError(
+                        "adjusted_unavailable", str(exc), symbol=symbol, asset_class=spec.name
+                    ) from exc
+                logger.warning("Silver artifact unreadable for %s: %s", symbol, exc)
+            if silver_daily and pinned.snapshot is not None:
+                adjustment_revision = pinned.snapshot.revision
 
     def probe() -> tuple[List[str], Dict[str, str]]:
         found, residency = [], {}

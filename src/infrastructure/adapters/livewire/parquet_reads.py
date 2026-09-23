@@ -274,8 +274,17 @@ class LakeDb:
             return LakeDb._parent.cursor()
 
     @staticmethod
-    def _run(handle: duckdb.DuckDBPyConnection, sql: str, params: Sequence[Any]) -> List[dict]:
+    def _run(
+        handle: duckdb.DuckDBPyConnection,
+        sql: str,
+        params: Sequence[Any],
+        abandoned: Optional[threading.Event] = None,
+    ) -> List[dict]:
         try:
+            # A request abandoned while this work item waited for an executor thread
+            # never starts: an interrupt on a cursor that is not executing is a no-op.
+            if abandoned is not None and abandoned.is_set():
+                return []
             return handle.execute(sql, list(params)).fetch_arrow_table().to_pylist()
         finally:
             handle.close()
@@ -304,15 +313,16 @@ class LakeDb:
 
     async def rows(self, sql: str, params: Sequence[Any]) -> List[dict]:
         handle = self._handle()
-        worker = asyncio.ensure_future(asyncio.to_thread(self._run, handle, sql, params))
+        abandoned = threading.Event()
+        worker = asyncio.ensure_future(asyncio.to_thread(self._run, handle, sql, params, abandoned))
         try:
             return await asyncio.wait_for(asyncio.shield(worker), self.timeout)
         except asyncio.TimeoutError as exc:
-            _abandon(handle, worker, f"deadline {self.timeout:.1f}s")
+            _abandon(handle, worker, abandoned, f"deadline {self.timeout:.1f}s")
             raise QueryTimeout(f"lake query exceeded {self.timeout:.0f}s") from exc
         except asyncio.CancelledError:
             # The request went away (client disconnect, shutdown): stop its query too.
-            _abandon(handle, worker, "request cancelled")
+            _abandon(handle, worker, abandoned, "request cancelled")
             raise
 
 
@@ -323,11 +333,17 @@ def _interrupt(handle: duckdb.DuckDBPyConnection) -> None:
         logger.debug("interrupt after completion: %s", exc)
 
 
-def _abandon(handle: duckdb.DuckDBPyConnection, worker: "asyncio.Future[Any]", why: str) -> None:
+def _abandon(
+    handle: duckdb.DuckDBPyConnection,
+    worker: "asyncio.Future[Any]",
+    abandoned: threading.Event,
+    why: str,
+) -> None:
     """Interrupt the query and stop waiting for it. The worker closes its cursor when
     the interrupted execute returns; a result already past DuckDB (Arrow -> Python
     conversion) finishes in its thread and is discarded rather than awaited."""
-    _interrupt(handle)
+    abandoned.set()  # a still-queued worker will not start
+    _interrupt(handle)  # a running one stops at DuckDB's next interrupt check
     worker.add_done_callback(_discard)
     logger.warning("parquet read abandoned: %s", why)
 

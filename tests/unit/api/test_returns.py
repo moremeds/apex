@@ -208,3 +208,21 @@ def test_first_daily_return_is_null_without_a_prior_close() -> None:
     metrics = _metrics(series, date(2026, 8, 31), date(2026, 9, 4))
     assert metrics["daily"][0]["return"] is None
     assert metrics["window_return"] is None
+
+
+async def test_a_benchmark_timeout_says_why_instead_of_a_silent_null() -> None:
+    from src.infrastructure.adapters.livewire.parquet_reads import QueryTimeout
+
+    class _SlowSpy(_FakeProvider):
+        async def fetch_bars(self, symbol: str, *args: Any, **kwargs: Any) -> List[BarData]:
+            if symbol == "SPY":
+                raise QueryTimeout("lake query exceeded 30s")
+            return await super().fetch_bars(symbol, *args, **kwargs)
+
+    body = (await _get(_SlowSpy(), f"symbols=MU&{_WEEK}")).json()
+    assert body["benchmarks"]["SPY"] == {
+        "window_return": None,
+        "failure": "lake query exceeded 30s",
+    }
+    assert "failure" not in body["benchmarks"]["QQQ"]
+    assert body["results"][0]["excess_vs_spy"] is None

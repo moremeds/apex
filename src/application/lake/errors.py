@@ -10,15 +10,17 @@ from __future__ import annotations
 import re
 from typing import Any, Literal, Mapping, Optional
 
-# An absolute POSIX path (two or more segments). Relative Silver paths such as
-# "generations/.../1d.parquet" do not start with "/" and are kept: they are public
-# manifest content, not host layout; "/v1/..." is an API route a message may point to.
-_ABSOLUTE_PATH = re.compile(r"(?<![\w.])/(?!v1/)(?:[^\s'\"(),:;]+/)+[^\s'\"(),:;]*")
+# Absolute POSIX paths. Quoted ones (how OSError and DuckDB render filenames) are
+# replaced whole, spaces included; unquoted ones up to whitespace or punctuation.
+# Relative Silver paths ("generations/.../1d.parquet") are public manifest content and
+# kept; "/v1/..." is an API route a message may point to.
+_QUOTED_PATH = re.compile(r"(['\"])/(?!v1/)[^'\"]*\1")
+_BARE_PATH = re.compile(r"(?<![^\s=:(\[])/(?!v1/)[^\s'\"(),:;]+")
 
 
 def redact_paths(text: str) -> str:
     """Remove absolute host paths from client-visible text (design §6)."""
-    return _ABSOLUTE_PATH.sub("<path>", text)
+    return _BARE_PATH.sub("<path>", _QUOTED_PATH.sub(r"\1<path>\1", text))
 
 
 LakeErrorCode = Literal[

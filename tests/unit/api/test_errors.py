@@ -200,3 +200,14 @@ def test_a_lake_timeout_on_an_untranslated_route_is_504() -> None:
     response = TestClient(app).get("/v1/equity/SPY/indicators", params={"indicator": "rsi"})
     assert response.status_code == 504
     assert response.json()["error"]["code"] == "query_timeout"
+
+
+def test_redaction_covers_spaces_and_single_segment_paths() -> None:
+    from src.application.lake.errors import redact_paths
+
+    assert redact_paths("No such file: '/Volumes/My Lake/private/f.parquet'") == (
+        "No such file: '<path>'"
+    )
+    assert redact_paths("not a file: /data") == "not a file: <path>"
+    assert redact_paths('pattern "/data/lake/x y/e.parquet"') == 'pattern "<path>"'
+    assert redact_paths("see ratio 1/2 and a/b") == "see ratio 1/2 and a/b"

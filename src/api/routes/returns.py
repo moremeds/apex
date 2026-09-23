@@ -214,7 +214,15 @@ async def equity_returns(
         "price_mode": price_mode,
         "basis": basis_for(price_mode),
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "benchmarks": {name: {"window_return": bench_returns[name]} for name in _BENCHMARKS},
+        # A benchmark that could not be read (quarantined Silver, lake timeout) says why,
+        # so a null excess is never mistaken for "no bars in the window".
+        "benchmarks": {
+            name: {
+                "window_return": bench_returns[name],
+                **({"failure": failures[name]} if name in failures else {}),
+            }
+            for name in _BENCHMARKS
+        },
         "results": results,
         "missing": missing,
     }

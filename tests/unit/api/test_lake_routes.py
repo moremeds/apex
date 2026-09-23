@@ -8,6 +8,7 @@ coverage catalog and SPY daily rows from the mini lake. Mutations are labelled.
 from __future__ import annotations
 
 import datetime as dt
+import json
 from pathlib import Path
 from typing import Iterator
 
@@ -315,3 +316,17 @@ def test_pit_session_to_is_exclusive_on_the_bars_path(client: TestClient, tmp_pa
         "/v1/equity/FSLR/bars", params={"pit_revision": 5, "start": "2026-09-15T00:00:00Z"}
     ).json()
     assert [b["time"][:10] for b in body["bars"]] == ["2026-09-15", "2026-09-16"]
+
+
+def test_silver_only_symbol_with_an_unreadable_artifact_is_an_outage(
+    client: TestClient, tmp_path: Path
+) -> None:
+    """FSLR has only Silver here (no Bronze file): a failed hash is 503, not 404."""
+    manifest = json.loads((tmp_path / "silver" / "revisions" / "current.json").read_bytes())
+    daily = next(a for a in manifest["artifacts"] if a["path"].endswith("symbol=FSLR/1d.parquet"))
+    target = tmp_path / "silver" / daily["path"]
+    target.write_bytes(target.read_bytes() + b"\0")
+    response = client.get("/v1/equity/FSLR")
+    assert (
+        response.status_code == 503 and response.json()["error"]["code"] == "adjusted_unavailable"
+    )

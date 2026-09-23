@@ -55,3 +55,35 @@ def test_sync_rows_bind_parameters_and_honour_the_deadline() -> None:
     assert LakeDb().rows_sync("SELECT ? AS v", ["x"]) == [{"v": "x"}]
     with pytest.raises(QueryTimeout):
         LakeDb(timeout=0.3).rows_sync(_SLOW, [])
+
+
+async def test_cancelled_while_queued_never_executes() -> None:
+    """With the executor saturated, a cancelled read must not run once a thread frees."""
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    loop = asyncio.get_running_loop()
+    loop.set_default_executor(ThreadPoolExecutor(max_workers=1))
+    release = threading.Event()
+    blocker = loop.run_in_executor(None, release.wait)
+    ran: list[bool] = []
+    original = LakeDb._run
+
+    def spy(*args: object) -> object:
+        result = original(*args)  # type: ignore[arg-type]
+        ran.append(bool(result))
+        return result
+
+    LakeDb._run = staticmethod(spy)  # type: ignore[method-assign]
+    try:
+        task = asyncio.create_task(LakeDb(timeout=30).rows("SELECT 1 AS one", []))
+        await asyncio.sleep(0.1)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        release.set()
+        await blocker
+        await asyncio.sleep(0.2)  # let the queued work item come off the queue
+    finally:
+        LakeDb._run = staticmethod(original)  # type: ignore[method-assign]
+    assert ran == [False]  # it was dequeued but returned without executing
