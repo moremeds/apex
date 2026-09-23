@@ -242,22 +242,23 @@ def rates_sql(
 class LakeDb:
     """Executes parquet reads with a per-query deadline.
 
-    Each query runs in a worker thread on its own DuckDB handle; on deadline expiry the
-    awaiting coroutine interrupts exactly that handle (an interrupt never reaches
-    another request's query -- verified against duckdb 1.5.5 in P0) and raises
-    ``QueryTimeout``. The worker closes its handle when the interrupted execute
-    returns, so nothing leaks.
+    One in-memory DuckDB parent per process; every query takes its own cursor from it
+    in a worker thread and closes it when done. Cursors are never shared between
+    queries. On deadline expiry the awaiting coroutine interrupts exactly that cursor
+    (an interrupt never reaches another request's query -- verified against duckdb
+    1.5.5 in P0) and raises ``QueryTimeout``; the worker closes the cursor when the
+    interrupted execute returns.
 
-    ponytail: EXPERIMENT (P1.6) -- ``mode`` "per_call" opens a fresh in-memory
-    connection per query (the original behaviour); "cursor" takes a cursor off one
-    process-wide in-memory parent. The losing mode is deleted after measurement.
+    Chosen by measurement (P1.6, mini lake, 2026-09-23): against a fresh connection per
+    query, the shared parent cut bulk 50-symbol reads from 432 to 246 ms median and
+    held every other workload equal or better. The parent lives for the process and is
+    released at interpreter exit.
     """
 
     _parent: Optional[duckdb.DuckDBPyConnection] = None
     _parent_lock = threading.Lock()
 
-    def __init__(self, mode: Optional[str] = None, timeout: Optional[float] = None) -> None:
-        self.mode = mode or os.environ.get("APEX_LAKE_DB_MODE", "per_call")
+    def __init__(self, timeout: Optional[float] = None) -> None:
         self.timeout = (
             timeout
             if timeout is not None
@@ -267,12 +268,10 @@ class LakeDb:
         )
 
     def _handle(self) -> duckdb.DuckDBPyConnection:
-        if self.mode == "cursor":
-            with LakeDb._parent_lock:
-                if LakeDb._parent is None:
-                    LakeDb._parent = duckdb.connect(database=":memory:")
-                return LakeDb._parent.cursor()
-        return duckdb.connect(database=":memory:")
+        with LakeDb._parent_lock:
+            if LakeDb._parent is None:
+                LakeDb._parent = duckdb.connect(database=":memory:")
+            return LakeDb._parent.cursor()
 
     @staticmethod
     def _run(handle: duckdb.DuckDBPyConnection, sql: str, params: Sequence[Any]) -> List[dict]:

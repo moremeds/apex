@@ -8,16 +8,13 @@ from __future__ import annotations
 
 import asyncio
 
-import pytest
-
 from src.infrastructure.adapters.livewire.parquet_reads import LakeDb, QueryTimeout
 
 _SLOW = "SELECT count(*) AS n FROM range(20000000000) t(i) WHERE i % 7 = 3"
 
 
-@pytest.mark.parametrize("mode", ["per_call", "cursor"])
-async def test_deadline_interrupts_only_the_expired_query(mode: str) -> None:
-    slow, fast = LakeDb(mode=mode, timeout=0.3), LakeDb(mode=mode, timeout=5)
+async def test_deadline_interrupts_only_the_expired_query() -> None:
+    slow, fast = LakeDb(timeout=0.3), LakeDb(timeout=5)
 
     results = await asyncio.gather(
         slow.rows(_SLOW, []), fast.rows("SELECT 42 AS answer", []), return_exceptions=True
@@ -30,4 +27,4 @@ async def test_deadline_interrupts_only_the_expired_query(mode: str) -> None:
 
 
 def test_sync_rows_bind_parameters() -> None:
-    assert LakeDb(mode="per_call").rows_sync("SELECT ? AS v", ["x"]) == [{"v": "x"}]
+    assert LakeDb().rows_sync("SELECT ? AS v", ["x"]) == [{"v": "x"}]

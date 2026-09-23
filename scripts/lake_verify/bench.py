@@ -1,13 +1,13 @@
 """P1.6 performance experiment: identical real-lake workloads against several servers.
 
 Each target is a lake-only server (``serve.py``) on loopback: the baseline tree, and
-the candidate in each LakeDb mode. Requests are interleaved per repetition in a
+each candidate tree. Requests are interleaved per repetition in a
 shuffled target order so filesystem-cache warmth and ordering bias fall on every
 target alike; the first request per (workload, target) is reported separately from
 the warm distribution. A result hash per response checks that targets agree.
 
     uv run python scripts/lake_verify/bench.py --out DIR \
-        --target base=http://127.0.0.1:8341=PID --target per_call=...=PID ...
+        --target base=http://127.0.0.1:8341=PID --target candidate=http://127.0.0.1:8342=PID
 
 Writes ``performance.json`` (and prints a table). Never writes to the lake.
 """
