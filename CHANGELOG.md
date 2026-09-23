@@ -11,6 +11,22 @@ All notable changes to apex are recorded here. Format follows
 
 ### Added
 
+- **Read-only market-data MCP server (`src/mcp_server/`, `make mcp-server`, compose service
+  `mcp`).** A separate Streamable HTTP process on `:8333` exposing exactly 20 tools over the
+  shared lake queries — discovery, bars/bulk/yields, identity/actions/membership, Silver and
+  PIT revisions, coverage and gaps — each the twin of a REST route and rendered by the same
+  payload builders. Series come back as `columns` + `rows` under the bounded policy; lists
+  always page; a result over 2 MiB fails with `result_too_large`. Every failure is an `isError`
+  result whose text is exactly the REST error envelope (codes, `symbol`/`asset_class`,
+  `details`); SDK argument-schema failures become `invalid_parameter` with
+  `details.source="arguments"`. `APEX_MCP_API_KEY` is mandatory (Bearer, constant-time compare; no open
+  mode), the SDK's Host/Origin checks are on (`APEX_MCP_ALLOWED_HOSTS`), and `/healthz` is an
+  unauthenticated liveness probe only. `docker/mcp.compose.yml` defines the service as its
+  own compose project (reads only its private key file, publishes on loopback), and
+  `scripts/mcp_tailnet.sh up|check|down` runs it for a test instance or production alike:
+  it creates the key file, forwards the port to the tailnet with `tailscale serve`, and
+  checks an authenticated `tools/call`. Operator guide: `docs/mcp-operator-guide.md`.
+
 - **`src/application/lake/` — a transport-neutral lake query layer shared by REST (and, going
   forward, MCP).** `bars.py`, `catalog.py`, `identity.py`, `revisions.py` and `gaps.py` hold the
   queries; `services.py` gathers the sources one query may touch into `LakeServices`, built per
@@ -63,6 +79,13 @@ All notable changes to apex are recorded here. Format follows
   `missing` instead of failing the whole request.
 
 ### Changed
+
+- **The API image installs dependencies from `uv.lock`** (`uv export --frozen`) instead of a
+  fresh resolve, and the lock now pins duckdb 1.5.5 and pandas-market-calendars 5.4.0 — the
+  versions the PR1 real-lake verification ran on. `mcp>=2.2,<3` joins the `api` extra.
+- Instruments, actions, delisting and membership payload assembly moved from their routes into
+  `src/api/payload/lake.py` (shared with MCP); `RepairsReader.from_env()` replaces the REST-only
+  `repairs_from_env`. Responses are unchanged.
 
 - **Error messages never carry host filesystem paths**: absolute paths in any lake or REST
   error message are replaced with `<path>`, and `/v1/lake/status` reports fixed texts.

@@ -1,0 +1,50 @@
+# Read-only market-data MCP (Claude Code over the tailnet; ChatGPT via Secure MCP Tunnel).
+# Same image as the API, separate process: lake readers only -- no PG, no streaming.
+#
+# Its own compose project, so a test instance of a candidate image and the production
+# service run from this one file and differ only in the variables below. Drive it with
+# scripts/mcp_tailnet.sh (up / check / down), which also sets up the tailnet forward.
+#
+#   APEX_MCP_IMAGE      image to run; production pins a digest (ghcr.io/...@sha256:...)
+#   APEX_MCP_HOST_PORT  host port, bound to 127.0.0.1 only (8333 production)
+#   APEX_MCP_ENV_FILE   the private env file: APEX_MCP_API_KEY and APEX_MCP_ALLOWED_HOSTS.
+#                       The container reads nothing else, so it never sees the API's PG
+#                       secret.
+#   APEX_LAKE_HOST_ROOT the host lake root; every mount below is read-only
+#
+# The port binds loopback only; the tailnet reaches it through the host's
+# `tailscale serve` TCP forward. Docker under colima runs in a VM with no tailnet
+# address, so publishing on the tailnet IP fails with "cannot assign requested address".
+services:
+  mcp:
+    image: ${APEX_MCP_IMAGE:?set the image to run}
+    command: ["python", "-m", "src.mcp_server.server"]
+    env_file:
+      - ${APEX_MCP_ENV_FILE:?set the private env file}
+    environment:
+      APEX_MCP_HOST: 0.0.0.0
+      APEX_MCP_PORT: "8333"
+      APEX_LIVEWIRE_ROOT: /data/livewire
+      APEX_LIVEWIRE_SILVER_ROOT: /data/livewire-silver
+      APEX_LIVEWIRE_PRICE_MODE: adjusted
+      APEX_LIVEWIRE_COVERAGE_DB: /data/catalog/analytics.duckdb
+      APEX_LIVEWIRE_LAKE_ROOT: /data/lake
+      APEX_LIVEWIRE_DELISTED_ROOT: /data/livewire-delisted
+      APEX_LIVEWIRE_REPAIRS_ROOT: /data/repairs
+    ports:
+      - "127.0.0.1:${APEX_MCP_HOST_PORT:-8333}:8333"
+    volumes:
+      - ${APEX_LAKE_HOST_ROOT:?set the host lake root}/bronze:/data/livewire:ro
+      - ${APEX_LAKE_HOST_ROOT}/silver:/data/livewire-silver:ro
+      - ${APEX_LAKE_HOST_ROOT}/bronze-delisted:/data/livewire-delisted:ro
+      - ${APEX_LAKE_HOST_ROOT}/catalog:/data/catalog:ro
+      - ${APEX_LAKE_HOST_ROOT}/index_membership:/data/lake/index_membership:ro
+      - ${APEX_LAKE_HOST_ROOT}/security_master:/data/lake/security_master:ro
+      - ${APEX_LAKE_HOST_ROOT}/repairs:/data/repairs:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8333/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped

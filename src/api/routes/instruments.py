@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timezone
-from typing import Any, Dict, Optional
+from datetime import date
+from typing import Optional
 
 from fastapi import APIRouter, Query, Request
 
 from src.api.errors import ApiError, ApiErrorCode
-from src.api.payload.lake import instrument_payload, page_fields
+from src.api.payload.lake import (
+    actions_payload,
+    delisting_payload,
+    instrument_payload,
+    instruments_payload,
+)
 from src.api.payload.validate import validate_payload
 from src.api.routes._lake import lake_services
 from src.application.lake import catalog, identity
@@ -40,51 +45,15 @@ async def list_instruments(
     listing: str = Query(default="listed", description="listed | delisted"),
     limit: int = Query(default=500, ge=1, le=5000),
 ) -> dict:
-    if listing not in ("listed", "delisted", "any"):
-        raise ApiError(
-            ApiErrorCode.INVALID_PARAMETER,
-            f"unknown listing filter {listing!r} (have listed, delisted, any)",
-        )
-    if listing != "listed":
-        # The coverage table measures the live tree only; bronze-delisted/ is not in it.
-        raise ApiError(
-            ApiErrorCode.NOT_YET_AVAILABLE,
-            "delisted discovery requires upstream livewire work "
-            "(instrument identity, corporate-action backfill, Silver over bronze-delisted)",
-        )
     rows = await catalog.search_instruments(
-        lake_services(request), q=q, asset_class=asset_class, limit=limit
+        lake_services(request), q=q, asset_class=asset_class, limit=limit, listing=listing
     )
-    payload = {
-        "instruments": [
-            {
-                "symbol": r.symbol,
-                "asset_class": r.asset_class,
-                "listing_status": r.listing_status,
-                "first_date": r.first_date,
-                "last_date": r.last_date,
-                "silver_available": r.silver_available,
-                "price_mode": r.price_mode,
-            }
-            for r in rows
-        ],
-        "count": len(rows),
-        # These dates come from livewire's 11:00 UTC coverage snapshot, not from the
-        # artifacts. Labelled so a consumer does not mistake them for live values.
-        "source": "livewire_coverage_snapshot",
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-    }
+    payload = instruments_payload(rows)
     validate_payload(payload, "instruments_payload")
     return payload
 
 
-# The ticker-reuse caveat, carried verbatim from the era when these endpoints were 501:
-# both artifacts are keyed by TICKER, not by a permanent security id. Measured
-# 2026-08-23 -- 6,275 delisted symbols have no corporate-action data at all, and the
-# 2,345 that appear to are ticker reuses whose actions belong to a different, living
-# company. Every response below says ``identity: "ticker"`` so a consumer cannot
-# mistake it for security-level truth.
-_TICKER_IDENTITY = "ticker"
+# Actions and delisting are ticker-keyed, not security-keyed: see payload/lake.py.
 
 
 @router.get("/v1/equity/{symbol}/actions")
@@ -119,17 +88,7 @@ async def get_corporate_actions(
         offset=offset,
         paged=paged,
     )
-    payload: Dict[str, Any] = {
-        "symbol": result.symbol,
-        "identity": _TICKER_IDENTITY,
-        "source": "livewire_bronze_corporate_action",
-        "provider": result.provider,
-        "actions": [action.as_dict() for action in result.page.items],
-        "count": len(result.page.items),
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-    }
-    if paged:
-        payload.update(page_fields(result.page))
+    payload = actions_payload(result, paged)
     validate_payload(payload, "actions_payload")
     return payload
 
@@ -158,18 +117,7 @@ async def get_delisting(
     page = await identity.delisting(
         lake_services(request), symbol, limit=limit, offset=offset, paged=paged
     )
-    payload: Dict[str, Any] = {
-        "symbol": symbol.upper(),
-        "identity": _TICKER_IDENTITY,
-        "source": "livewire_security_master",
-        # Named so nobody reads the absence of a reason as "still listed".
-        "delisting_reason_available": False,
-        "intervals": [interval.as_dict() for interval in page.items],
-        "count": len(page.items),
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-    }
-    if paged:
-        payload.update(page_fields(page))
+    payload = delisting_payload(symbol, page, paged)
     validate_payload(payload, "delisting_payload")
     return payload
 

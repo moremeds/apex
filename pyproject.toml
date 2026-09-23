@@ -89,6 +89,7 @@ api = [
     "uvicorn[standard]>=0.30.0", # ASGI server
     "httpx>=0.27.0",           # Async HTTP client (for tests)
     "websockets>=16.0",        # WS client for the xenon live tick feed (Phase 4)
+    "mcp>=2.2,<3",
 ]
 
 # Full installation includes observability

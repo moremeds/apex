@@ -56,8 +56,25 @@ def asset_classes() -> List[Dict[str, Any]]:
 
 
 async def search_instruments(
-    services: LakeServices, *, q: Optional[str], asset_class: Optional[str], limit: int
+    services: LakeServices,
+    *,
+    q: Optional[str],
+    asset_class: Optional[str],
+    limit: int,
+    listing: str = "listed",
 ) -> List[InstrumentRow]:
+    if listing not in ("listed", "delisted", "any"):
+        raise LakeError(
+            "invalid_parameter",
+            f"unknown listing filter {listing!r} (have listed, delisted, any)",
+        )
+    if listing != "listed":
+        # The coverage table measures the live tree only; bronze-delisted/ is not in it.
+        raise LakeError(
+            "not_yet_available",
+            "delisted discovery requires upstream livewire work "
+            "(instrument identity, corporate-action backfill, Silver over bronze-delisted)",
+        )
     catalog = services.require_catalog()
     if asset_class is not None:
         spec_or_raise(asset_class)

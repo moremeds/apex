@@ -101,9 +101,9 @@ def _init_lake_state(
 
             app.state.pit_reader = PitRevisionReader(Path(silver_root))
     if getattr(app.state, "repairs_reader", None) is None:
-        from src.api.routes._lake import repairs_from_env
+        from src.infrastructure.adapters.livewire.repairs import RepairsReader
 
-        app.state.repairs_reader = repairs_from_env()
+        app.state.repairs_reader = RepairsReader.from_env()
 
 
 @asynccontextmanager

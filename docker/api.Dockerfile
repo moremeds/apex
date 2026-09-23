@@ -3,11 +3,14 @@
 #
 # Reads the livewire bronze lake from APEX_LIVEWIRE_ROOT (a read-only bind-mount in
 # docker-compose.yml). Reaches host Postgres + xenon WS via host.docker.internal.
+# The same image runs the read-only MCP server (docker/mcp.compose.yml, driven by
+# scripts/mcp_tailnet.sh):
+#   python -m src.mcp_server.server   (:8333, APEX_MCP_API_KEY required)
 #
 # Local smoke build (on the macmini / any arm64 Docker host):
 #   docker build -f docker/api.Dockerfile -t apex-api:dev .
 #   docker run --rm -p 8322:8322 \
-#     -v /Volumes/DATA_LAKE/livewire/data-lake/bronze:/data/livewire:ro \
+#     -v <lake-root>/bronze:/data/livewire:ro \
 #     -e APEX_LIVEWIRE_ROOT=/data/livewire apex-api:dev
 #   curl http://localhost:8322/health
 
@@ -49,8 +52,15 @@ COPY config/ ./config/
 
 # `build-essential` is needed transiently to compile the TA-Lib Cython wrapper, then
 # purged to keep the runtime image lean.
+# Dependencies come from uv.lock, not a fresh resolve: the image runs the versions CI
+# tested (duckdb, pandas-market-calendars, the MCP SDK). Then the project itself,
+# editable, with no dependency resolution of its own.
 RUN apt-get update && apt-get install -y --no-install-recommends build-essential \
-    && uv pip install --system -e ".[api,observability]" \
+    && uv export --frozen --no-dev --extra api --extra observability --no-emit-project \
+        -o /tmp/requirements.txt \
+    && uv pip install --system --require-hashes -r /tmp/requirements.txt \
+    && uv pip install --system --no-deps -e . \
+    && rm /tmp/requirements.txt \
     && apt-get purge -y build-essential && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 

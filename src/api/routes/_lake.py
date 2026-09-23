@@ -22,11 +22,6 @@ from src.infrastructure.adapters.livewire.repairs import RepairsReader
 from src.infrastructure.adapters.livewire.revisions import RevisionManifestReader
 
 
-def repairs_from_env() -> RepairsReader:
-    root = os.environ.get("APEX_LIVEWIRE_REPAIRS_ROOT", "").strip()
-    return RepairsReader(Path(root).expanduser() if root else None)
-
-
 def lake_services(request: Request) -> LakeServices:
     state = request.app.state
     provider: Any = getattr(state, "ohlc_provider", None)
@@ -44,7 +39,7 @@ def lake_services(request: Request) -> LakeServices:
         reference=LivewireReferenceReader.from_env(),
         silver=RevisionManifestReader(silver_root) if silver_root is not None else None,
         pit=pit,
-        repairs=getattr(state, "repairs_reader", None) or repairs_from_env(),
+        repairs=getattr(state, "repairs_reader", None) or RepairsReader.from_env(),
     )
 
 

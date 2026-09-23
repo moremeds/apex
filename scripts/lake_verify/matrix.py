@@ -39,7 +39,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path.cwd()))
 
 from lake import Lake, identity  # noqa: E402
-from model import Case, Invalidated, Outcome  # noqa: E402
+from model import (  # noqa: E402
+    NOT_APPLICABLE_LEGACY_SERIES_REASON,
+    Case,
+    Invalidated,
+    NotApplicable,
+    Outcome,
+)
 
 STATUSES = (
     "PASS",
@@ -48,6 +54,7 @@ STATUSES = (
     "BLOCKED_DEPENDENCY",
     "FAIL",
     "NOT_RUN",
+    "NOT_APPLICABLE",  # mcp target only: a REST-only cell (mcp_exec.NotApplicable)
 )
 OPERATION_MODULES = ("bars_cases", "surface_cases")
 RETRIES = 2
@@ -144,6 +151,7 @@ class Executor:
         self.targets = targets
         self.client = httpx.Client(timeout=180)
         self._asgi: Dict[str, Any] = {}
+        self._mcp: Dict[str, Any] = {}
 
     def _client(self, process: str) -> Tuple[Any, str]:
         target = self.targets[process]
@@ -171,7 +179,18 @@ class Executor:
 
         return asyncio.run(call(request))
 
+    def mcp(self, request: Dict[str, Any]) -> Tuple[int, Any]:
+        """Target ``mcp``: the case as an MCP tool call through the real MCP app."""
+        from mcp_exec import McpTarget
+
+        process = request["process"]
+        if process not in self._mcp:
+            self._mcp[process] = McpTarget(process)
+        return self._mcp[process].execute(request)
+
     def execute(self, request: Dict[str, Any]) -> Tuple[int, Any]:
+        if self.targets[request["process"]] == "mcp":
+            return self.mcp(request)
         return self.http(request) if request["transport"] == "http" else self.inproc(request)
 
 
@@ -184,7 +203,9 @@ def _settle(case: Case, executor: Executor, lake: Lake, checkers: Dict[str, Any]
     if expect["kind"] == "rejection":
         status, body = executor.execute(case.request)
         code = body.get("error", {}).get("code") if isinstance(body, dict) else None
-        if status == expect["status"] and code == expect["code"]:
+        # mcp_exec derives a REST-equivalent status from the tool error's envelope, so
+        # the mcp target is judged on status AND code, like every other target.
+        if code == expect["code"] and status == expect["status"]:
             return Outcome("EXPECTED_REJECTION", f"{status} {code}")
         return Outcome(
             "FAIL",
@@ -242,6 +263,8 @@ def run(
         t0 = time.perf_counter()
         try:
             outcome = _settle(case, local.executor, lake, checkers)
+        except NotApplicable as exc:
+            outcome = Outcome("NOT_APPLICABLE", str(exc))
         except httpx.TransportError as exc:
             # The harness could not reach the target: nothing about the candidate was
             # observed. NOT_RUN keeps the case pending for a resumed run.
@@ -290,14 +313,31 @@ def summarize(out: Path) -> None:
     for case in cases:
         by_op[case.operation][status_of[case.id]] += 1
         by_class[str(case.dims.get("asset_class", "-"))][status_of[case.id]] += 1
-    gate = all(
-        totals.get(s, 0) == 0 for s in ("FAIL", "NOT_RUN", "BLOCKED_DATA", "BLOCKED_DEPENDENCY")
+    # A NOT_APPLICABLE record is legitimate only for the one design-level REST/MCP
+    # difference left (legacy-policy series cells); any other reason means something
+    # was waved through that should have been a FAIL, so it fails the gate too.
+    unexpected_na = sorted(
+        cid
+        for cid, s in status_of.items()
+        if s == "NOT_APPLICABLE"
+        and latest.get(cid, {}).get("detail") != NOT_APPLICABLE_LEGACY_SERIES_REASON
+    )
+    gate = (
+        all(
+            totals.get(s, 0) == 0 for s in ("FAIL", "NOT_RUN", "BLOCKED_DATA", "BLOCKED_DEPENDENCY")
+        )
+        and not unexpected_na
     )
     lines = [
         "# PR1 real-lake matrix summary",
         "",
         f"Planned cases: {len(cases)}; settled: {sum(1 for s in status_of.values() if s != 'NOT_RUN')}",
-        f"Gate (zero FAIL/NOT_RUN/BLOCKED_*): {'PASS' if gate else 'OPEN'}",
+        f"Gate (zero FAIL/NOT_RUN/BLOCKED_*, and every NOT_APPLICABLE is the legacy-series "
+        f"reason): {'PASS' if gate else 'OPEN'}",
+        "NOT_APPLICABLE gate rule: a record may be NOT_APPLICABLE only for "
+        "`model.NOT_APPLICABLE_LEGACY_SERIES_REASON` (legacy-policy series cells, "
+        f"design §3.2); {len(unexpected_na)} record(s) violate it"
+        + (f": {', '.join(unexpected_na[:20])}" if unexpected_na else ""),
         "",
         "| status | count |",
         "|---|---|",
@@ -323,7 +363,13 @@ def summarize(out: Path) -> None:
         "",
         "## Non-passing cases (first 200 per status)",
     ]
-    for status in ("FAIL", "BLOCKED_DATA", "BLOCKED_DEPENDENCY", "NOT_RUN"):
+    for status in (
+        "FAIL",
+        "BLOCKED_DATA",
+        "BLOCKED_DEPENDENCY",
+        "NOT_RUN",
+        "NOT_APPLICABLE",
+    ):
         ids = [cid for cid, s in status_of.items() if s == status]
         if not ids:
             continue

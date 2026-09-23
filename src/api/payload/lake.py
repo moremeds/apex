@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 from src.application.lake.catalog import (
     CoverageResult,
@@ -16,7 +16,12 @@ from src.application.lake.catalog import (
     InstrumentDetail,
 )
 from src.application.lake.gaps import GapsResult, SessionRange
-from src.application.lake.identity import SecurityResolution
+from src.application.lake.identity import (
+    ActionsResult,
+    HistoryResult,
+    MembersResult,
+    SecurityResolution,
+)
 from src.application.lake.revisions import (
     PitRevisionDetail,
     PitRevisionList,
@@ -26,6 +31,7 @@ from src.application.lake.revisions import (
     scope_dict,
 )
 from src.application.lake.services import Page
+from src.infrastructure.adapters.livewire.coverage import InstrumentRow
 
 
 def _now() -> str:
@@ -208,3 +214,112 @@ def gaps_payload(result: GapsResult) -> Dict[str, Any]:
         },
         "generated_at": _now(),
     }
+
+
+# Ticker-keyed, not security-keyed: 2,345 delisted tickers are reuses of live ones
+# (measured 2026-08-23), so every actions/delisting payload says ``identity: "ticker"``.
+_TICKER_IDENTITY = "ticker"
+
+
+def _iso(value: Optional[datetime]) -> Optional[str]:
+    return None if value is None else value.isoformat()
+
+
+def instruments_payload(rows: Sequence[InstrumentRow]) -> Dict[str, Any]:
+    return {
+        "instruments": [
+            {
+                "symbol": r.symbol,
+                "asset_class": r.asset_class,
+                "listing_status": r.listing_status,
+                "first_date": r.first_date,
+                "last_date": r.last_date,
+                "silver_available": r.silver_available,
+                "price_mode": r.price_mode,
+            }
+            for r in rows
+        ],
+        "count": len(rows),
+        # From livewire's 11:00 UTC coverage snapshot, not the artifacts; labelled so a
+        # consumer does not mistake the dates for live values.
+        "source": "livewire_coverage_snapshot",
+        "generated_at": _now(),
+    }
+
+
+def actions_payload(result: ActionsResult, paged: bool) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {
+        "symbol": result.symbol,
+        "identity": _TICKER_IDENTITY,
+        "source": "livewire_bronze_corporate_action",
+        "provider": result.provider,
+        "actions": [action.as_dict() for action in result.page.items],
+        "count": len(result.page.items),
+        "generated_at": _now(),
+    }
+    if paged:
+        payload.update(page_fields(result.page))
+    return payload
+
+
+def delisting_payload(symbol: str, page: Page[Any], paged: bool) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {
+        "symbol": symbol.upper(),
+        "identity": _TICKER_IDENTITY,
+        "source": "livewire_security_master",
+        # Named so nobody reads the absence of a reason as "still listed".
+        "delisting_reason_available": False,
+        "intervals": [interval.as_dict() for interval in page.items],
+        "count": len(page.items),
+        "generated_at": _now(),
+    }
+    if paged:
+        payload.update(page_fields(page))
+    return payload
+
+
+def indices_payload(indices: List[str], page: Optional[Page[str]]) -> Dict[str, Any]:
+    if page is None:
+        return {"indices": indices}
+    return {"indices": page.items, **page_fields(page)}
+
+
+def history_payload(result: HistoryResult, paged: bool) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {
+        "symbol": result.symbol,
+        "security_id": result.security_id,
+        "events": [
+            {
+                "index_id": event.index_id,
+                "security_id": event.security_id,
+                "action": event.action,
+                "effective_at": _iso(event.effective_at),
+                "announced_at": _iso(event.announced_at),
+                "known_at": _iso(event.known_at),
+                "status": event.status,
+                "event_id": event.event_id,
+                "supersedes": event.supersedes,
+            }
+            for event in result.page.items
+        ],
+    }
+    if paged:
+        payload.update(page_fields(result.page))
+    return payload
+
+
+def members_payload(result: MembersResult, paged: bool) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {
+        "index_id": result.index_id,
+        "as_of": result.as_of.isoformat(),
+        "known_at": None if result.known_at is None else result.known_at.isoformat(),
+        "members": [
+            {"security_id": member.security_id, "symbol": member.symbol}
+            for member in result.page.items
+        ],
+        # Over the whole replay, not the page: a page must not hide unresolved ids.
+        "unresolved_count": result.unresolved_count,
+    }
+    if paged:
+        payload.update({"total": result.total, **page_fields(result.page)})
+    return payload

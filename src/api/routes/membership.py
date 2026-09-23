@@ -16,13 +16,13 @@ keep the original envelopes, and add pagination fields only when ``limit`` or
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Query, Request
 
 from src.api.errors import ApiError, ApiErrorCode
-from src.api.payload.lake import page_fields
+from src.api.payload.lake import history_payload, indices_payload, members_payload
 from src.api.routes._lake import lake_services
 from src.application.lake.identity import (
     index_members,
@@ -49,10 +49,6 @@ def _parse_day(value: Optional[str], name: str, *, default: Optional[date] = Non
         ) from exc
 
 
-def _iso(value: Optional[datetime]) -> Optional[str]:
-    return None if value is None else value.isoformat()
-
-
 def _paged(limit: Optional[int], offset: Optional[int]) -> bool:
     return limit is not None or offset is not None
 
@@ -65,10 +61,8 @@ async def get_indices(
 ) -> Dict[str, Any]:
     """Index ids discovered on disk. Never a hardcoded list -- livewire adds indices."""
     indices = await list_indices(lake_services(request))
-    if not _paged(limit, offset):
-        return {"indices": indices}
-    page = page_of(indices, *check_page(limit, offset))
-    return {"indices": page.items, **page_fields(page)}
+    page = page_of(indices, *check_page(limit, offset)) if _paged(limit, offset) else None
+    return indices_payload(indices, page)
 
 
 @router.get("/history")
@@ -90,27 +84,7 @@ async def get_membership_history(
         offset=offset,
         paged=_paged(limit, offset),
     )
-    payload: Dict[str, Any] = {
-        "symbol": result.symbol,
-        "security_id": result.security_id,
-        "events": [
-            {
-                "index_id": event.index_id,
-                "security_id": event.security_id,
-                "action": event.action,
-                "effective_at": _iso(event.effective_at),
-                "announced_at": _iso(event.announced_at),
-                "known_at": _iso(event.known_at),
-                "status": event.status,
-                "event_id": event.event_id,
-                "supersedes": event.supersedes,
-            }
-            for event in result.page.items
-        ],
-    }
-    if _paged(limit, offset):
-        payload.update(page_fields(result.page))
-    return payload
+    return history_payload(result, _paged(limit, offset))
 
 
 @router.get("/{index_id}")
@@ -139,17 +113,4 @@ async def members_as_of(
         offset=offset,
         paged=_paged(limit, offset),
     )
-    payload: Dict[str, Any] = {
-        "index_id": result.index_id,
-        "as_of": result.as_of.isoformat(),
-        "known_at": None if result.known_at is None else result.known_at.isoformat(),
-        "members": [
-            {"security_id": member.security_id, "symbol": member.symbol}
-            for member in result.page.items
-        ],
-        # Over the whole replay, not the page: a page must not hide unresolved ids.
-        "unresolved_count": result.unresolved_count,
-    }
-    if _paged(limit, offset):
-        payload.update({"total": result.total, **page_fields(result.page)})
-    return payload
+    return members_payload(result, _paged(limit, offset))
