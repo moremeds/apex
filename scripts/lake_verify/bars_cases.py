@@ -335,6 +335,10 @@ def _bulk_cases(samples: Dict[Tuple[str, str, str], Sample], current: int) -> Li
         anchor = samples.get(("equity", tf, "live_only")) or samples[("equity", "1d", "live_only")]
         window = _window_params(win, tf if tf in DELTA else "1d", anchor)
         rejection = contract_rejection({**d, "asset_class": "equity"})
+        adjusted = rev != "none" or pm == "adjusted" or (pm == "omitted" and proc == "adjusted")
+        if rejection is None and listing == "delisted" and adjusted:
+            # One request-level rejection: no symbol can be served adjusted from the archive.
+            rejection = (400, "adjusted_not_supported")
         silver_pin = {"current_silver": current, "older_silver": current - 1}.get(rev)
         # Bulk's contract maximum is the per-symbol 2000 (3 symbols x 2000 stays inside
         # the 10000-row budget).
