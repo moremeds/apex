@@ -9,6 +9,9 @@ All notable changes to apex are recorded here. Format follows
 
 ## [Unreleased]
 
+## [0.1.13] — 2026-09-23
+
+
 ### Added
 
 - **Read-only market-data MCP server (`src/mcp_server/`, `make mcp-server`, compose service
@@ -114,7 +117,6 @@ All notable changes to apex are recorded here. Format follows
 - **`src/application/__init__.py` and `src/infrastructure/adapters/__init__.py` no longer
   re-export anything**, so importing the lake queries cannot pull in the orchestrator, bootstrap
   container, PG repositories or broker adapters (`tests/carve/test_lake_boundary.py`).
-
 ## [0.1.12] — 2026-09-23
 
 
