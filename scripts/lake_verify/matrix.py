@@ -197,10 +197,9 @@ def _settle(case: Case, executor: Executor, lake: Lake, checkers: Dict[str, Any]
     if expect["kind"] == "rejection":
         status, body = executor.execute(case.request)
         code = body.get("error", {}).get("code") if isinstance(body, dict) else None
-        # An MCP tool error carries a code but no HTTP status (mcp_exec derives one),
-        # so the mcp target is judged on the code alone.
-        mcp = executor.targets[case.request["process"]] == "mcp"
-        if code == expect["code"] and (mcp or status == expect["status"]):
+        # mcp_exec derives a REST-equivalent status from the tool error's envelope, so
+        # the mcp target is judged on status AND code, like every other target.
+        if code == expect["code"] and status == expect["status"]:
             return Outcome("EXPECTED_REJECTION", f"{status} {code}")
         return Outcome(
             "FAIL",
@@ -341,7 +340,13 @@ def summarize(out: Path) -> None:
         "",
         "## Non-passing cases (first 200 per status)",
     ]
-    for status in ("FAIL", "BLOCKED_DATA", "BLOCKED_DEPENDENCY", "NOT_RUN"):
+    for status in (
+        "FAIL",
+        "BLOCKED_DATA",
+        "BLOCKED_DEPENDENCY",
+        "NOT_RUN",
+        "NOT_APPLICABLE",
+    ):
         ids = [cid for cid, s in status_of.items() if s == status]
         if not ids:
             continue

@@ -16,6 +16,9 @@ import pytest
 import uvicorn
 from mcp import Client, MCPError
 from mcp.client.streamable_http import streamable_http_client
+from mcp_types import REQUEST_TIMEOUT
+from starlette.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 import src.application.lake.catalog as catalog_module
 from src.application.lake.services import LakeServices
@@ -28,6 +31,17 @@ ALLOWED_HOST = "testserver"
 def test_build_app_requires_an_api_key() -> None:
     with pytest.raises(ValueError):
         build_app(LakeServices(), "", ["testserver"])
+
+
+def test_websocket_connection_is_refused() -> None:
+    """BearerAuth refuses every websocket scope outright (there is no websocket
+    surface); only ``lifespan`` and ``/healthz`` bypass the check."""
+    app = build_app(LakeServices(), API_KEY, [ALLOWED_HOST])
+    with TestClient(app) as client:
+        with pytest.raises(WebSocketDisconnect) as excinfo:
+            with client.websocket_connect("/mcp"):
+                pass
+        assert excinfo.value.code == 1008
 
 
 @asynccontextmanager
@@ -157,15 +171,46 @@ async def test_real_socket_serves_tools_and_shuts_down_cleanly() -> None:
         await _stop_uvicorn(running)
 
 
+@pytest.mark.xfail(
+    reason=(
+        "src/SDK finding (evidence, not a test bug -- see PR notes): mcp 2.2.0 does not "
+        "propagate a client read-timeout as a server-side task cancellation for this "
+        "server's transport. `cancelled` never fires within 5s. Proof it is the SERVER "
+        "task still running, not a harness fluke: this test's own `finally: blocked.set()` "
+        "unblocks the still-live `_hang()` call afterwards, and it then completes and logs "
+        "'tool get_lake_status failed ... ValidationError: sources Input should be a valid "
+        "dictionary [type=dict_type, input_value=None]' -- catalog.lake_status() returning "
+        "bare None, i.e. `_hang` ran to its normal (unblocked) return with no exception ever "
+        "raised inside it. Likely cause: `build_app` always builds with `stateless_http=True` "
+        "(src/mcp_server/server.py), and in stateless mode there is no persistent channel left "
+        "open for the client's courtesy `notifications/cancelled` to reach the server once the "
+        "original request's own connection has been abandoned client-side. Do not weaken this "
+        "assertion to make it pass; fix the transport or accept the limitation explicitly."
+    ),
+    strict=True,
+)
 async def test_cancellation_leaves_the_server_usable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A tool call abandoned on a client read timeout must not wedge the server: a
-    later, independent call succeeds and shutdown still completes."""
+    """A tool call abandoned on a client read timeout must not wedge the server: the
+    server-side task is actually cancelled (not merely abandoned client-side), a
+    later independent call succeeds, and shutdown still completes.
+
+    ``_hang`` proves the cancellation happened server-side by setting ``cancelled``
+    from inside ``except asyncio.CancelledError`` -- an event set by the client
+    giving up would prove nothing about the server. If mcp 2.2.0 does not actually
+    propagate the client's read timeout as a server-side task cancellation, this
+    test must fail loudly (a src/SDK finding), not be weakened to pass anyway.
+    """
     blocked = asyncio.Event()
+    cancelled = asyncio.Event()
 
     async def _hang(*args: object, **kwargs: object) -> None:
-        await blocked.wait()
+        try:
+            await blocked.wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
 
     monkeypatch.setattr(catalog_module, "lake_status", _hang)
 
@@ -178,8 +223,23 @@ async def test_cancellation_leaves_the_server_usable(
             async with Client(
                 streamable_http_client(f"{running.base_url}/mcp", http_client=http_client)
             ) as client:
-                with pytest.raises(MCPError):
+                with pytest.raises(MCPError) as excinfo:
                     await client.call_tool("get_lake_status", {}, read_timeout_seconds=0.2)
+                # A real request timeout, not an arbitrary server-side error under
+                # the same broad exception type.
+                assert excinfo.value.code == REQUEST_TIMEOUT, (
+                    f"expected a request-timeout MCPError (code {REQUEST_TIMEOUT}), got "
+                    f"code={excinfo.value.code} message={excinfo.value.message!r}"
+                )
+                try:
+                    await asyncio.wait_for(cancelled.wait(), timeout=5)
+                except asyncio.TimeoutError:
+                    pytest.fail(
+                        "the server-side tool task was never cancelled after the client "
+                        "gave up on it -- mcp 2.2.0 did not propagate the client's read "
+                        "timeout as a server-side cancellation. This is a src/SDK finding "
+                        "to report, not a test assertion to relax."
+                    )
                 result = await client.call_tool("list_asset_classes", {})
                 assert not result.is_error
     finally:

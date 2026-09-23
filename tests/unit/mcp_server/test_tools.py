@@ -27,6 +27,7 @@ import pytest
 from fastapi.testclient import TestClient
 from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
+from mcp.types import CallToolResult, TextContent
 
 from src.api.server import create_app
 from src.application.lake.services import LakeServices
@@ -55,6 +56,16 @@ from tests.unit.api.test_reference_routes import _TSLA, _write_actions
 from tests.unit.infrastructure.livewire.test_ohlc_provider import _write_dgs10
 
 API_KEY = "mcp-test-key"
+
+
+class _ThrowawayLabel(_common.Result):
+    """A throwaway tool's result shape for the UTF-8 budget test below -- not market
+    data, module-scoped only so the SDK can resolve the annotation by name (a class
+    defined inside a test function is not reachable from a nested function's
+    ``__globals__``, which is the module, not the enclosing test's locals)."""
+
+    label: str
+
 
 EXPECTED_TOOL_NAMES = frozenset(
     {
@@ -160,7 +171,9 @@ def _drop_gen(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _records_from_columns(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
-    return [dict(zip(payload["columns"], row)) for row in payload["rows"]]
+    columns = payload["columns"]
+    assert len(columns) == len(set(columns)), f"duplicate columns: {columns}"
+    return [dict(zip(columns, row, strict=True)) for row in payload["rows"]]
 
 
 def _project_series(payload: Dict[str, Any], list_key: str) -> Dict[str, Any]:
@@ -186,10 +199,10 @@ def _project_bulk(payload: Dict[str, Any]) -> Dict[str, Any]:
     return payload
 
 
-def _error_code(text: str, tool_name: str) -> str:
-    prefix = f"Error executing tool {tool_name}: "
-    assert text.startswith(prefix), text
-    return json.loads(text[len(prefix) :])["error"]["code"]
+def _mcp_error(text: str) -> Dict[str, Any]:
+    """The tool error's text IS the REST envelope JSON -- no "Error executing tool"
+    prefix to strip -- so this is just its ``error`` object."""
+    return json.loads(text)["error"]
 
 
 # -- registry shape ---------------------------------------------------------------
@@ -478,7 +491,9 @@ async def test_unknown_symbol_error_matches_rest(client: TestClient, lake: Dict[
     async with mcp_session(lake["services"]) as mcp:
         result = await mcp.call_tool("find_gaps", {"symbol": "NOPE"})
     assert result.is_error
-    assert _error_code(result.content[0].text, "find_gaps") == "unknown_symbol"
+    # Full envelope equality (code, message, symbol, asset_class, details) -- both
+    # sides build the same LakeError through the shared application-layer function.
+    assert _mcp_error(result.content[0].text) == rest["error"]
 
 
 async def test_bad_revision_error_matches_rest(client: TestClient, lake: Dict[str, Any]) -> None:
@@ -487,7 +502,7 @@ async def test_bad_revision_error_matches_rest(client: TestClient, lake: Dict[st
     async with mcp_session(lake["services"]) as mcp:
         result = await mcp.call_tool("get_pit_revision", {"revision": 99})
     assert result.is_error
-    assert _error_code(result.content[0].text, "get_pit_revision") == "unknown_revision"
+    assert _mcp_error(result.content[0].text) == rest["error"]
 
 
 async def test_malformed_as_of_is_invalid_parameter_on_both(
@@ -498,7 +513,7 @@ async def test_malformed_as_of_is_invalid_parameter_on_both(
     async with mcp_session(lake["services"]) as mcp:
         result = await mcp.call_tool("resolve_security", {"symbol": "MUNJ", "as_of": "14-09-2026"})
     assert result.is_error
-    assert _error_code(result.content[0].text, "resolve_security") == "invalid_parameter"
+    assert _mcp_error(result.content[0].text) == rest["error"]
 
 
 async def test_unknown_listing_is_invalid_parameter_on_both(
@@ -509,7 +524,43 @@ async def test_unknown_listing_is_invalid_parameter_on_both(
     async with mcp_session(lake["services"]) as mcp:
         result = await mcp.call_tool("get_bars", {"symbol": "SPY", "listing": "maybe"})
     assert result.is_error
-    assert _error_code(result.content[0].text, "get_bars") == "invalid_parameter"
+    assert _mcp_error(result.content[0].text) == rest["error"]
+
+
+async def test_malformed_bars_start_is_an_argument_schema_error(
+    lake: Dict[str, Any],
+) -> None:
+    """A value the SDK's own input schema rejects (an unparseable datetime) never
+    reaches ``query_bars``/``parse_day`` at all -- it fails as a pydantic
+    ValidationError at the tool-call boundary, REST's typed-validation class (422)."""
+    async with mcp_session(lake["services"]) as mcp:
+        result = await mcp.call_tool("get_bars", {"symbol": "SPY", "start": "yesterday"})
+    assert result.is_error
+    error = _mcp_error(result.content[0].text)
+    assert error["code"] == "invalid_parameter"
+    assert error["details"]["source"] == "arguments"
+    assert error["details"]["problems"], error["details"]
+
+
+async def test_list_tool_limit_zero_is_an_argument_schema_error(
+    lake: Dict[str, Any],
+) -> None:
+    """``limit`` is schema-bounded (ge=1) now, so 0 never reaches the tool body."""
+    async with mcp_session(lake["services"]) as mcp:
+        result = await mcp.call_tool("list_silver_revisions", {"limit": 0})
+    assert result.is_error
+    error = _mcp_error(result.content[0].text)
+    assert error["code"] == "invalid_parameter"
+    assert error["details"]["source"] == "arguments"
+
+
+async def test_unknown_tool_is_invalid_parameter(lake: Dict[str, Any]) -> None:
+    async with mcp_session(lake["services"]) as mcp:
+        result = await mcp.call_tool("get_nonexistent_tool", {})
+    assert result.is_error
+    error = _mcp_error(result.content[0].text)
+    assert error["code"] == "invalid_parameter"
+    assert error["details"]["source"] == "tool"
 
 
 async def test_result_too_large(lake: Dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
@@ -517,4 +568,108 @@ async def test_result_too_large(lake: Dict[str, Any], monkeypatch: pytest.Monkey
     async with mcp_session(lake["services"]) as mcp:
         result = await mcp.call_tool("get_bars", {"symbol": "SPY", "price_mode": "raw"})
     assert result.is_error
-    assert _error_code(result.content[0].text, "get_bars") == "result_too_large"
+    assert _mcp_error(result.content[0].text)["code"] == "result_too_large"
+
+
+async def test_result_too_large_counts_utf8_bytes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The budget counts UTF-8 bytes, not characters, so a result built entirely from
+    multi-byte characters can cross it while its character count would not. Not
+    market data: a throwaway tool on its own server, exercising only the budget."""
+    from mcp.server.transport_security import TransportSecuritySettings
+
+    from src.mcp_server import server as server_mod
+    from src.mcp_server._common import LakeMCPServer, lake_tool
+
+    label = "肥皂" * 20  # 40 non-ASCII characters, 3 UTF-8 bytes each
+
+    probe = _ThrowawayLabel(label=label)
+    wire = CallToolResult(
+        content=[TextContent(type="text", text=probe.model_dump_json())],
+        structured_content=probe.model_dump(mode="json"),
+    ).model_dump_json(by_alias=True)
+    char_len, byte_len = len(wire), len(wire.encode("utf-8"))
+    assert byte_len > char_len, "the probe must cost more bytes than characters"
+    budget = (char_len + byte_len) // 2
+    assert char_len < budget < byte_len
+
+    throwaway = LakeMCPServer("throwaway")
+    tool = lake_tool(throwaway)
+
+    @tool
+    async def get_label() -> _ThrowawayLabel:
+        return _ThrowawayLabel(label=label)
+
+    monkeypatch.setattr(_common, "BUDGET_BYTES", budget)
+    app = server_mod.BearerAuth(
+        throwaway.streamable_http_app(
+            streamable_http_path=server_mod.MCP_PATH,
+            json_response=True,
+            stateless_http=True,
+            transport_security=TransportSecuritySettings(
+                enable_dns_rebinding_protection=True,
+                allowed_hosts=["testserver"],
+                allowed_origins=["http://testserver", "https://testserver"],
+            ),
+        ),
+        API_KEY,
+    )
+    async with app._app.router.lifespan_context(app._app):
+        transport = httpx2.ASGITransport(app=app)
+        async with httpx2.AsyncClient(
+            transport=transport,
+            base_url="http://testserver",
+            headers={"authorization": f"Bearer {API_KEY}"},
+        ) as http_client:
+            async with Client(
+                streamable_http_client("http://testserver/mcp", http_client=http_client)
+            ) as client:
+                result = await client.call_tool("get_label", {})
+    assert result.is_error, result.structured_content
+    assert _mcp_error(result.content[0].text)["code"] == "result_too_large"
+
+
+# -- more REST parity: no-argument tools, and a documented default-limit difference --
+
+
+async def test_list_asset_classes_matches_rest(client: TestClient, lake: Dict[str, Any]) -> None:
+    rest = client.get("/v1/lake/asset-classes").json()
+    async with mcp_session(lake["services"]) as mcp:
+        result = await mcp.call_tool("list_asset_classes", {})
+    assert not result.is_error, result.content
+    assert _drop_gen(rest) == _drop_gen(result.structured_content)
+
+
+async def test_get_lake_status_matches_rest(client: TestClient, lake: Dict[str, Any]) -> None:
+    rest = client.get("/v1/lake/status").json()
+    async with mcp_session(lake["services"]) as mcp:
+        result = await mcp.call_tool("get_lake_status", {})
+    assert not result.is_error, result.content
+    assert _drop_gen(rest) == _drop_gen(result.structured_content)
+
+
+async def test_search_instruments_default_limit_differs_from_rest(
+    client: TestClient, lake: Dict[str, Any]
+) -> None:
+    """Documented, deliberate difference: with no ``limit``, REST's
+    ``/v1/instruments`` defaults to 500 rows (``src/api/routes/instruments.py``,
+    ``Query(default=500, ...)``), while MCP's ``search_instruments`` defaults to the
+    shared lake page default, ``src.application.lake.services.PAGE_DEFAULT`` (100).
+    No fixture in this repo has >100 real coverage rows to make the cap bind
+    observably (this one has 5), so the two defaults are asserted directly."""
+    from src.application.lake.services import PAGE_DEFAULT
+
+    rest_default_limit = 500  # src/api/routes/instruments.py: Query(default=500, ...)
+    assert PAGE_DEFAULT == 100
+    assert PAGE_DEFAULT != rest_default_limit
+
+    rest = client.get("/v1/instruments").json()
+    async with mcp_session(lake["services"]) as mcp:
+        result = await mcp.call_tool("search_instruments", {})
+    assert not result.is_error, result.content
+    mcp_body = result.structured_content
+    # Neither cap binds on this small fixture, so the bodies still agree here --
+    # the difference above is in the (uncapped-here) default, not in these 5 rows.
+    assert rest["count"] == mcp_body["count"]
+    assert rest["count"] < min(PAGE_DEFAULT, rest_default_limit)

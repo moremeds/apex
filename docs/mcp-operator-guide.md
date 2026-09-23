@@ -59,6 +59,14 @@ A few failures come from the MCP layer itself rather than the lake:
 - **Unknown tool:** `invalid_parameter` with `details.source = "tool"`.
 - **Result over the 2 MiB budget:** `result_too_large`, which is MCP only.
 
+**Abandoned calls keep running.** The server runs stateless over HTTP. With mcp 2.2.0,
+when a client times out or disconnects, the server does not cancel the tool that is
+still executing, and the call runs to completion. The work it can do is capped by the
+per-query lake deadline, `APEX_LAKE_QUERY_TIMEOUT_SECONDS` (default 30). This is
+recorded as an `xfail(strict=True)` in `tests/unit/mcp_server/test_transport.py`; if
+the SDK starts cancelling abandoned calls, that test will pass unexpectedly and fail
+the suite, which flags that this note needs updating.
+
 ## Configuration
 
 The MCP server reads the same lake variables as REST (`APEX_LIVEWIRE_ROOT`,

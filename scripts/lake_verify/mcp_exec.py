@@ -4,10 +4,15 @@ call, and the result is mapped back to the REST response shape so the same oracl
 checkers settle it.
 
 Mapping back is mechanical and lossless: columns + rows become the REST records, an
-error's JSON envelope becomes its REST status. Where REST and MCP differ by design
-the case is NOT_APPLICABLE, never silently passed:
-- legacy-policy series cells (REST only; their bounded twins are the ``inproc`` cells);
-- instruments with ``listing`` != listed, or a limit MCP's page cap (2000) refuses.
+error's JSON envelope becomes its REST status. NOT_APPLICABLE is raised from an
+explicit allowlist only (never for "no route matched" -- that is a FAIL), where REST
+and MCP differ by design:
+- legacy-policy series cells (design §3.2: legacy REST is a deliberate compatibility
+  difference; their bounded twins run as ``inproc`` cells, not here);
+- instruments with a ``listing`` other than "listed" (design §5 gives
+  ``search_instruments`` no ``listing`` argument at all);
+- instruments ``limit`` 2001..5000 (REST legacy allows up to 5000; MCP pages cap at
+  2000 and refuses anything past it).
 Unpaged legacy list routes are answered by following ``next_offset`` to the end.
 """
 
@@ -33,6 +38,18 @@ _PAGE_KEYS = ("limit", "offset", "returned", "truncated", "next_offset", "total"
 
 
 _ENV_LOCK = threading.Lock()
+
+# The only reasons NOT_APPLICABLE may be raised for; an unmapped path is a FAIL.
+_NA_LEGACY_SERIES = (
+    "legacy-policy series path (design §3.2): legacy REST is a deliberate compatibility "
+    "difference from MCP's bounded policy; the bounded twin runs as an inproc cell"
+)
+_NA_INSTRUMENTS_LISTING = (
+    "search_instruments has no `listing` argument (design §5); REST-only listing != listed"
+)
+_NA_INSTRUMENTS_LIMIT = (
+    "instruments limit {limit}: REST legacy allows le=5000, MCP pages cap at 2000"
+)
 
 
 def _int(value: Any) -> Any:
@@ -127,20 +144,19 @@ def translate(request: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
         if match is None:
             continue
         if tool == "_legacy_series":
-            raise NotApplicable("legacy REST output policy; MCP serves the bounded twin")
+            raise NotApplicable(_NA_LEGACY_SERIES)
         args = _pick(params, **_ARGS[tool])
         args.update({k: _int(unquote(v)) if k == "revision" else unquote(v)
                      for k, v in match.groupdict().items()})  # fmt: skip
         if tool == "search_instruments":
             if params.get("listing", "listed") != "listed":
-                raise NotApplicable("instruments listing != listed is REST-only (501)")
-            args.setdefault("limit", 500)  # REST's default page
-            limit = args["limit"]
+                raise NotApplicable(_NA_INSTRUMENTS_LISTING)
+            limit = args.get("limit")
             if isinstance(limit, int) and PAGE_MAX < limit <= 5000:
                 # REST serves 2001..5000; MCP's page cap refuses it: a real difference.
-                raise NotApplicable(f"instruments limit {limit} is REST-only (MCP max 2000)")
+                raise NotApplicable(_NA_INSTRUMENTS_LIMIT.format(limit=limit))
         return tool, args
-    raise NotApplicable(f"no MCP twin for {path}")
+    raise RuntimeError(f"no MCP twin for {path}")
 
 
 _CORE = frozenset(("time", "open", "high", "low", "close", "volume", "yield_pct"))
@@ -149,9 +165,11 @@ _CORE = frozenset(("time", "open", "high", "low", "close", "volume", "yield_pct"
 def _records(block: Dict[str, Any], key: str) -> Dict[str, Any]:
     """Rows -> REST records. REST omits a null per-class extra field rather than
     emitting it; a column holds null there, so null extras are dropped again."""
+    columns = block["columns"]
+    assert len(columns) == len(set(columns)), f"duplicate columns: {columns}"
     out = {k: v for k, v in block.items() if k not in ("columns", "rows")}
     out[key] = [
-        {c: v for c, v in zip(block["columns"], row) if v is not None or c in _CORE}
+        {c: v for c, v in zip(columns, row, strict=True) if v is not None or c in _CORE}
         for row in block["rows"]
     ]
     return out
@@ -238,17 +256,19 @@ class McpTarget:
         return {k: v for k, v in merged.items() if k not in _PAGE_KEYS}
 
 
-_PREFIX = re.compile(r"^Error executing tool \w+: ")
-
-
 def _error(text: str) -> Tuple[int, Any]:
-    """The tool error's REST envelope -> its REST status. A failure of the tool's input
-    schema (no envelope) is REST's typed-validation 422 invalid_parameter."""
+    """The tool error's REST envelope -> its REST status. The text IS the envelope (no
+    "Error executing tool ..." prefix); a text that fails to parse as one is a real
+    defect, not something to paper over with a fabricated 422 -- fail the case."""
     try:
-        envelope = json.loads(_PREFIX.sub("", text))
-        code = envelope["error"]["code"]
-    except (ValueError, KeyError, TypeError):
-        return 422, {"error": {"code": "invalid_parameter", "message": text[:300]}}
+        envelope = json.loads(text)
+        error = envelope["error"]
+        code = error["code"]
+    except (ValueError, KeyError, TypeError) as exc:
+        raise RuntimeError(f"tool error has no REST envelope: {text[:300]}") from exc
+    if error.get("details", {}).get("source") == "arguments":
+        # SDK argument-schema failures: REST's typed-validation class (422).
+        return 422, envelope
     if code == "result_too_large":  # MCP-only: the serialized-result budget
         return 400, envelope
     return STATUS_BY_CODE[ApiErrorCode(code)], envelope

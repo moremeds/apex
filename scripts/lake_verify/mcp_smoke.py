@@ -3,9 +3,15 @@
     python scripts/lake_verify/mcp_smoke.py --url http://127.0.0.1:8334/mcp --out RUN.json
     (key from APEX_MCP_API_KEY)
 
-Arguments are discovered from the lake through the tools themselves (an index, a PIT
-revision, a rates symbol), never invented. Writes one JSON record per call; exits 1
-unless the tool set is exactly the 20 names and every call succeeds.
+SPY, QQQ, OJ and the q="SP" instrument prefix are fixed real symbols this smoke run
+assumes exist on the target lake; the index id, PIT revision and rates symbol are
+discovered through the tools themselves (list_indices, list_pit_revisions,
+search_instruments(asset_class="rates")), never invented. Writes one JSON record per
+call -- including a call that raised, so a transport crash still shows up as a failed
+call rather than aborting the run silently -- and exits 1 unless the tool set is
+exactly the 20 names, every call succeeds, and the series/list tools that should have
+real data on this lake (get_bars, get_rate_series, list_futures_contracts,
+get_index_members) actually got some.
 """
 
 import argparse
@@ -31,58 +37,91 @@ EXPECTED = {
 
 async def main(url: str, key: str, out: str) -> int:
     records: List[Dict[str, Any]] = []
+    names: set = set()
+    crashed: str = ""
     headers = {"Authorization": f"Bearer {key}"}
-    async with httpx2.AsyncClient(headers=headers, timeout=120) as http:
-        async with Client(streamable_http_client(url, http_client=http)) as client:
-            names = {tool.name for tool in (await client.list_tools()).tools}
+    try:
+        async with httpx2.AsyncClient(headers=headers, timeout=120) as http:
+            async with Client(streamable_http_client(url, http_client=http)) as client:
+                names = {tool.name for tool in (await client.list_tools()).tools}
 
-            async def call(name: str, args: Dict[str, Any]) -> Tuple[bool, Any]:
-                t0 = time.perf_counter()
-                result = await client.call_tool(name, args)
-                ms = round((time.perf_counter() - t0) * 1000, 1)
-                ok = not result.is_error
-                body = result.structured_content if ok else result.content[0].text
-                records.append({"tool": name, "args": args, "ok": ok, "ms": ms,
-                                "summary": str(body)[:300]})  # fmt: skip
-                return ok, body
+                async def call(
+                    name: str, args: Dict[str, Any], nonempty_key: str = ""
+                ) -> Tuple[bool, Any]:
+                    t0 = time.perf_counter()
+                    try:
+                        result = await client.call_tool(name, args)
+                    except Exception as exc:  # a transport/protocol crash is a failed
+                        # call, not a script abort -- it still shows up in the report.
+                        ms = round((time.perf_counter() - t0) * 1000, 1)
+                        records.append({"tool": name, "args": args, "ok": False, "ms": ms,
+                                        "summary": f"{type(exc).__name__}: {exc}"[:300]})  # fmt: skip
+                        return False, None
+                    ms = round((time.perf_counter() - t0) * 1000, 1)
+                    ok = not result.is_error
+                    body = result.structured_content if ok else result.content[0].text
+                    if ok and nonempty_key and not body.get(nonempty_key):
+                        ok = False
+                    records.append({"tool": name, "args": args, "ok": ok, "ms": ms,
+                                    "summary": str(body)[:300]})  # fmt: skip
+                    return ok, body
 
-            await call("list_asset_classes", {})
-            await call("get_lake_status", {})
-            await call("search_instruments", {"q": "SP", "asset_class": "equity", "limit": 5})
-            await call("get_instrument", {"symbol": "SPY", "asset_class": "equity"})
-            await call("get_coverage", {"symbol": "SPY", "limit": 5})
-            await call("find_gaps", {"symbol": "SPY", "asset_class": "equity"})
-            await call("get_bars", {"symbol": "SPY", "timeframe": "1d", "limit": 5})
-            await call("get_bulk_bars", {"symbols": ["SPY", "QQQ"], "limit": 5})
-            ok, rates = await call("search_instruments", {"asset_class": "rates", "limit": 1})
-            if ok and rates["instruments"]:
-                sym = rates["instruments"][0]["symbol"]
-                await call("get_rate_series", {"symbol": sym, "limit": 5})
-            await call("list_futures_contracts", {"root": "OJ", "limit": 5})
-            await call("get_corporate_actions", {"symbol": "SPY", "limit": 5})
-            await call("get_delisting", {"symbol": "SPY"})
-            await call("resolve_security", {"symbol": "SPY"})
-            ok, indices = await call("list_indices", {})
-            if ok and indices["indices"]:
-                await call("get_index_members", {"index_id": indices["indices"][0], "limit": 5})
-            await call("get_membership_history", {"symbol": "SPY", "limit": 5})
-            await call("list_silver_revisions", {"limit": 3})
-            await call("get_silver_revision", {"limit": 3})
-            ok, pits = await call("list_pit_revisions", {})
-            if ok and pits["revisions"]:
-                await call("get_pit_revision", {"revision": pits["revisions"][0]["revision"],
-                                                "limit": 3})  # fmt: skip
-    called = {r["tool"] for r in records}
-    failed = [r for r in records if not r["ok"]]
-    report = {"url_host": url.split("/")[2], "tool_names_exact": names == EXPECTED,
-              "tools_listed": sorted(names), "tools_called": sorted(called),
-              "uncalled": sorted(EXPECTED - called), "failed": len(failed), "calls": records}  # fmt: skip
-    with open(out, "w") as fh:
-        json.dump(report, fh, indent=1, default=str)
-    print(json.dumps({k: report[k] for k in ("tool_names_exact", "uncalled", "failed")}))
-    for r in records:
-        print(f"{'ok ' if r['ok'] else 'ERR'} {r['ms']:>8}ms {r['tool']} {r['summary'][:120]}")
-    return 0 if report["tool_names_exact"] and not failed and called == EXPECTED else 1
+                await call("list_asset_classes", {})
+                await call("get_lake_status", {})
+                await call(
+                    "search_instruments",
+                    {"q": "SP", "asset_class": "equity", "limit": 5},
+                )
+                await call("get_instrument", {"symbol": "SPY", "asset_class": "equity"})
+                await call("get_coverage", {"symbol": "SPY", "limit": 5})
+                await call("find_gaps", {"symbol": "SPY", "asset_class": "equity"})
+                await call("get_bars", {"symbol": "SPY", "timeframe": "1d", "limit": 5}, "rows")
+                await call("get_bulk_bars", {"symbols": ["SPY", "QQQ"], "limit": 5})
+                ok, rates = await call("search_instruments", {"asset_class": "rates", "limit": 1})
+                if ok and rates["instruments"]:
+                    sym = rates["instruments"][0]["symbol"]
+                    await call("get_rate_series", {"symbol": sym, "limit": 5}, "rows")
+                await call("list_futures_contracts", {"root": "OJ", "limit": 5}, "contracts")
+                await call("get_corporate_actions", {"symbol": "SPY", "limit": 5})
+                await call("get_delisting", {"symbol": "SPY"})
+                await call("resolve_security", {"symbol": "SPY"})
+                ok, indices = await call("list_indices", {})
+                if ok and indices["indices"]:
+                    await call(
+                        "get_index_members",
+                        {"index_id": indices["indices"][0], "limit": 5},
+                        "members",
+                    )
+                await call("get_membership_history", {"symbol": "SPY", "limit": 5})
+                await call("list_silver_revisions", {"limit": 3})
+                await call("get_silver_revision", {"limit": 3})
+                ok, pits = await call("list_pit_revisions", {})
+                if ok and pits["revisions"]:
+                    await call(
+                        "get_pit_revision",
+                        {"revision": pits["revisions"][0]["revision"], "limit": 3},
+                    )
+    except Exception as exc:
+        crashed = f"{type(exc).__name__}: {exc}"
+    finally:
+        called = {r["tool"] for r in records}
+        failed = [r for r in records if not r["ok"]]
+        report = {"url_host": url.split("/")[2], "tool_names_exact": names == EXPECTED,
+                  "tools_listed": sorted(names), "tools_called": sorted(called),
+                  "uncalled": sorted(EXPECTED - called), "failed": len(failed),
+                  "crashed": crashed, "calls": records}  # fmt: skip
+        with open(out, "w") as fh:
+            json.dump(report, fh, indent=1, default=str)
+        print(
+            json.dumps(
+                {k: report[k] for k in ("tool_names_exact", "uncalled", "failed", "crashed")}
+            )
+        )
+        for r in records:
+            print(f"{'ok ' if r['ok'] else 'ERR'} {r['ms']:>8}ms {r['tool']} {r['summary'][:120]}")
+    return (
+        0 if not crashed and report["tool_names_exact"] and not failed and called == EXPECTED else 1
+    )
 
 
 if __name__ == "__main__":
