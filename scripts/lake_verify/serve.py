@@ -57,11 +57,11 @@ def build_app(price_mode: str | None = None):  # type: ignore[no-untyped-def]
     catalog = env("APEX_LIVEWIRE_COVERAGE_DB")
     app.state.coverage_catalog = CoverageCatalog(Path(catalog)) if catalog else None
     try:  # candidate-only readers; absent on the baseline tree
-        from src.api.routes._lake import repairs_from_env
+        from src.infrastructure.adapters.livewire.repairs import RepairsReader
         from src.infrastructure.adapters.livewire.pit_revisions import PitRevisionReader
 
         app.state.pit_reader = PitRevisionReader(Path(silver)) if silver else None
-        app.state.repairs_reader = repairs_from_env()
+        app.state.repairs_reader = RepairsReader.from_env()
     except ImportError:
         pass
     return app

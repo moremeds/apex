@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from dataclasses import dataclass, field
 from datetime import date
@@ -67,6 +68,12 @@ class RepairsEvidence:
 class RepairsReader:
     def __init__(self, root: Optional[Path]) -> None:
         self._root = Path(root) if root is not None else None
+
+    @classmethod
+    def from_env(cls) -> "RepairsReader":
+        """From ``APEX_LIVEWIRE_REPAIRS_ROOT``; unset is ``not_configured``, not an error."""
+        raw = os.environ.get("APEX_LIVEWIRE_REPAIRS_ROOT", "").strip()
+        return cls(Path(raw).expanduser() if raw else None)
 
     @property
     def configured(self) -> bool:
