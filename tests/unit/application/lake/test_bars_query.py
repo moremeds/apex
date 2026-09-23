@@ -16,7 +16,8 @@ import pandas as pd
 import pytest
 
 from src.api.payload.chart import bars_payload_from
-from src.application.lake.bars import query_bars, query_bulk_bars
+from src.application.lake.bars import query_bars
+from src.application.lake.bulk import query_bulk_bars
 from src.application.lake.errors import LakeError
 from src.application.lake.services import LakeServices
 from src.infrastructure.adapters.livewire.ohlc_provider import LivewireOhlcProvider

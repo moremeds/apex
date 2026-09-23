@@ -27,7 +27,7 @@ from fastapi import APIRouter, Query, Request
 from src.api.payload.chart import bulk_bars_payload_from
 from src.api.payload.validate import validate_payload
 from src.api.routes._lake import lake_services
-from src.application.lake.bars import query_bulk_bars
+from src.application.lake.bulk import query_bulk_bars
 from src.application.lake.guards import DEFAULT_BARS
 
 router = APIRouter(tags=["chart"])

@@ -106,13 +106,14 @@ async def test_chart_payload_revision_and_guard_use_the_read_snapshot(
     new = write_generation(silver, "new", 9.0)
     publish_manifest(silver, 1, old)
     provider = LivewireOhlcProvider(tmp_path / "bronze", silver, "adjusted")
-    original = provider._query
+    original = provider._bars
 
-    def flip_then_query(*args, **kwargs):
+    async def flip_then_read(*args, **kwargs):
+        # A new revision lands after the request pinned its snapshot, mid-read.
         publish_manifest(silver, 2, new)
-        return original(*args, **kwargs)
+        return await original(*args, **kwargs)
 
-    monkeypatch.setattr(provider, "_query", flip_then_query)
+    monkeypatch.setattr(provider, "_bars", flip_then_read)
     app = create_app()
     app.state.ohlc_provider = provider
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:

@@ -9,7 +9,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List
 
-from src.application.lake.bars import BarsResult, BulkResult, PitProvenance, RatesResult
+from src.application.lake.bars import BarsResult, PitProvenance, RatesResult
+from src.application.lake.bulk import BulkResult
 from src.infrastructure.adapters.livewire.asset_classes import get_asset_class
 
 # The two adjustment bases apex can serve. `adjusted` reads livewire Silver, whose

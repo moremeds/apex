@@ -11,8 +11,8 @@ from src.domain.interfaces.historical_source import HistoricalSourcePort
 from src.infrastructure.adapters.livewire.ohlc_provider import (
     AdjustedDataUnavailable,
     LivewireOhlcProvider,
-    _to_utc_datetime,
 )
+from src.infrastructure.adapters.livewire.parquet_reads import to_utc_datetime
 from tests.support.silver_manifest import publish_manifest, write_generation
 
 WIDE_START = datetime(2026, 1, 1, tzinfo=timezone.utc)
@@ -359,7 +359,7 @@ def test_to_utc_datetime_normalizes_session_tz_to_utc() -> None:
     hk = timezone(timedelta(hours=8))
     aware_hk = datetime(2026, 6, 12, 22, 30, tzinfo=hk)  # == 14:30 UTC, same instant
 
-    out = _to_utc_datetime(aware_hk)
+    out = to_utc_datetime(aware_hk)
 
     assert out.utcoffset() == timedelta(0)  # normalized to UTC, not left at +08:00
     assert out.tzinfo == timezone.utc
@@ -368,10 +368,10 @@ def test_to_utc_datetime_normalizes_session_tz_to_utc() -> None:
 
 def test_to_utc_datetime_keeps_naive_and_date_as_utc() -> None:
     """Naive datetimes are tagged UTC; date32 (daily `trade_date`) becomes midnight UTC."""
-    naive = _to_utc_datetime(datetime(2026, 1, 2, 9, 30))
+    naive = to_utc_datetime(datetime(2026, 1, 2, 9, 30))
     assert naive == datetime(2026, 1, 2, 9, 30, tzinfo=timezone.utc)
 
-    daily = _to_utc_datetime(dt.date(2026, 1, 2))
+    daily = to_utc_datetime(dt.date(2026, 1, 2))
     assert daily == datetime(2026, 1, 2, tzinfo=timezone.utc)
 
 

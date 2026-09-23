@@ -18,9 +18,9 @@ Bronze intraday or on the unadjusted delisted archive.
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date, datetime, time, timezone
-from typing import Any, Dict, List, Literal, Optional, Sequence
+from typing import Any, Dict, List, Literal, Optional
 
 from src.application.lake.errors import LakeError
 from src.application.lake.guards import (
@@ -41,6 +41,7 @@ from src.infrastructure.adapters.livewire.ohlc_provider import (
     AdjustedDataUnavailable,
     RatePoint,
 )
+from src.infrastructure.adapters.livewire.parquet_reads import QueryTimeout
 from src.infrastructure.adapters.livewire.paths import parquet_path
 from src.infrastructure.adapters.livewire.pit_revisions import (
     PitRevision,
@@ -58,10 +59,6 @@ OutputPolicy = Literal["legacy", "bounded"]
 BOUNDED_BARS_DEFAULT = 250
 BOUNDED_RATES_DEFAULT = 500
 BOUNDED_SERIES_MAX = 5000
-BULK_MAX_SYMBOLS = 200
-BULK_BOUNDED_DEFAULT = 50
-BULK_BOUNDED_MAX = 2000
-BULK_ROW_BUDGET = 10000
 
 
 @dataclass(frozen=True)
@@ -97,25 +94,6 @@ class BarsResult:
 
 
 @dataclass(frozen=True)
-class BulkSeries:
-    listing_status: str
-    bars: List[BarData]
-    truncated: bool
-
-
-@dataclass(frozen=True)
-class BulkResult:
-    price_mode: str
-    timeframe: str
-    adjustment_revision: Optional[int]
-    pinned_silver_revision: Optional[int]
-    window_start: datetime
-    window_end: datetime
-    series: Dict[str, BulkSeries] = field(default_factory=dict)
-    missing: Dict[str, str] = field(default_factory=dict)
-
-
-@dataclass(frozen=True)
 class RatesResult:
     symbol: str
     points: List[RatePoint]
@@ -124,7 +102,7 @@ class RatesResult:
     truncated: bool
 
 
-def _check_price_mode(price_mode: Optional[str], spec: AssetClassSpec, symbol: str) -> None:
+def check_price_mode(price_mode: Optional[str], spec: AssetClassSpec, symbol: str) -> None:
     if price_mode is not None and price_mode not in ("raw", "adjusted"):
         raise LakeError(
             "invalid_parameter",
@@ -141,7 +119,7 @@ def _check_price_mode(price_mode: Optional[str], spec: AssetClassSpec, symbol: s
         )
 
 
-def _check_pins(
+def check_pins(
     spec: AssetClassSpec,
     symbol: str,
     timeframe: str,
@@ -182,7 +160,7 @@ def _check_pins(
     return kind
 
 
-def _tail_for(
+def tail_for(
     policy: OutputPolicy,
     limit: Optional[int],
     default_bounded: int,
@@ -199,7 +177,7 @@ def _tail_for(
     return (resolved if resolved > 0 else None), resolved
 
 
-def _trim(rows: List[Any], tail: Optional[int]) -> tuple[List[Any], bool]:
+def trim_tail(rows: List[Any], tail: Optional[int]) -> tuple[List[Any], bool]:
     if tail is None or len(rows) <= tail:
         return rows, False
     return rows[-tail:], True
@@ -226,12 +204,12 @@ async def query_bars(
     spec = spec_or_raise(asset_class)
     require_bars_payload(spec, symbol)
     check_timeframe(spec, timeframe)
-    _check_price_mode(price_mode, spec, symbol)
-    pin = _check_pins(
+    check_price_mode(price_mode, spec, symbol)
+    pin = check_pins(
         spec, symbol, timeframe, listing, price_mode, silver_revision_pin, pit_revision
     )
     provider = services.require_provider()
-    tail, window_limit = _tail_for(
+    tail, window_limit = tail_for(
         policy, limit, BOUNDED_BARS_DEFAULT, BOUNDED_SERIES_MAX, DEFAULT_BARS
     )
     if pin == "pit":
@@ -252,7 +230,7 @@ async def query_bars(
         tail = legacy_tail
     try:
         if pin == "silver":
-            provider = await _pin_silver(services, provider, silver_revision_pin)
+            provider = await pin_silver(services, provider, silver_revision_pin)
         elif effective == "adjusted":
             provider = await asyncio.to_thread(provider.pin_snapshot)
         bars = await provider.fetch_bars(
@@ -269,6 +247,8 @@ async def query_bars(
         raise LakeError(
             "adjusted_unavailable", str(exc), symbol=symbol, asset_class=spec.name
         ) from exc
+    except QueryTimeout as exc:
+        raise LakeError("query_timeout", str(exc), symbol=symbol, asset_class=spec.name) from exc
     if not bars and not artifact_exists(
         provider, symbol, timeframe, spec, effective, listing_status
     ):
@@ -279,7 +259,7 @@ async def query_bars(
             symbol=symbol,
             asset_class=spec.name,
         )
-    bars, truncated = _trim(bars, tail)
+    bars, truncated = trim_tail(bars, tail)
     adjusted = effective == "adjusted"
     return BarsResult(
         symbol=symbol,
@@ -300,7 +280,7 @@ async def query_bars(
     )
 
 
-async def _pin_silver(services: LakeServices, provider: Any, revision: Optional[int]) -> Any:
+async def pin_silver(services: LakeServices, provider: Any, revision: Optional[int]) -> Any:
     if services.silver is None:
         raise LakeError("provider_not_configured", "Silver root is not configured")
     assert revision is not None
@@ -377,15 +357,18 @@ async def _pit_bars(
     except PitUnavailable as exc:
         raise LakeError("pit_unavailable", str(exc), symbol=symbol, asset_class="equity") from exc
     clipped_end = min(window_end, datetime.combine(last, time.max, tzinfo=timezone.utc))
-    bars = await services.require_provider().fetch_artifact_daily(
-        path,
-        symbol,
-        window_start,
-        clipped_end,
-        tail=None if tail is None else tail + 1,
-        date_ranges=tuple((s.session_from, s.session_to) for s in hits),
-    )
-    bars, truncated = _trim(bars, tail)
+    try:
+        bars = await services.require_provider().fetch_artifact_daily(
+            path,
+            symbol,
+            window_start,
+            clipped_end,
+            tail=None if tail is None else tail + 1,
+            date_ranges=tuple((s.session_from, s.session_to) for s in hits),
+        )
+    except QueryTimeout as exc:
+        raise LakeError("query_timeout", str(exc), symbol=symbol, asset_class="equity") from exc
+    bars, truncated = trim_tail(bars, tail)
     return BarsResult(
         symbol=symbol,
         asset_class="equity",
@@ -429,116 +412,6 @@ def _provenance(manifest: PitRevision, scopes: tuple[PitScope, ...]) -> PitProve
     )
 
 
-def normalize_symbols(raw: Sequence[str]) -> List[str]:
-    """Upper-cased, de-duplicated, order-preserving; 1..200 symbols."""
-    ordered: Dict[str, None] = {}
-    for part in raw:
-        symbol = part.strip().upper()
-        if symbol:
-            ordered[symbol] = None
-    symbols = list(ordered)
-    if not symbols:
-        raise LakeError("invalid_parameter", "symbols is required and must be non-empty")
-    if len(symbols) > BULK_MAX_SYMBOLS:
-        raise LakeError(
-            "invalid_parameter",
-            f"{len(symbols)} symbols requested; at most {BULK_MAX_SYMBOLS} per call",
-        )
-    return symbols
-
-
-async def query_bulk_bars(
-    services: LakeServices,
-    *,
-    symbols: Sequence[str],
-    timeframe: str = "1d",
-    start: Optional[datetime] = None,
-    end: Optional[datetime] = None,
-    limit: Optional[int] = None,
-    price_mode: Optional[str] = None,
-    listing: str = "listed",
-    silver_revision_pin: Optional[int] = None,
-    policy: OutputPolicy = "legacy",
-) -> BulkResult:
-    """Equity bars for many symbols on ONE pinned Silver revision.
-
-    A symbol that cannot be served lands in ``missing`` with its reason: one bad
-    ticker in 200 must not cost the other 199.
-    """
-    requested = normalize_symbols(symbols)
-    spec = spec_or_raise("equity")
-    check_timeframe(spec, timeframe)
-    _check_price_mode(price_mode, spec, requested[0])
-    if listing not in ("listed", "delisted", "any"):
-        # Validated once, up front: check_listing raises per symbol, and the loop below
-        # files per-symbol errors under `missing`, which would turn a malformed request
-        # into a 200 with an empty result map.
-        raise LakeError(
-            "invalid_parameter",
-            f"unknown listing filter {listing!r} (have listed, delisted, any)",
-        )
-    pin = _check_pins(spec, requested[0], timeframe, listing, price_mode, silver_revision_pin, None)
-    provider = services.require_provider()
-    tail, window_limit = _tail_for(
-        policy, limit, BULK_BOUNDED_DEFAULT, BULK_BOUNDED_MAX, DEFAULT_BARS
-    )
-    if policy == "bounded" and tail is not None and tail * len(requested) > BULK_ROW_BUDGET:
-        raise LakeError(
-            "invalid_parameter",
-            f"{len(requested)} symbols x limit {tail} exceeds the {BULK_ROW_BUDGET}-row budget",
-        )
-    effective = "adjusted" if pin else (price_mode or provider.effective_price_mode(spec.name))
-    try:
-        if pin == "silver":
-            provider = await _pin_silver(services, provider, silver_revision_pin)
-        elif effective == "adjusted":
-            # One Silver revision for the whole table: a revision landing mid-request
-            # would adjust some symbols on one corporate-action set, the rest on another.
-            provider = await asyncio.to_thread(provider.pin_snapshot)
-    except AdjustedDataUnavailable as exc:
-        raise LakeError("adjusted_unavailable", str(exc)) from exc
-    # The window is resolved once for the table; any request that may touch the
-    # archived tier reads from the epoch.
-    window_start, window_end, legacy_tail = resolve_window(
-        timeframe, start, end, window_limit, from_epoch=listing != "listed"
-    )
-    if policy == "legacy":
-        tail = legacy_tail
-    result = BulkResult(
-        price_mode=effective,
-        timeframe=timeframe,
-        adjustment_revision=silver_revision(provider) if effective == "adjusted" else None,
-        pinned_silver_revision=silver_revision_pin,
-        window_start=window_start,
-        window_end=window_end,
-    )
-    for symbol in requested:
-        try:
-            status = check_listing(provider, listing, symbol, spec.name, timeframe, effective)
-            bars = await provider.fetch_bars(
-                symbol,
-                timeframe,
-                window_start,
-                window_end,
-                asset_class=spec.name,
-                price_mode=effective,
-                listing=status,
-                tail=None if tail is None else tail + 1,
-            )
-        except LakeError as exc:
-            result.missing[symbol] = exc.message
-            continue
-        except AdjustedDataUnavailable as exc:
-            result.missing[symbol] = str(exc)
-            continue
-        if not bars and not artifact_exists(provider, symbol, timeframe, spec, effective, status):
-            result.missing[symbol] = f"no artifact for {symbol} under {spec.partition}"
-            continue
-        trimmed, truncated = _trim(bars, tail)
-        result.series[symbol] = BulkSeries(status, trimmed, truncated)
-    return result
-
-
 async def query_rates(
     services: LakeServices,
     *,
@@ -555,7 +428,7 @@ async def query_rates(
     if policy == "legacy" and limit is None:
         tail: Optional[int] = None
     else:
-        tail, _ = _tail_for(
+        tail, _ = tail_for(
             "bounded",
             limit,
             BOUNDED_RATES_DEFAULT,
@@ -563,9 +436,12 @@ async def query_rates(
             BOUNDED_RATES_DEFAULT,
         )
     window_start, window_end, _ = resolve_window("1d", start, end, 0)
-    points = await provider.fetch_rate_series(
-        symbol, window_start, window_end, tail=None if tail is None else tail + 1
-    )
+    try:
+        points = await provider.fetch_rate_series(
+            symbol, window_start, window_end, tail=None if tail is None else tail + 1
+        )
+    except QueryTimeout as exc:
+        raise LakeError("query_timeout", str(exc), symbol=symbol, asset_class=spec.name) from exc
     if not points and not parquet_path(provider.bronze_root, symbol, "1d", spec.name).exists():
         raise LakeError(
             "unknown_symbol",
@@ -573,5 +449,5 @@ async def query_rates(
             symbol=symbol,
             asset_class=spec.name,
         )
-    points, truncated = _trim(points, tail)
+    points, truncated = trim_tail(points, tail)
     return RatesResult(symbol, points, window_start, window_end, truncated)
