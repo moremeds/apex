@@ -9,6 +9,7 @@ import functools
 import json
 import logging
 import uuid
+from datetime import date
 from typing import (
     Any,
     Awaitable,
@@ -55,6 +56,19 @@ def tool_error(code: str, message: str, details: Optional[Mapping[str, Any]] = N
     if details:
         body["details"] = dict(details)
     return ToolError(json.dumps({"error": body}, default=str))
+
+
+def parse_day(value: Optional[str], name: str) -> Optional[date]:
+    """Dates arrive as strings, as on REST, so a malformed one is the same stable
+    ``invalid_parameter`` rather than an SDK schema error."""
+    if value is None or not value.strip():
+        return None
+    try:
+        return date.fromisoformat(value.strip())
+    except ValueError as exc:
+        raise LakeError(
+            "invalid_parameter", f"malformed {name} {value!r}; expected YYYY-MM-DD"
+        ) from exc
 
 
 def lake_tool(server: MCPServer) -> Callable[[Fn], Fn]:

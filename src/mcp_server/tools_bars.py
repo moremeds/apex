@@ -5,7 +5,7 @@ by the REST payload builders, with each series turned into columns + rows.
 """
 
 from datetime import datetime, timezone
-from typing import Annotated, Any, Dict, List, Literal, Optional
+from typing import Annotated, Any, Dict, List, Optional
 
 from mcp.server.mcpserver import MCPServer
 from pydantic import Field
@@ -29,12 +29,11 @@ End = Annotated[
     Field(description="window end, ISO-8601 with timezone; default now"),
 ]
 PriceMode = Annotated[
-    Optional[Literal["raw", "adjusted"]],
-    Field(description="omit for the server's configured mode"),
+    Optional[str], Field(description="raw | adjusted; omit for the server's configured mode")
 ]
 Listing = Annotated[
-    Literal["listed", "delisted", "any"],
-    Field(description="listed = live tree, delisted = archive, any = both (live wins a date)"),
+    str,
+    Field(description="listed (live tree) | delisted (archive) | any (both; live wins a date)"),
 ]
 SilverPin = Annotated[
     Optional[int],

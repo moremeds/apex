@@ -3,8 +3,7 @@
 Lists always page here (design §3.2); REST keeps its unpaged envelopes unless asked.
 """
 
-from datetime import date
-from typing import Annotated, Any, Dict, List, Literal, Optional
+from typing import Annotated, Any, Dict, List, Optional
 
 from mcp.server.mcpserver import MCPServer
 from pydantic import Field
@@ -19,12 +18,12 @@ from src.api.payload.lake import (
 )
 from src.application.lake import identity
 from src.application.lake.services import LakeServices, check_page, page_of
-from src.mcp_server._common import Result, lake_tool
+from src.mcp_server._common import Result, lake_tool, parse_day
 from src.mcp_server.tools_discovery import Limit, Offset, Page
 
-AsOf = Annotated[Optional[date], Field(description="YYYY-MM-DD (default today UTC)")]
+AsOf = Annotated[Optional[str], Field(description="YYYY-MM-DD (default today UTC)")]
 KnownAt = Annotated[
-    Optional[date], Field(description="only facts known by this date (point-in-time)")
+    Optional[str], Field(description="YYYY-MM-DD; only facts known by then (point-in-time)")
 ]
 
 
@@ -70,9 +69,9 @@ def register(server: MCPServer, services: LakeServices) -> None:
     @tool
     async def get_corporate_actions(
         symbol: str,
-        action_type: Optional[Literal["split", "cash_dividend"]] = None,
-        start: Annotated[Optional[date], Field(description="earliest ex_date")] = None,
-        end: Annotated[Optional[date], Field(description="latest ex_date")] = None,
+        action_type: Annotated[Optional[str], Field(description="split | cash_dividend")] = None,
+        start: Annotated[Optional[str], Field(description="earliest ex_date, YYYY-MM-DD")] = None,
+        end: Annotated[Optional[str], Field(description="latest ex_date, YYYY-MM-DD")] = None,
         limit: Limit = None,
         offset: Offset = None,
     ) -> Actions:
@@ -82,8 +81,8 @@ def register(server: MCPServer, services: LakeServices) -> None:
             services,
             symbol,
             action_type=action_type,
-            start=start,
-            end=end,
+            start=parse_day(start, "start"),
+            end=parse_day(end, "end"),
             limit=limit,
             offset=offset,
             paged=True,
@@ -103,7 +102,10 @@ def register(server: MCPServer, services: LakeServices) -> None:
     ) -> Security:
         """Ticker -> one security_id at a date; ambiguity is an error, never a guess."""
         resolution = await identity.resolve_security(
-            services, symbol, as_of or identity.today_utc(), known_at
+            services,
+            symbol,
+            parse_day(as_of, "as_of") or identity.today_utc(),
+            parse_day(known_at, "known_at"),
         )
         return Security(**security_payload(resolution))
 
@@ -128,8 +130,8 @@ def register(server: MCPServer, services: LakeServices) -> None:
         result = await identity.index_members(
             services,
             index_id,
-            as_of or identity.today_utc(),
-            known_at=known_at,
+            parse_day(as_of, "as_of") or identity.today_utc(),
+            known_at=parse_day(known_at, "known_at"),
             include_candidates=include_candidates,
             limit=limit,
             offset=offset,
@@ -141,7 +143,7 @@ def register(server: MCPServer, services: LakeServices) -> None:
     async def get_membership_history(
         symbol: str,
         as_of: Annotated[
-            Optional[date], Field(description="date used to resolve the ticker")
+            Optional[str], Field(description="YYYY-MM-DD used to resolve the ticker")
         ] = None,
         index_id: Optional[str] = None,
         limit: Limit = None,
@@ -151,7 +153,7 @@ def register(server: MCPServer, services: LakeServices) -> None:
         result = await identity.membership_history(
             services,
             symbol,
-            as_of or identity.today_utc(),
+            parse_day(as_of, "as_of") or identity.today_utc(),
             index_id=index_id,
             limit=limit,
             offset=offset,

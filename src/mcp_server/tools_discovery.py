@@ -1,7 +1,6 @@
 """Discovery tools: asset classes, instruments, coverage, gaps, lake status, futures."""
 
-from datetime import date
-from typing import Annotated, Any, Dict, List, Literal, Optional
+from typing import Annotated, Any, Dict, List, Optional
 
 from mcp.server.mcpserver import MCPServer
 from pydantic import Field
@@ -15,7 +14,7 @@ from src.api.payload.lake import (
 )
 from src.application.lake import catalog, gaps
 from src.application.lake.services import LakeServices, check_page
-from src.mcp_server._common import Result, lake_tool
+from src.mcp_server._common import Result, lake_tool, parse_day
 
 Limit = Annotated[Optional[int], Field(description="page size (1..2000, default 100)")]
 Offset = Annotated[Optional[int], Field(description="page offset (default 0)")]
@@ -123,18 +122,18 @@ def register(server: MCPServer, services: LakeServices) -> None:
         asset_class: str = "equity",
         timeframe: str = "1d",
         start: Annotated[
-            Optional[date], Field(description="first session (default end-365d)")
+            Optional[str], Field(description="first session, YYYY-MM-DD (default end - 365d)")
         ] = None,
         end: Annotated[
-            Optional[date], Field(description="last session (default today UTC)")
+            Optional[str], Field(description="last session, YYYY-MM-DD (default today UTC)")
         ] = None,
-        listing: Literal["listed", "delisted", "any"] = "listed",
+        listing: Annotated[str, Field(description="listed | delisted | any")] = "listed",
         max_gaps: Annotated[int, Field(description="1..2000")] = 100,
-        calendar: Literal["auto", "xnys", "weekdays"] = "auto",
+        calendar: Annotated[str, Field(description="auto | xnys | weekdays")] = "auto",
     ) -> Gaps:
         """Session-presence gaps against an explicit calendar, with repair evidence.
         Presence of a session is not proof of intraday completeness."""
-        first, last = gaps.gap_window_default(end, start)
+        first, last = gaps.gap_window_default(parse_day(end, "end"), parse_day(start, "start"))
         result = await gaps.find_gaps(
             services,
             symbol=symbol,
@@ -144,7 +143,7 @@ def register(server: MCPServer, services: LakeServices) -> None:
             end=last,
             listing=listing,
             max_gaps=max_gaps,
-            calendar=calendar,
+            calendar=calendar,  # type: ignore[arg-type]  # validated in find_gaps
         )
         return Gaps(**gaps_payload(result))
 
