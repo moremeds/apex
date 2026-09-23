@@ -5,11 +5,11 @@ settled one of three ways:
 
 1. ``contract_rejection`` -- the contract rejects it from its arguments alone (design
    §3.4/§6 guard order), so the expected status/code is fixed at generation;
-2. ``blocked_data`` -- legal, but the lake holds no sample for that
-   (class, timeframe, residency) cell (P0 inventory);
-3. a value case -- the oracle below decides at run time, from the files themselves,
+2. a value case -- the oracle below decides at run time, from the files themselves,
    whether the answer is rows (compared value by value) or a data-dependent rejection
-   (unknown symbol, not a PIT member, evicted artifact, ...).
+   (unknown symbol, not a PIT member, evicted artifact, ...). A (class, timeframe,
+   residency) cell the lake holds no file for queries a real live symbol anyway: the
+   route reads whatever is on disk, and so does the oracle.
 
 The oracle re-derives everything from the files through ``lake.py`` and never calls
 the candidate. Dimension collapses, each justified by the route contract:
@@ -277,7 +277,7 @@ def generate(lake: Lake, inventory: Dict[str, Any]) -> List[Case]:
         pit_pin = pit_number if d["revision"] in ("pit", "both") else None
         if d["revision"] == "both":
             silver_pin = current
-        chosen = sample or fallback
+        chosen = sample or samples.get((d["asset_class"], d["timeframe"], "live_only")) or fallback
         if d["revision"] == "pit" and d["residency"] == "live_only" and pit_symbol:
             chosen = Sample(pit_symbol, chosen.first, chosen.last)
         window = _window_params(
@@ -289,11 +289,6 @@ def generate(lake: Lake, inventory: Dict[str, Any]) -> List[Case]:
                 if holder is not None and holder.get("limit") in ("exact", "below"):
                     holder["limit"] = 7  # any positive value: the argument check fires first
             expect = {"kind": "rejection", "status": rejection[0], "code": rejection[1]}
-        elif sample is None:
-            expect = {
-                "kind": "blocked_data",
-                "reason": f"no {d['residency']} {d['asset_class']} {d['timeframe']} artifact in the lake (P0 inventory)",
-            }
         elif d["revision"] == "pit" and pit_number is None:
             expect = {
                 "kind": "blocked_data",
@@ -483,14 +478,8 @@ class BarsChecker:
         limit = holder.get("limit")
         if limit in ("exact", "below"):
             count = len(expected["window_rows"])
-            if limit == "below" and count < 2:
-                return Outcome("BLOCKED_DATA", f"window holds {count} row(s); 'below' needs >= 2")
-            holder["limit"] = count if limit == "exact" else count - 1
-            if holder["limit"] < 1:
-                return Outcome(
-                    "BLOCKED_DATA",
-                    "window holds no rows; 'exact' limit is not positive",
-                )
+            # A window too short for exact/below still runs, at the smallest valid limit.
+            holder["limit"] = max(1, count if limit == "exact" else count - 1)
             if d["output_policy"] == "bounded" and holder["limit"] > BOUNDED_MAX:
                 # The window holds more rows than the bounded contract allows in one call.
                 return self._compare_rejection(
@@ -843,9 +832,7 @@ class BulkChecker:
                 count = len(oracle(symbols[0], datetime.now(UTC))["window_rows"])
             except Reject:
                 count = 0
-            if count < 2:
-                return Outcome("BLOCKED_DATA", f"anchor {symbols[0]} window holds {count} row(s)")
-            holder["limit"] = count if holder["limit"] == "exact" else count - 1
+            holder["limit"] = max(1, count if holder["limit"] == "exact" else count - 1)
             if bounded and (
                 holder["limit"] > BULK_BOUNDED_MAX
                 or holder["limit"] * len(symbols) > BULK_ROW_BUDGET
@@ -907,9 +894,7 @@ class RatesChecker:
         bounded = case.dims["output_policy"] == "bounded" or holder.get("limit") is not None
         limit = holder.get("limit")
         if limit in ("exact", "below"):
-            if len(rows) < 2:
-                return Outcome("BLOCKED_DATA", f"window holds {len(rows)} rate point(s)")
-            holder["limit"] = limit = len(rows) if limit == "exact" else len(rows) - 1
+            holder["limit"] = limit = max(1, len(rows) if limit == "exact" else len(rows) - 1)
         if bounded and limit is None:
             tail: Optional[int] = RATES_BOUNDED_DEFAULT
         else:

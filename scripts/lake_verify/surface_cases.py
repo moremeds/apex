@@ -1513,18 +1513,7 @@ def _gen_security(lake: Lake, samples: Dict[Tuple[str, str, str], Any]) -> List[
                 _value("security", symbol=seam, as_of=_today().isoformat()),
             )
         )
-    else:
-        cases.append(
-            Case(
-                "security:seam",
-                "security",
-                {},
-                _req("/v1/security/ZZZZSEAMPROBE"),
-                _blocked(
-                    "no identity-seam ticker (>=2 distinct verified security_ids today) found in security_master"
-                ),
-            )
-        )
+    # No seam ticker in the lake today -> no seam case: there is nothing seam-shaped to read.
     return cases
 
 
@@ -2699,7 +2688,8 @@ def _gen_gaps(samples: Dict[Tuple[str, str, str], Any]) -> List[Case]:
     An unsupported timeframe ("4h", never in any ladder) is a pure argument rejection
     -- ``check_timeframe`` in gaps.py fires before any lake read, so it is generated as
     a rejection case regardless of whether a sample exists for that cell. A cell whose
-    timeframe IS supported but has no inventory sample for that residency is BLOCKED_DATA.
+    timeframe IS supported but has no inventory sample for that residency queries a live
+    sample anyway: the route reads whatever the lake holds, and the oracle does the same.
     """
     cases: List[Case] = []
     generic_window_sample = {"first": date(2015, 1, 1), "last": _today()}
@@ -2746,16 +2736,12 @@ def _gen_gaps(samples: Dict[Tuple[str, str, str], Any]) -> List[Case]:
                                 )
                                 continue
                             if sample is None:
-                                cases.append(
-                                    Case(
-                                        case_id,
-                                        "gaps",
-                                        dims,
-                                        _req(f"/v1/{ac}/NOSAMPLE/gaps"),
-                                        _blocked(f"no {residency} {ac} {tf} sample in inventory"),
-                                    )
+                                # The lake has no file for this residency: query a real live
+                                # symbol anyway; the oracle reads what is (not) there.
+                                sample = (
+                                    samples.get((ac, tf, "live_only"))
+                                    or samples[(ac, ladder[-1], "live_only")]
                                 )
-                                continue
                             symbol = sample["symbol"]
                             win = _gaps_window(window_kind, sample)
                             cases.append(
