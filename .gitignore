@@ -142,5 +142,5 @@ network-requests.txt
 *-base64.txt
 /design_mockups.html
 
-# MCP bearer key (docker-compose.yml mcp service)
+# MCP bearer key file (docker/mcp.compose.yml)
 mcp.env

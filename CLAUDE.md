@@ -30,6 +30,7 @@ scripts/serve.sh
 uv run --env-file .env python -m src.api.server   # equivalent, env loaded by you
 make api-server        # REST + WS API on :8322
 make mcp-server        # read-only lake MCP on :8333 (needs APEX_MCP_API_KEY)
+scripts/mcp_tailnet.sh up IMAGE [PORT]   # run the MCP on the docker host, tailnet-only (check/down too)
 make dev               # api + signal service via main.py --service all
 
 # Test

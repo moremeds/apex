@@ -3,7 +3,8 @@
 #
 # Reads the livewire bronze lake from APEX_LIVEWIRE_ROOT (a read-only bind-mount in
 # docker-compose.yml). Reaches host Postgres + xenon WS via host.docker.internal.
-# The same image runs the read-only MCP server (docker-compose.yml `mcp` service):
+# The same image runs the read-only MCP server (docker/mcp.compose.yml, driven by
+# scripts/mcp_tailnet.sh):
 #   python -m src.mcp_server.server   (:8333, APEX_MCP_API_KEY required)
 #
 # Local smoke build (on the macmini / any arm64 Docker host):

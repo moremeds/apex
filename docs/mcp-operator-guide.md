@@ -104,36 +104,51 @@ Generate a key with `python -c "import secrets; print(secrets.token_urlsafe(32))
 APEX_MCP_API_KEY=<key> APEX_LIVEWIRE_ROOT=<lake>/bronze ... make mcp-server
 ```
 
-## Deploy (compose)
+## Deploy: test instance or production
 
-The `mcp` service in `docker-compose.yml` runs the API image with
-`python -m src.mcp_server.server`. It needs two private files next to the compose file,
-and neither is committed:
-
-- `.env` — shared with the API service for compose interpolation. It must contain:
-  - `APEX_LAKE_HOST_ROOT` — the host lake root;
-  - `APEX_MCP_BIND` — the host's tailnet address. Only this address gets the published
-    port, never `0.0.0.0`.
-- `mcp.env` — the only file the MCP container reads. It must contain:
-  - `APEX_MCP_API_KEY`;
-  - `APEX_MCP_ALLOWED_HOSTS` — the tailnet name and/or address with `:8333`.
-
-The MCP container never reads the API's `.env`, so it never receives the PostgreSQL
-credentials. Lake mounts are read-only.
-
-Check both of these after a deploy:
-
-- **Liveness:** `curl http://<bind>:8333/healthz` returns `{"status":"ok"}`. It
-  requires no auth and reads no data.
-- **Readiness:** an authenticated tool call. Any other HTTP response, including a 405
-  or a 200 from `/healthz`, does not show that the tools work:
+The service is defined in `docker/mcp.compose.yml`, as its own compose project, and
+`scripts/mcp_tailnet.sh` runs it on the Docker host. A test instance of a candidate
+image and the production service use the same file and the same script. They differ
+only in the image, the port and the key file:
 
 ```sh
-curl -s http://<bind>:8333/mcp \
-  -H "Authorization: Bearer <key>" \
-  -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_lake_status","arguments":{}}}'
+export APEX_LAKE_HOST_ROOT=<lake-root>        # every lake mount is read-only
+
+# test instance of a candidate image, on its own port
+scripts/mcp_tailnet.sh up apex-api:<candidate-tag> 8334
+
+# production: the released image pinned by digest, port 8333
+APEX_MCP_ENV_FILE=<deploy-dir>/mcp.env \
+  scripts/mcp_tailnet.sh up ghcr.io/moremeds/apex-api@sha256:<digest> 8333
+
+scripts/mcp_tailnet.sh check [PORT]           # re-run the acceptance check
+scripts/mcp_tailnet.sh down [PORT]            # stop it and remove the tailnet forward
 ```
+
+`up` does four things:
+
+1. **Key file.** It creates the key file if it does not exist yet. The file is private
+   (mode 0600) and holds a fresh `APEX_MCP_API_KEY` and `APEX_MCP_ALLOWED_HOSTS`, which
+   is set to this host's tailnet name and address with the port. Unless
+   `APEX_MCP_ENV_FILE` says otherwise, the file is `~/.config/apex-mcp/<port>.env`. The
+   container reads only this file, so it never receives the API's PostgreSQL secret.
+2. **Container.** It starts or replaces the container, publishing the port on
+   `127.0.0.1` only.
+3. **Tailnet forward.** It forwards the port to the tailnet, and nowhere else, with
+   `tailscale serve --bg --tcp <port> tcp://127.0.0.1:<port>`. Publishing directly on
+   the tailnet address does not work when Docker runs in a VM (colima): the VM has no
+   tailnet address, so the bind fails with `cannot assign requested address`.
+4. **Check.** It runs `check` over the tailnet name:
+   - `/healthz` answers;
+   - a request without the key gets 401;
+   - an authenticated `tools/list` returns the 20 tools;
+   - `tools/call get_lake_status` succeeds.
+
+   Only the authenticated call shows that the tools work. A 200 from `/healthz` is
+   liveness only.
+
+To get the key onto a client, read it from the key file over ssh. Never paste it into
+a repository.
 
 ## Claude Code
 

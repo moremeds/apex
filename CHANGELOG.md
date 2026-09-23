@@ -21,8 +21,11 @@ All notable changes to apex are recorded here. Format follows
   `details`); SDK argument-schema failures become `invalid_parameter` with
   `details.source="arguments"`. `APEX_MCP_API_KEY` is mandatory (Bearer, constant-time compare; no open
   mode), the SDK's Host/Origin checks are on (`APEX_MCP_ALLOWED_HOSTS`), and `/healthz` is an
-  unauthenticated liveness probe only. The compose service reads only its own `mcp.env` and
-  binds the host port to `APEX_MCP_BIND`. Operator guide: `docs/mcp-operator-guide.md`.
+  unauthenticated liveness probe only. `docker/mcp.compose.yml` defines the service as its
+  own compose project (reads only its private key file, publishes on loopback), and
+  `scripts/mcp_tailnet.sh up|check|down` runs it for a test instance or production alike:
+  it creates the key file, forwards the port to the tailnet with `tailscale serve`, and
+  checks an authenticated `tools/call`. Operator guide: `docs/mcp-operator-guide.md`.
 
 - **`src/application/lake/` — a transport-neutral lake query layer shared by REST (and, going
   forward, MCP).** `bars.py`, `catalog.py`, `identity.py`, `revisions.py` and `gaps.py` hold the
