@@ -9,6 +9,15 @@ All notable changes to apex are recorded here. Format follows
 
 ## [Unreleased]
 
+### Removed
+
+- **The unused Cloudflare CI and dashboard Worker.** The dispatch-only
+  `.github/workflows/r2-daily-pipeline.yml` (scheduled runs off since 2026-06-21) and the
+  `apex-dashboard` Worker (`wrangler.toml`, `worker-assets/`, `scripts/build-dashboard.mjs`)
+  are gone. The build script read a directory the Phase 0 carve deleted, so it could not
+  have run. The Makefile's phantom `tunnel` target is gone too. The R2 storage adapter and
+  the `cloudflare` extra stay; `signal_service` still imports them.
+
 ### Fixed
 
 - **`uv.lock` now carries the released version.** `scripts/release/cut.sh` bumped `VERSION` and
