@@ -104,6 +104,11 @@ class LivewireOhlcProvider:
         return self._delisted_root
 
     @property
+    def db(self) -> LakeDb:
+        """The executor every lake parquet read goes through (deadline, shared parent)."""
+        return self._db
+
+    @property
     def silver_root(self) -> Path | None:
         return self._silver_root
 

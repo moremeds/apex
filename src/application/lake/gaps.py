@@ -30,6 +30,7 @@ from src.application.lake.errors import LakeError
 from src.application.lake.guards import check_listing, check_timeframe, spec_or_raise
 from src.application.lake.identity import today_utc
 from src.application.lake.services import LakeServices
+from src.infrastructure.adapters.livewire.parquet_reads import QueryTimeout
 from src.infrastructure.adapters.livewire.paths import (
     delisted_bronze_path,
     parquet_path,
@@ -150,7 +151,10 @@ async def find_gaps(
     label["certainty"] = (
         "exchange" if policy == "xnys" and spec.name in _EXCHANGE_CLASSES else "approximate"
     )
-    presence = await asyncio.to_thread(session_presence, paths, timeframe, start, end)
+    try:
+        presence = await session_presence(provider.db, paths, timeframe, start, end)
+    except QueryTimeout as exc:
+        raise LakeError("query_timeout", str(exc), symbol=symbol, asset_class=spec.name) from exc
     lifetime, in_life = await _lifetime(services, symbol, spec.name)
     present = set(presence.present)
     considered = [day for day in expected if in_life(day)]

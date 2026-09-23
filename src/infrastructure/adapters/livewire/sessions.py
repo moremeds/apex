@@ -15,7 +15,7 @@ from datetime import date
 from pathlib import Path
 from typing import List, Optional, Sequence
 
-import duckdb
+from .parquet_reads import LakeDb
 
 
 @dataclass(frozen=True)
@@ -31,24 +31,24 @@ def _day_expr(timeframe: str) -> str:
     return "CAST(timezone('America/New_York', bar_timestamp) AS DATE)"
 
 
-def session_presence(
-    paths: Sequence[Path], timeframe: str, start: date, end: date
+async def session_presence(
+    db: LakeDb, paths: Sequence[Path], timeframe: str, start: date, end: date
 ) -> SessionPresence:
     """Distinct session dates in ``[start, end]`` across ``paths`` (a listing union),
-    plus the overall first/last session of the files themselves."""
+    plus the overall first/last session of the files themselves. Runs through
+    ``LakeDb`` so it shares the per-query deadline of every other lake read."""
     if not paths:
         return SessionPresence([], None, None)
     day = _day_expr(timeframe)
+    # Interpolated parts are code constants (the day expression) and one "?" per path;
+    # every path and date is a bound parameter.
     union = " UNION ALL ".join(f"SELECT {day} AS day FROM read_parquet(?)" for _ in paths)
     params = [p.as_posix() for p in paths]
-    con = duckdb.connect(database=":memory:")
-    try:
-        bounds = con.execute(f"SELECT min(day), max(day) FROM ({union})", params).fetchone()
-        rows = con.execute(
-            f"SELECT DISTINCT day FROM ({union}) WHERE day >= ? AND day <= ? ORDER BY day",
-            [*params, start, end],
-        ).fetchall()
-    finally:
-        con.close()
-    first, last = bounds if bounds is not None else (None, None)
-    return SessionPresence([row[0] for row in rows], first, last)
+    (bounds,) = await db.rows(
+        f"SELECT min(day) AS first, max(day) AS last FROM ({union})", params  # nosec B608
+    )
+    rows = await db.rows(
+        f"SELECT DISTINCT day FROM ({union}) WHERE day >= ? AND day <= ? ORDER BY day",  # nosec B608
+        [*params, start, end],
+    )
+    return SessionPresence([row["day"] for row in rows], bounds["first"], bounds["last"])
