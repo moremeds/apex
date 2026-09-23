@@ -30,6 +30,7 @@ from types import MappingProxyType
 from typing import Any, Literal, Mapping
 from urllib.parse import unquote
 
+from .manifest_cache import ManifestCache
 from .paths import encode_symbol
 from .revisions import list_revision_numbers
 
@@ -162,15 +163,15 @@ class PitRevision:
         return path
 
 
+# Parsed PIT manifests by content hash; ~5 MB each parsed, so the LRU stays small.
+_PARSED: "ManifestCache[PitRevision]" = ManifestCache(max_entries=8)
+
+
 class PitRevisionReader:
     """Read-only access to ``<silver>/pit-revisions``."""
 
     def __init__(self, silver_root: Path) -> None:
         self._silver_root = Path(silver_root).resolve()
-        # Parsed summaries of immutable files, keyed by (revision, size, mtime_ns) so a
-        # replaced file is re-read. ponytail: unbounded dict, one small entry per
-        # published revision; bound it if revisions ever reach the tens of thousands.
-        self._summaries: dict[tuple[int, int, int], PitRevisionSummary] = {}
 
     @property
     def directory(self) -> Path:
@@ -181,21 +182,9 @@ class PitRevisionReader:
 
     def list_revisions(self) -> list[PitRevisionSummary]:
         """Every retained manifest, newest first. A malformed one raises ``PitUnavailable``
-        rather than silently shrinking the list."""
-        summaries = []
-        for revision in list_revision_numbers(self.directory):
-            path = self._path(revision)
-            try:
-                stat = path.stat()
-            except OSError as exc:
-                raise PitUnavailable(f"cannot stat PIT revision {revision}: {exc}") from exc
-            key = (revision, stat.st_size, stat.st_mtime_ns)
-            summary = self._summaries.get(key)
-            if summary is None:
-                summary = self.read(revision).summary
-                self._summaries[key] = summary
-            summaries.append(summary)
-        return summaries
+        rather than silently shrinking the list. Each file is re-read and re-hashed;
+        only the parse is reused, so a replaced file is never served stale."""
+        return [self.read(revision).summary for revision in list_revision_numbers(self.directory)]
 
     def read(self, revision: int) -> PitRevision:
         if isinstance(revision, bool) or not isinstance(revision, int) or revision < 1:
@@ -207,11 +196,18 @@ class PitRevisionReader:
             raise PitRevisionNotFound(f"PIT revision {revision} does not exist") from exc
         except OSError as exc:
             raise PitUnavailable(f"cannot read PIT revision {revision}: {exc}") from exc
-        try:
-            payload = json.loads(raw)
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise PitUnavailable(f"PIT revision {revision} is not valid JSON") from exc
-        return _parse(payload, revision, self._silver_root)
+
+        def parse() -> PitRevision:
+            try:
+                payload = json.loads(raw)
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise PitUnavailable(f"PIT revision {revision} is not valid JSON") from exc
+            return _parse(payload, revision, self._silver_root)
+
+        manifest = _PARSED.get_or_parse(self._silver_root, raw, parse)
+        if manifest.revision != revision:  # the same bytes cached under another name
+            raise PitUnavailable(f"PIT revision {revision} is malformed: names another revision")
+        return manifest
 
     def _path(self, revision: int) -> Path:
         return self.directory / f"revision={revision}.json"

@@ -12,6 +12,7 @@ from types import MappingProxyType
 from typing import Any, Literal, Mapping
 from urllib.parse import unquote
 
+from .manifest_cache import ManifestCache
 from .paths import SUPPORTED_TIMEFRAMES, encode_symbol
 
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -102,6 +103,11 @@ class SilverRevision:
             self.artifact_path(symbol, kind)
 
 
+# Parsed manifests by content hash (P1.6 option C): ~125 ms of parse per adjusted read
+# becomes a ~5 ms hash. Four entries cover current plus a few pinned revisions.
+_PARSED: ManifestCache[SilverRevision] = ManifestCache(max_entries=4)
+
+
 class RevisionManifestReader:
     """Pin one current manifest, validating its structure and immutable commit record."""
 
@@ -126,9 +132,10 @@ class RevisionManifestReader:
             current_bytes = manifest_path.read_bytes()
         except OSError as exc:
             raise RevisionManifestError(f"cannot read Silver revision manifest: {exc}") from exc
-        payload = self._load(current_bytes)
-        revision = self._revision_number(payload)
-        immutable = self.revisions_dir / f"revision={revision}.json"
+        manifest = self._parsed(current_bytes)
+        # Re-checked on every read, cache hit or not: the pointer must equal the
+        # immutable manifest it names.
+        immutable = self.revisions_dir / f"revision={manifest.revision}.json"
         try:
             if immutable.read_bytes() != current_bytes:
                 raise RevisionManifestError(
@@ -136,7 +143,14 @@ class RevisionManifestReader:
                 )
         except OSError as exc:
             raise RevisionManifestError(f"cannot read immutable Silver manifest: {exc}") from exc
-        return self._parse(payload, revision)
+        return manifest
+
+    def _parsed(self, raw: bytes) -> SilverRevision:
+        def parse() -> SilverRevision:
+            payload = self._load(raw)
+            return self._parse(payload, self._revision_number(payload))
+
+        return _PARSED.get_or_parse(self._root, raw, parse)
 
     def read_revision(self, revision: int) -> SilverRevision:
         """Read one retained numbered manifest by explicit number.
@@ -154,12 +168,12 @@ class RevisionManifestReader:
             raise RevisionNotFound(f"Silver revision {revision} does not exist") from exc
         except OSError as exc:
             raise RevisionManifestError(f"cannot read Silver revision {revision}: {exc}") from exc
-        payload = self._load(raw)
-        if self._revision_number(payload) != revision:
+        manifest = self._parsed(raw)
+        if manifest.revision != revision:
             raise RevisionManifestError(
                 f"Silver manifest revision={revision}.json names another revision"
             )
-        return self._parse(payload, revision)
+        return manifest
 
     @staticmethod
     def _load(raw: bytes) -> dict[str, Any]:
