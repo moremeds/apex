@@ -9,6 +9,14 @@ All notable changes to apex are recorded here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **`uv.lock` now carries the released version.** `scripts/release/cut.sh` bumped `VERSION` and
+  `pyproject.toml` but not `uv.lock`, which also records the project version, so every release
+  left the lock one version behind (master's lock said `0.1.10` after `v0.1.11`). The script now
+  runs `uv lock` after the rewrites and commits the lock with the release; this change also
+  brings master's lock to `0.1.11`.
+
 ## [0.1.11] — 2026-09-23
 
 

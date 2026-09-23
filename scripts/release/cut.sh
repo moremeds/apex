@@ -63,6 +63,7 @@ cat <<EOF
 Will:
   - rewrite VERSION: $current -> $next
   - rewrite pyproject.toml [project].version: $current -> $next
+  - uv lock: record $next as the project version in uv.lock
   - CHANGELOG: insert '## [$next] — $today' below Unreleased, move current Unreleased bullets under it
   - commit: 'release: v$next'
   - annotated tag: v$next (message = CHANGELOG section)
@@ -113,7 +114,10 @@ with open(path, "w") as f:
     f.write(updated)
 PY
 
-git add VERSION pyproject.toml CHANGELOG.md
+# pyproject is fully written now, so re-lock: uv.lock records the project version too.
+uv lock -q
+
+git add VERSION pyproject.toml CHANGELOG.md uv.lock
 git commit -m "release: v$next"
 
 section="$(extract_changelog_section CHANGELOG.md "$next")"
