@@ -245,6 +245,12 @@ async def db_table(request: Request, database: str, schema: str, table: str) -> 
         logger.warning(
             "read query failed for %s.%s.%s (%s)", database, schema, table, type(exc).__name__
         )
+        if isinstance(exc, (asyncpg.UndefinedTableError, asyncpg.UndefinedColumnError)):
+            # The cached catalog named something the database no longer has: rebuild it on
+            # the next request instead of repeating this 400 until the 10-minute TTL expires.
+            cache = getattr(request.app.state, "pg_catalog_cache", None)
+            if cache is not None:
+                cache.invalidate(database)
         mapped = map_driver_error(exc)
         if mapped is None:
             raise

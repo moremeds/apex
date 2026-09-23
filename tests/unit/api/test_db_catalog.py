@@ -403,3 +403,21 @@ async def test_unfiltered_catalog_lists_reachable_databases_and_names_the_rest()
     assert [database["name"] for database in body["databases"]] == ["option_wizard"]
     assert body["unavailable"] == ["core", "trading"]
     assert "secret" not in response.text
+
+
+async def test_catalog_cache_invalidate_forces_a_rebuild(monkeypatch: pytest.MonkeyPatch) -> None:
+    fetched: list[str] = []
+
+    async def fake_fetch(database: str, pool: Any) -> DatabaseCatalog:
+        fetched.append(database)
+        return DatabaseCatalog(database, {})
+
+    monkeypatch.setattr("src.api.routes.db_catalog.fetch_database_catalog", fake_fetch)
+    cache = CatalogCache()
+    await cache.get("option_wizard", object())
+    await cache.get("option_wizard", object())
+    assert fetched == ["option_wizard"]
+    cache.invalidate("option_wizard")
+    cache.invalidate("never_cached")
+    await cache.get("option_wizard", object())
+    assert fetched == ["option_wizard", "option_wizard"]

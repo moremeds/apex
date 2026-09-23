@@ -145,6 +145,10 @@ class CatalogCache:
             self._entries[database] = (time.monotonic(), catalog)
             return catalog
 
+    def invalidate(self, database: str) -> None:
+        """Drop a database's entry so the next request rebuilds it from the live catalog."""
+        self._entries.pop(database, None)
+
 
 def _record(row: Any, name: str) -> Any:
     return row[name]
