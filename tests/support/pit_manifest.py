@@ -55,7 +55,7 @@ BIIB_ROWS = [
 FSLR_SECURITY = "sec_745989483e9341fe9506d29edebc801d"
 BIIB_SECURITY = "sec_93490e5e8936417c83edd874afdacc3f"
 
-FSLR_SCOPES = [
+FSLR_SCOPES: list[dict[str, Any]] = [
     {
         "effective_from": "2009-10-16T00:00:00+00:00",
         "effective_to": "2017-03-20T00:00:00+00:00",
@@ -77,7 +77,7 @@ FSLR_SCOPES = [
         "symbol": "FSLR",
     },
 ]
-BIIB_SCOPE = {
+BIIB_SCOPE: dict[str, Any] = {
     "effective_from": "2003-11-13T00:00:00+00:00",
     "effective_to": None,
     "identity_event_id": "2c9b5018f0e74f46673c0e9c4610b64fe6d5fde29a7e6dcda1517f1a29cfba3d",

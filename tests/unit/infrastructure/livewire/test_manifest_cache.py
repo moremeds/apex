@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from typing import Callable
 
 from src.infrastructure.adapters.livewire.manifest_cache import ManifestCache
 from src.infrastructure.adapters.livewire.pit_revisions import PitRevisionReader
@@ -15,8 +16,12 @@ def test_hit_reuses_the_parse_and_eviction_is_bounded() -> None:
     cache: ManifestCache[str] = ManifestCache(max_entries=2)
     calls: list[bytes] = []
 
-    def parse(raw: bytes):
-        return lambda: calls.append(raw) or raw.decode()
+    def parse(raw: bytes) -> Callable[[], str]:
+        def run() -> str:
+            calls.append(raw)
+            return raw.decode()
+
+        return run
 
     for raw in (b"a", b"a", b"b", b"c", b"a"):
         cache.get_or_parse("ns", raw, parse(raw))

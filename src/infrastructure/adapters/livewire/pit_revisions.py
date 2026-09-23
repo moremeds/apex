@@ -355,13 +355,13 @@ def _aware(value: Any) -> datetime:
 def _positive_int(value: Any) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 1:
         raise ValueError(f"expected a positive integer, got {value!r}")
-    return value
+    return int(value)
 
 
 def _non_negative_int(value: Any) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise ValueError(f"expected a non-negative integer, got {value!r}")
-    return value
+    return int(value)
 
 
 def _optional_str(value: Any) -> str | None:

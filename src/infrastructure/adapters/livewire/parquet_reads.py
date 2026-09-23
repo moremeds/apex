@@ -328,7 +328,10 @@ class _Run:
             with self._lock:
                 if self.abandoned:
                     return []
-            return self.handle.execute(sql, list(params)).fetch_arrow_table().to_pylist()
+            rows: List[dict] = (
+                self.handle.execute(sql, list(params)).fetch_arrow_table().to_pylist()
+            )
+            return rows
         finally:
             self._done.set()
             self.handle.close()
