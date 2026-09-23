@@ -169,3 +169,26 @@ def test_reader_rejects_artifacts_that_do_not_exactly_match_affected_membership(
 
     with pytest.raises(RevisionManifestError, match="exactly one daily and one factors"):
         RevisionManifestReader(tmp_path).read_current()
+
+
+def test_numbered_revision_reads_without_current_and_lists_newest_first(tmp_path: Path) -> None:
+    from src.infrastructure.adapters.livewire.revisions import RevisionNotFound
+
+    _write_manifest(tmp_path, revision=41)
+    _write_manifest(tmp_path, revision=42)
+    reader = RevisionManifestReader(tmp_path)
+
+    assert reader.list_revisions() == [42, 41]
+    assert reader.read_revision(41).revision == 41
+    assert reader.current_revision_number() == 42
+    with pytest.raises(RevisionNotFound):
+        reader.read_revision(40)
+
+
+def test_numbered_revision_must_name_itself(tmp_path: Path) -> None:
+    _write_manifest(tmp_path, revision=42)
+    revisions = tmp_path / "revisions"
+    (revisions / "revision=43.json").write_bytes((revisions / "revision=42.json").read_bytes())
+
+    with pytest.raises(RevisionManifestError, match="names another revision"):
+        RevisionManifestReader(tmp_path).read_revision(43)

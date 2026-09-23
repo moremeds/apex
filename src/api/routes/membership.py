@@ -8,37 +8,31 @@ Registration order matters twice: ``/indices`` and ``/history`` are declared bef
 ``/{index_id}`` so they are not swallowed as an index id, and the router itself is
 registered before ``instruments``, whose ``/v1/{asset_class}/{symbol}`` would otherwise
 match ``/v1/membership/history``.
+
+The queries live in ``src/application/lake/identity.py``; these routes parse dates,
+keep the original envelopes, and add pagination fields only when ``limit`` or
+``offset`` is passed.
 """
 
 from __future__ import annotations
 
-import asyncio
-from datetime import date, datetime, timezone
-from typing import Any, Dict, List, Optional
+from datetime import date, datetime
+from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 
 from src.api.errors import ApiError, ApiErrorCode
-from src.infrastructure.adapters.livewire.membership import (
-    MembershipDataError,
-    MembershipEvent,
-    MembershipReader,
+from src.api.payload.lake import page_fields
+from src.api.routes._lake import lake_services
+from src.application.lake.identity import (
+    index_members,
+    list_indices,
+    membership_history,
+    today_utc,
 )
+from src.application.lake.services import check_page, page_of
 
 router = APIRouter(prefix="/v1/membership", tags=["membership"])
-
-# livewire writes these ids for securities it could not map to the security master.
-_UNRESOLVED_PREFIX = "unresolved:"
-
-
-def _reader_or_raise() -> MembershipReader:
-    reader = MembershipReader.from_env()
-    if reader is None:
-        raise ApiError(
-            ApiErrorCode.PROVIDER_NOT_CONFIGURED,
-            "index membership is not configured; set APEX_LIVEWIRE_LAKE_ROOT",
-        )
-    return reader
 
 
 def _parse_day(value: Optional[str], name: str, *, default: Optional[date] = None) -> date:
@@ -55,87 +49,50 @@ def _parse_day(value: Optional[str], name: str, *, default: Optional[date] = Non
         ) from exc
 
 
-def _today_utc() -> date:
-    return datetime.now(timezone.utc).date()
-
-
 def _iso(value: Optional[datetime]) -> Optional[str]:
     return None if value is None else value.isoformat()
 
 
+def _paged(limit: Optional[int], offset: Optional[int]) -> bool:
+    return limit is not None or offset is not None
+
+
 @router.get("/indices")
-async def list_indices() -> Dict[str, List[str]]:
+async def get_indices(
+    request: Request,
+    limit: Optional[int] = Query(None, description="opt-in page size (1..2000)"),
+    offset: Optional[int] = Query(None, description="opt-in page offset"),
+) -> Dict[str, Any]:
     """Index ids discovered on disk. Never a hardcoded list -- livewire adds indices."""
-    reader = _reader_or_raise()
-    try:
-        return {"indices": await asyncio.to_thread(reader.list_indices)}
-    except MembershipDataError as exc:
-        raise ApiError(ApiErrorCode.MEMBERSHIP_UNAVAILABLE, str(exc)) from exc
+    indices = await list_indices(lake_services(request))
+    if not _paged(limit, offset):
+        return {"indices": indices}
+    page = page_of(indices, *check_page(limit, offset))
+    return {"indices": page.items, **page_fields(page)}
 
 
 @router.get("/history")
-async def membership_history(
+async def get_membership_history(
+    request: Request,
     symbol: str = Query(..., description="Ticker to resolve through the security master"),
     index_id: Optional[str] = Query(None, description="Restrict to one index"),
     as_of: Optional[str] = Query(None, description="Date used to resolve the ticker"),
+    limit: Optional[int] = Query(None, description="opt-in page size (1..2000)"),
+    offset: Optional[int] = Query(None, description="opt-in page offset"),
 ) -> Dict[str, Any]:
-    """The effective membership timeline for a ticker, across both of its log ids.
-
-    Events are unioned over the resolved ``security_id`` and the placeholder
-    ``unresolved:<TICKER>`` -- livewire logs pre-identity-floor events under the
-    placeholder even once the ticker resolves -- and the union is reduced to the
-    effective timeline: superseded and rejected rows are dropped, not returned as
-    raw audit rows.
-    """
-    reader = _reader_or_raise()
-    resolve_day = _parse_day(as_of, "as_of", default=_today_utc())
-    ticker = symbol.strip().upper()
-    if not ticker:
-        raise ApiError(ApiErrorCode.INVALID_PARAMETER, "symbol is required")
-
-    try:
-        resolution = await asyncio.to_thread(reader.resolve_symbol, ticker, resolve_day)
-    except MembershipDataError as exc:
-        raise ApiError(ApiErrorCode.MEMBERSHIP_UNAVAILABLE, str(exc)) from exc
-
-    if resolution.ambiguous:
-        raise ApiError(
-            ApiErrorCode.AMBIGUOUS_SECURITY,
-            f"symbol {ticker!r} maps to more than one security on {resolve_day.isoformat()}; "
-            "apex will not guess which",
-            symbol=ticker,
-        )
-    if index_id is not None and await asyncio.to_thread(reader.events_path, index_id) is None:
-        raise ApiError(ApiErrorCode.UNKNOWN_INDEX, f"unknown index {index_id!r}")
-
-    security_id = resolution.security_id
-    # livewire's identity backfill only reaches back to the provider's identity floor,
-    # so one ticker's log is routinely split: events before the floor stay under
-    # `unresolved:<TICKER>` while later ones carry the real id. Both ids go into one
-    # call so the adapter can retract superseded and rejected rows over the union --
-    # the backfill's rejected revision and its replacement sit under different ids.
-    placeholder = f"{_UNRESOLVED_PREFIX}{ticker}"
-    ids = [placeholder] if security_id is None else [security_id, placeholder]
-    try:
-        events: List[MembershipEvent] = await asyncio.to_thread(
-            reader.history_for_security, ids, index_id
-        )
-    except MembershipDataError as exc:
-        raise ApiError(ApiErrorCode.MEMBERSHIP_UNAVAILABLE, str(exc)) from exc
-    if security_id is None and events:
-        security_id = placeholder
-
-    if security_id is None:
-        raise ApiError(
-            ApiErrorCode.UNKNOWN_SYMBOL,
-            f"symbol {ticker!r} is not in the security master on {resolve_day.isoformat()}"
-            " and has no unresolved membership events",
-            symbol=ticker,
-        )
-
-    return {
-        "symbol": ticker,
-        "security_id": security_id,
+    """The effective membership timeline for a ticker, across both of its log ids."""
+    result = await membership_history(
+        lake_services(request),
+        symbol,
+        _parse_day(as_of, "as_of", default=today_utc()),
+        index_id=index_id,
+        limit=limit,
+        offset=offset,
+        paged=_paged(limit, offset),
+    )
+    payload: Dict[str, Any] = {
+        "symbol": result.symbol,
+        "security_id": result.security_id,
         "events": [
             {
                 "index_id": event.index_id,
@@ -148,13 +105,17 @@ async def membership_history(
                 "event_id": event.event_id,
                 "supersedes": event.supersedes,
             }
-            for event in events
+            for event in result.page.items
         ],
     }
+    if _paged(limit, offset):
+        payload.update(page_fields(result.page))
+    return payload
 
 
 @router.get("/{index_id}")
 async def members_as_of(
+    request: Request,
     index_id: str,
     as_of: Optional[str] = Query(None, description="Membership date (default: today UTC)"),
     known_at: Optional[str] = Query(None, description="Only events known by this date"),
@@ -162,54 +123,33 @@ async def members_as_of(
         False,
         description="Include every non-rejected event, not just verified ones",
     ),
+    limit: Optional[int] = Query(None, description="opt-in page size (1..2000)"),
+    offset: Optional[int] = Query(None, description="opt-in page offset"),
 ) -> Dict[str, Any]:
     """Members of ``index_id`` at ``as_of``, replayed from the event log."""
-    reader = _reader_or_raise()
-    as_of_day = _parse_day(as_of, "as_of", default=_today_utc())
+    as_of_day = _parse_day(as_of, "as_of", default=today_utc())
     known_day = None if known_at is None else _parse_day(known_at, "known_at")
-
-    if await asyncio.to_thread(reader.events_path, index_id) is None:
-        raise ApiError(ApiErrorCode.UNKNOWN_INDEX, f"unknown index {index_id!r}")
-
-    try:
-        members = await asyncio.to_thread(
-            reader.members_with_symbols,
-            index_id,
-            as_of_day,
-            known_at=known_day,
-            include_candidates=include_candidates,
-        )
-    except MembershipDataError as exc:
-        raise ApiError(ApiErrorCode.MEMBERSHIP_UNAVAILABLE, str(exc)) from exc
-
-    if not members:
-        # An empty replay is two different things. If the log holds no row at all under
-        # this status reading, nothing has been published yet and the endpoint fails
-        # closed. If it holds rows but none applies here, the emptiness is the answer:
-        # the date is before the first constituent, or before anything was known.
-        try:
-            published = await asyncio.to_thread(
-                reader.has_events_for_status,
-                index_id,
-                include_candidates=include_candidates,
-            )
-        except MembershipDataError as exc:
-            raise ApiError(ApiErrorCode.MEMBERSHIP_UNAVAILABLE, str(exc)) from exc
-        if not published:
-            raise ApiError(
-                ApiErrorCode.MEMBERSHIP_UNAVAILABLE,
-                f"membership data is not yet available for index {index_id!r} "
-                f"as of {as_of_day.isoformat()}",
-            )
-
-    return {
-        "index_id": index_id,
-        "as_of": as_of_day.isoformat(),
-        "known_at": None if known_day is None else known_day.isoformat(),
+    result = await index_members(
+        lake_services(request),
+        index_id,
+        as_of_day,
+        known_at=known_day,
+        include_candidates=include_candidates,
+        limit=limit,
+        offset=offset,
+        paged=_paged(limit, offset),
+    )
+    payload: Dict[str, Any] = {
+        "index_id": result.index_id,
+        "as_of": result.as_of.isoformat(),
+        "known_at": None if result.known_at is None else result.known_at.isoformat(),
         "members": [
-            {"security_id": member.security_id, "symbol": member.symbol} for member in members
+            {"security_id": member.security_id, "symbol": member.symbol}
+            for member in result.page.items
         ],
-        "unresolved_count": sum(
-            1 for member in members if member.security_id.startswith(_UNRESOLVED_PREFIX)
-        ),
+        # Over the whole replay, not the page: a page must not hide unresolved ids.
+        "unresolved_count": result.unresolved_count,
     }
+    if _paged(limit, offset):
+        payload.update({"total": result.total, **page_fields(result.page)})
+    return payload

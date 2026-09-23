@@ -16,6 +16,9 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from src.application.lake.errors import LakeError, redact_paths
+from src.infrastructure.adapters.livewire.parquet_reads import QueryTimeout
+
 logger = logging.getLogger(__name__)
 
 
@@ -43,6 +46,9 @@ class ApiErrorCode(str, Enum):
     UNKNOWN_INDEX = "unknown_index"
     AMBIGUOUS_SECURITY = "ambiguous_security"
     MEMBERSHIP_UNAVAILABLE = "membership_unavailable"
+    UNKNOWN_REVISION = "unknown_revision"
+    PIT_UNAVAILABLE = "pit_unavailable"
+    REVISION_NOT_SUPPORTED = "revision_not_supported"
 
 
 # 503 for ADJUSTED_UNAVAILABLE is deliberate: a missing or quarantined Silver artifact
@@ -69,6 +75,12 @@ STATUS_BY_CODE: dict[ApiErrorCode, int] = {
     # Fail closed. Membership data is still being backfilled upstream, so an empty
     # replay means "not published yet", never "this index has no members".
     ApiErrorCode.MEMBERSHIP_UNAVAILABLE: 503,
+    # A numbered Silver/PIT manifest that does not exist: the caller picks another.
+    ApiErrorCode.UNKNOWN_REVISION: 404,
+    # Present but unservable PIT evidence (malformed manifest, evicted or mismatched
+    # artifact): an upstream condition, never another revision or raw data.
+    ApiErrorCode.PIT_UNAVAILABLE: 503,
+    ApiErrorCode.REVISION_NOT_SUPPORTED: 400,
 }
 
 
@@ -82,12 +94,25 @@ class ApiError(Exception):
         *,
         symbol: str | None = None,
         asset_class: str | None = None,
+        details: dict[str, object] | None = None,
     ) -> None:
         super().__init__(message)
         self.code = code
         self.message = message
         self.symbol = symbol
         self.asset_class = asset_class
+        self.details = details
+
+    @classmethod
+    def from_lake(cls, exc: LakeError) -> "ApiError":
+        """The application's transport-neutral error, on the REST envelope."""
+        return cls(
+            ApiErrorCode(exc.code),
+            exc.message,
+            symbol=exc.symbol,
+            asset_class=exc.asset_class,
+            details=exc.details,
+        )
 
     @property
     def status_code(self) -> int:
@@ -96,11 +121,13 @@ class ApiError(Exception):
 
 def api_error_response(exc: ApiError) -> JSONResponse:
     """Render ``exc`` as the error envelope, omitting absent context fields."""
-    error: dict[str, str] = {"code": exc.code.value, "message": exc.message}
+    error: dict[str, object] = {"code": exc.code.value, "message": redact_paths(exc.message)}
     if exc.symbol is not None:
         error["symbol"] = exc.symbol
     if exc.asset_class is not None:
         error["asset_class"] = exc.asset_class
+    if exc.details:
+        error["details"] = exc.details
     headers = {"WWW-Authenticate": "Bearer"} if exc.code == ApiErrorCode.UNAUTHORIZED else None
     return JSONResponse(status_code=exc.status_code, content={"error": error}, headers=headers)
 
@@ -112,6 +139,19 @@ def install_error_handlers(app: FastAPI) -> None:
     async def _handle(request: Request, exc: ApiError) -> JSONResponse:  # pragma: no cover
         logger.warning("api error %s on %s: %s", exc.code.value, request.url.path, exc.message)
         return api_error_response(exc)
+
+    @app.exception_handler(LakeError)
+    async def _handle_lake(request: Request, exc: LakeError) -> JSONResponse:  # pragma: no cover
+        logger.warning("lake error %s on %s: %s", exc.code, request.url.path, exc.message)
+        return api_error_response(ApiError.from_lake(exc))
+
+    @app.exception_handler(QueryTimeout)
+    async def _handle_timeout(
+        request: Request, exc: QueryTimeout
+    ) -> JSONResponse:  # pragma: no cover
+        """A lake read that hit its deadline, on a route that did not translate it."""
+        logger.warning("lake query timeout on %s: %s", request.url.path, exc)
+        return api_error_response(ApiError(ApiErrorCode.QUERY_TIMEOUT, str(exc)))
 
     @app.exception_handler(RequestValidationError)
     async def _handle_validation(request: Request, exc: RequestValidationError) -> JSONResponse:

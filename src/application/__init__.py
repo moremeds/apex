@@ -1,29 +1,7 @@
-"""Application layer - orchestration and workflow control."""
+"""Application layer - orchestration and workflow control.
 
-from .async_event_bus import AsyncEventBus
-from .bootstrap import AppContainer
-from .orchestrator import Orchestrator
-from .readiness_manager import (
-    BrokerStatus,
-    DataFreshness,
-    MarketDataStatus,
-    ReadinessManager,
-    ReadinessSnapshot,
-    ReadinessState,
-)
-from .signal_router import SignalRouter, SignalRouterConfig, SignalStats
-
-__all__ = [
-    "AppContainer",
-    "Orchestrator",
-    "AsyncEventBus",
-    "ReadinessManager",
-    "ReadinessState",
-    "ReadinessSnapshot",
-    "BrokerStatus",
-    "MarketDataStatus",
-    "DataFreshness",
-    "SignalRouter",
-    "SignalRouterConfig",
-    "SignalStats",
-]
+No package-level re-exports: importing any ``src.application.*`` module executes this
+file, and the lake queries (``src.application.lake``) must load without the
+orchestrator, bootstrap container or PG repositories
+(``tests/carve/test_lake_boundary.py``). Import from the defining module.
+"""

@@ -12,6 +12,7 @@ from types import MappingProxyType
 from typing import Any, Literal, Mapping
 from urllib.parse import unquote
 
+from .manifest_cache import ManifestCache
 from .paths import SUPPORTED_TIMEFRAMES, encode_symbol
 
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -19,6 +20,29 @@ _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 class RevisionManifestError(ValueError):
     """A Silver revision manifest is malformed or references invalid artifacts."""
+
+
+class RevisionNotFound(LookupError):
+    """No numbered Silver manifest exists for the requested revision.
+
+    Distinct from ``RevisionManifestError``: absence is a 404 the caller can fix by
+    choosing another number, while a present-but-corrupt manifest is an upstream
+    condition that must never read as "no such revision".
+    """
+
+
+_REVISION_FILE_RE = re.compile(r"^revision=([1-9][0-9]*)\.json$")
+
+
+def list_revision_numbers(directory: Path) -> list[int]:
+    """Numbered manifests in ``directory``, newest first. Bounded to one directory
+    listing; AppleDouble (``._*``) and temporary files never match the pattern."""
+    try:
+        names = [entry.name for entry in directory.iterdir()]
+    except FileNotFoundError:
+        return []
+    numbers = [int(m.group(1)) for m in map(_REVISION_FILE_RE.match, names) if m]
+    return sorted(numbers, reverse=True)
 
 
 @dataclass(frozen=True)
@@ -34,10 +58,12 @@ ArtifactKind = Literal["daily", "factors"]
 _ARTIFACT_KINDS: tuple[ArtifactKind, ...] = ("daily", "factors")
 
 
-@dataclass(frozen=True)
-class SilverArtifact:
-    path: str
-    sha256: str
+# One artifact reference: (Silver-relative path, sha256). A plain tuple on purpose: a
+# revision holds ~27k of them, and exact tuples of strings are untracked by CPython's
+# GC, whereas dataclass or NamedTuple instances stay tracked. Cached (manifest_cache)
+# as dataclasses they added ~96k tracked objects and ~7 ms to every full collection,
+# which showed as 10-20 ms on unrelated requests (measured 2026-09-23, P1.6).
+SilverArtifact = tuple[str, str]
 
 
 @dataclass(frozen=True)
@@ -59,18 +85,21 @@ class SilverRevision:
         artifact = self.artifacts.get((symbol, kind))
         if artifact is None:
             return None
+        relative, digest = artifact
         if self.root is None:
             raise RevisionManifestError("Silver snapshot has no root")
-        path = (self.root / artifact.path).resolve()
+        path = (self.root / relative).resolve()
         if not path.is_relative_to(self.root):
-            raise RevisionManifestError(f"artifact outside Silver root: {artifact.path}")
+            raise RevisionManifestError(f"artifact outside Silver root: {relative}")
         if verify:
             try:
                 actual = RevisionManifestReader._sha256(path)
             except OSError as exc:
-                raise RevisionManifestError(f"cannot read artifact {artifact.path}: {exc}") from exc
-            if actual != artifact.sha256:
-                raise RevisionManifestError(f"checksum mismatch for artifact {artifact.path}")
+                raise RevisionManifestError(
+                    f"cannot read artifact {relative}: {exc.strerror or type(exc).__name__}"
+                ) from exc
+            if actual != digest:
+                raise RevisionManifestError(f"checksum mismatch for artifact {relative}")
         return path
 
     def verify_artifacts(self) -> None:
@@ -79,37 +108,107 @@ class SilverRevision:
             self.artifact_path(symbol, kind)
 
 
+# Parsed manifests by content hash (P1.6 option C): ~125 ms of parse per adjusted read
+# becomes a ~5 ms hash. Four entries cover current plus a few pinned revisions.
+_PARSED: ManifestCache[SilverRevision] = ManifestCache(max_entries=4)
+
+
 class RevisionManifestReader:
     """Pin one current manifest, validating its structure and immutable commit record."""
 
     def __init__(self, silver_root: Path) -> None:
         self._root = Path(silver_root).resolve()
 
+    @property
+    def revisions_dir(self) -> Path:
+        return self._root / "revisions"
+
+    def list_revisions(self) -> list[int]:
+        """Retained numbered revisions, newest first."""
+        return list_revision_numbers(self.revisions_dir)
+
+    def current_revision_number(self) -> int:
+        """The revision ``current.json`` names, validated like a full read."""
+        return self.read_current().revision
+
     def read_current(self) -> SilverRevision:
-        manifest_path = self._root / "revisions" / "current.json"
+        manifest_path = self.revisions_dir / "current.json"
         try:
             current_bytes = manifest_path.read_bytes()
-            payload = json.loads(current_bytes)
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise RevisionManifestError(f"cannot read Silver revision manifest: {exc}") from exc
-        if not isinstance(payload, dict):
-            raise RevisionManifestError("Silver revision manifest must be a JSON object")
-
-        schema_version = payload.get("schema_version")
-        if type(schema_version) is not int or schema_version != 1:
-            raise RevisionManifestError(f"unsupported schema_version: {schema_version!r}")
-        revision = payload.get("revision")
-        if not isinstance(revision, int) or isinstance(revision, bool) or revision < 1:
-            raise RevisionManifestError("revision must be a positive integer")
-        immutable = self._root / "revisions" / f"revision={revision}.json"
+        except OSError as exc:
+            raise RevisionManifestError(
+                f"cannot read Silver revision manifest: {getattr(exc, 'strerror', None) or type(exc).__name__}"
+            ) from exc
+        manifest = self._parsed(current_bytes)
+        # Re-checked on every read, cache hit or not: the pointer must equal the
+        # immutable manifest it names.
+        immutable = self.revisions_dir / f"revision={manifest.revision}.json"
         try:
             if immutable.read_bytes() != current_bytes:
                 raise RevisionManifestError(
                     "current Silver pointer does not match immutable manifest"
                 )
         except OSError as exc:
-            raise RevisionManifestError(f"cannot read immutable Silver manifest: {exc}") from exc
+            raise RevisionManifestError(
+                f"cannot read immutable Silver manifest: {exc.strerror or type(exc).__name__}"
+            ) from exc
+        return manifest
 
+    def _parsed(self, raw: bytes) -> SilverRevision:
+        def parse() -> SilverRevision:
+            payload = self._load(raw)
+            return self._parse(payload, self._revision_number(payload))
+
+        return _PARSED.get_or_parse(self._root, raw, parse)
+
+    def read_revision(self, revision: int) -> SilverRevision:
+        """Read one retained numbered manifest by explicit number.
+
+        Raises ``RevisionNotFound`` when no such file exists, and
+        ``RevisionManifestError`` when it exists but is not a valid manifest for that
+        number -- the filename and the payload must agree.
+        """
+        if isinstance(revision, bool) or not isinstance(revision, int) or revision < 1:
+            raise RevisionNotFound(f"invalid Silver revision {revision!r}")
+        path = self.revisions_dir / f"revision={revision}.json"
+        try:
+            raw = path.read_bytes()
+        except FileNotFoundError as exc:
+            raise RevisionNotFound(f"Silver revision {revision} does not exist") from exc
+        except OSError as exc:
+            raise RevisionManifestError(
+                f"cannot read Silver revision {revision}: {exc.strerror or type(exc).__name__}"
+            ) from exc
+        manifest = self._parsed(raw)
+        if manifest.revision != revision:
+            raise RevisionManifestError(
+                f"Silver manifest revision={revision}.json names another revision"
+            )
+        return manifest
+
+    @staticmethod
+    def _load(raw: bytes) -> dict[str, Any]:
+        try:
+            payload = json.loads(raw)
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise RevisionManifestError(
+                f"cannot read Silver revision manifest: {getattr(exc, 'strerror', None) or type(exc).__name__}"
+            ) from exc
+        if not isinstance(payload, dict):
+            raise RevisionManifestError("Silver revision manifest must be a JSON object")
+        schema_version = payload.get("schema_version")
+        if type(schema_version) is not int or schema_version != 1:
+            raise RevisionManifestError(f"unsupported schema_version: {schema_version!r}")
+        return payload
+
+    @staticmethod
+    def _revision_number(payload: Mapping[str, Any]) -> int:
+        revision = payload.get("revision")
+        if not isinstance(revision, int) or isinstance(revision, bool) or revision < 1:
+            raise RevisionManifestError("revision must be a positive integer")
+        return revision
+
+    def _parse(self, payload: Mapping[str, Any], revision: int) -> SilverRevision:
         generation_id = payload.get("generation_id")
         if not isinstance(generation_id, str) or not generation_id.strip():
             raise RevisionManifestError("generation_id must be a non-empty string")
@@ -224,7 +323,7 @@ class RevisionManifestReader:
             key = (symbol, kind)
             if key in parsed:
                 raise RevisionManifestError(f"duplicate Silver artifact for {symbol}/{kind}")
-            parsed[key] = SilverArtifact(raw_path, digest)
+            parsed[key] = (raw_path, digest)
         return parsed
 
     @staticmethod

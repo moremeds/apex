@@ -232,6 +232,9 @@ class BarData(DomainEvent):
     # datetime and Enum; a bare date would survive as a live object and break JSON
     # persistence. datetime subclasses date, so the datetime branch does not catch it.
     expiry_date: Optional[str] = None
+    # Livewire's per-row ``price_basis`` (raw / split_adjusted / unknown) on the raw
+    # Bronze equity daily file; None where the source file has no such column.
+    source_price_basis: Optional[str] = None
 
     # Bar time boundaries
     bar_start: Optional[datetime] = None

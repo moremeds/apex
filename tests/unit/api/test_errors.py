@@ -84,6 +84,38 @@ def test_code_values_are_stable_contract() -> None:
         "unknown_index",
         "ambiguous_security",
         "membership_unavailable",
+        "unknown_revision",
+        "pit_unavailable",
+        "revision_not_supported",
+    }
+
+
+def test_every_lake_error_code_is_a_rest_code() -> None:
+    """The application raises LakeError with these codes; REST must map each one."""
+    from typing import get_args
+
+    from src.application.lake.errors import LakeError, LakeErrorCode
+
+    for code in get_args(LakeErrorCode):
+        api = ApiError.from_lake(LakeError(code, "m"))
+        assert api.code.value == code and api.status_code >= 400
+
+
+def test_revision_statuses() -> None:
+    assert ApiError(ApiErrorCode.UNKNOWN_REVISION, "x").status_code == 404
+    assert ApiError(ApiErrorCode.PIT_UNAVAILABLE, "x").status_code == 503
+    assert ApiError(ApiErrorCode.REVISION_NOT_SUPPORTED, "x").status_code == 400
+
+
+def test_envelope_carries_details_when_present() -> None:
+    from src.application.lake.errors import LakeError
+
+    exc = LakeError("ambiguous_symbol", "two", symbol="FSLR", details={"scopes": [1, 2]})
+    body = json.loads(api_error_response(ApiError.from_lake(exc)).body)
+    assert body["error"]["details"] == {"scopes": [1, 2]}
+    assert json.loads(api_error_response(ApiError(ApiErrorCode.FORBIDDEN, "x")).body)["error"] == {
+        "code": "forbidden",
+        "message": "x",
     }
 
 
@@ -132,3 +164,57 @@ def test_real_app_registers_the_handler() -> None:
     from src.api.server import create_app
 
     assert ApiError in create_app().exception_handlers
+
+
+def test_error_messages_never_carry_host_paths() -> None:
+    from src.application.lake.errors import LakeError
+
+    exc = LakeError("adjusted_unavailable", "cannot read: '/Volumes/Lake/x/silver/a.json'")
+    assert "/Volumes" not in exc.message and "<path>" in exc.message
+    legacy = ApiError(ApiErrorCode.PROVIDER_NOT_CONFIGURED, "not a file: /data/catalog/a.duckdb")
+    assert "/data/" not in json.loads(api_error_response(legacy).body)["error"]["message"]
+    # API routes named in a message are guidance, not host layout.
+    route = LakeError("unsupported_asset_class", "use /v1/rates/{symbol}/series")
+    assert route.message.endswith("/v1/rates/{symbol}/series")
+
+
+def test_a_lake_timeout_on_an_untranslated_route_is_504() -> None:
+    """Indicators call the provider directly; its deadline must not surface as a 500."""
+    from fastapi.testclient import TestClient
+
+    from src.api.server import create_app
+    from src.infrastructure.adapters.livewire.parquet_reads import QueryTimeout
+
+    class _Slow:
+        bronze_root = None
+        silver_root = None
+
+        def effective_price_mode(self, asset_class: str = "equity") -> str:
+            return "raw"
+
+        async def fetch_bars(self, *args: object, **kwargs: object) -> list:
+            raise QueryTimeout("lake query exceeded 30s")
+
+    app = create_app()
+    app.state.ohlc_provider = _Slow()
+    response = TestClient(app).get("/v1/equity/SPY/indicators", params={"indicator": "rsi"})
+    assert response.status_code == 504
+    assert response.json()["error"]["code"] == "query_timeout"
+
+
+def test_redaction_covers_spaces_and_single_segment_paths() -> None:
+    from src.application.lake.errors import redact_paths
+
+    assert redact_paths("No such file: '/Volumes/My Lake/private/f.parquet'") == (
+        "No such file: '<path>'"
+    )
+    assert redact_paths("not a file: /data") == "not a file: <path>"
+    assert redact_paths('pattern "/data/lake/x y/e.parquet"') == 'pattern "<path>"'
+    assert redact_paths("see ratio 1/2 and a/b") == "see ratio 1/2 and a/b"
+
+
+def test_redaction_of_an_oserror_path_containing_an_apostrophe() -> None:
+    from src.application.lake.errors import redact_paths
+
+    error = FileNotFoundError(2, "No such file or directory", "/Volumes/Owner's Lake/p/f.parquet")
+    assert "Volumes" not in redact_paths(str(error))

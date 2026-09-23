@@ -184,15 +184,15 @@ given timeframe returns `404 unknown_symbol` — measured, not theoretical: `AAC
 
 | Method · Path | Purpose | Key errors |
 |---|---|---|
-| `GET /v1/{asset_class}/{symbol}/bars` | OHLCV candles | `400` class/tf/mode, adjusted-over-delisted · `404` no artifact · `503` no Silver |
-| `GET /v1/equity/bars` | **Bulk** OHLCV, many tickers on one basis | `400` no symbols, >200, bad tf/mode · `503` no provider |
-| `GET /v1/rates/{symbol}/series` | Treasury yield series | `404` no artifact · `503` no provider |
+| `GET /v1/{asset_class}/{symbol}/bars` | OHLCV candles; optional `silver_revision`/`pit_revision` pin | `400` class/tf/mode/pin, adjusted-over-delisted · `404` no artifact/unknown_revision · `409` ambiguous_symbol (PIT scope spans two securities) · `503` no Silver/pit_unavailable · `504` query_timeout |
+| `GET /v1/equity/bars` | **Bulk** OHLCV, many tickers on one basis; optional `silver_revision` pin | `400` no symbols, >200, bad tf/mode/pin, `listing=delisted` with adjusted (`adjusted_not_supported`, once for the request) · `503` no provider (a per-symbol timeout instead lands that symbol in `missing`) |
+| `GET /v1/rates/{symbol}/series` | Treasury yield series; optional `limit` (last N points) | `404` no artifact · `503` no provider · `504` query_timeout |
 | `GET /v1/{asset_class}/{symbol}/indicators` | Per-bar indicator series | `400` bad class/tf/indicator · `404` no artifact · `503` |
 | `GET /v1/equity/returns` | Bulk weekly return table (window/YTD/52w/excess vs SPY,QQQ) | `400` no symbols, >200, bad dates · `503` no provider |
 | `GET /v1/equity/{symbol}/confluence` | Multi-timeframe confluence (PG) | `503` no PG |
 | `GET /v1/equity/{symbol}/signals` | Signal backfill (PG) | `503` no PG |
 | `GET /v1/instruments` | Discovery across all classes | `400` bad class · `501` delisted (the coverage catalog measures the live tree only) · `503` no catalog |
-| `GET /v1/{asset_class}/{symbol}` | One instrument's metadata | `400` bad class · `404` no artifact · `503` |
+| `GET /v1/{asset_class}/{symbol}` | One instrument's metadata, incl. `residency` (per-timeframe `live`\|`archive`\|`dual`\|`silver` — Silver-only daily); a broken Silver pointer degrades to `silver_available: false`, never a 503 | `400` bad class · `404` no artifact · `503` |
 
 `GET /v1/{asset_class}/{symbol}` also returns `coverage_source`: `livewire_coverage_snapshot`
 when the catalog answered, `not_configured` or `unavailable` when it did not. Without it a
@@ -211,38 +211,139 @@ reused ticker the rows may belong to a different, living company — measured 20
 2,345 delisted tickers are reuses of live ones. Resolve the ticker before treating a
 series as one company's history.
 
+### Lake discovery, revision, identity and gap routes
+
+Registered in `server.py`'s literal-namespace block, before `instruments`: the three- and
+two-segment paths here would otherwise be matched by `/v1/{asset_class}/{symbol}`.
+
+| Method · Path | Purpose | Key errors |
+|---|---|---|
+| `GET /v1/lake/asset-classes` | Registry: `asset_class`, `payload`, `timeframes`, `supports_adjusted`, `extra_bar_fields` | — |
+| `GET /v1/lake/status` | Per-source configured/available/freshness — bronze, delisted, silver (`current_revision`, `retained_revisions`), pit (`revisions`, `latest_per_index` with `publisher_status`), catalog (`modified_at`, `size_bytes`), membership (`indices`), repairs (`state`, `reports_read`, `warnings`). No host paths or secrets. | — |
+| `GET /v1/lake/coverage` | Raw coverage-catalog rows, paged, plus catalog identity (`size_bytes`, `modified_at`) | `503` no catalog |
+| `GET /v1/lake/silver-revisions` / `GET /v1/lake/silver-revisions/{n}` | Retained numbered Silver revisions, newest first, `current` flagged / one detail (summary + paged `affected` symbols) | `404` unknown_revision · `503` no Silver root |
+| `GET /v1/lake/pit-revisions` / `GET /v1/lake/pit-revisions/{n}` | Every published PIT manifest plus `latest_per_index` / one detail (summary, Livewire input references as metadata, paged member scopes) | `404` unknown_revision · `503` pit_unavailable |
+| `GET /v1/security/{symbol}` | Ticker → one `security_id` at a date | `404` unknown_symbol/ambiguous_security |
+| `GET /v1/futures/{root}/contracts` | Contracts under one futures root, from a single directory listing | `404` unknown_symbol (no contracts under that root) |
+| `GET /v1/{asset_class}/{symbol}/gaps` | Session-presence gap diagnosis | `400` bad class/tf/params · `404` no artifact |
+
+**There is no PIT `current` route.** Livewire's `pit-revisions/current.json` is one pointer
+shared by every index (a byte copy of whichever index published last), so apex never resolves
+an index's PIT revision through it — always pass an explicit revision number.
+
+### Revision pins: `silver_revision` and `pit_revision`
+
+`GET /v1/{asset_class}/{symbol}/bars` takes `silver_revision` or `pit_revision` (mutually
+exclusive); `GET /v1/equity/bars` takes `silver_revision` only, pinning the whole table to one
+revision. Both:
+
+- **Imply `price_mode=adjusted`.** Combining either with `price_mode=raw` is `400
+  invalid_parameter`.
+- **Require `asset_class=equity`, `timeframe=1d`, `listing=listed`** (else `400
+  revision_not_supported`) — an immutable-history claim cannot rest on mutable Bronze intraday
+  or the unadjusted delisted archive.
+
+`silver_revision` pins the whole read to that numbered Silver manifest. `pit_revision` instead
+serves through the member's **PIT scope**: the symbol's `[session_from, session_to)` window in
+that revision (an open `session_to` means still a member at the manifest's `as_of`), up to the
+manifest's `daily_bar_cutoff`. A window entirely outside every scope is `400 invalid_parameter`
+with `error.details.scopes` listing the symbol's scopes; a window spanning **two**
+`security_id`s is `409 ambiguous_symbol` with the same `details` — narrow the window to one
+scope.
+
+`bars_payload` gains `window` (`{start, end}`), `truncated`, and `provenance`:
+`immutable_history` (bool), `silver_revision` (the explicit pin, if any), and `pit` (`null`
+unless `pit_revision` was used) — `{revision, index_id, publisher_status, policy_version,
+as_of, published_at, daily_bar_cutoff, silver_revision, membership_revision, scopes}`. Raw-mode
+equity rows additionally carry `source_price_basis` (`raw`\|`split_adjusted`\|`unknown` — from
+livewire's own per-row `price_basis` column; `unknown` when the file has no such column, never
+inferred from the serving mode). Apex does not replay PIT lineage (`input_hash`, the
+corporate-action receipt, the membership/security-master hashes) — it parses the manifest by
+explicit revision, sha256-checks the served Silver artifact against the manifest entry, applies
+the scope, and echoes Livewire's `publisher_status` (`PROVEN`\|`PARTIAL`) unchanged; lineage
+verification is Livewire's own `verify` to run.
+
+### Gaps: `GET /v1/{asset_class}/{symbol}/gaps`
+
+Query: `timeframe` (default `1d`), `start`/`end` (default: last 365 days to today UTC),
+`listing` (default `listed`), `max_gaps` (default `100`, 1..2000), `calendar` (`auto`\|`xnys`\|
+`weekdays`, default `auto`).
+
+The assessment is **session presence**, not minute completeness: a session counts as present
+when at least one bar lands on it. Expected sessions come from an explicit calendar — `auto`
+resolves to XNYS (`certainty: "exchange"`) for equity, weekdays (`certainty: "approximate"`)
+for fx, and XNYS as an approximation for volatility/cmdty/futures/rates. The response reports:
+
+- **`gaps[]`** — interior missing sessions grouped into runs of consecutive *expected* sessions
+  (not calendar-consecutive), capped at `max_gaps` with `gaps_total`/`truncated` when more exist.
+- **`leading_unobserved`/`trailing_unobserved`** — expected sessions before the first, and
+  after the last, observed session in the window; never clamped away.
+- **`lifetime`** — the security's known identity interval(s) (equity only); sessions outside it
+  are `not_expected`, not gaps.
+- **`file_bounds`** — the first/last session the underlying artifact(s) actually cover.
+- **`status`** — `no_data` (no observed session in the window at all — never reported as
+  "zero gaps") \| `gaps` (interior runs exist) \| `edges_unobserved` (no interior run, but
+  sessions before the first or after the last observation are missing) \|
+  `complete_sessions` (every expected session present and the identity lifetime is known) \|
+  `lifetime_unknown` (every calendar session present, but without a known lifetime
+  completeness is not claimed — always the case for non-equity classes).
+- **`repairs`** — supplementary evidence from Livewire's gap-engine repair reports: `state`
+  (`available`\|`not_configured`\|`absent` — no report in the root \|`degraded` — a report was unreadable), `reports_read`, `warnings`, and matching
+  `entries[]`. Historical evidence, not current truth.
+
 ### Query parameters
 
 | Param | Routes | Default | Meaning |
 |---|---|---|---|
-| `timeframe` | bars, bulk bars, indicators | `1d` | Must be in the class's ladder |
+| `timeframe` | bars, bulk bars, indicators, gaps | `1d` | Must be in the class's ladder |
 | `start` / `end` | all series | none | ISO-8601, **inclusive at both ends** (a `1m` window `12:25:00Z..12:35:00Z` returns 11 bars). Omit both → most recent `limit` bars. Required, `YYYY-MM-DD`, on returns |
-| `limit` | bars, bulk bars, indicators, confluence, instruments | `2000` (bars) | Tail-slice; `<=0` → full history |
+| `limit` | bars, bulk bars, rates, indicators, confluence, instruments, lake coverage/revisions/futures, membership, actions, delisting | `2000` (bars); default page size `100`, max `2000`, on the paged lake/membership/actions/delisting routes; unbounded (full window) on rates unless passed | Tail-slice on bars/rates; page size (1..2000) elsewhere; `<=0` → full history on bars |
+| `offset` | lake coverage/revisions/futures, membership, actions, delisting | `0` | Page offset; passing either `limit` or `offset` adds `limit`, `offset`, `returned`, `truncated`, `next_offset` to the envelope |
 | `price_mode` | bars, bulk bars | provider default | `raw` \| `adjusted`. A **request**, not a hint |
-| `listing` | bars, bulk bars, instruments | `listed` | `listed` \| `delisted` \| `any` |
+| `listing` | bars, bulk bars, instruments, gaps | `listed` | `listed` \| `delisted` \| `any` |
+| `silver_revision` | bars, bulk bars | none | Pin one retained numbered Silver revision; equity/1d/listed only, implies `adjusted` |
+| `pit_revision` | bars (per-symbol only) | none | Serve through a published PIT revision's member scope; equity/1d/listed only, implies `adjusted`, mutually exclusive with `silver_revision` |
 | `indicator` | indicators | **required** | Any of apex's registered indicators |
-| `asset_class` | instruments | all | Filter |
+| `asset_class` | instruments, lake coverage | all | Filter |
 | `q` | instruments | none | Symbol **prefix** filter (`_`/`%` are escaped) |
 | `symbols` | returns, bulk bars | **required** | Comma-separated tickers, ≤200, upper-cased and de-duplicated |
 | `type` | actions | all | `split` \| `cash_dividend` |
 | `start` / `end` | actions | none | `YYYY-MM-DD`, filters on `ex_date` |
+| `symbol` | lake coverage | none | Exact symbol filter |
+| `include_silver` | lake coverage | `true` | Include Silver-tier catalog rows |
+| `index_id` | pit-revisions, membership history | none | Restrict to one index |
+| `as_of` | `/v1/security`, membership | today UTC | `YYYY-MM-DD`; resolution date |
+| `known_at` | `/v1/security`, membership members | none | Only identity/events known by this date (point-in-time read) |
+| `include_candidates` | membership members | `false` | Include every non-rejected event, not just `verified` |
+| `max_gaps` | gaps | `100` | Cap on returned gap runs (1..2000); `gaps_total`/`truncated` report the rest |
+| `calendar` | gaps | `auto` | `auto` \| `xnys` \| `weekdays` |
 
 ### Error envelope
 
-Every failure returns `{"error": {"code", "message", "symbol"?, "asset_class"?}}`.
+Every failure returns `{"error": {"code", "message", "symbol"?, "asset_class"?, "details"?}}`.
+Messages never carry host filesystem paths (absolute paths are replaced with `<path>`).
+`details` is an object and appears only on the errors that need structured context (today: the
+PIT scope errors below).
 
 | Code | Status | Meaning |
 |---|---|---|
-| `invalid_parameter` | 400 | A query value is malformed: bad `listing`, bad `price_mode`, unknown `indicator`, `start` after `end` |
+| `invalid_parameter` | 400 | A query value is malformed: bad `listing`, bad `price_mode`, unknown `indicator`, `start` after `end`, a malformed/negative revision pin, or a `pit_revision` window outside the symbol's scope (`details.scopes` lists the scopes) |
 | `unsupported_timeframe` | 400 | Timeframe not in this class's ladder |
 | `unsupported_asset_class` | 400 | Unknown class, or a class whose payload is not bars |
 | `adjusted_not_supported` | 400 | `price_mode=adjusted` where no Silver exists: a non-equity class, or a read that touches `bronze-delisted` |
+| `revision_not_supported` | 400 | `silver_revision`/`pit_revision` used outside equity/1d/listed |
 | `unknown_symbol` | 404 | No artifact under that partition, in any tree the read would use |
-| `ambiguous_symbol` | 409 | Reserved. No route emits it today — `listing=any` on a dual-resident ticker returns the union with `listing_status: "dual"` instead of a 409 |
+| `unknown_index` | 404 | Unknown `index_id` on the membership or PIT surface |
+| `unknown_revision` | 404 | The requested numbered Silver or PIT revision does not exist |
+| `ambiguous_security` | 404 | A ticker maps to more than one `security_id`; apex will not guess |
+| `ambiguous_symbol` | 409 | A `pit_revision` window spans more than one `security_id` (`details.scopes` lists them). `listing=any` on a dual-resident ticker does **not** emit this — it returns the union with `listing_status: "dual"` instead |
 | `not_yet_available` | 501 | Specified but blocked on upstream livewire work (only `/v1/instruments?listing=delisted` today) |
 | `forbidden` | 403 | PG read role lacks privilege on the table (`/v1/db/*`, `/v1/uw/*`) |
-| `provider_not_configured` | 503 | Provider / PG / coverage catalog unavailable |
+| `provider_not_configured` | 503 | Provider / PG / coverage catalog / Silver root / membership root unavailable |
 | `adjusted_unavailable` | 503 | Silver artifact missing or quarantined — retry later |
+| `membership_unavailable` | 503 | Membership data not yet published for that index/status reading — fail closed, never an empty-list guess |
+| `pit_unavailable` | 503 | Present but unservable PIT evidence: a malformed manifest, an evicted/missing/hash-mismatched artifact, or a member with no daily artifact entry — never served as another revision or as raw data |
+| `query_timeout` | 504 | A lake parquet read exceeded its deadline (`APEX_LAKE_QUERY_TIMEOUT_SECONDS`, default 30s) and was interrupted — on every route, including indicators; on `/v1/equity/bars` and `/v1/equity/returns` the affected symbol lands in `missing` instead |
 | `internal_error` | 500 | Unanticipated failure (e.g. the lake volume went away) |
 
 Framework-level request validation (a non-integer `limit`, an unparseable date) keeps
@@ -411,13 +512,27 @@ the [consumption guide](argon-signal-consumption.md).
 
 **`bars_payload`** — `symbol`, `asset_class`, `timeframe`, `price_mode`, **`basis`**,
 `listing_status`, `adjustment_revision|null`, `contract|null`, `count`, `generated_at`, and
-`bars[]` of `{ time, open, high, low, close, volume|null }`.
+`bars[]` of `{ time, open, high, low, close, volume|null }`. Additive fields (present whenever
+the caller populates them — every `/v1` route does): `window` (`{start, end}`), `truncated`
+(bool, exact — the tail read fetches one row past the limit), and `provenance`
+(`{immutable_history, silver_revision, pit}` — see "Revision pins" under §3a above). On
+`asset_class=equity` in raw mode, each bar row additionally carries
+`source_price_basis` (`raw`\|`split_adjusted`\|`unknown`, from livewire's own per-row column —
+never inferred from the serving mode).
 
 **`bulk_bars_payload`** (`GET /v1/equity/bars`) — `price_mode`, `basis`,
-`adjustment_revision|null`, `timeframe`, `symbols` (a map `SYM -> { listing_status, bars[] }`),
+`adjustment_revision|null`, `silver_revision|null` (the explicit pin, if any), `timeframe`,
+`window` (`{start, end}`), `symbols` (a map `SYM -> { listing_status, truncated, bars[] }`),
 `missing` (a map `SYM -> reason`), `generated_at`. There is no top-level `symbol`: the map keys
 are the symbols. A ticker that could not be served appears in `missing` rather than failing the
-request, so one delisted name in a list of 200 does not cost the other 199 their bars.
+request — including one that timed out (`query_timeout`) — so one bad name in a list of 200
+does not cost the other 199 their bars.
+
+**`rates_series_payload`** (`GET /v1/rates/{symbol}/series`) — `symbol`, `asset_class`
+(`"rates"`), `tenor_years|null`, `points[]` of `{ time, yield_pct }`, `count`, `generated_at`.
+Omitting `limit` keeps the legacy full-window behaviour (no `window`/`truncated`); passing a
+positive `limit` returns the last N points of the window and adds `window` (`{start, end}`) and
+`truncated`.
 
 **`missing` under the default `listing=listed` is mostly the delisted cohort, not absent data.**
 Measured across the whole equity tree on 2026-09-21: 1,287 of 14,942 symbol directories (8.6%)

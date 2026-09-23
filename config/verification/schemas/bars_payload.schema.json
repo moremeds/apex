@@ -40,6 +40,57 @@
         "expiry_date": { "type": "string" }
       }
     },
+    "window": {
+      "type": "object",
+      "required": ["start", "end"],
+      "properties": {
+        "start": { "type": "string", "format": "date-time" },
+        "end": { "type": "string", "format": "date-time" }
+      }
+    },
+    "truncated": { "type": "boolean" },
+    "provenance": {
+      "type": "object",
+      "required": ["immutable_history", "silver_revision", "pit"],
+      "properties": {
+        "immutable_history": { "type": "boolean" },
+        "silver_revision": { "type": ["integer", "null"] },
+        "pit": {
+          "type": ["object", "null"],
+          "required": [
+            "revision",
+            "index_id",
+            "publisher_status",
+            "daily_bar_cutoff",
+            "silver_revision",
+            "scopes"
+          ],
+          "properties": {
+            "revision": { "type": "integer", "minimum": 1 },
+            "index_id": { "type": "string" },
+            "publisher_status": { "type": "string", "enum": ["PROVEN", "PARTIAL"] },
+            "policy_version": { "type": "string" },
+            "as_of": { "type": "string" },
+            "published_at": { "type": "string" },
+            "daily_bar_cutoff": { "type": "string", "format": "date" },
+            "silver_revision": { "type": "integer" },
+            "membership_revision": { "type": "integer" },
+            "scopes": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["security_id", "session_from", "session_to"],
+                "properties": {
+                  "security_id": { "type": "string" },
+                  "session_from": { "type": "string", "format": "date" },
+                  "session_to": { "type": ["string", "null"] }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "count": { "type": "integer", "minimum": 0 },
     "generated_at": { "type": "string", "format": "date-time" },
     "bars": { "type": "array", "items": { "$ref": "#/$defs/bar" } }
@@ -56,6 +107,11 @@
         "close": { "type": "number" },
         "volume": { "type": ["integer", "number", "null"] },
         "settlement": { "type": ["number", "null"] },
+        "source_price_basis": {
+          "description": "livewire per-row price_basis; raw-mode equity rows only",
+          "type": "string",
+          "enum": ["raw", "split_adjusted", "unknown"]
+        },
         "open_interest": { "type": ["integer", "null"] }
       }
     }

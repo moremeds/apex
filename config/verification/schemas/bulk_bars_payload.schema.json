@@ -18,6 +18,15 @@
     "basis": { "type": "string", "enum": ["split+dividend", "unadjusted"] },
     "adjustment_revision": { "type": ["integer", "null"] },
     "timeframe": { "type": "string", "enum": ["1m", "5m", "30m", "1h", "1d"] },
+    "silver_revision": { "type": ["integer", "null"] },
+    "window": {
+      "type": "object",
+      "required": ["start", "end"],
+      "properties": {
+        "start": { "type": "string", "format": "date-time" },
+        "end": { "type": "string", "format": "date-time" }
+      }
+    },
     "symbols": {
       "type": "object",
       "additionalProperties": { "$ref": "#/$defs/series" }
@@ -37,6 +46,7 @@
           "type": "string",
           "enum": ["listed", "delisted", "dual"]
         },
+        "truncated": { "type": "boolean" },
         "bars": { "type": "array", "items": { "$ref": "#/$defs/bar" } }
       }
     },
@@ -49,7 +59,12 @@
         "high": { "type": "number" },
         "low": { "type": "number" },
         "close": { "type": "number" },
-        "volume": { "type": ["integer", "number", "null"] }
+        "volume": { "type": ["integer", "number", "null"] },
+        "source_price_basis": {
+          "description": "livewire per-row price_basis; raw-mode equity rows only",
+          "type": "string",
+          "enum": ["raw", "split_adjusted", "unknown"]
+        }
       }
     }
   }

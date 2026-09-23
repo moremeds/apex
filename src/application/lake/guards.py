@@ -1,10 +1,10 @@
-"""Validate and resolve a chart read request before anything touches the lake.
+"""Validate and resolve a lake read request before anything touches the lake.
 
-Split out of ``chart.py`` when that file crossed the repo's 500-line budget. The seam
-is a responsibility, not a layer: everything here answers "is this request coherent,
-and which artifact would it read?" -- the questions that must be settled before a read,
-and that every chart route asks in the same order. ``chart.py`` keeps the routes and
-the response assembly.
+Everything here answers "is this request coherent, and which artifact would it
+read?" -- the questions every bars read settles first, in the same order. Split out of
+``chart.py`` when that file crossed the repo's 500-line budget, then moved from the
+REST layer into the application so REST and MCP share it: failures are
+``LakeError`` (transport-neutral), which REST renders through the same envelope.
 """
 
 from __future__ import annotations
@@ -12,10 +12,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Optional, Tuple
 
-from fastapi import Request
-
-from src.api.errors import ApiError, ApiErrorCode
 from src.application.chart.indicator_compute import DEFAULT_TF_DELTA, TF_DELTAS
+from src.application.lake.errors import LakeError
 from src.infrastructure.adapters.livewire.asset_classes import (
     AssetClassSpec,
     UnknownAssetClass,
@@ -26,11 +24,12 @@ from src.infrastructure.adapters.livewire.paths import (
     parquet_path,
 )
 
-_DEFAULT_BARS = 2000
+DEFAULT_BARS = 2000
 _LOOKBACK_FUDGE = 10
+_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 
-def _require_aware(name: str, value: Optional[datetime]) -> None:
+def require_aware(name: str, value: Optional[datetime]) -> None:
     """A naive timestamp is a 400, not a 500.
 
     FastAPI parses both ``2024-01-02`` and ``2024-01-02T00:00:00`` into a *naive*
@@ -44,18 +43,18 @@ def _require_aware(name: str, value: Optional[datetime]) -> None:
     shifted by four or five hours, and no error anywhere would say so.
     """
     if value is not None and value.tzinfo is None:
-        raise ApiError(
-            ApiErrorCode.INVALID_PARAMETER,
+        raise LakeError(
+            "invalid_parameter",
             f"{name} must carry a UTC offset (got {value.isoformat()!r}); "
             f"use e.g. {value.date().isoformat()}T00:00:00Z",
         )
 
 
-def _resolve_window(
+def resolve_window(
     timeframe: str,
     start: Optional[datetime],
     end: Optional[datetime],
-    bars: int = _DEFAULT_BARS,
+    bars: int = DEFAULT_BARS,
     from_epoch: bool = False,
 ) -> Tuple[datetime, datetime, Optional[int]]:
     """Return (start, end, tail_limit). When start is omitted, fetch a generous
@@ -64,34 +63,37 @@ def _resolve_window(
     ``from_epoch`` drops the now-anchored lookback and reads the whole history before
     tail-slicing: a delisted name's last bar can be years old, so a window measured
     back from today would answer an empty series for it."""
-    _require_aware("start", start)
-    _require_aware("end", end)
+    require_aware("start", start)
+    require_aware("end", end)
     end = end or datetime.now(timezone.utc)
     if start is not None and start > end:
         # Otherwise this reads a real artifact, matches nothing, and answers 200 with
         # zero rows -- reporting an impossible request as a quiet market.
-        raise ApiError(
-            ApiErrorCode.INVALID_PARAMETER,
+        raise LakeError(
+            "invalid_parameter",
             f"start {start.isoformat()} is after end {end.isoformat()}",
         )
     if start is None:
         if bars <= 0:  # full history: no tail-slice, fetch from the epoch
-            return datetime(1970, 1, 1, tzinfo=timezone.utc), end, None
+            return _EPOCH, end, None
         if from_epoch:
-            return datetime(1970, 1, 1, tzinfo=timezone.utc), end, bars
+            return _EPOCH, end, bars
         delta = TF_DELTAS.get(timeframe, DEFAULT_TF_DELTA)
-        start = end - delta * bars * _LOOKBACK_FUDGE
+        try:
+            start = max(end - delta * bars * _LOOKBACK_FUDGE, _EPOCH)
+        except OverflowError:  # a huge legacy limit reaches past year 1: read from the epoch
+            start = _EPOCH
         return start, end, bars
     return start, end, None
 
 
-def _silver_revision(provider: Any) -> Optional[int]:
+def silver_revision(provider: Any) -> Optional[int]:
     """The snapshot used by this read, independent of subscription reseed progress."""
     snapshot = provider.snapshot
     return snapshot.revision if snapshot is not None else None
 
 
-def _contract_identity(spec: AssetClassSpec, bars: list) -> Optional[dict]:
+def contract_identity(spec: AssetClassSpec, bars: list) -> Optional[dict]:
     """Futures instrument identity, lifted off the first bar.
 
     livewire stores contract_id / root_symbol / expiry_date as per-row columns on
@@ -111,23 +113,14 @@ def _contract_identity(spec: AssetClassSpec, bars: list) -> Optional[dict]:
     }
 
 
-def _provider_or_raise(request: Request) -> Any:
-    provider = getattr(request.app.state, "ohlc_provider", None)
-    if provider is None:
-        raise ApiError(ApiErrorCode.PROVIDER_NOT_CONFIGURED, "bar provider not configured")
-    return provider
-
-
-def _spec_or_raise(asset_class: str) -> AssetClassSpec:
+def spec_or_raise(asset_class: str) -> AssetClassSpec:
     try:
         return get_asset_class(asset_class)
     except UnknownAssetClass as exc:
-        raise ApiError(
-            ApiErrorCode.UNSUPPORTED_ASSET_CLASS, str(exc), asset_class=asset_class
-        ) from exc
+        raise LakeError("unsupported_asset_class", str(exc), asset_class=asset_class) from exc
 
 
-def _require_bars_payload(spec: AssetClassSpec, symbol: str) -> None:
+def require_bars_payload(spec: AssetClassSpec, symbol: str) -> None:
     """Reject a class whose payload is not bars.
 
     `rates` is registered in the asset-class registry (so paths and discovery work) but a
@@ -136,25 +129,25 @@ def _require_bars_payload(spec: AssetClassSpec, symbol: str) -> None:
     as a 500 instead of telling the caller which route to use.
     """
     if spec.payload != "bars":
-        raise ApiError(
-            ApiErrorCode.UNSUPPORTED_ASSET_CLASS,
+        raise LakeError(
+            "unsupported_asset_class",
             f"{spec.name} is not an OHLCV class; use /v1/{spec.name}/{{symbol}}/series",
             symbol=symbol,
             asset_class=spec.name,
         )
 
 
-def _check_timeframe(spec: AssetClassSpec, timeframe: str) -> None:
+def check_timeframe(spec: AssetClassSpec, timeframe: str) -> None:
     if timeframe not in spec.timeframes:
-        raise ApiError(
-            ApiErrorCode.UNSUPPORTED_TIMEFRAME,
+        raise LakeError(
+            "unsupported_timeframe",
             f"unsupported timeframe {timeframe!r} for {spec.name} "
             f"(have {list(spec.timeframes)})",
             asset_class=spec.name,
         )
 
 
-def _artifact_exists(
+def artifact_exists(
     provider: Any,
     symbol: str,
     timeframe: str,
@@ -170,7 +163,7 @@ def _artifact_exists(
     that tree too, or a delisted-only ticker with an empty window would 404 although
     its artifact is right there.
     """
-    if listing != "listed" and _delisted_artifact_exists(provider, symbol, timeframe, spec.name):
+    if listing != "listed" and delisted_artifact_exists(provider, symbol, timeframe, spec.name):
         return True
     if listing == "delisted":
         return False
@@ -185,7 +178,7 @@ def _artifact_exists(
     return parquet_path(provider.bronze_root, symbol, timeframe, spec.name).exists()
 
 
-def _delisted_artifact_exists(provider: Any, symbol: str, timeframe: str, asset_class: str) -> bool:
+def delisted_artifact_exists(provider: Any, symbol: str, timeframe: str, asset_class: str) -> bool:
     """Is there an archived artifact for this (symbol, timeframe, class)?
 
     Probes bronze-delisted/ directly rather than asking the provider: a provider hook
@@ -201,7 +194,7 @@ def _delisted_artifact_exists(provider: Any, symbol: str, timeframe: str, asset_
     return delisted_bronze_path(delisted_root, symbol, timeframe, asset_class).exists()
 
 
-def _is_dual_resident(provider: Any, symbol: str, asset_class: str, timeframe: str = "1d") -> bool:
+def is_dual_resident(provider: Any, symbol: str, asset_class: str, timeframe: str = "1d") -> bool:
     """True when ``symbol`` has an artifact in BOTH the live and delisted bronze trees.
 
     Timeframe-aware: the archived tree carries 1d/1h/5m/1m and residency is per-file,
@@ -209,12 +202,12 @@ def _is_dual_resident(provider: Any, symbol: str, asset_class: str, timeframe: s
 
     With no delisted root configured, nothing is dual-resident.
     """
-    if not _delisted_artifact_exists(provider, symbol, timeframe, asset_class):
+    if not delisted_artifact_exists(provider, symbol, timeframe, asset_class):
         return False
     return parquet_path(provider.bronze_root, symbol, timeframe, asset_class).exists()
 
 
-def _check_listing(
+def check_listing(
     provider: Any,
     listing: str,
     symbol: str,
@@ -242,8 +235,8 @@ def _check_listing(
     computing a return across the seam.
     """
     if listing not in ("listed", "delisted", "any"):
-        raise ApiError(
-            ApiErrorCode.INVALID_PARAMETER,
+        raise LakeError(
+            "invalid_parameter",
             f"unknown listing filter {listing!r} (have listed, delisted, any)",
             symbol=symbol,
             asset_class=asset_class,
@@ -253,18 +246,25 @@ def _check_listing(
 
     if listing == "delisted":
         status = "delisted"
-    elif _is_dual_resident(provider, symbol, asset_class, timeframe):
+    elif is_dual_resident(provider, symbol, asset_class, timeframe):
         status = "dual"
-    elif _delisted_artifact_exists(provider, symbol, timeframe, asset_class):
+    elif delisted_artifact_exists(provider, symbol, timeframe, asset_class):
         status = "delisted"
     else:
         return "listed"
 
     if price_mode == "adjusted":
-        raise ApiError(
-            ApiErrorCode.ADJUSTED_NOT_SUPPORTED,
+        raise LakeError(
+            "adjusted_not_supported",
             "no Silver for delisted names; use price_mode=raw",
             symbol=symbol,
             asset_class=asset_class,
         )
     return status
+
+
+def canonical_symbol(symbol: str) -> str:
+    """Livewire canonicalization for new lake queries (design §3.1): trim, upper-case a
+    wholly lower-case symbol, keep mixed case as given."""
+    trimmed = symbol.strip()
+    return trimmed.upper() if trimmed == trimmed.lower() else trimmed

@@ -21,15 +21,25 @@ import asyncio
 import logging
 from copy import copy
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, List, Literal
-from zoneinfo import ZoneInfo
 
 import duckdb
 
 from ....domain.events.domain_events import BarData
 from .asset_classes import DEFAULT_ASSET_CLASS, get_asset_class
+from .parquet_reads import (
+    DateRanges,
+    LakeDb,
+    QueryTimeout,
+    adjusted_intraday_sql,
+    bars_sql,
+    rates_sql,
+    row_to_bar,
+    to_utc_datetime,
+    union_sql,
+)
 from .paths import SUPPORTED_TIMEFRAMES, delisted_bronze_path, parquet_path
 from .revisions import (
     ArtifactKind,
@@ -38,14 +48,7 @@ from .revisions import (
     SilverRevision,
 )
 
-# livewire keys daily bars by `trade_date` (a DATE) and intraday bars by
-# `bar_timestamp` (a tz-aware UTC TIMESTAMP). OHLCV columns are read by name; extra
-# columns (symbol_id, adj_close) are ignored.
 logger = logging.getLogger(__name__)
-
-_DAILY_TS_COLUMN = "trade_date"
-_INTRADAY_TS_COLUMN = "bar_timestamp"
-_NY_TZ = ZoneInfo("America/New_York")
 
 PriceMode = Literal["raw", "adjusted"]
 
@@ -63,42 +66,6 @@ class RatePoint:
     yield_pct: float
 
 
-def _timestamp_column(timeframe: str) -> str:
-    return _DAILY_TS_COLUMN if timeframe == "1d" else _INTRADAY_TS_COLUMN
-
-
-def _to_utc_datetime(value: Any) -> datetime:
-    """Coerce a livewire timestamp to a UTC-*labelled* tz-aware datetime.
-
-    DuckDB returns ``trade_date`` (date32) as ``datetime.date`` and ``bar_timestamp``
-    (TIMESTAMPTZ) as a tz-aware ``datetime`` -- but in the *session* timezone, NOT UTC
-    (e.g. ``Asia/Hong_Kong`` +08:00 on a HK-locale box). The instant is correct, the
-    label is not. We must ``astimezone(UTC)`` so seeded warmup bars (session tz) and
-    live tick bars (UTC) share one offset: a mixed-offset column crashes
-    ``pd.to_datetime(...)`` in the indicator engine and silently kills live compute.
-    datetime is a subclass of date, so check it first.
-    """
-    if isinstance(value, datetime):
-        return (
-            value.astimezone(timezone.utc)
-            if value.tzinfo is not None
-            else value.replace(tzinfo=timezone.utc)
-        )
-    if isinstance(value, date):
-        return datetime(value.year, value.month, value.day, tzinfo=timezone.utc)
-    raise TypeError(f"unexpected livewire timestamp type: {type(value)!r}")
-
-
-# Bar duration per timeframe -- used to derive bar_end (not a zero-width bar).
-_TF_DELTAS = {
-    "1m": timedelta(minutes=1),
-    "5m": timedelta(minutes=5),
-    "30m": timedelta(minutes=30),
-    "1h": timedelta(hours=1),
-    "1d": timedelta(days=1),
-}
-
-
 class LivewireOhlcProvider:
     """Reads historical bars from livewire's bronze parquet via DuckDB.
 
@@ -111,6 +78,7 @@ class LivewireOhlcProvider:
         silver_root: Path | None = None,
         price_mode: PriceMode = "raw",
         delisted_root: Path | None = None,
+        db: LakeDb | None = None,
     ) -> None:
         if price_mode not in ("raw", "adjusted"):
             raise ValueError(f"unsupported Livewire price mode: {price_mode!r}")
@@ -121,6 +89,7 @@ class LivewireOhlcProvider:
         # bronze-delisted/: the archived tree. Raw only -- livewire publishes no Silver
         # over it -- so adjusted reads that touch it fail loudly rather than mixing bases.
         self._delisted_root = Path(delisted_root) if delisted_root is not None else None
+        self._db = db or LakeDb()
 
     # --- HistoricalSourcePort ---
     @property
@@ -134,6 +103,11 @@ class LivewireOhlcProvider:
     @property
     def delisted_root(self) -> Path | None:
         return self._delisted_root
+
+    @property
+    def db(self) -> LakeDb:
+        """The executor every lake parquet read goes through (deadline, shared parent)."""
+        return self._db
 
     @property
     def silver_root(self) -> Path | None:
@@ -202,7 +176,14 @@ class LivewireOhlcProvider:
         asset_class: str = DEFAULT_ASSET_CLASS,
         price_mode: PriceMode | None = None,
         listing: str = "listed",
+        tail: int | None = None,
     ) -> List[BarData]:
+        """Bars in ``[start, end]``, chronological.
+
+        ``tail`` keeps only the last N rows of the window and is pushed into the
+        DuckDB query (``ORDER BY ... DESC LIMIT``) so a bounded read never
+        materializes a whole minute file in Python.
+        """
         # An explicit price_mode is a per-call override (the route passes the mode it
         # already validated); None falls back to what this provider can serve.
         resolved = price_mode or self.effective_price_mode(asset_class)
@@ -215,25 +196,22 @@ class LivewireOhlcProvider:
             if resolved == "adjusted":
                 raise AdjustedDataUnavailable("no Silver for delisted names; use price_mode=raw")
             return await self._fetch_including_delisted(
-                symbol, timeframe, start, end, asset_class, listing
+                symbol, timeframe, start, end, asset_class, listing, tail
             )
         bronze_path = parquet_path(self._bronze_root, symbol, timeframe, asset_class)
         if resolved == "raw":
             if not bronze_path.exists():
                 return []
-            return await asyncio.to_thread(
-                self._query,
-                bronze_path,
-                symbol,
-                timeframe,
-                start,
-                end,
+            return await self._bars(
+                bars_sql(bronze_path, timeframe, start, end, tail), symbol, timeframe
             )
         if self._silver_root is None:
             raise AdjustedDataUnavailable("Silver root is not configured")
         if self._snapshot is None:
             pinned = await asyncio.to_thread(self.pin_snapshot)
-            return await pinned.fetch_bars(symbol, timeframe, start, end, asset_class, resolved)
+            return await pinned.fetch_bars(
+                symbol, timeframe, start, end, asset_class, resolved, tail=tail
+            )
         if timeframe == "1d":
             path = await asyncio.to_thread(self.silver_artifact_path, symbol, "daily")
             if path is None:
@@ -244,22 +222,39 @@ class LivewireOhlcProvider:
                 if not bronze_path.exists():
                     return []
                 raise AdjustedDataUnavailable(f"Silver daily artifact is missing for {symbol}")
-            return await asyncio.to_thread(self._query, path, symbol, timeframe, start, end)
+            return await self._bars(bars_sql(path, timeframe, start, end, tail), symbol, timeframe)
 
         if not bronze_path.exists():
             return []
         factors = await asyncio.to_thread(self.silver_artifact_path, symbol, "factors")
         if factors is None:
             raise AdjustedDataUnavailable(f"Silver factor artifact is missing for {symbol}")
-        return await asyncio.to_thread(
-            self._query_adjusted_intraday,
-            bronze_path,
-            factors,
-            symbol,
-            timeframe,
-            start,
-            end,
-        )
+        rows = await self._db.rows(*adjusted_intraday_sql(bronze_path, factors, start, end, tail))
+        if not rows:
+            return []
+        raw_count = int(rows[0]["raw_count"])
+        if len(rows) != raw_count or any(row["adjustment_revision"] is None for row in rows):
+            raise AdjustedDataUnavailable(
+                f"incomplete or overlapping factor coverage for {symbol} {timeframe}"
+            )
+        return [row_to_bar(row, symbol, timeframe) for row in rows]
+
+    async def fetch_artifact_daily(
+        self,
+        path: Path,
+        symbol: str,
+        start: datetime,
+        end: datetime,
+        *,
+        tail: int | None = None,
+        date_ranges: DateRanges = None,
+    ) -> List[BarData]:
+        """Daily bars from one already-verified artifact (a PIT-served Silver file).
+
+        ``date_ranges`` restricts rows to ``[from, to)`` spans (``to`` None = open),
+        pushed into the query together with ``tail``.
+        """
+        return await self._bars(bars_sql(path, "1d", start, end, tail, date_ranges), symbol, "1d")
 
     async def _fetch_including_delisted(
         self,
@@ -269,6 +264,7 @@ class LivewireOhlcProvider:
         end: datetime,
         asset_class: str,
         listing: str,
+        tail: int | None = None,
     ) -> List[BarData]:
         """Raw bars from bronze-delisted, optionally unioned with the live tree.
 
@@ -282,60 +278,66 @@ class LivewireOhlcProvider:
         issuer under a reused ticker or a duplicate copy of the live company's own
         history is not decided here -- see ``/v1/equity/{symbol}/delisting`` for that.
         """
-        delisted: List[BarData] = []
+        archived: Path | None = None
         if self._delisted_root is not None:
-            path = delisted_bronze_path(self._delisted_root, symbol, timeframe, asset_class)
-            if path.exists():
-                delisted = await asyncio.to_thread(self._query, path, symbol, timeframe, start, end)
-        if listing == "delisted":
-            return delisted
+            candidate = delisted_bronze_path(self._delisted_root, symbol, timeframe, asset_class)
+            archived = candidate if candidate.exists() else None
         live_path = parquet_path(self._bronze_root, symbol, timeframe, asset_class)
-        live: List[BarData] = []
-        if live_path.exists():
-            live = await asyncio.to_thread(self._query, live_path, symbol, timeframe, start, end)
-        if not delisted:
-            return live
-        if not live:
-            return delisted
-        taken_dates = {bar.timestamp.astimezone(_NY_TZ).date() for bar in live}
-        merged = live + [
-            bar for bar in delisted if bar.timestamp.astimezone(_NY_TZ).date() not in taken_dates
-        ]
-        merged.sort(key=lambda bar: bar.timestamp)
-        return merged
+        live = live_path if listing != "delisted" and live_path.exists() else None
+        if archived is None and live is None:
+            return []
+        if archived is None or live is None:
+            only = archived if live is None else live
+            assert only is not None
+            return await self._bars(bars_sql(only, timeframe, start, end, tail), symbol, timeframe)
+        # Both trees: the union and its live-wins-per-date rule run in one query, so a
+        # tail over the merged series is exact rather than a per-source approximation.
+        return await self._bars(
+            union_sql(live, archived, timeframe, start, end, tail), symbol, timeframe
+        )
+
+    async def _bars(
+        self, query: tuple[str, List[Any]], symbol: str, timeframe: str
+    ) -> List[BarData]:
+        rows = await self._db.rows(*query)
+        return [row_to_bar(row, symbol, timeframe) for row in rows]
 
     async def fetch_rate_series(
-        self, symbol: str, start: datetime, end: datetime
+        self, symbol: str, start: datetime, end: datetime, tail: int | None = None
     ) -> List[RatePoint]:
         """Read a yield series. Rates are never adjusted -- a yield has no split."""
         path = parquet_path(self._bronze_root, symbol, "1d", "rates")
         if not path.exists():
             return []
-        return await asyncio.to_thread(self._query_rates, path, start, end)
-
-    def _query_rates(self, path: Path, start: datetime, end: datetime) -> List[RatePoint]:
-        sql = (
-            "SELECT trade_date, tenor_years, yield_pct "
-            "FROM read_parquet(?) "
-            "WHERE trade_date >= ? AND trade_date <= ? ORDER BY trade_date ASC"
-        )
-        con = duckdb.connect(database=":memory:")
-        try:
-            rows = (
-                con.execute(sql, [path.as_posix(), start.date(), end.date()])
-                .fetch_arrow_table()
-                .to_pylist()
-            )
-        finally:
-            con.close()
+        rows = await self._db.rows(*rates_sql(path, start, end, tail))
         return [
             RatePoint(
-                time=_to_utc_datetime(r["trade_date"]),
+                time=to_utc_datetime(r["trade_date"]),
                 tenor_years=float(r["tenor_years"]),
                 yield_pct=float(r["yield_pct"]),
             )
             for r in rows
         ]
+
+    async def fetch_futures_contract(self, symbol: str) -> dict[str, Any]:
+        """Identity and bounds of one futures contract file, from one aggregate read
+        (parquet min/max statistics make it cheap). Contract columns are constant
+        across a contract's rows."""
+        path = parquet_path(self._bronze_root, symbol, "1d", "futures")
+        (row,) = await self._db.rows(
+            "SELECT any_value(contract_id) AS contract_id, any_value(root_symbol) AS root, "
+            "any_value(expiry_date) AS expiry, min(trade_date) AS first, "
+            "max(trade_date) AS last, count(*) AS n FROM read_parquet(?)",
+            [path.as_posix()],
+        )
+        return {
+            "contract_id": None if row["contract_id"] is None else int(row["contract_id"]),
+            "root_symbol": row["root"],
+            "expiry_date": None if row["expiry"] is None else str(row["expiry"]),
+            "first_date": None if row["first"] is None else str(row["first"]),
+            "last_date": None if row["last"] is None else str(row["last"]),
+            "rows": int(row["n"]),
+        }
 
     def fetch_recency(self, reference_symbol: str = "AAPL") -> dict[str, Any]:
         """Last trade_date in bronze and silver for a liquid reference symbol.
@@ -367,129 +369,14 @@ class LivewireOhlcProvider:
             "lag_days": lag,
         }
 
-    @staticmethod
-    def _last_trade_date(path: Path) -> str | None:
+    def _last_trade_date(self, path: Path) -> str | None:
         if not path.exists():
             return None
-        con = duckdb.connect(database=":memory:")
         try:
-            row = con.execute(
-                "SELECT max(trade_date) FROM read_parquet(?)", [path.as_posix()]
-            ).fetchone()
-        except duckdb.Error as exc:
+            (row,) = self._db.rows_sync(
+                "SELECT max(trade_date) AS last FROM read_parquet(?)", [path.as_posix()]
+            )
+        except (duckdb.Error, QueryTimeout) as exc:
             logger.error("recency probe failed for %s: %s", path, exc)
             return None
-        finally:
-            con.close()
-        return str(row[0]) if row and row[0] is not None else None
-
-    # --- internals ---
-    def _query(
-        self,
-        path: Path,
-        symbol: str,
-        timeframe: str,
-        start: datetime,
-        end: datetime,
-    ) -> List[BarData]:
-        ts_col = _timestamp_column(timeframe)
-        # The parquet path is a BOUND parameter, not interpolated. An earlier comment
-        # here claimed DuckDB could not bind it; measured against duckdb 1.4.3 it can,
-        # including a path containing a quote. `ts_col` is still interpolated because
-        # an identifier cannot be a parameter -- it comes from _timestamp_column, which
-        # returns one of two module constants, never caller input.
-        sql = (
-            f"SELECT * FROM read_parquet(?) "
-            f"WHERE {ts_col} >= ? AND {ts_col} <= ? ORDER BY {ts_col} ASC"
-        )
-        # Daily `trade_date` is a DATE -- bind calendar-date params so the comparison
-        # is tz-agnostic (avoids DATE-vs-TIMESTAMPTZ session-tz surprises). Intraday
-        # `bar_timestamp` is TIMESTAMPTZ -- bind the tz-aware datetimes directly.
-        window = [start.date(), end.date()] if timeframe == "1d" else [start, end]
-        params: List[Any] = [path.as_posix(), *window]
-        con = duckdb.connect(database=":memory:")
-        try:
-            rows = con.execute(sql, params).fetch_arrow_table().to_pylist()
-        finally:
-            con.close()
-        return [self._row_to_bar(r, symbol, timeframe) for r in rows]
-
-    def _query_adjusted_intraday(
-        self,
-        bronze_path: Path,
-        factors_path: Path,
-        symbol: str,
-        timeframe: str,
-        start: datetime,
-        end: datetime,
-    ) -> List[BarData]:
-        sql = """
-            WITH raw AS (
-                SELECT *, count(*) OVER () AS raw_count
-                FROM read_parquet(?)
-                WHERE bar_timestamp >= ? AND bar_timestamp <= ?
-            )
-            SELECT
-                b.bar_timestamp,
-                b.open * f.price_adjustment_factor AS open,
-                b.high * f.price_adjustment_factor AS high,
-                b.low * f.price_adjustment_factor AS low,
-                b.close * f.price_adjustment_factor AS close,
-                CAST(ROUND(b.volume * f.split_volume_factor) AS BIGINT) AS volume,
-                b.raw_count,
-                f.adjustment_revision
-            FROM raw b
-            LEFT JOIN read_parquet(?) f
-              ON CAST(timezone('America/New_York', b.bar_timestamp) AS DATE)
-                 >= COALESCE(f.effective_start, DATE '0001-01-01')
-             AND CAST(timezone('America/New_York', b.bar_timestamp) AS DATE)
-                 <= COALESCE(f.effective_end, DATE '9999-12-31')
-            ORDER BY b.bar_timestamp
-        """
-        con = duckdb.connect(database=":memory:")
-        try:
-            rows = (
-                con.execute(
-                    sql,
-                    [bronze_path.as_posix(), start, end, factors_path.as_posix()],
-                )
-                .fetch_arrow_table()
-                .to_pylist()
-            )
-        finally:
-            con.close()
-        if not rows:
-            return []
-        raw_count = int(rows[0]["raw_count"])
-        if len(rows) != raw_count or any(row["adjustment_revision"] is None for row in rows):
-            raise AdjustedDataUnavailable(
-                f"incomplete or overlapping factor coverage for {symbol} {timeframe}"
-            )
-        return [self._row_to_bar(row, symbol, timeframe) for row in rows]
-
-    @staticmethod
-    def _row_to_bar(row: dict, symbol: str, timeframe: str) -> BarData:
-        ts = _to_utc_datetime(row[_timestamp_column(timeframe)])
-        end = ts + _TF_DELTAS.get(timeframe, timedelta(0))
-        vol = row.get("volume")
-        oi = row.get("open_interest")
-        return BarData(
-            symbol=symbol,
-            timeframe=timeframe,
-            open=row.get("open"),
-            high=row.get("high"),
-            low=row.get("low"),
-            close=row.get("close"),
-            volume=int(vol) if vol is not None else None,
-            vwap=row.get("vwap"),
-            settlement=row.get("settlement"),
-            open_interest=int(oi) if oi is not None else None,
-            contract_id=row.get("contract_id"),
-            root_symbol=row.get("root_symbol"),
-            # str(), not the raw value: asdict() would leak a live date into JSON.
-            expiry_date=(str(row["expiry_date"]) if row.get("expiry_date") is not None else None),
-            bar_start=ts,
-            bar_end=end,
-            timestamp=ts,  # event time = bar time, NOT construction-time now()
-            source="livewire",
-        )
+        return str(row["last"]) if row["last"] is not None else None

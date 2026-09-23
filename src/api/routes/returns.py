@@ -20,13 +20,11 @@ from fastapi import APIRouter, Query, Request
 
 from src.api.errors import ApiError, ApiErrorCode
 from src.api.payload.chart import basis_for
-from src.api.routes._chart_guards import (
-    _artifact_exists,
-    _provider_or_raise,
-    _spec_or_raise,
-)
+from src.api.routes._lake import provider_or_raise
+from src.application.lake.guards import artifact_exists, spec_or_raise
 from src.domain.events.domain_events import BarData
 from src.infrastructure.adapters.livewire.ohlc_provider import AdjustedDataUnavailable
+from src.infrastructure.adapters.livewire.parquet_reads import QueryTimeout
 
 router = APIRouter(tags=["chart"])
 
@@ -136,7 +134,7 @@ async def _load(
             bars = await provider.fetch_bars(
                 symbol, "1d", lo, hi, asset_class=spec.name, price_mode=price_mode
             )
-        except AdjustedDataUnavailable as exc:
+        except (AdjustedDataUnavailable, QueryTimeout) as exc:
             failures[symbol] = str(exc)
             continue
         series[symbol] = _closes(bars)
@@ -159,8 +157,8 @@ async def equity_returns(
             f"start {start_day.isoformat()} is after end {end_day.isoformat()}",
         )
 
-    spec = _spec_or_raise("equity")
-    provider = _provider_or_raise(request)
+    spec = spec_or_raise("equity")
+    provider = provider_or_raise(request)
     # One basis for every number on the page: the window, YTD, the 52-week high and both
     # benchmarks are all read in the provider's configured mode, and it is echoed back.
     price_mode = provider.effective_price_mode(spec.name)
@@ -196,7 +194,7 @@ async def equity_returns(
         if not any(start_day <= when <= end_day for when, _ in rows):
             reason = (
                 f"no bars between {start_day.isoformat()} and {end_day.isoformat()}"
-                if _artifact_exists(provider, symbol, "1d", spec, price_mode)
+                if artifact_exists(provider, symbol, "1d", spec, price_mode)
                 else f"no artifact for {symbol} under {spec.partition}"
             )
             missing.append({"symbol": symbol, "reason": reason})
@@ -216,7 +214,15 @@ async def equity_returns(
         "price_mode": price_mode,
         "basis": basis_for(price_mode),
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "benchmarks": {name: {"window_return": bench_returns[name]} for name in _BENCHMARKS},
+        # A benchmark that could not be read (quarantined Silver, lake timeout) says why,
+        # so a null excess is never mistaken for "no bars in the window".
+        "benchmarks": {
+            name: {
+                "window_return": bench_returns[name],
+                **({"failure": failures[name]} if name in failures else {}),
+            }
+            for name in _BENCHMARKS
+        },
         "results": results,
         "missing": missing,
     }
