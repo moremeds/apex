@@ -240,6 +240,7 @@ Every failure returns `{"error": {"code", "message", "symbol"?, "asset_class"?}}
 | `unknown_symbol` | 404 | No artifact under that partition, in any tree the read would use |
 | `ambiguous_symbol` | 409 | Reserved. No route emits it today — `listing=any` on a dual-resident ticker returns the union with `listing_status: "dual"` instead of a 409 |
 | `not_yet_available` | 501 | Specified but blocked on upstream livewire work (only `/v1/instruments?listing=delisted` today) |
+| `forbidden` | 403 | PG read role lacks privilege on the table (`/v1/db/*`, `/v1/uw/*`) |
 | `provider_not_configured` | 503 | Provider / PG / coverage catalog unavailable |
 | `adjusted_unavailable` | 503 | Silver artifact missing or quarantined — retry later |
 | `internal_error` | 500 | Unanticipated failure (e.g. the lake volume went away) |
@@ -305,9 +306,12 @@ Every request needs `Authorization: Bearer <APEX_PG_READ_TOKEN>`; the check runs
 `{"databases": [{"name", "schemas": [{"name", "tables": [{"name", "columns":
 [{"name", "type", "nullable"}], "primary_key", "unique_keys", "foreign_keys":
 [{"columns", "referenced_schema", "referenced_table", "referenced_columns"}]}]}]}],
-"generated_at"}` — validated against
+"generated_at", "unavailable": [database]}` — validated against
 [db_catalog_payload.schema.json](../config/verification/schemas/db_catalog_payload.schema.json). `database` may be
 given once; omit it for every configured database. Cached 10 minutes per database.
+Without `database` the listing is best-effort: a configured database that cannot be
+reached is named in `unavailable` instead of failing the whole call. With `database`,
+an unreachable database is `503`.
 
 The catalog is also the read **allowlist**: it excludes the system schemas
 (`pg_*`, `_timescaledb*`, `timescaledb_*`, `information_schema`) and the ops/audit
@@ -368,7 +372,9 @@ signed-int64 value. Date filters use ISO dates; `start` must not exceed `end`.
 | `daily_signal_panel` | `ticker`, `start`, `end` | `ticker` | ticker × market_date |
 
 An omitted `run_id` resolves to the latest run that has rows in the join's
-driving table. `start`/`end` are inclusive; on the two `timestamptz`-keyed joins
+driving table. On `strike_grid` and `trade_insight_thread` that run is chosen
+**before** `start`/`end` apply, so a date window that excludes the latest run
+returns an empty page; pass `run_id` to read an older run. `start`/`end` are inclusive; on the two `timestamptz`-keyed joins
 (`trade_insight_thread`, `macro_evidence_chain`) they compare the **UTC calendar
 date** of the timestamp, independent of session zone. Join responses are the same
 `tabular_payload` plus `coverage` — `{"scope": "returned_rows", "tables": {name:

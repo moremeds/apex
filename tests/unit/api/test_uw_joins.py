@@ -3,18 +3,21 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import asyncpg
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from starlette.datastructures import QueryParams
 
-from src.api.errors import install_error_handlers
+from src.api.errors import ApiError, install_error_handlers
+from src.api.routes.db_catalog import _table_allowed
 from src.api.routes.uw_joins import router
 from src.api.uw_join_registry import JOIN_REGISTRY, build_join_query
 
@@ -53,7 +56,8 @@ class _Statement:
 
 
 class _Connection:
-    def __init__(self, rows: list[dict[str, Any]]) -> None:
+    def __init__(self, rows: list[dict[str, Any]], *, error: Exception | None = None) -> None:
+        self.error = error
         self.statement = _Statement(rows)
         self.readonly: bool | None = None
         self.executed: list[str] = []
@@ -68,6 +72,8 @@ class _Connection:
 
     async def prepare(self, sql: str) -> _Statement:
         self.sql = sql
+        if self.error is not None:
+            raise self.error
         return self.statement
 
 
@@ -181,7 +187,11 @@ async def test_empty_result_keeps_prepared_metadata_and_errors_are_typed() -> No
         headers={"Authorization": "Bearer unit-test-token"},
     ) as client:
         missing = await client.get("/v1/uw/watchlist_active_card")
+        unknown_join = await client.get("/v1/uw/not_a_join")
     assert missing.status_code == 503
+    # The join name is validated before pool availability.
+    assert unknown_join.status_code == 400
+    assert unknown_join.json()["error"]["code"] == "invalid_parameter"
 
 
 async def test_auth_runs_before_pool_access() -> None:
@@ -201,3 +211,133 @@ async def test_auth_runs_before_pool_access() -> None:
     assert connection.sql == ""
     assert connection.executed == []
     assert connection.readonly is None
+
+
+_TABLE_REF = re.compile(r"\buw_scan\.(\w+)")
+_LATEST_RUN_DRIVERS = {
+    "scan_run_signal_bundle": "signal_gates",
+    "oi_change_with_quote": "oi_change_events",
+    "strike_grid": "greeks_by_expiry_strike",
+    "trade_insight_thread": "trade_insight_snapshots",
+}
+
+
+@pytest.mark.parametrize("name", sorted(JOIN_REGISTRY))
+def test_registry_templates_are_closed_and_avoid_excluded_tables(name: str) -> None:
+    spec = JOIN_REGISTRY[name]
+    tables = set(_TABLE_REF.findall(spec.sql))
+    assert tables
+    assert all(_table_allowed("uw_scan", table) for table in tables)
+    # Every coverage table is referenced and every flag is a projected column.
+    for table, flag in spec.coverage:
+        assert table in tables
+        assert f"AS {flag}" in spec.sql
+    # Placeholders and declared filters match exactly; nothing else is bindable.
+    tokens = set(re.findall(r":(ticker|tier|start|end|run_id|expiry)\b", spec.sql))
+    assert tokens == set(spec.filters)
+    assert spec.required <= set(spec.filters)
+    compiled = build_join_query(
+        name, QueryParams({key: "SPY" for key in spec.required} | {"limit": "1"})
+    )
+    assert re.search(r"(?<!:):(ticker|tier|start|end|run_id|expiry)\b", compiled.sql) is None
+
+
+def test_latest_run_is_resolved_from_the_driving_table_not_scan_runs() -> None:
+    for name, driver in _LATEST_RUN_DRIVERS.items():
+        sql = JOIN_REGISTRY[name].sql
+        picked = re.search(
+            r"picked AS \(\s*SELECT COALESCE\(:run_id, max\(run_id\)\) AS run_id\s*"
+            r"FROM uw_scan\.(\w+)",
+            sql,
+        )
+        assert picked is not None and picked.group(1) == driver
+        assert "scan_runs" not in sql
+    panel = JOIN_REGISTRY["daily_signal_panel"].sql
+    assert "s.basis='eod'" in panel
+    assert "'mid'" not in panel
+
+
+@pytest.mark.parametrize(
+    ("name", "query"),
+    [
+        ("no_such_join", "ticker=SPY"),
+        ("strike_grid", ""),
+        ("strike_grid", "ticker=%20"),
+        ("strike_grid", "ticker=SPY&order=strike"),
+        ("strike_grid", "ticker=SPY&tier=ranked"),
+        ("strike_grid", "ticker=SPY&run_id=1;DROP"),
+        ("strike_grid", "ticker=SPY&run_id=0"),
+        ("strike_grid", "ticker=SPY&start=2026-09-22&end=2026-09-01"),
+        ("strike_grid", "ticker=SPY&expiry=2026-13-01"),
+        ("strike_grid", "ticker=SPY&ticker=QQQ"),
+        ("strike_grid", "ticker=SPY&limit=0"),
+        ("strike_grid", "ticker=SPY&limit=-1"),
+        ("strike_grid", "ticker=SPY&offset=-1"),
+        ("strike_grid", "ticker=SPY&offset=2147483648"),
+    ],
+)
+def test_join_query_rejects_bad_names_filters_and_paging(name: str, query: str) -> None:
+    with pytest.raises(ApiError) as excinfo:
+        build_join_query(name, QueryParams(query))
+    assert excinfo.value.status_code == 400
+
+
+def test_join_ticker_value_is_bound_not_interpolated() -> None:
+    injection = "SPY'; DROP TABLE uw_scan.daily_ohlc;--"
+    plan = build_join_query("daily_ohlc_technical", QueryParams({"ticker": injection}))
+    assert injection not in plan.sql
+    assert plan.params[0] == injection
+    assert plan.sql == build_join_query("daily_ohlc_technical", QueryParams("ticker=SPY")).sql
+
+
+@pytest.mark.parametrize(
+    ("error", "status", "code"),
+    [
+        (asyncpg.QueryCanceledError("canceling statement"), 504, "query_timeout"),
+        (TimeoutError(), 504, "query_timeout"),
+        (asyncpg.DataError("invalid input"), 400, "invalid_parameter"),
+        (asyncpg.PostgresConnectionError("secret host detail"), 503, "provider_not_configured"),
+        (
+            asyncpg.UndefinedTableError('relation "uw_scan.vrp_daily" missing'),
+            400,
+            "invalid_parameter",
+        ),
+        (asyncpg.UndefinedColumnError('column "rank" missing'), 400, "invalid_parameter"),
+        (asyncpg.InsufficientPrivilegeError("permission denied"), 403, "forbidden"),
+        (asyncpg.TooManyConnectionsError("too many clients"), 503, "provider_not_configured"),
+        (asyncpg.InvalidPasswordError("password rejected"), 503, "provider_not_configured"),
+    ],
+)
+async def test_join_driver_errors_map_to_typed_redacted_codes(
+    error: Exception, status: int, code: str
+) -> None:
+    connection = _Connection([], error=error)
+    async with AsyncClient(
+        transport=ASGITransport(app=_app(connection), raise_app_exceptions=False),
+        base_url="http://test",
+        headers={"Authorization": "Bearer unit-test-token"},
+    ) as client:
+        response = await client.get("/v1/uw/daily_signal_panel?ticker=XOM")
+    assert response.status_code == status
+    assert response.json()["error"]["code"] == code
+    for leaked in ("secret", "relation", "permission", "SELECT", "uw_scan"):
+        assert leaked not in response.text
+
+
+async def test_join_route_clamps_limit_and_validates_frozen_page_coverage() -> None:
+    path = Path(__file__).resolve().parents[2] / "fixtures/pg_read_api/rows.jsonl"
+    captured = [json.loads(line, parse_float=Decimal) for line in path.read_text().splitlines()]
+    rows = next(r["rows"] for r in captured if r["query_id"] == "daily_signal_panel")
+    connection = _Connection(rows)
+    async with AsyncClient(
+        transport=ASGITransport(app=_app(connection)),
+        base_url="http://test",
+        headers={"Authorization": "Bearer unit-test-token"},
+    ) as client:
+        response = await client.get("/v1/uw/daily_signal_panel?ticker=XOM&limit=99999")
+    assert response.status_code == 200
+    assert connection.statement.params[-2:] == (5001, 0)
+    tables = response.json()["coverage"]["tables"]
+    assert tables["iv_rank_history"] == {"matched": 0, "total": 2}
+    assert tables["uw_gex_levels_daily"] == {"matched": 2, "total": 2}
+    assert all(0 <= t["matched"] <= t["total"] == 2 for t in tables.values())

@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, Request
 from src.api.errors import ApiError, ApiErrorCode
 from src.api.payload.validate import validate_payload
 from src.api.routes._db_auth import require_db_token
+from src.api.routes._db_errors import map_driver_error
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1/db", tags=["database"], dependencies=[Depends(require_db_token)])
@@ -222,16 +223,18 @@ async def fetch_database_catalog(database: str, pool: Any) -> DatabaseCatalog:
 
 def get_read_pools(request: Request) -> Mapping[str, Any]:
     pools = getattr(request.app.state, "pg_read_pools", None)
-    if not pools:
+    if not pools or all(pool is None for pool in pools.values()):
         raise ApiError(ApiErrorCode.PROVIDER_NOT_CONFIGURED, "PostgreSQL read API not configured")
     return cast(Mapping[str, Any], pools)
 
 
 async def get_catalog(request: Request, database: str) -> DatabaseCatalog:
     pools = get_read_pools(request)
-    pool = pools.get(database)
-    if pool is None:
+    if database not in pools:
         raise ApiError(ApiErrorCode.INVALID_PARAMETER, f"unknown database {database!r}")
+    pool = pools[database]
+    if pool is None:  # configured, but its pool failed to start
+        raise ApiError(ApiErrorCode.PROVIDER_NOT_CONFIGURED, "database unavailable")
     cache = getattr(request.app.state, "pg_catalog_cache", None)
     if cache is None:
         cache = CatalogCache()
@@ -244,20 +247,17 @@ async def get_catalog(request: Request, database: str) -> DatabaseCatalog:
     except TimeoutError as exc:
         logger.warning("catalog connection timed out for database %s", database)
         raise ApiError(ApiErrorCode.QUERY_TIMEOUT, "database query timed out") from exc
-    except (
-        asyncpg.PostgresConnectionError,
-        asyncpg.CannotConnectNowError,
-        ConnectionError,
-        OSError,
-    ) as exc:
-        logger.warning("catalog database unavailable for %s (%s)", database, type(exc).__name__)
-        raise ApiError(ApiErrorCode.PROVIDER_NOT_CONFIGURED, "database unavailable") from exc
     except Exception as exc:
         logger.warning("catalog read failed for database %s (%s)", database, type(exc).__name__)
-        raise
+        mapped = map_driver_error(exc)
+        if mapped is None:
+            raise
+        raise mapped from exc
 
 
-def build_catalog_payload(catalogs: list[DatabaseCatalog]) -> dict[str, Any]:
+def build_catalog_payload(
+    catalogs: list[DatabaseCatalog], unavailable: list[str] | None = None
+) -> dict[str, Any]:
     databases: list[dict[str, Any]] = []
     for catalog in catalogs:
         schemas: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -290,6 +290,7 @@ def build_catalog_payload(catalogs: list[DatabaseCatalog]) -> dict[str, Any]:
     payload = {
         "databases": sorted(databases, key=lambda database: database["name"]),
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        "unavailable": sorted(unavailable or []),
     }
     validate_payload(payload, "db_catalog_payload")
     return payload
@@ -304,6 +305,16 @@ async def db_catalog(request: Request) -> dict[str, Any]:
         raise ApiError(ApiErrorCode.INVALID_PARAMETER, "database may only be specified once")
     pools = get_read_pools(request)
     database = request.query_params.get("database")
-    names = [database] if database is not None else sorted(pools)
-    catalogs = [await get_catalog(request, name) for name in names]
-    return build_catalog_payload(catalogs)
+    if database is not None:
+        return build_catalog_payload([await get_catalog(request, database)])
+    # Unfiltered listing is best-effort: one database being down must not hide the others.
+    catalogs: list[DatabaseCatalog] = []
+    unavailable: list[str] = []
+    for name in sorted(pools):
+        try:
+            catalogs.append(await get_catalog(request, name))
+        except ApiError as exc:
+            if exc.code is not ApiErrorCode.PROVIDER_NOT_CONFIGURED:
+                raise
+            unavailable.append(name)
+    return build_catalog_payload(catalogs, unavailable)

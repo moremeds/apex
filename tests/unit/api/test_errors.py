@@ -71,6 +71,7 @@ def test_code_values_are_stable_contract() -> None:
         "invalid_parameter",
         "query_timeout",
         "unauthorized",
+        "forbidden",
         "internal_error",
         "unsupported_timeframe",
         "unsupported_asset_class",

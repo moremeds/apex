@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, Request
 from src.api.errors import ApiError, ApiErrorCode
 from src.api.payload.tabular import build_tabular
 from src.api.routes._db_auth import require_db_token
+from src.api.routes._db_errors import map_driver_error
 from src.api.uw_join_registry import JoinQuery, build_join_query
 
 logger = logging.getLogger(__name__)
@@ -40,11 +41,11 @@ def _columns(attributes: Sequence[Any]) -> list[dict[str, str]]:
 
 @router.get("/{join_name}")
 async def uw_join(request: Request, join_name: str) -> dict[str, Any]:
+    plan = build_join_query(join_name, request.query_params)
     pools: Mapping[str, Any] | None = getattr(request.app.state, "pg_read_pools", None)
     pool = pools.get("option_wizard") if pools else None
     if pool is None:
         raise ApiError(ApiErrorCode.PROVIDER_NOT_CONFIGURED, "PostgreSQL read API not configured")
-    plan = build_join_query(join_name, request.query_params)
     try:
         async with pool.acquire(timeout=30.0) as connection, connection.transaction(readonly=True):
             await connection.execute("SET LOCAL statement_timeout = '30s'")
@@ -57,17 +58,12 @@ async def uw_join(request: Request, join_name: str) -> dict[str, Any]:
     except (asyncpg.DataError, asyncpg.UndefinedFunctionError) as exc:
         logger.warning("invalid UW join filter for %s (%s)", join_name, type(exc).__name__)
         raise ApiError(ApiErrorCode.INVALID_PARAMETER, "join filter value is invalid") from exc
-    except (
-        asyncpg.PostgresConnectionError,
-        asyncpg.CannotConnectNowError,
-        ConnectionError,
-        OSError,
-    ) as exc:
-        logger.warning("UW database unavailable for %s (%s)", join_name, type(exc).__name__)
-        raise ApiError(ApiErrorCode.PROVIDER_NOT_CONFIGURED, "database unavailable") from exc
     except Exception as exc:
         logger.warning("UW join query failed for %s (%s)", join_name, type(exc).__name__)
-        raise
+        mapped = map_driver_error(exc)
+        if mapped is None:
+            raise
+        raise mapped from exc
     return build_tabular(
         "option_wizard",
         "uw_scan",

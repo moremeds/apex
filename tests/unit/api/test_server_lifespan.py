@@ -348,3 +348,21 @@ async def test_lifespan_starts_and_stops_revision_watcher(monkeypatch, tmp_path)
         assert watcher.poll_seconds == 7.5
 
     assert _SpyWatcher.last.stopped is True
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["/health", "/v1/equity/bars?symbols=SPY&timeframe=1d", "/v1/equity/SPY/bars?timeframe=1d"],
+)
+async def test_pre_existing_routes_do_not_require_the_read_token(
+    monkeypatch: pytest.MonkeyPatch, path: str
+) -> None:
+    """The Bearer dependency is scoped to /v1/db and /v1/uw routers only."""
+    monkeypatch.setenv("APEX_PG_READ_TOKEN", "unit-test-token")
+    app = create_app()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get(path)
+    assert response.status_code != 401
+    assert "www-authenticate" not in response.headers
+    if response.status_code >= 400:
+        assert response.json()["error"]["code"] != "unauthorized"

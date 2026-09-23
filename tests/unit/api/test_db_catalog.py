@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import time
 from decimal import Decimal
 from typing import Any
 
+import asyncpg
 import pytest
 from fastapi import FastAPI, Request
 from httpx import ASGITransport, AsyncClient
@@ -10,7 +12,9 @@ from httpx import ASGITransport, AsyncClient
 from src.api.errors import ApiError, ApiErrorCode, install_error_handlers
 from src.api.routes.db_catalog import (
     CatalogCache,
+    ColumnInfo,
     DatabaseCatalog,
+    TableInfo,
     build_catalog_payload,
     build_database_catalog,
     get_catalog,
@@ -145,7 +149,24 @@ async def test_one_failed_read_pool_does_not_block_other_databases(
         "src.infrastructure.persistence.read_pools.asyncpg.create_pool", fake_create_pool
     )
     pools = await create_read_pools("postgresql://reader@db/bad,postgresql://reader@db/good")
-    assert set(pools) == {"good"}
+    assert pools["bad"] is None
+    assert pools["good"] is not None
+
+    app = FastAPI()
+    app.include_router(router)
+    install_error_handlers(app)
+    app.state.pg_read_pools = pools
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test", headers=AUTH_HEADERS
+    ) as client:
+        failed = await client.get("/v1/db/catalog?database=bad")
+        never = await client.get("/v1/db/catalog?database=never")
+    # Configured but unavailable is an upstream outage, not a bad request.
+    assert failed.status_code == 503
+    assert failed.json()["error"]["code"] == "provider_not_configured"
+    assert "sensitive" not in failed.text
+    assert never.status_code == 400
+    assert never.json()["error"]["code"] == "invalid_parameter"
 
 
 async def test_catalog_route_reports_missing_source_without_touching_database() -> None:
@@ -280,3 +301,105 @@ async def test_catalog_cache_is_independent_per_app(monkeypatch: pytest.MonkeyPa
     await get_catalog(second_request, "warehouse")
     assert calls == 2
     assert first.state.pg_catalog_cache is not second.state.pg_catalog_cache
+
+
+def _catalog_app(pools: dict[str, Any]) -> FastAPI:
+    app = FastAPI()
+    app.include_router(router)
+    install_error_handlers(app)
+    app.state.pg_read_pools = pools
+    return app
+
+
+class _FailingPool:
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+
+    def acquire(self, *, timeout: float) -> Any:
+        assert timeout == 30.0
+        raise self.error
+
+
+@pytest.mark.parametrize(
+    ("error", "status", "code"),
+    [
+        (TimeoutError(), 504, "query_timeout"),
+        (OSError("secret host detail"), 503, "provider_not_configured"),
+        (asyncpg.InvalidPasswordError("secret password rejected"), 503, "provider_not_configured"),
+    ],
+)
+async def test_catalog_pool_failures_map_to_typed_codes(
+    error: Exception, status: int, code: str
+) -> None:
+    app = _catalog_app({"warehouse": _FailingPool(error)})
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test", headers=AUTH_HEADERS
+    ) as client:
+        response = await client.get("/v1/db/catalog?database=warehouse")
+    assert response.status_code == status
+    assert response.json()["error"]["code"] == code
+    assert "secret" not in response.text
+
+
+async def test_catalog_unknown_database_is_400_without_pool_access() -> None:
+    app = _catalog_app({"warehouse": _FailingPool(AssertionError("must not acquire"))})
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test", headers=AUTH_HEADERS
+    ) as client:
+        response = await client.get("/v1/db/catalog?database=postgres")
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "invalid_parameter"
+
+
+@pytest.mark.parametrize(
+    "authorization",
+    [None, "", "Bearer", "Bearer ", "Basic unit-test-token", "Token unit-test-token", "Bearer x"],
+)
+def test_db_token_rejects_missing_empty_and_foreign_credentials(
+    monkeypatch: pytest.MonkeyPatch, authorization: str | None
+) -> None:
+    from src.api.routes._db_auth import require_db_token
+
+    monkeypatch.setenv("APEX_PG_READ_TOKEN", "unit-test-token")
+    headers = [] if authorization is None else [(b"authorization", authorization.encode())]
+    with pytest.raises(ApiError) as excinfo:
+        require_db_token(Request({"type": "http", "headers": headers}))
+    assert excinfo.value.code is ApiErrorCode.UNAUTHORIZED
+
+
+def test_db_token_empty_env_is_unconfigured_not_an_empty_password(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.api.routes._db_auth import require_db_token
+
+    monkeypatch.setenv("APEX_PG_READ_TOKEN", "")
+    request = Request({"type": "http", "headers": [(b"authorization", b"Bearer ")]})
+    with pytest.raises(ApiError) as excinfo:
+        require_db_token(request)
+    assert excinfo.value.code is ApiErrorCode.PROVIDER_NOT_CONFIGURED
+
+
+async def test_unfiltered_catalog_lists_reachable_databases_and_names_the_rest() -> None:
+    # A down host (OSError at acquire) and a pool that failed at startup (None) are both
+    # reported in `unavailable`; the reachable database is still listed.
+    watchlist = TableInfo(
+        "uw_scan", "watchlist", (ColumnInfo("ticker", "text", "string", False),), ("ticker",)
+    )
+    app = _catalog_app(
+        {"option_wizard": object(), "core": _FailingPool(OSError("secret host")), "trading": None}
+    )
+    cache = CatalogCache()
+    cache._entries["option_wizard"] = (
+        time.monotonic(),
+        DatabaseCatalog("option_wizard", {("uw_scan", "watchlist"): watchlist}),
+    )
+    app.state.pg_catalog_cache = cache
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test", headers=AUTH_HEADERS
+    ) as client:
+        response = await client.get("/v1/db/catalog")
+    assert response.status_code == 200
+    body = response.json()
+    assert [database["name"] for database in body["databases"]] == ["option_wizard"]
+    assert body["unavailable"] == ["core", "trading"]
+    assert "secret" not in response.text

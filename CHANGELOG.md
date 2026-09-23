@@ -9,6 +9,27 @@ All notable changes to apex are recorded here. Format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Read-only PostgreSQL API behind a Bearer token.** `GET /v1/db/catalog`,
+  `GET /v1/db/{database}/{schema}/{table}` and `GET /v1/uw/{join_name}` read the macmini
+  databases named in `APEX_PG_READ_URLS` (apex_signals, core, option_chain, option_wizard).
+  Every request needs `Authorization: Bearer <APEX_PG_READ_TOKEN>`: a missing or wrong token
+  is `401`, and an unset token makes the routes `503`. The token applies only to these routes,
+  not to the existing chart and bars routes. Each database gets its own small pool: read-only,
+  30s statement timeout, at most 3 connections.
+- **The catalog is the allowlist.** Tables and columns come from the database's own catalog;
+  system schemas and 16 option_wizard ops tables (request audit, raw payloads, jobs, heartbeats,
+  data-gap bookkeeping) are excluded and answer `400` as unknown. Identifiers are quoted from
+  the catalog and every value is a bound parameter. Without `?database=`, the catalog lists the
+  databases it can reach and names the rest in `unavailable` instead of failing the whole call.
+- **11 predefined joins over option_wizard.uw_scan**, each verified against the live database
+  before release. A response reports page-level `coverage`: for each right-hand table, how many
+  of the returned rows found a match. It is a per-page count, not a guarantee of completeness.
+- Driver failures have typed codes and never carry SQL: a table or column dropped since the
+  catalog was cached is `400`, a revoked grant is `403 forbidden`, and a database that is down,
+  saturated or rejecting the credentials is `503`.
+
 ## [0.1.9] — 2026-09-21
 
 

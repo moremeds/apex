@@ -67,16 +67,21 @@ def parse_read_urls(raw: str | None) -> dict[str, str]:
     return urls
 
 
-async def create_read_pools(raw: str | None = None) -> dict[str, asyncpg.Pool[Any]]:
-    """Create isolated pools; one bad database cannot prevent the others starting."""
+async def create_read_pools(raw: str | None = None) -> dict[str, asyncpg.Pool[Any] | None]:
+    """Create isolated pools; one bad database cannot prevent the others starting.
+
+    A configured database whose pool fails to start maps to ``None`` so routes can
+    answer 503 for it rather than 400 "unknown database".
+    """
     try:
         urls = parse_read_urls(raw if raw is not None else os.environ.get("APEX_PG_READ_URLS"))
     except ValueError as exc:
         logger.warning("PostgreSQL read pool configuration rejected: %s", exc)
         return {}
 
-    pools: dict[str, asyncpg.Pool[Any]] = {}
+    pools: dict[str, asyncpg.Pool[Any] | None] = {}
     for database, dsn in urls.items():
+        pools[database] = None
         try:
             pools[database] = await asyncpg.create_pool(
                 dsn,
@@ -97,9 +102,11 @@ async def create_read_pools(raw: str | None = None) -> dict[str, asyncpg.Pool[An
     return pools
 
 
-async def close_read_pools(pools: Mapping[str, asyncpg.Pool[Any]]) -> None:
+async def close_read_pools(pools: Mapping[str, asyncpg.Pool[Any] | None]) -> None:
     """Close every successfully-created read pool."""
     for database, pool in pools.items():
+        if pool is None:
+            continue
         try:
             await pool.close()
         except Exception as exc:  # pragma: no cover - best-effort lifespan teardown

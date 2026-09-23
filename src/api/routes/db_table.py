@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, Request
 from src.api.errors import ApiError, ApiErrorCode
 from src.api.payload.tabular import build_tabular
 from src.api.routes._db_auth import require_db_token
+from src.api.routes._db_errors import map_driver_error
 from src.api.routes.db_catalog import ColumnInfo, TableInfo, get_catalog
 
 logger = logging.getLogger(__name__)
@@ -240,19 +241,14 @@ async def db_table(request: Request, database: str, schema: str, table: str) -> 
             type(exc).__name__,
         )
         raise _invalid("filter value or operator is invalid for its column type") from exc
-    except (
-        asyncpg.PostgresConnectionError,
-        asyncpg.CannotConnectNowError,
-        ConnectionError,
-        OSError,
-    ) as exc:
-        logger.warning("read database unavailable for %s (%s)", database, type(exc).__name__)
-        raise ApiError(ApiErrorCode.PROVIDER_NOT_CONFIGURED, "database unavailable") from exc
     except Exception as exc:
         logger.warning(
             "read query failed for %s.%s.%s (%s)", database, schema, table, type(exc).__name__
         )
-        raise
+        mapped = map_driver_error(exc)
+        if mapped is None:
+            raise
+        raise mapped from exc
     return build_tabular(
         database,
         schema,

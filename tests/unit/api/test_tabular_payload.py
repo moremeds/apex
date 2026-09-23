@@ -2,8 +2,12 @@
 
 from datetime import date
 from decimal import Decimal
+from typing import Any
+
+import pytest
 
 from src.api.payload.tabular import build_tabular, json_value
+from src.api.payload.validate import ValidationFailure
 
 
 def test_lossless_values_and_page_boundary() -> None:
@@ -20,3 +24,29 @@ def test_lossless_values_and_page_boundary() -> None:
     }
     assert json_value(float("inf")) == "inf"
     assert json_value(b"\x00\xff") == "\\x00ff"
+
+
+def test_empty_page_and_null_cells_validate() -> None:
+    columns = [{"name": "value", "type": "numeric"}, {"name": "note", "type": "text"}]
+    empty = build_tabular("db", "public", "example", columns, [], 500)
+    assert (empty["rows"], empty["count"], empty["truncated"]) == ([], 0, False)
+    nulls = build_tabular("db", "public", "example", columns, [{"value": None, "note": None}], 5)
+    assert nulls["rows"] == [[None, None]]
+
+
+def test_coverage_shape_is_part_of_the_schema() -> None:
+    columns = [{"name": "has_quote", "type": "bool"}]
+    rows = [{"has_quote": True}]
+    good = {"scope": "returned_rows", "tables": {"quotes": {"matched": 1, "total": 1}}}
+    assert build_tabular("db", "s", "j", columns, rows, 1, coverage=good)["coverage"] == good
+    bad_coverages: list[dict[str, Any]] = [
+        {"scope": "database", "tables": {}},
+        {"scope": "returned_rows"},
+        {"scope": "returned_rows", "tables": {"quotes": {"matched": -1, "total": 1}}},
+        {"scope": "returned_rows", "tables": {"quotes": {"matched": 0.5, "total": 1}}},
+        {"scope": "returned_rows", "tables": {"quotes": {"matched": 1}}},
+        {"scope": "returned_rows", "tables": {"quotes": {"matched": 1, "total": 5001}}},
+    ]
+    for coverage in bad_coverages:
+        with pytest.raises(ValidationFailure):
+            build_tabular("db", "s", "j", columns, rows, 1, coverage=coverage)

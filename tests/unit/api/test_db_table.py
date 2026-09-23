@@ -14,7 +14,12 @@ from httpx import ASGITransport, AsyncClient
 from starlette.datastructures import QueryParams
 
 from src.api.errors import ApiError, install_error_handlers
-from src.api.routes.db_catalog import ColumnInfo, DatabaseCatalog, TableInfo
+from src.api.routes.db_catalog import (
+    ColumnInfo,
+    DatabaseCatalog,
+    TableInfo,
+    build_database_catalog,
+)
 from src.api.routes.db_table import build_query, router
 
 AUTH_HEADERS = {"Authorization": "Bearer unit-test-token"}
@@ -212,8 +217,19 @@ def _app(connection: _Connection) -> FastAPI:
 async def test_route_fetches_one_extra_and_marks_a_lower_requested_limit_truncated() -> None:
     connection = _Connection(
         [
-            {"id": 1, "ticker": "AAA", "as_of": date(2026, 9, 22), "score": Decimal("1.1")},
-            {"id": 2, "ticker": "BBB", "as_of": date(2026, 9, 22), "score": Decimal("2.2")},
+            # Frozen fundamental_evidence_chain rows (ZM, captured 2026-09-22).
+            {
+                "id": 830047,
+                "ticker": "ZM",
+                "as_of": date(2026, 9, 14),
+                "score": Decimal("0.0776333646878912"),
+            },
+            {
+                "id": 741377,
+                "ticker": "ZM",
+                "as_of": date(2026, 9, 11),
+                "score": Decimal("0.0770218659634618"),
+            },
         ]
     )
     async with AsyncClient(
@@ -223,7 +239,7 @@ async def test_route_fetches_one_extra_and_marks_a_lower_requested_limit_truncat
     ) as client:
         response = await client.get("/v1/db/warehouse/uw_scan/facts?columns=id,score&limit=1")
     assert response.status_code == 200
-    assert response.json()["rows"] == [[1, "1.1"]]
+    assert response.json()["rows"] == [[830047, "0.0776333646878912"]]
     assert response.json()["truncated"] is True
     assert connection.fetches[0][1][-2:] == (2, 0)
     assert connection.readonly_values == [True]
@@ -348,3 +364,115 @@ async def test_table_auth_runs_before_catalog_and_pool_access() -> None:
     assert cache.calls == 0
     assert connection.fetches == []
     assert connection.readonly_values == []
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        'columns=id,"ticker"',
+        "columns=id;DROP TABLE facts",
+        "columns=id,ticker--",
+        "where=id) OR (1=1:eq:1",
+        "where=id:=:1",
+        "where=id:eq;DROP:1",
+        "where=id:IN:1",
+        "order=id:desc;DROP TABLE facts",
+        "order=id:asc:id",
+        'order="id"',
+        "order=id NULLS FIRST",
+        "limit=1;DROP TABLE facts",
+        "limit=-1",
+        "offset=1 OR 1=1",
+        "offset=-5",
+        "select=id",
+    ],
+)
+def test_identifier_and_paging_injection_is_rejected_before_sql(query: str) -> None:
+    with pytest.raises(ApiError) as excinfo:
+        build_query(TABLE, QueryParams(query))
+    assert excinfo.value.status_code == 400
+
+
+async def test_excluded_tables_are_unknown_to_the_table_route() -> None:
+    rows = [
+        {
+            "schema_name": "uw_scan",
+            "table_name": table,
+            "column_name": "ticker",
+            "data_type": "text",
+            "value_type": "text",
+            "nullable": False,
+        }
+        for table in ("daily_ohlc", "uw_fetch_memo", "data_gap_daily", "jobs")
+    ]
+    catalog = build_database_catalog("warehouse", rows, [])
+
+    class _Cache:
+        async def get(self, database: str, pool: object) -> DatabaseCatalog:
+            return catalog
+
+    connection = _Connection([])
+    app = _app(connection)
+    app.state.pg_catalog_cache = _Cache()
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test", headers=AUTH_HEADERS
+    ) as client:
+        allowed = await client.get("/v1/db/warehouse/uw_scan/daily_ohlc")
+        excluded = [
+            await client.get(f"/v1/db/warehouse/uw_scan/{table}")
+            for table in ("uw_fetch_memo", "data_gap_daily", "jobs")
+        ]
+    assert allowed.status_code == 200
+    for response in excluded:
+        assert response.status_code == 400
+        assert response.json()["error"]["code"] == "invalid_parameter"
+    assert len(connection.fetches) == 1
+
+
+@pytest.mark.parametrize(
+    ("error", "status", "code"),
+    [
+        (
+            asyncpg.UndefinedTableError('relation "uw_scan.facts" does not exist'),
+            400,
+            "invalid_parameter",
+        ),
+        (asyncpg.UndefinedColumnError('column "score" does not exist'), 400, "invalid_parameter"),
+        (asyncpg.InsufficientPrivilegeError("permission denied for table facts"), 403, "forbidden"),
+        (asyncpg.TooManyConnectionsError("too many connections"), 503, "provider_not_configured"),
+        (asyncpg.InvalidPasswordError("password rejected"), 503, "provider_not_configured"),
+    ],
+)
+async def test_stale_catalog_driver_errors_are_typed_4xx_without_sql(
+    error: Exception, status: int, code: str
+) -> None:
+    connection = _Connection([], error=error)
+    async with AsyncClient(
+        transport=ASGITransport(app=_app(connection), raise_app_exceptions=False),
+        base_url="http://test",
+        headers=AUTH_HEADERS,
+    ) as client:
+        response = await client.get("/v1/db/warehouse/uw_scan/facts")
+    assert response.status_code == status
+    assert response.json()["error"]["code"] == code
+    for leaked in ("relation", "column", "permission", "SELECT", "uw_scan", "too many"):
+        assert leaked not in response.text
+
+
+async def test_route_limit_and_offset_bounds() -> None:
+    connection = _Connection([])
+    async with AsyncClient(
+        transport=ASGITransport(app=_app(connection)),
+        base_url="http://test",
+        headers=AUTH_HEADERS,
+    ) as client:
+        clamped = await client.get("/v1/db/warehouse/uw_scan/facts?limit=5001")
+        rejected = [
+            await client.get(f"/v1/db/warehouse/uw_scan/facts?{query}")
+            for query in ("limit=0", "limit=-1", "offset=-1", "limit=abc")
+        ]
+    assert clamped.status_code == 200
+    assert connection.fetches[0][1][-2:] == (5001, 0)
+    for response in rejected:
+        assert response.status_code == 400
+    assert len(connection.fetches) == 1
