@@ -16,8 +16,10 @@ All notable changes to apex are recorded here. Format follows
   shared lake queries — discovery, bars/bulk/yields, identity/actions/membership, Silver and
   PIT revisions, coverage and gaps — each the twin of a REST route and rendered by the same
   payload builders. Series come back as `columns` + `rows` under the bounded policy; lists
-  always page; a result over 2 MiB fails with `result_too_large`. Errors carry the REST error
-  envelope and codes. `APEX_MCP_API_KEY` is mandatory (Bearer, constant-time compare; no open
+  always page; a result over 2 MiB fails with `result_too_large`. Every failure is an `isError`
+  result whose text is exactly the REST error envelope (codes, `symbol`/`asset_class`,
+  `details`); SDK argument-schema failures become `invalid_parameter` with
+  `details.source="arguments"`. `APEX_MCP_API_KEY` is mandatory (Bearer, constant-time compare; no open
   mode), the SDK's Host/Origin checks are on (`APEX_MCP_ALLOWED_HOSTS`), and `/healthz` is an
   unauthenticated liveness probe only. The compose service reads only its own `mcp.env` and
   binds the host port to `APEX_MCP_BIND`. Operator guide: `docs/mcp-operator-guide.md`.

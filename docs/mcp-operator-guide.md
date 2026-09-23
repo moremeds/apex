@@ -46,10 +46,18 @@ Every tool is marked read-only and idempotent.
 - **Pagination.** List tools always page: `limit` defaults to 100 (max 2000) and `offset` to 0. The response includes `returned`, `truncated`, and `next_offset`.
 - **Size budget.** A result larger than 2 MiB fails with `result_too_large` instead of being cut off.
 
-Errors come back as a tool error whose text is the REST error envelope,
-`{"error": {"code", "message", "details"?}}`, with the same codes as REST, for example
-`unknown_symbol`, `invalid_parameter`, `unknown_revision`, `pit_unavailable`, and
-`query_timeout`.
+Errors come back as a tool result with `isError: true`. Its text is exactly the REST
+error envelope, with no prefix, so a client can `json.loads` it:
+`{"error": {"code", "message", "symbol"?, "asset_class"?, "details"?}}`. The codes are
+the same as REST's, for example `unknown_symbol`, `invalid_parameter`,
+`unknown_revision`, `pit_unavailable`, and `query_timeout`.
+
+A few failures come from the MCP layer itself rather than the lake:
+- **Invalid arguments** (a wrong type, a malformed timestamp, an out-of-range `limit`):
+  `invalid_parameter` with `details.source = "arguments"` and a `problems` list. This
+  corresponds to REST's 422.
+- **Unknown tool:** `invalid_parameter` with `details.source = "tool"`.
+- **Result over the 2 MiB budget:** `result_too_large`, which is MCP only.
 
 ## Configuration
 

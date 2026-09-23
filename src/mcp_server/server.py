@@ -30,6 +30,7 @@ from src.infrastructure.adapters.livewire.reference import LivewireReferenceRead
 from src.infrastructure.adapters.livewire.repairs import RepairsReader
 from src.infrastructure.adapters.livewire.revisions import RevisionManifestReader
 from src.mcp_server import tools_bars, tools_discovery, tools_identity, tools_revisions
+from src.mcp_server._common import LakeMCPServer
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +42,9 @@ INSTRUCTIONS = (
     "identity/actions/membership, Silver and PIT revisions, coverage and gaps. "
     "Series come back as columns + rows, oldest first, capped (see each tool's limit); "
     "`truncated` means older rows exist -- narrow the window or page. Errors are JSON "
-    '{"error": {"code", "message", "details"}} with the same codes as the REST API.'
+    '{"error": {"code", "message", "symbol"?, "asset_class"?, "details"?}} with the '
+    "same codes as the REST API; bad arguments are invalid_parameter with "
+    'details.source="arguments".'
 )
 
 
@@ -80,7 +83,7 @@ def services_from_env() -> LakeServices:
 
 
 def build_server(services: LakeServices) -> MCPServer:
-    server: MCPServer = MCPServer("apex-lake", instructions=INSTRUCTIONS)
+    server = LakeMCPServer("apex-lake", instructions=INSTRUCTIONS)
     for group in (tools_discovery, tools_bars, tools_identity, tools_revisions):
         group.register(server, services)
 
@@ -100,8 +103,13 @@ class BearerAuth:
         self._key = api_key.encode()
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http" or scope["path"] == HEALTH_PATH:
+        if scope["type"] == "lifespan" or (
+            scope["type"] == "http" and scope["path"] == HEALTH_PATH
+        ):
             await self._app(scope, receive, send)
+            return
+        if scope["type"] != "http":  # no websocket surface: refuse before the app sees it
+            await send({"type": "websocket.close", "code": 1008})
             return
         header = dict(scope["headers"]).get(b"authorization", b"")
         scheme, _, token = header.partition(b" ")

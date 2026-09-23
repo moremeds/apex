@@ -16,8 +16,10 @@ from src.application.lake import catalog, gaps
 from src.application.lake.services import LakeServices, check_page
 from src.mcp_server._common import Result, lake_tool, parse_day
 
-Limit = Annotated[Optional[int], Field(description="page size (1..2000, default 100)")]
-Offset = Annotated[Optional[int], Field(description="page offset (default 0)")]
+Limit = Annotated[
+    Optional[int], Field(ge=1, le=2000, description="page size (1..2000, default 100)")
+]
+Offset = Annotated[Optional[int], Field(ge=0, description="page offset (default 0)")]
 
 
 class Page(Result):

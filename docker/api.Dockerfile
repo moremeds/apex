@@ -56,8 +56,8 @@ COPY config/ ./config/
 # editable, with no dependency resolution of its own.
 RUN apt-get update && apt-get install -y --no-install-recommends build-essential \
     && uv export --frozen --no-dev --extra api --extra observability --no-emit-project \
-        --no-hashes -o /tmp/requirements.txt \
-    && uv pip install --system -r /tmp/requirements.txt \
+        -o /tmp/requirements.txt \
+    && uv pip install --system --require-hashes -r /tmp/requirements.txt \
     && uv pip install --system --no-deps -e . \
     && rm /tmp/requirements.txt \
     && apt-get purge -y build-essential && apt-get autoremove -y \
