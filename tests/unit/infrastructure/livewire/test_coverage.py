@@ -95,3 +95,45 @@ def test_opens_read_only(catalog_db: Path) -> None:
         assert CoverageCatalog(catalog_db).list_instruments()
     finally:
         os.chmod(catalog_db, stat.S_IRUSR | stat.S_IWUSR)
+
+
+def test_list_coverage_pages_deterministically(catalog_db: Path) -> None:
+    catalog = CoverageCatalog(catalog_db)
+    first, more = catalog.list_coverage(limit=2)
+    second, rest = catalog.list_coverage(limit=2, offset=2)
+    assert [(r.symbol, r.view_name) for r in first] == [
+        ("AAPL", "bronze_equity_1d"),
+        ("AAPL", "silver_equity_1d"),
+    ]
+    assert more is True and [r.symbol for r in second] == ["DGS10", "HON"]
+    assert rest is True
+    assert first[1].tier == "silver" and first[1].asset_class == "equity"
+
+
+def test_list_coverage_filters_and_excludes_silver(catalog_db: Path) -> None:
+    catalog = CoverageCatalog(catalog_db)
+    rows, more = catalog.list_coverage(symbol="AAPL", include_silver=False)
+    assert [r.view_name for r in rows] == ["bronze_equity_1d"] and more is False
+    rows, _ = catalog.list_coverage(asset_class="rates")
+    assert [(r.symbol, r.timeframe, r.n_rows) for r in rows] == [("DGS10", "1d", 16144)]
+
+
+def test_unknown_views_are_reported_not_misclassified(catalog_db: Path) -> None:
+    import duckdb
+
+    # Test mutation: a view name the registry cannot parse.
+    con = duckdb.connect(str(catalog_db))
+    con.execute("INSERT INTO coverage VALUES ('gold_signals', 'AAPL', 1, NULL, NULL)")
+    con.close()
+    rows, _ = CoverageCatalog(catalog_db).list_coverage(symbol="AAPL")
+    unknown = [r for r in rows if r.view_name == "gold_signals"]
+    assert unknown and unknown[0].asset_class is None and unknown[0].tier is None
+    rows, _ = CoverageCatalog(catalog_db).list_coverage(asset_class="equity")
+    assert "gold_signals" not in {r.view_name for r in rows}
+
+
+def test_identity_names_the_file_state(catalog_db: Path) -> None:
+    identity = CoverageCatalog(catalog_db).identity()
+    assert identity.size_bytes == catalog_db.stat().st_size and identity.modified_at
+    with pytest.raises(CoverageUnavailable):
+        CoverageCatalog(catalog_db.parent / "absent.duckdb").identity()
