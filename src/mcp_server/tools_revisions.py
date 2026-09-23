@@ -38,7 +38,10 @@ class PitRevisions(Page):
 
 class PitRevision(Page):
     revision: int
-    scopes: List[Dict[str, Any]]
+    index_id: str
+    publisher_status: str
+    daily_bar_cutoff: str
+    members: List[Dict[str, Any]]
 
 
 def register(server: MCPServer, services: LakeServices) -> None:
@@ -78,6 +81,7 @@ def register(server: MCPServer, services: LakeServices) -> None:
     async def get_pit_revision(
         revision: int, limit: Limit = None, offset: Offset = None
     ) -> PitRevision:
-        """One PIT manifest: summary including publisher_status, and paged member scopes."""
+        """One PIT manifest: summary including publisher_status, and paged member scopes
+        (`members`: security_id, symbol, session_from/session_to)."""
         detail = await revisions.pit_revision_detail(services, revision, limit=limit, offset=offset)
         return PitRevision(**pit_detail_payload(detail))
