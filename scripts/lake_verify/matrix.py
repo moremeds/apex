@@ -180,40 +180,63 @@ def _settle(case: Case, executor: Executor, lake: Lake, checkers: Dict[str, Any]
     return last
 
 
-def run(out: Path, targets: Dict[str, str], only: Optional[str], limit: Optional[int]) -> None:
+def run(
+    out: Path,
+    targets: Dict[str, str],
+    only: Optional[str],
+    limit: Optional[int],
+    workers: int = 1,
+) -> None:
+    """Settle pending cases; ``workers`` (<= 2, plan 4.4) run value cases in parallel,
+    each thread with its own HTTP client."""
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    if not 1 <= workers <= 2:
+        raise SystemExit("workers must be 1 or 2 (plan 4.4 caps parallel reads at two)")
     lake = Lake.from_env()
     cases = _load_cases(out)
     done = _done(out)
     checkers: Dict[str, Any] = {}
     for module in _modules():
         checkers.update(module.CHECKERS)
-    executor = Executor(targets)
+    local = threading.local()
     pending = [c for c in cases if c.id not in done and (only is None or c.operation == only)]
     if limit is not None:
         pending = pending[:limit]
     started = time.time()
-    with (out / "results.jsonl").open("a") as sink:
-        for index, case in enumerate(pending, 1):
-            t0 = time.perf_counter()
-            try:
-                outcome = _settle(case, executor, lake, checkers)
-            except Exception as exc:  # a crashed check is a FAIL, never a silent skip
-                outcome = Outcome("FAIL", f"runner error: {exc!r} {traceback.format_exc()[-600:]}")
-            record = {
-                "id": case.id,
-                "operation": case.operation,
-                "dims": case.dims,
-                "status": outcome.status,
-                "detail": outcome.detail,
-                "facts": outcome.facts,
-                "elapsed_ms": round((time.perf_counter() - t0) * 1000, 1),
-                "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            }
+    lock = threading.Lock()
+    settled = [0]
+
+    def settle(case: Case) -> None:
+        if not hasattr(local, "executor"):
+            local.executor = Executor(targets)
+        t0 = time.perf_counter()
+        try:
+            outcome = _settle(case, local.executor, lake, checkers)
+        except Exception as exc:  # a crashed check is a FAIL, never a silent skip
+            outcome = Outcome("FAIL", f"runner error: {exc!r} {traceback.format_exc()[-600:]}")
+        record = {
+            "id": case.id,
+            "operation": case.operation,
+            "dims": case.dims,
+            "status": outcome.status,
+            "detail": outcome.detail,
+            "facts": outcome.facts,
+            "elapsed_ms": round((time.perf_counter() - t0) * 1000, 1),
+            "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        }
+        with lock:
             sink.write(json.dumps(record, default=str) + "\n")
             sink.flush()
-            if index % 200 == 0:
-                rate = index / (time.time() - started)
-                print(f"{index}/{len(pending)} settled, {rate:.1f}/s", flush=True)
+            settled[0] += 1
+            if settled[0] % 1000 == 0:
+                rate = settled[0] / (time.time() - started)
+                print(f"{settled[0]}/{len(pending)} settled, {rate:.1f}/s", flush=True)
+
+    with (out / "results.jsonl").open("a") as sink:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            list(pool.map(settle, pending))
 
 
 # -- summarize --------------------------------------------------------------------
@@ -293,6 +316,7 @@ def main() -> None:
     r.add_argument("--target", action="append", required=True, help="process=url")
     r.add_argument("--only")
     r.add_argument("--limit", type=int)
+    r.add_argument("--workers", type=int, default=1)
     s = sub.add_parser("summarize")
     s.add_argument("--out", type=Path, required=True)
     parser.add_argument("--modules", default=",".join(OPERATION_MODULES))
@@ -301,7 +325,13 @@ def main() -> None:
     if args.command == "generate":
         generate(args.out, args.inventory)
     elif args.command == "run":
-        run(args.out, dict(t.split("=", 1) for t in args.target), args.only, args.limit)
+        run(
+            args.out,
+            dict(t.split("=", 1) for t in args.target),
+            args.only,
+            args.limit,
+            args.workers,
+        )
     else:
         summarize(args.out)
 

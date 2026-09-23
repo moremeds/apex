@@ -59,12 +59,7 @@ DELTA = {
     "1d": timedelta(days=1),
     "4h": timedelta(hours=4),
 }
-LEGACY_DEFAULT, BOUNDED_DEFAULT, BOUNDED_MAX, LEGACY_MAX_PROBE = (
-    2000,
-    250,
-    5000,
-    1_000_000,
-)
+LEGACY_DEFAULT, BOUNDED_DEFAULT, BOUNDED_MAX = 2000, 250, 5000
 FLOAT_TOL = 1e-9
 BULK_BOUNDED_DEFAULT = 50
 RATES_BOUNDED_DEFAULT = 500
@@ -177,7 +172,9 @@ def _limit_value(limit: str, policy: str) -> Optional[Any]:
         "one": 1,
         "exact": "exact",
         "below": "below",
-        "maximum": BOUNDED_MAX if policy == "bounded" else LEGACY_MAX_PROBE,
+        # The contract's maximum (bounded policy). Legacy REST has no ceiling of its own;
+        # its unbounded path is exercised by "nonpositive" (<=0 means all).
+        "maximum": BOUNDED_MAX,
         "nonpositive": 0,
     }[limit]
 
@@ -551,6 +548,8 @@ class BarsChecker:
         if effective == "adjusted" and status != "listed":
             raise Reject(400, "adjusted_not_supported")
         limit = args.get("limit")
+        if limit in ("exact", "below"):
+            limit = None  # first pass: count rows under the default limit's window
         start = _parse(args.get("start"))
         end = _parse(args.get("end")) or now
         # Bulk resolves one window for the table from the REQUESTED listing.
