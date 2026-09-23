@@ -21,6 +21,29 @@ class RevisionManifestError(ValueError):
     """A Silver revision manifest is malformed or references invalid artifacts."""
 
 
+class RevisionNotFound(LookupError):
+    """No numbered Silver manifest exists for the requested revision.
+
+    Distinct from ``RevisionManifestError``: absence is a 404 the caller can fix by
+    choosing another number, while a present-but-corrupt manifest is an upstream
+    condition that must never read as "no such revision".
+    """
+
+
+_REVISION_FILE_RE = re.compile(r"^revision=([1-9][0-9]*)\.json$")
+
+
+def list_revision_numbers(directory: Path) -> list[int]:
+    """Numbered manifests in ``directory``, newest first. Bounded to one directory
+    listing; AppleDouble (``._*``) and temporary files never match the pattern."""
+    try:
+        names = [entry.name for entry in directory.iterdir()]
+    except FileNotFoundError:
+        return []
+    numbers = [int(m.group(1)) for m in map(_REVISION_FILE_RE.match, names) if m]
+    return sorted(numbers, reverse=True)
+
+
 @dataclass(frozen=True)
 class AffectedSymbol:
     """One symbol whose adjusted history changed in a revision."""
@@ -85,23 +108,27 @@ class RevisionManifestReader:
     def __init__(self, silver_root: Path) -> None:
         self._root = Path(silver_root).resolve()
 
+    @property
+    def revisions_dir(self) -> Path:
+        return self._root / "revisions"
+
+    def list_revisions(self) -> list[int]:
+        """Retained numbered revisions, newest first."""
+        return list_revision_numbers(self.revisions_dir)
+
+    def current_revision_number(self) -> int:
+        """The revision ``current.json`` names, validated like a full read."""
+        return self.read_current().revision
+
     def read_current(self) -> SilverRevision:
-        manifest_path = self._root / "revisions" / "current.json"
+        manifest_path = self.revisions_dir / "current.json"
         try:
             current_bytes = manifest_path.read_bytes()
-            payload = json.loads(current_bytes)
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        except OSError as exc:
             raise RevisionManifestError(f"cannot read Silver revision manifest: {exc}") from exc
-        if not isinstance(payload, dict):
-            raise RevisionManifestError("Silver revision manifest must be a JSON object")
-
-        schema_version = payload.get("schema_version")
-        if type(schema_version) is not int or schema_version != 1:
-            raise RevisionManifestError(f"unsupported schema_version: {schema_version!r}")
-        revision = payload.get("revision")
-        if not isinstance(revision, int) or isinstance(revision, bool) or revision < 1:
-            raise RevisionManifestError("revision must be a positive integer")
-        immutable = self._root / "revisions" / f"revision={revision}.json"
+        payload = self._load(current_bytes)
+        revision = self._revision_number(payload)
+        immutable = self.revisions_dir / f"revision={revision}.json"
         try:
             if immutable.read_bytes() != current_bytes:
                 raise RevisionManifestError(
@@ -109,7 +136,52 @@ class RevisionManifestReader:
                 )
         except OSError as exc:
             raise RevisionManifestError(f"cannot read immutable Silver manifest: {exc}") from exc
+        return self._parse(payload, revision)
 
+    def read_revision(self, revision: int) -> SilverRevision:
+        """Read one retained numbered manifest by explicit number.
+
+        Raises ``RevisionNotFound`` when no such file exists, and
+        ``RevisionManifestError`` when it exists but is not a valid manifest for that
+        number -- the filename and the payload must agree.
+        """
+        if isinstance(revision, bool) or not isinstance(revision, int) or revision < 1:
+            raise RevisionNotFound(f"invalid Silver revision {revision!r}")
+        path = self.revisions_dir / f"revision={revision}.json"
+        try:
+            raw = path.read_bytes()
+        except FileNotFoundError as exc:
+            raise RevisionNotFound(f"Silver revision {revision} does not exist") from exc
+        except OSError as exc:
+            raise RevisionManifestError(f"cannot read Silver revision {revision}: {exc}") from exc
+        payload = self._load(raw)
+        if self._revision_number(payload) != revision:
+            raise RevisionManifestError(
+                f"Silver manifest revision={revision}.json names another revision"
+            )
+        return self._parse(payload, revision)
+
+    @staticmethod
+    def _load(raw: bytes) -> dict[str, Any]:
+        try:
+            payload = json.loads(raw)
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise RevisionManifestError(f"cannot read Silver revision manifest: {exc}") from exc
+        if not isinstance(payload, dict):
+            raise RevisionManifestError("Silver revision manifest must be a JSON object")
+        schema_version = payload.get("schema_version")
+        if type(schema_version) is not int or schema_version != 1:
+            raise RevisionManifestError(f"unsupported schema_version: {schema_version!r}")
+        return payload
+
+    @staticmethod
+    def _revision_number(payload: Mapping[str, Any]) -> int:
+        revision = payload.get("revision")
+        if not isinstance(revision, int) or isinstance(revision, bool) or revision < 1:
+            raise RevisionManifestError("revision must be a positive integer")
+        return revision
+
+    def _parse(self, payload: Mapping[str, Any], revision: int) -> SilverRevision:
         generation_id = payload.get("generation_id")
         if not isinstance(generation_id, str) or not generation_id.strip():
             raise RevisionManifestError("generation_id must be a non-empty string")
