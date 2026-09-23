@@ -134,9 +134,10 @@ async def get_instrument(services: LakeServices, symbol: str, asset_class: str) 
         return found, residency
 
     timeframes, residency = await asyncio.to_thread(probe)
-    if not timeframes and not residency and silver_error is not None:
-        # No Bronze in either tree and the Silver copy is unreadable: an outage of the
-        # only artifact, not an unknown symbol.
+    if not timeframes and silver_error is not None:
+        # Detail describes the listed tree (archive-only symbols are 404, as before).
+        # With no live Bronze and the Silver daily unreadable, the listed copy is in an
+        # outage, not unknown -- whether or not an archived copy exists.
         raise LakeError(
             "adjusted_unavailable", str(silver_error), symbol=symbol, asset_class=spec.name
         ) from silver_error

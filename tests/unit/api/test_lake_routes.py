@@ -353,3 +353,28 @@ def test_unreadable_silver_daily_still_discovers_bronze_intraday(
     artifact.write_bytes(artifact.read_bytes() + b"\0")
     body = client.get("/v1/equity/FSLR").json()
     assert body["timeframes"] == ["5m"] and body["silver_available"] is False
+
+
+def test_archive_only_with_unreadable_silver_is_an_outage_not_unknown(
+    client: TestClient, tmp_path: Path
+) -> None:
+    """TEST MUTATION: the real SPY rows above are written as an archived FSLR copy, and
+    FSLR's listed Silver daily is corrupted. The listed copy is an outage (503)."""
+    archive = tmp_path / "delisted" / "asset_class=equity" / "symbol=FSLR"
+    archive.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        _SPY_JAN_2025, columns=["trade_date", "open", "high", "low", "close", "volume"]
+    ).to_parquet(archive / "1d.parquet", index=False)
+    app = client.app
+    provider = app.state.ohlc_provider
+    app.state.ohlc_provider = type(provider)(
+        provider.bronze_root, provider.silver_root, "adjusted", delisted_root=tmp_path / "delisted"
+    )
+    manifest = json.loads((tmp_path / "silver" / "revisions" / "current.json").read_bytes())
+    daily = next(a for a in manifest["artifacts"] if a["path"].endswith("symbol=FSLR/1d.parquet"))
+    artifact = tmp_path / "silver" / daily["path"]
+    artifact.write_bytes(artifact.read_bytes() + b"\0")
+    response = client.get("/v1/equity/FSLR")
+    assert (
+        response.status_code == 503 and response.json()["error"]["code"] == "adjusted_unavailable"
+    )
