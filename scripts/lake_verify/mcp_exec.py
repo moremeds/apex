@@ -21,6 +21,7 @@ from typing import Any, Dict, List, Tuple
 from urllib.parse import unquote
 
 from model import NotApplicable
+
 from src.api.errors import STATUS_BY_CODE, ApiErrorCode
 
 API_KEY = "matrix-local-key"  # in-process only; never leaves this process
