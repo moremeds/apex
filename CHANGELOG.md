@@ -71,6 +71,11 @@ All notable changes to apex are recorded here. Format follows
   whose every symbol is missing.
 - **A lake read timeout is `504 query_timeout` on every route** (indicators included);
   `/v1/equity/returns` files a timed-out symbol under `missing`.
+- **`/v1/equity/returns` benchmarks carry a `failure` reason** when SPY/QQQ could not be
+  read (quarantined Silver, lake timeout) instead of a silent null window return.
+- **Instrument detail degrades instead of failing** when the Silver pointer or a Silver
+  daily artifact is unreadable; it is `503 adjusted_unavailable` only when no other
+  artifact exists for the symbol.
 - **A huge legacy `limit` reads from the epoch** instead of overflowing the lookback window
   into a `500` (pre-existing).
 - **`src/api/routes/_chart_guards.py` is gone; its logic moved to `src/application/lake/guards.py`**
