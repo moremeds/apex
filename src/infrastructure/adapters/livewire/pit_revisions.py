@@ -94,10 +94,9 @@ class PitScope:
         return self.session_from <= end and (self.session_to is None or start < self.session_to)
 
 
-@dataclass(frozen=True)
-class PitArtifact:
-    path: str
-    sha256: str
+# (Silver-relative path, sha256): a plain tuple so ~14k references per cached manifest
+# stay untracked by the GC (see revisions.SilverArtifact).
+PitArtifact = tuple[str, str]
 
 
 @dataclass(frozen=True)
@@ -146,9 +145,10 @@ class PitRevision:
             raise PitUnavailable(
                 f"PIT revision {self.revision} has no daily artifact entry for {symbol}"
             )
-        path = (self.silver_root / artifact.path).resolve()
+        relative, digest = artifact
+        path = (self.silver_root / relative).resolve()
         if not path.is_relative_to(self.silver_root):
-            raise PitUnavailable(f"PIT artifact escapes the Silver root: {artifact.path}")
+            raise PitUnavailable(f"PIT artifact escapes the Silver root: {relative}")
         try:
             actual = _sha256(path)
         except OSError as exc:
@@ -156,7 +156,7 @@ class PitRevision:
                 f"PIT revision {self.revision} artifact for {symbol} is unreadable "
                 f"(evicted or missing): {exc.strerror or exc}"
             ) from exc
-        if actual != artifact.sha256:
+        if actual != digest:
             raise PitUnavailable(
                 f"PIT revision {self.revision} artifact for {symbol} does not match its hash"
             )
@@ -326,7 +326,7 @@ def _parse_daily_artifacts(value: Any) -> dict[str, PitArtifact]:
             raise ValueError(f"invalid Silver symbol encoding {raw_path!r}")
         if symbol in daily:
             raise ValueError(f"duplicate daily artifact for {symbol}")
-        daily[symbol] = PitArtifact(raw_path, digest)
+        daily[symbol] = (raw_path, digest)
     return daily
 
 

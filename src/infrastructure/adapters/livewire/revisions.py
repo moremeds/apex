@@ -58,10 +58,12 @@ ArtifactKind = Literal["daily", "factors"]
 _ARTIFACT_KINDS: tuple[ArtifactKind, ...] = ("daily", "factors")
 
 
-@dataclass(frozen=True)
-class SilverArtifact:
-    path: str
-    sha256: str
+# One artifact reference: (Silver-relative path, sha256). A plain tuple on purpose: a
+# revision holds ~27k of them, and exact tuples of strings are untracked by CPython's
+# GC, whereas dataclass or NamedTuple instances stay tracked. Cached (manifest_cache)
+# as dataclasses they added ~96k tracked objects and ~7 ms to every full collection,
+# which showed as 10-20 ms on unrelated requests (measured 2026-09-23, P1.6).
+SilverArtifact = tuple[str, str]
 
 
 @dataclass(frozen=True)
@@ -83,18 +85,19 @@ class SilverRevision:
         artifact = self.artifacts.get((symbol, kind))
         if artifact is None:
             return None
+        relative, digest = artifact
         if self.root is None:
             raise RevisionManifestError("Silver snapshot has no root")
-        path = (self.root / artifact.path).resolve()
+        path = (self.root / relative).resolve()
         if not path.is_relative_to(self.root):
-            raise RevisionManifestError(f"artifact outside Silver root: {artifact.path}")
+            raise RevisionManifestError(f"artifact outside Silver root: {relative}")
         if verify:
             try:
                 actual = RevisionManifestReader._sha256(path)
             except OSError as exc:
-                raise RevisionManifestError(f"cannot read artifact {artifact.path}: {exc}") from exc
-            if actual != artifact.sha256:
-                raise RevisionManifestError(f"checksum mismatch for artifact {artifact.path}")
+                raise RevisionManifestError(f"cannot read artifact {relative}: {exc}") from exc
+            if actual != digest:
+                raise RevisionManifestError(f"checksum mismatch for artifact {relative}")
         return path
 
     def verify_artifacts(self) -> None:
@@ -310,7 +313,7 @@ class RevisionManifestReader:
             key = (symbol, kind)
             if key in parsed:
                 raise RevisionManifestError(f"duplicate Silver artifact for {symbol}/{kind}")
-            parsed[key] = SilverArtifact(raw_path, digest)
+            parsed[key] = (raw_path, digest)
         return parsed
 
     @staticmethod

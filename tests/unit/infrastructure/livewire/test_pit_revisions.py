@@ -72,7 +72,7 @@ def test_hash_mismatch_is_unavailable_not_another_revision(tmp_path: Path) -> No
 def test_evicted_artifact_is_unavailable(tmp_path: Path) -> None:
     publish_pit(tmp_path, pit_payload(tmp_path))
     manifest = PitRevisionReader(tmp_path).read(1)
-    (tmp_path / manifest.daily_artifacts["BIIB"].path).unlink()
+    (tmp_path / manifest.daily_artifacts["BIIB"][0]).unlink()
     with pytest.raises(PitUnavailable, match="evicted or missing"):
         manifest.daily_artifact_path("BIIB")
 
