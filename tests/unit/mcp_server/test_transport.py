@@ -171,46 +171,20 @@ async def test_real_socket_serves_tools_and_shuts_down_cleanly() -> None:
         await _stop_uvicorn(running)
 
 
-@pytest.mark.xfail(
-    reason=(
-        "src/SDK finding (evidence, not a test bug -- see PR notes): mcp 2.2.0 does not "
-        "propagate a client read-timeout as a server-side task cancellation for this "
-        "server's transport. `cancelled` never fires within 5s. Proof it is the SERVER "
-        "task still running, not a harness fluke: this test's own `finally: blocked.set()` "
-        "unblocks the still-live `_hang()` call afterwards, and it then completes and logs "
-        "'tool get_lake_status failed ... ValidationError: sources Input should be a valid "
-        "dictionary [type=dict_type, input_value=None]' -- catalog.lake_status() returning "
-        "bare None, i.e. `_hang` ran to its normal (unblocked) return with no exception ever "
-        "raised inside it. Likely cause: `build_app` always builds with `stateless_http=True` "
-        "(src/mcp_server/server.py), and in stateless mode there is no persistent channel left "
-        "open for the client's courtesy `notifications/cancelled` to reach the server once the "
-        "original request's own connection has been abandoned client-side. Do not weaken this "
-        "assertion to make it pass; fix the transport or accept the limitation explicitly."
-    ),
-    strict=True,
-)
-async def test_cancellation_leaves_the_server_usable(
+async def test_client_timeout_leaves_the_server_usable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A tool call abandoned on a client read timeout must not wedge the server: the
-    server-side task is actually cancelled (not merely abandoned client-side), a
-    later independent call succeeds, and shutdown still completes.
-
-    ``_hang`` proves the cancellation happened server-side by setting ``cancelled``
-    from inside ``except asyncio.CancelledError`` -- an event set by the client
-    giving up would prove nothing about the server. If mcp 2.2.0 does not actually
-    propagate the client's read timeout as a server-side task cancellation, this
-    test must fail loudly (a src/SDK finding), not be weakened to pass anyway.
-    """
+    """A client read timeout must not wedge the server: the raised ``MCPError``
+    really is a request timeout, and a later independent call succeeds. Shutdown
+    must complete while the first call is *still hung* server-side -- the whole-call
+    deadline (set short here) ends it on its own, so this test never calls
+    ``blocked.set()`` before shutdown; that would hide the deadline actually doing
+    the job the server is supposed to do without our help."""
+    monkeypatch.setenv("APEX_MCP_CALL_TIMEOUT_SECONDS", "1.5")
     blocked = asyncio.Event()
-    cancelled = asyncio.Event()
 
     async def _hang(*args: object, **kwargs: object) -> None:
-        try:
-            await blocked.wait()
-        except asyncio.CancelledError:
-            cancelled.set()
-            raise
+        await blocked.wait()
 
     monkeypatch.setattr(catalog_module, "lake_status", _hang)
 
@@ -231,17 +205,60 @@ async def test_cancellation_leaves_the_server_usable(
                     f"expected a request-timeout MCPError (code {REQUEST_TIMEOUT}), got "
                     f"code={excinfo.value.code} message={excinfo.value.message!r}"
                 )
-                try:
-                    await asyncio.wait_for(cancelled.wait(), timeout=5)
-                except asyncio.TimeoutError:
-                    pytest.fail(
-                        "the server-side tool task was never cancelled after the client "
-                        "gave up on it -- mcp 2.2.0 did not propagate the client's read "
-                        "timeout as a server-side cancellation. This is a src/SDK finding "
-                        "to report, not a test assertion to relax."
-                    )
                 result = await client.call_tool("list_asset_classes", {})
                 assert not result.is_error
     finally:
-        blocked.set()
+        # No blocked.set(): the 1.5s whole-call deadline ends the still-hung server
+        # task by itself, well within _stop_uvicorn's 5s shutdown wait.
+        await _stop_uvicorn(running)
+
+
+@pytest.mark.xfail(
+    reason=(
+        "src/SDK finding: mcp 2.2.0 stateless mode does not cancel a tool call the "
+        "client has abandoned via read_timeout_seconds. `cancelled` (set only from "
+        "inside `except asyncio.CancelledError` in the blocked tool -- proof of a "
+        "real server-side cancellation, not merely the client giving up) must fire "
+        "well before the independent 3s whole-call deadline configured here; it does "
+        "not. Likely cause: `build_app` always builds with `stateless_http=True` "
+        "(src/mcp_server/server.py), and in stateless mode there is no persistent "
+        "channel left open for the client's courtesy `notifications/cancelled` to "
+        "reach the server once the original request's own connection has been "
+        "abandoned client-side. Do not weaken this assertion to make it pass."
+    ),
+    strict=True,
+)
+async def test_client_timeout_cancels_the_server_task_before_the_call_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A deadline long enough that only a real client-driven cancellation -- not this
+    # independent safety net -- could satisfy the 1s wait below.
+    monkeypatch.setenv("APEX_MCP_CALL_TIMEOUT_SECONDS", "3")
+    cancelled = asyncio.Event()
+
+    async def _hang(*args: object, **kwargs: object) -> None:
+        try:
+            await asyncio.Event().wait()  # never externally set
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    monkeypatch.setattr(catalog_module, "lake_status", _hang)
+
+    app = build_app(LakeServices(), API_KEY, ["127.0.0.1:*"])
+    running = await _start_uvicorn(app)
+    try:
+        async with httpx2.AsyncClient(
+            base_url=running.base_url, headers={"authorization": f"Bearer {API_KEY}"}
+        ) as http_client:
+            async with Client(
+                streamable_http_client(f"{running.base_url}/mcp", http_client=http_client)
+            ) as client:
+                with pytest.raises(MCPError):
+                    await client.call_tool("get_lake_status", {}, read_timeout_seconds=0.2)
+                await asyncio.wait_for(cancelled.wait(), timeout=1.0)
+    finally:
+        # Cleanup regardless of the assertion above: if the client-driven
+        # cancellation never happened, the 3s whole-call deadline still ends the
+        # hang on its own before _stop_uvicorn's 5s shutdown wait elapses.
         await _stop_uvicorn(running)

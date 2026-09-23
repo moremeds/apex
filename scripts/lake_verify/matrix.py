@@ -39,7 +39,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path.cwd()))
 
 from lake import Lake, identity  # noqa: E402
-from model import Case, Invalidated, NotApplicable, Outcome  # noqa: E402
+from model import (  # noqa: E402
+    NOT_APPLICABLE_LEGACY_SERIES_REASON,
+    Case,
+    Invalidated,
+    NotApplicable,
+    Outcome,
+)
 
 STATUSES = (
     "PASS",
@@ -307,14 +313,31 @@ def summarize(out: Path) -> None:
     for case in cases:
         by_op[case.operation][status_of[case.id]] += 1
         by_class[str(case.dims.get("asset_class", "-"))][status_of[case.id]] += 1
-    gate = all(
-        totals.get(s, 0) == 0 for s in ("FAIL", "NOT_RUN", "BLOCKED_DATA", "BLOCKED_DEPENDENCY")
+    # A NOT_APPLICABLE record is legitimate only for the one design-level REST/MCP
+    # difference left (legacy-policy series cells); any other reason means something
+    # was waved through that should have been a FAIL, so it fails the gate too.
+    unexpected_na = sorted(
+        cid
+        for cid, s in status_of.items()
+        if s == "NOT_APPLICABLE"
+        and latest.get(cid, {}).get("detail") != NOT_APPLICABLE_LEGACY_SERIES_REASON
+    )
+    gate = (
+        all(
+            totals.get(s, 0) == 0 for s in ("FAIL", "NOT_RUN", "BLOCKED_DATA", "BLOCKED_DEPENDENCY")
+        )
+        and not unexpected_na
     )
     lines = [
         "# PR1 real-lake matrix summary",
         "",
         f"Planned cases: {len(cases)}; settled: {sum(1 for s in status_of.values() if s != 'NOT_RUN')}",
-        f"Gate (zero FAIL/NOT_RUN/BLOCKED_*): {'PASS' if gate else 'OPEN'}",
+        f"Gate (zero FAIL/NOT_RUN/BLOCKED_*, and every NOT_APPLICABLE is the legacy-series "
+        f"reason): {'PASS' if gate else 'OPEN'}",
+        "NOT_APPLICABLE gate rule: a record may be NOT_APPLICABLE only for "
+        "`model.NOT_APPLICABLE_LEGACY_SERIES_REASON` (legacy-policy series cells, "
+        f"design §3.2); {len(unexpected_na)} record(s) violate it"
+        + (f": {', '.join(unexpected_na[:20])}" if unexpected_na else ""),
         "",
         "| status | count |",
         "|---|---|",

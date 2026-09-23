@@ -5,15 +5,16 @@ checkers settle it.
 
 Mapping back is mechanical and lossless: columns + rows become the REST records, an
 error's JSON envelope becomes its REST status. NOT_APPLICABLE is raised from an
-explicit allowlist only (never for "no route matched" -- that is a FAIL), where REST
-and MCP differ by design:
-- legacy-policy series cells (design §3.2: legacy REST is a deliberate compatibility
-  difference; their bounded twins run as ``inproc`` cells, not here);
-- instruments with a ``listing`` other than "listed" (design §5 gives
-  ``search_instruments`` no ``listing`` argument at all);
-- instruments ``limit`` 2001..5000 (REST legacy allows up to 5000; MCP pages cap at
-  2000 and refuses anything past it).
-Unpaged legacy list routes are answered by following ``next_offset`` to the end.
+explicit allowlist of exactly one reason -- ``model.NOT_APPLICABLE_LEGACY_SERIES_REASON``
+(legacy-policy series cells: design §3.2's legacy REST output policy is a deliberate
+compatibility difference from MCP's bounded policy; the bounded twin runs as an
+``inproc`` cell, not here). ``search_instruments`` now takes ``listing`` and a
+schema-typed ``limit`` just like REST does, so both pass straight through -- there is
+no other REST-only instruments shape left. An unmapped path is a FAIL ("no route
+matched" never means "not applicable"), and so is any tool error whose
+``details.source == "tool"``: an unknown tool name must never quietly satisfy an
+expected rejection. Unpaged legacy list routes are answered by following
+``next_offset`` to the end.
 """
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ import threading
 from typing import Any, Dict, List, Tuple
 from urllib.parse import unquote
 
-from model import NotApplicable
+from model import NOT_APPLICABLE_LEGACY_SERIES_REASON, NotApplicable
 
 from src.api.errors import STATUS_BY_CODE, ApiErrorCode
 
@@ -38,18 +39,6 @@ _PAGE_KEYS = ("limit", "offset", "returned", "truncated", "next_offset", "total"
 
 
 _ENV_LOCK = threading.Lock()
-
-# The only reasons NOT_APPLICABLE may be raised for; an unmapped path is a FAIL.
-_NA_LEGACY_SERIES = (
-    "legacy-policy series path (design §3.2): legacy REST is a deliberate compatibility "
-    "difference from MCP's bounded policy; the bounded twin runs as an inproc cell"
-)
-_NA_INSTRUMENTS_LISTING = (
-    "search_instruments has no `listing` argument (design §5); REST-only listing != listed"
-)
-_NA_INSTRUMENTS_LIMIT = (
-    "instruments limit {limit}: REST legacy allows le=5000, MCP pages cap at 2000"
-)
 
 
 def _int(value: Any) -> Any:
@@ -112,7 +101,7 @@ _ARGS = {
     "get_pit_revision": dict(limit="limit", offset="offset"),
     "resolve_security": dict(as_of="as_of", known_at="known_at"),
     "list_futures_contracts": dict(limit="limit", offset="offset"),
-    "search_instruments": dict(q="q", asset_class="asset_class", limit="limit"),
+    "search_instruments": dict(q="q", asset_class="asset_class", listing="listing", limit="limit"),
     "list_indices": dict(limit="limit", offset="offset"),
     "get_membership_history": dict(symbol="symbol", index_id="index_id", as_of="as_of",
                                    limit="limit", offset="offset"),
@@ -144,17 +133,10 @@ def translate(request: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
         if match is None:
             continue
         if tool == "_legacy_series":
-            raise NotApplicable(_NA_LEGACY_SERIES)
+            raise NotApplicable(NOT_APPLICABLE_LEGACY_SERIES_REASON)
         args = _pick(params, **_ARGS[tool])
         args.update({k: _int(unquote(v)) if k == "revision" else unquote(v)
                      for k, v in match.groupdict().items()})  # fmt: skip
-        if tool == "search_instruments":
-            if params.get("listing", "listed") != "listed":
-                raise NotApplicable(_NA_INSTRUMENTS_LISTING)
-            limit = args.get("limit")
-            if isinstance(limit, int) and PAGE_MAX < limit <= 5000:
-                # REST serves 2001..5000; MCP's page cap refuses it: a real difference.
-                raise NotApplicable(_NA_INSTRUMENTS_LIMIT.format(limit=limit))
         return tool, args
     raise RuntimeError(f"no MCP twin for {path}")
 
@@ -266,7 +248,12 @@ def _error(text: str) -> Tuple[int, Any]:
         code = error["code"]
     except (ValueError, KeyError, TypeError) as exc:
         raise RuntimeError(f"tool error has no REST envelope: {text[:300]}") from exc
-    if error.get("details", {}).get("source") == "arguments":
+    source = error.get("details", {}).get("source")
+    if source == "tool":
+        # An unknown tool name is a harness/mapping bug, never a REST-equivalent
+        # rejection: it must not silently satisfy an expected-rejection case.
+        raise RuntimeError(f"unknown tool: {envelope}")
+    if source == "arguments":
         # SDK argument-schema failures: REST's typed-validation class (422).
         return 422, envelope
     if code == "result_too_large":  # MCP-only: the serialized-result budget

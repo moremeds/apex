@@ -16,10 +16,11 @@ group, and its enter/exit must happen in the same asyncio Task -- a fixture that
 
 from __future__ import annotations
 
+import asyncio
 import json
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, AsyncIterator, Dict, Iterator, List
+from typing import Any, AsyncIterator, Dict, Iterator, List, Optional
 
 import httpx2
 import pandas as pd
@@ -29,6 +30,7 @@ from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.types import CallToolResult, TextContent
 
+import src.application.lake.catalog as catalog_module
 from src.api.server import create_app
 from src.application.lake.services import LakeServices
 from src.infrastructure.adapters.livewire.coverage import CoverageCatalog
@@ -542,16 +544,30 @@ async def test_malformed_bars_start_is_an_argument_schema_error(
     assert error["details"]["problems"], error["details"]
 
 
-async def test_list_tool_limit_zero_is_an_argument_schema_error(
-    lake: Dict[str, Any],
-) -> None:
-    """``limit`` is schema-bounded (ge=1) now, so 0 never reaches the tool body."""
+async def test_list_tool_limit_zero_matches_rest(client: TestClient, lake: Dict[str, Any]) -> None:
+    """``Limit``/``Offset`` no longer carry schema bounds (round 2): an out-of-range
+    value reaches ``check_page`` and comes back as a plain ``invalid_parameter`` with
+    no ``details`` at all -- REST's 400 class on the same shared lake routes, not the
+    SDK argument-schema 422 class."""
+    rest = client.get("/v1/lake/silver-revisions", params={"limit": 0}).json()
+    assert rest["error"]["code"] == "invalid_parameter"
+    assert "details" not in rest["error"]
     async with mcp_session(lake["services"]) as mcp:
         result = await mcp.call_tool("list_silver_revisions", {"limit": 0})
     assert result.is_error
-    error = _mcp_error(result.content[0].text)
-    assert error["code"] == "invalid_parameter"
-    assert error["details"]["source"] == "arguments"
+    assert _mcp_error(result.content[0].text) == rest["error"]
+
+
+async def test_list_tool_offset_negative_matches_rest(
+    client: TestClient, lake: Dict[str, Any]
+) -> None:
+    rest = client.get("/v1/lake/silver-revisions", params={"offset": -1}).json()
+    assert rest["error"]["code"] == "invalid_parameter"
+    assert "details" not in rest["error"]
+    async with mcp_session(lake["services"]) as mcp:
+        result = await mcp.call_tool("list_silver_revisions", {"offset": -1})
+    assert result.is_error
+    assert _mcp_error(result.content[0].text) == rest["error"]
 
 
 async def test_unknown_tool_is_invalid_parameter(lake: Dict[str, Any]) -> None:
@@ -649,27 +665,108 @@ async def test_get_lake_status_matches_rest(client: TestClient, lake: Dict[str, 
     assert _drop_gen(rest) == _drop_gen(result.structured_content)
 
 
-async def test_search_instruments_default_limit_differs_from_rest(
+async def test_search_instruments_bogus_listing_matches_rest(
     client: TestClient, lake: Dict[str, Any]
 ) -> None:
-    """Documented, deliberate difference: with no ``limit``, REST's
-    ``/v1/instruments`` defaults to 500 rows (``src/api/routes/instruments.py``,
-    ``Query(default=500, ...)``), while MCP's ``search_instruments`` defaults to the
-    shared lake page default, ``src.application.lake.services.PAGE_DEFAULT`` (100).
-    No fixture in this repo has >100 real coverage rows to make the cap bind
-    observably (this one has 5), so the two defaults are asserted directly."""
-    from src.application.lake.services import PAGE_DEFAULT
+    """``listing`` is now validated inside ``catalog.search_instruments`` itself,
+    shared by REST and MCP (REST's own inline check is gone), so the envelopes for a
+    bad value are identical."""
+    rest = client.get("/v1/instruments", params={"listing": "bogus"}).json()
+    assert rest["error"]["code"] == "invalid_parameter"
+    async with mcp_session(lake["services"]) as mcp:
+        result = await mcp.call_tool("search_instruments", {"listing": "bogus"})
+    assert result.is_error
+    assert _mcp_error(result.content[0].text) == rest["error"]
 
-    rest_default_limit = 500  # src/api/routes/instruments.py: Query(default=500, ...)
-    assert PAGE_DEFAULT == 100
-    assert PAGE_DEFAULT != rest_default_limit
 
-    rest = client.get("/v1/instruments").json()
+async def test_search_instruments_delisted_listing_matches_rest(
+    client: TestClient, lake: Dict[str, Any]
+) -> None:
+    rest = client.get("/v1/instruments", params={"listing": "delisted"}).json()
+    assert rest["error"]["code"] == "not_yet_available"
+    async with mcp_session(lake["services"]) as mcp:
+        result = await mcp.call_tool("search_instruments", {"listing": "delisted"})
+    assert result.is_error
+    assert _mcp_error(result.content[0].text) == rest["error"]
+
+
+async def test_search_instruments_limit_zero_is_a_422_class_on_both(
+    client: TestClient, lake: Dict[str, Any]
+) -> None:
+    """``limit`` on ``search_instruments`` IS schema-typed (1..5000): out of range
+    never reaches ``catalog.search_instruments`` at all. REST's twin bound
+    (``Query(ge=1, le=5000)``) is FastAPI's own 422, a differently-shaped body (no
+    ``details``) than MCP's ``details.source == "arguments"`` -- both invalid_parameter
+    under a 4xx class, so only the code is compared, not the full envelope."""
+    rest = client.get("/v1/instruments", params={"limit": 0})
+    assert rest.status_code == 422
+    assert rest.json()["error"]["code"] == "invalid_parameter"
+    async with mcp_session(lake["services"]) as mcp:
+        result = await mcp.call_tool("search_instruments", {"limit": 0})
+    assert result.is_error
+    error = _mcp_error(result.content[0].text)
+    assert error["code"] == "invalid_parameter"
+    assert error["details"]["source"] == "arguments"
+
+
+async def test_search_instruments_limit_5001_is_a_422_class_on_both(
+    client: TestClient, lake: Dict[str, Any]
+) -> None:
+    rest = client.get("/v1/instruments", params={"limit": 5001})
+    assert rest.status_code == 422
+    assert rest.json()["error"]["code"] == "invalid_parameter"
+    async with mcp_session(lake["services"]) as mcp:
+        result = await mcp.call_tool("search_instruments", {"limit": 5001})
+    assert result.is_error
+    error = _mcp_error(result.content[0].text)
+    assert error["code"] == "invalid_parameter"
+    assert error["details"]["source"] == "arguments"
+
+
+async def test_search_instruments_default_limit_is_100(
+    lake: Dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Proves MCP passes ``limit=100`` to the underlying query when the caller omits
+    it, by capturing the argument the reader actually receives -- not by comparing
+    row counts, which a 5-row fixture could never distinguish from any cap >= 5."""
+    captured: Dict[str, Any] = {}
+
+    def _capture(
+        self: CoverageCatalog,
+        asset_class: Optional[str] = None,
+        query: Optional[str] = None,
+        limit: int = 500,
+    ) -> List[Any]:
+        captured["limit"] = limit
+        return []
+
+    monkeypatch.setattr(CoverageCatalog, "list_instruments", _capture)
     async with mcp_session(lake["services"]) as mcp:
         result = await mcp.call_tool("search_instruments", {})
     assert not result.is_error, result.content
-    mcp_body = result.structured_content
-    # Neither cap binds on this small fixture, so the bodies still agree here --
-    # the difference above is in the (uncapped-here) default, not in these 5 rows.
-    assert rest["count"] == mcp_body["count"]
-    assert rest["count"] < min(PAGE_DEFAULT, rest_default_limit)
+    assert captured["limit"] == 100
+
+
+async def test_whole_call_deadline_produces_query_timeout(
+    lake: Dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The whole-call deadline (``APEX_MCP_CALL_TIMEOUT_SECONDS``) is ordinary
+    ``asyncio.wait_for`` cancellation, entirely server-side and in-process -- unlike
+    the client-abandons-a-call scenario in ``test_transport.py``, it needs no
+    ``blocked.set()``: the deadline itself ends the hang."""
+    monkeypatch.setenv("APEX_MCP_CALL_TIMEOUT_SECONDS", "0.3")
+    cancelled = asyncio.Event()
+
+    async def _hang(*args: Any, **kwargs: Any) -> Any:
+        try:
+            await asyncio.Event().wait()  # never externally set
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    monkeypatch.setattr(catalog_module, "lake_status", _hang)
+    async with mcp_session(lake["services"]) as mcp:
+        result = await mcp.call_tool("get_lake_status", {})
+    assert result.is_error
+    assert _mcp_error(result.content[0].text)["code"] == "query_timeout"
+    assert cancelled.is_set()
