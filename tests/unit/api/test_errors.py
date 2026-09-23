@@ -69,6 +69,8 @@ def test_code_values_are_stable_contract() -> None:
     """These strings are published to argon; renaming one is a breaking change."""
     assert {c.value for c in ApiErrorCode} == {
         "invalid_parameter",
+        "query_timeout",
+        "unauthorized",
         "internal_error",
         "unsupported_timeframe",
         "unsupported_asset_class",
@@ -87,6 +89,14 @@ def test_code_values_are_stable_contract() -> None:
 def test_response_status_matches_the_code() -> None:
     resp = api_error_response(ApiError(ApiErrorCode.AMBIGUOUS_SYMBOL, "two of them", symbol="AAC"))
     assert resp.status_code == 409
+
+
+def test_unauthorized_carries_the_bearer_challenge() -> None:
+    resp = api_error_response(ApiError(ApiErrorCode.UNAUTHORIZED, "nope"))
+    assert resp.status_code == 401
+    assert resp.headers["www-authenticate"] == "Bearer"
+    other = api_error_response(ApiError(ApiErrorCode.INVALID_PARAMETER, "nope"))
+    assert "www-authenticate" not in other.headers
 
 
 def test_handler_is_installed_and_renders_the_envelope() -> None:

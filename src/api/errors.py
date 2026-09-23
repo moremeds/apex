@@ -28,6 +28,8 @@ class ApiErrorCode(str, Enum):
     """
 
     INVALID_PARAMETER = "invalid_parameter"
+    QUERY_TIMEOUT = "query_timeout"
+    UNAUTHORIZED = "unauthorized"
     INTERNAL_ERROR = "internal_error"
     UNSUPPORTED_TIMEFRAME = "unsupported_timeframe"
     UNSUPPORTED_ASSET_CLASS = "unsupported_asset_class"
@@ -47,6 +49,8 @@ class ApiErrorCode(str, Enum):
 # semantic. A 4xx would tell the caller their request was wrong; it was not.
 STATUS_BY_CODE: dict[ApiErrorCode, int] = {
     ApiErrorCode.INVALID_PARAMETER: 400,
+    ApiErrorCode.QUERY_TIMEOUT: 504,
+    ApiErrorCode.UNAUTHORIZED: 401,
     ApiErrorCode.INTERNAL_ERROR: 500,
     ApiErrorCode.UNSUPPORTED_TIMEFRAME: 400,
     ApiErrorCode.UNSUPPORTED_ASSET_CLASS: 400,
@@ -95,7 +99,8 @@ def api_error_response(exc: ApiError) -> JSONResponse:
         error["symbol"] = exc.symbol
     if exc.asset_class is not None:
         error["asset_class"] = exc.asset_class
-    return JSONResponse(status_code=exc.status_code, content={"error": error})
+    headers = {"WWW-Authenticate": "Bearer"} if exc.code == ApiErrorCode.UNAUTHORIZED else None
+    return JSONResponse(status_code=exc.status_code, content={"error": error}, headers=headers)
 
 
 def install_error_handlers(app: FastAPI) -> None:
