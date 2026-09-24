@@ -5,7 +5,9 @@
 # service run from this one file and differ only in the variables below. Drive it with
 # scripts/mcp_tailnet.sh (up / check / down), which also sets up the tailnet forward.
 #
-#   APEX_MCP_IMAGE      image to run; production pins a digest (ghcr.io/...@sha256:...)
+#   APEX_MCP_IMAGE      image to run; production runs ghcr.io/moremeds/apex-api:latest
+#   APEX_MCP_WATCHTOWER true on production only: Watchtower then redeploys it on each
+#                       release. Test instances of candidate images leave it unset.
 #   APEX_MCP_HOST_PORT  host port, bound to 127.0.0.1 only (8333 production)
 #   APEX_MCP_ENV_FILE   the private env file: APEX_MCP_API_KEY and APEX_MCP_ALLOWED_HOSTS.
 #                       The container reads nothing else, so it never sees the API's PG
@@ -48,3 +50,5 @@ services:
       retries: 3
       start_period: 20s
     restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: "${APEX_MCP_WATCHTOWER:-false}"

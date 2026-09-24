@@ -119,9 +119,9 @@ export APEX_LAKE_HOST_ROOT=<lake-root>        # every lake mount is read-only
 # test instance of a candidate image, on its own port
 scripts/mcp_tailnet.sh up apex-api:<candidate-tag> 8334
 
-# production: the released image pinned by digest, port 8333
-APEX_MCP_ENV_FILE=<deploy-dir>/mcp.env \
-  scripts/mcp_tailnet.sh up ghcr.io/moremeds/apex-api@sha256:<digest> 8333
+# production: the released :latest, port 8333, auto-deployed by Watchtower
+APEX_MCP_WATCHTOWER=true APEX_MCP_ENV_FILE=<deploy-dir>/mcp.env \
+  scripts/mcp_tailnet.sh up ghcr.io/moremeds/apex-api:latest 8333
 
 scripts/mcp_tailnet.sh check [PORT]           # re-run the acceptance check
 scripts/mcp_tailnet.sh down [PORT]            # stop it and remove the tailnet forward
@@ -189,6 +189,6 @@ This repository verifies the following:
 - real-socket transport, shutdown, and cancellation.
 
 The following are operator acceptance steps per deployment and are not verified here:
-- the running image digest;
+- the running image version;
 - a direct tailnet call from Claude Code;
 - a ChatGPT `tools/call` through the tunnel.
