@@ -9,6 +9,13 @@ All notable changes to apex are recorded here. Format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Production MCP auto-deploys through Watchtower.** `docker/mcp.compose.yml` sets the
+  Watchtower opt-in label from `APEX_MCP_WATCHTOWER` (default `false`), and production runs
+  `ghcr.io/moremeds/apex-api:latest` with it set to `true`, as the API service already does.
+  Test instances of candidate images stay unlabelled. `docs/mcp-operator-guide.md` updated.
+
 ## [0.1.13] — 2026-09-23
 
 
