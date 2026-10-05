@@ -2,7 +2,7 @@
 
 from .bar_provider import BarProvider
 from .event_bus import EventBus, EventType
-from .execution_provider import ExecutionProvider, OrderRequest, OrderResult
+from .execution_provider import OrderRequest, OrderResult
 from .historical_source import DateRange, HistoricalSourcePort
 from .live_feed import LiveFeedPort
 
@@ -13,7 +13,6 @@ __all__ = [
     "EventBus",
     "EventType",
     "BarProvider",
-    "ExecutionProvider",
     "OrderRequest",
     "OrderResult",
     "HistoricalSourcePort",

@@ -13,8 +13,7 @@ All notable changes to apex are recorded here. Format follows
 
 - **`python main.py` runs the API server; `--service` and `--env` are gone.** The production
   image's `CMD` is now `python main.py`. `make dev` starts only the API server.
-  It boots through `src.api.server.main()`, so `APEX_API_WORKERS` now applies to the image
-  too. `python main.py --mode backtest` always uses `SingleBacktestRunner`; its
+  It boots through `src.api.server.main()`. `python main.py --mode backtest` always uses `SingleBacktestRunner`; its
   `--engine backtrader` branch called a method that does not exist. The frozen
   `python -m src.backtest.runner` keeps `--engine`.
 - **`SubscriptionManager` types its live feed as `LiveFeedPort`.** The protocol was only
@@ -23,6 +22,12 @@ All notable changes to apex are recorded here. Format follows
 
 ### Removed
 
+- **`APEX_API_WORKERS`.** The server always runs one process: the WS hub, streaming
+  pipeline, subscriptions and backtest jobs are per-process state, so a second worker
+  split them. Production never set it.
+- **The momentum workflow's R2 regime fetch.** It imported the deleted R2 client and had
+  already failed on every run (no `R2_ENDPOINT`), so the screen used the R1 fallback; it
+  still does.
 - **Dead research code (50 modules, about 14.2k lines).** No live or frozen code imported
   any of it: the offline signal pipeline (`signals/{pipeline,trend,universe,config}`,
   `signal_logger`), `price_divergence`, the advisor services, the regime action resolver and

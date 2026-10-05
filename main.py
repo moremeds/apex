@@ -69,7 +69,7 @@ def main() -> None:
         sys.exit(0 if getattr(result, "is_profitable", True) else 1)
 
     else:
-        # Same boot path as `python -m src.api.server` (APEX_API_PORT, APEX_API_WORKERS).
+        # Same boot path as `python -m src.api.server`.
         from src.api.server import main as run_api_server
 
         run_api_server()
