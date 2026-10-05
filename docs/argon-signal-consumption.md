@@ -48,7 +48,8 @@ Default listen address: `0.0.0.0:8322` (override with `APEX_API_PORT`).
 
 apex builds the streaming pipeline when its data roots are configured. Without
 `APEX_LIVEWIRE_ROOT` there is no pipeline: the WS endpoint accepts a connection and
-closes it at once with code `1013` (reason `signal streaming not configured`); live ticks flow from xenon automatically (the URL is baked in — see below).
+closes it at once with code `1013` (reason `signal streaming not configured`). With it,
+live ticks flow from xenon automatically (the URL is baked in — see below).
 
 | Env var | Default | Purpose |
 |---|---|---|
