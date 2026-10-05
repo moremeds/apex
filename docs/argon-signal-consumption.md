@@ -553,7 +553,7 @@ indicator**, e.g. `{value, zone}` for rsi, `{macd, signal, histogram, direction}
 - **Signal lifecycle** (`status`/`invalidated_*`) is not yet persisted; signals are
   effectively append-only and `active`.
 - **Per-bar cadence**, not per-tick (§6).
-- apex must be started with `APEX_LIVEWIRE_ROOT` or `/ws/signals` connects but stays silent.
+- apex must be started with `APEX_LIVEWIRE_ROOT` or `/ws/signals` accepts, then closes with code `1013` (reason `signal streaming not configured`).
 - The snapshot/REST backfill require `APEX_PG_URL` (§3); without it, only the live WS push
   is available.
 - **Chart data is REST-only (poll).** There is no live WS push for bars/indicators/confluence
