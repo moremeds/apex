@@ -9,6 +9,9 @@ All notable changes to apex are recorded here. Format follows
 
 ## [Unreleased]
 
+## [0.1.14] — 2026-10-05
+
+
 ### Added
 
 - **`.python-version` pins the interpreter to 3.13.** With no pin, `uv run` / `uv sync`
@@ -91,7 +94,6 @@ All notable changes to apex are recorded here. Format follows
   whose only writer is the legacy, undeployed `src/services/signal_service.py`, so production
   served stale rows. No downstream service (argon, helium, signal-lab, xenon, livewire) calls
   it. The `score_history` writer stays until the legacy daemon itself is removed.
-
 ## [0.1.13] — 2026-09-23
 
 
