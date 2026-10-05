@@ -67,6 +67,16 @@ All notable changes to apex are recorded here. Format follows
 - **18 Yahoo-backed regime sensitivity cases.** They fetched bars at test time and skipped on
   any failure, so they never ran in CI; the synthetic stability and edge-case tests remain.
 
+### Fixed
+
+- **A Silver revision refresh no longer drops bars closed from live ticks.**
+  `IndicatorEngine.replace_symbol_histories` swapped the whole per-timeframe history, so
+  every live-closed bar newer than the lake's newest bar was lost on each refresh. It now
+  keeps those bars. Lake bars are stamped at period start and live bars at period end, so
+  a live bar is kept only when its period starts after the lake's newest bar; the live bar
+  for the lake's newest period is dropped as its duplicate. This is safe in adjusted mode
+  because every symbol's last Silver factor interval is 1.0 (measured on rev 93).
+
 ## [0.1.14] — 2026-10-05
 
 ### Added

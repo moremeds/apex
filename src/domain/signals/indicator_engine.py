@@ -12,7 +12,7 @@ import asyncio
 import time
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from threading import RLock
 from typing import TYPE_CHECKING, Any, Callable, Deque, Dict, List, Optional, Protocol, Tuple
 
@@ -22,6 +22,7 @@ from src.domain.events.domain_events import BarCloseEvent, IndicatorUpdateEvent
 from src.domain.events.event_types import EventType
 from src.utils.logging_setup import get_logger
 
+from .data.bar_builder import TIMEFRAME_SECONDS
 from .indicators.base import Indicator
 from .indicators.registry import get_indicator_registry
 
@@ -279,6 +280,17 @@ class IndicatorEngine:
 
         with self._get_symbol_lock(symbol):
             for timeframe, replacement in replacements.items():
+                old = self._history.get((symbol, timeframe), ())
+                seconds = TIMEFRAME_SECONDS.get(timeframe)
+                if replacement and seconds:
+                    # Keep bars closed live after the lake's newest bar. Lake bars are
+                    # stamped at period start, live bars at period end, so a live bar is
+                    # newer only when its start is past the lake's newest start.
+                    # Rule 12 holds: on Silver rev 93 (2026-10-05) every symbol's last
+                    # factor interval is 1.0, so a live raw bar equals its adjusted bar.
+                    cutoff = replacement[-1]["timestamp"] + timedelta(seconds=seconds)
+                    replacement.extend(bar for bar in old if bar["timestamp"] > cutoff)
+            for timeframe, replacement in replacements.items():  # swap only once all succeed
                 self._history[(symbol, timeframe)] = replacement
             affected = set(replacements)
             self._previous_states = {

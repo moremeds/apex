@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-from typing import Any, cast
+from typing import Any, Callable, cast
 
 import pytest
 
 from src.application.services.ta_signal_service import TASignalService
+from src.domain.signals.data.bar_aggregator import BarAggregator
+from src.domain.signals.indicator_engine import IndicatorEngine
 
 
 class _FakeIndicatorEngine:
@@ -107,6 +110,51 @@ def test_refresh_overflow_then_abort_replays_captured_ticks() -> None:
 
     assert [tick["timestamp"] for tick in aggregator.ticks] == [now]
     service.begin_symbol_refresh("NVDA")  # refresh state was cleared
+
+
+class _SyncBus:
+    def __init__(self) -> None:
+        self._subs: dict[Any, list[Callable[[Any], None]]] = defaultdict(list)
+
+    def subscribe(self, event_type: Any, callback: Callable[[Any], None]) -> None:
+        self._subs[event_type].append(callback)
+
+    def publish(self, event_type: Any, payload: Any) -> None:
+        for callback in self._subs[event_type]:
+            callback(payload)
+
+
+def test_overflow_abort_replay_after_replace_keeps_tail_without_duplicates() -> None:
+    """Real aggregator + engine: Silver replace keeps the live tail, then an
+    overflowed refresh aborts and its replayed ticks close each bar exactly once."""
+    bus = _SyncBus()
+    engine = IndicatorEngine(bus, max_workers=1)
+    engine._indicators = []  # history only; skip indicator compute
+    engine.start()
+    service = TASignalService(event_bus=bus, refresh_buffer_max_ticks=1)
+    service._bar_aggregators = {"1d": BarAggregator("1d", bus)}
+    service._running = True
+    d = datetime(2026, 10, 1, tzinfo=timezone.utc)
+
+    def tick(day: int, hour: int) -> None:
+        ts = d + timedelta(days=day, hours=hour)
+        service._on_market_data_tick({"symbol": "NVDA", "price": 100.0 + day, "timestamp": ts})
+
+    for day in (0, 1, 2):
+        tick(day, 15)  # live closes day D and D+1; D+2 stays open
+    service.begin_symbol_refresh("NVDA")
+    tick(2, 16)  # captured
+    tick(3, 15)  # overflow: dropped
+    lake = [{"timestamp": d + timedelta(days=k), "close": 1.0} for k in (-1, 0)]
+    engine.replace_symbol_histories("NVDA", {"1d": lake})
+    with pytest.raises(RuntimeError, match="tick buffer exceeded"):
+        service.commit_symbol_refresh("NVDA")
+    service.abort_symbol_refresh("NVDA")
+    tick(3, 15)  # first post-refresh tick closes live D+2
+
+    stamps = [bar["timestamp"] for bar in engine.get_history("NVDA", "1d") or []]
+    # lake D-1, lake D (live D dropped as its duplicate), live D+1, live D+2
+    assert stamps == [d + timedelta(days=k) for k in (-1, 0, 2, 3)]
 
 
 def test_buffer_is_thread_safe_under_concurrent_ticks() -> None:

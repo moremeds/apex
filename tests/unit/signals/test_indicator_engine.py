@@ -10,6 +10,7 @@ Tests the core indicator calculation engine including:
 - State caching
 """
 
+from collections import deque
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -199,6 +200,45 @@ class TestHistoricalBarReplacement:
 
         assert engine.get_history("NVDA", "1d") == old
         assert engine.get_history("NVDA", "1h") == old
+
+    @pytest.mark.parametrize(
+        "timeframe, step", [("1d", timedelta(days=1)), ("1h", timedelta(hours=1))]
+    )
+    def test_replace_keeps_live_closed_tail_without_duplicating_lake_newest(
+        self, mock_event_bus: MockEventBus, timeframe: str, step: timedelta
+    ) -> None:
+        # Lake bars are stamped at period start, live-closed bars at period end.
+        # Precondition (Silver rev 93, 2026-10-05): every last factor interval is 1.0,
+        # so live raw tail bars equal adjusted bars and may sit after Silver ones.
+        engine = IndicatorEngine(mock_event_bus, max_workers=2)
+        d = datetime(2026, 10, 1, tzinfo=timezone.utc)
+
+        def bar(ts: datetime, close: float) -> dict:
+            return {
+                "timestamp": ts,
+                "open": close,
+                "high": close,
+                "low": close,
+                "close": close,
+            }
+
+        engine._history[("NVDA", timeframe)] = deque(
+            [
+                bar(d - step, 1.0),
+                bar(d + step, 2.0),
+                bar(d + 2 * step, 3.0),
+            ]  # live D, live D+1
+        )
+
+        counts = engine.replace_symbol_histories(
+            "NVDA",
+            {timeframe: [bar(d - step, 10.0), bar(d, 20.0)]},  # lake D-1, lake D
+        )
+
+        history = engine.get_history("NVDA", timeframe)
+        assert [row["timestamp"] for row in history] == [d - step, d, d + 2 * step]
+        assert [row["close"] for row in history] == [10.0, 20.0, 3.0]
+        assert counts == {timeframe: 3}
 
     def test_replacement_clears_only_affected_indicator_states(
         self, mock_event_bus: MockEventBus
