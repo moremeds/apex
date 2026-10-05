@@ -78,8 +78,9 @@ All notable changes to apex are recorded here. Format follows
   - a replace keeps only live-closed bars whose period starts after the new lake's newest bar,
     and drops lake rows that a revision retracted;
   - a live bar whose period the lake already holds (for example day D closing after the lake
-    published day D) is not appended, on warmup and after a refresh alike; indicators are
-    still computed on that close, since the streaming seed does not compute on its own.
+    published day D) is not appended and publishes nothing, on warmup and after a refresh alike;
+  - the streaming seed now computes indicators after it injects bars, as a refresh already did,
+    so the first live close has a previous state for transition rules.
   In adjusted mode this is exact for `1d`: on Silver rev 93 the factor table ends with the daily
   data and its last interval is 1.0. Intraday timeframes are not covered: if Bronze intraday
   lags an ex-date the new revision already includes, a kept live bar before that date stays raw.

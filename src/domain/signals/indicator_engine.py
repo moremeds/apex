@@ -244,13 +244,6 @@ class IndicatorEngine:
                     live = self._live_stamps.get(bar_key)
                     if live:  # drop stamps of live bars these appends evicted
                         live &= {bar["timestamp"] for bar in self._history[bar_key]}
-                    # History grew, so cached states are stale; as on replace, drop them so
-                    # the next close recomputes (a skipped one under the history's time).
-                    self._previous_states = {
-                        key: state
-                        for key, state in self._previous_states.items()
-                        if key[:2] != bar_key
-                    }
 
                 injected_count = len(new_bars)
                 skipped_count = len(bar_dicts) - injected_count
@@ -491,9 +484,7 @@ class IndicatorEngine:
                     and seconds
                     and bar_timestamp - timedelta(seconds=seconds) <= lake_newest
                 )
-                if skipped:  # the lake already holds this period; keep its bar
-                    computed = any(k[:2] == bar_key for k in self._previous_states)
-                else:
+                if not skipped:  # else the lake already holds this period; keep its bar
                     history = self._history[bar_key]
                     live = self._live_stamps.setdefault(bar_key, set())
                     if history.maxlen is not None and len(history) == history.maxlen:
@@ -502,11 +493,7 @@ class IndicatorEngine:
                     live.add(bar_timestamp)
                 bars = list(self._history[bar_key])
 
-        if skipped:
-            # The streaming seed only injects, so the first close drives the first
-            # compute. Use the history's own timestamps, never this (older) close's.
-            if not computed:
-                await self.compute_on_history(event.symbol, event.timeframe)
+        if skipped:  # history unchanged; publishing under this close's time would backdate
             return
 
         self._bars_processed += 1

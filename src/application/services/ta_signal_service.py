@@ -617,6 +617,10 @@ class TASignalService:
             return 0
 
         result: int = self._indicator_engine.inject_historical_bars(symbol, timeframe, bars)
+        if result:
+            # Compute now, as replace does, so the first live close has a baseline and a
+            # close the lake already holds needs no compute of its own.
+            await self._indicator_engine.compute_on_history(symbol, timeframe)
         return result
 
     async def replace_symbol_histories(

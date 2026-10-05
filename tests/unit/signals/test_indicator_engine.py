@@ -263,23 +263,6 @@ class TestHistoricalBarReplacement:
         stamps = [row["timestamp"] for row in engine.get_history("NVDA", "1d") or []]
         assert stamps == [d, d + timedelta(days=2)]
 
-    async def test_skipped_live_close_still_computes_indicators(
-        self, mock_event_bus: MockEventBus
-    ) -> None:
-        # The streaming seed only injects, so the first close drives the first compute.
-        engine = IndicatorEngine(mock_event_bus, max_workers=2)
-        engine.start()
-        bars = generate_ohlcv_data(n_bars=engine._max_warmup + 5).to_dict("records")
-        engine.inject_historical_bars("NVDA", "1d", bars)
-        period_end = bars[-1]["timestamp"] + timedelta(days=1)
-
-        await engine._process_bar_async(make_bar_close_event("NVDA", timestamp=period_end))
-
-        assert len(engine.get_history("NVDA", "1d") or []) == len(bars)
-        updates = mock_event_bus.get_events(EventType.INDICATOR_UPDATE)
-        assert updates
-        assert {u.timestamp for u in updates} == {bars[-1]["timestamp"]}  # history's own time
-
     async def test_stale_close_after_compute_publishes_nothing(
         self, mock_event_bus: MockEventBus
     ) -> None:
@@ -296,25 +279,6 @@ class TestHistoricalBarReplacement:
 
         assert len(mock_event_bus.get_events(EventType.INDICATOR_UPDATE)) == published
         assert len(engine.get_history("NVDA", "1d") or []) == len(bars)
-
-    async def test_reseed_with_newer_bars_recomputes_on_the_next_skipped_close(
-        self, mock_event_bus: MockEventBus
-    ) -> None:
-        # Resubscribe: state exists from the first subscription, then inject adds newer bars.
-        engine = IndicatorEngine(mock_event_bus, max_workers=2)
-        engine.start()
-        bars = generate_ohlcv_data(n_bars=engine._max_warmup + 6).to_dict("records")
-        engine.inject_historical_bars("NVDA", "1d", bars[:-1])
-        await engine.compute_on_history("NVDA", "1d")
-        published = len(mock_event_bus.get_events(EventType.INDICATOR_UPDATE))
-        engine.inject_historical_bars("NVDA", "1d", bars)  # appends the newest bar
-        covered_end = bars[-1]["timestamp"] + timedelta(days=1)
-
-        await engine._process_bar_async(make_bar_close_event("NVDA", timestamp=covered_end))
-
-        updates = mock_event_bus.get_events(EventType.INDICATOR_UPDATE)[published:]
-        assert updates
-        assert {u.timestamp for u in updates} == {bars[-1]["timestamp"]}
 
     async def test_replace_drops_retracted_lake_rows_but_keeps_live_tail(
         self, mock_event_bus: MockEventBus

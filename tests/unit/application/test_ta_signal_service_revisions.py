@@ -7,6 +7,8 @@ from typing import Any, Callable, cast
 import pytest
 
 from src.application.services.ta_signal_service import TASignalService
+from src.domain.events.domain_events import BarCloseEvent
+from src.domain.events.event_types import EventType
 from src.domain.signals.data.bar_aggregator import BarAggregator
 from src.domain.signals.indicator_engine import IndicatorEngine
 
@@ -155,6 +157,35 @@ def test_overflow_abort_replay_after_replace_keeps_tail_without_duplicates() -> 
     stamps = [bar["timestamp"] for bar in engine.get_history("NVDA", "1d") or []]
     # lake D-1, lake D (live D dropped as its duplicate), live D+1, live D+2
     assert stamps == [d + timedelta(days=k) for k in (-1, 0, 2, 3)]
+
+
+async def test_seed_computes_under_history_time_and_keeps_a_baseline() -> None:
+    """The streaming seed computes after inject, so the first live close has a previous
+    state (transition rules can fire) and a close the lake already holds publishes nothing."""
+    bus = _SyncBus()
+    updates: list[Any] = []
+    bus.subscribe(EventType.INDICATOR_UPDATE, updates.append)
+    engine = IndicatorEngine(bus, max_workers=1)
+    engine.start()
+    service = TASignalService(event_bus=bus)
+    service._indicator_engine = engine
+    d = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    bars = [
+        {"timestamp": d + timedelta(days=i), "open": c, "high": c + 1, "low": c - 1, "close": c}
+        for i, c in enumerate(100.0 + (i % 7) for i in range(engine._max_warmup + 6))
+    ]
+
+    await service.inject_historical_bars("NVDA", "1d", bars[:-1])
+    await service.inject_historical_bars("NVDA", "1d", bars)  # resubscribe adds one bar
+
+    assert {u.timestamp for u in updates} == {bars[-2]["timestamp"], bars[-1]["timestamp"]}
+    assert engine.get_indicator_state("NVDA", "1d", "rsi") is not None
+    published = len(updates)
+    covered = {"timestamp": bars[-1]["timestamp"] + timedelta(days=1)}
+    await engine._process_bar_async(
+        BarCloseEvent(symbol="NVDA", timeframe="1d", close=1.0, bar_end=covered["timestamp"])
+    )
+    assert len(updates) == published
 
 
 def test_buffer_is_thread_safe_under_concurrent_ticks() -> None:
