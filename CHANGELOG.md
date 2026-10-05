@@ -73,13 +73,16 @@ All notable changes to apex are recorded here. Format follows
   longer duplicate lake bars.** `IndicatorEngine.replace_symbol_histories` swapped the whole
   per-timeframe history, so every live-closed bar newer than the lake's newest bar was lost on
   each refresh. Lake bars are stamped at period start and live bars at period end. The engine
-  now records the newest lake bar per symbol and timeframe:
+  now tracks which history bars were closed live and the newest lake bar per symbol and
+  timeframe:
   - a replace keeps only live-closed bars whose period starts after the new lake's newest bar,
     and drops lake rows that a revision retracted;
   - a live bar whose period the lake already holds (for example day D closing after the lake
-    published day D) is not appended, on warmup and after a refresh alike.
-  This is safe in adjusted mode because every symbol's last Silver factor interval is 1.0
-  (measured on rev 93).
+    published day D) is not appended, on warmup and after a refresh alike; indicators are
+    still computed on that close, since the streaming seed does not compute on its own.
+  In adjusted mode this is exact for `1d`: on Silver rev 93 the factor table ends with the daily
+  data and its last interval is 1.0. Intraday timeframes are not covered: if Bronze intraday
+  lags an ex-date the new revision already includes, a kept live bar before that date stays raw.
 
 ## [0.1.14] — 2026-10-05
 

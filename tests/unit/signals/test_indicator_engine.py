@@ -229,6 +229,7 @@ class TestHistoricalBarReplacement:
                 bar(d + 2 * step, 3.0),
             ]  # live D, live D+1
         )
+        engine._live_stamps[("NVDA", timeframe)] = {d + step, d + 2 * step}
 
         counts = engine.replace_symbol_histories(
             "NVDA",
@@ -262,6 +263,21 @@ class TestHistoricalBarReplacement:
         stamps = [row["timestamp"] for row in engine.get_history("NVDA", "1d") or []]
         assert stamps == [d, d + timedelta(days=2)]
 
+    async def test_skipped_live_close_still_computes_indicators(
+        self, mock_event_bus: MockEventBus
+    ) -> None:
+        # The streaming seed only injects, so the first close drives the first compute.
+        engine = IndicatorEngine(mock_event_bus, max_workers=2)
+        engine.start()
+        bars = generate_ohlcv_data(n_bars=engine._max_warmup + 5).to_dict("records")
+        engine.inject_historical_bars("NVDA", "1d", bars)
+        period_end = bars[-1]["timestamp"] + timedelta(days=1)
+
+        await engine._process_bar_async(make_bar_close_event("NVDA", timestamp=period_end))
+
+        assert len(engine.get_history("NVDA", "1d") or []) == len(bars)
+        assert mock_event_bus.get_events(EventType.INDICATOR_UPDATE)
+
     async def test_replace_drops_retracted_lake_rows_but_keeps_live_tail(
         self, mock_event_bus: MockEventBus
     ) -> None:
@@ -278,6 +294,36 @@ class TestHistoricalBarReplacement:
 
         stamps = [row["timestamp"] for row in engine.get_history("NVDA", "1d") or []]
         assert stamps == [d - timedelta(days=2), live_end]
+
+    async def test_reinjected_lake_rows_do_not_hide_an_earlier_live_bar(
+        self, mock_event_bus: MockEventBus
+    ) -> None:
+        # Resubscribe reseeds after live closes, then a revision retracts rows.
+        engine = IndicatorEngine(mock_event_bus, max_workers=2)
+        engine._indicators = []
+        engine.start()
+        d = datetime(2026, 1, 2, tzinfo=timezone.utc)
+        engine.inject_historical_bars("NVDA", "1d", [{"timestamp": d, "close": 1.0}])
+        live_end = d + timedelta(days=2)  # live Jan 3, stamped Jan 4
+        await engine._process_bar_async(make_bar_close_event("NVDA", timestamp=live_end))
+        reseed = [{"timestamp": d + timedelta(days=3), "close": 1.0}]  # lake Jan 5
+        engine.inject_historical_bars("NVDA", "1d", reseed)
+
+        engine.replace_symbol_histories("NVDA", {"1d": [{"timestamp": d, "close": 1.0}]})
+
+        stamps = [row["timestamp"] for row in engine.get_history("NVDA", "1d") or []]
+        assert stamps == [d, live_end]
+
+    async def test_live_stamps_follow_history_eviction(self, mock_event_bus: MockEventBus) -> None:
+        engine = IndicatorEngine(mock_event_bus, max_workers=2, max_history=2)
+        engine._indicators = []
+        engine.start()
+        d = datetime(2026, 1, 2, tzinfo=timezone.utc)
+        for day in (1, 2, 3):
+            event = make_bar_close_event("NVDA", timestamp=d + timedelta(days=day))
+            await engine._process_bar_async(event)
+
+        assert engine._live_stamps[("NVDA", "1d")] == {d + timedelta(days=k) for k in (2, 3)}
 
     def test_replacement_clears_only_affected_indicator_states(
         self, mock_event_bus: MockEventBus
