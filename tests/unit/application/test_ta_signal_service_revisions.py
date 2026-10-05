@@ -206,6 +206,34 @@ async def test_seed_sets_a_baseline_without_evaluating_rules() -> None:
     assert ("NVDA", "1d", "rsi") in engine._previous_states
 
 
+async def test_first_live_close_after_seed_compares_against_the_seed_baseline() -> None:
+    """After subscribe, the first appended live close sees the silent seed as its previous
+    state, so a transition from the lake's last bar fires there (detect_initial does not)."""
+    bus = _SyncBus()
+    updates: list[Any] = []
+    bus.subscribe(EventType.INDICATOR_UPDATE, updates.append)
+    engine = IndicatorEngine(bus, max_workers=1)
+    engine._indicators = [ind for ind in engine._indicators if ind.name == "rsi"]
+    engine.start()
+    service = TASignalService(event_bus=bus)
+    service._indicator_engine = engine
+    d = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    bars = [
+        {"timestamp": d + timedelta(days=i), "open": c, "high": c + 1, "low": c - 1, "close": c}
+        for i, c in enumerate(100.0 + (i % 7) for i in range(40))
+    ]
+    await service.inject_historical_bars("NVDA", "1d", bars)
+    baseline = engine._previous_states[("NVDA", "1d", "rsi")]
+
+    next_end = bars[-1]["timestamp"] + timedelta(days=2)  # first session after the lake
+    await engine._process_bar_async(
+        BarCloseEvent(symbol="NVDA", timeframe="1d", close=101.0, bar_end=next_end)
+    )
+
+    (update,) = [u for u in updates if u.indicator == "rsi"]
+    assert update.previous_state == baseline
+
+
 def test_buffer_is_thread_safe_under_concurrent_ticks() -> None:
     """Ticks arriving from many threads (as they would if the tick handler is
     ever dispatched via the event bus' heavy-callback thread pool) must not
