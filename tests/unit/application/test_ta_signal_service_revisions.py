@@ -94,6 +94,21 @@ def test_refresh_buffer_overflow_is_explicit() -> None:
         service.commit_symbol_refresh("NVDA")
 
 
+def test_refresh_overflow_then_abort_replays_captured_ticks() -> None:
+    service, aggregator = _running_service(max_ticks=1)
+    now = datetime.now(timezone.utc)
+    service.begin_symbol_refresh("NVDA")
+    service._on_market_data_tick({"symbol": "NVDA", "timestamp": now})
+    service._on_market_data_tick({"symbol": "NVDA", "timestamp": now + timedelta(seconds=1)})
+
+    with pytest.raises(RuntimeError, match="tick buffer exceeded"):
+        service.commit_symbol_refresh("NVDA")
+    service.abort_symbol_refresh("NVDA")  # what SubscriptionManager does on failure
+
+    assert [tick["timestamp"] for tick in aggregator.ticks] == [now]
+    service.begin_symbol_refresh("NVDA")  # refresh state was cleared
+
+
 def test_buffer_is_thread_safe_under_concurrent_ticks() -> None:
     """Ticks arriving from many threads (as they would if the tick handler is
     ever dispatched via the event bus' heavy-callback thread pool) must not

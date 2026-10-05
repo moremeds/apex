@@ -60,6 +60,20 @@ All notable changes to apex are recorded here. Format follows
   `start`/`end`, so the window was a 10-day lookback from now; once the 2026-09-16/17
   fixture rows aged out (late September) the series came back empty and the unit job
   failed on every branch. The test now pins `end`.
+- **`/ws/signals` no longer crashes when no lake is configured.** With `APEX_LIVEWIRE_ROOT`
+  unset the lifespan never set `app.state.subscription_manager`, so every connection hit an
+  `AttributeError`. The lifespan now always sets it (`None` when there is no pipeline), and
+  the socket accepts and closes with code `1013` (try again later).
+- **A repeat WS subscribe no longer leaks a refcount.** Subscribing twice to one ticker on
+  one socket acquired two `SubscriptionManager` refcounts but disconnect released one, so the
+  ticker stayed live forever. `SignalHub.register` now reports whether the ticker is new, and
+  only a new registration acquires a refcount. A handler error (for example a seed failure)
+  now also releases every ticker the socket held; before, only a clean disconnect did.
+- **Ticks captured during a failed Silver refresh are replayed.** When the refresh tick
+  buffer hit its count or age limit, `commit_symbol_refresh` removed the buffer before it
+  raised, so the following `abort_symbol_refresh` found nothing and the captured ticks were
+  lost. Commit now leaves the buffer in place on error, and abort replays it. Ticks that
+  arrive after a limit is hit are still dropped.
 
 ### Removed
 

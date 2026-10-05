@@ -11,9 +11,18 @@ class SignalHub:
         self._by_ticker: DefaultDict[str, Set[Any]] = defaultdict(set)
         self._tickers_of: Dict[Any, Set[str]] = {}
 
-    def register(self, ws: Any, ticker: str) -> None:
+    def register(self, ws: Any, ticker: str) -> bool:
+        """Add `ws` to `ticker`; True only if it was not already registered.
+
+        The caller acquires one SubscriptionManager refcount per True, matching
+        the one release per ticker that `unregister` reports.
+        """
+        held = self._tickers_of.setdefault(ws, set())
+        if ticker in held:
+            return False
+        held.add(ticker)
         self._by_ticker[ticker].add(ws)
-        self._tickers_of.setdefault(ws, set()).add(ticker)
+        return True
 
     def unregister(self, ws: Any, ticker: Optional[str] = None) -> Set[str]:
         """Remove `ws` from one ticker (if given) or all tickers (disconnect).

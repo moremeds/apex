@@ -50,3 +50,11 @@ async def test_unregister_all_returns_full_ticker_set() -> None:
     assert removed == {"AAPL", "TSLA"}
     await hub.broadcast("AAPL", {"signals": [], "timestamp": "t"})
     assert a.sent == []
+
+
+def test_register_reports_only_new_registrations() -> None:
+    hub = SignalHub()
+    a = _FakeWS()
+    assert hub.register(a, "AAPL") is True
+    assert hub.register(a, "AAPL") is False
+    assert hub.unregister(a) == {"AAPL"}

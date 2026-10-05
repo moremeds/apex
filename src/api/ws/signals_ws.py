@@ -4,7 +4,9 @@ Frame protocol (argon -> apex):
     {"action": "subscribe",   "ticker": "AAPL"}
     {"action": "unsubscribe", "ticker": "AAPL"}
 apex -> argon: ack {"status": ..., "ticker": ...}, then an initial snapshot payload,
-then live signal_service_payload frames as signals fire.
+then live signal_service_payload frames as signals fire. A repeat subscribe is acked
+but adds no second refcount. With no streaming pipeline (APEX_LIVEWIRE_ROOT unset),
+apex accepts and immediately closes with code 1013 (try again later).
 """
 
 from __future__ import annotations
@@ -22,8 +24,11 @@ router = APIRouter()
 @router.websocket("/ws/signals")
 async def signals_ws(ws: WebSocket) -> None:
     await ws.accept()
-    hub = ws.app.state.signal_hub
     mgr = ws.app.state.subscription_manager
+    if mgr is None:
+        await ws.close(code=1013, reason="signal streaming not configured")
+        return
+    hub = ws.app.state.signal_hub
     repo = getattr(ws.app.state, "signal_repo", None)
     try:
         while True:
@@ -31,8 +36,14 @@ async def signals_ws(ws: WebSocket) -> None:
             ticker = msg.get("ticker", "")
             action = msg.get("action")
             if action == "subscribe" and ticker:
-                hub.register(ws, ticker)
-                await mgr.subscribe(ticker)
+                # One manager refcount per (socket, ticker): a repeat is only re-acked.
+                new = hub.register(ws, ticker)
+                if new:
+                    try:
+                        await mgr.subscribe(ticker)
+                    except Exception:
+                        hub.unregister(ws, ticker)  # manager holds no refcount for it
+                        raise
                 await ws.send_json({"status": "subscribed", "ticker": ticker})
                 # Initial snapshot so argon can render immediately (spec 3.1).
                 # MVP: recent persisted signals. NOTE: enriching this with the full
@@ -51,6 +62,9 @@ async def signals_ws(ws: WebSocket) -> None:
             else:
                 await ws.send_json({"status": "error", "detail": "bad frame"})
     except WebSocketDisconnect:
-        # Decrement EVERY ticker the socket still held (no refcount leak).
+        pass
+    finally:
+        # Decrement EVERY ticker the socket still held, on disconnect or on any
+        # handler error (no refcount leak).
         for removed in hub.unregister(ws):
             await mgr.unsubscribe(removed)
