@@ -58,3 +58,20 @@ def test_register_reports_only_new_registrations() -> None:
     assert hub.register(a, "AAPL") is True
     assert hub.register(a, "AAPL") is False
     assert hub.unregister(a) == {"AAPL"}
+
+
+class _DeadWS(_FakeWS):
+    async def send_json(self, data: dict) -> None:
+        raise RuntimeError("socket closed")
+
+
+@pytest.mark.asyncio
+async def test_dead_socket_is_muted_but_still_reported_on_unregister() -> None:
+    hub = SignalHub()
+    dead = _DeadWS()
+    hub.register(dead, "AAPL")
+
+    await hub.broadcast("AAPL", {"signals": [], "timestamp": "t"})
+    assert hub._by_ticker["AAPL"] == set()  # no more fan-out to it
+    # The handler's cleanup still sees AAPL, so its manager refcount is released.
+    assert hub.unregister(dead) == {"AAPL"}

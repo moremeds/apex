@@ -51,4 +51,7 @@ class SignalHub:
             except Exception:  # noqa: BLE001 -- drop broken sockets
                 dead.append(ws)
         for ws in dead:
-            self.unregister(ws)  # full removal of a dead socket
+            # Stop fanning out to it, but keep `_tickers_of`: the WS handler's
+            # final unregister must still report these tickers to release refcounts.
+            for t in self._tickers_of.get(ws, ()):
+                self._by_ticker[t].discard(ws)

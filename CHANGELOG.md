@@ -68,7 +68,9 @@ All notable changes to apex are recorded here. Format follows
   one socket acquired two `SubscriptionManager` refcounts but disconnect released one, so the
   ticker stayed live forever. `SignalHub.register` now reports whether the ticker is new, and
   only a new registration acquires a refcount. A handler error (for example a seed failure)
-  now also releases every ticker the socket held; before, only a clean disconnect did.
+  now also releases every ticker the socket held; before, only a clean disconnect did. A
+  socket whose send fails during a broadcast is muted but stays in the hub, so its
+  handler's cleanup still releases its refcounts (the broadcast used to drop it silently).
 - **Ticks captured during a failed Silver refresh are replayed.** When the refresh tick
   buffer hit its count or age limit, `commit_symbol_refresh` removed the buffer before it
   raised, so the following `abort_symbol_refresh` found nothing and the captured ticks were
