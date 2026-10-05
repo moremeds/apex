@@ -94,7 +94,8 @@ class IndicatorEngine:
         # Bar history per (symbol, timeframe)
         self._history: Dict[BarKey, Deque[Dict[str, Any]]] = {}
         # Newest lake (historical) bar per key. Lake bars are stamped at period start,
-        # live-closed bars at period end, so a history bar newer than this is live.
+        # live-closed bars at period end; a live close whose period starts at or before
+        # this is one the lake already holds.
         self._lake_newest: Dict[BarKey, Any] = {}
         # Timestamps of live-closed bars still in history; a replace keeps only these.
         self._live_stamps: Dict[BarKey, set[Any]] = {}
