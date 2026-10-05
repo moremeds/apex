@@ -367,6 +367,8 @@ def main() -> None:
         host="0.0.0.0",  # nosec B104 - backend service intentionally listens on all interfaces for Xenon consumers
         port=port,
         # One process: the hub, streaming pipeline, subscriptions and jobs live in app.state.
+        # Explicit, because uvicorn otherwise takes the worker count from WEB_CONCURRENCY.
+        workers=1,
         factory=True,
     )
 

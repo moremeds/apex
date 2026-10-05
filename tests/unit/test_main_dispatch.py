@@ -46,3 +46,13 @@ def test_main_without_mode_delegates_to_api_server():
     with patch("sys.argv", ["main.py"]), patch("src.api.server.main") as server_main:
         entry.main()
     server_main.assert_called_once_with()
+
+
+def test_api_server_runs_one_process_despite_web_concurrency(monkeypatch):
+    """app.state holds per-process hub/subscription/job state; uvicorn must not fork workers."""
+    from src.api import server
+
+    monkeypatch.setenv("WEB_CONCURRENCY", "2")
+    with patch("uvicorn.run") as run:
+        server.main()
+    assert run.call_args.kwargs["workers"] == 1

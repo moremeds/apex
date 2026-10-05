@@ -24,7 +24,7 @@ All notable changes to apex are recorded here. Format follows
 
 - **`APEX_API_WORKERS`.** The server always runs one process: the WS hub, streaming
   pipeline, subscriptions and backtest jobs are per-process state, so a second worker
-  split them. Production never set it.
+  split them. `WEB_CONCURRENCY` is ignored for the same reason. Production never set either.
 - **The momentum workflow's R2 regime fetch.** It imported the deleted R2 client and had
   already failed on every run (no `R2_ENDPOINT`), so the screen used the R1 fallback; it
   still does.
