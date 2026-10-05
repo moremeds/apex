@@ -2,7 +2,6 @@
 Divergence Detection Package.
 
 Provides tools for detecting:
-- Price vs indicator divergences (bullish/bearish/hidden)
 - Cross-indicator divergences
 - Multi-timeframe alignment
 - Confluence scoring

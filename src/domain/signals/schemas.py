@@ -1,72 +1,11 @@
-"""
-Signal Service v2 - Core Schema Definitions.
-
-PR-01 Deliverable: Frozen dataclasses for schema stability.
-
-Schema Version: signal_v2@1.0
-
-Key Design Principles:
-1. All schema classes are frozen (immutable) to prevent accidental mutation
-2. Schema version validation for serialization/deserialization
-3. Explicit documentation of field semantics
-"""
+"""Bar data-quality types shared by the signal data validators."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, Optional, Tuple
-
-# =============================================================================
-# SCHEMA VERSION
-# =============================================================================
-
-SCHEMA_VERSION: Tuple[int, int] = (1, 0)
-SCHEMA_VERSION_STR: str = f"signal_v2@{SCHEMA_VERSION[0]}.{SCHEMA_VERSION[1]}"
-
-
-class SchemaVersionError(Exception):
-    """Raised when schema version is incompatible."""
-
-    def __init__(self, expected: str, actual: str):
-        self.expected = expected
-        self.actual = actual
-        super().__init__(f"Schema version mismatch: expected {expected}, got {actual}")
-
-
-def validate_schema_version(
-    version_str: str, expected_prefix: str = "signal_v2@"
-) -> Tuple[int, int]:
-    """
-    Validate and parse a schema version string.
-
-    Args:
-        version_str: Version string like "signal_v2@1.0"
-        expected_prefix: Expected prefix for the schema
-
-    Returns:
-        Tuple of (major, minor) version numbers
-
-    Raises:
-        SchemaVersionError: If version format is invalid or incompatible
-    """
-    if not version_str or not version_str.startswith(expected_prefix):
-        raise SchemaVersionError(SCHEMA_VERSION_STR, version_str or "None")
-
-    try:
-        version_part = version_str.split("@")[1]
-        parts = version_part.split(".")
-        major, minor = int(parts[0]), int(parts[1]) if len(parts) > 1 else 0
-    except (IndexError, ValueError) as e:
-        raise SchemaVersionError(SCHEMA_VERSION_STR, version_str) from e
-
-    # Check major version compatibility (must match exactly)
-    if major != SCHEMA_VERSION[0]:
-        raise SchemaVersionError(SCHEMA_VERSION_STR, version_str)
-
-    return (major, minor)
-
+from typing import Any, Dict, Optional
 
 # =============================================================================
 # DATA QUALITY TYPES (PR-A: Data Quality Gates)

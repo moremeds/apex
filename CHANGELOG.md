@@ -19,8 +19,12 @@ All notable changes to apex are recorded here. Format follows
   adapter, `regime_service`, `email_summary_service`, `domain/indicators`, `data_validator`,
   `bar_replay_service`, `suggester`, `indicator_store`, `coverage_visualizer`, `ta_service`,
   `utils/result`, `livewire/factory` and `observability/architecture_metrics`.
-  `scripts/historical_data_loader.py` goes with them, together with the bar-validation and
-  summary schemas in `signals/schemas.py` that only the pipeline used. Package re-exports of
+  `scripts/historical_data_loader.py` goes with them. So does code that lost its last caller
+  with them: the bar-validation, summary and schema-version helpers in `signals/schemas.py`,
+  and the introspection getters on `IndicatorEngine` (`get_warmup_status`,
+  `get_all_warmup_status`, `get_indicator_state`) and `RuleEngine` (`get_evaluation_history`,
+  `get_cooldown_status`, `get_all_cooldowns`, plus the trace-mode evaluation buffer that only
+  `get_evaluation_history` read). `trace_mode` logging is unchanged. Package re-exports of
   these names are gone, and so are the tests whose only subject was deleted code.
 
 ## [0.1.14] — 2026-10-05
