@@ -18,10 +18,10 @@ Root `CLAUDE.md` is authoritative for policy.
 | `signals/*.yaml`              | Per-rule definitions for the RuleEngine                        |
 | `strategy/{name}.yaml`        | Params + history per strategy (frozen subsystem)               |
 | `strategy/regime_policy.yaml` | Per-strategy regime gating thresholds                          |
-| `secrets.yaml`                | FMP API key, R2 credentials, SMTP — **gitignored**             |
+| `secrets.yaml`                | FMP API key — **gitignored**                                   |
 | `backtest/`                   | Optuna search spaces and experiment specs — NOT param defaults |
 
-Also present and self-explanatory: `demo.yaml`, `regime_weights.yaml`, `gate_policy_clusters.yaml`, `momentum_screener.yaml`, `pead_screener.yaml`, and the `validation/`, `verification/`, `grafana/`, `prometheus/` subdirectories.
+Also present and self-explanatory: `demo.yaml`, `regime_weights.yaml`, `gate_policy_clusters.yaml`, `momentum_screener.yaml`, `pead_screener.yaml`, and the `validation/` and `verification/` subdirectories.
 
 ## Adding a universe subset
 

@@ -14,12 +14,6 @@ from .logging_setup import (
     setup_category_logging,
     setup_logging,
 )
-from .perf_logger import (
-    log_timing,
-    log_timing_async,
-    timed,
-)
-from .structured_logger import StructuredLogger
 from .trace_context import (
     generate_cycle_id,
     get_cycle_id,
@@ -28,8 +22,6 @@ from .trace_context import (
 )
 
 __all__ = [
-    # Logging setup
-    "StructuredLogger",
     "setup_category_logging",
     "setup_logging",
     "flush_all_loggers",
@@ -42,13 +34,8 @@ __all__ = [
     "set_console_enabled",
     "is_verbose_mode",
     "is_console_enabled",
-    # Trace context
     "get_cycle_id",
     "set_cycle_id",
     "new_cycle",
     "generate_cycle_id",
-    # Performance logging
-    "log_timing",
-    "log_timing_async",
-    "timed",
 ]

@@ -358,7 +358,6 @@ def main() -> None:
     import uvicorn
 
     port = int(os.environ.get("APEX_API_PORT", "8322"))
-    workers = int(os.environ.get("APEX_API_WORKERS", "1"))
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s: %(message)s")
     logger.info("Starting APEX API server on port %d", port)
@@ -367,7 +366,9 @@ def main() -> None:
         "src.api.server:create_app",
         host="0.0.0.0",  # nosec B104 - backend service intentionally listens on all interfaces for Xenon consumers
         port=port,
-        workers=workers,
+        # One process: the hub, streaming pipeline, subscriptions and jobs live in app.state.
+        # Explicit, because uvicorn otherwise takes the worker count from WEB_CONCURRENCY.
+        workers=1,
         factory=True,
     )
 

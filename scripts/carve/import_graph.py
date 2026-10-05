@@ -35,13 +35,11 @@ _KEEPSET = (
     "domain.signals",
     "domain.strategy",
     "application.services.ta_signal_service",
-    "application.orchestrator.signal_pipeline",
 )
 _KEEPSET_DIRS = {
     "domain/signals": "src/domain/signals",
     "domain/strategy": "src/domain/strategy",
     "application/services/ta_signal_service": "src/application/services/ta_signal_service.py",
-    "application/orchestrator/signal_pipeline": "src/application/orchestrator/signal_pipeline",
 }
 
 

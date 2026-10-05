@@ -8,7 +8,7 @@ Domain should not import infrastructure; dependencies flow in via `src/domain/in
 
 - `signals/confluence_calculator.py` → `...infrastructure.observability`
 
-Several more (`indicator_engine.py`, `signal_engine.py`, `rule_engine.py`, `signals/data/bar_aggregator.py`) are `TYPE_CHECKING`-guarded and therefore fine. `tests/carve/test_import_graph.py` is the enforcement point — tighten it there, not by convention.
+Several more (`indicator_engine.py`, `rule_engine.py`, `signals/data/bar_aggregator.py`) are `TYPE_CHECKING`-guarded and therefore fine. `tests/carve/test_import_graph.py` is the enforcement point — tighten it there, not by convention.
 
 ## Signal Pipeline
 
@@ -20,7 +20,7 @@ Tick (xenon WS) → BarAggregator (per-timeframe, publishes BAR_CLOSE)
   → PostgreSQL → argon via REST + WS
 ```
 
-Top-level wiring: `signals/signal_engine.py`. Note there are **two** `rule_engine.py` files — `signals/rule_engine.py` is the signal one; `services/risk/rule_engine.py` belongs to the legacy risk path.
+Top-level wiring: `application/services/ta_signal_service.py` (`TASignalService`), built by the API server's lifespan.
 
 Performance invariants:
 
@@ -56,7 +56,7 @@ Pipeline: component states (Trend/Vol/Chop/Extension/IV) → decision tree → h
 
 ## Legacy subtrees
 
-`strategy/`, `screeners/`, `backtest/`, `services/risk/`, `reality/` belong to the pre-pivot monolith. `domain/backtest/` is frozen (root rule 10). The rest is dormant but still imported; four non-obvious behaviours worth knowing before touching `strategy/`:
+`strategy/`, `screeners/`, `backtest/`, `reality/` belong to the pre-pivot monolith. `domain/backtest/` is frozen (root rule 10). The rest is dormant but still imported; four non-obvious behaviours worth knowing before touching `strategy/`:
 
 | File                         | Gotcha                                                                                                 |
 | ---------------------------- | ------------------------------------------------------------------------------------------------------ |

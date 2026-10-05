@@ -73,4 +73,4 @@ EXPOSE 8322
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=30s \
     CMD curl -f http://localhost:8322/health || exit 1
 
-CMD ["python", "main.py", "--service", "api"]
+CMD ["python", "main.py"]

@@ -62,7 +62,6 @@ makes its endpoints return `503` (degrades, never crashes).
 | `APEX_XENON_WS_URL` | `ws://127.0.0.1:8765` | live ticks → live WS signal frames |
 | `APEX_TIMEFRAMES` | `1d` | timeframes the streaming pipeline subscribes/warms |
 | `APEX_API_PORT` | `8322` | listen port |
-| `APEX_API_WORKERS` | `1` | uvicorn workers |
 
 ---
 

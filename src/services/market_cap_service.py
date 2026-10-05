@@ -9,8 +9,9 @@ Core Principles:
 3. Graceful degradation - Missing caps return 0 with cap_missing=true
 
 Usage:
-    # Update cache (run separately, e.g., via R2 daily pipeline)
-    python scripts/r2_market_caps.py
+    # Update cache (no scheduled updater since the R2 scripts were removed;
+    # the frozen momentum and PEAD screeners only read it)
+    MarketCapService().update_market_caps(symbols)
 
     # Read cache
     service = MarketCapService()

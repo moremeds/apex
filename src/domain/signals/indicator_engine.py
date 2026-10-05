@@ -117,32 +117,6 @@ class IndicatorEngine:
         """Number of registered indicators."""
         return len(self._indicators)
 
-    def get_all_indicator_states(
-        self, symbol: Optional[str] = None, timeframe: Optional[str] = None
-    ) -> Dict[StateKey, Dict[str, Any]]:
-        """
-        Get all cached indicator states, optionally filtered.
-
-        Args:
-            symbol: Optional filter by symbol.
-            timeframe: Optional filter by timeframe.
-
-        Returns:
-            Dict mapping (symbol, timeframe, indicator) -> state_dict.
-        """
-        if symbol is None and timeframe is None:
-            return dict(self._previous_states)
-
-        result: Dict[StateKey, Dict[str, Any]] = {}
-        for key, state in self._previous_states.items():
-            sym, tf, ind = key
-            if symbol is not None and sym != symbol:
-                continue
-            if timeframe is not None and tf != timeframe:
-                continue
-            result[key] = state
-        return result
-
     def get_history(self, symbol: str, timeframe: str) -> list[dict[str, Any]] | None:
         """Thread-safe access to bar history for a symbol/timeframe.
 

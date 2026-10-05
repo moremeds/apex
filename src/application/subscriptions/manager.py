@@ -11,9 +11,10 @@ import asyncio
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import TYPE_CHECKING, Any, Dict, List, Protocol, Set
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Protocol, Set
 
 if TYPE_CHECKING:
+    from src.domain.interfaces.live_feed import LiveFeedPort
     from src.infrastructure.adapters.livewire.revisions import SilverRevision
 
 logger = logging.getLogger(__name__)
@@ -78,7 +79,7 @@ class SubscriptionManager:
         compute: _ComputeService,
         timeframes: List[str],
         seed_lookback_days: int = 365,
-        live_feed: Any = None,
+        live_feed: Optional[LiveFeedPort] = None,
     ) -> None:
         self._provider = provider
         self._compute = compute
@@ -91,7 +92,7 @@ class SubscriptionManager:
         self._refresh_locks: Dict[str, asyncio.Lock] = {}
         self._applied_revisions: Dict[str, int] = {}
 
-    def set_live_feed(self, live_feed: Any) -> None:
+    def set_live_feed(self, live_feed: LiveFeedPort) -> None:
         """Attach a LiveFeedPort after construction (used by the app lifespan)."""
         self._live_feed = live_feed
 

@@ -26,7 +26,7 @@ Two different things are called "coverage" — keep them apart: `adapters/livewi
 
 ## Other adapters
 
-`adapters/` also holds `xenon/` (WS client for the live tick feed — the only live IB path), plus the frozen-subsystem adapters `fmp/`, `ib/`, `futu/`, `yahoo/`, `r2/`, `earnings/` and the loose `market_data_fetcher.py` / `market_data_manager.py` / `broker_manager.py` modules that the anti-patterns below refer to.
+`adapters/` also holds `xenon/` (WS client for xenon's live tick feed; apex itself never connects to IB), plus the frozen-subsystem adapters `fmp/`, `ib/` (historical bars for the frozen backtest feeds only), `yahoo/` (historical bars for the verifiers) and `earnings/`.
 
 FMP caps intraday at ~410 rows/request, so full history needs pagination: 1h → 90-day windows (~410 bars), 4h → 180-day windows (~245 bars), 1d → 2,500+ bars in one call. Yahoo for the initial bulk 1h/4h fill, FMP for daily deltas — backfill only, never live.
 
@@ -34,20 +34,15 @@ FMP caps intraday at ~410 rows/request, so full history needs pagination: 1h →
 
 - `pg_schema.py` — DDL for six tables: `bars`, `signals`, `summary`, `score_history`, `screener_results`, `backtest_results`. CLI for init/reset (`make db-init` / `make db-reset`); no migration framework, the schema is recreated from DDL.
 - `pg_repositories.py` + `repositories/` — asyncpg writes over the shared pool.
-- `signal_listener.py` — PostgreSQL LISTEN/NOTIFY for real-time signal fan-out.
 - `database.py` — pool wrapper the repositories take.
 
 **There is a second schema path.** `migrations/005_ta_signals.sql` creates `ta_signals` / `indicator_values` / `confluence_scores` — the tables the streaming signal surface actually reads — and `pg_schema.py` does **not** create them. `make db-init` alone is not enough to stand up the signal service; apply the migration too.
 
 ## Stores (`stores/`)
 
-RCU (Read-Copy-Update): readers get lock-free snapshots, writers swap in a new copy atomically. Used for market data and position state read hot from the signal pipeline. `rcu_store.py` is the base; never mutate a snapshot in place.
+`parquet_historical_store.py` (bars for the verifiers and frozen screeners) and `duckdb_coverage_store.py`.
 
 ## Anti-patterns (DO NOT)
 
-- Do NOT call `prune_stale_subscriptions()` on fetch cycles — causes subscription churn
-- Do NOT filter positions before `fetch_market_data()` when pruning is involved
-- Do NOT forget `MarketDataFetcher.start_dispatch()` — processes the IB callback thread
-- Do NOT merge tick data without updating `MarketData.timestamp`
 - Do NOT treat the livewire DuckDB session as persistent — it is in-memory per request
 - Do NOT add a raw fallback when adjusted data is missing — let `AdjustedDataUnavailable` propagate

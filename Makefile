@@ -1,7 +1,7 @@
 # APEX Development Makefile
 # Quick commands for common development tasks
 
-.PHONY: install run run-dev run-prod run-demo run-headless lint format type-check dead-code complexity quality test test-all coverage clean help validate-fast strategy-compare strategy-verify strategy-compare-quick pead pead-test pead-screen momentum momentum-update momentum-backtest momentum-test r2-universe r2-backfill r2-backfill-test r2-delta r2-validate r2-market-caps server-dev server web-install web-dev web-build live jobs-momentum jobs-pead jobs-strategy-compare
+.PHONY: install lint format type-check dead-code complexity quality test test-all coverage clean help validate-fast strategy-compare strategy-verify strategy-compare-quick pead pead-test pead-screen momentum momentum-update momentum-backtest momentum-test jobs-momentum jobs-pead jobs-strategy-compare
 
 # Virtual environment - use .venv/bin executables directly
 VENV := .venv/bin
@@ -21,10 +21,8 @@ help:
 	@echo "  make install        Install all dependencies with uv"
 	@echo ""
 	@echo "$(GREEN)Run:$(RESET)"
-	@echo "  make run            Start TUI dashboard (dev mode, verbose)"
-	@echo "  make run-prod       Start TUI dashboard (production mode)"
-	@echo "  make run-demo       Start TUI dashboard (demo/offline mode)"
-	@echo "  make run-headless   Run without TUI (headless mode)"
+	@echo "  make dev            Start the REST + WS API server (:8322)"
+	@echo "  make mcp-server     Start the read-only lake MCP server (:8333)"
 	@echo ""
 	@echo "$(GREEN)Quality:$(RESET)"
 	@echo "  make lint           Check formatting (black, isort, flake8)"
@@ -54,24 +52,10 @@ help:
 	@echo "  make quantitative-moment-backtest Walk-forward backtest + ablation"
 	@echo "  make quantitative-moment-test     Run unit tests"
 	@echo ""
-	@echo "$(GREEN)R2 Data Pipeline:$(RESET)"
-	@echo "  make r2-universe       Screen universe (FMP → filter → ~500 symbols → R2)"
-	@echo "  make r2-backfill       Full backfill (all symbols, 2019-present)"
-	@echo "  make r2-backfill-test  Quick test (5 symbols)"
-	@echo "  make r2-delta          Incremental delta update"
-	@echo "  make r2-validate       Generate data_quality.json only"
-	@echo "  make r2-market-caps    Update market caps → R2"
-	@echo ""
 	@echo "$(GREEN)Compute Jobs (API triggers):$(RESET)"
 	@echo "  make jobs-momentum          Run momentum screener"
 	@echo "  make jobs-pead              Run PEAD screener"
 	@echo "  make jobs-strategy-compare  Run strategy comparison backtest"
-	@echo ""
-	@echo "$(GREEN)Live Dashboard:$(RESET)"
-	@echo "  make server-dev        Start FastAPI server (dev, auto-reload, :8080)"
-	@echo "  make server            Start FastAPI server (production, :8080)"
-	@echo "  make web-dev           Start React dev server (:5173)"
-	@echo "  make web-build         Build React frontend for production"
 	@echo ""
 	@echo "$(GREEN)Other:$(RESET)"
 	@echo "  make clean          Remove build artifacts"
@@ -83,7 +67,7 @@ help:
 install:
 	@echo "$(BOLD)Installing dependencies with uv...$(RESET)"
 	uv venv
-	. .venv/bin/activate && uv pip install -e ".[dev,observability,server,cloudflare]"
+	. .venv/bin/activate && uv pip install -e ".[dev,observability,api]"
 	@echo "$(BOLD)Installing web frontend dependencies...$(RESET)"
 	cd web && npm install
 	@echo "$(GREEN)✓ Installation complete. Run 'source .venv/bin/activate' to activate.$(RESET)"
@@ -91,42 +75,6 @@ install:
 # ═══════════════════════════════════════════════════════════════
 # Run TUI Dashboard
 # ═══════════════════════════════════════════════════════════════
-
-run: run-dev
-
-run-dev:
-	@echo "$(BOLD)═══════════════════════════════════════════════════════════════$(RESET)"
-	@echo "$(BOLD)  APEX Risk Monitor - Development Mode$(RESET)"
-	@echo "$(BOLD)═══════════════════════════════════════════════════════════════$(RESET)"
-	@echo ""
-	@echo "$(YELLOW)  TUI Controls:$(RESET)"
-	@echo "    $(GREEN)1-6$(RESET)  Switch views (Summary/Positions/Signals/Introspect/Data/Lab)"
-	@echo "    $(GREEN)q$(RESET)    Quit"
-	@echo "    $(GREEN)^C$(RESET)   Graceful shutdown"
-	@echo ""
-	@echo "$(YELLOW)  Connecting to IB Gateway (port 4001)...$(RESET)"
-	@echo ""
-	$(PYTHON) main.py --env dev --verbose
-
-run-prod:
-	@echo "$(BOLD)═══════════════════════════════════════════════════════════════$(RESET)"
-	@echo "$(BOLD)  APEX Risk Monitor - Production Mode$(RESET)"
-	@echo "$(BOLD)═══════════════════════════════════════════════════════════════$(RESET)"
-	@echo ""
-	$(PYTHON) main.py --env prod
-
-run-demo:
-	@echo "$(BOLD)═══════════════════════════════════════════════════════════════$(RESET)"
-	@echo "$(BOLD)  APEX Risk Monitor - Demo Mode (Offline)$(RESET)"
-	@echo "$(BOLD)═══════════════════════════════════════════════════════════════$(RESET)"
-	@echo ""
-	@echo "$(YELLOW)  Running with sample data (no broker connection required)$(RESET)"
-	@echo ""
-	$(PYTHON) main.py --env demo --verbose
-
-run-headless:
-	@echo "$(BOLD)Starting APEX in headless mode (no TUI)...$(RESET)"
-	$(PYTHON) main.py --env dev --no-dashboard --verbose
 
 # ═══════════════════════════════════════════════════════════════
 # Code Quality
@@ -304,42 +252,6 @@ quantitative-moment-test: momentum-test
 .PHONY: quantitative-moment quantitative-moment-update quantitative-moment-backtest quantitative-moment-test
 
 # ═══════════════════════════════════════════════════════════════
-# R2 Data Pipeline
-# ═══════════════════════════════════════════════════════════════
-
-r2-universe:   ## Build universe (FMP screener → R2 meta/)
-	@echo "$(BOLD)Building universe → R2...$(RESET)"
-	$(PYTHON) scripts/r2_universe_builder.py
-	@echo "$(GREEN)✓ Universe uploaded to R2$(RESET)"
-
-r2-backfill:   ## Full backfill (all symbols, 2019-present → R2 Parquet)
-	@echo "$(BOLD)R2 historical backfill (2019-present, all symbols)...$(RESET)"
-	$(PYTHON) scripts/r2_historical_loader.py --backfill
-	@echo "$(GREEN)✓ Backfill complete$(RESET)"
-
-r2-backfill-test:   ## Quick backfill test (5 symbols)
-	@echo "$(BOLD)R2 backfill test (5 symbols)...$(RESET)"
-	$(PYTHON) scripts/r2_historical_loader.py --backfill --symbols AAPL MSFT SPY QQQ NVDA
-	@echo "$(GREEN)✓ Test backfill complete$(RESET)"
-
-r2-delta:   ## Incremental delta update (last-bar + overlap → R2)
-	@echo "$(BOLD)R2 delta update...$(RESET)"
-	$(PYTHON) scripts/r2_historical_loader.py --delta
-	@echo "$(GREEN)✓ Delta update complete$(RESET)"
-
-r2-validate:   ## Generate data_quality.json only (no fetch)
-	@echo "$(BOLD)R2 data quality validation...$(RESET)"
-	$(PYTHON) scripts/r2_historical_loader.py --validate-only
-	@echo "$(GREEN)✓ data_quality.json generated$(RESET)"
-
-r2-market-caps:   ## Update market caps → R2 meta/market_caps.json
-	@echo "$(BOLD)Updating market caps → R2...$(RESET)"
-	$(PYTHON) scripts/r2_market_caps.py
-	@echo "$(GREEN)✓ Market caps uploaded to R2$(RESET)"
-
-.PHONY: r2-universe r2-backfill r2-backfill-test r2-delta r2-validate r2-market-caps
-
-# ═══════════════════════════════════════════════════════════════
 # Compute Jobs (same runners as /api/jobs/ endpoints)
 # ═══════════════════════════════════════════════════════════════
 
@@ -372,10 +284,6 @@ clean:
 
 # ── Signal Service ────────────────────────────────────────────
 
-signal-service:   ## Start signal service daemon (IB → signals → PostgreSQL)
-	@echo "$(BOLD)Starting APEX Signal Service...$(RESET)"
-	PYTHONPATH=. $(PYTHON) -m src.services.signal_service
-
 api-server:   ## Start REST API server on :8322
 	@echo "$(BOLD)Starting APEX API server...$(RESET)"
 	PYTHONPATH=. $(PYTHON) -m src.api.server
@@ -384,9 +292,9 @@ mcp-server:   ## Start the read-only lake MCP server on :8333 (needs APEX_MCP_AP
 	@echo "$(BOLD)Starting APEX MCP server...$(RESET)"
 	PYTHONPATH=. $(PYTHON) -m src.mcp_server.server
 
-dev:   ## Start all APEX services (signal + api)
-	@echo "$(BOLD)Starting all APEX services (signal + api)...$(RESET)"
-	PYTHONPATH=. $(PYTHON) main.py --service all
+dev:   ## Start the API server (same entry point as the production image)
+	@echo "$(BOLD)Starting APEX API server...$(RESET)"
+	PYTHONPATH=. $(PYTHON) main.py
 
 db-init:   ## Create PostgreSQL schema
 	@echo "$(BOLD)Initializing database schema...$(RESET)"
