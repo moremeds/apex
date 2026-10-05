@@ -12,7 +12,6 @@ from .position_provider import PositionProvider
 
 # New provider protocols (Phase 2)
 from .quote_provider import QuoteProvider
-from .signal_introspection import SignalIntrospectionPort
 from .signal_persistence import SignalPersistencePort
 
 __all__ = [
@@ -36,6 +35,4 @@ __all__ = [
     "LiveFeedPort",
     # Signal persistence
     "SignalPersistencePort",
-    # Signal introspection (real-time read-only)
-    "SignalIntrospectionPort",
 ]

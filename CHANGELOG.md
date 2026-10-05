@@ -9,8 +9,21 @@ All notable changes to apex are recorded here. Format follows
 
 ## [Unreleased]
 
-## [0.1.14] — 2026-10-05
+### Removed
 
+- **Dead research code (50 modules, about 14.2k lines).** No live or frozen code imported
+  any of it: the offline signal pipeline (`signals/{pipeline,trend,universe,config}`,
+  `signal_logger`), `price_divergence`, the advisor services, the regime action resolver and
+  parameter optimizer/recommender/provenance, the turning-point training service and its
+  experiment-tracker and model-registry ports and adapters, the signal-introspection port and
+  adapter, `regime_service`, `email_summary_service`, `domain/indicators`, `data_validator`,
+  `bar_replay_service`, `suggester`, `indicator_store`, `coverage_visualizer`, `ta_service`,
+  `utils/result`, `livewire/factory` and `observability/architecture_metrics`.
+  `scripts/historical_data_loader.py` goes with them, together with the bar-validation and
+  summary schemas in `signals/schemas.py` that only the pipeline used. Package re-exports of
+  these names are gone, and so are the tests whose only subject was deleted code.
+
+## [0.1.14] — 2026-10-05
 
 ### Added
 
@@ -94,8 +107,8 @@ All notable changes to apex are recorded here. Format follows
   whose only writer is the legacy, undeployed `src/services/signal_service.py`, so production
   served stale rows. No downstream service (argon, helium, signal-lab, xenon, livewire) calls
   it. The `score_history` writer stays until the legacy daemon itself is removed.
-## [0.1.13] — 2026-09-23
 
+## [0.1.13] — 2026-09-23
 
 ### Added
 
@@ -178,7 +191,7 @@ All notable changes to apex are recorded here. Format follows
 - **Error messages never carry host filesystem paths**: absolute paths in any lake or REST
   error message are replaced with `<path>`, and `/v1/lake/status` reports fixed texts.
 - **`GET /v1/equity/bars?listing=delisted` with an adjusted mode is one `400
-  adjusted_not_supported`**, the same answer single-symbol bars gives, instead of a `200`
+adjusted_not_supported`**, the same answer single-symbol bars gives, instead of a `200`
   whose every symbol is missing.
 - **A lake read timeout is `504 query_timeout` on every route** (indicators included);
   `/v1/equity/returns` files a timed-out symbol under `missing`.
@@ -202,8 +215,8 @@ All notable changes to apex are recorded here. Format follows
 - **`src/application/__init__.py` and `src/infrastructure/adapters/__init__.py` no longer
   re-export anything**, so importing the lake queries cannot pull in the orchestrator, bootstrap
   container, PG repositories or broker adapters (`tests/carve/test_lake_boundary.py`).
-## [0.1.12] — 2026-09-23
 
+## [0.1.12] — 2026-09-23
 
 ### Removed
 
@@ -221,8 +234,8 @@ All notable changes to apex are recorded here. Format follows
   left the lock one version behind (master's lock said `0.1.10` after `v0.1.11`). The script now
   runs `uv lock` after the rewrites and commits the lock with the release; this change also
   brings master's lock to `0.1.11`.
-## [0.1.11] — 2026-09-23
 
+## [0.1.11] — 2026-09-23
 
 ### Fixed
 
@@ -231,8 +244,8 @@ All notable changes to apex are recorded here. Format follows
   the database no longer has, the route still answers `400`, and now also drops that
   database's cached catalog, so the next request rebuilds it from the live database. A
   revoked grant or a connection failure leaves the cache alone.
-## [0.1.10] — 2026-09-23
 
+## [0.1.10] — 2026-09-23
 
 ### Added
 
@@ -254,8 +267,8 @@ All notable changes to apex are recorded here. Format follows
 - Driver failures have typed codes and never carry SQL: a table or column dropped since the
   catalog was cached is `400`, a revoked grant is `403 forbidden`, and a database that is down,
   saturated or rejecting the credentials is `503`.
-## [0.1.9] — 2026-09-21
 
+## [0.1.9] — 2026-09-21
 
 ### Fixed
 
@@ -320,8 +333,8 @@ Both reference endpoints are **ticker-keyed, not security-keyed**, and say so in
 
 - `bars_payload.schema.json` requires `basis` and accepts `listing_status: "dual"`.
 - `ambiguous_symbol` (409) is now reserved — no route emits it.
-## [0.1.8] — 2026-09-16
 
+## [0.1.8] — 2026-09-16
 
 ### Fixed
 
@@ -337,8 +350,8 @@ Both reference endpoints are **ticker-keyed, not security-keyed**, and say so in
   replacement) collapses to the one live event instead of showing a duplicate add. Top-level
   `security_id` is still the resolved id when the master resolves the ticker, the placeholder
   when only it has events, and an unknown ticker with no events is still a 404.
-## [0.1.7] — 2026-09-15
 
+## [0.1.7] — 2026-09-15
 
 ### Added
 
@@ -354,6 +367,7 @@ Both reference endpoints are **ticker-keyed, not security-keyed**, and say so in
   point-in-time answer and returns 200 with an empty member list. `/history` is ungated (every
   status, superseded rows included, each carrying its `supersedes`) and falls back to livewire's
   `unresolved:<TICKER>` placeholder when the master does not know the ticker yet.
+
 ## [0.1.6] — 2026-09-08
 
 ### Added
@@ -367,7 +381,6 @@ Both reference endpoints are **ticker-keyed, not security-keyed**, and say so in
   included — a `1m` request over `12:25:00Z..12:35:00Z` returns 11 bars, not 10. (#160)
 
 ## [0.1.5] — 2026-09-08
-
 
 ### Fixed
 
@@ -385,6 +398,7 @@ Both reference endpoints are **ticker-keyed, not security-keyed**, and say so in
   broke the vectorbt engine tests on CI (CI installs from pyproject, not the lockfile).
 - isort ordering in `backtest/execution` and a `Literal` direction for `optuna.create_study`, so
   CI's unpinned isort 9 and mypy accept the tree. `uv.lock` refreshed alongside.
+
 ## [0.1.4] — 2026-08-23
 
 ### Added
@@ -398,6 +412,7 @@ Both reference endpoints are **ticker-keyed, not security-keyed**, and say so in
 - `price_mode`, `listing_status`, `asset_class` and `adjustment_revision` on every bars payload.
 - Futures bars carry `settlement`, `open_interest` and contract identity.
 - `/health` now reports real bronze/silver recency read from the artifacts.
+
 ### Changed
 
 - Flat routes (`/bars/{ticker}` etc.) are deprecated aliases; they emit `Deprecation` and `Sunset`.
@@ -408,6 +423,7 @@ Both reference endpoints are **ticker-keyed, not security-keyed**, and say so in
   but now use the error envelope instead of `{"detail": [...]}`, so the surface has one error shape.
 - `bars_payload` no longer emits `vwap` (always null -- no lake parquet carries the column).
 - `bars_payload` timeframe enum narrowed to `1m/5m/30m/1h/1d`.
+
 ### Fixed
 
 - Missing Silver artifacts return `503 adjusted_unavailable` instead of a bare 500 (243 symbols
@@ -440,28 +456,38 @@ Both reference endpoints are **ticker-keyed, not security-keyed**, and say so in
   bump, not a host reconfiguration. The coverage catalog is intentionally left unmounted:
   it lives outside colima's VM mount set, so binding it would silently yield an empty
   directory instead of the database.
+
 ## [0.1.3] — 2026-07-08
 
 ### Fixed
+
 - `/health` now reports the real running version (new `version` field) instead of a
   hardcoded `0.1.0`. Resolved from installed dist metadata so it can't drift from the
   shipped image — makes "is it live?" a one-curl check (`curl .../health | jq .version`).
+
 ## [0.1.2] — 2026-07-08
 
 ### Changed
+
 - `GET /bars` and `GET /indicators` now accept a `limit` query param (default **2000**,
   up from a hardcoded 500) and no longer cap it — `limit<=0` returns full history. The
   param was previously undeclared, so callers passing `?limit=N` were silently ignored.
 - R2 daily pipeline schedule disabled; the workflow is now manual-dispatch only.
+
 ### Fixed
+
 - R2 daily pipeline failures and a TA-Lib version mismatch (#141).
+
 ## [0.1.1] — 2026-06-17
 
 ### Added
+
 - Release pipeline: `VERSION` + `CHANGELOG.md` + `scripts/release/cut.sh` (interactive
   bump → tag) and tag-triggered `release.yml` (verify → GitHub Release → GHCR arm64 image).
 - Docker deploy: `docker/api.Dockerfile` + `docker-compose.yml` for the macmini, with the
   livewire bronze lake bind-mounted read-only and Watchtower auto-deploy on `:latest`.
+
 ### Fixed
+
 - Docs: corrected the "R2-backed livewire" claim — the livewire read path is a local-FS
   Parquet lake (`APEX_LIVEWIRE_ROOT`), not R2. R2 is only the `make r2-backfill` pipeline.

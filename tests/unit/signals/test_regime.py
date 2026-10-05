@@ -13,12 +13,7 @@ import json
 from datetime import datetime
 from typing import Any
 
-from src.domain.services.regime import (
-    AnalysisMetrics,
-    ParamProvenance,
-    RecommenderResult,
-    get_regime_params,
-)
+from src.domain.services.regime import get_regime_params
 from src.domain.signals.indicators.regime import (
     ChopState,
     ComponentStates,
@@ -221,129 +216,6 @@ class TestRegimeOutputSerialization:
         assert result["final_regime"] == "R2"
         assert result["component_states"]["trend_state"] == "trend_down"
         assert result["component_states"]["vol_state"] == "vol_high"
-
-
-# =============================================================================
-# Unit Tests: ParamProvenance
-# =============================================================================
-
-
-class TestParamProvenance:
-    """Test ParamProvenance dataclass."""
-
-    def test_compute_param_set_id_deterministic(self) -> None:
-        """Same params should produce same ID."""
-        params = {"vol_high_short_pct": 80, "chop_high_pct": 70}
-
-        id1 = ParamProvenance.compute_param_set_id(params, "TEST")
-        id2 = ParamProvenance.compute_param_set_id(params, "TEST")
-
-        assert id1 == id2
-        assert len(id1) == 8  # 8-char hex hash
-
-    def test_compute_param_set_id_different_for_different_symbols(self) -> None:
-        """Different symbols should produce different IDs."""
-        params = {"vol_high_short_pct": 80}
-
-        id1 = ParamProvenance.compute_param_set_id(params, "AAPL")
-        id2 = ParamProvenance.compute_param_set_id(params, "NVDA")
-
-        assert id1 != id2
-
-    def test_from_params_creates_provenance(self) -> None:
-        """from_params should create a valid provenance."""
-        params = {"vol_high_short_pct": 85, "chop_high_pct": 70}
-        provenance = ParamProvenance.from_params(
-            params=params,
-            symbol="NVDA",
-            source="symbol-specific",
-        )
-
-        assert provenance.symbol == "NVDA"
-        assert provenance.source == "symbol-specific"
-        assert len(provenance.param_set_id) == 8
-
-    def test_provenance_validation_flags(self) -> None:
-        """Validation flags should work correctly."""
-        prov = ParamProvenance(
-            pbo_value=0.3,  # Good (< 0.5)
-            dsr_value=1.2,  # Good (> 1.0)
-            oos_sharpe=0.5,  # Good (> 0)
-            walk_forward_folds=5,
-        )
-
-        assert prov.is_validated is True
-        assert prov.pbo_ok is True
-        assert prov.dsr_ok is True
-        assert prov.oos_ok is True
-
-
-# =============================================================================
-# Unit Tests: AnalysisMetrics
-# =============================================================================
-
-
-class TestAnalysisMetrics:
-    """Test AnalysisMetrics dataclass."""
-
-    def test_analysis_metrics_to_dict(self) -> None:
-        """to_dict should serialize metrics correctly."""
-        metrics = AnalysisMetrics(
-            vol_threshold=80.0,
-            vol_boundary_density=0.15,
-            vol_above_threshold_pct=0.25,
-            vol_proxy_mean=55.5,
-            vol_proxy_current=60.0,
-            chop_threshold=70.0,
-            chop_boundary_density=0.10,
-        )
-
-        result = metrics.to_dict()
-        assert result["vol_threshold"] == 80.0
-        assert result["vol_boundary_density"] == 0.15
-        assert result["vol_proxy_mean"] == 55.5
-
-
-# =============================================================================
-# Unit Tests: RecommenderResult
-# =============================================================================
-
-
-class TestRecommenderResult:
-    """Test RecommenderResult dataclass."""
-
-    def test_no_recommendations_result(self) -> None:
-        """Result with no recommendations should be valid."""
-        from datetime import date
-
-        result = RecommenderResult(
-            symbol="AAPL",
-            analysis_date=date(2026, 1, 17),
-            lookback_days=63,
-            has_recommendations=False,
-            no_change_reason="Parameters appear well-calibrated",
-            boundary_density_ok=True,
-        )
-
-        assert result.has_recommendations is False
-        assert result.no_change_reason == "Parameters appear well-calibrated"
-
-    def test_result_to_dict(self) -> None:
-        """to_dict should serialize correctly."""
-        from datetime import date
-
-        result = RecommenderResult(
-            symbol="NVDA",
-            analysis_date=date(2026, 1, 17),
-            lookback_days=63,
-            has_recommendations=False,
-            current_params={"vol_high_short_pct": 88},
-            analysis_metrics=AnalysisMetrics(vol_threshold=88.0),
-        )
-
-        d = result.to_dict()
-        assert d["symbol"] == "NVDA"
-        assert d["current_params"]["vol_high_short_pct"] == 88
 
 
 # =============================================================================

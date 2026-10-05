@@ -10,10 +10,8 @@ Provides tools for detecting:
 
 from .confluence import MTFDivergenceAnalyzer
 from .cross_divergence import CrossIndicatorAnalyzer
-from .price_divergence import PriceDivergenceDetector
 
 __all__ = [
-    "PriceDivergenceDetector",
     "CrossIndicatorAnalyzer",
     "MTFDivergenceAnalyzer",
 ]
