@@ -1,22 +1,33 @@
 from __future__ import annotations
 
+import asyncio
+from collections import defaultdict
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
-from typing import Any, cast
+from typing import Any, Callable, cast
 
 import pytest
 
 from src.application.services.ta_signal_service import TASignalService
+from src.domain.events.domain_events import BarCloseEvent
+from src.domain.events.event_types import EventType
+from src.domain.signals.data.bar_aggregator import BarAggregator
+from src.domain.signals.indicator_engine import IndicatorEngine
+from src.domain.signals.rule_engine import RuleEngine, RuleRegistry
+from src.domain.signals.rules.short_timeframe_rules import SHORT_TIMEFRAME_RULES
 
 
 class _FakeIndicatorEngine:
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict]] = []
 
-    def replace_symbol_histories(self, symbol: str, histories: dict) -> dict[str, int]:
+    def replace_symbol_histories(
+        self, symbol: str, histories: dict, live_tail_timeframes: Any = None
+    ) -> dict[str, int]:
         self.calls.append((symbol, histories))
         return {timeframe: len(rows) for timeframe, rows in histories.items()}
 
-    async def compute_on_history(self, symbol: str, timeframe: str) -> int:
+    async def compute_on_history(self, symbol: str, timeframe: str, publish: bool = True) -> int:
         return 0
 
 
@@ -107,6 +118,120 @@ def test_refresh_overflow_then_abort_replays_captured_ticks() -> None:
 
     assert [tick["timestamp"] for tick in aggregator.ticks] == [now]
     service.begin_symbol_refresh("NVDA")  # refresh state was cleared
+
+
+class _SyncBus:
+    def __init__(self) -> None:
+        self._subs: dict[Any, list[Callable[[Any], None]]] = defaultdict(list)
+
+    def subscribe(self, event_type: Any, callback: Callable[[Any], None]) -> None:
+        self._subs[event_type].append(callback)
+
+    def publish(self, event_type: Any, payload: Any) -> None:
+        for callback in self._subs[event_type]:
+            callback(payload)
+
+
+def test_overflow_abort_replay_after_replace_keeps_tail_without_duplicates() -> None:
+    """Real aggregator + engine: Silver replace keeps the live tail, then an
+    overflowed refresh aborts and its replayed ticks close each bar exactly once."""
+    bus = _SyncBus()
+    engine = IndicatorEngine(bus, max_workers=1)
+    engine._indicators = []  # history only; skip indicator compute
+    engine.start()
+    service = TASignalService(event_bus=bus, refresh_buffer_max_ticks=1)
+    service._bar_aggregators = {"1d": BarAggregator("1d", bus)}
+    service._running = True
+    d = datetime(2026, 10, 1, tzinfo=timezone.utc)
+
+    def tick(day: int, hour: int) -> None:
+        ts = d + timedelta(days=day, hours=hour)
+        service._on_market_data_tick({"symbol": "NVDA", "price": 100.0 + day, "timestamp": ts})
+
+    for day in (0, 1, 2):
+        tick(day, 15)  # live closes day D and D+1; D+2 stays open
+    service.begin_symbol_refresh("NVDA")
+    tick(2, 16)  # captured
+    tick(3, 15)  # overflow: dropped
+    lake = [{"timestamp": d + timedelta(days=k), "close": 1.0} for k in (-1, 0)]
+    engine.replace_symbol_histories("NVDA", {"1d": lake})
+    with pytest.raises(RuntimeError, match="tick buffer exceeded"):
+        service.commit_symbol_refresh("NVDA")
+    service.abort_symbol_refresh("NVDA")
+    tick(3, 15)  # first post-refresh tick closes live D+2
+
+    stamps = [bar["timestamp"] for bar in engine.get_history("NVDA", "1d") or []]
+    # lake D-1, lake D (live D dropped as its duplicate), live D+1, live D+2
+    assert stamps == [d + timedelta(days=k) for k in (-1, 0, 2, 3)]
+
+
+async def test_seed_sets_a_baseline_without_evaluating_rules() -> None:
+    """A subscribe emits no INDICATOR_UPDATE, so no rule runs: no TRADING_SIGNAL, hence no
+    persisted signal row and no WS frame. A detect_initial rule would fire on any first
+    evaluation; the next live close sees the seed baseline as its previous state."""
+    bus = _SyncBus()
+    updates: list[Any] = []
+    signals: list[Any] = []
+    bus.subscribe(EventType.INDICATOR_UPDATE, updates.append)
+    bus.subscribe(EventType.TRADING_SIGNAL, signals.append)
+    engine = IndicatorEngine(bus, max_workers=1)
+    engine._indicators = [ind for ind in engine._indicators if ind.name == "rsi"]
+    engine.start()
+    always = replace(
+        next(r for r in SHORT_TIMEFRAME_RULES if r.name == "rsi_st_extreme_overbought"),
+        timeframes=("1d",),
+        condition_config={"field": "value", "threshold": 0, "detect_initial": True},
+        cooldown_seconds=0,
+    )
+    registry = RuleRegistry()
+    registry.add_rule(always)
+    RuleEngine(bus, registry).start()
+    service = TASignalService(event_bus=bus)
+    service._indicator_engine = engine
+    d = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    bars = [
+        {"timestamp": d + timedelta(days=i), "open": c, "high": c + 1, "low": c - 1, "close": c}
+        for i, c in enumerate(100.0 + (i % 7) for i in range(40))
+    ]
+
+    await service.inject_historical_bars("NVDA", "1d", bars[:-1])
+    await service.inject_historical_bars("NVDA", "1d", bars)  # resubscribe adds one bar
+    covered = bars[-1]["timestamp"] + timedelta(days=1)  # live close the lake holds
+    await engine._process_bar_async(
+        BarCloseEvent(symbol="NVDA", timeframe="1d", close=1.0, bar_end=covered)
+    )
+    await asyncio.sleep(0.05)  # let rule-evaluation tasks run
+
+    assert updates == [] and signals == []
+    assert ("NVDA", "1d", "rsi") in engine._previous_states
+
+
+async def test_first_live_close_after_seed_compares_against_the_seed_baseline() -> None:
+    """After subscribe, the first appended live close sees the silent seed as its previous
+    state, so a transition from the lake's last bar fires there (detect_initial does not)."""
+    bus = _SyncBus()
+    updates: list[Any] = []
+    bus.subscribe(EventType.INDICATOR_UPDATE, updates.append)
+    engine = IndicatorEngine(bus, max_workers=1)
+    engine._indicators = [ind for ind in engine._indicators if ind.name == "rsi"]
+    engine.start()
+    service = TASignalService(event_bus=bus)
+    service._indicator_engine = engine
+    d = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    bars = [
+        {"timestamp": d + timedelta(days=i), "open": c, "high": c + 1, "low": c - 1, "close": c}
+        for i, c in enumerate(100.0 + (i % 7) for i in range(40))
+    ]
+    await service.inject_historical_bars("NVDA", "1d", bars)
+    baseline = engine._previous_states[("NVDA", "1d", "rsi")]
+
+    next_end = bars[-1]["timestamp"] + timedelta(days=2)  # first session after the lake
+    await engine._process_bar_async(
+        BarCloseEvent(symbol="NVDA", timeframe="1d", close=101.0, bar_end=next_end)
+    )
+
+    (update,) = [u for u in updates if u.indicator == "rsi"]
+    assert update.previous_state == baseline
 
 
 def test_buffer_is_thread_safe_under_concurrent_ticks() -> None:

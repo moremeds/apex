@@ -11,7 +11,7 @@ import asyncio
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Protocol, Set
+from typing import TYPE_CHECKING, Any, Collection, Dict, List, Optional, Protocol, Set
 
 if TYPE_CHECKING:
     from src.domain.interfaces.live_feed import LiveFeedPort
@@ -62,7 +62,10 @@ class _ComputeService(Protocol):
     def begin_symbol_refresh(self, symbol: str) -> None: ...
 
     async def replace_symbol_histories(
-        self, symbol: str, histories: Dict[str, List[Dict[str, Any]]]
+        self,
+        symbol: str,
+        histories: Dict[str, List[Dict[str, Any]]],
+        live_tail_timeframes: Optional[Collection[str]] = None,
     ) -> Dict[str, int]: ...
 
     def commit_symbol_refresh(self, symbol: str) -> None: ...
@@ -192,13 +195,29 @@ class SubscriptionManager:
                         continue
                     bars = await self._provider.fetch_bars(symbol, timeframe, start=start, end=end)
                     histories[timeframe] = [self._bar_to_dict(bar) for bar in bars]
-                await self._compute.replace_symbol_histories(symbol, histories)
+                await self._compute.replace_symbol_histories(
+                    symbol, histories, live_tail_timeframes=self._live_tail_timeframes()
+                )
                 self._compute.commit_symbol_refresh(symbol)
                 return symbol, None
             except Exception as exc:  # noqa: BLE001 - isolate one revised symbol
                 self._compute.abort_symbol_refresh(symbol)
                 logger.exception("Silver revision %s failed for %s", revision, symbol)
                 return symbol, str(exc)
+
+    def _live_tail_timeframes(self) -> Optional[Collection[str]]:
+        """Timeframes that may keep raw live-closed bars across a Silver refresh.
+
+        Rule 12: in adjusted mode only 1d. On Silver rev 93 (2026-10-05) the factor table
+        ends with the daily data and its last interval is 1.0, so a live 1d bar after the
+        lake equals its adjusted bar. Intraday is dropped: if Bronze intraday lags an
+        ex-date the revision already includes, a kept bar before it would stay raw.
+        ponytail: a factor floor (max effective_end of non-unit intervals) would let
+        intraday keep its tail; add it when intraday runs in adjusted mode.
+        """
+        if getattr(self._provider, "price_mode", "raw") == "adjusted":
+            return {"1d"}
+        return None
 
     @staticmethod
     def _bar_to_dict(bar: Any) -> Dict[str, Any]:

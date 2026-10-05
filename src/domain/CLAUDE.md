@@ -26,7 +26,9 @@ Performance invariants:
 
 - DataFrame created once per bar, shared across threads (40× memory reduction)
 - Per-(symbol, timeframe) RLocks eliminate cross-symbol contention
-- `detect_initial` flag: threshold rules fire on first evaluation after restart
+- `detect_initial` flag: a threshold rule fires on its first evaluation only when no
+  baseline exists. A subscribe seeds a silent baseline (no update published), so a
+  condition already true at seed fires only when a later live close crosses it.
 
 ## Indicators (`signals/indicators/`)
 

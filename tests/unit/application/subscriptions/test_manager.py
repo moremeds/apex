@@ -68,8 +68,11 @@ class _FakeCompute:
     def begin_symbol_refresh(self, symbol: str) -> None:
         self.refreshing.append(symbol)
 
-    async def replace_symbol_histories(self, symbol: str, histories: dict) -> dict[str, int]:
+    async def replace_symbol_histories(
+        self, symbol: str, histories: dict, live_tail_timeframes: object = None
+    ) -> dict[str, int]:
         self.replaced.append((symbol, histories))
+        self.live_tail_timeframes = live_tail_timeframes
         return {timeframe: len(bars) for timeframe, bars in histories.items()}
 
     def commit_symbol_refresh(self, symbol: str) -> None:
@@ -177,6 +180,22 @@ async def test_refresh_revision_reseeds_only_active_affected_symbols() -> None:
     assert provider.calls == [("NVDA", "1d"), ("NVDA", "1d")]
     assert compute.replaced[0][0] == "NVDA"
     assert compute.refreshing == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode, expected", [("adjusted", {"1d"}), ("raw", None)])
+async def test_refresh_keeps_live_tail_only_for_1d_in_adjusted_mode(
+    mode: str, expected: object
+) -> None:
+    # Rule 12: an intraday live bar kept before an ex-date would stay raw.
+    provider, compute = _FakeProvider(), _FakeCompute()
+    provider.price_mode = mode  # type: ignore[attr-defined]
+    manager = SubscriptionManager(provider=provider, compute=compute, timeframes=["1d"])
+    await manager.subscribe("NVDA")
+
+    await manager.refresh_revision(_revision(42, ["NVDA"]))
+
+    assert compute.live_tail_timeframes == expected
 
 
 @pytest.mark.asyncio

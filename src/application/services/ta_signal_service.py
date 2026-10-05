@@ -16,7 +16,7 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Collection, Dict, List, Optional
 
 from ...domain.events.event_types import EventType
 from ...domain.signals.signal_state_tracker import SignalStateTracker
@@ -617,17 +617,26 @@ class TASignalService:
             return 0
 
         result: int = self._indicator_engine.inject_historical_bars(symbol, timeframe, bars)
+        if result:
+            # Set a baseline so the first live close has a previous state and a close the
+            # lake already holds needs no compute. publish=False: no rule is evaluated at
+            # seed, so a subscribe emits no signal (detect_initial rules would otherwise
+            # fire on a first evaluation with no previous state).
+            await self._indicator_engine.compute_on_history(symbol, timeframe, publish=False)
         return result
 
     async def replace_symbol_histories(
         self,
         symbol: str,
         histories: Dict[str, List[Dict[str, Any]]],
+        live_tail_timeframes: Optional[Collection[str]] = None,
     ) -> Dict[str, int]:
         """Replace all supplied timeframe histories for a revised symbol."""
         if not self._indicator_engine:
             raise RuntimeError("IndicatorEngine not initialized")
-        counts: Dict[str, int] = self._indicator_engine.replace_symbol_histories(symbol, histories)
+        counts: Dict[str, int] = self._indicator_engine.replace_symbol_histories(
+            symbol, histories, live_tail_timeframes
+        )
         for timeframe in histories:
             await self._indicator_engine.compute_on_history(symbol, timeframe)
         return counts

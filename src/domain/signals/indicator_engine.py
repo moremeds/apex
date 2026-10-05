@@ -12,9 +12,20 @@ import asyncio
 import time
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from threading import RLock
-from typing import TYPE_CHECKING, Any, Callable, Deque, Dict, List, Optional, Protocol, Tuple
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Collection,
+    Deque,
+    Dict,
+    List,
+    Optional,
+    Protocol,
+    Tuple,
+)
 
 import pandas as pd
 
@@ -22,6 +33,7 @@ from src.domain.events.domain_events import BarCloseEvent, IndicatorUpdateEvent
 from src.domain.events.event_types import EventType
 from src.utils.logging_setup import get_logger
 
+from .data.bar_builder import TIMEFRAME_SECONDS
 from .indicators.base import Indicator
 from .indicators.registry import get_indicator_registry
 
@@ -92,6 +104,12 @@ class IndicatorEngine:
 
         # Bar history per (symbol, timeframe)
         self._history: Dict[BarKey, Deque[Dict[str, Any]]] = {}
+        # Newest lake (historical) bar per key. Lake bars are stamped at period start,
+        # live-closed bars at period end; a live close whose period starts at or before
+        # this is one the lake already holds.
+        self._lake_newest: Dict[BarKey, Any] = {}
+        # Timestamps of live-closed bars still in history; a replace keeps only these.
+        self._live_stamps: Dict[BarKey, set[Any]] = {}
 
         # Previous indicator states for transition detection
         self._previous_states: Dict[StateKey, Dict[str, Any]] = {}
@@ -233,6 +251,11 @@ class IndicatorEngine:
 
                 for bar in new_bars:
                     self._history[bar_key].append(bar)
+                if new_bars:
+                    self._lake_newest[bar_key] = new_bars[-1]["timestamp"]
+                    live = self._live_stamps.get(bar_key)
+                    if live:  # drop stamps of live bars these appends evicted
+                        live &= {bar["timestamp"] for bar in self._history[bar_key]}
 
                 injected_count = len(new_bars)
                 skipped_count = len(bar_dicts) - injected_count
@@ -261,8 +284,13 @@ class IndicatorEngine:
         self,
         symbol: str,
         histories: Dict[str, List[Dict[str, Any]]],
+        live_tail_timeframes: Optional[Collection[str]] = None,
     ) -> Dict[str, int]:
-        """Atomically replace selected timeframe histories for one symbol."""
+        """Atomically replace selected timeframe histories for one symbol.
+
+        Live-closed bars newer than the replacement are kept for the timeframes in
+        ``live_tail_timeframes`` (all when None) and dropped for the rest.
+        """
         replacements: Dict[str, Deque[Dict[str, Any]]] = {}
         for timeframe, bars in histories.items():
             copied = [dict(bar) for bar in bars]
@@ -278,8 +306,32 @@ class IndicatorEngine:
             replacements[timeframe] = deque(ordered, maxlen=self._max_history)
 
         with self._get_symbol_lock(symbol):
-            for timeframe, replacement in replacements.items():
-                self._history[(symbol, timeframe)] = replacement
+            lake_newest = {tf: rows[-1]["timestamp"] for tf, rows in replacements.items() if rows}
+            kept: Dict[str, set[Any]] = {}
+            for timeframe, newest in lake_newest.items():
+                key = (symbol, timeframe)
+                seconds = TIMEFRAME_SECONDS.get(timeframe)
+                if seconds and (live_tail_timeframes is None or timeframe in live_tail_timeframes):
+                    # Keep live-closed bars whose period starts after the new lake's newest
+                    # (lake stamps period start, live stamps period end). Old lake rows,
+                    # including ones this revision retracts, are dropped.
+                    # Rule 12 is the caller's: in adjusted mode the manager allows only 1d
+                    # (see SubscriptionManager._live_tail_timeframes).
+                    cutoff = newest + timedelta(seconds=seconds)
+                    live = self._live_stamps.get(key, set())
+                    tail = [
+                        bar
+                        for bar in self._history.get(key, ())
+                        if bar["timestamp"] in live and bar["timestamp"] > cutoff
+                    ]
+                    replacements[timeframe].extend(tail)
+                    kept[timeframe] = {bar["timestamp"] for bar in tail}
+            for timeframe, replacement in replacements.items():  # swap only once all succeed
+                key = (symbol, timeframe)
+                self._history[key] = replacement
+                self._lake_newest.pop(key, None)
+                self._live_stamps[key] = kept.get(timeframe, set())
+            self._lake_newest.update({(symbol, tf): ts for tf, ts in lake_newest.items()})
             affected = set(replacements)
             self._previous_states = {
                 key: state
@@ -289,9 +341,12 @@ class IndicatorEngine:
 
         return {timeframe: len(rows) for timeframe, rows in replacements.items()}
 
-    async def compute_on_history(self, symbol: str, timeframe: str) -> int:
+    async def compute_on_history(self, symbol: str, timeframe: str, publish: bool = True) -> int:
         """
         Compute all indicators on existing history and publish updates.
+
+        With ``publish=False`` only the cached states are set (a baseline for the next
+        close); no INDICATOR_UPDATE is published, so no rule is evaluated.
 
         Call this AFTER inject_historical_bars() to immediately calculate
         indicator values instead of waiting for the next BAR_CLOSE event.
@@ -386,7 +441,11 @@ class IndicatorEngine:
                 continue
 
             update_event, new_state = result
-            self._publish_update(update_event, new_state)
+            if publish:
+                self._publish_update(update_event, new_state)
+            else:
+                state_key = (symbol, timeframe, update_event.indicator)
+                self._previous_states[state_key] = new_state
             indicators_computed += 1
 
         logger.info(
@@ -438,10 +497,26 @@ class IndicatorEngine:
         # Update history (thread-safe with per-symbol lock)
         with self._get_symbol_lock(event.symbol):
             with self._get_lock(bar_key):
+                lake_newest = self._lake_newest.get(bar_key)
+                seconds = TIMEFRAME_SECONDS.get(event.timeframe)
                 if bar_key not in self._history:
                     self._history[bar_key] = deque(maxlen=self._max_history)
-                self._history[bar_key].append(bar_entry)
+                skipped = bool(
+                    lake_newest is not None
+                    and seconds
+                    and bar_timestamp - timedelta(seconds=seconds) <= lake_newest
+                )
+                if not skipped:  # else the lake already holds this period; keep its bar
+                    history = self._history[bar_key]
+                    live = self._live_stamps.setdefault(bar_key, set())
+                    if history.maxlen is not None and len(history) == history.maxlen:
+                        live.discard(history[0]["timestamp"])  # about to be evicted
+                    history.append(bar_entry)
+                    live.add(bar_timestamp)
                 bars = list(self._history[bar_key])
+
+        if skipped:  # history unchanged; publishing under this close's time would backdate
+            return
 
         self._bars_processed += 1
 
