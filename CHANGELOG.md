@@ -9,6 +9,9 @@ All notable changes to apex are recorded here. Format follows
 
 ## [Unreleased]
 
+## [0.1.15] — 2026-10-05
+
+
 ### Changed
 
 - **`python main.py` runs the API server; `--service` and `--env` are gone.** The production
@@ -88,7 +91,6 @@ All notable changes to apex are recorded here. Format follows
   daily data and its last interval is 1.0, so a live 1d bar equals its adjusted bar. Other
   timeframes drop the tail in adjusted mode (a kept intraday bar before an ex-date that Bronze
   intraday lags would stay raw, against rule 12).
-
 ## [0.1.14] — 2026-10-05
 
 ### Added
