@@ -244,6 +244,13 @@ class IndicatorEngine:
                     live = self._live_stamps.get(bar_key)
                     if live:  # drop stamps of live bars these appends evicted
                         live &= {bar["timestamp"] for bar in self._history[bar_key]}
+                    # History grew, so cached states are stale; as on replace, drop them so
+                    # the next close recomputes (a skipped one under the history's time).
+                    self._previous_states = {
+                        key: state
+                        for key, state in self._previous_states.items()
+                        if key[:2] != bar_key
+                    }
 
                 injected_count = len(new_bars)
                 skipped_count = len(bar_dicts) - injected_count
