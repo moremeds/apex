@@ -241,6 +241,9 @@ class IndicatorEngine:
                     self._history[bar_key].append(bar)
                 if new_bars:
                     self._lake_newest[bar_key] = new_bars[-1]["timestamp"]
+                    live = self._live_stamps.get(bar_key)
+                    if live:  # drop stamps of live bars these appends evicted
+                        live &= {bar["timestamp"] for bar in self._history[bar_key]}
 
                 injected_count = len(new_bars)
                 skipped_count = len(bar_dicts) - injected_count
@@ -476,13 +479,14 @@ class IndicatorEngine:
                 seconds = TIMEFRAME_SECONDS.get(event.timeframe)
                 if bar_key not in self._history:
                     self._history[bar_key] = deque(maxlen=self._max_history)
-                # Skip the append when the lake already holds this period (keep its bar),
-                # but still compute: the streaming seed leaves the first pass to a close.
-                if not (
+                skipped = bool(
                     lake_newest is not None
                     and seconds
                     and bar_timestamp - timedelta(seconds=seconds) <= lake_newest
-                ):
+                )
+                if skipped:  # the lake already holds this period; keep its bar
+                    computed = any(k[:2] == bar_key for k in self._previous_states)
+                else:
                     history = self._history[bar_key]
                     live = self._live_stamps.setdefault(bar_key, set())
                     if history.maxlen is not None and len(history) == history.maxlen:
@@ -490,6 +494,13 @@ class IndicatorEngine:
                     history.append(bar_entry)
                     live.add(bar_timestamp)
                 bars = list(self._history[bar_key])
+
+        if skipped:
+            # The streaming seed only injects, so the first close drives the first
+            # compute. Use the history's own timestamps, never this (older) close's.
+            if not computed:
+                await self.compute_on_history(event.symbol, event.timeframe)
+            return
 
         self._bars_processed += 1
 

@@ -276,7 +276,26 @@ class TestHistoricalBarReplacement:
         await engine._process_bar_async(make_bar_close_event("NVDA", timestamp=period_end))
 
         assert len(engine.get_history("NVDA", "1d") or []) == len(bars)
-        assert mock_event_bus.get_events(EventType.INDICATOR_UPDATE)
+        updates = mock_event_bus.get_events(EventType.INDICATOR_UPDATE)
+        assert updates
+        assert {u.timestamp for u in updates} == {bars[-1]["timestamp"]}  # history's own time
+
+    async def test_stale_close_after_compute_publishes_nothing(
+        self, mock_event_bus: MockEventBus
+    ) -> None:
+        # Resubscribe seeds newer history while the aggregator still holds an older bar.
+        engine = IndicatorEngine(mock_event_bus, max_workers=2)
+        engine.start()
+        bars = generate_ohlcv_data(n_bars=engine._max_warmup + 5).to_dict("records")
+        engine.inject_historical_bars("NVDA", "1d", bars)
+        await engine.compute_on_history("NVDA", "1d")
+        published = len(mock_event_bus.get_events(EventType.INDICATOR_UPDATE))
+        stale_end = bars[-3]["timestamp"] + timedelta(days=1)
+
+        await engine._process_bar_async(make_bar_close_event("NVDA", timestamp=stale_end))
+
+        assert len(mock_event_bus.get_events(EventType.INDICATOR_UPDATE)) == published
+        assert len(engine.get_history("NVDA", "1d") or []) == len(bars)
 
     async def test_replace_drops_retracted_lake_rows_but_keeps_live_tail(
         self, mock_event_bus: MockEventBus
@@ -324,6 +343,10 @@ class TestHistoricalBarReplacement:
             await engine._process_bar_async(event)
 
         assert engine._live_stamps[("NVDA", "1d")] == {d + timedelta(days=k) for k in (2, 3)}
+
+        lake = [{"timestamp": d + timedelta(days=k), "close": 1.0} for k in (4, 5)]
+        engine.inject_historical_bars("NVDA", "1d", lake)  # evicts both live bars
+        assert engine._live_stamps[("NVDA", "1d")] == set()
 
     def test_replacement_clears_only_affected_indicator_states(
         self, mock_event_bus: MockEventBus
