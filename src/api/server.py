@@ -15,8 +15,6 @@ from src.api.errors import install_error_handlers
 from src.api.jobs.manager import JobManager
 from src.api.routes.backtest import router as backtest_router
 from src.api.routes.health import router as health_router
-from src.api.routes.screener import router as screener_router
-from src.api.routes.strategy import router as strategy_router
 
 if TYPE_CHECKING:
     from src.domain.interfaces.event_bus import EventBus
@@ -292,7 +290,7 @@ def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
     app = FastAPI(
         title="APEX Signal Server",
-        description="Signal generation, backtesting, and strategy management API",
+        description="Signal generation and backtesting API",
         version=APEX_VERSION,
         lifespan=lifespan,
     )
@@ -307,8 +305,6 @@ def create_app() -> FastAPI:
     app.state.job_manager = JobManager()
 
     app.include_router(health_router)
-    app.include_router(strategy_router)
-    app.include_router(screener_router)
     app.include_router(backtest_router)
 
     # Streaming TA signal surface (Phase 3): REST pull + WS push to argon.

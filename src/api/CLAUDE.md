@@ -8,7 +8,7 @@ Root `CLAUDE.md` is authoritative for policy.
 
 ## Routes
 
-**Do not maintain a route table here** — it drifts on every route commit. The authoritative reference is `docs/argon-apex-api.md`: §3 for the flat routes, **§3a for the `/v1` asset-class surface** (query params, error envelope, and the flat→`/v1` deprecation mapping). Routers live in `src/api/routes/` (`chart`, `bulk_bars`, `returns`, `instruments`, `lake`, `membership`, `signals`, `db_catalog`, `db_table`, `uw_joins`, `screener`, `strategy`, `backtest`, `health`) plus `src/api/ws/signals_ws.py`; registration order is in `server.py`.
+**Do not maintain a route table here** — it drifts on every route commit. The authoritative reference is `docs/argon-apex-api.md`: §3 for the flat routes, **§3a for the `/v1` asset-class surface** (query params, error envelope, and the flat→`/v1` deprecation mapping). Routers live in `src/api/routes/` (`chart`, `bulk_bars`, `returns`, `instruments`, `lake`, `membership`, `signals`, `db_catalog`, `db_table`, `uw_joins`, `backtest`, `health`) plus `src/api/ws/signals_ws.py`; registration order is in `server.py`.
 
 Two facts about that surface that the code alone does not explain:
 
@@ -38,6 +38,6 @@ The Silver revision watcher (`src/application/subscriptions/revision_watcher.py`
 - **Chart routes are compute-on-read.** Bars and indicators recompute from the livewire lake per request; there is no pre-computed cache to invalidate.
 - **`src/application/lake/guards.py` owns pre-read validation.** Everything answering "is this request coherent, and which artifact would it read?" goes there (`resolve_window`, `check_listing`, `artifact_exists`, `spec_or_raise`, ...), raising transport-neutral `LakeError`; `chart.py` keeps routes and response assembly. Split out of `chart.py` when it crossed the 500-line budget (as `_chart_guards.py`), then moved out of `src/api/routes/` into `src/application/lake/` so REST and MCP share it — keep the seam. The shared lake queries themselves (`bars.py`, `catalog.py`, `identity.py`, `revisions.py`, `gaps.py`, `services.py::LakeServices`) live alongside it; REST builds a `LakeServices` per request from `app.state` via `src/api/routes/_lake.py::lake_services`.
 - **`src/api/payload/`** builds and validates response payloads; routes should not hand-assemble dicts.
-- **`JobManager`** (`src/api/jobs/`) runs long compute (backtest, screener) as background tasks so routes stay non-blocking.
+- **`JobManager`** (`src/api/jobs/`) runs long compute (backtest) as background tasks so routes stay non-blocking.
 - **CORS is a single origin**: `allow_origins=["http://localhost:3000"]`. Do not widen without an architectural reason.
 - **Errors go through `src/api/errors.py`** so the `/v1` error envelope stays uniform.
