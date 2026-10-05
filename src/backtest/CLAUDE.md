@@ -52,4 +52,4 @@ If a strategy change is explicitly requested, all six steps apply:
 
 Registration comes from the `@register_strategy` decorator, **not** from the YAML file. `src/runners/strategy_compare_runner.py` builds `STRATEGY_REGISTRY` from `list_strategies()` (the decorator registry) and only then reads YAML metadata.
 
-**Known defect:** `pead` has `config/strategy/pead.yaml` and `src/domain/strategy/signals/pead.py` but **no `playbook/pead.py` and no `@register_strategy`**, so it is invisible to `--list-strategies`, `/strategy/list` and `strategy_compare`. Five strategies are actually registered: `buy_and_hold`, `regime_flex`, `rsi_mean_reversion`, `sector_pulse`, `trend_pulse`.
+**Known defect:** `pead` has `config/strategy/pead.yaml` and `src/domain/strategy/signals/pead.py` but **no `playbook/pead.py` and no `@register_strategy`**, so it is invisible to `--list-strategies` and `strategy_compare`. Five strategies are actually registered: `buy_and_hold`, `regime_flex`, `rsi_mean_reversion`, `sector_pulse`, `trend_pulse`.

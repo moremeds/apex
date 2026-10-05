@@ -136,7 +136,7 @@ class StrategyContext:
     scheduler: Optional["Scheduler"] = None
     positions: Dict[str, PositionSnapshot] = field(default_factory=dict)
     account: Optional[AccountSnapshot] = None
-    execution: Optional[Any] = None  # ExecutionProvider
+    execution: Optional[Any] = None  # SimulatedExecution in the backtest engine
     market_data: Dict[str, QuoteTick] = field(default_factory=dict)
     cost_estimator: Optional["CostEstimator"] = None
     risk_gate: Optional["RiskGate"] = None
