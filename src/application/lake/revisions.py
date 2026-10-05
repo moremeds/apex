@@ -13,9 +13,9 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
-from src.application.lake.errors import LakeError
+from src.application.lake.errors import LakeError, redact_paths
 from src.application.lake.services import LakeServices, Page, check_page, page_of
 from src.infrastructure.adapters.livewire.pit_revisions import (
     PitRevision,
@@ -111,11 +111,14 @@ async def silver_revision_detail(
 
 @dataclass(frozen=True)
 class PitRevisionList:
-    # Any manifest on disk, before the index filter: a filter that matches nothing is
+    # Any servable manifest, before the index filter: a filter that matches nothing is
     # not "PIT was never published".
     available: bool
     latest_per_index: Dict[str, int]
     page: Page[PitRevisionSummary]
+    # (revision, reason) for every retained manifest that cannot be served. Not
+    # filtered by index_id: a manifest that does not parse has no trustworthy index.
+    skipped: Tuple[Tuple[int, str], ...]
 
 
 async def list_pit_revisions(
@@ -125,13 +128,11 @@ async def list_pit_revisions(
     limit: Optional[int] = None,
     offset: Optional[int] = None,
 ) -> PitRevisionList:
-    """No manifest on disk is an empty list, not an error (discovery says available
-    is false); an unreadable manifest is ``pit_unavailable``."""
+    """No servable manifest is an empty list, not an error (discovery says available
+    is false); an unreadable manifest is listed under ``skipped``, not an error."""
     size, skip = check_page(limit, offset)
-    try:
-        summaries: List[PitRevisionSummary] = await asyncio.to_thread(_pit(services).list_revisions)
-    except PitUnavailable as exc:
-        raise LakeError("pit_unavailable", str(exc)) from exc
+    listing = await asyncio.to_thread(_pit(services).list_revisions)
+    summaries: List[PitRevisionSummary] = list(listing.summaries)
     available = bool(summaries)
     latest: Dict[str, int] = {}
     for summary in summaries:  # newest first
@@ -139,7 +140,9 @@ async def list_pit_revisions(
     if index_id is not None:
         summaries = [s for s in summaries if s.index_id == index_id]
         latest = {k: v for k, v in latest.items() if k == index_id}
-    return PitRevisionList(available, latest, page_of(summaries, size, skip))
+    # Reasons become a 200 body, so they get the redaction LakeError would apply.
+    skipped = tuple((n, redact_paths(reason)) for n, reason in listing.skipped)
+    return PitRevisionList(available, latest, page_of(summaries, size, skip), skipped)
 
 
 @dataclass(frozen=True)

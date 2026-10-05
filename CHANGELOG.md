@@ -34,6 +34,18 @@ All notable changes to apex are recorded here. Format follows
 
 ### Fixed
 
+- **One bad retained PIT revision no longer takes all of PIT down.** Livewire's PIT
+  revisions 5 and 6 (published 2026-09-28, superseded by 7 and 8 the same day) contain an
+  empty member scope, and Livewire never retracts a revision. `PitRevisionReader.list_revisions`
+  parsed every retained manifest and raised on the first bad one, so
+  `GET /v1/lake/pit-revisions`, the `list_pit_revisions` MCP tool and `/v1/lake/status` all
+  reported PIT unavailable. The list now skips such a manifest and names it in a new
+  `skipped` field (`[{revision, reason}]`); `/v1/lake/status` reports `skipped_revisions`.
+  Reading or pinning that revision explicitly still fails closed with `pit_unavailable`.
+  Host paths in a skip reason are redacted like any error message. The `scripts/lake_verify`
+  oracles follow the same contract (skipped revisions are expected in `skipped`, and an
+  explicit read of one is expected to answer `503 pit_unavailable`).
+
 - **`/v1/equity/returns` answers `503 adjusted_unavailable` when the Silver pointer cannot
   be pinned.** The route pinned the revision itself, outside any handler, so a bad
   `current.json` fell through to a `500 internal_error`. The pin now goes through the shared

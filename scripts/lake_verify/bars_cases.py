@@ -97,7 +97,7 @@ def _samples(inventory: Dict[str, Any]) -> Dict[Tuple[str, str, str], Sample]:
 
 def _pit_member(lake: Lake) -> Tuple[Optional[int], Optional[str]]:
     """Latest PIT revision of PIT_INDEX and its member with the longest open scope."""
-    for number in lake.pit_numbers():
+    for number in lake.pit_split()[0]:
         manifest = lake.pit(number)
         if manifest["index_id"] != PIT_INDEX:
             continue

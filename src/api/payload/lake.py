@@ -126,6 +126,7 @@ def pit_list_payload(result: PitRevisionList) -> Dict[str, Any]:
         "available": result.available,
         "latest_per_index": result.latest_per_index,
         "revisions": [pit_summary_dict(summary) for summary in result.page.items],
+        "skipped": [{"revision": n, "reason": reason} for n, reason in result.skipped],
         **page_fields(result.page),
         "generated_at": _now(),
     }

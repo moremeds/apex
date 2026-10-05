@@ -334,7 +334,7 @@ class StatusChecker:
         if bad:
             problems.append("silver: " + "; ".join(bad))
 
-        pit_numbers = lake.pit_numbers()
+        pit_numbers, pit_skipped = lake.pit_split()
         latest_per_index: Dict[str, Dict[str, Any]] = {}
         for n in sorted(pit_numbers, reverse=True):
             manifest = lake.pit(n)
@@ -350,6 +350,10 @@ class StatusChecker:
         if got_pit.get("latest_per_index") != latest_per_index:
             problems.append(
                 f"pit.latest_per_index: expected {latest_per_index} got {got_pit.get('latest_per_index')}"
+            )
+        if got_pit.get("skipped_revisions") != pit_skipped:
+            problems.append(
+                f"pit.skipped_revisions: expected {pit_skipped} got {got_pit.get('skipped_revisions')}"
             )
 
         cat_path = _catalog_path(lake)
@@ -2079,7 +2083,7 @@ class PitRevisionsChecker:
 
     def run(self, case: Case, lake: Lake, executor: Any) -> Outcome:
         index_id = case.expect["args"].get("index_id")
-        numbers = lake.pit_numbers()
+        numbers, skipped = lake.pit_split()
         summaries = [lake.pit(n) for n in numbers]
         latest: Dict[str, int] = {}
         for m in summaries:
@@ -2107,6 +2111,9 @@ class PitRevisionsChecker:
         exp_revs = [m["revision"] for m in page]
         if got_revs != exp_revs:
             problems.append(f"revisions: expected {exp_revs} got {got_revs}")
+        got_skipped = [r["revision"] for r in body.get("skipped", [])]
+        if got_skipped != skipped:
+            problems.append(f"skipped: expected {skipped} got {got_skipped}")
         if problems:
             return Outcome("FAIL", "; ".join(problems))
         return Outcome("PASS")
@@ -2131,6 +2138,11 @@ class PitRevisionDetailChecker:
                 "FAIL",
                 f"expected 404 unknown_revision, got {status}: {str(body)[:300]}",
             )
+        if revision in lake.pit_split()[1]:  # fail closed on an explicit read
+            status, body = executor.execute(case.request)
+            if status == 503 and body.get("error", {}).get("code") == "pit_unavailable":
+                return Outcome("EXPECTED_REJECTION", "503 pit_unavailable")
+            return Outcome("FAIL", f"expected 503 pit_unavailable, got {status}: {str(body)[:300]}")
         manifest = _read_json(path)
         members = manifest["members"]
         params = case.request["params"]
@@ -2233,7 +2245,7 @@ def _gen_revisions(lake: Lake) -> List[Case]:
             _value("pit_revisions", index_id=None),
         )
     )
-    seen_indices = sorted({lake.pit(n)["index_id"] for n in lake.pit_numbers()})
+    seen_indices = sorted({lake.pit(n)["index_id"] for n in lake.pit_split()[0]})
     for idx in seen_indices:
         cases.append(
             Case(
