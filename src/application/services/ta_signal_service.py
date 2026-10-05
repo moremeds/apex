@@ -408,7 +408,7 @@ class TASignalService:
             self._dispatch_market_data_tick(tick)
 
     def abort_symbol_refresh(self, symbol: str) -> None:
-        """Replay captured ticks into unchanged state after a failed refresh."""
+        """Replay captured ticks after a failed refresh (including a failed commit)."""
         with self._refresh_lock:
             buffer = self._refresh_buffers.pop(symbol, None)
         if buffer is None:

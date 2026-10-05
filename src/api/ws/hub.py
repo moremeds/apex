@@ -17,11 +17,11 @@ class SignalHub:
         The caller acquires one SubscriptionManager refcount per True, matching
         the one release per ticker that `unregister` reports.
         """
+        self._by_ticker[ticker].add(ws)  # also un-mutes a socket broadcast muted
         held = self._tickers_of.setdefault(ws, set())
         if ticker in held:
             return False
         held.add(ticker)
-        self._by_ticker[ticker].add(ws)
         return True
 
     def unregister(self, ws: Any, ticker: Optional[str] = None) -> Set[str]:

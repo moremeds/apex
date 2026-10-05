@@ -75,3 +75,14 @@ async def test_dead_socket_is_muted_but_still_reported_on_unregister() -> None:
     assert hub._by_ticker["AAPL"] == set()  # no more fan-out to it
     # The handler's cleanup still sees AAPL, so its manager refcount is released.
     assert hub.unregister(dead) == {"AAPL"}
+
+
+@pytest.mark.asyncio
+async def test_repeat_register_unmutes_a_muted_socket() -> None:
+    hub = SignalHub()
+    flaky = _DeadWS()
+    hub.register(flaky, "AAPL")
+    await hub.broadcast("AAPL", {"signals": [], "timestamp": "t"})  # send fails -> muted
+
+    assert hub.register(flaky, "AAPL") is False  # no second refcount
+    assert hub._by_ticker["AAPL"] == {flaky}  # but fan-out resumes

@@ -63,14 +63,18 @@ All notable changes to apex are recorded here. Format follows
 - **`/ws/signals` no longer crashes when no lake is configured.** With `APEX_LIVEWIRE_ROOT`
   unset the lifespan never set `app.state.subscription_manager`, so every connection hit an
   `AttributeError`. The lifespan now always sets it (`None` when there is no pipeline), and
-  the socket accepts and closes with code `1013` (try again later).
+  the socket accepts and closes with code `1013` (try again later). `docs/argon-apex-api.md`
+  and `docs/argon-signal-consumption.md` said the socket stayed open and silent; they now
+  describe the close.
 - **A repeat WS subscribe no longer leaks a refcount.** Subscribing twice to one ticker on
   one socket acquired two `SubscriptionManager` refcounts but disconnect released one, so the
   ticker stayed live forever. `SignalHub.register` now reports whether the ticker is new, and
   only a new registration acquires a refcount. A handler error (for example a seed failure)
   now also releases every ticker the socket held; before, only a clean disconnect did. A
-  socket whose send fails during a broadcast is muted but stays in the hub, so its
-  handler's cleanup still releases its refcounts (the broadcast used to drop it silently).
+  subscribe cancelled while it waits for the manager lock no longer releases a refcount
+  another socket holds. A socket whose send fails during a broadcast is muted but stays in
+  the hub, so its handler's cleanup still releases its refcounts (the broadcast used to drop
+  it silently); a repeat subscribe un-mutes it.
 - **Ticks captured during a failed Silver refresh are replayed.** When the refresh tick
   buffer hit its count or age limit, `commit_symbol_refresh` removed the buffer before it
   raised, so the following `abort_symbol_refresh` found nothing and the captured ticks were

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 
 import pytest
@@ -10,6 +11,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from src.api.server import create_app
 from src.api.ws.hub import SignalHub
+from src.api.ws.signals_ws import signals_ws
 from src.application.subscriptions.manager import SubscriptionManager
 
 
@@ -115,3 +117,40 @@ def test_ws_handler_error_still_releases_held_tickers() -> None:
                 ws.receive_json()
     # AAPL released; BAD never acquired, so it is not released either.
     assert app.state.subscription_manager.unsubscribed == ["AAPL"]
+
+
+class _ScriptedWS:
+    """Feeds frames to the handler, then blocks like an idle client."""
+
+    def __init__(self, state: SimpleNamespace, frames: list[dict]) -> None:
+        self.app = SimpleNamespace(state=state)
+        self._frames = frames
+
+    async def accept(self) -> None:
+        pass
+
+    async def receive_json(self) -> dict:
+        if self._frames:
+            return self._frames.pop(0)
+        await asyncio.Event().wait()
+        raise AssertionError("unreachable")
+
+    async def send_json(self, data: dict) -> None:
+        pass
+
+
+@pytest.mark.asyncio
+async def test_cancelled_subscribe_does_not_release_another_sockets_refcount() -> None:
+    mgr = SubscriptionManager(provider=_Provider(), compute=_Compute(), timeframes=["1d"])
+    await mgr.subscribe("AAPL")  # socket A's refcount
+    state = SimpleNamespace(signal_hub=SignalHub(), subscription_manager=mgr, signal_repo=None)
+    sub = {"action": "subscribe", "ticker": "AAPL"}
+
+    async with mgr._lock:  # a seed in progress: B waits inside mgr.subscribe
+        b = asyncio.create_task(signals_ws(_ScriptedWS(state, [sub])))  # type: ignore[arg-type]
+        await asyncio.sleep(0.01)
+        b.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await b
+
+    assert mgr.refcount("AAPL") == 1

@@ -46,13 +46,13 @@ Default listen address: `0.0.0.0:8322` (override with `APEX_API_PORT`).
 
 ## 2. Running apex (so it actually streams)
 
-apex builds the streaming pipeline when its data roots are configured. The WS endpoint
-always *accepts* connections, but **no signals are produced unless `APEX_LIVEWIRE_ROOT`
-is set**; live ticks flow from xenon automatically (the URL is baked in — see below).
+apex builds the streaming pipeline when its data roots are configured. Without
+`APEX_LIVEWIRE_ROOT` there is no pipeline: the WS endpoint accepts a connection and
+closes it at once with code `1013` (reason `signal streaming not configured`); live ticks flow from xenon automatically (the URL is baked in — see below).
 
 | Env var | Default | Purpose |
 |---|---|---|
-| `APEX_LIVEWIRE_ROOT` | *(unset)* | Bronze parquet root for historical bars. **Required** to build the pipeline. Unset → `/ws/signals` connects but emits nothing. |
+| `APEX_LIVEWIRE_ROOT` | *(unset)* | Bronze parquet root for historical bars. **Required** to build the pipeline. Unset → `/ws/signals` accepts, then closes with `1013`. |
 | `APEX_XENON_WS_URL` | `ws://127.0.0.1:8765` | xenon tick-feed WS URL. **Baked into apex** (matches xenon's `DEFAULT_IB_REALTIME_PORT`); only set this to override. Connects automatically once the pipeline is built. |
 | `APEX_TIMEFRAMES` | `1d` | Comma-separated timeframes to compute, e.g. `1m,5m,1d`. Drives the live cadence (§6). |
 | `APEX_API_PORT` | `8322` | HTTP/WS listen port. |

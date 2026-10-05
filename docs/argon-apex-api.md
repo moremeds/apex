@@ -55,7 +55,7 @@ apex's data sources are env-gated, which determines what's available:
 
 | Feature | Requires | If unset |
 |---|---|---|
-| Live signal push + chart bars/indicators warmup | `APEX_LIVEWIRE_ROOT` (see [livewire doc](livewire-apex-integration.md)) | `/ws/signals` connects but stays silent; `/bars`,`/indicators` → `503` |
+| Live signal push + chart bars/indicators warmup | `APEX_LIVEWIRE_ROOT` (see [livewire doc](livewire-apex-integration.md)) | `/ws/signals` accepts, then closes with code `1013` (reason `signal streaming not configured`); reconnect with backoff; `/bars`,`/indicators` → `503` |
 | Signal snapshot/backfill + confluence | `APEX_PG_URL` (Postgres) | `/signals`,`/confluence` → `503`; live WS push still works |
 | Live ticks | `APEX_XENON_WS_URL` (default `ws://127.0.0.1:8765`) | no live frames; snapshot/REST still work |
 

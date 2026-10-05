@@ -41,7 +41,7 @@ async def signals_ws(ws: WebSocket) -> None:
                 if new:
                     try:
                         await mgr.subscribe(ticker)
-                    except Exception:
+                    except BaseException:  # incl. cancellation while waiting on the lock
                         hub.unregister(ws, ticker)  # manager holds no refcount for it
                         raise
                 await ws.send_json({"status": "subscribed", "ticker": ticker})
