@@ -54,6 +54,24 @@ def test_ws_explicit_unsubscribe_decrements_once() -> None:
     assert app.state.subscription_manager.unsubscribed == ["AAPL"]
 
 
+def test_ws_malformed_frames_get_bad_frame_and_socket_stays_open() -> None:
+    app = create_app()
+    app.state.signal_hub = SignalHub()
+    app.state.subscription_manager = _FakeMgr()
+    app.state.signal_repo = None
+    bad_frame = {"status": "error", "detail": "bad frame"}
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws/signals") as ws:
+            for frame in ("[]", '"x"', "null", "not json", '{"action": "subscribe", "ticker": 1}'):
+                ws.send_text(frame)
+                assert ws.receive_json() == bad_frame
+            ws.send_bytes(b'{"action": "subscribe", "ticker": "AAPL"}')
+            assert ws.receive_json() == bad_frame
+            ws.send_json({"action": "subscribe", "ticker": "AAPL"})
+            assert ws.receive_json() == {"status": "subscribed", "ticker": "AAPL"}
+    assert app.state.subscription_manager.subscribed == ["AAPL"]
+
+
 def test_ws_closes_1013_when_no_lake_is_configured(monkeypatch: pytest.MonkeyPatch) -> None:
     for var in ("APEX_LIVEWIRE_ROOT", "APEX_LIVEWIRE_SILVER_ROOT", "APEX_PG_URL"):
         monkeypatch.delenv(var, raising=False)

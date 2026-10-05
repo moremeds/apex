@@ -32,7 +32,13 @@ async def signals_ws(ws: WebSocket) -> None:
     repo = getattr(ws.app.state, "signal_repo", None)
     try:
         while True:
-            msg = await ws.receive_json()
+            try:
+                msg = await ws.receive_json()
+            except (ValueError, TypeError, KeyError):  # not JSON, or a binary frame
+                msg = None
+            if not isinstance(msg, dict) or not isinstance(msg.get("ticker", ""), str):
+                await ws.send_json({"status": "error", "detail": "bad frame"})
+                continue
             ticker = msg.get("ticker", "")
             action = msg.get("action")
             if action == "subscribe" and ticker:
