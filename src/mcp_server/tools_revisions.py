@@ -71,7 +71,8 @@ def register(server: MCPServer, services: LakeServices) -> None:
     async def list_pit_revisions(
         index_id: Optional[str] = None, limit: Limit = None, offset: Offset = None
     ) -> PitRevisions:
-        """Published PIT revisions with per-index status and the latest per index."""
+        """Published PIT revisions with per-index status and the latest per index;
+        `skipped` names retained revisions that cannot be served, with the reason."""
         result = await revisions.list_pit_revisions(
             services, index_id=index_id, limit=limit, offset=offset
         )

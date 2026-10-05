@@ -111,7 +111,7 @@ async def silver_revision_detail(
 
 @dataclass(frozen=True)
 class PitRevisionList:
-    # Any manifest on disk, before the index filter: a filter that matches nothing is
+    # Any servable manifest, before the index filter: a filter that matches nothing is
     # not "PIT was never published".
     available: bool
     latest_per_index: Dict[str, int]
