@@ -179,7 +179,7 @@ async def test_seed_computes_under_history_time_and_keeps_a_baseline() -> None:
     await service.inject_historical_bars("NVDA", "1d", bars)  # resubscribe adds one bar
 
     assert {u.timestamp for u in updates} == {bars[-2]["timestamp"], bars[-1]["timestamp"]}
-    assert engine.get_indicator_state("NVDA", "1d", "rsi") is not None
+    assert ("NVDA", "1d", "rsi") in engine._previous_states
     published = len(updates)
     covered = {"timestamp": bars[-1]["timestamp"] + timedelta(days=1)}
     await engine._process_bar_async(
