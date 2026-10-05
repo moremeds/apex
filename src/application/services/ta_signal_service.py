@@ -367,6 +367,8 @@ class TASignalService:
                     if age > self._refresh_buffer_max_age_seconds:
                         buffer.error = f"tick buffer exceeded age limit for {symbol}"
                     elif len(buffer.ticks) >= self._refresh_buffer_max_ticks:
+                        # ponytail: ticks past a limit are dropped; only captured ticks
+                        # replay on abort. Raise the limits if refreshes outlast them.
                         buffer.error = f"tick buffer exceeded count limit for {symbol}"
                     elif buffer.error is None:
                         buffer.ticks.append(payload)
@@ -395,16 +397,18 @@ class TASignalService:
     def commit_symbol_refresh(self, symbol: str) -> None:
         """Replay buffered ticks after a successful history replacement."""
         with self._refresh_lock:
-            buffer = self._refresh_buffers.pop(symbol, None)
-        if buffer is None:
-            raise RuntimeError(f"no refresh active for {symbol}")
-        if buffer.error is not None:
-            raise RuntimeError(buffer.error)
+            buffer = self._refresh_buffers.get(symbol)
+            if buffer is None:
+                raise RuntimeError(f"no refresh active for {symbol}")
+            if buffer.error is not None:
+                # Leave the buffer in place so abort_symbol_refresh replays it.
+                raise RuntimeError(buffer.error)
+            del self._refresh_buffers[symbol]
         for tick in sorted(buffer.ticks, key=self._tick_sort_key):
             self._dispatch_market_data_tick(tick)
 
     def abort_symbol_refresh(self, symbol: str) -> None:
-        """Replay captured ticks into unchanged state after a failed refresh."""
+        """Replay captured ticks after a failed refresh (including a failed commit)."""
         with self._refresh_lock:
             buffer = self._refresh_buffers.pop(symbol, None)
         if buffer is None:

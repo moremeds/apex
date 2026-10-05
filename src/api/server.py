@@ -174,6 +174,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # event bus, TA compute service, signal emitter, and subscription manager so
         # the server itself streams signals. Guarded so tests can pre-inject fakes.
         if getattr(app.state, "subscription_manager", None) is None:
+            app.state.subscription_manager = None  # /ws/signals closes 1013 while None
             if livewire_root:
                 from src.api.ws.emitter import SignalEmitter
                 from src.application.services.ta_signal_service import TASignalService

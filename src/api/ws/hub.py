@@ -11,9 +11,18 @@ class SignalHub:
         self._by_ticker: DefaultDict[str, Set[Any]] = defaultdict(set)
         self._tickers_of: Dict[Any, Set[str]] = {}
 
-    def register(self, ws: Any, ticker: str) -> None:
-        self._by_ticker[ticker].add(ws)
-        self._tickers_of.setdefault(ws, set()).add(ticker)
+    def register(self, ws: Any, ticker: str) -> bool:
+        """Add `ws` to `ticker`; True only if it was not already registered.
+
+        The caller acquires one SubscriptionManager refcount per True, matching
+        the one release per ticker that `unregister` reports.
+        """
+        self._by_ticker[ticker].add(ws)  # also un-mutes a socket broadcast muted
+        held = self._tickers_of.setdefault(ws, set())
+        if ticker in held:
+            return False
+        held.add(ticker)
+        return True
 
     def unregister(self, ws: Any, ticker: Optional[str] = None) -> Set[str]:
         """Remove `ws` from one ticker (if given) or all tickers (disconnect).
@@ -42,4 +51,7 @@ class SignalHub:
             except Exception:  # noqa: BLE001 -- drop broken sockets
                 dead.append(ws)
         for ws in dead:
-            self.unregister(ws)  # full removal of a dead socket
+            # Stop fanning out to it, but keep `_tickers_of`: the WS handler's
+            # final unregister must still report these tickers to release refcounts.
+            for t in self._tickers_of.get(ws, ()):
+                self._by_ticker[t].discard(ws)
