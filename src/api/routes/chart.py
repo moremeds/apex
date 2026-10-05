@@ -15,7 +15,6 @@ Mirrors the signal contract: REST backfill + validate-on-egress on every respons
 
 from __future__ import annotations
 
-import asyncio
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -34,7 +33,7 @@ from src.application.chart.indicator_compute import (
     UnknownIndicatorError,
     compute_indicator_series,
 )
-from src.application.lake.bars import query_bars, query_rates
+from src.application.lake.bars import pin_adjusted, query_bars, query_rates
 from src.application.lake.guards import (
     DEFAULT_BARS,
     artifact_exists,
@@ -107,7 +106,7 @@ async def _indicators_response(
     start, end, tail = resolve_window(timeframe, start, end, limit)
     try:
         if provider.effective_price_mode(spec.name) == "adjusted":
-            provider = await asyncio.to_thread(provider.pin_snapshot)
+            provider = await pin_adjusted(provider, symbol=symbol, asset_class=spec.name)
         points = await compute_indicator_series(
             provider,
             registry,

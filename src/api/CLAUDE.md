@@ -8,7 +8,7 @@ Root `CLAUDE.md` is authoritative for policy.
 
 ## Routes
 
-**Do not maintain a route table here** — it drifts on every route commit. The authoritative reference is `docs/argon-apex-api.md`: §3 for the flat routes, **§3a for the `/v1` asset-class surface** (query params, error envelope, and the flat→`/v1` deprecation mapping). Routers live in `src/api/routes/` (`chart`, `instruments`, `signals`, `regime`, `screener`, `strategy`, `backtest`, `health`) plus `src/api/ws/signals_ws.py`; registration order is in `server.py`.
+**Do not maintain a route table here** — it drifts on every route commit. The authoritative reference is `docs/argon-apex-api.md`: §3 for the flat routes, **§3a for the `/v1` asset-class surface** (query params, error envelope, and the flat→`/v1` deprecation mapping). Routers live in `src/api/routes/` (`chart`, `instruments`, `signals`, `screener`, `strategy`, `backtest`, `health`) plus `src/api/ws/signals_ws.py`; registration order is in `server.py`.
 
 Two facts about that surface that the code alone does not explain:
 

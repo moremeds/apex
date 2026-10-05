@@ -49,6 +49,7 @@ class ApiErrorCode(str, Enum):
     UNKNOWN_REVISION = "unknown_revision"
     PIT_UNAVAILABLE = "pit_unavailable"
     REVISION_NOT_SUPPORTED = "revision_not_supported"
+    NOT_FOUND = "not_found"
 
 
 # 503 for ADJUSTED_UNAVAILABLE is deliberate: a missing or quarantined Silver artifact
@@ -81,6 +82,8 @@ STATUS_BY_CODE: dict[ApiErrorCode, int] = {
     # artifact): an upstream condition, never another revision or raw data.
     ApiErrorCode.PIT_UNAVAILABLE: 503,
     ApiErrorCode.REVISION_NOT_SUPPORTED: 400,
+    # Legacy job/strategy routes only: an unknown run_id or strategy name.
+    ApiErrorCode.NOT_FOUND: 404,
 }
 
 

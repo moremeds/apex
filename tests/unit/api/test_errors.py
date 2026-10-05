@@ -87,6 +87,7 @@ def test_code_values_are_stable_contract() -> None:
         "unknown_revision",
         "pit_unavailable",
         "revision_not_supported",
+        "not_found",
     }
 
 

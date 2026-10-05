@@ -5,9 +5,10 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
+from src.api.errors import ApiError, ApiErrorCode
 from src.api.jobs.models import JobStatus
 
 logger = logging.getLogger(__name__)
@@ -82,7 +83,7 @@ async def get_results(run_id: str, request: Request) -> dict:
     info = job_manager.get_status(run_id)
 
     if info is None:
-        raise HTTPException(status_code=404, detail=f"Unknown run_id: {run_id}")
+        raise ApiError(ApiErrorCode.NOT_FOUND, f"Unknown run_id: {run_id}")
 
     response: dict = {"run_id": run_id, "status": info.status.value}
     if info.status == JobStatus.COMPLETED:

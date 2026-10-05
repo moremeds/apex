@@ -1,4 +1,4 @@
-"""Tests for regime endpoint."""
+"""The removed /regime/{symbol} route."""
 
 from __future__ import annotations
 
@@ -9,11 +9,12 @@ from src.api.server import create_app
 
 
 @pytest.mark.asyncio
-async def test_regime_no_pg_returns_503():
-    """GET /regime/{symbol} returns 503 when PG pool not on app.state."""
+async def test_regime_route_is_gone():
+    """/regime/{symbol} read PG score_history, written only by the undeployed legacy
+    signal_service, so it served stale rows; the route was removed."""
     app = create_app()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.get("/regime/SPY")
 
-    assert resp.status_code == 503
+    assert resp.status_code == 404

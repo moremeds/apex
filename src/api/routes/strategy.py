@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 
+from src.api.errors import ApiError, ApiErrorCode
 from src.domain.strategy.param_loader import (
     get_strategy_metadata,
     get_strategy_params,
@@ -31,7 +32,7 @@ async def strategy_list() -> list[dict]:
 async def strategy_params(name: str) -> dict:
     """Get current parameters and recent history for a strategy."""
     if name not in list_strategies():
-        raise HTTPException(status_code=404, detail=f"Strategy '{name}' not found")
+        raise ApiError(ApiErrorCode.NOT_FOUND, f"Strategy '{name}' not found")
 
     config = load_strategy_config(name)
     return {

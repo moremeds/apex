@@ -12,7 +12,6 @@ rather than dropped, so a downstream guard has something to reject.
 
 from __future__ import annotations
 
-import asyncio
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -21,6 +20,7 @@ from fastapi import APIRouter, Query, Request
 from src.api.errors import ApiError, ApiErrorCode
 from src.api.payload.chart import basis_for
 from src.api.routes._lake import provider_or_raise
+from src.application.lake.bars import pin_adjusted
 from src.application.lake.guards import artifact_exists, spec_or_raise
 from src.domain.events.domain_events import BarData
 from src.infrastructure.adapters.livewire.ohlc_provider import AdjustedDataUnavailable
@@ -165,7 +165,7 @@ async def equity_returns(
     if price_mode == "adjusted":
         # Pin one Silver revision for the whole table: a revision landing mid-request
         # would adjust some symbols on one corporate-action set and the rest on another.
-        provider = await asyncio.to_thread(provider.pin_snapshot)
+        provider = await pin_adjusted(provider, asset_class=spec.name)
 
     # YTD needs the prior year's last close and the 52-week high needs a year of history,
     # so one fetch per symbol spans the widest of the three lookbacks and is sliced here.

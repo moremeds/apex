@@ -50,3 +50,4 @@ async def test_get_unknown_strategy_returns_404():
         resp = await client.get("/strategy/nonexistent_strategy/params")
 
     assert resp.status_code == 404
+    assert resp.json()["error"]["code"] == "not_found"
