@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from src.infrastructure.adapters.livewire.pit_revisions import (
+    PitRevisionListing,
     PitRevisionNotFound,
     PitRevisionReader,
     PitUnavailable,
@@ -174,7 +175,7 @@ def test_list_skips_and_flags_a_bad_retained_revision_but_pin_fails_closed(
 
 def test_absent_directory_lists_nothing(tmp_path: Path) -> None:
     reader = PitRevisionReader(tmp_path)
-    assert reader.list_revisions().summaries == () and reader.available() is False
+    assert reader.list_revisions() == PitRevisionListing((), ())
 
 
 def test_current_json_is_never_consulted(tmp_path: Path) -> None:

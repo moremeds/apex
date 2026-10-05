@@ -28,6 +28,9 @@ All notable changes to apex are recorded here. Format follows
   reported PIT unavailable. The list now skips such a manifest and names it in a new
   `skipped` field (`[{revision, reason}]`); `/v1/lake/status` reports `skipped_revisions`.
   Reading or pinning that revision explicitly still fails closed with `pit_unavailable`.
+  Host paths in a skip reason are redacted like any error message. The `scripts/lake_verify`
+  oracles follow the same contract (skipped revisions are expected in `skipped`, and an
+  explicit read of one is expected to answer `503 pit_unavailable`).
 
 ### Changed
 

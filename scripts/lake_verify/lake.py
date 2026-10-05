@@ -90,6 +90,24 @@ class Lake:
     def pit(self, revision: int) -> Dict[str, Any]:
         return _json(self.silver / "pit-revisions" / f"revision={revision}.json")
 
+    def pit_split(self) -> Tuple[List[int], List[int]]:
+        """(servable, skipped) PIT revision numbers, newest first. Independent of apex:
+        a manifest is skipped when it is not JSON or holds an empty member scope
+        (session_to is exclusive) -- the defects seen on the lake. Any other manifest
+        apex skips shows up as a mismatch."""
+        servable: List[int] = []
+        skipped: List[int] = []
+        for n in self.pit_numbers():
+            try:
+                bad = any(
+                    m.get("session_to") is not None and m["session_to"] <= m["session_from"]
+                    for m in self.pit(n)["members"]
+                )
+            except (ValueError, TypeError, KeyError):
+                bad = True
+            (skipped if bad else servable).append(n)
+        return servable, skipped
+
 
 @lru_cache(maxsize=8)
 def _json(path: Path) -> Any:

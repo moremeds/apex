@@ -15,7 +15,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
-from src.application.lake.errors import LakeError
+from src.application.lake.errors import LakeError, redact_paths
 from src.application.lake.services import LakeServices, Page, check_page, page_of
 from src.infrastructure.adapters.livewire.pit_revisions import (
     PitRevision,
@@ -140,7 +140,9 @@ async def list_pit_revisions(
     if index_id is not None:
         summaries = [s for s in summaries if s.index_id == index_id]
         latest = {k: v for k, v in latest.items() if k == index_id}
-    return PitRevisionList(available, latest, page_of(summaries, size, skip), listing.skipped)
+    # Reasons become a 200 body, so they get the redaction LakeError would apply.
+    skipped = tuple((n, redact_paths(reason)) for n, reason in listing.skipped)
+    return PitRevisionList(available, latest, page_of(summaries, size, skip), skipped)
 
 
 @dataclass(frozen=True)

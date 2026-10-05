@@ -318,6 +318,17 @@ def test_bad_retained_pit_revision_is_skipped_not_an_outage(
     assert client.get("/v1/lake/pit-revisions/3").json()["error"]["code"] == "pit_unavailable"
 
 
+def test_skipped_pit_reason_never_carries_a_host_path(client: TestClient, tmp_path: Path) -> None:
+    silver = tmp_path / "silver"
+    payload = pit_payload(silver, 3)
+    absolute = str(silver / "g" / "asset_class=equity" / "symbol=FSLR" / "1d.parquet")
+    payload["inputs"]["silver_artifacts"][0]["path"] = absolute
+    publish_pit(silver, payload)
+    body = client.get("/v1/lake/pit-revisions").json()
+    assert [s["revision"] for s in body["skipped"]] == [3]
+    assert "<path>" in body["skipped"][0]["reason"] and str(tmp_path) not in str(body)
+
+
 def test_pit_session_to_is_exclusive_on_the_bars_path(client: TestClient, tmp_path: Path) -> None:
     """A spell ending on 2026-09-17 must not serve the 09-17 bar."""
     silver = tmp_path / "silver"

@@ -191,9 +191,6 @@ class PitRevisionReader:
     def directory(self) -> Path:
         return self._silver_root / "pit-revisions"
 
-    def available(self) -> bool:
-        return bool(list_revision_numbers(self.directory))
-
     def list_revisions(self) -> PitRevisionListing:
         """Every retained manifest, newest first. A malformed one is skipped and named
         in ``skipped`` with its reason -- never silently dropped; ``read`` of that

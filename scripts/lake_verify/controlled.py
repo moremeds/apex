@@ -311,7 +311,8 @@ def run_all(lake: Path, out: Path, tree: Path, python: str) -> List[Dict[str, An
     pit_path = silver / "pit-revisions" / "revision=1.json"
     scenario("pit_malformed", {}, lambda: pit_path.write_bytes(b"{"), [
         expect("/v1/equity/FSLR/bars", 503, "pit_unavailable", params={"pit_revision": 1}),
-        expect("/v1/lake/pit-revisions", 503, "pit_unavailable"),
+        expect("/v1/lake/pit-revisions", 200, predicate=lambda b: (
+            b["revisions"] == [] and [r["revision"] for r in b["skipped"]] == [1])),
     ])  # fmt: skip
 
     def pit_artifact(symbol: str) -> Path:
