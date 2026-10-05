@@ -34,10 +34,27 @@ All notable changes to apex are recorded here. Format follows
 
 ### Fixed
 
+- **`/v1/equity/returns` answers `503 adjusted_unavailable` when the Silver pointer cannot
+  be pinned.** The route pinned the revision itself, outside any handler, so a bad
+  `current.json` fell through to a `500 internal_error`. The pin now goes through the shared
+  `src/application/lake/bars.py::pin_adjusted`, which `/v1/{asset_class}/{symbol}/indicators`
+  (and the flat `/indicators/{ticker}`) also uses; no route under `src/api` pins a snapshot
+  directly any more.
+- **The unknown-id `404` from the legacy `/backtest/results/{run_id}`,
+  `/screener/results/{run_id}` and `/strategy/{name}/params` routes now uses the error
+  envelope.** They raised FastAPI `HTTPException`, so an unknown `run_id` or strategy came
+  back as `{"detail": ...}`. They now return `404` with the new code `not_found`.
 - **`test_bulk_bounded_budget_and_one_pin` no longer expires.** It read bulk bars with no
   `start`/`end`, so the window was a 10-day lookback from now; once the 2026-09-16/17
   fixture rows aged out (late September) the series came back empty and the unit job
   failed on every branch. The test now pins `end`.
+
+### Removed
+
+- **`GET /regime/{symbol}` now returns `404`.** It read the latest row of PG `score_history`,
+  whose only writer is the legacy, undeployed `src/services/signal_service.py`, so production
+  served stale rows. No downstream service (argon, helium, signal-lab, xenon, livewire) calls
+  it. The `score_history` writer stays until the legacy daemon itself is removed.
 
 ## [0.1.13] — 2026-09-23
 

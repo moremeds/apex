@@ -293,6 +293,19 @@ async def pin_silver(services: LakeServices, provider: Any, revision: Optional[i
     return await asyncio.to_thread(provider.pin_snapshot, manifest)
 
 
+async def pin_adjusted(
+    provider: Any, *, symbol: Optional[str] = None, asset_class: Optional[str] = None
+) -> Any:
+    """Pin the current Silver revision for a whole adjusted read, so a revision landing
+    mid-request cannot split it across two corporate-action sets."""
+    try:
+        return await asyncio.to_thread(provider.pin_snapshot)
+    except AdjustedDataUnavailable as exc:
+        raise LakeError(
+            "adjusted_unavailable", str(exc), symbol=symbol, asset_class=asset_class
+        ) from exc
+
+
 async def _pit_bars(
     services: LakeServices,
     symbol: str,

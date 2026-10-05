@@ -226,3 +226,18 @@ async def test_a_benchmark_timeout_says_why_instead_of_a_silent_null() -> None:
     }
     assert "failure" not in body["benchmarks"]["QQQ"]
     assert body["results"][0]["excess_vs_spy"] is None
+
+
+async def test_an_unpinnable_silver_pointer_is_503_not_500() -> None:
+    from src.infrastructure.adapters.livewire.ohlc_provider import AdjustedDataUnavailable
+
+    class _BrokenSilver(_FakeProvider):
+        def effective_price_mode(self, asset_class: str = "equity") -> str:
+            return "adjusted"
+
+        def pin_snapshot(self) -> Any:
+            raise AdjustedDataUnavailable("current.json is malformed")
+
+    resp = await _get(_BrokenSilver(), f"symbols=MU&{_WEEK}")
+    assert resp.status_code == 503
+    assert resp.json()["error"]["code"] == "adjusted_unavailable"
