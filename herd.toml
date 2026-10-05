@@ -5,9 +5,16 @@
 [[worker]]
 name = "reviewer"
 kind = "cursor"
-role = "cross-lineage reviewer, read-only"
+role = "cross-lineage reviewer, read-only (tribunal Cursor/Grok seat)"
 machine = "local"
-args = ["--force", "--model", "cursor-grok-4.6-high"]
+args = ["--mode", "ask", "--model", "grok-4.7-high"]
+
+[[worker]]
+name = "review-astra"
+kind = "codex"
+role = "tribunal peer reviewer for a Claude lead, read-only (Codex Astra seat)"
+machine = "local"
+args = ["--model", "gpt-6-astra", "--sandbox", "read-only"]
 
 [[worker]]
 name = "implementer"
