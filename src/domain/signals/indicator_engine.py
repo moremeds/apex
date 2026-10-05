@@ -93,6 +93,9 @@ class IndicatorEngine:
 
         # Bar history per (symbol, timeframe)
         self._history: Dict[BarKey, Deque[Dict[str, Any]]] = {}
+        # Newest lake (historical) bar per key. Lake bars are stamped at period start,
+        # live-closed bars at period end, so a history bar newer than this is live.
+        self._lake_newest: Dict[BarKey, Any] = {}
 
         # Previous indicator states for transition detection
         self._previous_states: Dict[StateKey, Dict[str, Any]] = {}
@@ -234,6 +237,8 @@ class IndicatorEngine:
 
                 for bar in new_bars:
                     self._history[bar_key].append(bar)
+                if new_bars:
+                    self._lake_newest[bar_key] = new_bars[-1]["timestamp"]
 
                 injected_count = len(new_bars)
                 skipped_count = len(bar_dicts) - injected_count
@@ -279,19 +284,26 @@ class IndicatorEngine:
             replacements[timeframe] = deque(ordered, maxlen=self._max_history)
 
         with self._get_symbol_lock(symbol):
-            for timeframe, replacement in replacements.items():
-                old = self._history.get((symbol, timeframe), ())
+            lake_newest = {tf: rows[-1]["timestamp"] for tf, rows in replacements.items() if rows}
+            for timeframe, newest in lake_newest.items():
+                key = (symbol, timeframe)
                 seconds = TIMEFRAME_SECONDS.get(timeframe)
-                if replacement and seconds:
-                    # Keep bars closed live after the lake's newest bar. Lake bars are
-                    # stamped at period start, live bars at period end, so a live bar is
-                    # newer only when its start is past the lake's newest start.
+                if seconds:
+                    # Keep live-closed bars (newer than the old lake rows) whose period
+                    # starts after the new lake's newest; retracted lake rows are dropped.
                     # Rule 12 holds: on Silver rev 93 (2026-10-05) every symbol's last
                     # factor interval is 1.0, so a live raw bar equals its adjusted bar.
-                    cutoff = replacement[-1]["timestamp"] + timedelta(seconds=seconds)
-                    replacement.extend(bar for bar in old if bar["timestamp"] > cutoff)
+                    cutoff = newest + timedelta(seconds=seconds)
+                    old_lake = self._lake_newest.get(key)
+                    if old_lake is not None:
+                        cutoff = max(cutoff, old_lake)
+                    replacements[timeframe].extend(
+                        bar for bar in self._history.get(key, ()) if bar["timestamp"] > cutoff
+                    )
             for timeframe, replacement in replacements.items():  # swap only once all succeed
                 self._history[(symbol, timeframe)] = replacement
+                self._lake_newest.pop((symbol, timeframe), None)
+            self._lake_newest.update({(symbol, tf): ts for tf, ts in lake_newest.items()})
             affected = set(replacements)
             self._previous_states = {
                 key: state
@@ -450,6 +462,14 @@ class IndicatorEngine:
         # Update history (thread-safe with per-symbol lock)
         with self._get_symbol_lock(event.symbol):
             with self._get_lock(bar_key):
+                lake_newest = self._lake_newest.get(bar_key)
+                seconds = TIMEFRAME_SECONDS.get(event.timeframe)
+                if (
+                    lake_newest is not None
+                    and seconds
+                    and bar_timestamp - timedelta(seconds=seconds) <= lake_newest
+                ):
+                    return  # the lake already holds this period; keep its bar
                 if bar_key not in self._history:
                     self._history[bar_key] = deque(maxlen=self._max_history)
                 self._history[bar_key].append(bar_entry)

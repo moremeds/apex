@@ -240,6 +240,45 @@ class TestHistoricalBarReplacement:
         assert [row["close"] for row in history] == [10.0, 20.0, 3.0]
         assert counts == {timeframe: 3}
 
+    @pytest.mark.parametrize("seed", ["inject", "replace"])
+    async def test_live_close_for_a_period_the_lake_holds_is_not_appended(
+        self, mock_event_bus: MockEventBus, seed: str
+    ) -> None:
+        engine = IndicatorEngine(mock_event_bus, max_workers=2)
+        engine._indicators = []  # history only
+        engine.start()
+        d = datetime(2026, 10, 1, tzinfo=timezone.utc)
+        lake = [{"timestamp": d, "close": 1.0}]  # lake day D, stamped at period start
+        if seed == "inject":
+            engine.inject_historical_bars("NVDA", "1d", lake)
+        else:
+            engine.replace_symbol_histories("NVDA", {"1d": lake})
+
+        for day in (1, 2):  # live D and live D+1 close, stamped at period end
+            await engine._process_bar_async(
+                make_bar_close_event("NVDA", timestamp=d + timedelta(days=day))
+            )
+
+        stamps = [row["timestamp"] for row in engine.get_history("NVDA", "1d") or []]
+        assert stamps == [d, d + timedelta(days=2)]
+
+    async def test_replace_drops_retracted_lake_rows_but_keeps_live_tail(
+        self, mock_event_bus: MockEventBus
+    ) -> None:
+        engine = IndicatorEngine(mock_event_bus, max_workers=2)
+        engine._indicators = []
+        engine.start()
+        d = datetime(2026, 10, 1, tzinfo=timezone.utc)
+        lake = [{"timestamp": d + timedelta(days=k), "close": 1.0} for k in (-2, -1, 0)]
+        engine.inject_historical_bars("NVDA", "1d", lake)
+        live_end = d + timedelta(days=2)  # live D+1
+        await engine._process_bar_async(make_bar_close_event("NVDA", timestamp=live_end))
+
+        engine.replace_symbol_histories("NVDA", {"1d": lake[:1]})  # revision retracts D-1, D
+
+        stamps = [row["timestamp"] for row in engine.get_history("NVDA", "1d") or []]
+        assert stamps == [d - timedelta(days=2), live_end]
+
     def test_replacement_clears_only_affected_indicator_states(
         self, mock_event_bus: MockEventBus
     ) -> None:
