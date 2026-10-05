@@ -41,7 +41,10 @@ class _RecordingCompute:
         pass
 
     async def replace_symbol_histories(
-        self, symbol: str, histories: dict[str, list[dict[str, Any]]]
+        self,
+        symbol: str,
+        histories: dict[str, list[dict[str, Any]]],
+        live_tail_timeframes: Any = None,
     ) -> dict[str, int]:
         self.replaced[symbol] = histories
         return {timeframe: len(rows) for timeframe, rows in histories.items()}

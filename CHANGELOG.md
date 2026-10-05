@@ -79,11 +79,13 @@ All notable changes to apex are recorded here. Format follows
     and drops lake rows that a revision retracted;
   - a live bar whose period the lake already holds (for example day D closing after the lake
     published day D) is not appended and publishes nothing, on warmup and after a refresh alike;
-  - the streaming seed now computes indicators after it injects bars, as a refresh already did,
-    so the first live close has a previous state for transition rules.
-  In adjusted mode this is exact for `1d`: on Silver rev 93 the factor table ends with the daily
-  data and its last interval is 1.0. Intraday timeframes are not covered: if Bronze intraday
-  lags an ex-date the new revision already includes, a kept live bar before that date stays raw.
+  - the streaming seed now computes a baseline after it injects bars without publishing it, so
+    the first live close has a previous state for transition rules and a subscribe still emits
+    no indicator update or signal.
+  In adjusted mode only `1d` keeps its live tail: on Silver rev 93 the factor table ends with the
+  daily data and its last interval is 1.0, so a live 1d bar equals its adjusted bar. Other
+  timeframes drop the tail in adjusted mode (a kept intraday bar before an ex-date that Bronze
+  intraday lags would stay raw, against rule 12).
 
 ## [0.1.14] — 2026-10-05
 

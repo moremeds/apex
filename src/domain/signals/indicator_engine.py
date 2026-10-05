@@ -14,7 +14,18 @@ from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from threading import RLock
-from typing import TYPE_CHECKING, Any, Callable, Deque, Dict, List, Optional, Protocol, Tuple
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Collection,
+    Deque,
+    Dict,
+    List,
+    Optional,
+    Protocol,
+    Tuple,
+)
 
 import pandas as pd
 
@@ -273,8 +284,13 @@ class IndicatorEngine:
         self,
         symbol: str,
         histories: Dict[str, List[Dict[str, Any]]],
+        live_tail_timeframes: Optional[Collection[str]] = None,
     ) -> Dict[str, int]:
-        """Atomically replace selected timeframe histories for one symbol."""
+        """Atomically replace selected timeframe histories for one symbol.
+
+        Live-closed bars newer than the replacement are kept for the timeframes in
+        ``live_tail_timeframes`` (all when None) and dropped for the rest.
+        """
         replacements: Dict[str, Deque[Dict[str, Any]]] = {}
         for timeframe, bars in histories.items():
             copied = [dict(bar) for bar in bars]
@@ -295,14 +311,12 @@ class IndicatorEngine:
             for timeframe, newest in lake_newest.items():
                 key = (symbol, timeframe)
                 seconds = TIMEFRAME_SECONDS.get(timeframe)
-                if seconds:
+                if seconds and (live_tail_timeframes is None or timeframe in live_tail_timeframes):
                     # Keep live-closed bars whose period starts after the new lake's newest
                     # (lake stamps period start, live stamps period end). Old lake rows,
                     # including ones this revision retracts, are dropped.
-                    # Rule 12, 1d only: on Silver rev 93 (2026-10-05) the factor table ends
-                    # with the daily data and its last interval is 1.0, so a kept live 1d
-                    # bar equals its adjusted bar. Intraday is not covered: a retained bar
-                    # before an ex-date stays raw if Bronze intraday lags that ex-date.
+                    # Rule 12 is the caller's: in adjusted mode the manager allows only 1d
+                    # (see SubscriptionManager._live_tail_timeframes).
                     cutoff = newest + timedelta(seconds=seconds)
                     live = self._live_stamps.get(key, set())
                     tail = [
@@ -327,9 +341,12 @@ class IndicatorEngine:
 
         return {timeframe: len(rows) for timeframe, rows in replacements.items()}
 
-    async def compute_on_history(self, symbol: str, timeframe: str) -> int:
+    async def compute_on_history(self, symbol: str, timeframe: str, publish: bool = True) -> int:
         """
         Compute all indicators on existing history and publish updates.
+
+        With ``publish=False`` only the cached states are set (a baseline for the next
+        close); no INDICATOR_UPDATE is published, so no rule is evaluated.
 
         Call this AFTER inject_historical_bars() to immediately calculate
         indicator values instead of waiting for the next BAR_CLOSE event.
@@ -424,7 +441,11 @@ class IndicatorEngine:
                 continue
 
             update_event, new_state = result
-            self._publish_update(update_event, new_state)
+            if publish:
+                self._publish_update(update_event, new_state)
+            else:
+                state_key = (symbol, timeframe, update_event.indicator)
+                self._previous_states[state_key] = new_state
             indicators_computed += 1
 
         logger.info(

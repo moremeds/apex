@@ -280,6 +280,29 @@ class TestHistoricalBarReplacement:
         assert len(mock_event_bus.get_events(EventType.INDICATOR_UPDATE)) == published
         assert len(engine.get_history("NVDA", "1d") or []) == len(bars)
 
+    async def test_replace_keeps_live_tail_only_for_allowed_timeframes(
+        self, mock_event_bus: MockEventBus
+    ) -> None:
+        engine = IndicatorEngine(mock_event_bus, max_workers=2)
+        engine._indicators = []
+        engine.start()
+        d = datetime(2026, 10, 1, tzinfo=timezone.utc)
+        for tf, step in (("1d", timedelta(days=1)), ("1h", timedelta(hours=1))):
+            engine.inject_historical_bars("NVDA", tf, [{"timestamp": d, "close": 1.0}])
+            event = make_bar_close_event("NVDA", timeframe=tf, timestamp=d + 2 * step)
+            await engine._process_bar_async(event)
+        lake = [{"timestamp": d, "close": 2.0}]
+
+        engine.replace_symbol_histories(
+            "NVDA", {"1d": lake, "1h": lake}, live_tail_timeframes={"1d"}
+        )
+
+        assert [r["timestamp"] for r in engine.get_history("NVDA", "1d") or []] == [
+            d,
+            d + timedelta(days=2),
+        ]
+        assert [r["timestamp"] for r in engine.get_history("NVDA", "1h") or []] == [d]
+
     async def test_replace_drops_retracted_lake_rows_but_keeps_live_tail(
         self, mock_event_bus: MockEventBus
     ) -> None:

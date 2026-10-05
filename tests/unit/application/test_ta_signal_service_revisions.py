@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 from collections import defaultdict
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, cast
 
@@ -11,17 +13,21 @@ from src.domain.events.domain_events import BarCloseEvent
 from src.domain.events.event_types import EventType
 from src.domain.signals.data.bar_aggregator import BarAggregator
 from src.domain.signals.indicator_engine import IndicatorEngine
+from src.domain.signals.rule_engine import RuleEngine, RuleRegistry
+from src.domain.signals.rules.short_timeframe_rules import SHORT_TIMEFRAME_RULES
 
 
 class _FakeIndicatorEngine:
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict]] = []
 
-    def replace_symbol_histories(self, symbol: str, histories: dict) -> dict[str, int]:
+    def replace_symbol_histories(
+        self, symbol: str, histories: dict, live_tail_timeframes: Any = None
+    ) -> dict[str, int]:
         self.calls.append((symbol, histories))
         return {timeframe: len(rows) for timeframe, rows in histories.items()}
 
-    async def compute_on_history(self, symbol: str, timeframe: str) -> int:
+    async def compute_on_history(self, symbol: str, timeframe: str, publish: bool = True) -> int:
         return 0
 
 
@@ -159,33 +165,45 @@ def test_overflow_abort_replay_after_replace_keeps_tail_without_duplicates() -> 
     assert stamps == [d + timedelta(days=k) for k in (-1, 0, 2, 3)]
 
 
-async def test_seed_computes_under_history_time_and_keeps_a_baseline() -> None:
-    """The streaming seed computes after inject, so the first live close has a previous
-    state (transition rules can fire) and a close the lake already holds publishes nothing."""
+async def test_seed_sets_a_baseline_without_evaluating_rules() -> None:
+    """A subscribe emits no INDICATOR_UPDATE, so no rule runs: no TRADING_SIGNAL, hence no
+    persisted signal row and no WS frame. A detect_initial rule would fire on any first
+    evaluation; the next live close sees the seed baseline as its previous state."""
     bus = _SyncBus()
     updates: list[Any] = []
+    signals: list[Any] = []
     bus.subscribe(EventType.INDICATOR_UPDATE, updates.append)
+    bus.subscribe(EventType.TRADING_SIGNAL, signals.append)
     engine = IndicatorEngine(bus, max_workers=1)
+    engine._indicators = [ind for ind in engine._indicators if ind.name == "rsi"]
     engine.start()
+    always = replace(
+        next(r for r in SHORT_TIMEFRAME_RULES if r.name == "rsi_st_extreme_overbought"),
+        timeframes=("1d",),
+        condition_config={"field": "value", "threshold": 0, "detect_initial": True},
+        cooldown_seconds=0,
+    )
+    registry = RuleRegistry()
+    registry.add_rule(always)
+    RuleEngine(bus, registry).start()
     service = TASignalService(event_bus=bus)
     service._indicator_engine = engine
     d = datetime(2026, 1, 1, tzinfo=timezone.utc)
     bars = [
         {"timestamp": d + timedelta(days=i), "open": c, "high": c + 1, "low": c - 1, "close": c}
-        for i, c in enumerate(100.0 + (i % 7) for i in range(engine._max_warmup + 6))
+        for i, c in enumerate(100.0 + (i % 7) for i in range(40))
     ]
 
     await service.inject_historical_bars("NVDA", "1d", bars[:-1])
     await service.inject_historical_bars("NVDA", "1d", bars)  # resubscribe adds one bar
-
-    assert {u.timestamp for u in updates} == {bars[-2]["timestamp"], bars[-1]["timestamp"]}
-    assert ("NVDA", "1d", "rsi") in engine._previous_states
-    published = len(updates)
-    covered = {"timestamp": bars[-1]["timestamp"] + timedelta(days=1)}
+    covered = bars[-1]["timestamp"] + timedelta(days=1)  # live close the lake holds
     await engine._process_bar_async(
-        BarCloseEvent(symbol="NVDA", timeframe="1d", close=1.0, bar_end=covered["timestamp"])
+        BarCloseEvent(symbol="NVDA", timeframe="1d", close=1.0, bar_end=covered)
     )
-    assert len(updates) == published
+    await asyncio.sleep(0.05)  # let rule-evaluation tasks run
+
+    assert updates == [] and signals == []
+    assert ("NVDA", "1d", "rsi") in engine._previous_states
 
 
 def test_buffer_is_thread_safe_under_concurrent_ticks() -> None:
