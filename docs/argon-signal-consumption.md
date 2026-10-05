@@ -113,7 +113,7 @@ and then streams payload frames.
 |---|---|---|
 | Ack | `{"status": "subscribed", "ticker": "AAPL"}` | After each `subscribe`. |
 | Ack | `{"status": "unsubscribed", "ticker": "AAPL"}` | After each `unsubscribe`. |
-| Error | `{"status": "error", "detail": "bad frame"}` | Unknown action or missing `ticker`. |
+| Error | `{"status": "error", "detail": "bad frame"}` | Unknown action, missing or non-string `ticker`, or a frame that is not a JSON object. The socket stays open. |
 | Snapshot | a `signal_service_payload` (§8) | Once, right after a `subscribe` ack, when Postgres is configured (recent persisted signals; empty array if none). |
 | Live signal | a `signal_service_payload` (§8) | Each time a signal fires for a subscribed ticker. |
 

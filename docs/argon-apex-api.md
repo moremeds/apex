@@ -86,7 +86,7 @@ signal frames as rules fire.
    Empty `signals: []` if none yet.
 3. **Live frames** — a one-signal `signal_service_payload` each time a rule fires for a subscribed
    ticker.
-4. Bad frame → `{ "status": "error", "detail": "bad frame" }`.
+4. Bad frame → `{ "status": "error", "detail": "bad frame" }` — includes a frame that is not a JSON object or has a non-string `ticker`; the socket stays open.
 
 **Semantics**
 

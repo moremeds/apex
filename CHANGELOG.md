@@ -80,6 +80,10 @@ All notable changes to apex are recorded here. Format follows
   raised, so the following `abort_symbol_refresh` found nothing and the captured ticks were
   lost. Commit now leaves the buffer in place on error, and abort replays it. Ticks that
   arrive after a limit is hit are still dropped.
+- **`/ws/signals` answers a malformed frame instead of closing.** A frame that was not a
+  JSON object (`[]`, a string, unparseable text, a binary frame) or carried a non-string
+  `ticker` raised in the handler, and the server closed the socket with `1011`. Apex now
+  replies `{"status": "error", "detail": "bad frame"}` and keeps the socket open.
 
 ### Removed
 
