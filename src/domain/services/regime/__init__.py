@@ -1,7 +1,7 @@
 """
 Regime Service - Hierarchical Regime Detection.
 
-Provides 3-level hierarchical regime detection and action resolution:
+Provides 3-level hierarchical regime detection:
 - Level 1: Market Regime (QQQ/SPY) - Gate/Veto
 - Level 2: Sector Regime (SMH, XLV, XLF, XLE) - Weight/Selection
 - Level 3: Single-Name Regime (NVDA, TSLA, AAPL) - Entry/Sizing
@@ -11,13 +11,6 @@ Parameter optimization support via params_store:
     params = get_regime_params("NVDA")
 """
 
-from .action_resolver import (
-    get_action_summary,
-    get_defensive_actions,
-    get_position_sizing,
-    resolve_action,
-    should_reduce_exposure,
-)
 from .models import (
     ACTION_MAPS,
     DECISION_TABLE_SHORT_PUT,
@@ -30,36 +23,6 @@ from .models import (
     ActionContext,
     HierarchicalRegime,
     TradingAction,
-)
-from .objectives import (
-    CombinedObjectiveResult,
-    ObjectiveEvaluator,
-    ObjectiveResult,
-    RegimeStabilityObjective,
-    TradingProxyObjective,
-    TurningPointQualityObjective,
-)
-from .param_optimizer import (
-    FoldResult,
-    ParamStability,
-    WalkForwardConfig,
-    WalkForwardOptimizer,
-    WalkForwardResult,
-)
-from .param_provenance import (
-    ParamProvenance,
-    ParamProvenanceSet,
-    ParamSource,
-)
-from .param_recommender import (
-    AnalysisMetrics,
-    EnhancedParamRecommender,
-    EnhancedRecommenderResult,
-    ParamRecommendation,
-    ParamRecommender,
-    RecommendationEvidence,
-    RecommenderResult,
-    VolProxyConfig,
 )
 from .params_store import (
     DEFAULT_PARAMS,
@@ -110,36 +73,4 @@ __all__ = [
     "is_sector_etf",
     "get_hierarchy_level",
     "get_4h_alerts",
-    # Action resolver functions
-    "resolve_action",
-    "get_position_sizing",
-    "get_action_summary",
-    "should_reduce_exposure",
-    "get_defensive_actions",
-    # Parameter provenance
-    "ParamProvenance",
-    "ParamProvenanceSet",
-    "ParamSource",
-    # Parameter recommender
-    "AnalysisMetrics",
-    "EnhancedParamRecommender",
-    "EnhancedRecommenderResult",
-    "ParamRecommender",
-    "ParamRecommendation",
-    "RecommendationEvidence",
-    "RecommenderResult",
-    "VolProxyConfig",
-    # Objectives
-    "CombinedObjectiveResult",
-    "ObjectiveEvaluator",
-    "ObjectiveResult",
-    "RegimeStabilityObjective",
-    "TradingProxyObjective",
-    "TurningPointQualityObjective",
-    # Walk-forward optimizer
-    "FoldResult",
-    "ParamStability",
-    "WalkForwardConfig",
-    "WalkForwardOptimizer",
-    "WalkForwardResult",
 ]

@@ -4,11 +4,9 @@ Root `CLAUDE.md` is authoritative for policy.
 
 ## Invariant (aspiration, not yet enforced)
 
-Domain should not import infrastructure; dependencies flow in via `src/domain/interfaces/` and constructor injection. Three runtime violations exist today — do not add a fourth, and prefer removing one when you touch the file:
+Domain should not import infrastructure; dependencies flow in via `src/domain/interfaces/` and constructor injection. One runtime violation exists today — do not add another, and prefer removing it when you touch the file:
 
 - `signals/confluence_calculator.py` → `...infrastructure.observability`
-- `services/data_validator.py` → `...infrastructure.stores.parquet_historical_store`
-- `services/bar_replay_service.py` → `...infrastructure.stores.parquet_historical_store`
 
 Several more (`indicator_engine.py`, `signal_engine.py`, `rule_engine.py`, `signals/data/bar_aggregator.py`) are `TYPE_CHECKING`-guarded and therefore fine. `tests/carve/test_import_graph.py` is the enforcement point — tighten it there, not by convention.
 

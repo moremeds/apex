@@ -61,7 +61,6 @@ phases:
   - id: "P2"
     name: "Hierarchical Service"
     artifacts:
-      - "src/application/services/regime_service.py"
       - "src/domain/services/regime/*.py"
     checks:
       - id: "P2_SCHEMA_VALID"

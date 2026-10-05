@@ -32,14 +32,12 @@ _CUT_PREFIXES = (
 )
 # Keep-set modules: a FOLLOW edge points at one of these.
 _KEEPSET = (
-    "domain.indicators",
     "domain.signals",
     "domain.strategy",
     "application.services.ta_signal_service",
     "application.orchestrator.signal_pipeline",
 )
 _KEEPSET_DIRS = {
-    "domain/indicators": "src/domain/indicators",
     "domain/signals": "src/domain/signals",
     "domain/strategy": "src/domain/strategy",
     "application/services/ta_signal_service": "src/application/services/ta_signal_service.py",

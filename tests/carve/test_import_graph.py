@@ -9,29 +9,17 @@ from scripts.carve.import_graph import EdgeClass, classify_module, scan_keepset
 REPO = Path(__file__).resolve().parents[2]
 
 
-def test_clean_core_has_no_cut_edges() -> None:
-    """domain/indicators imports nothing from infra/application (CUT).
-
-    Intra-keepset domain imports are allowed (classified FOLLOW); only CUT
-    edges (-> infrastructure/services/application) would break separability.
-    """
-    edges = classify_module(REPO / "src/domain/indicators")
-    cuts = [e for e in edges if e.kind == EdgeClass.CUT]
-    assert cuts == [], cuts
-
-
 def test_signals_core_surfaces_known_cuts() -> None:
     """domain/signals must surface its infra/application coupling as CUT edges."""
     edges = classify_module(REPO / "src/domain/signals")
     targets = {e.target for e in edges if e.kind == EdgeClass.CUT}
     assert any("infrastructure.observability" in t for t in targets), targets
-    assert any("services.historical_data_manager" in t for t in targets), targets
 
 
 def test_scan_keepset_returns_all_modules() -> None:
     """The keepset scan classifies every module path it is given."""
     report = scan_keepset(REPO)
-    assert set(report.keys()) >= {"domain/indicators", "domain/signals", "domain/strategy"}
+    assert set(report.keys()) >= {"domain/signals", "domain/strategy"}
     assert all("edges" in v for v in report.values())
 
 

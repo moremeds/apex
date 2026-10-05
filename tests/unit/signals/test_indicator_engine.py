@@ -91,65 +91,6 @@ class TestIndicatorEngineProperties:
 
 
 # =============================================================================
-# Warmup Tests
-# =============================================================================
-
-
-class TestIndicatorEngineWarmup:
-    """Test warmup tracking functionality."""
-
-    def test_warmup_status_no_history(self, mock_event_bus: MockEventBus) -> None:
-        """Warmup status for unknown symbol should show 0 bars."""
-        engine = IndicatorEngine(mock_event_bus, max_workers=2)
-        engine.start()
-
-        status = engine.get_warmup_status("UNKNOWN", "1d")
-
-        assert status["symbol"] == "UNKNOWN"
-        assert status["timeframe"] == "1d"
-        assert status["bars_loaded"] == 0
-        assert status["status"] == "warming_up"
-
-    def test_warmup_status_with_history(self, mock_event_bus: MockEventBus) -> None:
-        """Warmup status should reflect injected history."""
-        engine = IndicatorEngine(mock_event_bus, max_workers=2)
-        engine.start()
-
-        # Inject some bars
-        bars = generate_ohlcv_data(n_bars=50).to_dict("records")
-        engine.inject_historical_bars("AAPL", "1d", bars)
-
-        status = engine.get_warmup_status("AAPL", "1d")
-
-        assert status["bars_loaded"] == 50
-        assert status["progress_pct"] > 0
-
-    def test_all_warmup_status_empty(self, mock_event_bus: MockEventBus) -> None:
-        """get_all_warmup_status should return empty list with no history."""
-        engine = IndicatorEngine(mock_event_bus, max_workers=2)
-        engine.start()
-
-        statuses = engine.get_all_warmup_status()
-        assert statuses == []
-
-    def test_all_warmup_status_multiple_symbols(self, mock_event_bus: MockEventBus) -> None:
-        """get_all_warmup_status should include all symbol/timeframe pairs."""
-        engine = IndicatorEngine(mock_event_bus, max_workers=2)
-        engine.start()
-
-        # Inject bars for multiple symbols
-        bars = generate_ohlcv_data(n_bars=20).to_dict("records")
-        engine.inject_historical_bars("AAPL", "1d", bars)
-        engine.inject_historical_bars("TSLA", "1d", bars)
-
-        statuses = engine.get_all_warmup_status()
-        symbols = {s["symbol"] for s in statuses}
-
-        assert "AAPL" in symbols
-        assert "TSLA" in symbols
-
-
-# =============================================================================
 # Historical Bar Injection Tests
 # =============================================================================
 
@@ -282,14 +223,6 @@ class TestHistoricalBarReplacement:
 
 class TestIndicatorStateCache:
     """Test indicator state caching."""
-
-    def test_get_indicator_state_empty(self, mock_event_bus: MockEventBus) -> None:
-        """get_indicator_state should return None for uncached state."""
-        engine = IndicatorEngine(mock_event_bus, max_workers=2)
-        engine.start()
-
-        state = engine.get_indicator_state("AAPL", "1d", "rsi")
-        assert state is None
 
     def test_get_all_indicator_states_empty(self, mock_event_bus: MockEventBus) -> None:
         """get_all_indicator_states should return empty dict initially."""

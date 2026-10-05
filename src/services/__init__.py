@@ -11,7 +11,6 @@ from src.services.market_cap_service import (
     load_universe_symbols,
 )
 from src.services.snapshot_service import SnapshotService
-from src.services.ta_service import ATRLevels, TAService
 from src.services.warm_start_service import WarmStartResult, WarmStartService
 
 __all__ = [
@@ -23,10 +22,8 @@ __all__ = [
     "SnapshotService",
     "WarmStartService",
     "WarmStartResult",
-    # Historical data & TA
+    # Historical data
     "HistoricalDataService",
-    "TAService",
-    "ATRLevels",
     # Bar persistence
     "BarPersistenceService",
     # Market cap caching (PR-C)
