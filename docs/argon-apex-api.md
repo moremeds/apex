@@ -335,7 +335,7 @@ PIT scope errors below).
 | `unknown_symbol` | 404 | No artifact under that partition, in any tree the read would use |
 | `unknown_index` | 404 | Unknown `index_id` on the membership or PIT surface |
 | `unknown_revision` | 404 | The requested numbered Silver or PIT revision does not exist |
-| `not_found` | 404 | Legacy `/backtest`, `/screener` and `/strategy` routes only: unknown `run_id` or strategy name |
+| `not_found` | 404 | Legacy `/backtest` route only: unknown `run_id` |
 | `ambiguous_security` | 404 | A ticker maps to more than one `security_id`; apex will not guess |
 | `ambiguous_symbol` | 409 | A `pit_revision` window spans more than one `security_id` (`details.scopes` lists them). `listing=any` on a dual-resident ticker does **not** emit this — it returns the union with `listing_status: "dual"` instead |
 | `not_yet_available` | 501 | Specified but blocked on upstream livewire work (only `/v1/instruments?listing=delisted` today) |

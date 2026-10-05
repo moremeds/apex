@@ -82,7 +82,7 @@ STATUS_BY_CODE: dict[ApiErrorCode, int] = {
     # artifact): an upstream condition, never another revision or raw data.
     ApiErrorCode.PIT_UNAVAILABLE: 503,
     ApiErrorCode.REVISION_NOT_SUPPORTED: 400,
-    # Legacy job/strategy routes only: an unknown run_id or strategy name.
+    # Legacy /backtest route only: an unknown run_id.
     ApiErrorCode.NOT_FOUND: 404,
 }
 

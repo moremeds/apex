@@ -26,6 +26,11 @@ All notable changes to apex are recorded here. Format follows
   `get_cooldown_status`, `get_all_cooldowns`, plus the trace-mode evaluation buffer that only
   `get_evaluation_history` read). `trace_mode` logging is unchanged. Package re-exports of
   these names are gone, and so are the tests whose only subject was deleted code.
+- **`/strategy` and `/screener` routes.** `GET /strategy/list`, `GET /strategy/{name}/params`,
+  `POST /screener/momentum`, `POST /screener/pead` and `GET /screener/results/{run_id}` now
+  return 404. No caller exists in argon, helium, signal-lab, xenon or livewire. The momentum
+  and PEAD runners and the strategy YAMLs they read are unchanged (`make jobs-momentum`,
+  `make jobs-pead`). `/backtest` is the only route left using the job queue.
 
 ## [0.1.14] — 2026-10-05
 
