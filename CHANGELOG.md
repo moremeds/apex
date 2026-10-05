@@ -9,7 +9,23 @@ All notable changes to apex are recorded here. Format follows
 
 ## [Unreleased]
 
+### Added
+
+- **`.python-version` pins the interpreter to 3.13.** With no pin, `uv run` / `uv sync`
+  picked the newest installed interpreter (3.14) and rebuilt `.venv` without the project
+  extras. CI (`setup-python` 3.13) and the image (`python:3.13-slim`) were already on 3.13.
+- **Market-data MCP design spec** (`docs/superpowers/specs/2026-09-22-market-data-mcp-design.md`),
+  the design behind #186, carried over from the unmerged `spec/market-data-mcp` branch. The
+  plan, review and handover drafts on that branch are not kept.
+
 ### Changed
+
+- **CLAUDE.md matches the code again.** `signal_service` is described as the legacy,
+  undeployed IB-tick daemon (it was listed as the long-running service), the "never connects
+  to IB" claim is scoped to the production server, argon is no longer called a stateless UI
+  or a signal consumer (it reads daily bars for its own technicals; helium and signal-lab are
+  the other readers), and Silver artifact SHA-256 verification is described as per-read (the
+  docs said every artifact was verified before a revision was accepted).
 
 - **Production MCP auto-deploys through Watchtower.** `docker/mcp.compose.yml` sets the
   Watchtower opt-in label from `APEX_MCP_WATCHTOWER` (default `false`), and production runs
