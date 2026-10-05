@@ -32,6 +32,13 @@ All notable changes to apex are recorded here. Format follows
   `ghcr.io/moremeds/apex-api:latest` with it set to `true`, as the API service already does.
   Test instances of candidate images stay unlabelled. `docs/mcp-operator-guide.md` updated.
 
+### Fixed
+
+- **`test_bulk_bounded_budget_and_one_pin` no longer expires.** It read bulk bars with no
+  `start`/`end`, so the window was a 10-day lookback from now; once the 2026-09-16/17
+  fixture rows aged out (late September) the series came back empty and the unit job
+  failed on every branch. The test now pins `end`.
+
 ## [0.1.13] — 2026-09-23
 
 

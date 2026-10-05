@@ -296,8 +296,13 @@ async def test_bulk_bounded_budget_and_one_pin(lake: dict[str, Path]) -> None:
         await query_bulk_bars(
             services, symbols=[f"S{i}" for i in range(200)], limit=51, policy="bounded"
         )
+    # Pin `end`: the default lookback is anchored to now, so the fixture rows age out.
     result = await query_bulk_bars(
-        services, symbols=["spy", "SPY", "NOPE"], limit=1, policy="bounded"
+        services,
+        symbols=["spy", "SPY", "NOPE"],
+        limit=1,
+        policy="bounded",
+        end=_when("2026-09-18"),
     )
     assert list(result.series) == ["SPY"] and "NOPE" in result.missing
     assert result.series["SPY"].truncated is True and len(result.series["SPY"].bars) == 1
