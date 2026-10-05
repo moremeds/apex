@@ -217,55 +217,6 @@ class TestHistoricalBarReplacement:
 
 
 # =============================================================================
-# State Cache Tests
-# =============================================================================
-
-
-class TestIndicatorStateCache:
-    """Test indicator state caching."""
-
-    def test_get_all_indicator_states_empty(self, mock_event_bus: MockEventBus) -> None:
-        """get_all_indicator_states should return empty dict initially."""
-        engine = IndicatorEngine(mock_event_bus, max_workers=2)
-        engine.start()
-
-        states = engine.get_all_indicator_states()
-        assert states == {}
-
-    def test_get_all_indicator_states_filtered_by_symbol(
-        self, mock_event_bus: MockEventBus
-    ) -> None:
-        """get_all_indicator_states should filter by symbol."""
-        engine = IndicatorEngine(mock_event_bus, max_workers=2)
-        engine.start()
-
-        # Manually populate state cache for testing
-        engine._previous_states[("AAPL", "1d", "rsi")] = {"value": 50}
-        engine._previous_states[("TSLA", "1d", "rsi")] = {"value": 60}
-
-        states = engine.get_all_indicator_states(symbol="AAPL")
-
-        assert len(states) == 1
-        assert ("AAPL", "1d", "rsi") in states
-
-    def test_get_all_indicator_states_filtered_by_timeframe(
-        self, mock_event_bus: MockEventBus
-    ) -> None:
-        """get_all_indicator_states should filter by timeframe."""
-        engine = IndicatorEngine(mock_event_bus, max_workers=2)
-        engine.start()
-
-        # Manually populate state cache
-        engine._previous_states[("AAPL", "1d", "rsi")] = {"value": 50}
-        engine._previous_states[("AAPL", "1h", "rsi")] = {"value": 55}
-
-        states = engine.get_all_indicator_states(timeframe="1d")
-
-        assert len(states) == 1
-        assert ("AAPL", "1d", "rsi") in states
-
-
-# =============================================================================
 # Lock Tests
 # =============================================================================
 
@@ -401,8 +352,7 @@ class TestComputeOnHistory:
         await engine.compute_on_history("AAPL", "1d")
 
         # State cache should have entries
-        states = engine.get_all_indicator_states(symbol="AAPL", timeframe="1d")
-        assert len(states) > 0
+        assert any(key[:2] == ("AAPL", "1d") for key in engine._previous_states)
 
 
 # =============================================================================
