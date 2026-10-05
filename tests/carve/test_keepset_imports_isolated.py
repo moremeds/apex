@@ -17,10 +17,8 @@ SRC = REPO / "src"
 
 # Directories whose every submodule must import; plus explicit single-file modules.
 _KEEPSET_DIRS = [
-    SRC / "domain" / "indicators",
     SRC / "domain" / "signals",
     SRC / "domain" / "strategy",
-    SRC / "application" / "orchestrator" / "signal_pipeline",
 ]
 _KEEPSET_FILES = [SRC / "application" / "services" / "ta_signal_service.py"]
 
@@ -34,6 +32,7 @@ def _module_name(py: Path) -> str:
 def _all_keepset_modules() -> list[str]:
     mods: list[str] = []
     for d in _KEEPSET_DIRS:
+        assert d.is_dir(), f"keep-set dir {d} is gone; update _KEEPSET_DIRS"
         mods += [_module_name(p) for p in sorted(d.rglob("*.py"))]
     mods += [_module_name(p) for p in _KEEPSET_FILES]
     return sorted(set(mods))

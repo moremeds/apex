@@ -56,7 +56,7 @@ Pipeline: component states (Trend/Vol/Chop/Extension/IV) → decision tree → h
 
 ## Legacy subtrees
 
-`strategy/`, `screeners/`, `backtest/`, `services/risk/`, `reality/` belong to the pre-pivot monolith. `domain/backtest/` is frozen (root rule 10). The rest is dormant but still imported; four non-obvious behaviours worth knowing before touching `strategy/`:
+`strategy/`, `screeners/`, `backtest/`, `reality/` belong to the pre-pivot monolith. `domain/backtest/` is frozen (root rule 10). The rest is dormant but still imported; four non-obvious behaviours worth knowing before touching `strategy/`:
 
 | File                         | Gotcha                                                                                                 |
 | ---------------------------- | ------------------------------------------------------------------------------------------------------ |

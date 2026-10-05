@@ -26,7 +26,7 @@ Two different things are called "coverage" — keep them apart: `adapters/livewi
 
 ## Other adapters
 
-`adapters/` also holds `xenon/` (WS client for the live tick feed — the only live IB path), plus the frozen-subsystem adapters `fmp/`, `ib/` (historical bars for the frozen backtest feeds only), `yahoo/` (historical bars for the verifiers) and `earnings/`.
+`adapters/` also holds `xenon/` (WS client for xenon's live tick feed; apex itself never connects to IB), plus the frozen-subsystem adapters `fmp/`, `ib/` (historical bars for the frozen backtest feeds only), `yahoo/` (historical bars for the verifiers) and `earnings/`.
 
 FMP caps intraday at ~410 rows/request, so full history needs pagination: 1h → 90-day windows (~410 bars), 4h → 180-day windows (~245 bars), 1d → 2,500+ bars in one call. Yahoo for the initial bulk 1h/4h fill, FMP for daily deltas — backfill only, never live.
 

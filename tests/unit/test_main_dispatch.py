@@ -37,3 +37,12 @@ def test_parse_args_backward_compat_mode():
         args = parse_args()
     assert args.mode == "backtest"
     assert args.strategy == "trend_pulse"
+
+
+def test_main_without_mode_delegates_to_api_server():
+    """The image's `python main.py` must boot exactly like `python -m src.api.server`."""
+    import main as entry
+
+    with patch("sys.argv", ["main.py"]), patch("src.api.server.main") as server_main:
+        entry.main()
+    server_main.assert_called_once_with()

@@ -1,12 +1,8 @@
 """
-Observability module for Apex risk management system.
+Observability for the signal pipeline.
 
-Provides OpenTelemetry instrumentation with Prometheus export for:
-- Risk metrics (Greeks, P&L, breaches)
-- System health metrics (connections, coverage, queues)
-- Adapter metrics (connections, throughput, latency)
-- Signal pipeline metrics (bars, indicators, signals, confluence)
-- Performance metrics (latencies, durations)
+`SignalMetrics` records OpenTelemetry metrics for bars, indicators, signals and confluence
+when a meter is passed in; no exporter ships with apex.
 
 Note: OpenTelemetry is an optional dependency. When not installed, all metric
 classes operate in no-op mode, accepting calls but doing nothing. This allows

@@ -183,14 +183,6 @@ module = [
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = "boto3.*"
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-module = "botocore.*"
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
 module = "tests.*"
 disallow_untyped_defs = false
 warn_return_any = false

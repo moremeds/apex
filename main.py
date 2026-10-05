@@ -42,9 +42,6 @@ Legacy:
         help="Legacy frozen backtest mode — runs instead of the API server",
     )
 
-    parser.add_argument("--verbose", "-v", action="store_true")
-    parser.add_argument("--log-level", type=str, default="INFO")
-
     bt = parser.add_argument_group("Backtest")
     bt.add_argument("--spec", type=str)
     bt.add_argument("--strategy", type=str)
@@ -54,26 +51,6 @@ Legacy:
     bt.add_argument("--capital", type=float, default=100_000.0)
 
     return parser.parse_args()
-
-
-async def run_api(args: argparse.Namespace) -> None:
-    """Run the REST + WS API server."""
-    level = logging.DEBUG if args.verbose else getattr(logging, args.log_level)
-    logging.basicConfig(level=level, format="%(levelname)s:%(name)s: %(message)s")
-    import uvicorn
-
-    from src.api.server import create_app
-
-    port = int(os.environ.get("APEX_API_PORT", "8322"))
-    logging.getLogger("apex").info("Starting API server on port %d...", port)
-    config = uvicorn.Config(
-        create_app,
-        host="0.0.0.0",  # nosec B104 - backend service intentionally listens on all interfaces for Xenon consumers
-        port=port,
-        factory=True,
-        log_level="info",
-    )
-    await uvicorn.Server(config).serve()
 
 
 def main() -> None:
@@ -92,10 +69,10 @@ def main() -> None:
         sys.exit(0 if getattr(result, "is_profitable", True) else 1)
 
     else:
-        try:
-            asyncio.run(run_api(args))
-        except KeyboardInterrupt:
-            sys.exit(0)
+        # Same boot path as `python -m src.api.server` (APEX_API_PORT, APEX_API_WORKERS).
+        from src.api.server import main as run_api_server
+
+        run_api_server()
 
 
 if __name__ == "__main__":
