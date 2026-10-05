@@ -15,7 +15,7 @@ Master policy file. Subsystem-specific rules live in subdirectory `CLAUDE.md` fi
 
 ## Identity
 
-**Apex** — a streaming technical-analysis signal service and livewire data-lake API. It reads bars from the livewire Parquet lake and live ticks from xenon, computes TA-Lib indicators + rule-engine signals + market regime, and serves them over REST + WebSocket to argon (stateless UI). Not a broker terminal — no order placement, and apex never connects to IB directly.
+**Apex** — a streaming technical-analysis signal service and livewire data-lake API. It reads bars from the livewire Parquet lake and live ticks from xenon, computes TA-Lib indicators + rule-engine signals + market regime, and serves them over REST + WebSocket, plus a read-only lake MCP. Downstream readers are argon (daily bars for its own technicals), helium (returns and bars) and signal-lab (bars and indicators). Not a broker terminal — no order placement. The production service (`src.api.server`) never connects to IB; the legacy `signal_service` daemon still does (see `src/services/` below).
 
 Apex was pivoted out of a risk-monitoring + backtesting monolith. The streaming path and the chart/data-lake read surface are the live product. The legacy backtest, strategy-playbook, screener and R2 code is still on disk pending the Phase 6 strip-down — treat it as frozen (rule 10).
 
@@ -31,7 +31,7 @@ uv run --env-file .env python -m src.api.server   # equivalent, env loaded by yo
 make api-server        # REST + WS API on :8322
 make mcp-server        # read-only lake MCP on :8333 (needs APEX_MCP_API_KEY)
 scripts/mcp_tailnet.sh up IMAGE [PORT]   # run the MCP on the docker host, tailnet-only (check/down too)
-make dev               # api + signal service via main.py --service all
+make dev               # api + legacy IB signal daemon via main.py --service all
 
 # Test
 make test                                   # pytest tests/unit/ -v
@@ -67,7 +67,7 @@ src/mcp_server/     read-only lake MCP (20 tools over src/application/lake); sep
 src/application/    bootstrap, orchestrator, chart service, subscriptions, revision watcher
 src/domain/         signals, indicators, regime, events, strategy, interfaces
 src/infrastructure/ adapters (livewire, xenon, fmp, ib, futu, yahoo, r2, earnings), persistence, stores, observability
-src/services/       long-running services — signal_service.py is what `make signal-service` runs
+src/services/       legacy services — signal_service.py (`make signal-service`) is the pre-pivot IB-tick daemon; not deployed, production runs src.api.server
 src/runners/        CLI runners (momentum, pead, strategy_compare, optimize, validation, trading)
 src/verification/   signal + regime verifiers; run as their own CI job
 src/models/         shared dataclasses (position, order, account, risk)
@@ -76,11 +76,11 @@ src/utils/          helpers
 
 The repo-root `services/` directory is **not** `src/services/` — it is a separate tree (`compute/ market_data/ shared/ web/`); do not confuse them.
 
-Signal pipeline: tick (xenon WS) → `BarAggregator` → `IndicatorEngine` → `RuleEngine` → PostgreSQL → argon via REST + WS.
+Signal pipeline: tick (xenon WS) → `BarAggregator` → `IndicatorEngine` → `RuleEngine` → PostgreSQL → REST + WS (`/v1/equity/{symbol}/signals`, `/ws/signals`).
 
 ### The livewire lake
 
-Apex reads two lakes. **Bronze** (`APEX_LIVEWIRE_ROOT`) is livewire's raw per-ticker Hive tree, `asset_class=<class>/symbol=<encode_symbol(SYM)>/<tf>.parquet`, covering six asset classes with differing timeframe ladders. **Silver** (`APEX_LIVEWIRE_SILVER_ROOT`) is equity-only, split/dividend adjusted, and published atomically as numbered revisions — apex validates `revisions/current.json` and SHA-256-verifies every referenced artifact before accepting one. `APEX_LIVEWIRE_PRICE_MODE` selects `raw` (default) or `adjusted`; a long-running service polls for new revisions and reseeds only the affected subscriptions. Reads go through per-request in-memory DuckDB — apex only reads, livewire writes. Details: `src/infrastructure/CLAUDE.md`.
+Apex reads two lakes. **Bronze** (`APEX_LIVEWIRE_ROOT`) is livewire's raw per-ticker Hive tree, `asset_class=<class>/symbol=<encode_symbol(SYM)>/<tf>.parquet`, covering six asset classes with differing timeframe ladders. **Silver** (`APEX_LIVEWIRE_SILVER_ROOT`) is equity-only, split/dividend adjusted, and published atomically as numbered revisions — apex validates `revisions/current.json` when it pins a revision and SHA-256-verifies each artifact when that artifact is read (existence probes skip the hash; full verification is the explicit `SilverRevision.verify_artifacts()`). `APEX_LIVEWIRE_PRICE_MODE` selects `raw` (default) or `adjusted`; a long-running service polls for new revisions and reseeds only the affected subscriptions. Reads go through per-request in-memory DuckDB — apex only reads, livewire writes. Details: `src/infrastructure/CLAUDE.md`.
 
 ## Environment
 
