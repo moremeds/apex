@@ -33,7 +33,6 @@ from src.infrastructure.adapters.livewire.membership import MembershipDataError
 from src.infrastructure.adapters.livewire.ohlc_provider import AdjustedDataUnavailable
 from src.infrastructure.adapters.livewire.parquet_reads import QueryTimeout
 from src.infrastructure.adapters.livewire.paths import parquet_path
-from src.infrastructure.adapters.livewire.pit_revisions import PitUnavailable
 from src.infrastructure.adapters.livewire.revisions import RevisionManifestError
 
 logger = logging.getLogger(__name__)
@@ -354,11 +353,8 @@ async def _silver_status(services: LakeServices) -> Dict[str, Any]:
 async def _pit_status(services: LakeServices) -> Dict[str, Any]:
     if services.pit is None:
         return {"configured": False, "available": False}
-    try:
-        summaries = await asyncio.to_thread(services.pit.list_revisions)
-    except PitUnavailable as exc:
-        logger.warning("PIT manifests unreadable: %s", exc)
-        return {"configured": True, "available": False, "error": "a PIT manifest is unreadable"}
+    listing = await asyncio.to_thread(services.pit.list_revisions)
+    summaries = listing.summaries
     latest: Dict[str, Dict[str, Any]] = {}
     for summary in summaries:  # newest first, so the first per index is the latest
         latest.setdefault(
@@ -370,6 +366,7 @@ async def _pit_status(services: LakeServices) -> Dict[str, Any]:
         "available": bool(summaries),
         "revisions": len(summaries),
         "latest_per_index": latest,
+        "skipped_revisions": [revision for revision, _ in listing.skipped],
     }
 
 

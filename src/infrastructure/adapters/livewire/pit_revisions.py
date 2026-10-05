@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -33,6 +34,8 @@ from urllib.parse import unquote
 from .manifest_cache import ManifestCache
 from .paths import encode_symbol
 from .revisions import list_revision_numbers
+
+logger = logging.getLogger(__name__)
 
 POLICY_VERSION = "pit-silver-v1"
 _STATUSES = ("PROVEN", "PARTIAL")
@@ -115,6 +118,17 @@ class PitRevisionSummary:
 
 
 @dataclass(frozen=True)
+class PitRevisionListing:
+    """The servable manifests, newest first, and the retained ones that are not.
+
+    ``skipped`` holds ``(revision, reason)``: Livewire never retracts a revision, so a
+    bad one stays on disk for good and must not take the good ones down with it."""
+
+    summaries: tuple[PitRevisionSummary, ...]
+    skipped: tuple[tuple[int, str], ...]
+
+
+@dataclass(frozen=True)
 class PitRevision:
     """One parsed PIT manifest. Artifact bytes are checked only when served."""
 
@@ -180,11 +194,23 @@ class PitRevisionReader:
     def available(self) -> bool:
         return bool(list_revision_numbers(self.directory))
 
-    def list_revisions(self) -> list[PitRevisionSummary]:
-        """Every retained manifest, newest first. A malformed one raises ``PitUnavailable``
-        rather than silently shrinking the list. Each file is re-read and re-hashed;
-        only the parse is reused, so a replaced file is never served stale."""
-        return [self.read(revision).summary for revision in list_revision_numbers(self.directory)]
+    def list_revisions(self) -> PitRevisionListing:
+        """Every retained manifest, newest first. A malformed one is skipped and named
+        in ``skipped`` with its reason -- never silently dropped; ``read`` of that
+        revision still raises (fail closed only on the pinned revision, the Livewire
+        consumer contract). Each file is re-read and re-hashed; only the parse is
+        reused, so a replaced file is never served stale."""
+        summaries: list[PitRevisionSummary] = []
+        skipped: list[tuple[int, str]] = []
+        for revision in list_revision_numbers(self.directory):
+            # ponytail: a failed parse is never cached, so each bad retained manifest is
+            # re-parsed per call; add a negative cache keyed by content hash if it shows.
+            try:
+                summaries.append(self.read(revision).summary)
+            except (PitUnavailable, PitRevisionNotFound) as exc:  # bad, or evicted mid-loop
+                logger.debug("skipping PIT revision %s: %s", revision, exc)
+                skipped.append((revision, str(exc)))
+        return PitRevisionListing(tuple(summaries), tuple(skipped))
 
     def read(self, revision: int) -> PitRevision:
         if isinstance(revision, bool) or not isinstance(revision, int) or revision < 1:

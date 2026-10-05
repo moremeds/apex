@@ -12,8 +12,10 @@ from src.infrastructure.adapters.livewire.pit_revisions import (
     PitUnavailable,
 )
 from tests.support.pit_manifest import (
+    BIIB_SCOPE,
     BIIB_SECURITY,
     FSLR_ROWS,
+    FSLR_SCOPES,
     FSLR_SECURITY,
     pit_payload,
     publish_pit,
@@ -141,7 +143,7 @@ def test_list_is_newest_first_and_ignores_current_and_appledouble(
     publish_pit(tmp_path, pit_payload(tmp_path, 2, index_id="ndx100", status="PROVEN"))
     (tmp_path / "pit-revisions" / "._revision=2.json").write_bytes(b"\x00\x05")
 
-    listed = PitRevisionReader(tmp_path).list_revisions()
+    listed = PitRevisionReader(tmp_path).list_revisions().summaries
 
     assert [(s.revision, s.index_id, s.status) for s in listed] == [
         (2, "ndx100", "PROVEN"),
@@ -149,9 +151,30 @@ def test_list_is_newest_first_and_ignores_current_and_appledouble(
     ]
 
 
+def test_list_skips_and_flags_a_bad_retained_revision_but_pin_fails_closed(
+    tmp_path: Path,
+) -> None:
+    """Livewire's revisions 5/6 (2026-09-28) kept an empty scope on disk for good; the
+    newer clean revision must still list. Overlapping scopes (one per identity event,
+    as STX has) are valid and not skipped."""
+    empty = dict(BIIB_SCOPE, session_from="2018-12-24", session_to="2018-12-24")
+    publish_pit(tmp_path, pit_payload(tmp_path, 1, members=[*FSLR_SCOPES, empty]))
+    overlap = dict(FSLR_SCOPES[1], identity_event_id="another-identity-event")
+    publish_pit(tmp_path, pit_payload(tmp_path, 2, members=[*FSLR_SCOPES, overlap, BIIB_SCOPE]))
+    reader = PitRevisionReader(tmp_path)
+
+    listing = reader.list_revisions()
+
+    assert [(s.revision, s.member_count) for s in listing.summaries] == [(2, 4)]
+    assert [n for n, _ in listing.skipped] == [1]
+    assert "empty member scope for BIIB" in listing.skipped[0][1]
+    with pytest.raises(PitUnavailable, match="empty member scope for BIIB"):
+        reader.read(1)
+
+
 def test_absent_directory_lists_nothing(tmp_path: Path) -> None:
     reader = PitRevisionReader(tmp_path)
-    assert reader.list_revisions() == [] and reader.available() is False
+    assert reader.list_revisions().summaries == () and reader.available() is False
 
 
 def test_current_json_is_never_consulted(tmp_path: Path) -> None:

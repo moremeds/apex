@@ -18,6 +18,17 @@ All notable changes to apex are recorded here. Format follows
   the design behind #186, carried over from the unmerged `spec/market-data-mcp` branch. The
   plan, review and handover drafts on that branch are not kept.
 
+### Fixed
+
+- **One bad retained PIT revision no longer takes all of PIT down.** Livewire's PIT
+  revisions 5 and 6 (published 2026-09-28, superseded by 7 and 8 the same day) contain an
+  empty member scope, and Livewire never retracts a revision. `PitRevisionReader.list_revisions`
+  parsed every retained manifest and raised on the first bad one, so
+  `GET /v1/lake/pit-revisions`, the `list_pit_revisions` MCP tool and `/v1/lake/status` all
+  reported PIT unavailable. The list now skips such a manifest and names it in a new
+  `skipped` field (`[{revision, reason}]`); `/v1/lake/status` reports `skipped_revisions`.
+  Reading or pinning that revision explicitly still fails closed with `pit_unavailable`.
+
 ### Changed
 
 - **CLAUDE.md matches the code again.** `signal_service` is described as the legacy,

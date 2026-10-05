@@ -305,6 +305,19 @@ def test_silver_discovery_does_not_need_a_bronze_provider(
     assert body["current"] == 77
 
 
+def test_bad_retained_pit_revision_is_skipped_not_an_outage(
+    client: TestClient, tmp_path: Path
+) -> None:
+    """One malformed retained manifest is flagged; the others and status stay up."""
+    (tmp_path / "silver" / "pit-revisions" / "revision=3.json").write_text("{")
+    listed = client.get("/v1/lake/pit-revisions").json()
+    assert [r["revision"] for r in listed["revisions"]] == [2, 1]
+    assert listed["skipped"] == [{"revision": 3, "reason": "PIT revision 3 is not valid JSON"}]
+    pit = client.get("/v1/lake/status").json()["sources"]["pit"]
+    assert pit["available"] is True and pit["skipped_revisions"] == [3]
+    assert client.get("/v1/lake/pit-revisions/3").json()["error"]["code"] == "pit_unavailable"
+
+
 def test_pit_session_to_is_exclusive_on_the_bars_path(client: TestClient, tmp_path: Path) -> None:
     """A spell ending on 2026-09-17 must not serve the 09-17 bar."""
     silver = tmp_path / "silver"

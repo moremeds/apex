@@ -63,4 +63,4 @@ def test_same_size_same_mtime_replacement_is_reparsed(tmp_path: Path) -> None:
     assert (path.stat().st_size, path.stat().st_mtime_ns) == (stat.st_size, stat.st_mtime_ns)
 
     assert reader.read(1).summary.status == "PROVEN"
-    assert reader.list_revisions()[0].status == "PROVEN"
+    assert reader.list_revisions().summaries[0].status == "PROVEN"
