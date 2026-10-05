@@ -45,10 +45,8 @@ from .models import (
     TradingSignal,
 )
 from .rule_engine import RuleEngine, RuleRegistry
-from .signal_engine import SignalEngine
 
 __all__ = [
-    # Models
     "TradingSignal",
     "SignalRule",
     "SignalCategory",
@@ -58,13 +56,10 @@ __all__ = [
     "Divergence",
     "DivergenceType",
     "ConfluenceScore",
-    # Engines
     "IndicatorEngine",
     "RuleEngine",
     "RuleRegistry",
-    "SignalEngine",
     "ConfluenceCalculator",
-    # Data pipeline
     "BarBuilder",
     "BarAggregator",
 ]

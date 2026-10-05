@@ -9,6 +9,15 @@ All notable changes to apex are recorded here. Format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **`python main.py` runs the API server; `--service` and `--env` are gone.** The production
+  image's `CMD` is now `python main.py`. `make dev` starts only the API server.
+  `--mode backtest` (frozen) is unchanged.
+- **`SubscriptionManager` types its live feed as `LiveFeedPort`.** The protocol was only
+  asserted in a test; the manager now declares the `subscribe`/`unsubscribe` contract it
+  calls.
+
 ### Removed
 
 - **Dead research code (50 modules, about 14.2k lines).** No live or frozen code imported
@@ -31,6 +40,24 @@ All notable changes to apex are recorded here. Format follows
   return 404. No caller exists in argon, helium, signal-lab, xenon or livewire. The momentum
   and PEAD runners and the strategy YAMLs they read are unchanged (`make jobs-momentum`,
   `make jobs-pead`). `/backtest` is the only route left using the job queue.
+- **The IB/Futu risk-monitor daemon and everything only it used.** `src.services.signal_service`
+  (`make signal-service`, `main.py --service signal|all`), `main.py --mode trading` and
+  `src.runners.trading_runner`, `application.bootstrap`, `application.orchestrator`,
+  `readiness_manager`, `signal_router`, `async_event_bus`, `domain.signals.signal_engine`,
+  `domain.services.risk` and the risk/position/strategy analyzers, `src.models`, the Futu
+  adapter, the IB live/execution/composite adapters and connection pool (the frozen backtest
+  keeps `ib.historical_adapter`), `market_data_fetcher`/`market_data_manager`/`broker_manager`,
+  the R2 client, the in-memory RCU stores, the broker/snapshot repositories, `signal_listener`,
+  the Prometheus metrics and `monitoring`, and the snapshot/warm-start/history-loader services.
+  Production never ran any of it. About 33k lines, 115 modules.
+- **The R2 backfill scripts and `make r2-*` / `make run*` targets**, plus
+  `scripts/{bar_cache_service,history_loader}.py`.
+- **The Prometheus/Grafana stack** (`docker-compose.observability.yml`, `config/prometheus/`,
+  `config/grafana/`): it scraped `:8000/metrics`, which only the removed daemon served.
+- **Dependencies `futu-api`, `boto3` (`cloudflare` extra), `opentelemetry-sdk`,
+  `opentelemetry-exporter-prometheus` and `prometheus-client`** — nothing imports them.
+- **18 Yahoo-backed regime sensitivity cases.** They fetched bars at test time and skipped on
+  any failure, so they never ran in CI; the synthetic stability and edge-case tests remain.
 
 ## [0.1.14] — 2026-10-05
 

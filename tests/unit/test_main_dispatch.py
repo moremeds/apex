@@ -1,26 +1,17 @@
-"""Tests for main.py service dispatch."""
+"""Tests for main.py argument parsing."""
 
 from __future__ import annotations
 
 from unittest.mock import patch
 
 
-def test_parse_args_service_flag():
-    """--service flag parses correctly."""
-    from main import parse_args
-
-    with patch("sys.argv", ["main.py", "--service", "api"]):
-        args = parse_args()
-    assert args.service == "api"
-
-
-def test_parse_args_service_default():
-    """Default --service is 'all'."""
+def test_parse_args_default_runs_api():
+    """With no --mode, main() runs the API server (the production image's `python main.py`)."""
     from main import parse_args
 
     with patch("sys.argv", ["main.py"]):
         args = parse_args()
-    assert args.service == "all"
+    assert args.mode is None
 
 
 def test_parse_args_backward_compat_mode():

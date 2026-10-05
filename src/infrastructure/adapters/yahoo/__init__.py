@@ -1,6 +1,1 @@
-"""Yahoo Finance adapter for market data and fundamentals."""
-
-from .adapter import YahooFinanceAdapter
-from .fundamentals_adapter import YahooFundamentalsAdapter
-
-__all__ = ["YahooFinanceAdapter", "YahooFundamentalsAdapter"]
+"""Yahoo Finance historical bar adapter (bulk backfill only, never a live source)."""

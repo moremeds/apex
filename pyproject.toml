@@ -35,7 +35,6 @@ dependencies = [
 
     # Trading and backtesting
     "backtrader>=1.9.78.123",  # Backtesting framework
-    "futu-api>=9.4.5408",      # Futu OpenD broker integration
     "TA-Lib>=0.6.8",           # Technical analysis indicators
     "vectorbt>=0.28.2",        # Vectorized backtesting and analysis
     "plotly>=6.0,<7",          # vectorbt registers a template using the mapbox traces plotly 7 removed
@@ -73,15 +72,8 @@ dev = [
 
 ]
 
-cloudflare = [
-    "boto3>=1.35",             # S3-compatible client for Cloudflare R2
-]
-
 observability = [
     "opentelemetry-api>=1.20.0",                  # OpenTelemetry API
-    "opentelemetry-sdk>=1.20.0",                  # OpenTelemetry SDK
-    "opentelemetry-exporter-prometheus>=0.41b0", # Prometheus exporter
-    "prometheus-client>=0.17.0",                  # Prometheus client library
 ]
 
 api = [
@@ -175,7 +167,6 @@ module = [
     "pandas.*",
     "asyncpg.*",
     "yfinance.*",
-    "futu.*",
     "pandas_market_calendars.*",
     "lightgbm.*",
     "sklearn.*",

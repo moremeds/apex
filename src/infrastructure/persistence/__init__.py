@@ -17,7 +17,6 @@ from src.infrastructure.persistence.database import (
 )
 from src.infrastructure.persistence.pg_repositories import PgRepositories
 from src.infrastructure.persistence.pg_schema import ensure_schema, reset_schema
-from src.infrastructure.persistence.signal_listener import SignalListener
 
 __all__ = [
     "Database",
@@ -26,7 +25,6 @@ __all__ = [
     "QueryError",
     "get_database",
     "close_database",
-    "SignalListener",
     "PgRepositories",
     "ensure_schema",
     "reset_schema",

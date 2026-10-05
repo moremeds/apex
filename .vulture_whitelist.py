@@ -14,7 +14,6 @@ _.on_fill  # Called when order is filled (Strategy.on_fill)
 _.on_start  # Called when strategy starts (Strategy.on_start)
 _.on_stop  # Called when strategy stops (Strategy.on_stop)
 _.on_data  # Called when new data arrives (Strategy.on_data)
-_.on_signal  # Called when trading signal is generated
 _.on_position_change  # Called when position changes
 
 # ═══════════════════════════════════════════════════════════════════════════════

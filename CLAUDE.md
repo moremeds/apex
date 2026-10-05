@@ -15,15 +15,15 @@ Master policy file. Subsystem-specific rules live in subdirectory `CLAUDE.md` fi
 
 ## Identity
 
-**Apex** — a streaming technical-analysis signal service and livewire data-lake API. It reads bars from the livewire Parquet lake and live ticks from xenon, computes TA-Lib indicators + rule-engine signals + market regime, and serves them over REST + WebSocket, plus a read-only lake MCP. Downstream readers are argon (daily bars for its own technicals), helium (returns and bars) and signal-lab (bars and indicators). Not a broker terminal — no order placement. The production service (`src.api.server`) never connects to IB; the legacy `signal_service` daemon still does (see `src/services/` below).
+**Apex** — a streaming technical-analysis signal service and livewire data-lake API. It reads bars from the livewire Parquet lake and live ticks from xenon, computes TA-Lib indicators + rule-engine signals + market regime, and serves them over REST + WebSocket, plus a read-only lake MCP. Downstream readers are argon (daily bars for its own technicals), helium (returns and bars) and signal-lab (bars and indicators). Not a broker terminal — no order placement, and nothing live connects to IB (only the frozen backtest's IB historical feed remains).
 
-Apex was pivoted out of a risk-monitoring + backtesting monolith. The streaming path and the chart/data-lake read surface are the live product. The legacy backtest, strategy-playbook, screener and R2 code is still on disk pending the Phase 6 strip-down — treat it as frozen (rule 10).
+Apex was pivoted out of a risk-monitoring + backtesting monolith. The streaming path and the chart/data-lake read surface are the live product. The legacy backtest, strategy-playbook and screener code is still on disk pending the Phase 6 strip-down — treat it as frozen (rule 10). The IB/Futu risk-monitor daemon was removed in v0.1.15.
 
 ## Commands
 
 ```bash
 # Install
-uv pip install -e ".[dev,observability,api,cloudflare]"
+uv pip install -e ".[dev,observability,api]"
 
 # Run — scripts/serve.sh loads .env, runs preflight, then execs the server
 scripts/serve.sh
@@ -31,7 +31,7 @@ uv run --env-file .env python -m src.api.server   # equivalent, env loaded by yo
 make api-server        # REST + WS API on :8322
 make mcp-server        # read-only lake MCP on :8333 (needs APEX_MCP_API_KEY)
 scripts/mcp_tailnet.sh up IMAGE [PORT]   # run the MCP on the docker host, tailnet-only (check/down too)
-make dev               # api + legacy IB signal daemon via main.py --service all
+make dev               # API server via main.py (the production image's entry point)
 
 # Test
 make test                                   # pytest tests/unit/ -v
@@ -64,13 +64,12 @@ Legacy make targets (`momentum`, `pead`, `strategy-compare`, `strategy-verify`, 
 ```
 src/api/            FastAPI app factory, routes, WS hub, JobManager, payload builders
 src/mcp_server/     read-only lake MCP (20 tools over src/application/lake); separate process, no PG/streaming
-src/application/    bootstrap, orchestrator, chart service, subscriptions, revision watcher
+src/application/    lake service layer, chart service, subscriptions, revision watcher, TASignalService
 src/domain/         signals, indicators, regime, events, strategy, interfaces
-src/infrastructure/ adapters (livewire, xenon, fmp, ib, futu, yahoo, r2, earnings), persistence, stores, observability
-src/services/       legacy services — signal_service.py (`make signal-service`) is the pre-pivot IB-tick daemon; not deployed, production runs src.api.server
-src/runners/        CLI runners (momentum, pead, strategy_compare, optimize, validation, trading)
+src/infrastructure/ adapters (livewire, xenon, fmp, ib, yahoo, earnings), persistence, stores, observability
+src/services/       bar loading for the verifiers and the frozen screeners (historical_data_manager, bar_loader, momentum/PEAD/earnings/market-cap services)
+src/runners/        CLI runners (momentum, pead, strategy_compare, optimize, validation)
 src/verification/   signal + regime verifiers; run as their own CI job
-src/models/         shared dataclasses (position, order, account, risk)
 src/utils/          helpers
 ```
 
@@ -106,7 +105,7 @@ Every data source is env-gated: apex boots regardless, and each unset source mak
 | `APEX_MCP_CALL_TIMEOUT_SECONDS`       | `60`                  | whole-call deadline for one MCP tool call (`query_timeout` on expiry) |
 | `APEX_MCP_ALLOWED_HOSTS`              | loopback:port         | Host header values MCP clients may send (DNS-rebinding guard) |
 
-FMP (`FMP_API_KEY` or `config/secrets.yaml`) and R2 (`R2_*` in `config/secrets.yaml`) serve the frozen screener and backfill pipelines only, never the live read path.
+FMP (`FMP_API_KEY` or `config/secrets.yaml`) serves the frozen screener pipelines only, never the live read path.
 
 ## Mandatory Rules
 
