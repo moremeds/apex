@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
+import sys
 
 import pytest
 
 from src.domain.events.event_types import EventType
 from src.domain.interfaces import LiveFeedPort
+from src.infrastructure.adapters.xenon.auth import ApiKeyAuthProvider
 from src.infrastructure.adapters.xenon.client import XenonTickClient
 from tests.support.fake_xenon import FakeXenonServer
 
@@ -180,3 +183,230 @@ async def test_close_during_reconnect_stops_redialing() -> None:
         before = server.connections
         await asyncio.sleep(0.2)  # > reconnect_delay
         assert server.connections == before  # no new dial after close()
+
+
+@pytest.mark.asyncio
+async def test_api_key_provider_sends_x_api_key_and_no_origin() -> None:
+    async with FakeXenonServer() as server:
+        client = XenonTickClient(
+            server.url, _RecordingBus(), auth=ApiKeyAuthProvider("k-123"), reconnect_delay=0.01
+        )
+        await client.connect()
+        await server.wait_for_connection()
+        headers = server.request_headers[0]
+        assert headers.get("X-API-Key") == "k-123"
+        assert "Origin" not in headers  # xenon's service path rejects an Origin header
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_default_auth_sends_no_api_key_or_origin() -> None:
+    async with FakeXenonServer() as server:
+        client = XenonTickClient(server.url, _RecordingBus(), reconnect_delay=0.01)
+        await client.connect()
+        await server.wait_for_connection()
+        headers = server.request_headers[0]
+        assert "X-API-Key" not in headers
+        assert "Origin" not in headers
+        await client.close()
+
+
+class _TicketAuth:
+    async def ticket(self) -> str:
+        return "t-1"
+
+    def headers(self) -> dict:
+        return {}
+
+
+@pytest.mark.asyncio
+async def test_ticket_provider_still_appends_ticket_query() -> None:
+    client = XenonTickClient("ws://x:1/feed?a=1", _RecordingBus(), auth=_TicketAuth())
+    assert client._connect_url(await _TicketAuth().ticket()) == "ws://x:1/feed?a=1&ticket=t-1"
+    assert client._connect_url(None) == "ws://x:1/feed?a=1"
+
+
+@pytest.mark.asyncio
+async def test_rejected_upgrade_is_retried_not_fatal() -> None:
+    """A 401 upgrade (e.g. missing/bad X-API-Key) must back off and redial, not end the loop."""
+    async with FakeXenonServer(reject_upgrades=1) as server:
+        client = XenonTickClient(server.url, _RecordingBus(), reconnect_delay=0.01)
+        await client.connect()
+        await server.wait_for_connection(1)  # the second dial got through
+        assert server.rejected == 1
+        await client.close()
+
+
+_SECRET = "sk-synthetic-7f3a9c"
+
+
+def _assert_secret_never_logged(caplog: pytest.LogCaptureFixture) -> None:
+    assert _SECRET not in caplog.text  # Formatter-rendered, incl. any traceback
+    for record in caplog.records:
+        assert _SECRET not in record.getMessage(), record.name
+        assert _SECRET not in repr(record.args), record.name
+
+
+@pytest.mark.asyncio
+async def test_api_key_never_logged_on_successful_upgrade(caplog) -> None:
+    caplog.set_level(logging.DEBUG)  # websockets wire logging on, before connect
+    async with FakeXenonServer() as server:
+        client = XenonTickClient(
+            server.url, _RecordingBus(), auth=ApiKeyAuthProvider(_SECRET), reconnect_delay=0.01
+        )
+        await client.connect()
+        await server.wait_for_connection()
+        await client.subscribe("AAPL")
+        await server.wait_for_frames(1)
+        await client.close()
+    assert server.request_headers[0].get("X-API-Key") == _SECRET  # the wire still carries it
+    wire = [r.getMessage() for r in caplog.records if r.name == "websockets.client"]
+    assert "> X-API-Key: <redacted>" in wire  # DEBUG wire logging was live, value scrubbed
+    _assert_secret_never_logged(caplog)
+
+
+@pytest.mark.asyncio
+async def test_api_key_never_logged_on_rejected_upgrade(caplog) -> None:
+    caplog.set_level(logging.DEBUG)
+    async with FakeXenonServer(reject_upgrades=1) as server:
+        client = XenonTickClient(
+            server.url, _RecordingBus(), auth=ApiKeyAuthProvider(_SECRET), reconnect_delay=0.01
+        )
+        await client.connect()
+        await server.wait_for_connection(1)  # the redial after the 401 got through
+        await client.close()
+    assert server.rejected == 1
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("upgrade rejected" in m and "401" in m for m in messages)
+    _assert_secret_never_logged(caplog)
+
+
+@pytest.mark.asyncio
+async def test_ticket_never_logged_in_request_line(caplog) -> None:
+    caplog.set_level(logging.DEBUG)
+
+    class _SecretTicket:
+        async def ticket(self) -> str:
+            return _SECRET + "/+="  # survives only as its URL-encoded form in the path
+
+        def headers(self) -> dict:
+            return {}
+
+    async with FakeXenonServer() as server:
+        client = XenonTickClient(server.url, _RecordingBus(), auth=_SecretTicket())
+        await client.connect()
+        await server.wait_for_connection()
+        await client.close()
+    assert any(r.getMessage().startswith("> GET /?ticket=<redacted>") for r in caplog.records)
+    _assert_secret_never_logged(caplog)
+
+
+@pytest.mark.asyncio
+async def test_repeated_401_backs_off_exponentially_to_the_cap(monkeypatch) -> None:
+    real_sleep = asyncio.sleep
+    run_code = XenonTickClient._run.__code__
+    delays: list = []
+
+    async def _fake_sleep(delay, *args, **kwargs):
+        if sys._getframe(1).f_code is run_code:  # only the client's backoff sleep
+            delays.append(delay)
+            delay = 0
+        return await real_sleep(delay, *args, **kwargs)
+
+    monkeypatch.setattr(asyncio, "sleep", _fake_sleep)
+    async with FakeXenonServer(reject_upgrades=10_000) as server:
+        client = XenonTickClient(
+            server.url, _RecordingBus(), reconnect_delay=1.0, max_reconnect_delay=30.0
+        )
+        await client.connect()
+
+        async def _wait() -> None:
+            while server.rejected < 9:
+                await real_sleep(0.01)
+
+        await asyncio.wait_for(_wait(), 5.0)
+        await client.close()
+    assert server.connections == 0  # never got past the upgrade
+    assert delays[:8] == [1.0, 2.0, 4.0, 8.0, 16.0, 30.0, 30.0, 30.0]
+
+
+def _render(adapter_call, records: list | None = None) -> str:
+    """Emit one record through a real Formatter and return the rendered text."""
+    import io
+
+    from src.infrastructure.adapters.xenon.client import _RedactingLogger
+
+    base = logging.getLogger("tests.xenon.redacting")
+    base.propagate = False
+    base.setLevel(logging.DEBUG)
+    stream = io.StringIO()
+    handler = logging.StreamHandler(stream)
+    handler.setFormatter(logging.Formatter("%(levelname)s %(message)s"))
+    if records is not None:
+        sink = records
+
+        def _keep(record: logging.LogRecord) -> bool:
+            sink.append(record)
+            return True
+
+        handler.addFilter(_keep)
+    base.addHandler(handler)
+    try:
+        adapter_call(_RedactingLogger(base, [_SECRET]))
+    finally:
+        base.removeHandler(handler)
+    return stream.getvalue()
+
+
+@pytest.mark.parametrize("mode", ["exception", "exc_info_true", "exc_info_instance"])
+def test_redacting_logger_scrubs_formatter_rendered_traceback(mode) -> None:
+    def _call(log) -> None:
+        try:
+            raise RuntimeError(f"handshake failed for {_SECRET}")
+        except RuntimeError as exc:
+            if mode == "exception":
+                log.exception("connection failed")
+            elif mode == "exc_info_true":
+                log.error("connection failed", exc_info=True)
+            else:
+                log.error("connection failed", exc_info=exc)
+
+    records: list = []
+    out = _render(_call, records)
+    assert records[0].exc_info is None  # dropped: no Formatter can re-render it raw
+    assert "Traceback (most recent call last)" in out
+    assert "RuntimeError: handshake failed for <redacted>" in out
+    assert _SECRET not in out
+
+
+def test_redacting_logger_scrubs_stack_info(monkeypatch) -> None:
+    import src.infrastructure.adapters.xenon.client as client_mod
+
+    monkeypatch.setattr(
+        client_mod.traceback, "format_stack", lambda: [f'  File "x.py", line 1\n    {_SECRET}\n']
+    )
+    records: list = []
+    out = _render(lambda log: log.debug("here", stack_info=True), records)
+    assert records[0].stack_info is None
+    assert "Stack (most recent call last)" in out
+    assert "<redacted>" in out
+    assert _SECRET not in out
+
+
+@pytest.mark.asyncio
+async def test_echoed_credential_in_malformed_upgrade_never_logged(caplog) -> None:
+    caplog.set_level(logging.DEBUG)
+    async with FakeXenonServer(echo_key_in_upgrade=True) as server:
+        client = XenonTickClient(
+            server.url, _RecordingBus(), auth=ApiKeyAuthProvider(_SECRET), reconnect_delay=0.01
+        )
+        await client.connect()
+
+        async def _two_failed_upgrades() -> None:
+            while sum("upgrade rejected" in r.getMessage() for r in caplog.records) < 2:
+                await asyncio.sleep(0.01)
+
+        await asyncio.wait_for(_two_failed_upgrades(), 2.0)
+        await client.close()
+    _assert_secret_never_logged(caplog)
+    assert "xenon WS upgrade rejected: InvalidUpgrade" in caplog.messages

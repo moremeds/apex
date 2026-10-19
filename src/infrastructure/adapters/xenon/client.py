@@ -12,17 +12,74 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any, Optional, Set
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+import sys
+import traceback
+from typing import Any, Iterable, List, Optional, Set
+from urllib.parse import parse_qsl, quote_plus, urlencode, urlsplit, urlunsplit
 
 from websockets.asyncio.client import connect
-from websockets.exceptions import ConnectionClosed
+from websockets.exceptions import ConnectionClosed, InvalidHandshake, InvalidStatus
 
 from src.domain.events.event_types import EventType
 from src.infrastructure.adapters.xenon.auth import AuthProvider, NoAuthProvider
 from src.infrastructure.adapters.xenon.translator import translate_price_data
 
 logger = logging.getLogger(__name__)
+
+_REDACTED = "<redacted>"
+_FORMATTER = logging.Formatter()
+
+
+def _describe(exc: BaseException) -> str:
+    """Credential-safe summary of a connection error: type name (+ HTTP status).
+
+    Never str(exc)/repr(exc)/args -- a handshake error can quote server-echoed
+    headers (e.g. InvalidUpgrade on a 101 response), which may carry the key.
+    """
+    if isinstance(exc, InvalidStatus):
+        return f"InvalidStatus (HTTP {exc.response.status_code})"
+    return type(exc).__name__
+
+
+class _RedactingLogger(logging.LoggerAdapter):  # type: ignore[type-arg]
+    """websockets' connection logger with credentials scrubbed from every record.
+
+    websockets logs each upgrade request line and header verbatim at DEBUG
+    (``> GET <path>``, ``> X-API-Key: <key>``). Each record is rendered here and
+    every secret substring replaced before it reaches a handler. Tracebacks and
+    stacks (``exc_info``/``stack_info``) are rendered into the message, redacted,
+    and dropped from the record, so no Formatter can re-render the raw exception.
+    """
+
+    def __init__(self, base: logging.Logger, secrets: Iterable[str]) -> None:
+        super().__init__(base, {})
+        self._secrets: List[str] = [s for s in secrets if s]
+
+    def log(
+        self,
+        level: int,
+        msg: object,
+        *args: Any,
+        exc_info: Any = None,
+        stack_info: bool = False,
+        **kwargs: Any,
+    ) -> None:
+        if not self.isEnabledFor(level):
+            return
+        text = str(msg) % args if args else str(msg)
+        if exc_info:
+            if isinstance(exc_info, BaseException):
+                exc_info = (type(exc_info), exc_info, exc_info.__traceback__)
+            elif not isinstance(exc_info, tuple):
+                exc_info = sys.exc_info()
+            if exc_info[0] is not None:
+                text += "\n" + _FORMATTER.formatException(exc_info)
+        if stack_info:
+            stack = "Stack (most recent call last):\n" + "".join(traceback.format_stack())
+            text += "\n" + _FORMATTER.formatStack(stack.rstrip("\n"))
+        for secret in self._secrets:
+            text = text.replace(secret, _REDACTED)
+        super().log(level, "%s", text, **kwargs)
 
 
 class XenonTickClient:
@@ -75,10 +132,9 @@ class XenonTickClient:
             self._task = None
 
     # ---- internals -------------------------------------------------------
-    async def _connect_url(self) -> str:
+    def _connect_url(self, ticket: Optional[str]) -> str:
         # SECURITY: the returned URL may carry an auth ticket in its query string
         # (once TicketAuthProvider lands). Never log this value.
-        ticket = await self._auth.ticket()
         if not ticket:
             return self._url
         parts = urlsplit(self._url)
@@ -103,7 +159,19 @@ class XenonTickClient:
         delay = self._reconnect_delay
         while not self._closing:
             try:
-                async with connect(await self._connect_url()) as ws:
+                ticket = await self._auth.ticket()
+                headers = self._auth.headers()
+                secrets = list(headers.values())
+                if ticket:
+                    secrets += [ticket, quote_plus(ticket)]  # raw + as encoded in the path
+                # origin=None (the default) sends no Origin header: xenon treats an
+                # Origin-bearing upgrade as a browser and ignores X-API-Key then.
+                async with connect(
+                    self._connect_url(ticket),
+                    origin=None,
+                    additional_headers=headers or None,
+                    logger=_RedactingLogger(logging.getLogger("websockets.client"), secrets),
+                ) as ws:
                     self._ws = ws
                     delay = self._reconnect_delay  # reset backoff on a good connect
                     await self._resubscribe()
@@ -113,7 +181,10 @@ class XenonTickClient:
                         except Exception:
                             logger.exception("xenon WS: error handling frame; continuing")
             except (ConnectionClosed, OSError) as exc:
-                logger.warning("xenon WS connection lost: %s", exc)
+                logger.warning("xenon WS connection lost: %s", _describe(exc))
+            except InvalidHandshake as exc:
+                # e.g. HTTP 401 from xenon's upgrade auth (missing/bad X-API-Key).
+                logger.warning("xenon WS upgrade rejected: %s", _describe(exc))
             except asyncio.CancelledError:
                 break
             finally:

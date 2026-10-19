@@ -60,6 +60,7 @@ makes its endpoints return `503` (degrades, never crashes).
 | `APEX_PG_READ_URLS` | unset | `/v1/db/*` catalog/table reads + `/v1/uw/*` curated joins (comma-separated DSNs; each DSN's database name is the `{database}` segment) |
 | `APEX_PG_READ_TOKEN` | unset | Bearer credential required by every `/v1/db/*` and `/v1/uw/*` route |
 | `APEX_XENON_WS_URL` | `ws://127.0.0.1:8765` | live ticks → live WS signal frames |
+| `APEX_XENON_API_KEY` | unset | Service credential for the xenon tick feed: sent as `X-API-Key` (with no `Origin` header) on the WS upgrade. Required once xenon's relay enforces upgrade auth; unset keeps the no-auth path. Secret — `.env` only |
 | `APEX_TIMEFRAMES` | `1d` | timeframes the streaming pipeline subscribes/warms |
 | `APEX_API_PORT` | `8322` | listen port |
 

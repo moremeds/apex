@@ -9,23 +9,45 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from typing import Any, Dict, List
 
 from websockets.asyncio.server import serve
 
+# The fake's own websockets server logger. Held at WARNING so the server side never
+# echoes the client's request headers (incl. X-API-Key) into DEBUG log captures --
+# tests assert that apex's client side never logs a credential.
+_SERVER_LOGGER = logging.getLogger("tests.support.fake_xenon.server")
+_SERVER_LOGGER.setLevel(logging.WARNING)
+
 
 class FakeXenonServer:
-    def __init__(self) -> None:
+    def __init__(self, reject_upgrades: int = 0, echo_key_in_upgrade: bool = False) -> None:
+        # Answer the first `reject_upgrades` upgrade requests with HTTP 401, the way
+        # xenon's relay rejects an unauthenticated client (ws_upgrade_auth.js).
+        self.reject_upgrades = reject_upgrades
+        self.rejected = 0
+        # Malformed 101: echo the client's X-API-Key back as the Upgrade header, so the
+        # client's handshake error (InvalidUpgrade) quotes the credential in its text.
+        self.echo_key_in_upgrade = echo_key_in_upgrade
         self.host = "127.0.0.1"
         self.port: int = 0
         self.received: List[Dict[str, Any]] = []
         self.connections = 0
+        self.request_headers: List[Any] = []  # one websockets Headers per upgrade
         self._server: Any = None
         self._clients: set = set()
         self._frame_event = asyncio.Event()
 
     async def __aenter__(self) -> "FakeXenonServer":
-        self._server = await serve(self._handler, self.host, 0)
+        self._server = await serve(
+            self._handler,
+            self.host,
+            0,
+            process_request=self._process_request,
+            process_response=self._process_response,
+            logger=_SERVER_LOGGER,
+        )
         self.port = list(self._server.sockets)[0].getsockname()[1]
         return self
 
@@ -37,8 +59,21 @@ class FakeXenonServer:
     def url(self) -> str:
         return f"ws://{self.host}:{self.port}"
 
+    def _process_request(self, connection: Any, request: Any) -> Any:
+        if self.rejected < self.reject_upgrades:
+            self.rejected += 1
+            return connection.respond(401, "missing_ticket\n")
+        return None
+
+    def _process_response(self, connection: Any, request: Any, response: Any) -> Any:
+        if self.echo_key_in_upgrade and response.status_code == 101:
+            del response.headers["Upgrade"]
+            response.headers["Upgrade"] = request.headers.get("X-API-Key", "")
+        return None
+
     async def _handler(self, ws: Any) -> None:
         self.connections += 1
+        self.request_headers.append(ws.request.headers)
         self._clients.add(ws)
         try:
             async for raw in ws:

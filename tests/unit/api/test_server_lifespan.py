@@ -156,9 +156,10 @@ class _FakeSM:
 class _SpyClient:
     last = None
 
-    def __init__(self, url, event_bus=None, **kw) -> None:
+    def __init__(self, url, event_bus=None, auth=None, **kw) -> None:
         self.url = url
         self.event_bus = event_bus
+        self.auth = auth
         self.connected = False
         self.closed = False
         _SpyClient.last = self
@@ -205,6 +206,40 @@ async def test_lifespan_builds_connects_and_wires_xenon_client(monkeypatch) -> N
         assert app.state.subscription_manager.live_feed is app.state.xenon_client
     # after shutdown:
     assert _SpyClient.last.closed is True
+
+
+@pytest.mark.asyncio
+async def test_lifespan_passes_api_key_auth_when_env_set(monkeypatch) -> None:
+    from src.infrastructure.adapters.xenon.auth import ApiKeyAuthProvider
+
+    monkeypatch.setenv("APEX_XENON_WS_URL", "ws://127.0.0.1:1")
+    monkeypatch.setenv("APEX_XENON_API_KEY", "k-123")
+    monkeypatch.delenv("APEX_PG_URL", raising=False)
+    monkeypatch.setattr(xenon_client_mod, "XenonTickClient", _SpyClient)
+    app = create_app()
+    app.state.event_bus = _FakeBus()
+    app.state.subscription_manager = _FakeSM()
+    async with lifespan(app):
+        auth = app.state.xenon_client.auth
+        assert isinstance(auth, ApiKeyAuthProvider)
+        assert auth.headers() == {"X-API-Key": "k-123"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("value", [None, "", "   "])
+async def test_lifespan_uses_default_auth_when_api_key_unset(monkeypatch, value) -> None:
+    monkeypatch.setenv("APEX_XENON_WS_URL", "ws://127.0.0.1:1")
+    if value is None:
+        monkeypatch.delenv("APEX_XENON_API_KEY", raising=False)
+    else:
+        monkeypatch.setenv("APEX_XENON_API_KEY", value)
+    monkeypatch.delenv("APEX_PG_URL", raising=False)
+    monkeypatch.setattr(xenon_client_mod, "XenonTickClient", _SpyClient)
+    app = create_app()
+    app.state.event_bus = _FakeBus()
+    app.state.subscription_manager = _FakeSM()
+    async with lifespan(app):
+        assert app.state.xenon_client.auth is None  # client falls back to NoAuthProvider
 
 
 @pytest.mark.asyncio

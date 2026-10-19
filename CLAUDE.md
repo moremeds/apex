@@ -98,6 +98,7 @@ Every data source is env-gated: apex boots regardless, and each unset source mak
 | `APEX_LAKE_QUERY_TIMEOUT_SECONDS`     | `30`                  | per-query deadline on every parquet read (`LakeDb`); expiry interrupts only that query and answers `504 query_timeout` (bulk bars: that symbol goes to `missing`) |
 | `APEX_PG_URL`                         | unset                 | signal backfill, confluence, signal persistence          |
 | `APEX_XENON_WS_URL`                   | `ws://127.0.0.1:8765` | live ticks → live WS signal frames                       |
+| `APEX_XENON_API_KEY`                  | unset                 | sends `X-API-Key` (and no `Origin`) on the xenon WS upgrade; required once xenon's relay enforces upgrade auth. Secret: keep it in `.env`, never log it |
 | `APEX_TIMEFRAMES`                     | `1d`                  | timeframes the streaming pipeline subscribes/warms       |
 | `APEX_API_PORT`                       | `8322`                | listen port                                              |
 | `APEX_MCP_API_KEY`                    | unset                 | **required** by the MCP server (Bearer; it refuses to boot without one) |
