@@ -32,6 +32,6 @@ jobs:
           ~/.local/bin/claude -p --model claude-sonnet-5-5 --output-format json \
             "Reply with the single word ok" > out.json 2>err.txt
           echo "exit=$?"
-          jq -c '.[] | select(.type=="result")
+          jq -c '(if type=="array" then .[] else . end) | select(.type=="result")
             | {is_error, api_error_status, result: (.result|tostring|.[:300])}' out.json
           head -c 300 err.txt
