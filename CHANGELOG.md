@@ -9,6 +9,9 @@ All notable changes to apex are recorded here. Format follows
 
 ## [Unreleased]
 
+## [0.1.16] — 2026-10-19
+
+
 ### Added
 
 - **`APEX_XENON_API_KEY`: service auth for the xenon tick feed.** When set, the xenon WS
@@ -24,7 +27,6 @@ All notable changes to apex are recorded here. Format follows
   upgrade (for example `401` for a missing or bad key) raised `InvalidHandshake`, which the
   receive loop did not catch, so the client stopped for good. It now logs and redials with
   backoff.
-
 ## [0.1.15] — 2026-10-05
 
 
