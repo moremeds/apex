@@ -12,8 +12,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any, Optional, Set
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from typing import Any, Iterable, List, Optional, Set
+from urllib.parse import parse_qsl, quote_plus, urlencode, urlsplit, urlunsplit
 
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed, InvalidHandshake
@@ -23,6 +23,29 @@ from src.infrastructure.adapters.xenon.auth import AuthProvider, NoAuthProvider
 from src.infrastructure.adapters.xenon.translator import translate_price_data
 
 logger = logging.getLogger(__name__)
+
+_REDACTED = "<redacted>"
+
+
+class _RedactingLogger(logging.LoggerAdapter):  # type: ignore[type-arg]
+    """websockets' connection logger with credentials scrubbed from every record.
+
+    websockets logs each upgrade request line and header verbatim at DEBUG
+    (``> GET <path>``, ``> X-API-Key: <key>``). Each record is rendered here and
+    every secret substring replaced before it reaches a handler.
+    """
+
+    def __init__(self, base: logging.Logger, secrets: Iterable[str]) -> None:
+        super().__init__(base, {})
+        self._secrets: List[str] = [s for s in secrets if s]
+
+    def log(self, level: int, msg: object, *args: Any, **kwargs: Any) -> None:
+        if not self.isEnabledFor(level):
+            return
+        text = str(msg) % args if args else str(msg)
+        for secret in self._secrets:
+            text = text.replace(secret, _REDACTED)
+        super().log(level, "%s", text, **kwargs)
 
 
 class XenonTickClient:
@@ -75,10 +98,9 @@ class XenonTickClient:
             self._task = None
 
     # ---- internals -------------------------------------------------------
-    async def _connect_url(self) -> str:
+    def _connect_url(self, ticket: Optional[str]) -> str:
         # SECURITY: the returned URL may carry an auth ticket in its query string
         # (once TicketAuthProvider lands). Never log this value.
-        ticket = await self._auth.ticket()
         if not ticket:
             return self._url
         parts = urlsplit(self._url)
@@ -103,12 +125,18 @@ class XenonTickClient:
         delay = self._reconnect_delay
         while not self._closing:
             try:
+                ticket = await self._auth.ticket()
+                headers = self._auth.headers()
+                secrets = list(headers.values())
+                if ticket:
+                    secrets += [ticket, quote_plus(ticket)]  # raw + as encoded in the path
                 # origin=None (the default) sends no Origin header: xenon treats an
                 # Origin-bearing upgrade as a browser and ignores X-API-Key then.
                 async with connect(
-                    await self._connect_url(),
+                    self._connect_url(ticket),
                     origin=None,
-                    additional_headers=self._auth.headers() or None,
+                    additional_headers=headers or None,
+                    logger=_RedactingLogger(logging.getLogger("websockets.client"), secrets),
                 ) as ws:
                     self._ws = ws
                     delay = self._reconnect_delay  # reset backoff on a good connect

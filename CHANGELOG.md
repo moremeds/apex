@@ -14,7 +14,9 @@ All notable changes to apex are recorded here. Format follows
 - **`APEX_XENON_API_KEY`: service auth for the xenon tick feed.** When set, the xenon WS
   upgrade sends `X-API-Key: <key>` and no `Origin` header, which xenon's relay requires once
   it enforces upgrade auth. Unset keeps the no-auth path, so deploying before that xenon
-  release is harmless. The key is never logged.
+  release is harmless. The key is never logged: the websockets connection logger is
+  wrapped so its DEBUG wire records (`> X-API-Key: ...`, `> GET ...?ticket=...`) show
+  `<redacted>` instead of the credential.
 
 ### Fixed
 

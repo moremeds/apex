@@ -9,9 +9,16 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from typing import Any, Dict, List
 
 from websockets.asyncio.server import serve
+
+# The fake's own websockets server logger. Held at WARNING so the server side never
+# echoes the client's request headers (incl. X-API-Key) into DEBUG log captures --
+# tests assert that apex's client side never logs a credential.
+_SERVER_LOGGER = logging.getLogger("tests.support.fake_xenon.server")
+_SERVER_LOGGER.setLevel(logging.WARNING)
 
 
 class FakeXenonServer:
@@ -31,7 +38,11 @@ class FakeXenonServer:
 
     async def __aenter__(self) -> "FakeXenonServer":
         self._server = await serve(
-            self._handler, self.host, 0, process_request=self._process_request
+            self._handler,
+            self.host,
+            0,
+            process_request=self._process_request,
+            logger=_SERVER_LOGGER,
         )
         self.port = list(self._server.sockets)[0].getsockname()[1]
         return self

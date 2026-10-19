@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
+import sys
 
 import pytest
 
@@ -220,7 +222,8 @@ class _TicketAuth:
 @pytest.mark.asyncio
 async def test_ticket_provider_still_appends_ticket_query() -> None:
     client = XenonTickClient("ws://x:1/feed?a=1", _RecordingBus(), auth=_TicketAuth())
-    assert await client._connect_url() == "ws://x:1/feed?a=1&ticket=t-1"
+    assert client._connect_url(await _TicketAuth().ticket()) == "ws://x:1/feed?a=1&ticket=t-1"
+    assert client._connect_url(None) == "ws://x:1/feed?a=1"
 
 
 @pytest.mark.asyncio
@@ -232,3 +235,95 @@ async def test_rejected_upgrade_is_retried_not_fatal() -> None:
         await server.wait_for_connection(1)  # the second dial got through
         assert server.rejected == 1
         await client.close()
+
+
+_SECRET = "sk-synthetic-7f3a9c"
+
+
+def _assert_secret_never_logged(caplog: pytest.LogCaptureFixture) -> None:
+    for record in caplog.records:
+        assert _SECRET not in record.getMessage(), record.name
+        assert _SECRET not in repr(record.args), record.name
+
+
+@pytest.mark.asyncio
+async def test_api_key_never_logged_on_successful_upgrade(caplog) -> None:
+    caplog.set_level(logging.DEBUG)  # websockets wire logging on, before connect
+    async with FakeXenonServer() as server:
+        client = XenonTickClient(
+            server.url, _RecordingBus(), auth=ApiKeyAuthProvider(_SECRET), reconnect_delay=0.01
+        )
+        await client.connect()
+        await server.wait_for_connection()
+        await client.subscribe("AAPL")
+        await server.wait_for_frames(1)
+        await client.close()
+    assert server.request_headers[0].get("X-API-Key") == _SECRET  # the wire still carries it
+    wire = [r.getMessage() for r in caplog.records if r.name == "websockets.client"]
+    assert "> X-API-Key: <redacted>" in wire  # DEBUG wire logging was live, value scrubbed
+    _assert_secret_never_logged(caplog)
+
+
+@pytest.mark.asyncio
+async def test_api_key_never_logged_on_rejected_upgrade(caplog) -> None:
+    caplog.set_level(logging.DEBUG)
+    async with FakeXenonServer(reject_upgrades=1) as server:
+        client = XenonTickClient(
+            server.url, _RecordingBus(), auth=ApiKeyAuthProvider(_SECRET), reconnect_delay=0.01
+        )
+        await client.connect()
+        await server.wait_for_connection(1)  # the redial after the 401 got through
+        await client.close()
+    assert server.rejected == 1
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("upgrade rejected" in m and "401" in m for m in messages)
+    _assert_secret_never_logged(caplog)
+
+
+@pytest.mark.asyncio
+async def test_ticket_never_logged_in_request_line(caplog) -> None:
+    caplog.set_level(logging.DEBUG)
+
+    class _SecretTicket:
+        async def ticket(self) -> str:
+            return _SECRET + "/+="  # survives only as its URL-encoded form in the path
+
+        def headers(self) -> dict:
+            return {}
+
+    async with FakeXenonServer() as server:
+        client = XenonTickClient(server.url, _RecordingBus(), auth=_SecretTicket())
+        await client.connect()
+        await server.wait_for_connection()
+        await client.close()
+    assert any(r.getMessage().startswith("> GET /?ticket=<redacted>") for r in caplog.records)
+    _assert_secret_never_logged(caplog)
+
+
+@pytest.mark.asyncio
+async def test_repeated_401_backs_off_exponentially_to_the_cap(monkeypatch) -> None:
+    real_sleep = asyncio.sleep
+    run_code = XenonTickClient._run.__code__
+    delays: list = []
+
+    async def _fake_sleep(delay, *args, **kwargs):
+        if sys._getframe(1).f_code is run_code:  # only the client's backoff sleep
+            delays.append(delay)
+            delay = 0
+        return await real_sleep(delay, *args, **kwargs)
+
+    monkeypatch.setattr(asyncio, "sleep", _fake_sleep)
+    async with FakeXenonServer(reject_upgrades=10_000) as server:
+        client = XenonTickClient(
+            server.url, _RecordingBus(), reconnect_delay=1.0, max_reconnect_delay=30.0
+        )
+        await client.connect()
+
+        async def _wait() -> None:
+            while server.rejected < 9:
+                await real_sleep(0.01)
+
+        await asyncio.wait_for(_wait(), 5.0)
+        await client.close()
+    assert server.connections == 0  # never got past the upgrade
+    assert delays[:8] == [1.0, 2.0, 4.0, 8.0, 16.0, 30.0, 30.0, 30.0]
