@@ -15,17 +15,24 @@ from websockets.asyncio.server import serve
 
 
 class FakeXenonServer:
-    def __init__(self) -> None:
+    def __init__(self, reject_upgrades: int = 0) -> None:
+        # Answer the first `reject_upgrades` upgrade requests with HTTP 401, the way
+        # xenon's relay rejects an unauthenticated client (ws_upgrade_auth.js).
+        self.reject_upgrades = reject_upgrades
+        self.rejected = 0
         self.host = "127.0.0.1"
         self.port: int = 0
         self.received: List[Dict[str, Any]] = []
         self.connections = 0
+        self.request_headers: List[Any] = []  # one websockets Headers per upgrade
         self._server: Any = None
         self._clients: set = set()
         self._frame_event = asyncio.Event()
 
     async def __aenter__(self) -> "FakeXenonServer":
-        self._server = await serve(self._handler, self.host, 0)
+        self._server = await serve(
+            self._handler, self.host, 0, process_request=self._process_request
+        )
         self.port = list(self._server.sockets)[0].getsockname()[1]
         return self
 
@@ -37,8 +44,15 @@ class FakeXenonServer:
     def url(self) -> str:
         return f"ws://{self.host}:{self.port}"
 
+    def _process_request(self, connection: Any, request: Any) -> Any:
+        if self.rejected < self.reject_upgrades:
+            self.rejected += 1
+            return connection.respond(401, "missing_ticket\n")
+        return None
+
     async def _handler(self, ws: Any) -> None:
         self.connections += 1
+        self.request_headers.append(ws.request.headers)
         self._clients.add(ws)
         try:
             async for raw in ws:

@@ -48,6 +48,8 @@ services:
       # The server reads APEX_XENON_WS_URL (src/api/server.py); without it apex falls
       # back to ws://127.0.0.1:8765 = the container's own loopback, so live ticks break.
       APEX_XENON_WS_URL: ws://host.docker.internal:8765
+      # APEX_XENON_API_KEY (secret, xenon's relay service key) belongs in ./.env, not here:
+      # apex sends it as X-API-Key on the WS upgrade once xenon enforces upgrade auth.
     ports:
       - "8322:8322"
     volumes:

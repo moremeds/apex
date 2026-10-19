@@ -7,6 +7,7 @@ import pytest
 
 from src.domain.events.event_types import EventType
 from src.domain.interfaces import LiveFeedPort
+from src.infrastructure.adapters.xenon.auth import ApiKeyAuthProvider
 from src.infrastructure.adapters.xenon.client import XenonTickClient
 from tests.support.fake_xenon import FakeXenonServer
 
@@ -180,3 +181,54 @@ async def test_close_during_reconnect_stops_redialing() -> None:
         before = server.connections
         await asyncio.sleep(0.2)  # > reconnect_delay
         assert server.connections == before  # no new dial after close()
+
+
+@pytest.mark.asyncio
+async def test_api_key_provider_sends_x_api_key_and_no_origin() -> None:
+    async with FakeXenonServer() as server:
+        client = XenonTickClient(
+            server.url, _RecordingBus(), auth=ApiKeyAuthProvider("k-123"), reconnect_delay=0.01
+        )
+        await client.connect()
+        await server.wait_for_connection()
+        headers = server.request_headers[0]
+        assert headers.get("X-API-Key") == "k-123"
+        assert "Origin" not in headers  # xenon's service path rejects an Origin header
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_default_auth_sends_no_api_key_or_origin() -> None:
+    async with FakeXenonServer() as server:
+        client = XenonTickClient(server.url, _RecordingBus(), reconnect_delay=0.01)
+        await client.connect()
+        await server.wait_for_connection()
+        headers = server.request_headers[0]
+        assert "X-API-Key" not in headers
+        assert "Origin" not in headers
+        await client.close()
+
+
+class _TicketAuth:
+    async def ticket(self) -> str:
+        return "t-1"
+
+    def headers(self) -> dict:
+        return {}
+
+
+@pytest.mark.asyncio
+async def test_ticket_provider_still_appends_ticket_query() -> None:
+    client = XenonTickClient("ws://x:1/feed?a=1", _RecordingBus(), auth=_TicketAuth())
+    assert await client._connect_url() == "ws://x:1/feed?a=1&ticket=t-1"
+
+
+@pytest.mark.asyncio
+async def test_rejected_upgrade_is_retried_not_fatal() -> None:
+    """A 401 upgrade (e.g. missing/bad X-API-Key) must back off and redial, not end the loop."""
+    async with FakeXenonServer(reject_upgrades=1) as server:
+        client = XenonTickClient(server.url, _RecordingBus(), reconnect_delay=0.01)
+        await client.connect()
+        await server.wait_for_connection(1)  # the second dial got through
+        assert server.rejected == 1
+        await client.close()

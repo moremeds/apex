@@ -16,7 +16,7 @@ from typing import Any, Optional, Set
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from websockets.asyncio.client import connect
-from websockets.exceptions import ConnectionClosed
+from websockets.exceptions import ConnectionClosed, InvalidHandshake
 
 from src.domain.events.event_types import EventType
 from src.infrastructure.adapters.xenon.auth import AuthProvider, NoAuthProvider
@@ -103,7 +103,13 @@ class XenonTickClient:
         delay = self._reconnect_delay
         while not self._closing:
             try:
-                async with connect(await self._connect_url()) as ws:
+                # origin=None (the default) sends no Origin header: xenon treats an
+                # Origin-bearing upgrade as a browser and ignores X-API-Key then.
+                async with connect(
+                    await self._connect_url(),
+                    origin=None,
+                    additional_headers=self._auth.headers() or None,
+                ) as ws:
                     self._ws = ws
                     delay = self._reconnect_delay  # reset backoff on a good connect
                     await self._resubscribe()
@@ -114,6 +120,10 @@ class XenonTickClient:
                             logger.exception("xenon WS: error handling frame; continuing")
             except (ConnectionClosed, OSError) as exc:
                 logger.warning("xenon WS connection lost: %s", exc)
+            except InvalidHandshake as exc:
+                # e.g. HTTP 401 from xenon's upgrade auth (missing/bad X-API-Key).
+                # The message carries the status only, never request headers.
+                logger.warning("xenon WS upgrade rejected: %s", exc)
             except asyncio.CancelledError:
                 break
             finally:

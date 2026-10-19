@@ -55,6 +55,7 @@ live ticks flow from xenon automatically (the URL is baked in — see below).
 |---|---|---|
 | `APEX_LIVEWIRE_ROOT` | *(unset)* | Bronze parquet root for historical bars. **Required** to build the pipeline. Unset → `/ws/signals` accepts, then closes with `1013`. |
 | `APEX_XENON_WS_URL` | `ws://127.0.0.1:8765` | xenon tick-feed WS URL. **Baked into apex** (matches xenon's `DEFAULT_IB_REALTIME_PORT`); only set this to override. Connects automatically once the pipeline is built. |
+| `APEX_XENON_API_KEY` | *(unset)* | xenon service credential. When set, the WS upgrade sends `X-API-Key: <key>` and no `Origin` header (xenon's relay rejects a keyless upgrade with `401 missing_ticket` once it enforces auth). Unset → no-auth path, as before. Secret: `.env` only, never logged. |
 | `APEX_TIMEFRAMES` | `1d` | Comma-separated timeframes to compute, e.g. `1m,5m,1d`. Drives the live cadence (§6). |
 | `APEX_API_PORT` | `8322` | HTTP/WS listen port. |
 | `APEX_PG_URL` | *(unset)* | Postgres DSN. Enables persistence, the WS initial snapshot, and REST backfill (§4, §9). |

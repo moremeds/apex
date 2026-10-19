@@ -216,9 +216,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             xenon_url = os.environ.get("APEX_XENON_WS_URL", DEFAULT_XENON_WS_URL)
             xenon_bus = getattr(app.state, "event_bus", None)
             if xenon_url and xenon_bus is not None:
+                from src.infrastructure.adapters.xenon.auth import ApiKeyAuthProvider
                 from src.infrastructure.adapters.xenon.client import XenonTickClient
 
-                client = XenonTickClient(xenon_url, event_bus=xenon_bus)
+                # Service-client auth for xenon's relay; unset/blank keeps the no-auth path.
+                # SECURITY: never log this value.
+                api_key = os.environ.get("APEX_XENON_API_KEY", "").strip()
+                auth = ApiKeyAuthProvider(api_key) if api_key else None
+                client = XenonTickClient(xenon_url, event_bus=xenon_bus, auth=auth)
                 app.state.xenon_client = client
                 sm = getattr(app.state, "subscription_manager", None)
                 if sm is not None and hasattr(sm, "set_live_feed"):

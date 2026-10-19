@@ -9,6 +9,20 @@ All notable changes to apex are recorded here. Format follows
 
 ## [Unreleased]
 
+### Added
+
+- **`APEX_XENON_API_KEY`: service auth for the xenon tick feed.** When set, the xenon WS
+  upgrade sends `X-API-Key: <key>` and no `Origin` header, which xenon's relay requires once
+  it enforces upgrade auth. Unset keeps the no-auth path, so deploying before that xenon
+  release is harmless. The key is never logged.
+
+### Fixed
+
+- **A rejected xenon WS upgrade no longer ends the tick client.** An HTTP error on the
+  upgrade (for example `401` for a missing or bad key) raised `InvalidHandshake`, which the
+  receive loop did not catch, so the client stopped for good. It now logs and redials with
+  backoff.
+
 ## [0.1.15] — 2026-10-05
 
 
