@@ -22,11 +22,14 @@ _SERVER_LOGGER.setLevel(logging.WARNING)
 
 
 class FakeXenonServer:
-    def __init__(self, reject_upgrades: int = 0) -> None:
+    def __init__(self, reject_upgrades: int = 0, echo_key_in_upgrade: bool = False) -> None:
         # Answer the first `reject_upgrades` upgrade requests with HTTP 401, the way
         # xenon's relay rejects an unauthenticated client (ws_upgrade_auth.js).
         self.reject_upgrades = reject_upgrades
         self.rejected = 0
+        # Malformed 101: echo the client's X-API-Key back as the Upgrade header, so the
+        # client's handshake error (InvalidUpgrade) quotes the credential in its text.
+        self.echo_key_in_upgrade = echo_key_in_upgrade
         self.host = "127.0.0.1"
         self.port: int = 0
         self.received: List[Dict[str, Any]] = []
@@ -42,6 +45,7 @@ class FakeXenonServer:
             self.host,
             0,
             process_request=self._process_request,
+            process_response=self._process_response,
             logger=_SERVER_LOGGER,
         )
         self.port = list(self._server.sockets)[0].getsockname()[1]
@@ -59,6 +63,12 @@ class FakeXenonServer:
         if self.rejected < self.reject_upgrades:
             self.rejected += 1
             return connection.respond(401, "missing_ticket\n")
+        return None
+
+    def _process_response(self, connection: Any, request: Any, response: Any) -> Any:
+        if self.echo_key_in_upgrade and response.status_code == 101:
+            del response.headers["Upgrade"]
+            response.headers["Upgrade"] = request.headers.get("X-API-Key", "")
         return None
 
     async def _handler(self, ws: Any) -> None:
