@@ -1,0 +1,37 @@
+# Throwaway diagnostic: does secrets.CLAUDE_CODE_OAUTH_TOKEN still authenticate?
+# Prints only is_error / api_error_status / a short result excerpt. Do not merge.
+name: Claude token probe
+
+on:
+  pull_request:
+    paths: [".github/workflows/claude-token-probe.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [plain, action-env]
+    steps:
+      - name: Install Claude Code 2.1.303 (same as the action)
+        run: curl -fsSL https://claude.ai/install.sh | bash -s -- 2.1.303
+      - name: Probe
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          MODE: ${{ matrix.mode }}
+        run: |
+          if [ "$MODE" = action-env ]; then
+            export CLAUDE_CODE_ENTRYPOINT=claude-code-github-action CLAUDE_CODE_ACTION=1
+          fi
+          echo "token length: ${#CLAUDE_CODE_OAUTH_TOKEN}"
+          set +e
+          ~/.local/bin/claude -p --model claude-sonnet-5-5 --output-format json \
+            "Reply with the single word ok" > out.json 2>err.txt
+          echo "exit=$?"
+          jq -c '.[] | select(.type=="result")
+            | {is_error, api_error_status, result: (.result|tostring|.[:300])}' out.json
+          head -c 300 err.txt
